@@ -1,5 +1,5 @@
 import { chromium } from '@playwright/test';
-const url = 'file:///Users/rezarahimi/Documents/GitHub/kernel-lab/caliber-suite/docs-site/m-16-cookbooks.html';
+const url = 'file:///Users/rezarahimi/Documents/GitHub/personal/caliber-suite/docs-site/m-16-cookbooks.html';
 const b = await chromium.launch();
 async function shotAt(theme, y, file) {
   const p = await b.newPage({ viewport: { width: 1440, height: 1000 } });

@@ -7,3 +7,7 @@ dist/
 allure-results/
 allure-report/
 .allure/
+
+# Vitest / Istanbul coverage output (generated)
+coverage/
+*.lcov
