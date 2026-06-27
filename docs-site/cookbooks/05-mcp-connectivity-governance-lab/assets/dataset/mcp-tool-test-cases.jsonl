@@ -1,6 +1,6 @@
 {"id": "G01", "tags": ["golden"], "tool_name": "search_repositories", "name": "valid-query-returns-no-error", "input": {"query": "modelcontextprotocol/servers"}, "assertion": {"type": "no_error"}}
 {"id": "G02", "tags": ["golden"], "tool_name": "search_repositories", "name": "valid-query-output-mentions-items", "input": {"query": "language:python topic:mcp"}, "assertion": {"type": "output_contains", "value": "items"}}
 {"id": "E01", "tags": ["edge"], "tool_name": "search_repositories", "name": "empty-query-still-no-error", "input": {"query": ""}, "assertion": {"type": "no_error"}}
-{"id": "E02", "tags": ["edge"], "tool_name": "search_repositories", "name": "narrow-zero-result-query-no-error", "input": {"query": "repo:kernel-lab/caliber-suite-does-not-exist-xyz"}, "assertion": {"type": "no_error"}}
+{"id": "E02", "tags": ["edge"], "tool_name": "search_repositories", "name": "narrow-zero-result-query-no-error", "input": {"query": "repo:rrahimi-uci/caliber-suite-does-not-exist-xyz"}, "assertion": {"type": "no_error"}}
 {"id": "N01", "tags": ["negative"], "tool_name": "search_repositories", "name": "missing-required-query-arg-output-reports-error", "input": {}, "assertion": {"type": "output_contains", "value": "error"}}
 {"id": "N02", "tags": ["negative"], "tool_name": "search_repositories", "name": "malformed-search-qualifier-output-reports-error", "input": {"query": "stars:>>not-a-number"}, "assertion": {"type": "output_contains", "value": "error"}}

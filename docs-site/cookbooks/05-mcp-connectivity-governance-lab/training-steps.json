@@ -55,7 +55,7 @@
       "do": "Re-invoke the now-blocked tool to capture the enforcement record. With <code>create_issue</code> still selected, fill its parameters with a payload that <em>would</em> create an issue and click <strong>Invoke Tool</strong> — it must be refused, not executed. This proves <code>blocked_tool_enforcement = 1.0</code>.",
       "fill": [
         ["Tool", "<code>create_issue</code> (selected in Playground)"],
-        ["Arguments", "set <code>owner</code>=<code>kernel-lab</code>, <code>repo</code>=<code>caliber-suite</code>, <code>title</code>=<code>blocked test</code>, <code>body</code>=<code>should never be created</code> — the <code>PE01</code> row of <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/policy-enforcement-checks.jsonl\">policy-enforcement-checks.jsonl</a>"]
+        ["Arguments", "set <code>owner</code>=<code>rrahimi-uci</code>, <code>repo</code>=<code>caliber-suite</code>, <code>title</code>=<code>blocked test</code>, <code>body</code>=<code>should never be created</code> — the <code>PE01</code> row of <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/policy-enforcement-checks.jsonl\">policy-enforcement-checks.jsonl</a>"]
       ],
       "click": "Invoke Tool",
       "see": "A structured refusal: <code>success:false</code>, <code>result:null</code>, and an <code>error</code> stating the tool is blocked by policy — the tool never ran.",

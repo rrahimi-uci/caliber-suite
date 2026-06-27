@@ -1356,4 +1356,109 @@ def test_export_python_uses_runtime_export_for_non_agent_workflow(
 
     assert r.status_code == 200
     assert "run_exported_workflow(" in r.text
+
+
+# ── Restore as draft (clone a prior version into a new editable draft) ──
+
+
+def test_restore_version_creates_new_draft(client: TestClient) -> None:
+    wid = create_workflow(client, "Restore source")
+    vid, source_hash = create_draft(client, wid, make_manifest(wid))
+    publish = client.post(f"{PREFIX}/workflow-versions/{vid}/publish")
+    assert publish.status_code == 200, publish.text
+
+    r = client.post(f"{PREFIX}/workflow-versions/{vid}/restore")
+
+    assert r.status_code == 201, r.text
+    data = r.json()["data"]
+    assert data["status"] == "draft"
+    assert data["version_number"] == 2
+    assert data["version_id"] != vid
+    # The restored draft is byte-for-byte the source manifest.
+    assert data["manifest_hash"] == source_hash
+
+
+def test_restore_version_preserves_source_and_increments_number(client: TestClient) -> None:
+    wid = create_workflow(client, "Restore history")
+    v1, _ = create_draft(client, wid, make_manifest(wid))
+    # A second, different draft so "restore v1" lands at version_number 3.
+    create_draft(client, wid, make_manifest(wid, name="Second"))
+
+    r = client.post(f"{PREFIX}/workflow-versions/{v1}/restore")
+
+    assert r.status_code == 201, r.text
+    assert r.json()["data"]["version_number"] == 3
+    # The source version is untouched (immutable history preserved).
+    source = client.get(f"{PREFIX}/workflow-versions/{v1}")
+    assert source.status_code == 200
+    assert source.json()["data"]["version_number"] == 1
+
+
+def test_restore_version_missing_404(client: TestClient) -> None:
+    r = client.post(f"{PREFIX}/workflow-versions/WFV-missing/restore")
+    assert r.status_code == 404
+
+
+# ── Graph diff between two versions ──
+
+
+def test_diff_versions_reports_modified_node(client: TestClient) -> None:
+    wid = create_workflow(client, "Diff modified")
+    base = make_manifest(wid)
+    v1, _ = create_draft(client, wid, base)
+    changed = make_manifest(wid)
+    changed["nodes"]["agent"]["instructions"] = {"type": "inline", "text": "You are very helpful."}
+    v2, _ = create_draft(client, wid, changed)
+
+    r = client.get(f"{PREFIX}/workflow-versions/{v1}/diff/{v2}")
+
+    assert r.status_code == 200, r.text
+    diff = r.json()["data"]
+    assert diff["empty"] is False
+    assert [n["id"] for n in diff["modified_nodes"]] == ["agent"]
+    assert "instructions" in [c["field"] for c in diff["modified_nodes"][0]["changes"]]
+
+
+def test_diff_versions_added_node(client: TestClient) -> None:
+    wid = create_workflow(client, "Diff added")
+    v1, _ = create_draft(client, wid, make_manifest(wid))
+    extended = make_manifest(wid)
+    extended["nodes"]["note"] = {"id": "note", "type": "note", "text": "A reviewer note"}
+    v2, _ = create_draft(client, wid, extended)
+
+    r = client.get(f"{PREFIX}/workflow-versions/{v1}/diff/{v2}")
+
+    assert r.status_code == 200, r.text
+    diff = r.json()["data"]
+    assert {n["id"] for n in diff["added_nodes"]} == {"note"}
+
+
+def test_diff_versions_identical_is_empty(client: TestClient) -> None:
+    wid = create_workflow(client, "Diff identical")
+    v1, _ = create_draft(client, wid, make_manifest(wid))
+    v2, _ = create_draft(client, wid, make_manifest(wid))
+
+    r = client.get(f"{PREFIX}/workflow-versions/{v1}/diff/{v2}")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["empty"] is True
+
+
+def test_diff_versions_rejects_cross_workflow(client: TestClient) -> None:
+    wid_a = create_workflow(client, "Diff A")
+    wid_b = create_workflow(client, "Diff B")
+    v_a, _ = create_draft(client, wid_a, make_manifest(wid_a))
+    v_b, _ = create_draft(client, wid_b, make_manifest(wid_b))
+
+    r = client.get(f"{PREFIX}/workflow-versions/{v_a}/diff/{v_b}")
+
+    assert r.status_code == 400, r.text
+    assert "different workflows" in r.json()["detail"]
+
+
+def test_diff_versions_missing_404(client: TestClient) -> None:
+    wid = create_workflow(client, "Diff missing")
+    v1, _ = create_draft(client, wid, make_manifest(wid))
+    r = client.get(f"{PREFIX}/workflow-versions/{v1}/diff/WFV-missing")
+    assert r.status_code == 404
     assert "review-only for non-agent workflows" not in r.text
