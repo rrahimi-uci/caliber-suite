@@ -28,6 +28,7 @@ import type {
   WorkflowRunStep,
   WorkflowRunResult,
   WorkflowVersion,
+  GraphDiff as GraphDiffData,
 } from "@/api/workflowTypes";
 import { SearchInput } from "@/components/SearchInput";
 import { Canvas } from "@/components/workflows/Canvas";
@@ -56,6 +57,11 @@ import { useEventStream } from "@/hooks/useEventStream";
 import { buildMlflowHref } from "@/lib/externalLinks";
 import { SINGLE_ENVIRONMENT } from "@/lib/environment";
 import { workflowCalibrationView } from "@/lib/workflowCalibration";
+import {
+  buildServiceSnippet,
+  SNIPPET_LANGUAGES,
+  type SnippetLanguage,
+} from "@/lib/serviceSnippets";
 import { showToast } from "@/lib/toast";
 import {
   approvalCheckpointKind,
@@ -1145,7 +1151,8 @@ export function WorkflowDetail(): JSX.Element {
   const [deployVersionId, setDeployVersionId] = useState("");
   const [deploymentMessage, setDeploymentMessage] = useState<string | null>(null);
   const [serviceMessage, setServiceMessage] = useState<string | null>(null);
-  const [serviceCopied, setServiceCopied] = useState<null | "endpoint" | "curl">(null);
+  const [serviceCopied, setServiceCopied] = useState<null | "endpoint" | "snippet">(null);
+  const [snippetLang, setSnippetLang] = useState<SnippetLanguage>("curl");
   const workflowRunEvent = useEventStream(WORKFLOW_RUN_EVENTS);
   const previousSelectedRunIdRef = useRef<string | null>(null);
   selectedRunRef.current = {
@@ -1174,7 +1181,7 @@ export function WorkflowDetail(): JSX.Element {
     );
   }, []);
   const copyServiceText = useCallback(
-    (kind: "endpoint" | "curl", text: string): void => {
+    (kind: "endpoint" | "snippet", text: string): void => {
       if (!navigator.clipboard?.writeText) {
         showToast.error("Clipboard access is unavailable in this browser.");
         return;
@@ -1306,6 +1313,28 @@ export function WorkflowDetail(): JSX.Element {
   const versionById = useMemo(
     () => new Map(versions.map((version) => [version.version_id, version])),
     [versions],
+  );
+
+  // Restore any prior version into a fresh editable draft, then jump into it.
+  const restoreVersionMut = useApiMutation<WorkflowVersion, string>(
+    (versionId) => caliberApi.restoreWorkflowVersion(versionId),
+    {
+      onSuccess: async (created) => {
+        await invalidate(["workflow-versions", workflowId]);
+        showToast.success(`Restored as draft v${created.version_number}.`);
+        navigate(`/workflows/${workflowId}/editor/${created.version_id}`);
+      },
+      onError: (error) => showToast.error(`Restore failed: ${error.message}`),
+    },
+  );
+
+  // Two-version graph diff shown in the Versions tab.
+  const [diffBaseId, setDiffBaseId] = useState<string>("");
+  const [diffOtherId, setDiffOtherId] = useState<string>("");
+  const versionDiffQuery = useApiQuery<GraphDiffData>(
+    ["workflow-version-diff", diffBaseId, diffOtherId],
+    (s) => caliberApi.diffWorkflowVersions(diffBaseId, diffOtherId, s),
+    { enabled: Boolean(diffBaseId) && Boolean(diffOtherId) && diffBaseId !== diffOtherId },
   );
   const selectedRunWorkflowVersionId = selectedRun?.workflow_version_id ?? null;
   const selectedRunVersionFromList = selectedRunWorkflowVersionId
@@ -3090,50 +3119,132 @@ export function WorkflowDetail(): JSX.Element {
 
       {/* ── Versions tab ── */}
       {tab === "versions" && (
-        <div className="rounded-2xl border border-slate-200/60 bg-white shadow-card overflow-hidden">
-          {versions.length > 0 ? (
-            <table className="w-full text-sm" data-testid="versions-table">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                  <th className="px-5 py-3">Version</th>
-                  <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3">Created by</th>
-                  <th className="px-5 py-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {versions.map((v) => (
-                  <tr key={v.version_id} className="border-t border-slate-100/60 transition-colors hover:bg-slate-50/50">
-                    <td className="px-5 py-3">
-                      <Link
-                        to={`/workflows/${workflowId}/editor/${v.version_id}`}
-                        className="font-semibold text-caliber-purple hover:underline"
-                      >
-                        v{v.version_number}
-                      </Link>
-                      <div className="mt-0.5 text-[10px] text-slate-300 font-mono">{v.version_id}</div>
-                    </td>
-                    <td className="px-5 py-3"><StatusBadge status={v.status} /></td>
-                    <td className="px-5 py-3 text-slate-500">{v.created_by || "—"}</td>
-                    <td className="px-5 py-3 text-right">
-                      <Link
-                        to={`/workflows/${workflowId}/editor/${v.version_id}`}
-                        className="text-xs text-slate-400 hover:text-caliber-purple transition-colors"
-                      >
-                        Open →
-                      </Link>
-                    </td>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-slate-200/60 bg-white shadow-card overflow-hidden">
+            {versions.length > 0 ? (
+              <table className="w-full text-sm" data-testid="versions-table">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    <th className="px-5 py-3">Version</th>
+                    <th className="px-5 py-3">Status</th>
+                    <th className="px-5 py-3">Created by</th>
+                    <th className="px-5 py-3"></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div data-testid="versions-table">
-              <EmptyState
-                icon="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                title="No versions"
-                desc="Versions are created when you save changes in the workflow editor. Start editing to create your first version."
-              />
+                </thead>
+                <tbody>
+                  {versions.map((v) => (
+                    <tr key={v.version_id} className="border-t border-slate-100/60 transition-colors hover:bg-slate-50/50">
+                      <td className="px-5 py-3">
+                        <Link
+                          to={`/workflows/${workflowId}/editor/${v.version_id}`}
+                          className="font-semibold text-caliber-purple hover:underline"
+                        >
+                          v{v.version_number}
+                        </Link>
+                        <div className="mt-0.5 text-[10px] text-slate-300 font-mono">{v.version_id}</div>
+                      </td>
+                      <td className="px-5 py-3"><StatusBadge status={v.status} /></td>
+                      <td className="px-5 py-3 text-slate-500">{v.created_by || "—"}</td>
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            type="button"
+                            data-testid={`restore-version-btn-${v.version_id}`}
+                            onClick={() => restoreVersionMut.mutate(v.version_id)}
+                            disabled={restoreVersionMut.isPending}
+                            className="text-xs font-semibold text-slate-400 transition-colors hover:text-caliber-purple disabled:cursor-not-allowed disabled:opacity-50"
+                            title="Clone this version into a new editable draft"
+                          >
+                            {restoreVersionMut.isPending ? "Restoring…" : "Restore as draft"}
+                          </button>
+                          <Link
+                            to={`/workflows/${workflowId}/editor/${v.version_id}`}
+                            className="text-xs text-slate-400 hover:text-caliber-purple transition-colors"
+                          >
+                            Open →
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div data-testid="versions-table">
+                <EmptyState
+                  icon="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                  title="No versions"
+                  desc="Versions are created when you save changes in the workflow editor. Start editing to create your first version."
+                />
+              </div>
+            )}
+          </div>
+
+          {versions.length >= 2 && (
+            <div
+              className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-card space-y-4"
+              data-testid="version-diff-panel"
+            >
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Compare versions</h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  See what changed between two versions — nodes, edges, artifacts, and deploy gates.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="text-xs font-semibold text-slate-500">
+                  Base (older)
+                  <select
+                    data-testid="version-diff-base"
+                    value={diffBaseId}
+                    onChange={(e) => setDiffBaseId(e.target.value)}
+                    className="mt-1 block w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none transition-colors focus:border-caliber-purple"
+                  >
+                    <option value="">Select…</option>
+                    {versions.map((v) => (
+                      <option key={v.version_id} value={v.version_id}>
+                        {`v${v.version_number} · ${v.status}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="pb-2 text-slate-300">→</span>
+                <label className="text-xs font-semibold text-slate-500">
+                  Compare (newer)
+                  <select
+                    data-testid="version-diff-other"
+                    value={diffOtherId}
+                    onChange={(e) => setDiffOtherId(e.target.value)}
+                    className="mt-1 block w-44 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none transition-colors focus:border-caliber-purple"
+                  >
+                    <option value="">Select…</option>
+                    {versions.map((v) => (
+                      <option key={v.version_id} value={v.version_id}>
+                        {`v${v.version_number} · ${v.status}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {diffBaseId && diffOtherId && diffBaseId === diffOtherId ? (
+                <div className="rounded-lg border border-amber-200/70 bg-amber-50 px-3 py-2.5 text-sm text-amber-700">
+                  Pick two different versions to compare.
+                </div>
+              ) : versionDiffQuery.isLoading && diffBaseId && diffOtherId ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-400">
+                  Computing diff…
+                </div>
+              ) : versionDiffQuery.isError ? (
+                <div className="rounded-lg border border-red-200/70 bg-red-50 px-3 py-2.5 text-sm text-red-600">
+                  {versionDiffQuery.error?.message ?? "Failed to compute diff."}
+                </div>
+              ) : versionDiffQuery.data ? (
+                <GraphDiff diff={versionDiffQuery.data} />
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-400">
+                  Select a base and a comparison version.
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -4190,7 +4301,12 @@ export function WorkflowDetail(): JSX.Element {
             (() => {
               const service: WorkflowService = serviceQuery.data;
               const fullEndpoint = `${window.location.origin}${service.endpoint}`;
-              const curlSnippet = `curl -X POST '${fullEndpoint}' \\\n  -H 'Content-Type: application/json' \\\n  -d '{"input": {}}'`;
+              const snippet = buildServiceSnippet({
+                endpoint: fullEndpoint,
+                inputSchema: service.input_schema,
+                authRequired: service.auth_required,
+                language: snippetLang,
+              });
               const openapiUrl = `${window.location.origin}${service.endpoint.replace(/\/invoke$/, "/openapi.json")}`;
               return (
                 <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-card space-y-5">
@@ -4271,24 +4387,45 @@ export function WorkflowDetail(): JSX.Element {
                   </div>
 
                   <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                        Invoke (curl)
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <div
+                        className="inline-flex rounded-lg border border-slate-200/70 bg-slate-50 p-0.5"
+                        data-testid="service-snippet-langs"
+                        role="tablist"
+                        aria-label="Client language"
+                      >
+                        {SNIPPET_LANGUAGES.map((lang) => (
+                          <button
+                            key={lang.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={snippetLang === lang.id ? "true" : "false"}
+                            data-testid={`service-snippet-lang-${lang.id}`}
+                            onClick={() => setSnippetLang(lang.id)}
+                            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+                              snippetLang === lang.id
+                                ? "bg-white text-caliber-purple shadow-sm"
+                                : "text-slate-500 hover:text-slate-700"
+                            }`}
+                          >
+                            {lang.label}
+                          </button>
+                        ))}
                       </div>
                       <button
                         type="button"
-                        data-testid="service-curl-copy-btn"
-                        onClick={() => copyServiceText("curl", curlSnippet)}
+                        data-testid="service-snippet-copy-btn"
+                        onClick={() => copyServiceText("snippet", snippet)}
                         className="rounded-lg border border-slate-200/70 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                       >
-                        {serviceCopied === "curl" ? "Copied" : "Copy"}
+                        {serviceCopied === "snippet" ? "Copied" : "Copy"}
                       </button>
                     </div>
                     <pre
-                      data-testid="service-curl"
+                      data-testid="service-snippet"
                       className="overflow-auto rounded-lg border border-slate-900/10 bg-slate-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-100"
                     >
-                      {curlSnippet}
+                      {snippet}
                     </pre>
                   </div>
 
