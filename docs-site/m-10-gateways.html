@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gateways Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Gateways Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Operations</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Gateways</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Operations · Architecture reference</div>
+          <h1 id="top">Gateways Architecture</h1>
+          <p class="doc-summary">Read-only discovery of an external MLflow AI Gateway and a clear account of whether CALIBER routes outbound traffic through it.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Gateways integration layer</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>An integration and visibility layer over an external MLflow AI Gateway, not a proxy or gateway service of CALIBER's own.</td></tr><tr><td><strong>Discovery</strong></td><td>Synchronous, per-request probe of <code>CaliberConfig.gateway_uri</code> → <code>/api/2.0/endpoints/</code>; no metadata cache or local endpoint registry.</td></tr><tr><td><strong>Routing behavior</strong></td><td>CALIBER's own LLM calls go through the gateway only when <code>CaliberConfig.llm_base_url</code> (opt-in via <code>CALIBER_LLM_BASE_URL</code>) points at it; <code>routing_through_gateway</code> is a URL-prefix comparison against <code>gateway_uri</code>.</td></tr><tr><td><strong>Key surfaces</strong></td><td><code>GET /gateway</code> (read-only discovery), guardrail-governance, <code>/gateway/usage</code>, <code>/llm-pricing</code>, plus <code>/settings/llm</code>; UI is the tabbed <code>Gateway.tsx</code> page.</td></tr><tr><td><strong>State</strong></td><td>Stateless relative to the DB — no dedicated gateway tables; status is computed on demand and shaped by <code>GatewayStatusSchema</code> / <code>GatewayEndpointSchema</code>.</td></tr><tr><td><strong>Trust / safety</strong></td><td>Discovery is authenticated read-only and never forwards prompts; mutating guardrail routes are <code>SCOPE_OPERATOR</code>-audited and <code>PATCH /settings/llm</code> is <code>SCOPE_ADMIN</code>.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into each dimension in detail, keeping the discovery, routing, and external-control-plane distinctions strictly apart.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The gateways module documents CALIBER's integration with an external MLflow AI Gateway. It is important to state the boundary up front: in the current checkout, CALIBER does not implement a general-purpose gateway service of its own. The module is therefore an integration and visibility layer, not a proxy, and it is responsible for the following:</p>
+<ul><li>discovering whether an external AI Gateway is configured;</li><li>probing that gateway for reachability and endpoint inventory;</li><li>showing whether CALIBER routes its own LLM traffic through the gateway;</li><li>presenting gateway status inside the UI without requiring operators to leave CALIBER; and</li><li>exposing adjacent settings and service-health surfaces that affect routing.</li></ul>
+<p>These responsibilities are implemented across the following primary code paths:</p>
+<ul><li><code>caliber/src/caliber/routes/gateway.py</code></li><li><code>caliber/src/caliber/routes/settings.py</code></li><li><code>caliber/src/caliber/routes/system_services.py</code></li><li><code>caliber/src/caliber/routes/health.py</code></li><li><code>caliber/src/caliber/schemas.py</code></li><li><code>caliber/src/caliber/config.py</code></li><li><code>caliber/caliber-ui/src/pages/Gateway.tsx</code></li><li><code>caliber/caliber-ui/src/api/caliberApi.ts</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module's work divides cleanly between reporting gateway truth and adjusting CALIBER's own routing target. The table below assigns each responsibility to its owner.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Gateway discovery/status API</td><td><code>routes/gateway.py</code></td><td>Read-only route that reports configured state, reachability, endpoint inventory, routing mode, and errors.</td></tr><tr><td>Gateway guardrails API</td><td><code>routes/gateway.py</code> (<code>/gateway/guardrails</code>, <code>…/endpoints/{id}/guardrails</code>)</td><td>Reads the scorer-based gateway guardrails + per-endpoint coverage from the <strong>MLflow tracking store</strong> (<code>_gateway_store</code> → <code>list_gateway_guardrails</code> / <code>list_endpoint_guardrail_configs</code>), and attaches / detaches / reorders existing guardrails (operator-scoped + audited, run off-thread, degrade-gracefully). Scorer/guardrail <em>creation</em> stays in the MLflow image (<code>deploy/mlflow/configure_guardrails.py</code>).</td></tr><tr><td>Gateway usage API</td><td><code>routes/gateway.py</code> (<code>/gateway/usage</code>) → <code>observability.gateway_usage_payload</code></td><td>Trace-derived token / cost / latency / error metrics over time + a by-model rollup (the gateway API exposes no usage stats; CALIBER's MLflow traces do). Reuses the observability bucketize; reads the <code>caliber.model</code> / <code>caliber.tokens</code> / <code>caliber.cost_usd</code> span attributes.</td></tr><tr><td>Per-model cost config</td><td><code>routes/llm_pricing.py</code> + <code>CaliberLlmModelPricing</code> (migration 0061)</td><td>Operator-editable USD-per-1K-token rates per provider/model. <code>observability/mlflow_tracing.resolve_model_pricing</code> merges active rows over the built-in <code>DEFAULT_MODEL_PRICING</code> (cached, invalidated on edit) so cost attribution everywhere reflects them.</td></tr><tr><td>Gateway schema contract</td><td><code>GatewayEndpointSchema</code>, <code>GatewayStatusSchema</code>, <code>GatewayGuardrailsStatusSchema</code>, <code>LlmPricingSchema</code></td><td>Shapes the endpoint rows, guardrail coverage, pricing rows, and the status envelopes returned to the UI.</td></tr><tr><td>Runtime routing configuration</td><td><code>routes/settings.py</code> + <code>CaliberConfig.llm_base_url</code></td><td>Determines whether CALIBER's own LLM calls go through the gateway or directly to providers.</td></tr><tr><td>Discovery configuration</td><td><code>CaliberConfig.gateway_uri</code></td><td>Tells CALIBER where to probe for the external AI Gateway, but does not route traffic by itself.</td></tr><tr><td>Operator service probes</td><td><code>routes/system_services.py</code></td><td>Shows AI Gateway health alongside MLflow, DB, object store, NATS, and related backing services.</td></tr><tr><td>Runtime honesty surface</td><td><code>routes/health.py</code></td><td>Two endpoints sit adjacent to gateway operations: <code>GET /health</code> probes the database (<code>SELECT 1</code>) and returns HTTP 503 with <code>db: "down"</code> when it is unreachable, while <code>GET /readiness</code> reports real-vs-simulated provider state (and does not probe the database).</td></tr><tr><td>Frontend gateway UX</td><td><code>Gateway.tsx</code> + <code>components/gateway/*</code></td><td>Tabbed LLM Gateway page: <strong>Endpoints</strong> (status cards + endpoint table + routing), <strong>Guardrails</strong> (table + per-endpoint coverage + attach/detach), <strong>Pricing</strong> (editable per-model rate table), <strong>Usage</strong> (recharts time-series + by-model table).</td></tr></tbody></table></div>
+<p>Two MLflow servers are involved and must not be conflated: <strong>endpoint discovery</strong> reads the standalone gateway over HTTP (<code>CaliberConfig.gateway_uri</code> → <code>/api/2.0/endpoints/</code>); <strong>guardrail governance</strong> is a set of tracking-server RPCs reached via the MLflow client store (<code>mlflow.get_tracking_uri()</code>), the same reach-through <code>deploy/mlflow/configure_guardrails.py</code> uses. Guardrails in this MLflow version are <strong>scorer-based</strong> (Stage <code>BEFORE</code>/<code>AFTER</code> × Action <code>VALIDATION</code>/<code>SANITIZATION</code>), not natural-language instructions.</p>
+<p>The single most important architectural distinction in the module is the separation between discovery, routing, and the external control plane, and it is worth fixing precisely:</p>
+<ul><li><code>gateway_uri</code> is where CALIBER probes to discover an external gateway.</li><li><code>llm_base_url</code> is where CALIBER actually sends LLM requests.</li><li>The external gateway control plane is the service that owns endpoint definitions, provider bindings, limits, and guardrails.</li></ul>
+<p>Conflating the first two is the most common source of confusion, which is why the rest of this document keeps them apart.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The topology below shows the two independent paths the module reasons about: discovery toward the external gateway, and routing toward whatever target CALIBER's LLM clients are configured to use.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI[Gateway.tsx]:::ui
+    GAPI[routes/gateway.py]:::ctrl
+    CFG[CaliberConfig]:::ctrl
+    EXT[(External MLflow AI Gateway)]:::ext
+    SET[routes/settings.py]:::ctrl
+    LLM[CALIBER LLM clients]:::ctrl
+    PROV[(Providers or Gateway endpoints)]:::ext
+    SVC[routes/system_services.py]:::ctrl
+
+    UI --&gt; GAPI --&gt; CFG
+    GAPI --&gt; EXT
+    UI --&gt; SET --&gt; CFG
+    CFG --&gt; LLM --&gt; PROV
+    SVC --&gt; EXT</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties define how this integration behaves:</p>
+<ul><li>Gateway discovery is synchronous and per-request; CALIBER does not maintain a gateway metadata cache or a local endpoint registry.</li><li>The Gateway page is informational, and is neither a proxy nor a control plane.</li><li>Settings mutate CALIBER's runtime routing target, but they do not create, delete, or edit gateway endpoints.</li><li>The same external gateway can be visible to CALIBER even when CALIBER itself is still routing directly to providers.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>This module is intentionally stateless relative to the database. There are no dedicated gateway tables in the inspected checkout; the primary state is computed on demand from configuration plus a live HTTP probe, and it is shaped by two schemas.</p>
+<p>The status envelope, <code>GatewayStatusSchema</code>, carries the following fields:</p>
+<ul><li><code>configured</code></li><li><code>reachable</code></li><li><code>gateway_uri</code></li><li><code>routing_through_gateway</code></li><li><code>llm_base_url</code></li><li><code>endpoints</code></li><li><code>error</code></li></ul>
+<p>Each endpoint row within that envelope, <code>GatewayEndpointSchema</code>, carries:</p>
+<ul><li><code>name</code></li><li><code>endpoint_type</code></li><li><code>provider</code></li><li><code>model</code></li><li><code>endpoint_url</code></li><li><code>limit</code></li></ul>
+<p>A few runtime semantics determine how those fields are populated, and they encode the discovery-versus-routing distinction directly:</p>
+<ul><li><code>configured=false</code> means <code>CALIBER_GATEWAY_URI</code> is empty, so CALIBER has nothing to probe.</li><li><code>reachable=false</code> means the gateway URI was configured but the live probe failed or returned an error.</li><li><code>routing_through_gateway</code> is derived by comparing whether <code>llm_base_url</code> starts with the same scheme/host/port prefix as <code>gateway_uri</code>.</li><li>Endpoint inventory is read from the external gateway's <code>/api/2.0/endpoints/</code> API and is never stored durably inside CALIBER.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>All HTTP routes in CALIBER are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix below. The gateway module exposes the discovery route plus guardrail-governance, usage, and pricing routes, and the adjacent settings and operational surfaces that govern routing.</p>
+<p>The gateway surface is:</p>
+<ul><li><code>GET /gateway</code> — endpoint discovery + reachability (read-only)</li><li><code>GET /gateway/guardrails</code> — guardrail inventory + per-endpoint coverage (read-only; degrades gracefully when the tracking server is unreachable)</li><li><code>POST /gateway/endpoints/{endpoint_id}/guardrails</code> — attach a guardrail (operator-scoped, audited)</li><li><code>DELETE /gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}</code> — detach a guardrail (operator-scoped, audited)</li><li><code>PATCH /gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}</code> — update execution order / enable state (operator-scoped, audited)</li><li><code>GET /gateway/usage</code> — trace-derived usage time series + by-model rollup (auth user)</li></ul>
+<p>Per-model pricing is a sibling CRUD resource (<code>routes/llm_pricing.py</code>):</p>
+<ul><li><code>GET /llm-pricing</code>, <code>GET /llm-pricing/{pricing_id}</code> (auth user, visibility-scoped)</li><li><code>POST /llm-pricing</code> (operator-scoped, audited; duplicate provider/model → 409)</li><li><code>PATCH /llm-pricing/{pricing_id}</code> (admin-scoped, audited)</li></ul>
+<p>The adjacent settings and operational surfaces are:</p>
+<ul><li><code>GET /settings/llm</code></li><li><code>PATCH /settings/llm</code></li><li><code>GET /system/services</code></li><li><code>GET /health</code></li><li><code>GET /readiness</code></li></ul>
+<p>On the frontend, these routes compose into a deliberately simple interaction model:</p>
+<ul><li>The Gateway page calls <code>GET /gateway</code> and renders three high-signal status cards: the configured gateway URI, reachability, and whether CALIBER routes through the gateway.</li><li>If the gateway is reachable, the UI renders the endpoint inventory table with endpoint type, provider, model, and endpoint URL.</li><li>If the gateway is unreachable, the UI shows the probe error, yet the page still loads successfully.</li><li>The settings route separately reports and updates <code>gateway_url</code>, which maps to <code>llm_base_url</code> and controls CALIBER's own outbound routing behavior.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The sequence below shows discovery resolving to one of three outcomes, followed by the separate, optional act of changing CALIBER's routing target.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as Operator
+    participant UI as Gateway UI
+    participant G as routes/gateway.py
+    participant GW as External AI Gateway
+    participant S as routes/settings.py
+    participant C as Runtime config
+    participant L as CALIBER LLM client
+
+    U-&gt;&gt;UI: open LLM Gateway page
+    UI-&gt;&gt;G: GET /gateway
+    G-&gt;&gt;C: read gateway_uri and llm_base_url
+
+    alt gateway_uri unset
+        G--&gt;&gt;UI: configured=false, endpoints=[]
+    else gateway configured
+        G-&gt;&gt;GW: GET /api/2.0/endpoints/
+        alt gateway reachable
+            GW--&gt;&gt;G: endpoint inventory
+            G--&gt;&gt;UI: configured=true, reachable=true, routing flag, endpoints
+        else gateway unreachable
+            G--&gt;&gt;UI: configured=true, reachable=false, error
+        end
+    end
+
+    opt Change CALIBER routing
+        U-&gt;&gt;S: PATCH /settings/llm with gateway_url
+        S-&gt;&gt;C: update llm_base_url at runtime
+        L-&gt;&gt;C: read llm_base_url for future calls
+    end</pre></div>
+<p>The diagram makes the module's central separation explicit by keeping two flows apart:</p>
+<ul><li>The discovery flow answers whether CALIBER can see an external gateway and what endpoints that gateway reports.</li><li>The routing flow answers whether CALIBER itself chooses to send its LLM calls through that gateway.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because discovery is read-only while routing changes where real traffic goes, the module's authorization model grants progressively higher privilege as an action's blast radius widens.</p>
+<p>The authorization model is as follows:</p>
+<ul><li><code>GET /gateway</code>, <code>GET /gateway/guardrails</code>, and <code>GET /gateway/usage</code> require an authenticated user.</li><li>The mutating guardrail routes (<code>POST</code>/<code>DELETE</code>/<code>PATCH</code> on <code>/gateway/endpoints/{id}/guardrails</code>) require <code>SCOPE_OPERATOR</code> and are audited.</li><li><code>GET /settings/llm</code> requires <code>SCOPE_OPERATOR</code>.</li><li><code>PATCH /settings/llm</code> requires <code>SCOPE_ADMIN</code>.</li><li>Pricing reads (<code>GET /llm-pricing</code>) require an authenticated user; create requires <code>SCOPE_OPERATOR</code> and update requires <code>SCOPE_ADMIN</code> (both audited).</li></ul>
+<p>A small set of data-handling protections keeps discovery safe and predictable:</p>
+<ul><li>Gateway probes use a short HTTP timeout and degrade into an error field rather than blocking or crashing the page.</li><li>The gateway status route is read-only and never forwards prompts or model payloads through the discovery path.</li><li>CALIBER treats the external gateway as the source of truth for endpoint inventory but still normalizes the response into a stable schema before exposing it to the UI.</li></ul>
+<p>These protections sit on top of explicit trust boundaries:</p>
+<ul><li><code>gateway_uri</code> merely declares where CALIBER looks for gateway metadata; it does not imply that runtime traffic is actually routed there.</li><li><code>llm_base_url</code> changes CALIBER's outbound call target, so it is kept on an admin-scoped settings surface rather than the read-only gateway page.</li><li>Guardrail <em>creation</em> (and the scorers they wrap) lives in the MLflow image, not in CALIBER's route layer; guardrail <em>governance</em> — attach, detach, and reorder against existing guardrails — is exposed as operator-scoped, audited CALIBER routes that proxy the tracking-server RPCs.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Operationally, the gateway module is an operator truth surface rather than a traffic-processing subsystem, and its value lies in disambiguating connectivity problems from configuration problems.</p>
+<p>The behaviors that matter most in operation are these:</p>
+<ul><li><code>GET /gateway</code> distinguishes "not configured" from "configured but unreachable", which matters when triaging connectivity versus missing setup.</li><li><code>GET /system/services</code> probes the AI Gateway alongside the rest of the platform dependencies, so operators can verify the service separately from the dedicated page.</li><li>The Gateway UI explicitly explains that routing through the gateway is opt-in via <code>CALIBER_LLM_BASE_URL</code>.</li><li>The settings surface exposes the live <code>gateway_url</code> value, so operators can align what the runtime is doing with what the status page reports.</li></ul>
+<p>Two configuration knobs govern the module's behavior end to end:</p>
+<ul><li><code>CALIBER_GATEWAY_URI</code></li><li><code>CALIBER_LLM_BASE_URL</code></li></ul>
+<p>From those knobs and the probe result, the module resolves into a small number of operational states:</p>
+<ul><li>With no gateway configured, the discovery page shows setup guidance.</li><li>With a gateway configured but unreachable, the route returns <code>reachable=false</code> plus the probe error.</li><li>With a gateway reachable but holding no endpoints, the route is healthy, yet the external gateway has no configured endpoint inventory.</li><li>With a gateway reachable while CALIBER routes directly to providers, discovery works, but runtime traffic is not yet opted into the gateway.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is deliberately narrow, which makes both its growth path and its present limitations easy to state.</p>
+<p>It can be extended along these seams:</p>
+<ul><li>Additional gateway metadata fields can be added to <code>GatewayEndpointSchema</code> without changing the fundamental discovery architecture.</li><li>The settings layer can evolve to support richer routing strategies while still keeping the read-only discovery route separate.</li><li>Service-health and readiness surfaces can continue to cross-link gateway state with other platform dependencies.</li></ul>
+<p>Its current constraints follow directly from that narrow scope:</p>
+<ul><li>The current checkout contains no dedicated gateway service implementation inside CALIBER; this module integrates with an external MLflow AI Gateway.</li><li>The gateway page is read-only and cannot configure endpoints, policies, or limits.</li><li>Endpoint inventory is fetched live on every request and is neither cached nor historized inside CALIBER.</li><li><code>routing_through_gateway</code> is a prefix comparison on URLs, which is sufficient for the current single-target setup but is not a full policy engine for per-model or per-tenant routing.</li><li>The module is intentionally narrow: it reports gateway truth and routing state, but general API gateway behavior for the rest of CALIBER is outside its scope.</li></ul></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

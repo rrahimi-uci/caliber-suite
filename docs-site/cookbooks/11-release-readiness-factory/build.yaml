@@ -1,0 +1,49 @@
+workflow_goal: Provide deterministic release signoff based on scenario evidence and explicit thresholds.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Evidence sources are real (Evaluations run ids/scorecards, Review Queues completion, Observability traces, in-app Allure at Settings -> Allure Report).
+  - There is NO built-in release-scoring engine — the operator computes the release_rubric by hand (optionally narrated by a release-risk-summarizer prompt or an Aria Plan).
+  - Allure is generated externally (make allure-report) and only served in-app (GET /observability/allure-report); regenerate before the demo.
+  - The "workflow" here is the operator process (collect -> verify -> score -> decide), not a built workflow graph; a GitHub MCP write can open a blocker issue (approval-gated).
+manual_flow:
+  - step: collect_evidence
+    action: gather required scenario run ids and review outcomes
+  - step: rerun_critical_slices
+    action: re-execute high-risk scenario subsets
+  - step: refresh_allure
+    action: regenerate and verify in-app Allure report visibility
+  - step: score_release
+    action: compute release rubric and blocker count
+  - step: decide
+    action: publish go/no-go with rationale and blockers
+components:
+  prompts:
+    optional:
+      - release-risk-summarizer prompt
+  skills:
+    optional:
+      - release-risk-summarizer
+  tools: none
+  mcp:
+    optional:
+      - GitHub for blocker issue creation
+  workflow:
+    nodes:
+      - collect_inputs
+      - verify_artifacts
+      - score
+      - decision
+contracts:
+  input_schema:
+    type: object
+    required: [scenario_run_ids, review_summary, allure_report_path]
+  output_schema:
+    type: object
+    required: [release_score, blocker_count, decision, rationale]
+failure_modes:
+  - missing_required_evidence
+  - allure_not_visible
+  - blocker_count_nonzero_but_decision_go
+fallbacks:
+  - force decision=no_go when required evidence is missing.
+  - create blocker artifact before rerun.

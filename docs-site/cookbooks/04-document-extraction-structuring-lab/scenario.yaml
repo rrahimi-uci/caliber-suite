@@ -1,0 +1,38 @@
+id: SCN-04
+slug: document-extraction-structuring-lab
+name: "Document-to-JSON Pipeline"
+track: build
+objective: Build a document intake pipeline that extracts Office content and returns schema-valid JSON for downstream KB or workflow use.
+why_it_matters:
+  - Catches source quality issues before retrieval layers hide them.
+  - Produces reusable structured artifacts from unstructured files.
+primary_persona: developer
+secondary_personas:
+  - AI engineer
+  - evaluator
+caliber_surfaces:
+  - Object Store
+  - Prompts
+  - Tools
+  - Workflows
+  - Observability
+prerequisites:
+  - DOCX, PPTX, and XLSX sample corpus.
+  - JSON schema for target extraction output.
+time_to_first_value: 90-150 minutes
+success_criteria:
+  - Supported files extract and normalize correctly.
+  - Invalid or unsupported files fail with readable diagnostics.
+demo_profile:
+  recommended_sequence_index: 5
+  tier: build
+  live_demo_minutes: 35-55
+  depends_on:
+    - SCN-01
+    - SCN-03
+  included_in:
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - object ingestion and preview
+    - document-to-JSON contract validation

@@ -1,0 +1,15 @@
+golden_cases:
+  - id: T01
+    input: {order_id: "ord_1002", account_id: "acct_1432"}
+    expected: {decision: "deny", requires_approval: true}
+  - id: T02
+    input: {order_id: "ord_1120", account_id: "acct_2101"}
+    expected: {decision: "approve", requires_approval: false}
+edge_cases:
+  - id: T03
+    input: {order_id: "ord_legacy", account_id: "acct_legacy"}
+    expected: {decision: "manual_review", requires_approval: true}
+negative_cases:
+  - id: T04
+    input: {order_id: "", account_id: "acct_2101"}
+    expected_error: "validation_error"

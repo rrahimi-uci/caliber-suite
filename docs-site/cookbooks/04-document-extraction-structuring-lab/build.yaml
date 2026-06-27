@@ -1,0 +1,53 @@
+workflow_goal: Convert heterogeneous Office inputs into reliable structured JSON.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Object Store extract supports .docx/.pptx/.xlsx (not legacy .doc/.ppt/.xls); endpoint GET /object-store/buckets/{bucket}/object/extract?key=...
+  - Extraction inside a workflow = the input_bucket node + the shipped tool caliber.workflows.ingestion_tools:extract_document (PDF/DOCX/PPTX/XLSX/MD + OCR).
+  - validate_document_json is best a python_code node (JSON-schema check); no tool registration needed.
+  - SchemaFidelity is not a judge — it is the python_code validator pass/fail plus an exact_match/contains_expected scorer in Evaluations.
+manual_flow:
+  - step: ingest
+    action: Upload files and verify preview extraction.
+  - step: normalize
+    action: Apply structuring prompt to extracted text/table rows.
+  - step: validate
+    action: Run JSON schema validation tool.
+  - step: preview_run
+    action: Execute workflow preview on golden and edge documents.
+  - step: tune
+    action: adjust prompt/schema based on validation failures.
+components:
+  prompts:
+    system: "Extract only verifiable facts from source document content."
+    developer: "Emit JSON matching target schema; never invent missing values."
+  skills:
+    optional:
+      - extraction-notes-formatter
+  tools:
+    - extract_document        # caliber.workflows.ingestion_tools:extract_document (read)
+    - validate_document_json  # realize as a python_code node (JSON-schema check)
+  mcp:
+    optional:
+      - MinIO or S3-compatible source bucket (Object Store is already S3/MinIO-backed)
+  workflow:
+    template: blank
+    nodes:
+      - fetch_object      # input_bucket node
+      - extract_content   # tool node: extract_document
+      - structure_json    # agent/template node applying the structuring prompt
+      - validate_schema   # python_code node: validate_document_json
+      - emit_artifact     # output (or output_bucket) node
+contracts:
+  input_schema:
+    type: object
+    required: [doc_path, document_type]
+  output_schema:
+    type: object
+    required: [document_id, extracted_fields, validation_status]
+failure_modes:
+  - extraction_timeout
+  - malformed_table_rows
+  - schema_validation_failure
+fallbacks:
+  - emit partial extraction with explicit missing_fields.
+  - route invalid docs to manual review queue.

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 16: Production Observability &amp; Triage | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">16 · Production Observability &amp; Triage</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 16 · Operate</p>
+        <h1>Production Observability &amp; Triage</h1>
+        <p class="doc-lead">Turn live traces into a triaged review queue + a regression test set — the production monitoring loop.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Operate</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–45 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> An operations loop over a running workflow: monitor traces in Observability, filter to errors, drill into a failing run to find the root cause, capture the failing examples into a regression Test Set, and route them to a human triage Review Queue — so production signal becomes durable evidence instead of being lost.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Observability</span> <span class="ck-badge ck-surface">Review Queues</span> <span class="ck-badge ck-surface">Test Sets</span> <span class="ck-badge ck-surface">Evaluations</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Filter live traces by status (OK / Error / In progress) and search by name</li><li>Read a trace's node tree, inputs/outputs, latency, and feedback to find a root cause</li><li>Capture a failing trace into a regression Test Set (Add to test set → Add example)</li><li>Stand up a triage Review Queue and enqueue the flagged trace ids</li><li>Answer review questions so labels write back onto the trace, and baseline the failure rate</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  RUN[Live workflow runs] --&gt; OBS[Observability: filter Status = Error]
+  OBS --&gt; TR[Open failing trace: node tree + root cause]
+  TR --&gt;|Add to test set| DS[(Test Set: prod-regression)]
+  TR --&gt;|trace ids| RQ[Review Queue: prod-triage]
+  RQ --&gt;|Submit review| WB[Labels written back to trace]
+  DS --&gt; EV[Evaluations: deterministic baseline]
+  EV --&gt; FIX[Re-run after fix: rate drops]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prereq · a running workflow with traces</code> <span class="ck-made">creates · existing workflow runs (cookbook 07 / 09)</span></div><div class="ck-step-do">This is an <strong>operator</strong> playbook — it monitors a workflow that is already running and turns its failures into durable evidence. So first make sure there is something to observe: build and run a workflow that produces traces, ideally with a few failures. The easiest path is to reuse <strong>cookbook 07</strong> (support-copilot) or <strong>cookbook 09</strong> (recovery target) and execute a handful of inputs in its Run Monitor — including at least one that errors or is rejected — so the Observability page has real OK and Error traces to work with.</div><div class="ck-see"><strong>You'll see:</strong> A workflow exists and its Run Monitor shows several completed runs (some failed). You don't need anything new here — just real run history to triage.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Prereq · a running workflow with traces</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Prereq · a running workflow with traces</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Observability</code> <span class="ck-made">creates · filtered Error traces</span></div><div class="ck-step-do">Open <strong>Observability</strong> (under <strong>Observe</strong>). It lists recent runtime <strong>traces</strong>, newest first, each with a name and a status badge. To isolate failures, open the <strong>Status</strong> filter and choose <strong>Error</strong> (the options are <em>All statuses · OK · Error · In progress</em>). Use the search box to scope to a single workflow by name if the list is busy.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Status</td><td><code>Error</code></td></tr><tr><td>Search</td><td>the workflow name, e.g. <code>support-copilot</code> (optional)</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> The list narrows to traces whose status is <strong>Error</strong> — your triage queue of raw failures. Each row shows the trace name, status, and timestamp.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Observability</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Observability</span><span class="ck-mk-title">Observability</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Status</span><span class="ck-mk-input">Error</span></label><label class="ck-mk-field"><span class="ck-mk-label">Search</span><span class="ck-mk-input">the workflow name, e.g. support-copilot (optional)</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Observability › trace detail</code> <span class="ck-made">creates · root cause (read from the trace)</span></div><div class="ck-step-do">Click a failing trace row to open its detail — the <code>trace_id</code> appears in the page URL as <code>?trace=…</code> (you'll copy it shortly). Read the <strong>node tree</strong>: walk to the node whose status is error, and inspect its recorded <strong>inputs</strong>, <strong>outputs</strong>, <strong>duration</strong>, and any attached feedback. That node + its error message is your root cause.</div><div class="ck-see"><strong>You'll see:</strong> The trace tree opens with the failing node highlighted; its inputs/outputs and the raised error are visible, so you can explain <em>why</em> the run failed (e.g. a tool node raised, retrieval returned nothing, or the agent emitted an invalid decision). Note the <code>trace_id</code> from the URL.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Observability › trace detail</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Observability</span><span class="ck-mk-title">trace detail</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Test Sets › New test set,  then  Observe › Observability › Add to test set</code> <span class="ck-made">creates · test set: prod-regression (from traces)</span> <a class="ck-assetref" href="#asset-assets-dataset-prod-regression-sample-jsonl">prod-regression.sample.jsonl ↓</a></div><div class="ck-step-do">Turn this failure into durable regression evidence. The Observability picker only attaches a trace to an <em>existing</em> test set — there is no create option there — so first create the set out-of-band: go to <strong>Evaluate › Test Sets</strong>, click <strong>+ New Test Set</strong>, name it <code>prod-regression</code>, fill the required <strong>Owner</strong> with your handle, and Create. Then return to <strong>Observability</strong>, open the failing trace, click <strong>Add to test set</strong>, pick <code>prod-regression</code> from the <strong>Choose a test set…</strong> dropdown, and click <strong>Add example</strong>. The capture sends only the trace id: the trace's request becomes the input and its response becomes the expected — so for an error/regression trace you are capturing the <em>failing</em> output, and the correct gold expectation must be set by hand later (or via the from-trace API's optional <code>expected</code> override). Repeat for 2–3 representative failing traces so you have a small, real regression slice.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Test Sets → + New Test Set</td><td>Name <code>prod-regression</code>, Owner <code>@you</code> (required), then Create</td></tr><tr><td>Observability → Add to test set</td><td>pick <code>prod-regression</code> from the <strong>Choose a test set…</strong> dropdown</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Add example</span></div><div class="ck-see"><strong>You'll see:</strong> A confirmation that the example was added; the captured pair now lives in the <code>prod-regression</code> test set with the trace's request as the input and its response as the expected (the failing output for an error trace — fix the gold by hand later). You can author or edit these rows in the dataset editor at <code>/eval-datasets/:id → + Add example</code>; in this lab every row is captured here from a real trace.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Test Sets › New test set,  then  Observe › Observability › Add to test set</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Test Sets</span><span class="ck-mk-title">Add to test set</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Test Sets → + New Test Set</span><span class="ck-mk-input">Name prod-regression, Owner @you (required), then Create</span></label><label class="ck-mk-field"><span class="ck-mk-label">Observability → Add to test set</span><span class="ck-mk-input">pick prod-regression from the Choose a test set… dropdown</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Add example</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › + New Queue</code> <span class="ck-made">creates · review queue: prod-triage</span> <a class="ck-assetref" href="#asset-assets-review-queues-triage-review-review-questions-json">triage-review.review-questions.json ↓</a></div><div class="ck-step-do">Stand up a human <strong>triage queue</strong> so each failure gets classified. Click <strong>+ New Queue</strong>, name it <code>prod-triage</code>, and with <strong>+ Add question</strong> build the label schema from <a href="#asset-assets-review-queues-triage-review-review-questions-json">triage-review.review-questions.json</a>: <code>root_cause_known</code> (pass_fail, required), <code>failure_mode</code> (categorical: prompt / tool / retrieval / data / infra), <code>severity</code> (categorical: low / medium / high), <code>expected_output</code> (text, target = expectation), <code>reviewer_notes</code> (text). Click <strong>Create queue</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Queue name</td><td><code>prod-triage</code></td></tr><tr><td>Questions</td><td>5 questions — types <code>pass_fail</code> / <code>categorical</code> / <code>text</code>; each with a <strong>Target</strong> of <code>feedback</code> or <code>expectation</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create queue</span></div><div class="ck-see"><strong>You'll see:</strong> An empty <code>prod-triage</code> queue appears with your five questions defined. Categorical questions show their option chips; the <code>expected_output</code> question targets <code>expectation</code> so its answer becomes a trace expectation.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › + New Queue</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">+ New Queue</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Queue name</span><span class="ck-mk-input">prod-triage</span></label><label class="ck-mk-field"><span class="ck-mk-label">Questions</span><span class="ck-mk-input">5 questions — types pass_fail / categorical / text; each with a Target of feedback o…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create queue</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › prod-triage</code> <span class="ck-made">creates · enqueued failing traces</span></div><div class="ck-step-do">Enqueue the flagged traces. On the queue, in the <strong>Add traces to review (ids, comma or space separated)</strong> field, enter the failing <strong>trace ids</strong> you copied from the Observability URLs (comma or space separated), and click <strong>Enqueue</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Trace ids</td><td>the <code>trace_id</code>s of the Error traces from step 3 (comma or space separated)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Enqueue</span></div><div class="ck-see"><strong>You'll see:</strong> The queue shows N pending review items, each linked back to its source trace.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › prod-triage</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">prod-triage</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Trace ids</span><span class="ck-mk-input">the trace_ids of the Error traces from step 3 (comma or space separated)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Enqueue</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › prod-triage › review</code> <span class="ck-made">creates · triaged labels (written back to the trace)</span></div><div class="ck-step-do">Triage an item. Open a pending item — it shows the trace's input/output alongside your questions. Answer them: is the <code>root_cause_known</code>? pick the <code>failure_mode</code> and <code>severity</code>, optionally fill the <code>expected_output</code>, add <code>reviewer_notes</code>, then click <strong>Submit review</strong>.</div><div class="ck-click">Click <span class="ck-btn">Submit review</span></div><div class="ck-see"><strong>You'll see:</strong> The item flips to reviewed and the answers are <strong>written back onto the trace</strong> as MLflow assessments/expectations — so the failure is now self-documenting in Observability, not just in a spreadsheet.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › prod-triage › review</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">review</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Submit review</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Test Sets › prod-regression</code> <span class="ck-made">creates · regression slice (durable)</span></div><div class="ck-step-do">Confirm the regression slice. Open <strong>Test Sets</strong> (under <strong>Evaluate</strong>) and select <code>prod-regression</code> — it now holds the failing examples you captured. This is the durable set you'll re-run after a fix ships to prove the regression is actually closed.</div><div class="ck-see"><strong>You'll see:</strong> The <code>prod-regression</code> test set lists your captured examples at version 1, each with the trace's request as the input and its response auto-derived as the expected (correct the gold by hand where needed).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Test Sets › prod-regression</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Test Sets</span><span class="ck-mk-title">prod-regression</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Evaluations › Run evaluation</code> <span class="ck-made">creates · failure-rate baseline run</span></div><div class="ck-step-do">(Optional) Put a number on the failure. Click <strong>Run evaluation</strong>, pick <strong>Test set</strong> = <code>prod-regression</code>, give it a <strong>Label</strong> (e.g. <code>prod baseline</code>), check the deterministic grader <strong>Contains expected</strong>, and click <strong>Run</strong>. Open the run to read the current pass/fail — your operational baseline. After a fix ships, re-run the same set and confirm the failure rate drops.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Test set</td><td><code>prod-regression</code></td></tr><tr><td>Label</td><td><code>prod baseline</code></td></tr><tr><td>Graders</td><td><strong>Contains expected</strong> (a deterministic scorer — all this slice needs; the Evaluations page also has a <strong>Custom LLM judges</strong> section, not used here)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> A scorecard with the per-example pass/fail on the regression slice — a baseline you compare against after each fix. (This slice scores with the deterministic <code>Contains expected</code> grader; the Evaluations page can also run authored LLM judges via its Custom LLM judges section, which this scenario does not need.)</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Evaluations › Run evaluation</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Evaluations</span><span class="ck-mk-title">Run evaluation</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Test set</span><span class="ck-mk-input">prod-regression</span></label><label class="ck-mk-field"><span class="ck-mk-label">Label</span><span class="ck-mk-input">prod baseline</span></label><label class="ck-mk-field"><span class="ck-mk-label">Graders</span><span class="ck-mk-input">Contains expected (a deterministic scorer — all this slice needs; the Evaluations pa…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/16-observability-triage/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-prod-regression-sample-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/prod-regression.sample.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;inputs&quot;: {&quot;ticket&quot;: &quot;Refund my $4,800 order A-1007 immediately.&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;escalate_support&quot;, &quot;note&quot;: &quot;over-limit refund must route to human approval, not auto-approve&quot;}}
+{&quot;inputs&quot;: {&quot;question&quot;: &quot;What is the refund window?&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;clarify&quot;, &quot;note&quot;: &quot;policy conflict 30 vs 14 days — must surface the conflict, not silently pick one&quot;}}
+{&quot;inputs&quot;: {&quot;alert&quot;: &quot;gateway/prod p99=4200ms, error_rate=0.18 after deploy a1b9f3c&quot;}, &quot;expectations&quot;: {&quot;recommended_action&quot;: &quot;rollback a1b9f3c&quot;, &quot;requires_approval&quot;: true}}
+{&quot;inputs&quot;: {&quot;ticket&quot;: &quot;How do I rotate my API key?&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;reply&quot;, &quot;note&quot;: &quot;answerable from KB; must cite the docs and not escalate&quot;}}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-review-queues-triage-review-review-questions-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/review-queues/triage-review.review-questions.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;queue_name&quot;: &quot;prod-triage&quot;,
+  &quot;description&quot;: &quot;Human triage of failing production traces. Reviewers classify each flagged trace so the failure mode, severity, and the correct expected output are captured as structured labels written back onto the trace (assessments + an expectation).&quot;,
+  &quot;questions&quot;: [
+    {
+      &quot;key&quot;: &quot;root_cause_known&quot;,
+      &quot;title&quot;: &quot;Is the root cause identifiable from the trace?&quot;,
+      &quot;type&quot;: &quot;pass_fail&quot;,
+      &quot;required&quot;: true,
+      &quot;target&quot;: &quot;feedback&quot;
+    },
+    {
+      &quot;key&quot;: &quot;failure_mode&quot;,
+      &quot;title&quot;: &quot;Where did it fail?&quot;,
+      &quot;type&quot;: &quot;categorical&quot;,
+      &quot;options&quot;: [&quot;prompt&quot;, &quot;tool&quot;, &quot;retrieval&quot;, &quot;data&quot;, &quot;infra&quot;],
+      &quot;required&quot;: true,
+      &quot;target&quot;: &quot;feedback&quot;
+    },
+    {
+      &quot;key&quot;: &quot;severity&quot;,
+      &quot;title&quot;: &quot;Operational severity&quot;,
+      &quot;type&quot;: &quot;categorical&quot;,
+      &quot;options&quot;: [&quot;low&quot;, &quot;medium&quot;, &quot;high&quot;],
+      &quot;required&quot;: true,
+      &quot;target&quot;: &quot;feedback&quot;
+    },
+    {
+      &quot;key&quot;: &quot;expected_output&quot;,
+      &quot;title&quot;: &quot;What should the run have produced?&quot;,
+      &quot;type&quot;: &quot;text&quot;,
+      &quot;required&quot;: false,
+      &quot;target&quot;: &quot;expectation&quot;
+    },
+    {
+      &quot;key&quot;: &quot;reviewer_notes&quot;,
+      &quot;title&quot;: &quot;Triage notes&quot;,
+      &quot;type&quot;: &quot;text&quot;,
+      &quot;required&quot;: false,
+      &quot;target&quot;: &quot;feedback&quot;
+    }
+  ],
+  &quot;notes&quot;: &quot;Question field shape matches the Review Queues &#x27;New Queue&#x27; form: key, title, type (pass_fail | categorical | numeric | text), options (categorical only), required, target (feedback | expectation). &#x27;expected_output&#x27; targets expectation so the reviewer&#x27;s answer becomes a trace expectation; the rest are feedback. Enqueue real failing trace ids (copied from the Observability ?trace= URL); answers write back onto each trace as MLflow assessments/expectations.&quot;
+}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Error traces captured</td><td>every error trace in the window lands in the test set or the triage queue</td></tr><tr><td>Root cause explainable</td><td>each flagged trace's failure is readable from its node tree</td></tr><tr><td>Triage labeled + written back</td><td>queue items answered; assessments visible on the traces</td></tr><tr><td>Regression baseline recorded</td><td>prod-regression scored in Evaluations (re-run after a fix)</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>Observability <strong>Status</strong> options are All statuses / OK / Error / In progress; selecting a trace puts its id in the URL (<code>?trace=…</code>) — copy ids from there for the queue.</li><li>Dataset rows can be authored in the editor at <code>/eval-datasets/:id → + Add example</code>, or captured via <strong>Add to test set → Add example</strong>.</li><li>Review answers write back as MLflow <strong>assessments / expectations</strong> on the trace, so the trace becomes self-documenting.</li><li>This is <strong>operations</strong>, not authoring — it converts live production signal into durable evidence (a regression test set + reviewed labels) you can act on and re-check after a fix.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-09-self-healing-workflows.html">← Self-Healing Workflows</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-10-trustworthy-evaluation.html">Trustworthy Evaluation →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

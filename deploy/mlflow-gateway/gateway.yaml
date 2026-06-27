@@ -1,0 +1,42 @@
+# MLflow AI Gateway endpoint config.
+#
+# Each endpoint maps a stable name to a provider + model; CALIBER (and any
+# client) calls the gateway by endpoint name and never sees the upstream key.
+# ``$VAR`` placeholders are resolved from the environment at server startup, so
+# the real keys come from the suite-root .env (never committed here).
+#
+# Add/clone an entry to expose another model; restart the gateway to apply.
+endpoints:
+  # --- OpenAI -----------------------------------------------------------------
+  - name: chat-openai
+    endpoint_type: llm/v1/chat
+    model:
+      provider: openai
+      name: gpt-4o-mini
+      config:
+        openai_api_key: $OPENAI_API_KEY
+
+  - name: completions-openai
+    endpoint_type: llm/v1/completions
+    model:
+      provider: openai
+      name: gpt-4o-mini
+      config:
+        openai_api_key: $OPENAI_API_KEY
+
+  - name: embeddings-openai
+    endpoint_type: llm/v1/embeddings
+    model:
+      provider: openai
+      name: text-embedding-3-small
+      config:
+        openai_api_key: $OPENAI_API_KEY
+
+  # --- Anthropic --------------------------------------------------------------
+  - name: chat-anthropic
+    endpoint_type: llm/v1/chat
+    model:
+      provider: anthropic
+      name: claude-3-5-sonnet-20241022
+      config:
+        anthropic_api_key: $ANTHROPIC_API_KEY

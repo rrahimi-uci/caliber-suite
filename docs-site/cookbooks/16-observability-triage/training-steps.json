@@ -1,0 +1,89 @@
+{
+  "steps": [
+    {
+      "where": "Prereq · a running workflow with traces",
+      "do": "This is an <strong>operator</strong> playbook — it monitors a workflow that is already running and turns its failures into durable evidence. So first make sure there is something to observe: build and run a workflow that produces traces, ideally with a few failures. The easiest path is to reuse <strong>cookbook 07</strong> (support-copilot) or <strong>cookbook 09</strong> (recovery target) and execute a handful of inputs in its Run Monitor — including at least one that errors or is rejected — so the Observability page has real OK and Error traces to work with.",
+      "see": "A workflow exists and its Run Monitor shows several completed runs (some failed). You don't need anything new here — just real run history to triage.",
+      "asset": "existing workflow runs (cookbook 07 / 09)"
+    },
+    {
+      "where": "Observe › Observability",
+      "do": "Open <strong>Observability</strong> (under <strong>Observe</strong>). It lists recent runtime <strong>traces</strong>, newest first, each with a name and a status badge. To isolate failures, open the <strong>Status</strong> filter and choose <strong>Error</strong> (the options are <em>All statuses · OK · Error · In progress</em>). Use the search box to scope to a single workflow by name if the list is busy.",
+      "fill": [
+        ["Status", "<code>Error</code>"],
+        ["Search", "the workflow name, e.g. <code>support-copilot</code> (optional)"]
+      ],
+      "see": "The list narrows to traces whose status is <strong>Error</strong> — your triage queue of raw failures. Each row shows the trace name, status, and timestamp.",
+      "asset": "filtered Error traces"
+    },
+    {
+      "where": "Observe › Observability › trace detail",
+      "do": "Click a failing trace row to open its detail — the <code>trace_id</code> appears in the page URL as <code>?trace=…</code> (you'll copy it shortly). Read the <strong>node tree</strong>: walk to the node whose status is error, and inspect its recorded <strong>inputs</strong>, <strong>outputs</strong>, <strong>duration</strong>, and any attached feedback. That node + its error message is your root cause.",
+      "see": "The trace tree opens with the failing node highlighted; its inputs/outputs and the raised error are visible, so you can explain <em>why</em> the run failed (e.g. a tool node raised, retrieval returned nothing, or the agent emitted an invalid decision). Note the <code>trace_id</code> from the URL.",
+      "asset": "root cause (read from the trace)"
+    },
+    {
+      "where": "Evaluate › Test Sets › New test set,  then  Observe › Observability › Add to test set",
+      "do": "Turn this failure into durable regression evidence. The Observability picker only attaches a trace to an <em>existing</em> test set — there is no create option there — so first create the set out-of-band: go to <strong>Evaluate › Test Sets</strong>, click <strong>+ New Test Set</strong>, name it <code>prod-regression</code>, fill the required <strong>Owner</strong> with your handle, and Create. Then return to <strong>Observability</strong>, open the failing trace, click <strong>Add to test set</strong>, pick <code>prod-regression</code> from the <strong>Choose a test set…</strong> dropdown, and click <strong>Add example</strong>. The capture sends only the trace id: the trace's request becomes the input and its response becomes the expected — so for an error/regression trace you are capturing the <em>failing</em> output, and the correct gold expectation must be set by hand later (or via the from-trace API's optional <code>expected</code> override). Repeat for 2–3 representative failing traces so you have a small, real regression slice.",
+      "fill": [
+        ["Test Sets → + New Test Set", "Name <code>prod-regression</code>, Owner <code>@you</code> (required), then Create"],
+        ["Observability → Add to test set", "pick <code>prod-regression</code> from the <strong>Choose a test set…</strong> dropdown"]
+      ],
+      "click": "Add example",
+      "see": "A confirmation that the example was added; the captured pair now lives in the <code>prod-regression</code> test set with the trace's request as the input and its response as the expected (the failing output for an error trace — fix the gold by hand later). You can author or edit these rows in the dataset editor at <code>/eval-datasets/:id → + Add example</code>; in this lab every row is captured here from a real trace.",
+      "asset": "test set: prod-regression (from traces)",
+      "assetlink": [
+        {"href": "../cookbooks/16-observability-triage/assets/dataset/prod-regression.sample.jsonl", "label": "prod-regression.sample.jsonl"}
+      ]
+    },
+    {
+      "where": "Observe › Review Queues › + New Queue",
+      "do": "Stand up a human <strong>triage queue</strong> so each failure gets classified. Click <strong>+ New Queue</strong>, name it <code>prod-triage</code>, and with <strong>+ Add question</strong> build the label schema from <a href=\"../cookbooks/16-observability-triage/assets/review-queues/triage-review.review-questions.json\">triage-review.review-questions.json</a>: <code>root_cause_known</code> (pass_fail, required), <code>failure_mode</code> (categorical: prompt / tool / retrieval / data / infra), <code>severity</code> (categorical: low / medium / high), <code>expected_output</code> (text, target = expectation), <code>reviewer_notes</code> (text). Click <strong>Create queue</strong>.",
+      "fill": [
+        ["Queue name", "<code>prod-triage</code>"],
+        ["Questions", "5 questions — types <code>pass_fail</code> / <code>categorical</code> / <code>text</code>; each with a <strong>Target</strong> of <code>feedback</code> or <code>expectation</code>"]
+      ],
+      "click": "Create queue",
+      "see": "An empty <code>prod-triage</code> queue appears with your five questions defined. Categorical questions show their option chips; the <code>expected_output</code> question targets <code>expectation</code> so its answer becomes a trace expectation.",
+      "asset": "review queue: prod-triage",
+      "assetlink": [
+        {"href": "../cookbooks/16-observability-triage/assets/review-queues/triage-review.review-questions.json", "label": "triage-review.review-questions.json"}
+      ]
+    },
+    {
+      "where": "Observe › Review Queues › prod-triage",
+      "do": "Enqueue the flagged traces. On the queue, in the <strong>Add traces to review (ids, comma or space separated)</strong> field, enter the failing <strong>trace ids</strong> you copied from the Observability URLs (comma or space separated), and click <strong>Enqueue</strong>.",
+      "fill": [
+        ["Trace ids", "the <code>trace_id</code>s of the Error traces from step 3 (comma or space separated)"]
+      ],
+      "click": "Enqueue",
+      "see": "The queue shows N pending review items, each linked back to its source trace.",
+      "asset": "enqueued failing traces"
+    },
+    {
+      "where": "Observe › Review Queues › prod-triage › review",
+      "do": "Triage an item. Open a pending item — it shows the trace's input/output alongside your questions. Answer them: is the <code>root_cause_known</code>? pick the <code>failure_mode</code> and <code>severity</code>, optionally fill the <code>expected_output</code>, add <code>reviewer_notes</code>, then click <strong>Submit review</strong>.",
+      "click": "Submit review",
+      "see": "The item flips to reviewed and the answers are <strong>written back onto the trace</strong> as MLflow assessments/expectations — so the failure is now self-documenting in Observability, not just in a spreadsheet.",
+      "asset": "triaged labels (written back to the trace)"
+    },
+    {
+      "where": "Evaluate › Test Sets › prod-regression",
+      "do": "Confirm the regression slice. Open <strong>Test Sets</strong> (under <strong>Evaluate</strong>) and select <code>prod-regression</code> — it now holds the failing examples you captured. This is the durable set you'll re-run after a fix ships to prove the regression is actually closed.",
+      "see": "The <code>prod-regression</code> test set lists your captured examples at version 1, each with the trace's request as the input and its response auto-derived as the expected (correct the gold by hand where needed).",
+      "asset": "regression slice (durable)"
+    },
+    {
+      "where": "Evaluate › Evaluations › Run evaluation",
+      "do": "(Optional) Put a number on the failure. Click <strong>Run evaluation</strong>, pick <strong>Test set</strong> = <code>prod-regression</code>, give it a <strong>Label</strong> (e.g. <code>prod baseline</code>), check the deterministic grader <strong>Contains expected</strong>, and click <strong>Run</strong>. Open the run to read the current pass/fail — your operational baseline. After a fix ships, re-run the same set and confirm the failure rate drops.",
+      "fill": [
+        ["Test set", "<code>prod-regression</code>"],
+        ["Label", "<code>prod baseline</code>"],
+        ["Graders", "<strong>Contains expected</strong> (a deterministic scorer — all this slice needs; the Evaluations page also has a <strong>Custom LLM judges</strong> section, not used here)"]
+      ],
+      "click": "Run",
+      "see": "A scorecard with the per-example pass/fail on the regression slice — a baseline you compare against after each fix. (This slice scores with the deterministic <code>Contains expected</code> grader; the Evaluations page can also run authored LLM judges via its Custom LLM judges section, which this scenario does not need.)",
+      "asset": "failure-rate baseline run"
+    }
+  ]
+}

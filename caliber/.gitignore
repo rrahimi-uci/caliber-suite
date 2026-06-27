@@ -1,0 +1,103 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+# Keep the frontend workflow helpers version-controlled.
+!caliber-ui/src/lib/
+!caliber-ui/src/lib/**
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+.venv-security-audit/
+.venv-security-audit-safe/
+.venv-security-audit-extended/
+venv/
+env/
+ENV/
+.python-version
+
+# uv
+.uv/
+uv.lock
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+# Allure test reporting (raw results from --alluredir)
+allure-results/
+allure-report/
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Linters
+.ruff_cache/
+
+# Local debug/temp artifacts (screenshots, scratch files)
+.tmp-*
+.tmp/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# CALIBER-specific
+# Local dev database
+caliber.db
+caliber.db-journal
+caliber.db-wal
+caliber.db-shm
+
+# MLflow local artifacts during dev
+mlruns/
+mlartifacts/
+
+# Packaged frontend bundle (copied from caliber-ui/dist/ at build time)
+src/caliber/ui/
+
+# Frontend (when caliber-ui/ is added in a future PR)
+caliber-ui/node_modules/
+caliber-ui/dist/
+caliber-ui/.vite/
+
+# Secrets — never commit
+.env
+.env.local
+*.pem
+*.key

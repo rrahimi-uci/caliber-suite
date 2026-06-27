@@ -1,0 +1,51 @@
+workflow_goal: Build a prompt-only intake classifier with no tool, skill, or MCP dependency.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Prompts Playground only RENDERS the template (no model call); run scored cases via Evaluations (eval-dataset + scorers), not the Playground.
+  - Regression = baseline run vs comparison run in Evaluations (per-example deltas).
+  - Calibration queues a background optimizer job (MetaPrompt/GEPA); capture the job id, do not expect an inline score.
+  - InstructionCompliance is a real LLM judge; valid_json/allowed_intent_values use deterministic scorers (contains_expected), not a deterministic judge.
+manual_flow:
+  - step: define_prompt
+    action: Author a system prompt that enforces strict JSON output and abstains on low-confidence inputs.
+  - step: run_cases
+    action: Build an eval dataset from test-data and run it in Evaluations with deterministic + judge scorers (the Playground only renders).
+  - step: save_baseline
+    action: Save and pin the strongest run as baseline.
+  - step: compare_variant
+    action: Run a weaker variant to verify visible regression.
+  - step: calibrate
+    action: Queue calibration after baseline exists.
+components:
+  prompts:
+    system: "You classify support input and must return JSON only."
+    developer: "Never invent missing data; set needs_review=true when uncertain."
+    task_template: "Classify input text and return structured output."
+  skills: none
+  tools: none
+  mcp: none
+  workflow: optional_future_binding_only
+contracts:
+  input_schema:
+    type: object
+    required: [ticket_text, channel]
+    properties:
+      ticket_text: {type: string}
+      channel: {type: string}
+      metadata: {type: object}
+  output_schema:
+    type: object
+    required: [intent, priority, confidence, needs_review, reason]
+    properties:
+      intent: {type: string}
+      priority: {type: string}
+      confidence: {type: number}
+      needs_review: {type: boolean}
+      reason: {type: string}
+failure_modes:
+  - invalid_json
+  - intent_label_drift
+  - overconfident_predictions
+fallbacks:
+  - enforce JSON schema in prompt instructions.
+  - default to needs_review=true when evidence is weak.

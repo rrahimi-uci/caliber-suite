@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 05: Governed Tool Connectivity (MCP) | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">05 · Governed Tool Connectivity (MCP)</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 05 · Foundations</p>
+        <h1>Governed Tool Connectivity (MCP)</h1>
+        <p class="doc-lead">Connect an external system, discover its tools, and prove a blocked tool refuses to run.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Foundations</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–35 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A governed GitHub MCP connection with a working read tool and a write tool that is policy-blocked — invoked from the Playground to show the refusal.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">MCP Servers</span> <span class="ck-badge ck-surface">Observability</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Quick-connect an MCP server from the catalog</li><li>Test connection + tool discovery (schemas)</li><li>Invoke a read-only tool from the Playground</li><li>Apply a per-tool policy overlay and prove enforcement</li><li>Save tool test cases and calibrate them</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  C[Catalog: GitHub] --&gt; S[Register server]
+  S --&gt; TC[Test connection] --&gt; D[Discover tools]
+  D --&gt; RT[search_repositories · read] --&gt; OK[Playground invoke ✓]
+  D --&gt; WT[create_issue · write]
+  WT --&gt;|policy allowed:false| BLK[Playground invoke ✗ refused]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers</code> <span class="ck-made">creates · MCP catalog</span></div><div class="ck-step-do">Open the MCP Servers page and find the quick-connect catalog of 8 templates. You will use the <strong>GitHub</strong> tile because it ships both a safe read tool (<code>search_repositories</code>) and a risky write tool (<code>create_issue</code>) — perfect for proving a policy block.</div><div class="ck-see"><strong>You'll see:</strong> A catalog grid; the GitHub tile is <code>data-testid="catalog-github"</code> alongside PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, and Playwright.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">MCP Servers</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › GitHub tile</code> <span class="ck-made">creates · mcp server: github-readonly</span></div><div class="ck-step-do">Click the <strong>GitHub</strong> catalog tile (<code>catalog-github</code>). The Add-server dialog opens pre-filled with the transport and launch command; you only set the server name and supply your token, then submit. The template seeds command <code>npx</code>, args <code>-y @modelcontextprotocol/server-github</code>, transport <code>stdio</code>, and a <code>GITHUB_TOKEN</code> env var.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Server name</td><td><code>github-readonly</code></td></tr><tr><td>Transport</td><td><code>stdio</code> (pre-filled)</td></tr><tr><td>Command / args</td><td><code>npx</code> / <code>-y @modelcontextprotocol/server-github</code> (pre-filled)</td></tr><tr><td>GITHUB_TOKEN</td><td>your GitHub personal-access token (the env var the template expects)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Register Server</span></div><div class="ck-see"><strong>You'll see:</strong> A new server row <code>github-readonly</code> appears in the Servers table with a Test action.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › GitHub tile</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">GitHub tile</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Server name</span><span class="ck-mk-input">github-readonly</span></label><label class="ck-mk-field"><span class="ck-mk-label">Transport</span><span class="ck-mk-input">stdio (pre-filled)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Command / args</span><span class="ck-mk-input">npx / -y @modelcontextprotocol/server-github (pre-filled)</span></label><label class="ck-mk-field"><span class="ck-mk-label">GITHUB_TOKEN</span><span class="ck-mk-input">your GitHub personal-access token (the env var the template expects)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Register Server</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › github-readonly › Test</code> <span class="ck-made">creates · connection + discovered tools</span></div><div class="ck-step-do">On the server row click <strong>Test</strong> to verify the transport/auth, then let it discover the tool catalog. Inspect a couple of discovered tools and their input/output schemas so you know the read tool's required arguments.</div><div class="ck-click">Click <span class="ck-btn">Test</span></div><div class="ck-see"><strong>You'll see:</strong> <code>Connected · N tools</code>. The discovered tool list shows <code>search_repositories</code> (read) and <code>create_issue</code> (write) with their JSON input/output schemas. Gate: <code>connection_success_rate = 1.0</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › github-readonly › Test</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">Test</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Test</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › Playground</code> <span class="ck-made">creates · successful read invocation</span> <a class="ck-assetref" href="#asset-assets-dataset-mcp-tool-test-cases-jsonl">mcp-tool-test-cases.jsonl ↓</a></div><div class="ck-step-do">Open the <strong>Playground</strong> tab, select server <code>github-readonly</code>, click <strong>Test Connection</strong> to discover its tools, then pick the read tool <code>search_repositories</code> from the discovered list. Fill its parameter inputs and click <strong>Invoke Tool</strong> to confirm a real, successful result. This is your one good read-tool invocation record.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Tool</td><td><code>search_repositories</code> (select from the discovered tools)</td></tr><tr><td>Arguments (golden)</td><td>set <code>query</code> = <code>modelcontextprotocol/servers</code> — from the <code>golden</code> row of <a href="#asset-assets-dataset-mcp-tool-test-cases-jsonl">mcp-tool-test-cases.jsonl</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Invoke Tool</span></div><div class="ck-see"><strong>You'll see:</strong> <code>success:true</code> with a result payload (mentions <code>items</code>) and a <code>duration_ms</code> figure.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › Playground</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">Playground</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Tool</span><span class="ck-mk-input">search_repositories (select from the discovered tools)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Arguments (golden)</span><span class="ck-mk-input">set query = modelcontextprotocol/servers — from the golden row of mcp-tool-test-case…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Invoke Tool</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › Playground › create_issue › Tool Policy</code> <span class="ck-made">creates · policy: block create_issue</span> <a class="ck-assetref" href="#asset-assets-policy-github-create-issue-block-policy-json">github-create-issue.block.policy.json ↓</a></div><div class="ck-step-do">Now govern the risky write tool. Still in the Playground with <code>github-readonly</code> selected, pick the <code>create_issue</code> tool — its <strong>Tool Policy</strong> panel appears. Turn the <strong>Allow tool</strong> toggle OFF (sets <code>allowed:false</code>), then save. On the direct invoke path a block (<code>allowed:false</code>) is the only control that actually refuses execution — so use the block for a true read-only explorer. (<code>requires_approval</code> and <code>side_effect_level</code> are advisory on direct invoke; the block is what enforces.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Tool</td><td><code>create_issue</code> (select in Playground)</td></tr><tr><td>Allow tool</td><td>toggle OFF → <code>allowed:false</code> (matches <a href="#asset-assets-policy-github-create-issue-block-policy-json">github-create-issue.block.policy.json</a>; strip any <code>_comment</code> key — it is documentation only)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save Policy</span></div><div class="ck-see"><strong>You'll see:</strong> The <code>create_issue</code> policy now shows <code>allowed:false</code> (a “blocked” badge appears on the tool).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › Playground › create_issue › Tool Policy</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">Tool Policy</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Tool</span><span class="ck-mk-input">create_issue (select in Playground)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Allow tool</span><span class="ck-mk-input">toggle OFF → allowed:false (matches github-create-issue.block.policy.json; strip any…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save Policy</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › Playground</code> <span class="ck-made">creates · blocked-tool enforcement record</span> <a class="ck-assetref" href="#asset-assets-dataset-policy-enforcement-checks-jsonl">policy-enforcement-checks.jsonl ↓</a></div><div class="ck-step-do">Re-invoke the now-blocked tool to capture the enforcement record. With <code>create_issue</code> still selected, fill its parameters with a payload that <em>would</em> create an issue and click <strong>Invoke Tool</strong> — it must be refused, not executed. This proves <code>blocked_tool_enforcement = 1.0</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Tool</td><td><code>create_issue</code> (selected in Playground)</td></tr><tr><td>Arguments</td><td>set <code>owner</code>=<code>kernel-lab</code>, <code>repo</code>=<code>caliber-suite</code>, <code>title</code>=<code>blocked test</code>, <code>body</code>=<code>should never be created</code> — the <code>PE01</code> row of <a href="#asset-assets-dataset-policy-enforcement-checks-jsonl">policy-enforcement-checks.jsonl</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Invoke Tool</span></div><div class="ck-see"><strong>You'll see:</strong> A structured refusal: <code>success:false</code>, <code>result:null</code>, and an <code>error</code> stating the tool is blocked by policy — the tool never ran.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › Playground</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">Playground</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Tool</span><span class="ck-mk-input">create_issue (selected in Playground)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Arguments</span><span class="ck-mk-input">set owner=kernel-lab, repo=caliber-suite, title=blocked test, body=should never be c…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Invoke Tool</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › Playground › search_repositories › Calibration</code> <span class="ck-made">creates · mcp tool test cases</span> <a class="ck-assetref" href="#asset-assets-dataset-mcp-tool-test-cases-jsonl">mcp-tool-test-cases.jsonl ↓</a></div><div class="ck-step-do">Harden the read tool with a small saved suite. In the Playground with <code>search_repositories</code> selected, scroll to its <strong>Calibration</strong> panel. Use <strong>Add case</strong> to add a row per case; each row has a name, an <em>Input (JSON)</em> object (the tool arguments), and an <em>Assertion</em> of type <code>no_error</code>, <code>output_contains</code>, or <code>equals</code> (the latter two also take a value). Click <strong>Save cases</strong>. Important about the assertion model: there is <em>no</em> "expects-error" assertion — when an invoke errors, the case fails <em>before</em> any assertion runs (a gateway error short-circuits to a fail). So the two <code>negative</code> rows (N01 missing the required arg, N02 a malformed qualifier) are <strong>deliberately failing</strong> cases: they exist to show up as red lines in the pass-rate, not as green <code>output_contains:"error"</code> matches. The four golden/edge rows (G01/G02/E01/E02) are the ones expected to pass.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Cases (Add case per row)</td><td>Add the 6 cases from <a href="#asset-assets-dataset-mcp-tool-test-cases-jsonl">mcp-tool-test-cases.jsonl</a> — four expected-pass (G01/G02 golden, E01/E02 edge) plus two intentionally-failing negatives (N01/N02). Send name + input + assertion type/value only</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save cases</span></div><div class="ck-see"><strong>You'll see:</strong> Six saved test cases listed under <code>search_repositories</code>'s Calibration panel, each showing its assertion type.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › Playground › search_repositories › Calibration</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">Calibration</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Cases (Add case per row)</span><span class="ck-mk-input">Add the 6 cases from mcp-tool-test-cases.jsonl — four expected-pass (G01/G02 golden,…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save cases</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › Playground › search_repositories › Calibration</code> <span class="ck-made">creates · calibration run (read tool)</span></div><div class="ck-step-do">Run the calibration. Click <strong>Run calibration</strong> in the same panel — each saved case is invoked and scored against its assertion <strong>inline</strong> (deterministic — no LLM judge), and a pass rate comes back immediately. Expect the pass-rate to land <em>below</em> 100% by design: the four golden/edge cases pass, and the two negative cases (N01/N02) fail because their invokes error out before any assertion can match. That red is the intended signal — it is the suite documenting how the tool misbehaves on bad input, not a defect in your setup.</div><div class="ck-click">Click <span class="ck-btn">Run calibration</span></div><div class="ck-see"><strong>You'll see:</strong> An inline pass-rate report (<code>{pass_rate, total, passed}</code>) — four green cases and two red negatives, so <code>passed:4</code> of <code>total:6</code> (a <code>pass_rate</code> of <code>0.6667</code>, intentionally under 100%) with a per-case verdict on each row. This satisfies <code>at_least_one_read_tool_calibrated = true</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › Playground › search_repositories › Calibration</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">Calibration</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Run calibration</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › MCP Servers › Playground › History</code> <span class="ck-made">creates · playground history (invoke + block)</span></div><div class="ck-step-do">Confirm the governance story is recorded on the surface that actually captures it: the Playground <strong>History</strong> panel below the invoke form. MCP invokes do not emit MLflow spans, so they will <em>not</em> appear in <strong>Observe › Observability</strong> — read the evidence here instead. Each invocation you ran this session is listed newest-first; find the <code>search_repositories</code> read (<code>success:true</code>, green dot) and the <code>create_issue</code> write (<code>success:false</code>, red dot — refused by the policy block). Click any row to reload its arguments and result.</div><div class="ck-see"><strong>You'll see:</strong> A <strong>History</strong> list with one row per invoke: a green dot + <code>search_repositories</code> + a <code>duration_ms</code> for the successful read, and a red dot + <code>create_issue</code> + <code>0ms</code> for the blocked write. The <code>create_issue</code> tool still wears its red <strong>Blocked</strong> badge, and the <code>search_repositories</code> Calibration panel still shows its saved pass/fail verdicts — together these are your end-to-end enforcement evidence.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › MCP Servers › Playground › History</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">MCP Servers</span><span class="ck-mk-title">History</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/05-mcp-connectivity-governance-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-mcp-tool-test-cases-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/mcp-tool-test-cases.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;G01&quot;, &quot;tags&quot;: [&quot;golden&quot;], &quot;tool_name&quot;: &quot;search_repositories&quot;, &quot;name&quot;: &quot;valid-query-returns-no-error&quot;, &quot;input&quot;: {&quot;query&quot;: &quot;modelcontextprotocol/servers&quot;}, &quot;assertion&quot;: {&quot;type&quot;: &quot;no_error&quot;}}
+{&quot;id&quot;: &quot;G02&quot;, &quot;tags&quot;: [&quot;golden&quot;], &quot;tool_name&quot;: &quot;search_repositories&quot;, &quot;name&quot;: &quot;valid-query-output-mentions-items&quot;, &quot;input&quot;: {&quot;query&quot;: &quot;language:python topic:mcp&quot;}, &quot;assertion&quot;: {&quot;type&quot;: &quot;output_contains&quot;, &quot;value&quot;: &quot;items&quot;}}
+{&quot;id&quot;: &quot;E01&quot;, &quot;tags&quot;: [&quot;edge&quot;], &quot;tool_name&quot;: &quot;search_repositories&quot;, &quot;name&quot;: &quot;empty-query-still-no-error&quot;, &quot;input&quot;: {&quot;query&quot;: &quot;&quot;}, &quot;assertion&quot;: {&quot;type&quot;: &quot;no_error&quot;}}
+{&quot;id&quot;: &quot;E02&quot;, &quot;tags&quot;: [&quot;edge&quot;], &quot;tool_name&quot;: &quot;search_repositories&quot;, &quot;name&quot;: &quot;narrow-zero-result-query-no-error&quot;, &quot;input&quot;: {&quot;query&quot;: &quot;repo:kernel-lab/caliber-suite-does-not-exist-xyz&quot;}, &quot;assertion&quot;: {&quot;type&quot;: &quot;no_error&quot;}}
+{&quot;id&quot;: &quot;N01&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;tool_name&quot;: &quot;search_repositories&quot;, &quot;name&quot;: &quot;missing-required-query-arg-output-reports-error&quot;, &quot;input&quot;: {}, &quot;assertion&quot;: {&quot;type&quot;: &quot;output_contains&quot;, &quot;value&quot;: &quot;error&quot;}}
+{&quot;id&quot;: &quot;N02&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;tool_name&quot;: &quot;search_repositories&quot;, &quot;name&quot;: &quot;malformed-search-qualifier-output-reports-error&quot;, &quot;input&quot;: {&quot;query&quot;: &quot;stars:&gt;&gt;not-a-number&quot;}, &quot;assertion&quot;: {&quot;type&quot;: &quot;output_contains&quot;, &quot;value&quot;: &quot;error&quot;}}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-policy-github-create-issue-block-policy-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/policy/github-create-issue.block.policy.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;_comment&quot;: &quot;PATCH /mcp-servers/{id}/tools/create_issue/policy. create_issue is the GitHub server&#x27;s WRITE tool; in a read-only explorer it stays OFF. allowed:false blocks invocation outright — a re-invoke returns success:false with error &#x27;Tool create_issue is blocked by policy&#x27; and never reaches the gateway. Strip this _comment before sending.&quot;,
+  &quot;allowed&quot;: false
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-policy-enforcement-checks-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/policy-enforcement-checks.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;PE01&quot;, &quot;desc&quot;: &quot;blocked write tool refuses to invoke&quot;, &quot;tool_name&quot;: &quot;create_issue&quot;, &quot;policy&quot;: {&quot;allowed&quot;: false}, &quot;invoke_input&quot;: {&quot;owner&quot;: &quot;kernel-lab&quot;, &quot;repo&quot;: &quot;caliber-suite&quot;, &quot;title&quot;: &quot;blocked test&quot;, &quot;body&quot;: &quot;should never be created&quot;}, &quot;expect&quot;: {&quot;invoked&quot;: false, &quot;error_kind&quot;: &quot;policy_blocked&quot;, &quot;error_contains&quot;: &quot;blocked by policy&quot;, &quot;duration_ms&quot;: 0}}
+{&quot;id&quot;: &quot;PE02&quot;, &quot;desc&quot;: &quot;approval flag alone is recorded but NOT enforced on the direct invoke path (it gates workflow binding via the human-approval node, not the Playground); to actually stop a direct invoke you must set allowed:false. This row documents that gap so the read-only explorer relies on the hard block, not approval.&quot;, &quot;tool_name&quot;: &quot;create_issue&quot;, &quot;policy&quot;: {&quot;requires_approval&quot;: true, &quot;side_effect_level&quot;: &quot;write&quot;}, &quot;invoke_input&quot;: {&quot;owner&quot;: &quot;kernel-lab&quot;, &quot;repo&quot;: &quot;caliber-suite&quot;, &quot;title&quot;: &quot;needs approval&quot;, &quot;body&quot;: &quot;approval gate is a workflow-time control&quot;}, &quot;expect&quot;: {&quot;invoked&quot;: true, &quot;note&quot;: &quot;direct invoke still executes — only allowed:false refuses on this path&quot;}}
+{&quot;id&quot;: &quot;PE03&quot;, &quot;desc&quot;: &quot;allowed read tool invokes normally&quot;, &quot;tool_name&quot;: &quot;search_repositories&quot;, &quot;policy&quot;: {&quot;allowed&quot;: true, &quot;side_effect_level&quot;: &quot;read&quot;}, &quot;invoke_input&quot;: {&quot;query&quot;: &quot;modelcontextprotocol/servers&quot;}, &quot;expect&quot;: {&quot;invoked&quot;: true}}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Connection + discovery</td><td>100% connect; schemas visible</td></tr><tr><td>Blocked tool enforcement</td><td>blocked tool cannot execute</td></tr><tr><td>Read tool calibrated</td><td>≥ 1 saved calibration run</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>On the <strong>direct invoke</strong> path only <code>allowed:false</code> blocks; <code>requires_approval</code> gates at <strong>workflow time</strong> (a human_approval node), not on direct invoke.</li><li>Assertion types are <code>no_error</code>, <code>output_contains</code>, <code>equals</code>.</li><li>Keep write-capable tools blocked by default until the read path is stable.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-03-policy-safe-tool.html">← Policy-Safe Decision Tool</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-04-doc-to-json.html">Document-to-JSON Pipeline →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

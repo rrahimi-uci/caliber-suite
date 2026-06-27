@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knowledge Bases Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Knowledge Bases Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Data &amp; knowledge</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Knowledge bases</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Data &amp; knowledge · Architecture reference</div>
+          <h1 id="top">Knowledge Bases Architecture</h1>
+          <p class="doc-summary">Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Knowledge-bases module</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>A module that turns object-store documents into versioned, queryable corpora for CALIBER's RAG layer.</td></tr><tr><td><strong>Where state lives</strong></td><td>An identity/version/run split: <code>CaliberKnowledgeBase</code>, <code>CaliberKnowledgeBaseVersion</code>, and <code>CaliberKnowledgeBaseRun</code> tables, with chunks, entities, and relationships per version.</td></tr><tr><td><strong>Ingestion</strong></td><td><code>KnowledgeBaseService.execute_run()</code> expands object-store sources, extracts text, chunks, embeds, and builds graph artifacts, optionally via <code>KnowledgeBaseWorker</code>.</td></tr><tr><td><strong>Retrieval</strong></td><td>Version-scoped dense, hybrid, graph-hybrid, or AGE-backed modes through <code>POST /knowledge/query</code>, with optional pgvector ANN and cross-encoder rerank.</td></tr><tr><td><strong>Key surfaces</strong></td><td>Routes under <code>/ajax-api/2.0/mlflow/caliber</code>, the <code>KnowledgeBases.tsx</code> UI, and the service in <code>caliber/src/caliber/knowledge/service.py</code>.</td></tr><tr><td><strong>Calibration</strong></td><td><code>knowledge/calibration.py</code> scores quality against eval datasets and pins baseline runs via <code>CaliberKnowledgeBaseTestRun</code>.</td></tr><tr><td><strong>Trust boundary</strong></td><td>Reads need an authenticated user; mutating routes require <code>SCOPE_OPERATOR</code>.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the scope, data model, API surface, lifecycle, and operational detail behind each dimension.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The knowledge-bases module turns object-store documents into versioned, queryable corpora that power retrieval-augmented workflows and playground use. It is more than a document catalog: it owns the full build, retrieval, graph, and evaluation lifecycle for CALIBER's RAG layer, from raw bytes in a bucket through retrieval-ready chunks, derived graphs, and pinned quality baselines.</p>
+<p>Concretely, the module is responsible for the following capabilities, which together span ingestion, retrieval, and quality assurance:</p>
+<ul><li>It creates and manages logical knowledge bases with project-aware visibility.</li><li>It builds immutable versions from object-store files and folders.</li><li>It extracts text, chunks documents, generates embeddings, and persists the resulting retrieval state.</li><li>It derives graph artifacts and optionally syncs them into Apache AGE.</li><li>It answers questions through dense, hybrid, graph-hybrid, or AGE-backed retrieval.</li><li>It calibrates retrieval quality against eval datasets and pins baseline runs.</li></ul>
+<p>The behavior above is implemented across the following primary code paths, which split cleanly between the HTTP surface, the build and retrieval service, the supporting subsystems, and the UI:</p>
+<ul><li><code>caliber/src/caliber/routes/knowledge_bases.py</code></li><li><code>caliber/src/caliber/knowledge/service.py</code></li><li><code>caliber/src/caliber/knowledge/worker.py</code></li><li><code>caliber/src/caliber/knowledge/chunking.py</code></li><li><code>caliber/src/caliber/knowledge/embeddings.py</code></li><li><code>caliber/src/caliber/knowledge/graph.py</code></li><li><code>caliber/src/caliber/knowledge/age.py</code></li><li><code>caliber/src/caliber/knowledge/calibration.py</code></li><li><code>caliber/src/caliber/db/models.py</code></li><li><code>caliber/caliber-ui/src/pages/KnowledgeBases.tsx</code></li><li><code>caliber/caliber-ui/src/pages/knowledge/KnowledgeCalibrateTab.tsx</code></li><li><code>caliber/caliber-ui/src/components/knowledge/BucketTree.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module keeps a clear separation between durable identity, build outputs, and operational state. The table below assigns each responsibility to its owning component and notes what that owner guarantees:</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Logical KB catalog</td><td><code>CaliberKnowledgeBase</code> + <code>routes/knowledge_bases.py</code></td><td>Stable KB identity, owner, visibility, source bucket, active version, and baseline run.</td></tr><tr><td>Immutable build versions</td><td><code>CaliberKnowledgeBaseVersion</code></td><td>Captures one chunking/embedding/graph build and its artifact URIs.</td></tr><tr><td>Build execution</td><td><code>KnowledgeBaseService.execute_run()</code> / <code>_process_build()</code></td><td>Expands sources, extracts text, chunks, embeds, builds graph artifacts, and persists outputs.</td></tr><tr><td>Queued build orchestration</td><td><code>KnowledgeBaseWorker</code></td><td>Claims queued runs, renews leases, and recovers expired work.</td></tr><tr><td>Chunking policy</td><td><code>knowledge/chunking.py</code></td><td>Recursive, semantic, markdown-aware, token, and character strategies.</td></tr><tr><td>Embedding runtime</td><td><code>knowledge/embeddings.py</code></td><td>Curated local Hugging Face embedding catalog plus runtime gating.</td></tr><tr><td>Local graph extraction</td><td><code>knowledge/graph.py</code></td><td>Heuristic or spaCy extraction into version-scoped entities and relationships.</td></tr><tr><td>Optional Apache AGE sync/retrieval</td><td><code>knowledge/age.py</code></td><td>Shared graph sync plus Cypher-backed retrieval and exploration.</td></tr><tr><td>Calibration</td><td><code>knowledge/calibration.py</code> + <code>CaliberKnowledgeBaseTestRun</code></td><td>Durable quality scoring against eval datasets.</td></tr></tbody></table></div>
+<p>These owners line up against a single organizing principle: separating what stays stable from what is rebuilt on every ingest. That principle resolves into three distinct layers of state:</p>
+<ul><li>Knowledge-base identity is the mutable library object that carries visibility and points at the active version.</li><li>Knowledge-base versions are the immutable build outputs that hold the retrieval-ready state for one build configuration.</li><li>Knowledge-base runs are the operational executions and their event history.</li></ul>
+<p>Because identity, versions, and runs are decoupled, a knowledge base can be rebuilt and re-pointed without disturbing its catalog presence or its audit trail.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The runtime fans out from a single service that coordinates the database, the object store, and the supporting subsystems. The diagram below shows how the UI, HTTP routes, and background worker all converge on <code>KnowledgeBaseService</code>:</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI[KnowledgeBases.tsx&lt;br/&gt;BucketTree / Calibrate tab]:::ui
+    API[routes/knowledge_bases.py]:::ctrl
+    SVC[KnowledgeBaseService]:::ctrl
+    DB[(KB, Version, Source,&lt;br/&gt;Chunk, Entity, Relationship,&lt;br/&gt;Run, RunEvent, TestRun)]:::store
+    OBJ[(S3 / MinIO object store)]:::store
+    CH[chunking.py]:::ctrl
+    EMB[embeddings.py]:::ctrl
+    GPH[graph.py]:::ctrl
+    AGE[age.py / Apache AGE]:::store
+    WK[KnowledgeBaseWorker]:::async
+    EVAL[(Eval datasets)]:::store
+    LLM[OpenAI / Anthropic&lt;br/&gt;or fallback answer path]:::ext
+
+    UI --&gt; API --&gt; SVC
+    API --&gt; DB
+    SVC --&gt; DB
+    SVC --&gt; OBJ
+    SVC --&gt; CH
+    SVC --&gt; EMB
+    SVC --&gt; GPH
+    SVC --&gt; AGE
+    SVC --&gt; LLM
+    WK --&gt; SVC
+    SVC --&gt; EVAL</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties follow from this layout and explain why the pieces are arranged as they are:</p>
+<ul><li>Source selection always begins from object-store files or folders, so the object store is the single ingestion entry point.</li><li>Build output is persisted twice over: as normalized DB rows for query access and as object-store artifacts under <code>.caliber/knowledge-bases/...</code> for inspection and export.</li><li>Retrieval is version-scoped rather than knowledge-base-global, which is what lets an older version keep serving while a new one builds.</li><li>Apache AGE is optional and additive; it complements the local graph implementation rather than being the only one.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The persistence layer mirrors the identity/version/run split described above, adding dedicated tables for the retrieval units and graph artifacts a build produces. The primary tables are:</p>
+<div class="table-wrap"><table><thead><tr><th>Table</th><th>Role</th></tr></thead><tbody><tr><td><code>CaliberKnowledgeBase</code></td><td>Logical corpus identity, visibility, source bucket/manifest, active version, baseline run, and latest run status.</td></tr><tr><td><code>CaliberKnowledgeBaseVersion</code></td><td>One immutable build configuration and output snapshot.</td></tr><tr><td><code>CaliberKnowledgeBaseSource</code></td><td>Expanded source documents, extraction status, and ingestion metadata.</td></tr><tr><td><code>CaliberKnowledgeBaseChunk</code></td><td>Retrieval unit with content, offsets, token count, and stored embedding vector.</td></tr><tr><td><code>CaliberKnowledgeBaseEntity</code></td><td>Version-scoped graph entities derived from chunk content.</td></tr><tr><td><code>CaliberKnowledgeBaseRelationship</code></td><td>Version-scoped graph edges with weights and evidence chunks.</td></tr><tr><td><code>CaliberKnowledgeBaseRun</code></td><td>Durable operational build run with queue/lease/heartbeat state.</td></tr><tr><td><code>CaliberKnowledgeBaseRunEvent</code></td><td>Append-only run timeline.</td></tr><tr><td><code>CaliberKnowledgeBaseTestRun</code></td><td>Durable calibration results and baseline candidates.</td></tr></tbody></table></div>
+<p>The <code>CaliberKnowledgeBase</code> row anchors a corpus's identity and its operational status. Its notable fields are:</p>
+<ul><li><code>project_id</code>, <code>visibility</code>, <code>owner</code> control library visibility and scoping.</li><li><code>source_bucket</code>, <code>source_manifest</code>, <code>source_fingerprint</code> capture the build inputs.</li><li><code>active_version_id</code> names the runtime default target.</li><li><code>baseline_run_id</code> records the calibration comparison baseline.</li><li><code>last_run_id</code>, <code>last_run_status</code>, <code>last_run_completed_at</code> summarize the most recent operational status.</li></ul>
+<p>Each <code>CaliberKnowledgeBaseVersion</code> row freezes one build configuration together with pointers to its output artifacts. Its notable fields are:</p>
+<ul><li><code>version_number</code>, <code>status</code> establish the immutable build identity and readiness.</li><li><code>chunking_strategy</code>, <code>chunking_config</code> record how text was split.</li><li><code>graph_config</code> records how the graph was derived.</li><li><code>embedding_model</code>, <code>embedding_dimension</code> record how chunks were embedded.</li><li><code>output_bucket</code>, <code>output_prefix</code> locate the artifact namespace.</li><li><code>chunks_uri</code>, <code>entities_uri</code>, <code>relationships_uri</code>, <code>graph_uri</code> point at the exported build outputs.</li><li><code>manifest_uri</code>, <code>logs_uri</code>, <code>stats_uri</code> point at the operational artifacts.</li><li><code>summary</code>, <code>error_summary</code> carry the human-readable result.</li></ul>
+<p>A few implementation details shape how retrieval actually executes today and are worth stating plainly:</p>
+<ul><li>Chunk embeddings are stored as JSON arrays on <code>CaliberKnowledgeBaseChunk</code>.</li><li>Dense retrieval is currently computed in-process over loaded chunk rows rather than pushed into a dedicated vector database.</li><li>AGE sync is optional and complements, rather than replaces, the local DB retrieval path.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>All HTTP routes in this module are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix below. The surface groups into catalog lifecycle, versioning and run inspection, version detail and graph exploration, and retrieval and calibration.</p>
+<p>Catalog and lifecycle routes manage the logical knowledge base itself:</p>
+<ul><li><code>GET /knowledge-bases/options</code></li><li><code>GET /knowledge-bases</code></li><li><code>POST /knowledge-bases</code></li><li><code>GET /knowledge-bases/{knowledge_base_id}</code></li><li><code>PATCH /knowledge-bases/{knowledge_base_id}</code></li><li><code>DELETE /knowledge-bases/{knowledge_base_id}</code></li></ul>
+<p>Versioning and run-inspection routes create builds and follow their progress:</p>
+<ul><li><code>GET /knowledge-bases/{knowledge_base_id}/versions</code></li><li><code>POST /knowledge-bases/{knowledge_base_id}/versions</code></li><li><code>POST /knowledge-bases/{knowledge_base_id}/versions/{version_id}/activate</code></li><li><code>GET /knowledge-bases/{knowledge_base_id}/runs</code></li><li><code>GET /knowledge-runs/{run_id}/events</code></li></ul>
+<p>Version-detail and graph-exploration routes expose the contents of a built version, including its derived graph:</p>
+<ul><li><code>GET /knowledge-base-versions/{version_id}</code></li><li><code>GET /knowledge-base-versions/{version_id}/sources</code></li><li><code>GET /knowledge-base-versions/{version_id}/chunks</code></li><li><code>GET /knowledge-base-versions/{version_id}/entities</code></li><li><code>GET /knowledge-base-versions/{version_id}/relationships</code></li><li><code>GET /knowledge-base-versions/{version_id}/graph</code></li><li><code>POST /knowledge-base-versions/{version_id}/age-sync</code></li></ul>
+<p>Retrieval and calibration routes answer questions and score quality against eval datasets:</p>
+<ul><li><code>POST /knowledge/query</code></li><li><code>POST /knowledge-bases/{knowledge_base_id}/calibrate</code></li><li><code>GET /knowledge-bases/{knowledge_base_id}/test-runs</code></li><li><code>GET /knowledge/test-runs/{test_run_id}</code></li><li><code>POST /knowledge-bases/{knowledge_base_id}/baseline</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>A build moves from creation through ingestion to persisted, retrieval-ready state, optionally routed through a background worker when queueing is enabled. The sequence below traces that path end to end:</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as User
+    participant UI as KnowledgeBases UI
+    participant API as routes/knowledge_bases.py
+    participant SVC as KnowledgeBaseService
+    participant DB as Metadata DB
+    participant WK as KnowledgeBaseWorker
+    participant OBJ as Object Store
+    participant EMB as Embedding backend
+    participant AGE as Apache AGE
+
+    U-&gt;&gt;UI: create KB or new version
+    UI-&gt;&gt;API: POST /knowledge-bases or /versions
+    API-&gt;&gt;SVC: create_knowledge_base(...) or create_version(...)
+    SVC-&gt;&gt;DB: insert KB, version, and run rows
+
+    alt queue enabled
+        DB--&gt;&gt;WK: queued run available
+        WK-&gt;&gt;SVC: execute_run(run_id)
+    else inline build
+        SVC-&gt;&gt;SVC: execute_run(run_id)
+    end
+
+    SVC-&gt;&gt;OBJ: expand selected files and folders
+    SVC-&gt;&gt;OBJ: read source bytes
+    SVC-&gt;&gt;SVC: extract document text
+    SVC-&gt;&gt;SVC: chunk text by chosen strategy
+    SVC-&gt;&gt;EMB: embed chunks
+    SVC-&gt;&gt;SVC: build local graph artifacts
+    opt graph target includes AGE
+        SVC-&gt;&gt;AGE: sync version graph
+        AGE--&gt;&gt;SVC: sync summary
+    end
+    SVC-&gt;&gt;OBJ: write logs, manifest, stats, chunks, entities, relationships, graph
+    SVC-&gt;&gt;DB: persist sources, chunks, entities, relationships, run events, version summary
+    DB--&gt;&gt;UI: active completed version and run timeline</pre></div>
+<p>Once a version has built successfully, retrieval follows a separate path that selects a mode appropriate to the question and the available artifacts:</p>
+<ul><li><code>query(...)</code> resolves the visible versions and the effective retrieval modes.</li><li>Dense scoring computes similarity over the stored chunk embeddings.</li><li>Hybrid mode adds lexical BM25-style scoring and reciprocal-rank fusion, so exact-term matches reinforce semantic matches.</li><li>Graph-hybrid mode adds entity and relationship expansion drawn from the local graph tables, broadening recall through related concepts.</li><li>AGE mode can seed retrieval from the synced graph and then rerank with dense chunk similarity.</li><li>Answer generation calls OpenAI or Anthropic directly when configured, and falls back to a deterministic context summary when it is not.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Authorization is intentionally narrow, granting reads broadly while reserving every mutating operation for operators. The access rules are:</p>
+<ul><li>Reads require an authenticated user.</li><li>Create, update, delete, build, activate, sync, calibrate, and baseline routes require <code>SCOPE_OPERATOR</code>.</li><li>List and detail paths re-check visibility through <code>apply_visibility_filter</code> and the <code>_require_visible_*</code> helpers.</li></ul>
+<p>Beyond authorization, several controls protect the trust boundary between CALIBER and the code, models, and storage it drives:</p>
+<ul><li>The local embedding runtime is gated by <code>local_embedding_block_reason(...)</code>, so a risky or unsupported local torch stack is blocked unless explicitly allowed.</li><li>Object-store access uses secret indirection through <code>resolve_secret</code> rather than literal credentials.</li><li>Reserved output prefixes under <code>.caliber/knowledge-bases</code> are excluded from source expansion to prevent self-ingestion loops.</li><li>Only completed versions are retrieval-ready, so partial builds never serve queries.</li><li>Optional dependencies fail as <code>KnowledgeDependencyError</code> and surface as structured 503s rather than generic crashes.</li></ul>
+<p>Delete behavior is intentionally aggressive but bounded, distinguishing a reversible lifecycle change from a destructive removal:</p>
+<ul><li><code>PATCH status=archived</code> is a soft lifecycle change.</li><li><code>DELETE /knowledge-bases/{id}</code> is a hard delete of the KB rows, versions, runs, chunks, entities, relationships, and test runs.</li><li>Object-store output cleanup and AGE subgraph deletion run as best-effort follow-up operations.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Operational durability is first-class: every build leaves a complete, queryable trail in both the database and the object store. The runtime records the following signals:</p>
+<ul><li>Each build gets a <code>CaliberKnowledgeBaseRun</code> row carrying queue, claim, lease, and heartbeat fields.</li><li><code>CaliberKnowledgeBaseRunEvent</code> stores an ordered event timeline such as <code>build_queued</code>, <code>source_started</code>, <code>graph_built</code>, and <code>build_completed</code>.</li><li>Completed and failed builds persist <code>manifest.json</code>, <code>stats.json</code>, <code>logs.jsonl</code>, and export artifacts to the object store.</li><li>Version summaries retain aggregate counts, graph settings, embedding dimension, and AGE sync status.</li></ul>
+<p>These signals are tuned through configuration that governs queueing, the background worker, graph extraction, AGE, and local embeddings:</p>
+<ul><li><code>knowledge_build_queue_enabled</code></li><li><code>knowledge_build_worker_enabled</code></li><li><code>knowledge_build_worker_interval_seconds</code></li><li><code>knowledge_build_lease_seconds</code></li><li><code>knowledge_graph_extractor_backend</code></li><li><code>knowledge_age_enabled</code></li><li><code>knowledge_age_graph_name</code></li><li><code>allow_flagged_local_embeddings</code></li></ul>
+<p>The UI is organized around this same operational lifecycle, presenting one stage per task:</p>
+<ul><li>Library presents the KB inventory and visibility.</li><li>Build covers source selection, chunking, embeddings, and the graph profile.</li><li>Explore offers query, chunk inspection, and graph inspection.</li><li>Calibrate runs eval-dataset scoring and manages baselines.</li><li>Use surfaces the runtime-facing KB identity and version selection.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is designed to grow along well-defined seams. The current extension points are:</p>
+<ul><li>New chunkers can be added through <code>chunk_text(...)</code> and surfaced via <code>list_chunking_strategies()</code>.</li><li>New embedding models can be added to the curated catalog in <code>knowledge/embeddings.py</code>.</li><li>Graph extraction can evolve independently from AGE sync, because the local graph artifacts already form a complete intermediate representation.</li><li>Workflow nodes can reference a knowledge base by ID or pin explicit version IDs at runtime.</li></ul>
+<p>Those seams come with deliberate constraints that scope the current implementation:</p>
+<ul><li>Source selection and artifact output both live in the chosen object-store bucket today; there is no separate per-KB artifact bucket configuration.</li><li>Embeddings are local Hugging Face models only today, even though answer generation can use OpenAI or Anthropic.</li><li>Dense retrieval defaults to an in-process scan over version chunks; on Postgres with pgvector it can instead push a SQL-side nearest-neighbour top-k into the database (see §10). The cross-encoder rerank stage is local-model only, behind the same flagged-runtime guard as embeddings.</li><li>Calibration runs are synchronous for now.</li><li>Knowledge-base storage uses a direct S3-compatible client rather than the generic <code>WorkingDirectoryService</code>, so its storage behavior is similar to but not yet fully unified with workflow and project file storage.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="10-retrieval-at-scale-pgvector-ann-cross-encoder-reranking">10. Retrieval at scale: pgvector ANN + cross-encoder reranking<a class="anchor" href="#10-retrieval-at-scale-pgvector-ann-cross-encoder-reranking" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>First-stage dense retrieval and a second-stage reranker are now separable, which takes retrieval from demo-scale to large corpora without changing the query contract.</p>
+<p><strong>pgvector SQL-side ANN.</strong> By default <code>_load_dense_candidates</code> loads every chunk for the version and scores cosine similarity in Python — correct, but O(n·d) per query. When <code>CALIBER_KNOWLEDGE_PGVECTOR_ENABLED</code> is set <em>and</em> the platform runs on Postgres, dense retrieval instead issues a SQL nearest-neighbour query (<code>ORDER BY embedding_vec &lt;=&gt; :q LIMIT :pool</code>) via <code>knowledge/pgvector_ann.py</code>: the database computes the distances in C and returns only the candidate pool, so the working set is bounded by <code>CALIBER_KNOWLEDGE_ANN_CANDIDATE_POOL_SIZE</code> rather than the whole corpus. Migration <code>0060</code> (Postgres-only) creates the <code>embedding_vec</code> column as <code>vector(N)</code> plus an <strong>HNSW index</strong> (<code>USING hnsw (embedding_vec vector_cosine_ops)</code>) for sub-linear search. <code>N</code> is <code>CALIBER_KNOWLEDGE_EMBEDDING_DIMENSION</code> (default 1024 — the dimension of the recommended BGE-M3 / E5-large / Qwen3 models; MiniLM is 384), because pgvector's HNSW index requires a fixed dimension and <strong>caps at 2000</strong> — the maximum CALIBER supports for ANN, comfortably above every curated model. The column is populated alongside the JSON <code>embedding</code> during build, but only for chunks whose dimension matches <code>N</code>; a knowledge base built at a different dimension simply leaves <code>embedding_vec</code> NULL and falls back to the Python scan, so a mismatch degrades gracefully rather than failing the build. On SQLite (tests, local dev) the column does not exist, <code>is_postgres</code> is false, and the Python scan is the unchanged fallback — so the two paths return the same shape and the SQLite-based test suite pins behaviour.</p>
+<p><strong>Cross-encoder rerank.</strong> When <code>CALIBER_KNOWLEDGE_RERANK_ENABLED</code> is set, retrieval becomes two-stage: the first stage gathers the larger candidate pool (by ANN or cosine, plus BM25 / graph fusion as configured), then a local <code>sentence-transformers</code> <code>CrossEncoder</code> (<code>CALIBER_KNOWLEDGE_RERANK_MODEL</code>, default <code>cross-encoder/ms-marco-MiniLM-L-6-v2</code>) re-scores each <code>(question, passage)</code> pair jointly and reorders the pool down to the requested <code>top_k</code>. The raw rerank logits are min-max normalized into the result <code>score</code>, with the original first-stage score preserved under <code>score_breakdown.retrieval</code> and the rerank score under <code>score_breakdown.rerank</code>. The reranker reuses the embedding runtime's flagged-local guard and ships in the existing <code>knowledge-local</code> extra, so no new dependency is introduced. Reranking applies uniformly across all retrieval modes (dense, hybrid, graph_hybrid, age_graph).</p>
+<p><strong>Judged calibration metrics share the platform judge path.</strong> The knowledge-base calibration metrics that need a model — faithfulness and answer-correctness — no longer hand-roll a prompt and parse a number. <code>build_kb_judge</code> constructs two <code>mlflow.genai.make_judge</code> judges through the shared <code>caliber.eval.judge_scorer.build_judge</code>, and <code>KbJudge</code> scores them with <code>score_with_judge</code>, so KB calibration uses the exact same judge machinery as the Evaluations scorecard and the optimization gate (deterministic Recall@k / nDCG@k remain pure functions). See the Evaluation and Calibration module docs.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

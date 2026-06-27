@@ -1,0 +1,5 @@
+{
+  "yaml.schemas": {
+    "./.vscode/cookbook-permissive.schema.json": "docs-site/cookbooks/**/*.yaml"
+  }
+}

@@ -1,0 +1,179 @@
+{
+  "steps": [
+    {
+      "where": "Knowledge › Object Store › Bucket browser",
+      "do": "Create a bucket for the policy corpus, then upload the four Markdown policy docs (skip the READMEs). In the <strong>Bucket browser</strong> panel, type the bucket name into the <em>new-bucket-name</em> field and click the <strong>+</strong> create button (“Create bucket”). With the bucket open, click <strong>Upload</strong> (or drag-and-drop) to add the four files. The corpus ships a <strong>deliberate 30-vs-14-day refund contradiction</strong> across two of the files — keep both, since it drives the clarify/abstain behavior later.",
+      "fill": [
+        ["new-bucket-name", "<code>policy-corpus</code>"],
+        ["Upload — refund policy (30-day, authoritative)", "<a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/refund-policy.md\">refund-policy.md</a>"],
+        ["Upload — refund FAQ (14-day, the contradiction)", "<a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/refund-faq.md\">refund-faq.md</a>"],
+        ["Upload — security policy", "<a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/security-policy.md\">security-policy.md</a>"],
+        ["Upload — data retention policy", "<a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/data-retention-policy.md\">data-retention-policy.md</a>"]
+      ],
+      "click": "+ (Create bucket), then Upload",
+      "see": "Bucket <code>policy-corpus</code> listing the four <code>*.md</code> documents, each previewable in-app (Created / Modified / Size / Content-type chips above the rendered markdown), with the <code>Source id:</code> line visible near the top of each rendered document body.",
+      "asset": "bucket: policy-corpus (4 docs)",
+      "assetlink": [
+        {"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/refund-policy.md", "label": "refund-policy.md"},
+        {"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/refund-faq.md", "label": "refund-faq.md"},
+        {"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/security-policy.md", "label": "security-policy.md"},
+        {"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/data-retention-policy.md", "label": "data-retention-policy.md"}
+      ]
+    },
+    {
+      "where": "Knowledge › Knowledge Base › New knowledge base",
+      "do": "Build a Knowledge Base from the corpus. Click <strong>New knowledge base</strong>, pick <code>policy-corpus</code> as the source bucket, select the four policy docs, and expand the <strong>Advanced configuration</strong> disclosure to choose an embedding model. Click <strong>Create knowledge base</strong> and wait for the build run to finish.",
+      "fill": [
+        ["Name", "<code>policy-qa-kb</code>"],
+        ["Source bucket", "<code>policy-corpus</code>"],
+        ["Documents", "the 4 policy <code>*.md</code> files"],
+        ["Advanced configuration", "choose an embedding model (defaults are fine)"]
+      ],
+      "click": "Create knowledge base",
+      "see": "A build run starts on the Build stage; when it reaches <code>completed</code> the KB has an active version you can Explore. Gate evidence: capture the KB version id.",
+      "asset": "KB version: policy-qa-kb"
+    },
+    {
+      "where": "Knowledge › Knowledge Base › policy-qa-kb › Explore › Chunks",
+      "do": "Select the built version in the header switcher, then open <strong>Explore → Chunks</strong> to confirm the corpus chunked cleanly with correct source lineage.",
+      "see": "Chunks attributed to all four sources by their <strong>filename / source_key</strong> — <code>refund-policy.md</code>, <code>refund-faq.md</code>, <code>security-policy.md</code>, <code>data-retention-policy.md</code> (this filename is the identifier the calibrator matches gold <code>sources</code> against — NOT the in-document <code>Source id:</code> string).",
+      "asset": "chunk + lineage check"
+    },
+    {
+      "where": "Knowledge › Knowledge Base › policy-qa-kb › Explore › Query",
+      "do": "Compare retrieval modes on one question. In the <strong>Query</strong> view (“Ask the corpus”), type the question, pick a retrieval mode on the segmented control, and click <strong>Ask</strong>; repeat for <code>dense</code>, then <code>hybrid</code>, then <code>graph_hybrid</code>, and note which mode surfaces the right chunk highest. (If AGE is enabled: open <strong>Explore → Graph</strong>, click <strong>Sync to AGE</strong> first, then re-ask with mode <code>age_graph</code> — the build does not auto-sync.)",
+      "fill": [
+        ["Question", "<code>How long are audit logs retained?</code>"],
+        ["Retrieval mode (segmented control)", "<code>dense</code> → <code>hybrid</code> → <code>graph_hybrid</code> (then <code>age_graph</code> if synced)"]
+      ],
+      "click": "Ask",
+      "see": "Ranked chunks per mode; the <code>data-retention-policy.md</code> chunk should rank highest under the stronger mode — your mode-comparison evidence.",
+      "asset": "retrieval mode comparison"
+    },
+    {
+      "where": "Knowledge › Knowledge Base › policy-qa-kb › Calibrate",
+      "do": "Run KB calibration to get hard numbers. The Calibrate stage scores retrieval against a <strong>Test set</strong> of questions whose gold lives <strong>only</strong> in <code>expected.sources</code> (a list of <strong>source keys</strong> — each the chunk's filename / source_key as shown in <strong>Explore → Chunks</strong>, e.g. <code>data-retention-policy.md</code>, NOT the in-document Source id) and <code>expected.answer</code> — that is what the calibrator reads for Recall@k / nDCG@k / Answer-correctness. The Observability <em>Add to test set</em> widget captures just <code>{expected: &lt;response text&gt;}</code> (no <code>sources</code>/<code>answer</code> field), so author this gold set in the <strong>UI row editor</strong>: create the test set (next pattern: <strong>Evaluate › Test Sets › + New Test Set</strong>), open its detail page at <code>/eval-datasets/:id</code>, and click <strong>+ Add example</strong> for each question, setting <code>inputs</code> = <code>{question}</code> and <code>expectations</code> = <code>{sources:[\"data-retention-policy.md\"], answer:\"…\"}</code> from the rows in <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/calibration-questions.jsonl\">calibration-questions.jsonl</a> (each row already carries <code>expectations.sources</code> + <code>expectations.answer</code>). (Prefer the API? <code>POST</code> the same rows to <code>/eval-datasets/{id}/examples</code>.) Back on Calibrate, choose the built <strong>version</strong>, the <strong>Test set</strong>, a <strong>retrieval mode</strong>, and <strong>Top-k</strong>, then click <strong>Run calibration</strong>. Tune chunking or switch the mode, re-run, and show recall improve without lowering faithfulness; then set it as the baseline.",
+      "fill": [
+        ["Version", "the completed <code>policy-qa-kb</code> version"],
+        ["Test set", "your calibration question set (C01–C06), each row POSTed as <code>{input:{question}, expected:{sources:[…], answer:…}}</code>"],
+        ["Retrieval mode / Top-k", "e.g. <code>hybrid</code> / <code>5</code>"]
+      ],
+      "click": "Run calibration",
+      "see": "Server-side scored metrics: <strong>Recall</strong>, <strong>nDCG</strong>, <strong>Faithfulness</strong>, and <strong>Answer-correctness</strong> cards plus a per-question table. Re-run after a tweak to show the recall lift; use <em>Set baseline</em>. Gate: retrieval recall improves after calibration.",
+      "asset": "calibration run (Recall / nDCG / Faithfulness)",
+      "assetlink": [{"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/calibration-questions.jsonl", "label": "calibration-questions.jsonl"}]
+    },
+    {
+      "where": "Library › Prompts › New prompt",
+      "do": "Author the answer prompt. Paste the template body (below the frontmatter). It tells the model to answer <strong>only</strong> from retrieved chunks, cite every claim, <strong>abstain</strong> when evidence is missing, and <strong>clarify</strong> (not pick a side) when sources conflict — emitting the JSON contract <code>{decision, answer, citations, confidence}</code> the router reads.",
+      "fill": [
+        ["Name", "<code>kb-answer</code>"],
+        ["Commit message", "<code>v1 grounded policy-QA answerer (cite-or-abstain, conflict-aware)</code>"],
+        ["Template body (paste)", "Paste the body of <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/prompts/kb-answer.md\">kb-answer.md</a> — variables <code>{{ question }}</code>, <code>{{ policy_domain }}</code>, <code>{{ retrieved_chunks }}</code>"]
+      ],
+      "click": "Save as New Version",
+      "see": "<code>kb-answer</code> v1 saved under the <code>prod</code> alias.",
+      "asset": "prompt: kb-answer",
+      "assetlink": [{"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/prompts/kb-answer.md", "label": "kb-answer.md"}]
+    },
+    {
+      "where": "Library › Skills › Build Skill",
+      "do": "(Optional reinforcement) Author two small skills. Click <strong>Build Skill</strong> to open the wizard (Identity → Content → Composability → Triggers → Review & create). <code>contradiction-detector</code> runs ahead of the agent to force a <code>clarify</code> on the 30-vs-14-day conflict; <code>citation-and-next-steps</code> runs after it to format citations + one next step. On <em>Identity</em> set the kebab-case name, a real skill category (<code>compliance_safety</code> for <code>contradiction-detector</code>, <code>research</code> for <code>citation-and-next-steps</code>), and tags; on <em>Content</em> set the summary (the narrow trigger text the selector reads — keep it tight) and the SKILL.md body. Finish with <strong>Create Skill</strong>. Names must <em>not</em> start with <code>claude</code>/<code>anthropic</code>.",
+      "fill": [
+        ["Skill 1", "From <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/skills/contradiction-detector.md\">contradiction-detector.md</a> — name + category <code>compliance_safety</code> + tags (Identity); summary + content (Content)"],
+        ["Skill 2", "From <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/skills/citation-and-next-steps.md\">citation-and-next-steps.md</a> — name + category <code>research</code> + tags (Identity); summary + content (Content)"]
+      ],
+      "click": "Create Skill",
+      "see": "Both kebab-case skills listed in the Library; opening one shows its workspace (render preview + trigger tests).",
+      "asset": "skills: contradiction-detector + citation-and-next-steps",
+      "assetlink": [
+        {"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/skills/contradiction-detector.md", "label": "contradiction-detector.md"},
+        {"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/skills/citation-and-next-steps.md", "label": "citation-and-next-steps.md"}
+      ]
+    },
+    {
+      "where": "Compose › Workflows › New Workflow",
+      "do": "Create the answer workflow from a knowledge-retrieval template. Click <strong>New Workflow</strong>, type the name in the name box, then click the <strong>Knowledge Q&A</strong> template tile (the <code>knowledge_rag</code> template; or <strong>GraphRAG Hybrid</strong> for <code>graph_hybrid_rag</code>) — selecting the tile creates the workflow and opens the Studio editor. The next step wires the nodes and binds your prompt.",
+      "fill": [
+        ["Give your workflow a name…", "<code>kb-assistant</code>"]
+      ],
+      "click": "Knowledge Q&A (template tile)",
+      "see": "The Workflow Studio editor opens with a <code>knowledge_query</code>-centric starter graph.",
+      "asset": "workflow: kb-assistant"
+    },
+    {
+      "where": "Compose › Workflows › kb-assistant (Studio editor)",
+      "do": "Wire the four-stage chain. Point the <strong>Knowledge Query</strong> node at the <code>policy-qa-kb</code> version (mode <code>hybrid</code>); add a <strong>Python Code</strong> node <code>score_confidence</code> that derives a confidence + conflict flag from the retrieved set (define <code>run_python_node(...)</code> returning a dict); bind prompt <code>kb-answer</code> on the <strong>Agent</strong> node <code>draft_answer</code> (pass <code>question</code>, <code>policy_domain</code>, <code>retrieved_chunks</code>); add a <strong>Router</strong> that branches on <code>decision</code> (answer | abstain | clarify), routing the non-answer branches to the output so they’re flagged for review. Click <strong>Save</strong>. (Routing uncertain runs to a human queue happens in the last step via Review Queues, by enqueuing the run’s trace id — there is no review-enqueue node in the palette.)",
+      "fill": [
+        ["retrieve_chunks (Knowledge Query)", "KB = <code>policy-qa-kb</code>, mode = <code>hybrid</code>"],
+        ["score_confidence (Python Code)", "derive <code>confidence</code> + conflict flag from retrieved chunks"],
+        ["draft_answer (Agent)", "bind <code>kb-answer</code>; inputs ← question / policy_domain / retrieved_chunks"],
+        ["abstain_or_answer (Router)", "branch on <code>decision</code> = answer | abstain | clarify"]
+      ],
+      "click": "Save",
+      "see": "Saved graph: <code>knowledge_query → score_confidence → draft_answer(kb-answer) → router → output</code>, with abstain/clarify branches surfaced for review.",
+      "asset": "workflow saved (RAG + router)"
+    },
+    {
+      "where": "Compose › Workflows › kb-assistant › Runs",
+      "do": "On the workflow detail page open the <strong>Runs</strong> tab. For each behavior, put the question in the <em>run input</em> box and click <strong>Run Pipeline</strong> (or “Queue Run”). An <strong>answerable</strong> question returns a cited answer; a <strong>missing-evidence</strong> question abstains with a <code>missing_evidence</code> list; the <strong>conflicting</strong> refund-window question retrieves both refund docs and returns <code>clarify</code> (not a silently-picked side).",
+      "fill": [
+        ["Answerable", "<code>How long do we retain security audit logs?</code> → <code>decision: answer</code>, cites <code>DATA-RETENTION-POLICY</code> (365 days)"],
+        ["Missing-evidence", "<code>What is the enterprise incident SLA, in minutes?</code> → <code>decision: abstain</code> + <code>missing_evidence</code>"],
+        ["Conflicting", "<code>How many days do I have to request a refund?</code> → <code>decision: clarify</code> (30 vs 14 days)"]
+      ],
+      "click": "Run Pipeline",
+      "see": "Three run rows under the Runs tab showing answer / abstain / clarify. Note their trace ids for evaluation + review.",
+      "asset": "workflow runs: answer / abstain / clarify"
+    },
+    {
+      "where": "Evaluate › Judges › + New Judge",
+      "do": "Create the LLM faithfulness judge. Click <strong>+ New Judge</strong> and fill the fields. The <em>Instructions</em> must reference <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> (use the insert buttons) and pass an <code>answer</code> only if every claim is cited, an <code>abstain</code> only if it declined with a <code>missing_evidence</code> list, and a <code>clarify</code> only if it surfaced the conflict. Set <em>Returns</em> to <code>bool</code> (pass/fail), then click <strong>Create judge</strong>.",
+      "fill": [
+        ["Name", "<code>CitationFaithfulness</code>"],
+        ["Model", "your configured judge model (e.g. <code>openai:/gpt-4o-mini</code> / gateway default)"],
+        ["Returns", "<code>bool</code>"],
+        ["Instructions (paste)", "Paste <code>instructions</code> from <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/judges/citation-faithfulness.judge.json\">citation-faithfulness.judge.json</a> (must reference <code>{{ inputs }}</code>/<code>{{ outputs }}</code>/<code>{{ expectations }}</code>)"]
+      ],
+      "click": "Create judge",
+      "see": "Judge <code>CitationFaithfulness</code> appears in the Judges list. It is a registered judge for tracing/assessments and — because the Evaluations <em>scorer</em> picker exposes a <strong>Custom LLM judges</strong> section — is also selectable as a <code>Judge.&lt;id&gt;</code> scorer on the Evaluations page, which you wire in as a grader two steps from now.",
+      "asset": "judge: CitationFaithfulness",
+      "assetlink": [{"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/judges/citation-faithfulness.judge.json", "label": "citation-faithfulness.judge.json"}]
+    },
+    {
+      "where": "Evaluate › Test Sets › + New Test Set",
+      "do": "Build the scored evaluation set. Click <strong>+ New Test Set</strong>, give it a Name and Owner (both required), and click <strong>Create</strong> — the set is created empty. Then open its detail page at <code>/eval-datasets/:id</code> and author rows with <strong>+ Add example</strong>: set each row's curated top-level <code>expected</code> substring that <code>contains_expected</code> reads (e.g. <code>365 days</code>, <code>AES-256</code>) directly — these <strong>cannot</strong> be set through Observability's <em>Add to test set</em> (it auto-derives <code>expected</code> from the full trace response). Add each row from <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/qa-eval.jsonl\">qa-eval.jsonl</a> (each answerable row carries its curated <code>expected</code> substring), covering answer, clarify (Q05), and abstain (Q06/Q07) rows. (Prefer the API? POST the same rows to <code>/eval-datasets/{id}/examples</code>.)",
+      "fill": [
+        ["Name", "<code>policy-qa-eval</code>"],
+        ["Owner", "your handle (required, e.g. <code>@you</code>)"]
+      ],
+      "click": "Create",
+      "see": "Dataset <code>policy-qa-eval</code> appears; at <code>/eval-datasets/:id</code> use <strong>+ Add example</strong> to add its golden answer rows plus the clarify (Q05) and abstain (Q06/Q07) rows (each answerable row's curated <code>expected</code> substring) per <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/qa-eval.jsonl\">qa-eval.jsonl</a> (Q01–Q08).",
+      "asset": "test set: policy-qa-eval",
+      "assetlink": [{"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/qa-eval.jsonl", "label": "qa-eval.jsonl"}]
+    },
+    {
+      "where": "Evaluate › Evaluations › Run evaluation",
+      "do": "Score faithfulness and abstention. Click <strong>Run evaluation</strong> to open the run panel, pick <code>policy-qa-eval</code>, and check the deterministic scorers — <code>Contains expected</code> (<code>contains_expected</code>) checks whether the gold substring in each row's top-level <code>expected</code> field appears in the prediction, and <code>Token F1</code>/<code>Exact match</code> sharpen it. The scorer reads the substring from <code>expected</code> (e.g. <code>\"365 days\"</code>, <code>\"AES-256\"</code>); the answerable + clarify rows carry one, while the abstain rows (Q06/Q07) set <code>expected: \"\"</code> — so <code>contains_expected</code> is meaningful only on the answerable rows, and abstain/clarify behavior is judged by the decision rows, not by this substring scorer. Also tick the <code>CitationFaithfulness</code> judge from the prior step under <strong>Custom LLM judges</strong> so it runs as a <code>Judge.&lt;id&gt;</code> scorer for an automatic per-row faithfulness verdict. Click <strong>Run</strong>, read the scorecard, pin a baseline, and optionally compare a weaker prompt/mode in the compare view.",
+      "fill": [
+        ["Dataset", "<code>policy-qa-eval</code>"],
+        ["Scorers", "check <code>Contains expected</code> (<code>contains_expected</code>); add <code>Token F1</code> / <code>Exact match</code> as desired; tick <code>CitationFaithfulness</code> under <strong>Custom LLM judges</strong>"]
+      ],
+      "click": "Run",
+      "see": "A scorecard with per-example pass/fail + overall, including the <code>CitationFaithfulness</code> judge column. Gate: abstain/clarify rows behave correctly (<code>abstention_policy_compliance = 1.0</code>); faithfulness from the judge column (<code>faithfulness_min ≥ 0.90</code>).",
+      "asset": "eval run: faithfulness + abstention"
+    },
+    {
+      "where": "Observe › Review Queues › + New Queue",
+      "do": "Route the uncertain runs to human review. Click <strong>+ New Queue</strong>, give it a name and one or more reviewer questions, and click <strong>Create queue</strong>. Then paste the <strong>trace ids</strong> of the <code>abstain</code> and <code>clarify</code> runs (from the workflow Runs tab) into the queue's enqueue box and click <strong>Enqueue</strong>. Answer the questions — answers write back onto the trace, closing the feedback loop.",
+      "fill": [
+        ["Name", "<code>policy-qa-review</code>"],
+        ["Questions", "e.g. “Is the abstention justified by missing evidence?”, “Did the answer cite the right source?”"],
+        ["Enqueue (trace ids)", "the abstain + clarify run trace ids, space/newline separated"]
+      ],
+      "click": "Create queue",
+      "see": "A trace-linked review queue; enqueued traces appear as items, and submitted answers write back on each trace as assessments/expectations.",
+      "asset": "review queue: policy-qa-review"
+    }
+  ]
+}

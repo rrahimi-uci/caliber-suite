@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Sets Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Test Sets Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Quality &amp; trust</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Test sets</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Quality &amp; trust · Architecture reference</div>
+          <h1 id="top">Test Sets Architecture</h1>
+          <p class="doc-summary">Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Test Sets: CALIBER's versioned evaluation-dataset substrate</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>Durable, named sets of <code>input</code> / <code>expected</code> examples (UI "Test Sets", backend <code>eval-datasets</code>).</td></tr><tr><td><strong>Where state lives</strong></td><td>Relational, CALIBER-owned: <code>CaliberEvalDataset</code>, <code>CaliberEvalDatasetExample</code>, <code>CaliberEvalDatasetFile</code>, <code>CaliberEvalRun</code> — not in MLflow.</td></tr><tr><td><strong>Curation</strong></td><td>Append-only; manual rows, trace import, and edit-via-<code>revise</code>/<code>supersede</code>, each bumping <code>dataset.version</code>.</td></tr><tr><td><strong>Trace capture</strong></td><td><code>POST /examples/from-trace</code> snapshots a trace into DB JSON via <code>fetch_trace_detail</code>.</td></tr><tr><td><strong>MLflow sync</strong></td><td>On-demand push via <code>POST /eval-datasets/{dataset_id}/sync</code> and <code>dataset_sync.py</code>; CALIBER stays authoritative.</td></tr><tr><td><strong>Key surfaces</strong></td><td><code>routes/eval_datasets.py</code>, <code>routes/evaluations.py</code>, and <code>EvalDatasets.tsx</code> (+ <code>/eval-datasets/:id</code> detail editor).</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into each dimension in detail.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The test-sets module is CALIBER's versioned evaluation-dataset substrate. A naming note avoids confusion throughout this document: the UI says "Test Sets", while the backend module and routes use <code>eval-datasets</code>; the two refer to the same thing. The module's responsibilities are:</p>
+<ul><li>to define durable, named sets of <code>input</code> / <code>expected</code> examples used to evaluate prompts, workflows, and calibration targets;</li><li>to preserve change history through append-only example management instead of destructive edits;</li><li>to allow operators to create examples manually or derive them from observed traces;</li><li>to provide filtered listing, archival, and version-reconstruction surfaces;</li><li>to supply downstream evaluation runs, prompt optimization, and knowledge-base calibration workflows with stable datasets;</li><li>to attach dataset-scoped files through the same storage substrate used elsewhere in CALIBER when examples need artifacts; and</li><li>to synchronize a test set into MLflow's native GenAI dataset registry on demand so the MLflow dataset UI and source-trace lineage become available without surrendering CALIBER's role as the source of truth.</li></ul>
+<p>These responsibilities are implemented across the following primary code paths:</p>
+<ul><li><code>caliber/src/caliber/routes/eval_datasets.py</code></li><li><code>caliber/src/caliber/routes/evaluations.py</code></li><li><code>caliber/src/caliber/eval/provider.py</code></li><li><code>caliber/src/caliber/eval/mlflow_runner.py</code></li><li><code>caliber/src/caliber/eval/dataset_sync.py</code></li><li><code>caliber/src/caliber/db/models.py</code></li><li><code>caliber/src/caliber/schemas.py</code></li><li><code>caliber/src/caliber/storage/base.py</code></li><li><code>caliber/src/caliber/storage/service.py</code></li><li><code>caliber/src/caliber/prompt_targets.py</code></li><li><code>caliber/src/caliber/workflows/calibration.py</code></li><li><code>caliber/src/caliber/knowledge/service.py</code></li><li><code>caliber/caliber-ui/src/pages/EvalDatasets.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module separates dataset curation, which it owns, from evaluation scoring, which it merely feeds. The table below maps each responsibility to its owner.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Dataset CRUD and versioning</td><td><code>routes/eval_datasets.py</code></td><td>Owns list/get/create/update, append-only example creation, trace import, and supersede semantics.</td></tr><tr><td>Dataset and example persistence</td><td><code>CaliberEvalDataset</code>, <code>CaliberEvalDatasetExample</code></td><td>Database is the system of record for test-set identity, history, and visibility.</td></tr><tr><td>Dataset file attachments</td><td><code>CaliberEvalDatasetFile</code> + <code>storage/service.py</code></td><td>Reuses the general file-storage substrate for dataset/example-scoped files.</td></tr><tr><td>Evaluation runs</td><td><code>routes/evaluations.py</code> + <code>CaliberEvalRun</code></td><td>Consumes datasets to produce scorecards and per-example run results; related but not owned by dataset CRUD.</td></tr><tr><td>Schema contract</td><td><code>schemas.py</code></td><td>Defines request/response models and codifies append-only constraints.</td></tr><tr><td>Trace-derived curation</td><td><code>fetch_trace_detail</code> via <code>EvalExampleFromTraceRequest</code></td><td>Converts an observed trace into a regression example in one step.</td></tr><tr><td>Downstream consumers</td><td>prompts, workflows, knowledge services</td><td>Use dataset IDs and version-aware example loading to drive optimization and calibration.</td></tr><tr><td>Frontend inventory surface</td><td><code>EvalDatasets.tsx</code></td><td>Ships list, filters, archive/restore, and create UX under the "Test Sets" label.</td></tr></tbody></table></div>
+<p>Three boundaries underpin that division and recur throughout the design:</p>
+<ul><li>Dataset inventory is the set of named datasets and their metadata.</li><li>Example history is the append-only collection of rows carrying version and supersede markers.</li><li>Evaluation scorecards are run results that consume datasets but are stored separately from dataset curation itself.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The topology below shows curation flowing into the database, with trace import reaching back into MLflow, and downstream consumers reading the same versioned substrate.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI[Test Sets UI]:::ui
+    API[routes/eval_datasets.py]:::ctrl
+    DB[(CaliberEvalDataset&lt;br/&gt;CaliberEvalDatasetExample)]:::store
+    TRACE[trace_client.fetch_trace_detail]:::ctrl
+    MLF[(MLflow trace store)]:::ext
+    EVAL[routes/evaluations.py]:::ctrl
+    RUNS[(CaliberEvalRun)]:::store
+    CONS[Prompt optimization,&lt;br/&gt;workflow calibration,&lt;br/&gt;knowledge calibration]:::ctrl
+    STOR[WorkingDirectoryService&lt;br/&gt;dataset files]:::ctrl
+    FILES[(CaliberWorkflowFile&lt;br/&gt;CaliberEvalDatasetFile)]:::store
+
+    UI --&gt; API --&gt; DB
+    API --&gt; TRACE --&gt; MLF
+    DB --&gt; EVAL --&gt; RUNS
+    DB --&gt; CONS
+    API --&gt; STOR --&gt; FILES</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties define how the substrate behaves:</p>
+<ul><li>Dataset state is CALIBER-owned and relational; it does not live in MLflow.</li><li>Trace import is a capture path, not a foreign-key dependency on MLflow once the example row is written.</li><li>Evaluations are synchronous consumers of dataset rows, not background dataset compilers.</li><li>Dataset file attachment support reuses the general storage subsystem instead of inventing a separate blob layer.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module's persistence spans four tables, summarized below, with the database acting as the system of record.</p>
+<div class="table-wrap"><table><thead><tr><th>Table</th><th>Role</th></tr></thead><tbody><tr><td><code>CaliberEvalDataset</code></td><td>One named test set with owner, visibility, tags, status, and current version.</td></tr><tr><td><code>CaliberEvalDatasetExample</code></td><td>One append-only input/expected row with version metadata and optional supersede markers.</td></tr><tr><td><code>CaliberEvalDatasetFile</code></td><td>Maps dataset/example artifacts to canonical stored files.</td></tr><tr><td><code>CaliberEvalRun</code></td><td>Stores evaluation scorecards and per-example results produced from a dataset.</td></tr></tbody></table></div>
+<p>Each dataset row carries the following fields:</p>
+<ul><li><code>dataset_id</code></li><li><code>name</code></li><li><code>description</code></li><li><code>owner</code></li><li><code>project_id</code></li><li><code>visibility</code></li><li><code>tags</code></li><li><code>status</code></li><li><code>version</code></li></ul>
+<p>Each example row carries:</p>
+<ul><li><code>example_id</code></li><li><code>dataset_id</code></li><li><code>dataset_version</code></li><li><code>input</code></li><li><code>expected</code></li><li><code>weight</code></li><li><code>tags</code></li><li><code>created_at</code></li><li><code>superseded_at</code></li><li><code>superseded_version</code></li></ul>
+<p>Versioning is the heart of the design, and the rules below define exactly how a dataset's history is recorded and reconstructed:</p>
+<ul><li>Creating a dataset starts it at <code>version = 1</code>.</li><li>Appending an example bumps <code>dataset.version</code>.</li><li>Superseding an example also bumps <code>dataset.version</code>.</li><li>The current active set is the subset with <code>superseded_at IS NULL</code>.</li><li>A historical view "as of version N" is reconstructed from examples where <code>dataset_version &lt;= N</code> and <code>superseded_version</code> is either null or greater than <code>N</code>.</li></ul>
+<p>A few ownership rules keep that history trustworthy:</p>
+<ul><li>The authenticated actor becomes the dataset owner at creation time, even if the request body provides a different <code>owner</code>.</li><li>Visibility is derived from the active project context rather than delegated to the caller.</li><li>Trace-derived examples snapshot the observed request/response into database JSON, so later MLflow retention does not invalidate the saved test case.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>All HTTP routes in CALIBER are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix below. The module exposes dataset curation routes plus the evaluation-run routes that consume the datasets.</p>
+<p>The dataset routes cover the full curation lifecycle:</p>
+<ul><li><code>GET /eval-datasets</code></li><li><code>POST /eval-datasets</code></li><li><code>GET /eval-datasets/{dataset_id}</code></li><li><code>PATCH /eval-datasets/{dataset_id}</code></li><li><code>GET /eval-datasets/{dataset_id}/examples</code></li><li><code>POST /eval-datasets/{dataset_id}/examples</code></li><li><code>POST /eval-datasets/{dataset_id}/examples/from-trace</code></li><li><code>POST /eval-datasets/{dataset_id}/examples/{example_id}/supersede</code></li><li><code>POST /eval-datasets/{dataset_id}/examples/{example_id}/revise</code></li></ul>
+<p>The evaluation-run routes consume test sets to produce scorecards:</p>
+<ul><li><code>GET /evaluations</code></li><li><code>GET /evaluations/{run_id}</code></li><li><code>POST /evaluations</code></li></ul>
+<p>On the frontend, these routes compose into the following interaction model:</p>
+<ul><li>The Test Sets page lists active datasets by default and can filter by owner, tag, and status.</li><li>Archiving and restoring are metadata updates on the dataset row, not example mutations.</li><li>List-examples supports <code>version=&lt;N&gt;</code> to reconstruct a historical set and <code>include_superseded=true</code> to include retired rows.</li><li>From-trace import converts a captured MLflow trace into a regression example with <code>from-trace</code> and <code>trace:{trace_id}</code> style tags.</li><li>Evaluation runs can optionally pin <code>dataset_version</code> for reproducibility.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The sequence below walks through dataset creation, the two example-curation paths, and an optional scoring run, all of which build on the versioning rules defined earlier.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as Operator
+    participant UI as Test Sets UI
+    participant API as routes/eval_datasets.py
+    participant DB as Dataset DB
+    participant TC as trace_client
+    participant M as MLflow
+    participant EV as routes/evaluations.py
+    participant LLM as Predict target + scorers
+
+    U-&gt;&gt;UI: create test set
+    UI-&gt;&gt;API: POST /eval-datasets
+    API-&gt;&gt;DB: insert dataset version 1
+    DB--&gt;&gt;API: persisted dataset
+    API--&gt;&gt;UI: dataset metadata
+
+    opt Manual example append
+        UI-&gt;&gt;API: POST /eval-datasets/{id}/examples
+        API-&gt;&gt;DB: insert example, bump dataset.version
+        API--&gt;&gt;UI: example row
+    end
+
+    opt Trace-derived example
+        UI-&gt;&gt;API: POST /examples/from-trace
+        API-&gt;&gt;TC: fetch_trace_detail(trace_id)
+        TC-&gt;&gt;M: read trace request/response
+        API-&gt;&gt;DB: insert derived example, bump version
+        API--&gt;&gt;UI: example row with trace provenance tags
+    end
+
+    opt Score the dataset
+        U-&gt;&gt;EV: POST /evaluations
+        EV-&gt;&gt;DB: load active set or reconstruct version N
+        EV-&gt;&gt;LLM: run predict target and scorers
+        EV-&gt;&gt;DB: persist CaliberEvalRun
+        EV--&gt;&gt;U: scorecard summary and detail
+    end</pre></div>
+<p>The lifecycle is engineered for reproducibility, and three properties follow directly from the append-only model:</p>
+<ul><li>Examples are never edited in place, so a historical evaluation run can still be explained against the dataset shape that existed at the time.</li><li>The run layer reads dataset rows into an immutable scorecard payload rather than linking results to mutable in-memory objects.</li><li>Downstream modules can choose the current active set or a pinned historical version depending on their reproducibility requirements.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module grants privilege in proportion to an action's effect on shared state: reads are broadly available, additive curation is operator-gated, and mutations to identity or history are admin-gated.</p>
+<p>The authorization model is as follows:</p>
+<ul><li>Reads require an authenticated user.</li><li>Dataset creation, example append, trace import, and evaluation runs require <code>SCOPE_OPERATOR</code>.</li><li>Dataset metadata updates and supersede actions require <code>SCOPE_ADMIN</code>.</li></ul>
+<p>A set of data-integrity protections preserves the auditability the design depends on:</p>
+<ul><li>The server is authoritative for owner and project-derived visibility on dataset creation.</li><li>There is no example <code>PATCH</code> or delete route, which preserves auditability.</li><li>Supersede marks retirement without erasing the original example payload.</li><li>The version filter is range-checked, so nonsensical large integers do not silently behave like valid historical pins.</li></ul>
+<p>These protections rest on explicit trust boundaries around imported data and provider behavior:</p>
+<ul><li>Trace import trusts MLflow only long enough to read the observed payload, then stores a CALIBER-owned snapshot.</li><li>Imported traces are a starting point for curation, not a guarantee that the captured response is a correct gold answer.</li><li>Evaluation runs require a real LLM provider for the <code>llm</code> predict target and do not fabricate scores when the provider is unavailable.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The test-sets module relies on the platform observability layer rather than owning its own telemetry backend, so operating it is mostly a matter of reading a few high-signal indicators.</p>
+<p>The signals that matter most in operation are these:</p>
+<ul><li><code>dataset.version</code> is the first thing to inspect when users report that "the test set changed" or that "an older run no longer matches".</li><li>Archived datasets remain in the database, so historical runs and references do not disappear when a set is retired from active use.</li><li>Trace-derived example creation depends on MLflow trace readability, so a broken observability stack can block that specific curation path without breaking manual example entry.</li><li>Evaluation runs are synchronous and cap the number of scored examples, which avoids unbounded request times but also makes very large datasets an operational smell.</li></ul>
+<p>The module leans on several operationally adjacent systems rather than duplicating them:</p>
+<ul><li>Platform traces, logs, and metrics instrument dataset routes the same way they instrument the rest of CALIBER.</li><li>Dataset files reuse the general object-store and file-metadata infrastructure, so storage backend issues surface there rather than inside bespoke test-set code.</li><li>Evaluation outputs land in <code>CaliberEvalRun</code>, which gives operators a durable scorecard history separate from mutable UI state.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is built to grow without disturbing its versioned core, and its present limitations are the deliberate trade-offs of an append-only, reproducibility-first design.</p>
+<p>It can be extended along these seams:</p>
+<ul><li>Dataset files can be expanded into richer multimodal evaluation workflows without redesigning the core dataset schema.</li><li>Trace import can evolve to capture additional provenance or normalization logic while keeping the operator-facing route contract stable.</li><li>New downstream consumers can read the same versioned dataset substrate without coupling themselves to evaluation-run storage.</li></ul>
+<p>Its current constraints follow from the same choices:</p>
+<ul><li>The core curation model is append-only. Editing a row is therefore a supersede-old-plus-append-new operation; the <code>/examples/{id}/revise</code> endpoint performs both atomically (one version bump) so the operator experience is edit-in-place while the audit trail stays append-only.</li><li>Trace import currently flattens a trace into a single <code>input</code> / <code>expected</code> pair, which fits regression examples well but is not a full conversation transcript model.</li><li>Evaluation runs are synchronous and bounded, so very large governance corpora would require additional orchestration if the platform grows beyond small curated sets.</li><li>There is no bulk CSV/JSON import-export surface in the inspected module today, so operators curate through API calls, trace capture, or future tooling.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="10-mlflow-genai-dataset-sync">10. MLflow GenAI dataset sync<a class="anchor" href="#10-mlflow-genai-dataset-sync" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>MLflow 3.14 ships a first-class GenAI dataset registry (<code>mlflow.genai.datasets</code>) with a revamped dataset UI and source-trace lineage. Rather than migrate the curated data out of Postgres, CALIBER <em>pushes</em> a test set to that registry on demand so those native surfaces light up while CALIBER stays authoritative.</p>
+<p>The boundary mirrors the other MLflow integrations (<code>trace_client</code>, <code>mlflow_client</code>): <code>caliber/src/caliber/eval/dataset_sync.py</code> defines a <code>DatasetSyncClient</code> protocol with an <code>MLflowDatasetSyncClient</code> implementation and an in-memory fake for tests. A sync resolves (or creates) the MLflow dataset by name, tags it with the CALIBER <code>dataset_id</code> and version for round-trip lineage, and merges the current non-superseded examples as records (<code>inputs</code> / <code>expectations</code>). <code>merge_records</code> upserts by the record's input hash, so re-syncs are idempotent.</p>
+<p>The operator-facing surface is a single endpoint, <code>POST /eval-datasets/{dataset_id}/sync</code> (operator scope), which loads the live example set, performs the push, and persists the linkage back onto the row. Five nullable columns on <code>caliber_eval_datasets</code> record that linkage — <code>mlflow_dataset_id</code>, <code>mlflow_synced_at</code>, <code>mlflow_synced_version</code>, <code>mlflow_record_count</code>, and <code>mlflow_digest</code> (migration <code>0052</code>). The Test Sets page renders this as a per-row status pill: <em>Not synced</em>, <em>Synced · vN</em>, or amber <em>Stale · vN</em> when the example set has changed since the last push (<code>mlflow_synced_version &lt; version</code>). MLflow failures degrade to a clean <code>502</code> rather than corrupting CALIBER state, and the existing trace-derived example capture remains the path for turning observed traces into regression cases.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="11-curation-surface-the-test-set-detail-row-editor">11. Curation surface (the test-set detail + row editor)<a class="anchor" href="#11-curation-surface-the-test-set-detail-row-editor" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Each dataset has a detail route (<code>/eval-datasets/:id</code>) — the hand-curation surface that turns "datasets can only grow from traces" into "datasets can be authored." It lists the version's examples and lets an operator:</p>
+<ul><li><strong>Add a row</strong> by hand (<code>POST /examples</code>) — input and expected as JSON objects, with a weight and tags.</li><li><strong>Edit a row</strong> (<code>POST /examples/{id}/revise</code>) — the editor pre-fills the current values; saving supersedes the old row and appends the replacement in one transaction (one version bump, one <code>revise_eval_example</code> audit entry), honouring the append-only model while feeling like edit-in-place.</li><li><strong>Retire a row</strong> (<code>POST /examples/{id}/supersede</code>) without deleting it, so historical runs pinned to an older version stay reproducible.</li><li><strong>Capture from a trace</strong> (<code>POST /examples/from-trace</code>) — the same observed-trace path, available inline.</li><li><strong>Filter by version</strong> and reveal retired rows, mirroring the <code>?version=</code> / <code>?include_superseded=</code> query knobs.</li></ul>
+<p>This unblocks hand-built golden sets, which the judge surfaces depend on: you can't align a judge against human judgment, or score a prompt against a curated expectation set, without first being able to author that set by hand.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

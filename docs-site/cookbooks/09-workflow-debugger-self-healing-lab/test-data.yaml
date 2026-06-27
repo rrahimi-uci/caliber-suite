@@ -1,0 +1,12 @@
+golden_cases:
+  - id: WF01
+    input: {workflow_id: "wf_support_triage", failing_input: {ticket_text: "Missing account id", channel: "chat"}}
+    expected: {verification_status: "fixed"}
+edge_cases:
+  - id: WF02
+    input: {workflow_id: "wf_incident", failing_input: {alert_text: "partial telemetry", service: "gateway"}}
+    expected: {verification_status: "fixed_or_manual_review"}
+negative_cases:
+  - id: WF03
+    input: {workflow_id: "unknown", failing_input: {}}
+    expected_error: "workflow_not_found"

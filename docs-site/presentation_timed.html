@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920,height=1080">
+<title>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after { box-sizing: border-box; margin:0; padding:0; }
+  /* The deck is *designed* at 1920×1080 so the recorded MP4 captures
+     everything pixel-perfect. For browser viewing at any other size we
+     wrap the whole stage in `#stage` and apply a CSS transform to
+     scale-to-fit. Playwright sets the viewport to exactly 1920×1080
+     during recording, so scale becomes 1 and the transform is a no-op. */
+  html, body { width:100vw; height:100vh; overflow:hidden; margin:0; padding:0; }
+  body { font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#0c0a18; color:#f1ebff; }
+  #stage {
+    position:absolute; top:0; left:0;
+    width:1920px; height:1080px;
+    transform-origin: 0 0;
+    /* JS sets transform: translate(X,Y) scale(S) on load and resize. */
+  }
+  :root {
+    --bg: #0c0a18;
+    --bg2: #1a1530;
+    --bg-card: rgba(30,23,56,.78);
+    --bg-card-2: rgba(45,33,82,.6);
+    --border: rgba(111,93,202,.32);
+    --border-strong: rgba(155,138,255,.5);
+    --text: #f1ebff;
+    --text2: #b8a8d4;
+    --text3: #7a6c97;
+    --accent: #6f5dca;
+    --accent-light: #9b8aff;
+    --accent-dark: #4f3eaa;
+    --emerald: #10b981;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --cyan: #06b6d4;
+    --mono: 'JetBrains Mono','Fira Code','SF Mono',Menlo,monospace;
+  }
+  #particles { position:absolute; top:0; left:0; width:100%; height:100%; z-index:0; pointer-events:none; opacity:.45; }
+  .progress-bar { position:absolute; bottom:0; left:0; width:100%; height:3px; background:rgba(255,255,255,.05); z-index:100; }
+  .progress-fill { height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--accent-light)); transition:width .3s linear; }
+  .watermark { position:absolute; bottom:18px; right:32px; font-size:12px; color:var(--text3); letter-spacing:.3em; text-transform:uppercase; z-index:50; }
+  .scene-counter { position:absolute; bottom:18px; left:32px; font-size:12px; color:var(--text3); letter-spacing:.18em; font-family:var(--mono); z-index:50; }
+
+  .scene { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:80px; opacity:0; pointer-events:none; transition:opacity .6s ease; z-index:1; }
+  .scene.active { opacity:1; pointer-events:auto; }
+  .scene-inner { width:1700px; max-width:92%; text-align:center; position:relative; z-index:2; }
+
+  .reveal { opacity:0; transform:translateY(24px); }
+  .scene.active .reveal { animation: fadeInUp .8s ease-out both; animation-delay:var(--d,0s); }
+  @keyframes fadeInUp { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes expandWidth { from { width:0; } to { width:200px; } }
+  @keyframes glowPulse { 0%,100% { text-shadow:0 0 38px rgba(155,138,255,.5),0 0 80px rgba(111,93,202,.25); } 50% { text-shadow:0 0 58px rgba(155,138,255,.85),0 0 120px rgba(111,93,202,.45); } }
+  @keyframes flow { 0% { transform:translateX(-100%); } 100% { transform:translateX(200%); } }
+
+  .section-tag { font-size:12px; font-weight:700; letter-spacing:.28em; text-transform:uppercase; margin-bottom:18px; display:inline-block; padding:7px 18px; border:1px solid var(--border); border-radius:100px; background:rgba(111,93,202,.08); color:var(--accent-light); }
+  .section-title { font-size:52px; font-weight:800; line-height:1.12; margin-bottom:18px; letter-spacing:-.02em; }
+  .section-subtitle { font-size:20px; font-weight:400; color:var(--text2); line-height:1.6; max-width:1100px; margin:0 auto 36px; }
+  .accent-line { width:0; height:2px; margin:18px auto; background:linear-gradient(90deg,transparent,var(--accent-light),transparent); border-radius:2px; }
+  .scene.active .accent-line { animation: expandWidth 1s ease-out .4s both; }
+  .glow-text { background:linear-gradient(135deg,var(--accent-light),var(--accent)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+
+  /* Stat cards */
+  .stat-grid { display:flex; justify-content:center; gap:36px; margin:42px 0 28px; flex-wrap:wrap; }
+  .stat-card { background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:36px 44px; min-width:280px; backdrop-filter:blur(12px); position:relative; overflow:hidden; }
+  .stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+  .stat-card.red::before { background:var(--red); }
+  .stat-card.amber::before { background:var(--amber); }
+  .stat-card.purple::before { background:var(--accent); }
+  .stat-card.emerald::before { background:var(--emerald); }
+  .stat-card.cyan::before { background:var(--cyan); }
+  .stat-value { font-size:54px; font-weight:800; line-height:1; margin-bottom:8px; }
+  .stat-label { font-size:14px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.14em; }
+  .stat-desc { font-size:13px; color:var(--text3); margin-top:10px; line-height:1.6; }
+
+  /* Pipeline flow (scene 4) */
+  .pipeline-flow { display:flex; align-items:center; justify-content:center; gap:0; max-width:1620px; margin:32px auto 12px; flex-wrap:nowrap; }
+  .pipe-step { background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:18px 14px; min-width:170px; position:relative; text-align:center; }
+  .pipe-step .pn { font-size:10px; color:var(--text3); letter-spacing:.2em; text-transform:uppercase; margin-bottom:6px; }
+  .pipe-step .pt { font-size:17px; font-weight:700; color:var(--text); }
+  .pipe-step .pd { font-size:12px; color:var(--text2); margin-top:6px; line-height:1.4; }
+  .pipe-arrow { color:var(--text3); margin:0 6px; font-size:22px; opacity:.55; }
+  .pipe-step.glow { border-color:var(--border-strong); box-shadow: 0 0 24px rgba(111,93,202,.28); background: linear-gradient(180deg, rgba(111,93,202,.18), var(--bg-card)); }
+
+  /* Diagram boxes */
+  .diagram-row { display:flex; align-items:stretch; justify-content:center; gap:24px; margin-top:20px; }
+  .diagram-box { flex:1; max-width:380px; background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:24px; text-align:left; }
+  .diagram-box h4 { font-size:14px; color:var(--accent-light); letter-spacing:.16em; text-transform:uppercase; margin-bottom:12px; }
+  .diagram-box ul { list-style:none; padding:0; }
+  .diagram-box li { color:var(--text2); font-size:14px; line-height:1.7; padding-left:18px; position:relative; }
+  .diagram-box li::before { content:'›'; position:absolute; left:0; color:var(--accent-light); font-weight:700; }
+
+  /* Card for queue/diagnosis/eval */
+  .card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:24px 28px; text-align:left; }
+  .card-row { display:flex; gap:20px; margin-top:24px; justify-content:center; }
+  .badge { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:600; padding:4px 10px; border-radius:100px; letter-spacing:.06em; text-transform:uppercase; }
+  .badge.red { background:rgba(239,68,68,.14); color:#fca5a5; border:1px solid rgba(239,68,68,.3); }
+  .badge.amber { background:rgba(245,158,11,.14); color:#fcd34d; border:1px solid rgba(245,158,11,.3); }
+  .badge.emerald { background:rgba(16,185,129,.14); color:#6ee7b7; border:1px solid rgba(16,185,129,.3); }
+  .badge.purple { background:rgba(111,93,202,.16); color:var(--accent-light); border:1px solid rgba(155,138,255,.32); }
+  .mono { font-family:var(--mono); font-size:13px; color:var(--text2); }
+  .kv { display:flex; gap:8px; margin:6px 0; font-size:14px; }
+  .kv .k { color:var(--text3); min-width:120px; text-transform:uppercase; font-size:11px; letter-spacing:.14em; font-weight:600; margin-top:3px; }
+  .kv .v { color:var(--text); flex:1; }
+
+  /* Eval comparison bars (scene 6) */
+  .eval-grid { display:grid; grid-template-columns:160px 1fr; gap:14px 18px; align-items:center; }
+  .eval-label { color:var(--text2); font-size:14px; text-align:right; font-weight:500; }
+  .eval-bar { background:rgba(255,255,255,.04); border-radius:6px; height:30px; position:relative; overflow:hidden; }
+  .eval-fill { position:absolute; inset:0 auto 0 0; border-radius:6px; display:flex; align-items:center; padding:0 12px; font-size:13px; font-weight:600; color:#fff; }
+  .eval-fill.baseline { background:linear-gradient(90deg,#475569,#64748b); }
+  .eval-fill.candidate { background:linear-gradient(90deg,var(--accent-dark),var(--accent-light)); }
+
+  /* Approval / promotion */
+  .approve-card { width:1200px; margin:30px auto 0; background:var(--bg-card); border:1px solid var(--border); border-radius:18px; padding:32px; text-align:left; }
+  .approve-card .title-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+  .approve-card h3 { font-size:22px; }
+  .vote-row { display:flex; gap:16px; margin-top:18px; }
+  .vote-chip { background:rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.32); color:#6ee7b7; padding:8px 14px; border-radius:100px; font-size:13px; }
+  .vote-chip.pending { background:rgba(245,158,11,.10); border-color:rgba(245,158,11,.3); color:#fcd34d; }
+
+  /* Bundle promotion (scene 8) */
+  .bundle-row { display:flex; gap:22px; margin-top:28px; justify-content:center; }
+  .agent-tile { width:340px; background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:22px; text-align:left; }
+  .agent-tile .name { font-size:18px; font-weight:700; }
+  .agent-tile .v { font-family:var(--mono); color:var(--text2); margin-top:8px; font-size:14px; }
+  .agent-tile.success { border-color:rgba(16,185,129,.4); box-shadow:0 0 18px rgba(16,185,129,.18); }
+  .arrow-down { font-size:30px; color:var(--accent-light); margin:8px 0; }
+
+  /* Pattern cluster (scene 9) */
+  .cluster-canvas { position:relative; width:1000px; height:380px; margin:30px auto 0; }
+  .item-dot { position:absolute; width:160px; padding:12px 14px; background:var(--bg-card); border:1px solid var(--border); border-radius:10px; font-size:13px; }
+  .item-dot .id { font-family:var(--mono); color:var(--accent-light); font-size:12px; }
+  .item-dot .t { color:var(--text2); font-size:12px; margin-top:4px; line-height:1.4; }
+  .cluster-core { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:240px; height:160px; background:linear-gradient(135deg, rgba(111,93,202,.3), rgba(155,138,255,.18)); border:2px solid var(--border-strong); border-radius:14px; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 0 60px rgba(111,93,202,.4); }
+  .cluster-core .h { font-size:18px; font-weight:700; color:var(--text); }
+  .cluster-core .s { font-size:14px; color:var(--text2); margin-top:6px; }
+  .cluster-line { position:absolute; height:1px; background:linear-gradient(90deg,transparent,rgba(155,138,255,.5),transparent); transform-origin:left center; }
+
+  /* Vision (scene 10) */
+  .vision-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; max-width:1400px; margin:28px auto 0; }
+  .vision-card { background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:28px; text-align:left; }
+  .vision-card h4 { color:var(--accent-light); font-size:14px; letter-spacing:.18em; text-transform:uppercase; margin-bottom:10px; }
+  .vision-card p { color:var(--text2); font-size:14px; line-height:1.6; }
+
+  /* Demo walkthrough step badges */
+  .step-badge {
+    display:inline-flex; align-items:center; gap:10px;
+    padding:6px 16px; border:1px solid var(--border-strong);
+    border-radius:100px; background:rgba(111,93,202,.14);
+    font-size:13px; font-weight:600; letter-spacing:.14em;
+    color:var(--accent-light); text-transform:uppercase;
+    margin-bottom:14px;
+  }
+  .step-badge .num {
+    display:inline-flex; width:22px; height:22px;
+    align-items:center; justify-content:center;
+    background:var(--accent); color:#fff; border-radius:50%;
+    font-weight:700; font-size:12px; letter-spacing:0;
+  }
+  /* Terminal block — for the demo step 1 (seed CLI) */
+  .terminal {
+    background:#070512;
+    border:1px solid var(--border);
+    border-radius:14px; padding:24px 28px;
+    text-align:left; max-width:1180px;
+    margin:28px auto 0;
+    font-family:var(--mono); font-size:18px; line-height:1.8;
+    box-shadow:0 18px 50px rgba(0,0,0,.45);
+  }
+  .terminal .prompt { color:var(--accent-light); }
+  .terminal .cmd { color:var(--text); }
+  .terminal .out { color:#86efac; }
+  .terminal .c { color:var(--text3); }
+  /* Three-up tiles for the library scene */
+  .triple-shot { display:flex; gap:20px; margin-top:26px; max-width:1700px; }
+  .triple-shot > div { flex:1; min-width:0; }
+  .triple-shot img {
+    width:100%; height:auto; display:block;
+    border-radius:10px; border:1px solid var(--border-strong);
+    box-shadow:0 14px 40px rgba(0,0,0,.45);
+  }
+  .triple-shot .lbl {
+    font-size:14px; font-weight:600; color:var(--accent-light);
+    letter-spacing:.14em; text-transform:uppercase;
+    margin-top:12px; text-align:center;
+  }
+  /* Real SPA screenshots */
+  .ui-shot {
+    display:block; margin:24px auto 0;
+    max-width:1380px; width:100%;
+    border-radius:14px;
+    border:1px solid var(--border-strong);
+    box-shadow: 0 24px 70px rgba(0,0,0,.55), 0 0 28px rgba(111,93,202,.18);
+    background:#fff;
+  }
+  .ui-shot-frame { position:relative; max-width:1400px; margin:24px auto 0; }
+  .ui-shot-frame::before {
+    content:''; position:absolute; inset:-2px;
+    border-radius:16px; background:linear-gradient(135deg, rgba(155,138,255,.45), rgba(111,93,202,.1));
+    z-index:-1; filter:blur(8px);
+  }
+  /* Code snippet */
+  pre.snippet { background:rgba(8,6,16,.75); border:1px solid var(--border); border-radius:10px; padding:18px 20px; font-family:var(--mono); font-size:14px; color:var(--text); line-height:1.6; text-align:left; max-width:980px; margin:18px auto 0; overflow:hidden; }
+  pre.snippet .k { color:var(--accent-light); }
+  pre.snippet .s { color:#86efac; }
+  pre.snippet .n { color:#fcd34d; }
+  pre.snippet .c { color:var(--text3); }
+</style>
+</head>
+<body>
+<a href="index.html" aria-label="Back to docs" style="position:fixed;top:14px;right:14px;z-index:99999;display:inline-flex;align-items:center;gap:6px;font:600 13px/1 Inter,system-ui,-apple-system,sans-serif;color:#fff;background:#8f74e0;padding:8px 13px;border-radius:9px;text-decoration:none;box-shadow:0 3px 12px rgba(0,0,0,.28)">← Docs</a>
+<div id="stage">
+<canvas id="particles"></canvas>
+<div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+<div class="watermark">CALIBER · MLflow plugin</div>
+<div class="scene-counter" id="counter">scene 1 / 12</div>
+
+<!-- SCENE 1 — TITLE -->
+<section class="scene" data-scene="1">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.4s">
+      <img src="caliber-icon.png" alt="" style="width:140px; height:140px; object-fit:contain; filter:drop-shadow(0 8px 40px rgba(155,138,255,.45));">
+    </div>
+    <div class="reveal" style="--d:1.0s">
+      <div style="font-size:104px; font-weight:900; letter-spacing:.14em; margin-top:18px; animation:glowPulse 3.4s ease-in-out infinite;" class="glow-text">CALIBER</div>
+    </div>
+    <div class="accent-line"></div>
+    <div class="reveal" style="--d:1.6s">
+      <div style="font-size:21px; color:var(--text2); font-weight:300; letter-spacing:.01em; margin-top:14px;">
+        <span class="glow-text" style="font-weight:800;">C</span>ontextual <span class="glow-text" style="font-weight:800;">A</span>daptive <span class="glow-text" style="font-weight:800;">L</span>ifecycle for <span class="glow-text" style="font-weight:800;">I</span>ntelligent <span class="glow-text" style="font-weight:800;">B</span>uild, <span class="glow-text" style="font-weight:800;">E</span>valuation, and <span class="glow-text" style="font-weight:800;">R</span>efinement
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.2s">
+      <div style="font-size:26px; color:var(--text2); font-weight:300; letter-spacing:.06em; margin-top:18px;">An MLflow-native control plane for trusted agentic workflows</div>
+    </div>
+    <div class="reveal" style="--d:2.9s">
+      <div style="font-size:17px; color:var(--text3); margin-top:26px; letter-spacing:.05em;">An MLflow plugin · Apache 2.0 · Same-origin by design</div>
+    </div>
+    <div class="reveal" style="--d:3.4s">
+      <div style="font-size:14px; color:var(--text3); margin-top:46px; letter-spacing:.18em; text-transform:uppercase;">Design · Verify · Calibrate · Evaluate · Publish · Observe</div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 2 — THE PROBLEM -->
+<section class="scene" data-scene="2">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag" style="color:#fca5a5; border-color:rgba(239,68,68,.32)">The problem</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Agentic workflows are easy to build and hard to trust.</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">Prompts, tools, and multi-step agents ship faster than anyone can govern them. They drift, they're tuned by feel, and the lineage — what changed, how it scored, who approved it — lives in chat threads and notebooks instead of one system of record.</div>
+    </div>
+    <div class="stat-grid reveal" style="--d:1.4s">
+      <div class="stat-card red">
+        <div class="stat-value" style="color:var(--red)">?</div>
+        <div class="stat-label">No eval gate</div>
+        <div class="stat-desc">Changes ship without a measured score against a held-out set</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-value" style="color:var(--amber)">?</div>
+        <div class="stat-label">No lineage</div>
+        <div class="stat-desc">What changed, why, how it scored, who approved — unrecorded</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-value" style="color:var(--accent-light)">?</div>
+        <div class="stat-label">No rollback</div>
+        <div class="stat-desc">When a workflow regresses, there's no clean way back</div>
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.3s"><div style="color:var(--text3); font-size:13px; margin-top:8px; letter-spacing:.04em;">Every shipped artifact should answer: how did it score, who approved it, and how do I revert it?</div></div>
+  </div>
+</section>
+
+<!-- SCENE 3 — INTRODUCING CALIBER -->
+<section class="scene" data-scene="3">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Introducing</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">One <span class="glow-text">same-origin</span> control plane for agentic workflows.</div></div>
+    <div class="reveal" style="--d:1.0s">
+      <div class="section-subtitle">CALIBER is an <strong>MLflow application plugin</strong>: it mounts its SPA and API on the same server as MLflow, so designing, evaluating, calibrating, publishing, and observing every agent resource happens against one identity, one store, and one trace backend.</div>
+    </div>
+    <div class="diagram-row reveal" style="--d:1.6s">
+      <div class="diagram-box">
+        <h4>Compose</h4>
+        <ul>
+          <li>Prompts, tools, skills, MCP servers</li>
+          <li>Workflows built in a visual Studio</li>
+          <li>Knowledge bases with hybrid retrieval</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Measure</h4>
+        <ul>
+          <li>Evaluation scorecards on test sets</li>
+          <li>Per-asset calibration algorithms</li>
+          <li>MLflow tracing &amp; per-tool-call spans</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Govern</h4>
+        <ul>
+          <li>Validate → test → approve → publish</li>
+          <li>Runtime approvals &amp; checkpoints</li>
+          <li>RBAC, audit, object-storage artifacts</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 4 — ONE PLATFORM, MANY ASSETS -->
+<section class="scene" data-scene="4">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">The platform</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Build composes. The Library supplies.</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">Every agent resource is a first-class, versioned asset with its own "pytest-for-an-asset" workspace — a status header, stage tabs, and durable test runs — so you develop and verify each one in isolation before a workflow ever uses it.</div>
+    </div>
+    <div class="vision-grid reveal" style="--d:1.4s">
+      <div class="vision-card"><h4>Prompts</h4><p>Versioned against MLflow's Prompt Registry, with aliases and a per-prompt test workspace.</p></div>
+      <div class="vision-card"><h4>Tools</h4><p>Definitions runnable in a subprocess sandbox; test a draft against inputs before publishing.</p></div>
+      <div class="vision-card"><h4>Skills</h4><p>Named capabilities with selection logic; preview which skills resolve for an input.</p></div>
+      <div class="vision-card"><h4>MCP Servers</h4><p>Registered Model Context Protocol servers — including a first-party database server — exposed as tools.</p></div>
+      <div class="vision-card"><h4>Knowledge Bases</h4><p>Hybrid retrieval (BM25 + dense RRF, tri-hybrid with graph) plus retrieval calibration.</p></div>
+      <div class="vision-card"><h4>Workflows</h4><p>Agentic graphs composed in Studio, preview-run, published, and traced end to end.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 5 — BUILD · WORKFLOWS / STUDIO -->
+<section class="scene" data-scene="5">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Build</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Compose agentic workflows in Studio</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">The Studio editor wires prompts, tools, skills, and knowledge bases into a graph. Preview-run a draft version without publishing, then enqueue real runs governed by runtime approvals and checkpointing.</div>
+    </div>
+    <div class="pipeline-flow reveal" style="--d:1.3s">
+      <div class="pipe-step glow">
+        <div class="pn">step 1</div>
+        <div class="pt">Compose</div>
+        <div class="pd">Wire nodes in the graph editor</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">step 2</div>
+        <div class="pt">Preview-run</div>
+        <div class="pd">Execute without publishing</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">step 3</div>
+        <div class="pt">Enqueue</div>
+        <div class="pd">Queued run, approvals, checkpoints</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step glow">
+        <div class="pn">step 4</div>
+        <div class="pt">Trace</div>
+        <div class="pd">Per-tool-call spans in MLflow</div>
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.2s">
+      <div style="color:var(--text2); font-size:15px; margin-top:32px; max-width:1300px; margin-left:auto; margin-right:auto;">
+        Runs land in a queue with atomic claims for multi-replica workers; every run carries an MLflow trace, and checkpointing makes long runs resumable.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 6 — DATA & KNOWLEDGE -->
+<section class="scene" data-scene="6">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Data &amp; knowledge</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">The data plane behind every workflow</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">Knowledge bases provide hybrid retrieval with their own calibration metrics; the object store is the file UI over S3-compatible storage; test sets are the versioned datasets every scored run draws from.</div>
+    </div>
+    <div class="diagram-row reveal" style="--d:1.6s">
+      <div class="diagram-box">
+        <h4>Knowledge Base</h4>
+        <ul>
+          <li>BM25 + dense RRF hybrid search</li>
+          <li>Tri-hybrid with a knowledge graph</li>
+          <li>Recall@k · nDCG@k · faithfulness</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Object Store</h4>
+        <ul>
+          <li>S3-compatible, object-storage-only</li>
+          <li>The file UI for the whole platform</li>
+          <li>Backs MLflow &amp; CALIBER artifacts</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Test Sets</h4>
+        <ul>
+          <li>Versioned <span class="mono" style="color:var(--accent-light)">{input, expected}</span> examples</li>
+          <li>Grown from real run traces</li>
+          <li>The substrate for every scorecard</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 7 — EVALUATE & CALIBRATE -->
+<section class="scene" data-scene="7">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Measure</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Evaluate, then calibrate — with receipts</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">Evaluation runs a test set through scorers and compares runs. Calibration goes further: it searches for a better version of an asset and gates promotion on a measured score against the held-out set — a closed learning loop that refines each asset against real evidence.</div>
+    </div>
+    <div class="pipeline-flow reveal" style="--d:1.3s">
+      <div class="pipe-step glow">
+        <div class="pn">stage 1</div>
+        <div class="pt">Dataset</div>
+        <div class="pd">Test set of examples</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">stage 2</div>
+        <div class="pt">Score</div>
+        <div class="pd">Scorers per example</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">stage 3</div>
+        <div class="pt">Calibrate</div>
+        <div class="pd">MetaPrompt · GEPA · DSPy</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">stage 4</div>
+        <div class="pt">Gate</div>
+        <div class="pd">Candidate vs baseline</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step glow">
+        <div class="pn">stage 5</div>
+        <div class="pt">Apply</div>
+        <div class="pd">Operator promotes the candidate</div>
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.2s">
+      <div style="color:var(--text2); font-size:15px; margin-top:32px; max-width:1300px; margin-left:auto; margin-right:auto;">
+        Candidates that clear the gate land at <span class="mono" style="color:var(--accent-light)">candidate_ready</span> and move live only through an explicit operator <span class="mono" style="color:var(--accent-light)">apply</span> — never auto-promoted.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 8 — OBSERVE -->
+<section class="scene" data-scene="8">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Observe</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Every run is a trace you can open</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">Observability is built on MLflow tracing: each workflow run records per-tool-call spans, and the Evaluations surface turns those traces into scorecards, per-example results, and run-to-run comparisons.</div>
+    </div>
+    <div class="diagram-row reveal" style="--d:1.6s">
+      <div class="diagram-box">
+        <h4>Tracing</h4>
+        <ul>
+          <li>Root run trace per workflow run</li>
+          <li>Per-tool-call spans with timing</li>
+          <li>Same-origin with MLflow's trace UI</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Evaluations</h4>
+        <ul>
+          <li>Run a dataset through scorers</li>
+          <li>Per-example results &amp; run compare</li>
+          <li>Add a trace to a dataset in one click</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Honesty</h4>
+        <ul>
+          <li>Readiness reports real vs simulated</li>
+          <li>Provider posture shown in the banner</li>
+          <li>No fabricated scores, ever</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 9 — ARIA · THE AGENTIC COPILOT -->
+<section class="scene" data-scene="9">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Aria</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">An embedded copilot that <span class="glow-text">runs, observes, and fixes</span></div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">On OpenAI and Claude, Aria runs a real tool-calling loop inside one turn: it reads live CALIBER state, executes capabilities, observes the result — including a workflow run's trace and scored evaluations — and iterates, bounded to eight tool steps.</div>
+    </div>
+    <div class="diagram-row reveal" style="--d:1.6s">
+      <div class="diagram-box">
+        <h4>Modes</h4>
+        <ul>
+          <li><span class="mono" style="color:var(--accent-light)">chat</span> talks · <span class="mono" style="color:var(--accent-light)">plan</span> outlines</li>
+          <li><span class="mono" style="color:var(--accent-light)">build</span> materializes drafts</li>
+          <li>Attachments, queue, and steering</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Permissioned tools</h4>
+        <ul>
+          <li>Read in every mode</li>
+          <li>Sandboxed/reversible in auto_safe</li>
+          <li>Runs &amp; publish only in auto_all</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>Governed</h4>
+        <ul>
+          <li>Drafts ride the same gates</li>
+          <li>Tool calls recorded per turn</li>
+          <li>Autonomy bounded &amp; auditable</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 10 — ARIA · A SINGLE TURN -->
+<section class="scene" data-scene="10">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Aria · run, observe, fix</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Build and test an artifact in one turn</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">In <span class="mono" style="color:var(--accent-light)">build</span> mode with <span class="mono" style="color:var(--accent-light)">auto_safe</span> approvals, Aria drafts the artifact, validates it, runs it in the sandbox, and reports exactly what it observed — every action recorded in the turn.</div>
+    </div>
+    <div class="terminal reveal" style="--d:1.4s">
+      <div class="c"># Aria panel · mode = build · approval = auto_safe</div>
+      <div><span class="prompt">you ›</span> <span class="cmd">Build a tool that returns the weekday for an ISO date, then test it.</span></div>
+      <div class="out">  ✓ list_tools        — checked for a name clash</div>
+      <div class="out">  ✓ validate_draft    — schema + signature OK</div>
+      <div class="out">  ✓ run_tool_sandbox  — "2026-06-20" → "Saturday"</div>
+      <div><span class="prompt">aria ›</span> Drafted <span class="cmd">iso_weekday</span>, validated, sandbox-tested. It's at the <span class="cmd">tested</span> gate — say the word and I'll approve &amp; publish.</div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 11 — GOVERNANCE -->
+<section class="scene" data-scene="11">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Govern</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">One gate for every change, human or Aria</div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">Whether a person edits an artifact or Aria drafts one, the same lifecycle applies — there is no copilot bypass. Promotion is an explicit operator action, and every transition is recorded.</div>
+    </div>
+    <div class="pipeline-flow reveal" style="--d:1.3s">
+      <div class="pipe-step glow">
+        <div class="pn">gate 1</div>
+        <div class="pt">Validate</div>
+        <div class="pd">Schema &amp; structure</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">gate 2</div>
+        <div class="pt">Test</div>
+        <div class="pd">Run against inputs</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">gate 3</div>
+        <div class="pt">Approve</div>
+        <div class="pd">Operator sign-off</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step glow">
+        <div class="pn">gate 4</div>
+        <div class="pt">Publish</div>
+        <div class="pd">Versioned &amp; live</div>
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.2s">
+      <div style="color:var(--text2); font-size:15px; margin-top:32px; max-width:1300px; margin-left:auto; margin-right:auto;">
+        RBAC scopes who can advance each gate; the audit trail records actor, action, and entity; artifacts live in object storage. Workflow <em>runtime</em> approvals govern live execution separately from offline artifact promotion.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCENE 12 — VISION -->
+<section class="scene" data-scene="12">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">The vision</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Agentic workflows you can <span class="glow-text">measure, refine, govern, and trust.</span></div></div>
+    <div class="reveal" style="--d:.9s">
+      <div class="section-subtitle">CALIBER : <strong>Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</strong> is open source and MLflow-native, learning from real evidence to refine every asset across its lifecycle.</div>
+    </div>
+    <div class="vision-grid reveal" style="--d:1.4s">
+      <div class="vision-card">
+        <h4>Native</h4>
+        <p>Mounts at <span class="mono" style="color:var(--accent-light)">/caliber</span> as an <span class="mono" style="color:var(--accent-light)">mlflow.app</span> plugin. Same-origin with MLflow's AJAX API and trace backend.</p>
+      </div>
+      <div class="vision-card">
+        <h4>Agentic</h4>
+        <p>Aria runs a permissioned tool loop on OpenAI and Claude — read state, execute, observe, iterate — inside the product.</p>
+      </div>
+      <div class="vision-card">
+        <h4>Measured &amp; refined</h4>
+        <p>A learning loop: evaluation scorecards and per-asset calibration refine each asset, gating promotion on real scores against held-out test sets.</p>
+      </div>
+      <div class="vision-card">
+        <h4>Governed</h4>
+        <p>Validate → test → approve → publish for every artifact, with RBAC, audit, and explicit operator apply.</p>
+      </div>
+      <div class="vision-card">
+        <h4>Observable</h4>
+        <p>MLflow tracing with per-tool-call spans on every run; readiness honestly reports real vs simulated providers.</p>
+      </div>
+      <div class="vision-card">
+        <h4>Open</h4>
+        <p>Apache 2.0 · Python 3.11+ · SQLAlchemy 2.0 · React SPA · object-storage-backed · No vendor lock-in.</p>
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.4s">
+      <div style="margin-top:38px; font-size:18px; color:var(--text2); letter-spacing:.06em;">
+        <span class="glow-text" style="font-weight:700;">caliber-mlflow</span> · Apache 2.0 · open source
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- #stage -->
+
+<script>
+  /* Scale the 1920×1080 stage to fit whatever viewport is available.
+     Playwright records at exactly 1920×1080 → scale becomes 1 and the
+     transform is a no-op. In a normal browser the stage shrinks (or
+     grows) uniformly while preserving aspect ratio; letterboxing
+     handles the leftover space. */
+  (function() {
+    var stage = document.getElementById('stage');
+    if (!stage) return;
+    function fit() {
+      var sx = window.innerWidth / 1920;
+      var sy = window.innerHeight / 1080;
+      var s = Math.min(sx, sy);
+      var offX = (window.innerWidth - 1920 * s) / 2;
+      var offY = (window.innerHeight - 1080 * s) / 2;
+      stage.style.transform = 'translate(' + offX + 'px,' + offY + 'px) scale(' + s + ')';
+    }
+    fit();
+    window.addEventListener('resize', fit);
+  })();
+
+  /* Particle background */
+  (function() {
+    var canvas = document.getElementById('particles');
+    var ctx = canvas.getContext('2d');
+    canvas.width = 1920; canvas.height = 1080;
+    var particles = [];
+    for (var i = 0; i < 90; i++) {
+      particles.push({
+        x: Math.random() * 1920, y: Math.random() * 1080,
+        vx: (Math.random() - .5) * .25, vy: (Math.random() - .5) * .25,
+        r: Math.random() * 1.6 + .4,
+        a: Math.random() * .5 + .15
+      });
+    }
+    function draw() {
+      ctx.clearRect(0, 0, 1920, 1080);
+      for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0 || p.x > 1920) p.vx *= -1;
+        if (p.y < 0 || p.y > 1080) p.vy *= -1;
+        ctx.fillStyle = 'rgba(155,138,255,' + p.a + ')';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
+      for (var i = 0; i < particles.length; i++) {
+        for (var j = i + 1; j < particles.length; j++) {
+          var dx = particles[i].x - particles[j].x;
+          var dy = particles[i].y - particles[j].y;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 140) {
+            ctx.strokeStyle = 'rgba(155,138,255,' + (.08 * (1 - d / 140)) + ')';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(particles[i].x, particles[i].y); ctx.lineTo(particles[j].x, particles[j].y); ctx.stroke();
+          }
+        }
+      }
+      requestAnimationFrame(draw);
+    }
+    draw();
+  })();
+
+  /* Counter animation */
+  function animateCounter(el, target, dur) {
+    dur = dur || 1800; var start = performance.now();
+    (function tick(now) {
+      var p = Math.min((now - start) / dur, 1), ease = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * ease);
+      if (p < 1) requestAnimationFrame(tick);
+    })(performance.now());
+  }
+
+  /* Scene manager */
+  // 12 scenes. The pipeline patches this array at render time from
+  // measured TTS lengths, so these are upper-bound placeholders only.
+  var SCENE_TIMINGS = [26, 26, 25, 26, 23, 28, 41, 27, 31, 23, 30, 40];
+  var scenes = Array.from(document.querySelectorAll('.scene'));
+  var progressFill = document.getElementById('progress');
+  var counterEl = document.getElementById('counter');
+  var totalDuration = SCENE_TIMINGS.reduce(function (a, b) { return a + b; }, 0);
+  var currentScene = -1, isPlaying = false, startTime = 0, sceneTimerID = null;
+
+  function showScene(i) {
+    scenes.forEach(function (s, j) {
+      if (j === i) s.classList.add('active'); else s.classList.remove('active');
+      if (j === i) {
+        s.querySelectorAll('.reveal').forEach(function (el) { el.style.animation = 'none'; el.offsetHeight; el.style.animation = ''; });
+        s.querySelectorAll('[data-count]').forEach(function (el) { animateCounter(el, parseInt(el.dataset.count, 10), 1800); });
+      }
+    });
+    currentScene = i;
+    counterEl.textContent = 'scene ' + (i + 1) + ' / ' + scenes.length;
+  }
+  function updateProgress() {
+    if (!isPlaying) return;
+    var pct = Math.min(((Date.now() - startTime) / 1000 / totalDuration) * 100, 100);
+    progressFill.style.width = pct + '%';
+    if (pct < 100) requestAnimationFrame(updateProgress);
+  }
+  function play() { isPlaying = true; startTime = Date.now(); currentScene = -1; nextScene(); updateProgress(); }
+  function nextScene() {
+    currentScene++;
+    if (currentScene >= scenes.length) { isPlaying = false; return; }
+    showScene(currentScene);
+    sceneTimerID = setTimeout(nextScene, (SCENE_TIMINGS[currentScene] || 10) * 1000);
+  }
+  function prevScene() { if (currentScene > 0) { clearTimeout(sceneTimerID); currentScene -= 2; nextScene(); } }
+  function togglePause() { if (isPlaying) { clearTimeout(sceneTimerID); isPlaying = false; } else { isPlaying = true; nextScene(); updateProgress(); } }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    if (e.code === 'ArrowRight') { clearTimeout(sceneTimerID); nextScene(); }
+    if (e.code === 'ArrowLeft') { prevScene(); }
+    if (e.code === 'KeyR') { clearTimeout(sceneTimerID); play(); }
+  });
+
+  var autoplay = new URLSearchParams(window.location.search).get('autoplay') !== 'false';
+  window.addEventListener('load', function () { if (autoplay) setTimeout(play, 600); else showScene(0); });
+</script>
+</body>
+</html>

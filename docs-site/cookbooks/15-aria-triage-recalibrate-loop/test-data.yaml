@@ -1,0 +1,59 @@
+# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan
+# Aria drafts + the artifacts it creates/triggers. Concrete files are in assets/.
+intents:
+  - id: A15-canonical
+    goal: "Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration."
+    autonomy: ask_each
+    expected_plan_steps: [review_queue.create, review_queue.add_items, workflow.calibrate]
+  - id: A15-natural
+    goal: "Our latest runs aren't great — get a human to look at the bad ones and then tune the pipeline."
+    note: "Natural phrasing. Relies on an LLM planner to map 'get a human to look at the bad ones' -> review_queue.create + review_queue.add_items and 'tune the pipeline' -> workflow.calibrate. The default HeuristicPlanner needs the literal words 'review queue' and 'workflow' — use A15-canonical for the deterministic path."
+# What you supply when Aria pauses (one interaction per mutate step):
+# IMPORTANT: review_queue.add_items and workflow.calibrate operate on EXISTING things.
+# The trace_ids must be REAL trace ids of flagged runs (read them from Observability),
+# and workflow_id + agent_id must be a REAL existing workflow + its agent (build it in
+# SCN-07). The values below are PLACEHOLDERS — replace them with the real ids before you
+# answer the interactions. Aria does not discover or create any of these.
+interaction_answers:
+  review_queue.create:
+    name: weak-runs-triage
+    questions:
+      - key: resolution_correct
+        title: "Did the workflow reach the correct resolution?"
+        type: pass_fail
+        required: true
+        target: feedback
+      - key: failure_mode
+        title: "Primary failure mode"
+        type: categorical
+        options: [wrong_tool, missing_evidence, hallucinated_claim, bad_escalation, none]
+        required: true
+        target: feedback
+      - key: severity
+        title: "Severity (1-5)"
+        type: numeric
+        required: false
+        target: feedback
+      - key: expected_answer
+        title: "What should the answer have been? (becomes the expectation)"
+        type: text
+        required: false
+        target: expectation
+  review_queue.add_items:
+    queue_id: "<queue_id returned by the review_queue.create step>"
+    trace_ids:
+      - "<REAL flagged trace id 1 from Observability>"
+      - "<REAL flagged trace id 2 from Observability>"
+      - "<REAL flagged trace id 3 from Observability>"
+    assigned_to: "@reviewer"          # optional
+    # experiment_id: "<optional MLflow experiment id>"
+  workflow.calibrate:
+    workflow_id: "<REAL existing workflow id, e.g. the SCN-07 workflow you built>"
+    agent_id: "<REAL existing agent id bound in that workflow>"
+    # Answering this interaction enqueues the ASYNC calibration job; the plan then
+    # PARKS (waiting_job). POST /aria/plans/{plan_id}/poll until the job resolves.
+done_when:
+  - a review queue named weak-runs-triage exists in Review Queues with the four triage questions
+  - the flagged traces are enqueued as items on that queue
+  - the workflow.calibrate step enqueued an async job and the plan parked (waiting_job)
+  - after polling, the calibration job completed and the plan resumed with all three steps completed

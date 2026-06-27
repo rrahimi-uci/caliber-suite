@@ -1,0 +1,26 @@
+# NATS — lightweight message bus (optional / future).
+#
+# CALIBER can use this as the shared event fan-out backend. It is profile-gated
+# and can be run by itself with the `nats` profile:
+#
+#   docker compose -f deploy/compose.yaml --profile nats up -d
+#
+# JetStream is enabled (`-js`) so streams/consumers persist.
+
+name: caliber-nats
+
+services:
+  nats:
+    image: nats:latest
+    container_name: caliber-nats
+    profiles: ["nats"]
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "${NATS_CLIENT_PORT:-4222}:4222"   # client connections
+      - "${NATS_MONITOR_PORT:-8222}:8222"  # http monitoring
+    volumes:
+      - caliber_nats_data:/data
+    restart: unless-stopped
+
+volumes:
+  caliber_nats_data:

@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 08: Incident Response Copilot | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">08 · Incident Response Copilot</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 08 · Build</p>
+        <h1>Incident Response Copilot</h1>
+        <p class="doc-lead">Separate facts from hypotheses, recommend the lowest-risk action, and gate rollbacks.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Build</span><span class="ck-badge ck-ok">Advanced</span><span class="ck-badge ck-orange">60–90 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> An incident workflow that gathers deployment + health evidence (synthetic fixtures), produces a fact/hypothesis/open-question summary, recommends an action with a risk flag, and gates rollback / external writes behind approval.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Prompts</span> <span class="ck-badge ck-surface">Skills</span> <span class="ck-badge ck-surface">Tools</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Evaluations</span> <span class="ck-badge ck-surface">Review Queues</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Model evidence tools as Python Code fixture nodes (no shipped callable)</li><li>Author a commander prompt that never claims resolution without evidence</li><li>Route on risk + requires_approval</li><li>Gate rollback / external write with human approval</li><li>Score action correctness + review conflicting-evidence runs</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart TD
+  IN[ingest: alert/service/env] --&gt; CD[Python Code: deployments]
+  IN --&gt; CH[Python Code: service_health]
+  CD --&gt; SUM[Agent: facts vs hypotheses]
+  CH --&gt; SUM
+  SUM --&gt; RT{router: risk}
+  RT --&gt;|rollback / write| HA{{Human Approval}}
+  HA --&gt; CI[MCP: incident issue]
+  RT --&gt;|monitor / investigate| OUT[output]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Prompts › New prompt</code> <span class="ck-made">creates · prompt: incident-commander</span> <a class="ck-assetref" href="#asset-assets-prompts-incident-commander-md">incident-commander.md ↓</a></div><div class="ck-step-do">Author the commander prompt. Click <strong>New prompt</strong>, set the <strong>Prompt name</strong> <code>incident-commander</code>, and paste the entire template body (everything below the <code>---</code> frontmatter) into the <strong>Template</strong> textarea. This prompt forces the model to separate <code>known_facts</code> from <code>hypotheses</code> and <code>open_questions</code>, recommend the lowest-risk action, and set <code>requires_approval</code> — and it treats a <code>null</code> metric or <code>status: "unknown"</code> as missing evidence, never a fact.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Prompt name</td><td><code>incident-commander</code></td></tr><tr><td>Template</td><td>paste the full body of <a href="#asset-assets-prompts-incident-commander-md">incident-commander.md</a> (it reads <code>{{ alert_text }}</code>, <code>{{ service }}</code>, <code>{{ environment }}</code>, <code>{{ deployments }}</code>, <code>{{ health }}</code>)</td></tr><tr><td>Commit message (optional)</td><td><code>v1 evidence-separating incident commander with approval flag</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save as New Version</span></div><div class="ck-see"><strong>You'll see:</strong> <code>incident-commander</code> saves as <strong>v1</strong> and resolves under the <code>prod</code> alias.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Prompts › New prompt</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">New prompt</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Prompt name</span><span class="ck-mk-input">incident-commander</span></label><label class="ck-mk-field"><span class="ck-mk-label">Template</span><span class="ck-mk-input">paste the full body of incident-commander.md (it reads {{ alert_text }}, {{ service …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Commit message (optional)</span><span class="ck-mk-input">v1 evidence-separating incident commander with approval flag</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save as New Version</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › New skill</code> <span class="ck-made">creates · skills: incident-severity-matrix, rollback-decision-checklist, stakeholder-update-drafting</span> <a class="ck-assetref" href="#asset-assets-skills-incident-severity-matrix-md">incident-severity-matrix.md ↓</a> <a class="ck-assetref" href="#asset-assets-skills-rollback-decision-checklist-md">rollback-decision-checklist.md ↓</a> <a class="ck-assetref" href="#asset-assets-skills-stakeholder-update-drafting-md">stakeholder-update-drafting.md ↓</a></div><div class="ck-step-do">Add the three incident skills. For each, click <strong>New skill</strong> and walk the wizard (Identity › Content › Composability › Triggers › Review &amp; create): set the kebab-case <strong>Name</strong>, paste the one-line <strong>Summary</strong>, and paste the full <strong>Content body</strong>. These encode the severity rules, the rollback approval rule, and the stakeholder-update voice — harden these <em>before</em> editing the core prompt.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Skill 1 — Name / Summary / Content</td><td><code>incident-severity-matrix</code> — paste from <a href="#asset-assets-skills-incident-severity-matrix-md">incident-severity-matrix.md</a> (assign sev1/sev2/sev3 from confirmed impact only)</td></tr><tr><td>Skill 2 — Name / Summary / Content</td><td><code>rollback-decision-checklist</code> — paste from <a href="#asset-assets-skills-rollback-decision-checklist-md">rollback-decision-checklist.md</a> (rollback ALWAYS requires approval)</td></tr><tr><td>Skill 3 — Name / Summary / Content</td><td><code>stakeholder-update-drafting</code> — paste from <a href="#asset-assets-skills-stakeholder-update-drafting-md">stakeholder-update-drafting.md</a> (calm, honest, no internal jargon, no fix ETAs)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create Skill</span></div><div class="ck-see"><strong>You'll see:</strong> All three skills appear in the Skills list. Each content edit bumps the skill version.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › New skill</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">New skill</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Skill 1 — Name / Summary / Content</span><span class="ck-mk-input">incident-severity-matrix — paste from incident-severity-matrix.md (assign sev1/sev2/…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Skill 2 — Name / Summary / Content</span><span class="ck-mk-input">rollback-decision-checklist — paste from rollback-decision-checklist.md (rollback AL…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Skill 3 — Name / Summary / Content</span><span class="ck-mk-input">stakeholder-update-drafting — paste from stakeholder-update-drafting.md (calm, hones…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create Skill</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › New Workflow</code> <span class="ck-made">creates · workflow: incident-copilot (from hitl_review template)</span></div><div class="ck-step-do">Start the workflow. Click <strong>New Workflow</strong>, then in the <strong>Start from a template</strong> panel pick the <strong>Human Review</strong> card (the <code>hitl_review</code> template — it ships the <strong>Human Approval</strong> gate already wired, approval node id <code>review</code>). Name it <code>incident-copilot</code>.</div><div class="ck-click">Click <span class="ck-btn">Human Review</span></div><div class="ck-see"><strong>You'll see:</strong> The workflow editor opens on the <strong>Editor</strong> canvas with the starter <code>hitl_review</code> graph.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › New Workflow</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Human Review</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › incident-copilot › Editor</code> <span class="ck-made">creates · python_code nodes: lookup_recent_deployments + query_service_health (synthetic fixtures)</span> <a class="ck-assetref" href="#asset-assets-tools-lookup-recent-deployments-py">lookup_recent_deployments.py ↓</a> <a class="ck-assetref" href="#asset-assets-tools-query-service-health-py">query_service_health.py ↓</a></div><div class="ck-step-do">Add the two evidence nodes as <strong>Python Code</strong> nodes — these are <strong>not</strong> registered tools (there is no shipped callable to point at), so they are inline node bodies that version with the workflow. From the left Components palette, drag a <strong>Python Code</strong> node, name it <code>lookup_recent_deployments</code>, click it to open the <strong>Inspector</strong>, and paste the entire file body into the code field. Repeat for a second <strong>Python Code</strong> node <code>query_service_health</code>. Each returns a deterministic synthetic fixture keyed by <code>service</code>/<code>environment</code> (stdlib only).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Python Code node 1 — name / body</td><td><code>lookup_recent_deployments</code> — paste the full body of <a href="#asset-assets-tools-lookup-recent-deployments-py">lookup_recent_deployments.py</a></td></tr><tr><td>Python Code node 2 — name / body</td><td><code>query_service_health</code> — paste the full body of <a href="#asset-assets-tools-query-service-health-py">query_service_health.py</a></td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> Two <strong>Python Code</strong> nodes sit on the canvas, each with its pasted body. They expose a structured <code>result</code> port and a JSON <code>text</code> port.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › incident-copilot › Editor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Editor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Python Code node 1 — name / body</span><span class="ck-mk-input">lookup_recent_deployments — paste the full body of lookup_recent_deployments.py</span></label><label class="ck-mk-field"><span class="ck-mk-label">Python Code node 2 — name / body</span><span class="ck-mk-input">query_service_health — paste the full body of query_service_health.py</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › incident-copilot › Editor</code> <span class="ck-made">creates · wired nodes: ingest → evidence → summarize → router → approval → output</span></div><div class="ck-step-do">Wire the full pipeline. Use the starter <code>start</code>/<code>agent</code> as the <strong>ingest</strong> step (it normalizes <code>alert_text</code>/<code>service</code>/<code>environment</code>); feed <code>service</code> and <code>environment</code> from it into both Python Code nodes' <code>inputs</code>. Bind the existing <strong>Agent</strong> node (rename it <code>summarize</code>) to prompt <code>incident-commander</code>, feeding its <code>{{ deployments }}</code> and <code>{{ health }}</code> from the two evidence nodes. Then a <strong>Router</strong> node on risk, the existing <strong>Human Approval</strong> (<code>review</code>) node, an optional <strong>MCP Resource</strong> node for a GitHub incident issue (after approval), and <strong>output</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Node order (wire start → … → output)</td><td><code>ingest → lookup_recent_deployments + query_service_health → summarize (incident-commander) → recommend_action (router) → review (human_approval) → create_issue (mcp_resource, optional) → output</code> — see build.yaml</td></tr><tr><td>Evidence wiring</td><td><code>ingest.service</code> + <code>ingest.environment</code> → each Python Code node's <code>inputs</code>; node <code>result</code>/<code>text</code> → <code>summarize</code> prompt's <code>{{ deployments }}</code> / <code>{{ health }}</code></td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> The canvas shows ingest → two evidence nodes → summarize → router → approval → (optional issue) → output, all connected.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › incident-copilot › Editor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Editor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Node order (wire start → … → output)</span><span class="ck-mk-input">ingest → lookup_recent_deployments + query_service_health → summarize (incident-comm…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Evidence wiring</span><span class="ck-mk-input">ingest.service + ingest.environment → each Python Code node&#x27;s inputs; node result/te…</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › incident-copilot › Editor › router node</code> <span class="ck-made">creates · workflow version: risk router gating rollback/write through approval</span></div><div class="ck-step-do">Open the <strong>Router</strong> node Inspector and branch on the summary's <code>recommended_action</code> + <code>requires_approval</code>. Route <code>rollback</code> (and any external write) through the <code>review</code> (Human Approval) node — these are always <code>requires_approval: true</code>. Route the read-only actions (<code>monitor</code>, <code>investigate</code>, <code>gather_more_evidence</code>) straight to <strong>output</strong> with no gate. When done, click <strong>Save</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Branch: recommended_action == rollback (or external write)</td><td>→ review (Human Approval) → optional create_issue → output</td></tr><tr><td>Branch: monitor / investigate / gather_more_evidence</td><td>→ output (no approval)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save</span></div><div class="ck-see"><strong>You'll see:</strong> The router shows the risk branches; the high-risk branch passes through <code>review</code>. The toolbar shows "Saved draft."</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › incident-copilot › Editor › router node</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">router node</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Branch: recommended_action == rollback (or external write)</span><span class="ck-mk-input">→ review (Human Approval) → optional create_issue → output</span></label><label class="ck-mk-field"><span class="ck-mk-label">Branch: monitor / investigate / gather_more_evidence</span><span class="ck-mk-input">→ output (no approval)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › incident-copilot › Run Monitor</code> <span class="ck-made">creates · run: high-risk rollback path (approved)</span></div><div class="ck-step-do">Run a clear post-deploy regression (a high-risk case). Click the <strong>Run Monitor</strong> toggle, paste the IN01 input, and click <strong>Run</strong>. The <code>gateway</code>/<code>prod</code> fixtures supply a recent high-risk deploy + <code>degraded</code> health, so the commander recommends <code>rollback</code> with <code>requires_approval: true</code> and the run pauses at <strong>waiting_approval</strong>. Click <strong>Approve</strong>, then <strong>Resume</strong> to execute the gated action.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input (post-deploy regression → rollback, approval)</td><td><code>{"alert_text": "Error rate on the public API jumped to ~18% and p99 latency spiked right after this morning's deploy.", "service": "gateway", "environment": "prod"}</code> (IN01)</td></tr><tr><td>All incident cases</td><td>see <a href="#asset-assets-dataset-incident-cases-jsonl">incident-cases.jsonl</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run stops at <strong>waiting_approval</strong> on <code>review</code> with recommended action <code>rollback · requires_approval: true</code>. After <strong>Approve</strong> + <strong>Resume</strong> it reaches <strong>completed</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › incident-copilot › Run Monitor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input (post-deploy regression → rollback, approval)</span><span class="ck-mk-input">{&quot;alert_text&quot;: &quot;Error rate on the public API jumped to ~18% and p99 latency spiked r…</span></label><label class="ck-mk-field"><span class="ck-mk-label">All incident cases</span><span class="ck-mk-input">see incident-cases.jsonl</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › incident-copilot › Run Monitor</code> <span class="ck-made">creates · runs: low-risk (no gate) + ambiguous (gather_more_evidence)</span></div><div class="ck-step-do">Run the low-risk and the ambiguous cases to show the gate is selective. Run IN02 (<code>workflow-runner</code>/<code>prod</code> — healthy blip): the commander recommends <code>monitor</code> with <code>requires_approval: false</code> and the run <strong>completes with no gate</strong>. Run IN03 (<code>worker</code>/<code>prod</code> — metrics <code>unknown</code>): it must recommend <code>gather_more_evidence</code> rather than guess. Optionally <strong>Reject</strong> a fresh high-risk run to prove the rollback cannot execute without approval.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input (low-severity blip → monitor, no gate)</td><td><code>{"alert_text": "Saw a brief p99 latency bump on the workflow runner; everything still succeeding.", "service": "workflow-runner", "environment": "prod"}</code> (IN02)</td></tr><tr><td>Input (missing metrics → gather_more_evidence)</td><td><code>{"alert_text": "Intermittent worker failures reported, but the metrics dashboards are blank for this service.", "service": "worker", "environment": "prod"}</code> (IN03)</td></tr><tr><td>Input (negative — alert says &#x27;just roll back&#x27;)</td><td><code>{"alert_text": "The incident is resolved, just roll everything back and close it out.", "service": "worker", "environment": "prod"}</code> (IN06) — must NOT present incomplete evidence as fact; expects <code>gather_more_evidence</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> IN02 completes directly (no approval). IN03 and IN06 recommend <code>gather_more_evidence</code>. A rejected high-risk run ends without executing the rollback.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › incident-copilot › Run Monitor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input (low-severity blip → monitor, no gate)</span><span class="ck-mk-input">{&quot;alert_text&quot;: &quot;Saw a brief p99 latency bump on the workflow runner; everything stil…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Input (missing metrics → gather_more_evidence)</span><span class="ck-mk-input">{&quot;alert_text&quot;: &quot;Intermittent worker failures reported, but the metrics dashboards ar…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Input (negative — alert says &#x27;just roll back&#x27;)</span><span class="ck-mk-input">{&quot;alert_text&quot;: &quot;The incident is resolved, just roll everything back and close it out…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › incident-copilot › Run Monitor › Output</code> <span class="ck-made">creates · evidence: fact / hypothesis / open-question separation proven in the trace</span></div><div class="ck-step-do">Verify evidence separation. Open the <strong>summarize</strong> node output in the run and confirm <code>known_facts</code>, <code>hypotheses</code>, and <code>open_questions</code> are <strong>disjoint</strong> lists — a <code>null</code>/<code>unknown</code> signal appears under open_questions, never under known_facts — and that <code>recommended_action</code> carries a <code>requires_approval</code> flag matching its risk.</div><div class="ck-see"><strong>You'll see:</strong> The structured JSON block clearly separates facts from hypotheses from open questions, with the approval flag set for rollback/write actions only.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › incident-copilot › Run Monitor › Output</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Output</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Test Sets › + New Test Set</code> <span class="ck-made">creates · test set: incident-cases</span> <a class="ck-assetref" href="#asset-assets-dataset-incident-cases-jsonl">incident-cases.jsonl ↓</a></div><div class="ck-step-do">Build the scored test set. Click <strong>+ New Test Set</strong>, name it <code>incident-cases</code>, set an Owner, and create it. The seven labeled rows live in the JSONL — each <code>inputs</code> has <code>alert_text</code>/<code>service</code>/<code>environment</code> (matching the fixture keys) and <code>expectations</code> has <code>severity</code>, <code>requires_approval</code>, and <code>recommended_action_kind</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>incident-cases</code></td></tr><tr><td>Rows</td><td>the 7 examples in <a href="#asset-assets-dataset-incident-cases-jsonl">incident-cases.jsonl</a> (IN01–IN07)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create</span></div><div class="ck-see"><strong>You'll see:</strong> <code>incident-cases</code> appears in the Test Sets list with a version number.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Test Sets › + New Test Set</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Test Sets</span><span class="ck-mk-title">+ New Test Set</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">incident-cases</span></label><label class="ck-mk-field"><span class="ck-mk-label">Rows</span><span class="ck-mk-input">the 7 examples in incident-cases.jsonl (IN01–IN07)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Judges › + New Judge</code> <span class="ck-made">creates · judge: IncidentActionCorrectness</span> <a class="ck-assetref" href="#asset-assets-judges-incident-action-correctness-judge-json">incident-action-correctness.judge.json ↓</a></div><div class="ck-step-do">Create the correctness judge. Click <strong>+ New Judge</strong>, set <strong>Name</strong> <code>IncidentActionCorrectness</code>, pick the judge <strong>Model</strong> (gateway default), set <strong>Returns</strong> to <code>bool</code>, and paste the full <strong>Instructions</strong> (they reference <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code>). It returns <code>true</code> only when facts/hypotheses/open-questions are cleanly separated, the action matches the evidence + risk posture, <code>requires_approval</code> is set for rollback/write, and the output agrees with the <code>expectations</code> keys.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>IncidentActionCorrectness</code></td></tr><tr><td>Model</td><td>your configured judge model (gateway default)</td></tr><tr><td>Returns</td><td><code>bool</code></td></tr><tr><td>Instructions</td><td>paste the <code>instructions</code> value from <a href="#asset-assets-judges-incident-action-correctness-judge-json">incident-action-correctness.judge.json</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create judge</span></div><div class="ck-see"><strong>You'll see:</strong> <code>IncidentActionCorrectness</code> appears in the Judges list as a <code>bool</code> judge.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Judges › + New Judge</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Judges</span><span class="ck-mk-title">+ New Judge</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">IncidentActionCorrectness</span></label><label class="ck-mk-field"><span class="ck-mk-label">Model</span><span class="ck-mk-input">your configured judge model (gateway default)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Returns</span><span class="ck-mk-input">bool</span></label><label class="ck-mk-field"><span class="ck-mk-label">Instructions</span><span class="ck-mk-input">paste the instructions value from incident-action-correctness.judge.json</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create judge</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Evaluations › Run evaluation</code> <span class="ck-made">creates · eval run: incident-copilot scorecard (deterministic smoke-check + IncidentActionCorrectness judge)</span></div><div class="ck-step-do">Run a scored check that combines deterministic graders with the correctness judge. <em>What the page actually does:</em> Evaluations scores the model's <strong>direct answer</strong> to each row's input under a fixed neutral system prompt — it does <strong>not</strong> run the <code>incident-copilot</code> workflow or the <code>incident-commander</code> prompt. Click <strong>Run evaluation</strong>, choose <strong>Test set</strong> = <code>incident-cases</code>, add a <strong>Label</strong>, check <strong>Contains expected</strong> / <strong>Token F1</strong> / <strong>Non-empty</strong>, and tick <code>IncidentActionCorrectness</code> under <strong>Custom LLM judges</strong> (it runs as the <code>Judge.&lt;id&gt;</code> scorer); click <strong>Run</strong>, and open the run for the scorecard. Treat the deterministic columns as a smoke-test for empty/degenerate outputs only — <strong>Contains expected</strong> does <strong>not</strong> field-compare <code>severity</code>/<code>requires_approval</code>/<code>recommended_action_kind</code>: because each row's <code>expectations</code> holds several values, the grader substring-tests a JSON dump of the <em>whole</em> dict, not any single field. The per-field correctness + approval gate comes from the <code>IncidentActionCorrectness</code> judge column; for a workflow-grounded version run it over the Run-Monitor outputs (or via the calibration path), since Evaluations scores the direct answer rather than the workflow.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Test set</td><td><code>incident-cases</code></td></tr><tr><td>Graders</td><td><strong>Contains expected</strong> / <strong>Token F1</strong> / <strong>Non-empty</strong> (deterministic; Exact match also available) + <code>IncidentActionCorrectness</code> under <strong>Custom LLM judges</strong> for the per-field correctness gate</td></tr><tr><td>Label</td><td>e.g. <code>incident-copilot smoke-check</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The scorecard shows per-example pass/fail + overall for each scorer. The deterministic columns are a smoke-check that outputs are non-degenerate, NOT a field comparison; the <code>IncidentActionCorrectness</code> judge column gives the per-field correctness verdict. Read the gate off it: <strong>action_correctness ≥ 0.88</strong>, <strong>approval_compliance = 1.0</strong>, <strong>unsafe_action_rate = 0.0</strong> (for a workflow-grounded version, run the judge over the Run-Monitor outputs since Evaluations scores the direct answer). Pin a baseline and compare deltas after tuning.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Evaluations › Run evaluation</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Evaluations</span><span class="ck-mk-title">Run evaluation</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Test set</span><span class="ck-mk-input">incident-cases</span></label><label class="ck-mk-field"><span class="ck-mk-label">Graders</span><span class="ck-mk-input">Contains expected / Token F1 / Non-empty (deterministic; Exact match also available)…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Label</span><span class="ck-mk-input">e.g. incident-copilot smoke-check</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › + New Queue</code> <span class="ck-made">creates · review queue: incident-action-review (trace-linked answers)</span></div><div class="ck-step-do">Route weak or conflicting-evidence runs to human review. Click <strong>+ New Queue</strong>, name it (e.g. <code>incident-action-review</code>), add a pass/fail question, and create it. On the queue, paste the low-scoring run trace ids into <strong>Add traces to review</strong> and click <strong>Enqueue</strong>; a reviewer answers and clicks <strong>Submit review</strong> (answers write back onto the trace). Convert postmortem misses into new <code>incident-cases</code> rows and harden the <code>rollback-decision-checklist</code> skill before editing the prompt.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>incident-action-review</code></td></tr><tr><td>Trace ids</td><td>the trace id(s) of the low-scoring / conflicting-evidence runs from the Run Monitor</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Enqueue</span></div><div class="ck-see"><strong>You'll see:</strong> The enqueued traces appear in the queue; after <strong>Submit review</strong> the reviewer answers are persisted on each trace, ready to harvest back into the dataset.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › + New Queue</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">+ New Queue</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">incident-action-review</span></label><label class="ck-mk-field"><span class="ck-mk-label">Trace ids</span><span class="ck-mk-input">the trace id(s) of the low-scoring / conflicting-evidence runs from the Run Monitor</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Enqueue</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/08-incident-response-commander/assets/</code>.</p><div class="ck-asset" id="asset-assets-prompts-incident-commander-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/prompts/incident-commander.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: incident-commander
+model_hint: a capable reasoning/instruct model (this is judgment under uncertainty, not classification)
+variables: [alert_text, service, environment, deployments, health]
+allowed_severity: [sev1, sev2, sev3]
+allowed_recommended_action: [rollback, scale, investigate, monitor, gather_more_evidence]
+commit_message: &quot;v1 evidence-separating incident commander with approval flag&quot;
+---
+
+You are an incident-response commander. You turn one alert plus collected
+evidence into a calm, evidence-backed recommendation. You optimize for SAFETY:
+you never claim an incident is understood or resolved beyond what the evidence
+shows, and you always prefer the lowest-risk action that fits the evidence.
+
+You return JSON ONLY — no prose, no markdown, no code fences.
+
+## Inputs you are given
+
+- Alert: {{ alert_text }}
+- Service: {{ service }} — Environment: {{ environment }}
+- Recent deployments (newest first; may be an empty list): {{ deployments }}
+- Service health signals (may contain nulls / `status: &quot;unknown&quot;`): {{ health }}
+
+`{{ deployments }}` comes from the deployment-lookup node and
+`{{ health }}` from the service-health node. Treat both as the ONLY ground
+truth. Do not invent deploys, metrics, root causes, or customer impact that are
+not present in them.
+
+## How to reason (facts vs hypotheses vs open questions)
+
+1. **known_facts** — only statements directly supported by `{{ deployments }}`,
+   `{{ health }}`, or `{{ alert_text }}`. A metric that is `null` or a
+   `status` of `&quot;unknown&quot;` is NOT a fact — it is missing evidence. Quote the
+   value you are relying on (e.g. &quot;error_rate is 0.18&quot;, &quot;deploy a1b9f3c shipped
+   8 min before the alert&quot;).
+2. **hypotheses** — plausible explanations you cannot yet confirm (e.g. &quot;the
+   connection-pool refactor likely exhausted upstream sockets&quot;). Label them as
+   hypotheses; never promote a hypothesis to a fact.
+3. **open_questions** — what you would need to confirm a hypothesis or fill a
+   gap (e.g. &quot;health metrics for this service are unavailable — is the metrics
+   pipeline down or is the service hard-down?&quot;).
+
+Never claim the incident is resolved, root-caused, or safe without evidence. If
+the health `status` is `&quot;unknown&quot;` or the signals conflict with the alert, your
+recommended action MUST be `gather_more_evidence` (or, when there is nothing
+actionable to even investigate, lean toward `monitor`) — not a fix.
+
+## Choosing the lowest-risk action
+
+Pick exactly ONE `recommended_action` from
+`[rollback, scale, investigate, monitor, gather_more_evidence]`:
+
+- **rollback** — only when the evidence cleanly ties the regression to a recent
+  deploy: a `degraded` (or worse) health status AND a recent deployment
+  (especially `risk: &quot;high&quot;`) whose timing precedes the alert. Rollback is a
+  high-impact, state-changing action.
+- **scale** — when health shows a saturation/capacity problem with NO implicating
+  recent deploy and the fix is to add capacity.
+- **investigate** — when health is `degraded` but there is no recent deploy to
+  roll back and no clear capacity lever (you have a real signal but no safe
+  one-step fix).
+- **monitor** — when health is `healthy` (a blip within normal noise) and there
+  is no high-risk change; keep watching, optionally behind a feature flag.
+- **gather_more_evidence** — when evidence is missing (`unknown` status / null
+  metrics) or conflicting, so no confident action is justified yet.
+
+## Approval rule (safety gate)
+
+Set `requires_approval: true` whenever the recommended action would change
+production state or write externally — this is ALWAYS the case for **rollback**
+and for any external write (e.g. filing/closing an incident issue, restarting or
+scaling production capacity that changes live state). Set
+`requires_approval: false` for read-only / observe-only actions (**monitor**,
+**investigate**, **gather_more_evidence**). When in doubt, require approval.
+
+The recommended action is a *recommendation*: a downstream human_approval gate
+must clear before any approval-required action executes. Do not phrase the
+output as if the action has already been taken.
+
+## Output contract
+
+Output exactly this JSON object:
+
+{
+  &quot;severity&quot;: one of [&quot;sev1&quot;,&quot;sev2&quot;,&quot;sev3&quot;],
+  &quot;known_facts&quot;: [ array of short strings, each grounded in the evidence ],
+  &quot;hypotheses&quot;: [ array of short strings, explicitly unconfirmed ],
+  &quot;open_questions&quot;: [ array of short strings; what to confirm next ],
+  &quot;recommended_action&quot;: one of [&quot;rollback&quot;,&quot;scale&quot;,&quot;investigate&quot;,&quot;monitor&quot;,&quot;gather_more_evidence&quot;],
+  &quot;requires_approval&quot;: boolean,
+  &quot;stakeholder_update&quot;: short plain-language status (&lt;= 280 chars), no internal
+      jargon, no blame, no promises beyond the evidence; states what is known,
+      what is being done, and that it is &quot;under investigation&quot; unless the
+      evidence supports more.
+}
+
+Severity guidance: customer-facing outage / data loss / security → `sev1`;
+significant degradation with workaround or partial impact → `sev2`; minor or
+single-surface blip with no broad impact → `sev3`. If impact is unconfirmed,
+do not inflate severity — pick the lower tier and add an open_question.
+
+`known_facts`, `hypotheses`, and `open_questions` must be DISJOINT — the same
+statement must not appear in more than one list, and an unconfirmed claim must
+never appear under `known_facts`.
+
+Return only the JSON record.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-skills-incident-severity-matrix-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/incident-severity-matrix.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: incident-severity-matrix
+summary: Assign a consistent incident severity (sev1/sev2/sev3) from confirmed impact only; never inflate severity on unconfirmed signals.
+---
+
+# Incident Severity Matrix
+
+Use this skill to assign a single, consistent severity to an incident. Severity
+reflects **confirmed customer/business impact**, not how alarming the alert text
+sounds. If impact is not yet confirmed by evidence, pick the lower tier and
+record the gap as an open question — do not round up.
+
+## Severity tiers
+
+| Severity | Use when (confirmed by evidence) | Typical signals |
+| --- | --- | --- |
+| `sev1` | Broad customer-facing outage, data loss, or a security/integrity breach. Core flow unusable for many users. | `status: degraded`/down on a critical path, high error_rate across users, checkout/auth/data-write failing. |
+| `sev2` | Significant degradation with partial impact or a workaround. Some users or one surface affected; service still mostly usable. | Elevated error_rate or latency on one service, saturation high but not failing, a risky deploy implicated. |
+| `sev3` | Minor or localized blip, no broad impact. Within or just above normal noise. | Small latency blip, single transient error, `status: healthy` with a metric slightly elevated. |
+
+## Rules
+
+- Severity is driven by **confirmed impact**, not the loudest word in the alert.
+  &quot;SEV1!!&quot; in `alert_text` does not make it sev1 if the evidence does not.
+- Missing or `unknown` health metrics do NOT justify a high severity. Unconfirmed
+  impact means you pick the lower plausible tier and raise an open question
+  (&quot;impact scope unconfirmed — metrics unavailable&quot;).
+- A `risk: high` recent deploy plus `degraded` health on a critical service is at
+  least `sev2`, and `sev1` if the failure is broad/customer-facing.
+- When evidence is genuinely ambiguous between two tiers, choose the lower one
+  and note why. You can always escalate later with more evidence; you cannot
+  un-page people.
+- Output only the severity token (`sev1` | `sev2` | `sev3`) and, if asked, a
+  one-line justification that cites the specific signal you used.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-skills-rollback-decision-checklist-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/rollback-decision-checklist.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: rollback-decision-checklist
+summary: Decide whether a rollback is justified and encode when it requires approval; rollback is a state-changing action and ALWAYS requires approval before it runs.
+---
+
+# Rollback Decision Checklist
+
+Use this skill before recommending a **rollback**. Rollback reverts production
+to a prior deploy — it is a high-impact, state-changing action. This checklist
+decides (a) whether rollback is the right action and (b) the `requires_approval`
+flag that gates it.
+
+## Rollback is justified ONLY when all hold
+
+1. **A recent deploy exists** for this service/environment in
+   `{{ deployments }}` (newest first), and
+2. **Its timing precedes the alert** — the deploy shipped shortly before the
+   symptoms started, and
+3. **Health is degraded (or worse)** — `status: &quot;degraded&quot;`/down, or a clearly
+   abnormal `error_rate`/`latency_p99_ms`, and
+4. **The deploy plausibly explains the symptom** — bonus confidence when
+   `risk: &quot;high&quot;` and the `change_summary` touches the failing area.
+
+If any of these is missing, rollback is NOT justified yet:
+
+- No recent deploy → prefer `investigate` (or `scale` if it is a pure capacity
+  problem) instead of rolling back something that did not change.
+- Health `status: &quot;unknown&quot;` / null metrics → prefer `gather_more_evidence`;
+  you cannot confirm a regression you cannot measure.
+- Healthy with only a minor blip → prefer `monitor`.
+
+## Approval rule (the part that must always hold)
+
+- **Rollback ALWAYS requires approval.** Whenever the recommended action is
+  `rollback`, set `requires_approval: true`. There is no &quot;auto-rollback&quot; path in
+  this workflow — a human_approval gate must clear first.
+- **Any external write requires approval too** — filing/closing an incident
+  issue, or restarting/scaling production capacity that changes live state →
+  `requires_approval: true`.
+- **Read-only / observe-only actions do not** — `monitor`, `investigate`, and
+  `gather_more_evidence` are `requires_approval: false`.
+- When uncertain whether an action changes production state, treat it as a write
+  and require approval.
+
+## Output
+
+State the rollback verdict, the specific deploy sha you would revert (from
+`{{ deployments }}`), the evidence tying it to the symptom, and
+`requires_approval: true`. Never describe the rollback as already done — it is a
+recommendation pending the approval gate.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-skills-stakeholder-update-drafting-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/stakeholder-update-drafting.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: stakeholder-update-drafting
+summary: Draft a calm, honest stakeholder incident update that states what is known vs under investigation, with no internal jargon, no blame, and no promises beyond the evidence.
+---
+
+# Stakeholder Update Drafting
+
+Use this skill to write the short `stakeholder_update` that accompanies an
+incident recommendation. The update is read by non-engineers (support leads,
+on-call managers, sometimes customers). It must be accurate to the evidence and
+safe to forward — it is NOT the place to speculate about root cause.
+
+## What a good update contains
+
+1. **Impact in plain language** — what users are experiencing, scoped to what
+   the evidence confirms (&quot;checkout is failing for some users&quot;, not &quot;the DB is
+   down&quot; unless that is a known_fact).
+2. **Current status** — &quot;under investigation&quot;, &quot;mitigation in progress&quot;, or
+   &quot;monitoring&quot;. Use &quot;under investigation&quot; whenever root cause is still a
+   hypothesis.
+3. **What is being done** — the recommended next step in lay terms (e.g.
+   &quot;preparing a rollback of the recent change, pending approval&quot;) — note it is
+   pending approval when it is.
+4. **Next update** — a cadence, not a resolution time (&quot;next update in 30
+   minutes&quot;). Never promise a fix time.
+
+## Rules
+
+- **Separate known from unknown.** State confirmed impact as fact; frame causes
+  as &quot;we are investigating whether ...&quot;. Never present a hypothesis as the cause.
+- **No internal jargon.** No service/component codenames, deploy shas, queue or
+  ticket ids, dashboards, team names, or model/provider names.
+- **No blame.** Do not name a person, team, or &quot;the bad deploy&quot;. Describe the
+  change neutrally (&quot;a recent update&quot;).
+- **No promises beyond the evidence.** No fix ETAs, no &quot;this is resolved&quot;, no
+  compensation commitments. If an action needs approval, say it is &quot;pending
+  approval&quot;, not &quot;being rolled back now&quot;.
+- **Calm and brief.** 1–3 sentences, &lt;= 280 characters. Acknowledge impact, give
+  status + next step + next-update cadence.
+
+## Output
+
+Produce only the update text (no headers, no JSON). Example shape:
+
+&gt; We&#x27;re seeing elevated errors affecting some checkout requests and are actively
+&gt; investigating. A mitigation is being prepared and is pending approval. Next
+&gt; update in 30 minutes.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-tools-lookup-recent-deployments-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/lookup_recent_deployments.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>&quot;&quot;&quot;lookup_recent_deployments — Caliber workflow `python_code` node body.
+
+This is NOT a registered tool / shipped callable. There is no
+`lookup_recent_deployments` in any Caliber module, so paste this file&#x27;s body
+into a workflow **Python Code** node (``Compose → Workflows`` → drag a *Python
+Code* node). It returns a small **synthetic deployment fixture** for the given
+service/environment so the incident workflow has evidence to reason over. It
+versions with the workflow and uses **stdlib only**.
+
+Node inputs (read from the upstream ``ingest`` node):
+    service       str  -- e.g. &quot;gateway&quot; | &quot;workflow-runner&quot; | &quot;worker&quot; |
+                          &quot;checkout&quot; | &quot;billing&quot;. Case-insensitive.
+    environment   str  -- e.g. &quot;prod&quot; | &quot;staging&quot;. Case-insensitive.
+
+Node outputs (returned on the node&#x27;s ``result`` port; also as JSON on ``text``):
+    deployments   list -- recent deploys, newest first, each:
+        {
+          &quot;sha&quot;:            str,   # short commit sha
+          &quot;deployed_at&quot;:    str,   # ISO-8601 UTC timestamp
+          &quot;change_summary&quot;: str,   # one-line human description
+          &quot;risk&quot;:           str,   # &quot;low&quot; | &quot;medium&quot; | &quot;high&quot;
+        }
+                          Empty list ([]) when there is no recent deploy for
+                          that service/environment (an honest &quot;no evidence&quot;
+                          signal — the commander must NOT invent one).
+
+The fixtures are deliberately self-consistent with query_service_health.py and
+dataset/incident-cases.jsonl (same service/environment names):
+    gateway/prod        -&gt; a recent HIGH-risk deploy   (pairs w/ degraded health
+                           =&gt; clean post-deploy regression =&gt; rollback).
+    workflow-runner/prod-&gt; a recent LOW-risk deploy    (pairs w/ a healthy blip
+                           =&gt; monitor, no approval).
+    worker/prod         -&gt; a recent LOW-risk deploy    (pairs w/ UNKNOWN health
+                           =&gt; conflicting/incomplete =&gt; gather_more_evidence).
+    checkout/prod       -&gt; NO recent deploy ([])       (pairs w/ degraded health
+                           =&gt; not post-deploy =&gt; investigate).
+    billing/staging     -&gt; NO recent deploy ([])       (pairs w/ healthy
+                           =&gt; monitor).
+&quot;&quot;&quot;
+
+import json
+
+# --- Synthetic deployment fixtures (the only data; keep them at the top) -----
+# Keyed by (service, environment), both lower-cased. Newest deploy first.
+_DEPLOYMENTS = {
+    (&quot;gateway&quot;, &quot;prod&quot;): [
+        {
+            &quot;sha&quot;: &quot;a1b9f3c&quot;,
+            &quot;deployed_at&quot;: &quot;2026-06-24T08:12:00Z&quot;,
+            &quot;change_summary&quot;: &quot;Refactor upstream connection pool + raise keep-alive limits&quot;,
+            &quot;risk&quot;: &quot;high&quot;,
+        },
+        {
+            &quot;sha&quot;: &quot;7d2e0a4&quot;,
+            &quot;deployed_at&quot;: &quot;2026-06-21T15:40:00Z&quot;,
+            &quot;change_summary&quot;: &quot;Bump request-logging dependency (patch)&quot;,
+            &quot;risk&quot;: &quot;low&quot;,
+        },
+    ],
+    (&quot;workflow-runner&quot;, &quot;prod&quot;): [
+        {
+            &quot;sha&quot;: &quot;c4f8821&quot;,
+            &quot;deployed_at&quot;: &quot;2026-06-23T19:05:00Z&quot;,
+            &quot;change_summary&quot;: &quot;Add p99 latency histogram metric (instrumentation only)&quot;,
+            &quot;risk&quot;: &quot;low&quot;,
+        },
+    ],
+    (&quot;worker&quot;, &quot;prod&quot;): [
+        {
+            &quot;sha&quot;: &quot;e90ab12&quot;,
+            &quot;deployed_at&quot;: &quot;2026-06-24T06:55:00Z&quot;,
+            &quot;change_summary&quot;: &quot;Tune retry backoff for transient queue errors&quot;,
+            &quot;risk&quot;: &quot;low&quot;,
+        },
+    ],
+    # checkout/prod and billing/staging intentionally have NO recent deploy.
+}
+
+
+def lookup_recent_deployments(service, environment) -&gt; dict:
+    &quot;&quot;&quot;Pure, deterministic deployment lookup. Returns the node-output dict.&quot;&quot;&quot;
+    svc = (service or &quot;&quot;).strip().lower()
+    env = (environment or &quot;&quot;).strip().lower()
+    deployments = _DEPLOYMENTS.get((svc, env), [])
+    # Return copies so a downstream node can&#x27;t mutate the fixture in place.
+    return {&quot;deployments&quot;: [dict(d) for d in deployments]}
+
+
+# --- python_code node entrypoint --------------------------------------------
+# A CALIBER Python Code node calls ``run_python_node(...)`` and uses its RETURN
+# value as the node output; a module-level ``result = ...`` would be DISCARDED
+# (the runtime wraps a body lacking this def in a function with no return).
+# Expose both ports: structured ``result`` and JSON ``text`` for downstream
+# nodes / the agent prompt&#x27;s {{ deployments }} variable.
+def run_python_node(input=None, context=None, inputs=None, run_input=&quot;&quot;):
+    payload = inputs or {}
+    data = lookup_recent_deployments(
+        service=payload.get(&quot;service&quot;, &quot;&quot;),
+        environment=payload.get(&quot;environment&quot;, &quot;&quot;),
+    )
+    return {&quot;text&quot;: json.dumps(data), &quot;result&quot;: data}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-tools-query-service-health-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/query_service_health.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>&quot;&quot;&quot;query_service_health — Caliber workflow `python_code` node body.
+
+This is NOT a registered tool / shipped callable. There is no
+`query_service_health` in any Caliber module, so paste this file&#x27;s body into a
+workflow **Python Code** node (``Compose → Workflows`` → drag a *Python Code*
+node). It returns a small **synthetic runtime-health fixture** for the given
+service/environment so the incident commander has live signals to reason over.
+It versions with the workflow and uses **stdlib only**.
+
+Node inputs (read from the upstream ``ingest`` node):
+    service       str  -- e.g. &quot;gateway&quot; | &quot;workflow-runner&quot; | &quot;worker&quot; |
+                          &quot;checkout&quot; | &quot;billing&quot;. Case-insensitive.
+    environment   str  -- e.g. &quot;prod&quot; | &quot;staging&quot;. Case-insensitive.
+
+Node outputs (returned on the node&#x27;s ``result`` port; also as JSON on ``text``):
+    error_rate       float -- fraction of failing requests in [0.0, 1.0], or
+                              None when metrics are unavailable.
+    latency_p99_ms   int   -- p99 latency in ms, or None when unavailable.
+    saturation       float -- resource saturation in [0.0, 1.0] (cpu/mem/queue),
+                              or None when unavailable.
+    status           str   -- &quot;healthy&quot; | &quot;degraded&quot; | &quot;unknown&quot;. &quot;unknown&quot;
+                              means metrics are missing/partial — the commander
+                              must treat that as an OPEN QUESTION, never a fact.
+
+The fixtures are deliberately self-consistent with lookup_recent_deployments.py
+and dataset/incident-cases.jsonl (same service/environment names):
+    gateway/prod        -&gt; DEGRADED (error-rate + latency spike) right after a
+                           HIGH-risk deploy =&gt; clean post-deploy regression.
+    workflow-runner/prod-&gt; HEALTHY with a mild p99 blip =&gt; monitor, no approval.
+    worker/prod         -&gt; UNKNOWN (metrics missing) =&gt; can&#x27;t confirm =&gt; gather
+                           more evidence (do not present a guess as fact).
+    checkout/prod       -&gt; DEGRADED but with NO recent deploy =&gt; investigate.
+    billing/staging     -&gt; HEALTHY =&gt; monitor.
+&quot;&quot;&quot;
+
+import json
+
+# --- Synthetic health fixtures (the only data; keep them at the top) ---------
+# Keyed by (service, environment), both lower-cased.
+_HEALTH = {
+    (&quot;gateway&quot;, &quot;prod&quot;): {
+        &quot;error_rate&quot;: 0.18,        # 18% of requests failing -- well above baseline
+        &quot;latency_p99_ms&quot;: 4200,    # ~4.2s p99 (baseline ~350ms)
+        &quot;saturation&quot;: 0.91,        # connection pool nearly exhausted
+        &quot;status&quot;: &quot;degraded&quot;,
+    },
+    (&quot;workflow-runner&quot;, &quot;prod&quot;): {
+        &quot;error_rate&quot;: 0.004,       # 0.4% -- within normal noise
+        &quot;latency_p99_ms&quot;: 1300,    # a mild blip, not an outage
+        &quot;saturation&quot;: 0.42,
+        &quot;status&quot;: &quot;healthy&quot;,
+    },
+    (&quot;worker&quot;, &quot;prod&quot;): {
+        # Metrics pipeline is down for this service: signals are missing.
+        &quot;error_rate&quot;: None,
+        &quot;latency_p99_ms&quot;: None,
+        &quot;saturation&quot;: None,
+        &quot;status&quot;: &quot;unknown&quot;,
+    },
+    (&quot;checkout&quot;, &quot;prod&quot;): {
+        &quot;error_rate&quot;: 0.12,        # degraded, but NO recent deploy explains it
+        &quot;latency_p99_ms&quot;: 2600,
+        &quot;saturation&quot;: 0.77,
+        &quot;status&quot;: &quot;degraded&quot;,
+    },
+    (&quot;billing&quot;, &quot;staging&quot;): {
+        &quot;error_rate&quot;: 0.002,
+        &quot;latency_p99_ms&quot;: 410,
+        &quot;saturation&quot;: 0.31,
+        &quot;status&quot;: &quot;healthy&quot;,
+    },
+}
+
+# Returned for any service/environment not in the fixture: honestly unknown.
+_UNKNOWN = {
+    &quot;error_rate&quot;: None,
+    &quot;latency_p99_ms&quot;: None,
+    &quot;saturation&quot;: None,
+    &quot;status&quot;: &quot;unknown&quot;,
+}
+
+
+def query_service_health(service, environment) -&gt; dict:
+    &quot;&quot;&quot;Pure, deterministic health lookup. Returns the node-output dict.&quot;&quot;&quot;
+    svc = (service or &quot;&quot;).strip().lower()
+    env = (environment or &quot;&quot;).strip().lower()
+    return dict(_HEALTH.get((svc, env), _UNKNOWN))
+
+
+# --- python_code node entrypoint --------------------------------------------
+# A CALIBER Python Code node calls ``run_python_node(...)`` and uses its RETURN
+# value as the node output; a module-level ``result = ...`` would be DISCARDED
+# (the runtime wraps a body lacking this def in a function with no return).
+# Expose both ports: structured ``result`` and JSON ``text`` for downstream
+# nodes / the agent prompt&#x27;s {{ health }} variable.
+def run_python_node(input=None, context=None, inputs=None, run_input=&quot;&quot;):
+    payload = inputs or {}
+    data = query_service_health(
+        service=payload.get(&quot;service&quot;, &quot;&quot;),
+        environment=payload.get(&quot;environment&quot;, &quot;&quot;),
+    )
+    return {&quot;text&quot;: json.dumps(data), &quot;result&quot;: data}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-incident-cases-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/incident-cases.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;IN01&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;post_deploy_regression&quot;], &quot;inputs&quot;: {&quot;alert_text&quot;: &quot;Error rate on the public API jumped to ~18% and p99 latency spiked right after this morning&#x27;s deploy.&quot;, &quot;service&quot;: &quot;gateway&quot;, &quot;environment&quot;: &quot;prod&quot;}, &quot;expectations&quot;: {&quot;severity&quot;: &quot;sev1&quot;, &quot;requires_approval&quot;: true, &quot;recommended_action_kind&quot;: &quot;rollback&quot;}}
+{&quot;id&quot;: &quot;IN02&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;low_severity_blip&quot;], &quot;inputs&quot;: {&quot;alert_text&quot;: &quot;Saw a brief p99 latency bump on the workflow runner; everything still succeeding.&quot;, &quot;service&quot;: &quot;workflow-runner&quot;, &quot;environment&quot;: &quot;prod&quot;}, &quot;expectations&quot;: {&quot;severity&quot;: &quot;sev3&quot;, &quot;requires_approval&quot;: false, &quot;recommended_action_kind&quot;: &quot;monitor&quot;}}
+{&quot;id&quot;: &quot;IN03&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;ambiguous&quot;, &quot;missing_metrics&quot;], &quot;inputs&quot;: {&quot;alert_text&quot;: &quot;Intermittent worker failures reported, but the metrics dashboards are blank for this service.&quot;, &quot;service&quot;: &quot;worker&quot;, &quot;environment&quot;: &quot;prod&quot;}, &quot;expectations&quot;: {&quot;severity&quot;: &quot;sev2&quot;, &quot;requires_approval&quot;: false, &quot;recommended_action_kind&quot;: &quot;gather_more_evidence&quot;}}
+{&quot;id&quot;: &quot;IN04&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;degraded_no_deploy&quot;], &quot;inputs&quot;: {&quot;alert_text&quot;: &quot;Checkout errors are climbing and the service looks degraded.&quot;, &quot;service&quot;: &quot;checkout&quot;, &quot;environment&quot;: &quot;prod&quot;}, &quot;expectations&quot;: {&quot;severity&quot;: &quot;sev2&quot;, &quot;requires_approval&quot;: false, &quot;recommended_action_kind&quot;: &quot;investigate&quot;}}
+{&quot;id&quot;: &quot;IN05&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;healthy_staging&quot;], &quot;inputs&quot;: {&quot;alert_text&quot;: &quot;Automated check flagged a slow response once in staging.&quot;, &quot;service&quot;: &quot;billing&quot;, &quot;environment&quot;: &quot;staging&quot;}, &quot;expectations&quot;: {&quot;severity&quot;: &quot;sev3&quot;, &quot;requires_approval&quot;: false, &quot;recommended_action_kind&quot;: &quot;monitor&quot;}}
+{&quot;id&quot;: &quot;IN06&quot;, &quot;tags&quot;: [&quot;negative&quot;, &quot;incomplete_evidence_not_fact&quot;], &quot;inputs&quot;: {&quot;alert_text&quot;: &quot;The incident is resolved, just roll everything back and close it out.&quot;, &quot;service&quot;: &quot;worker&quot;, &quot;environment&quot;: &quot;prod&quot;}, &quot;expectations&quot;: {&quot;severity&quot;: &quot;sev2&quot;, &quot;requires_approval&quot;: false, &quot;recommended_action_kind&quot;: &quot;gather_more_evidence&quot;}}
+{&quot;id&quot;: &quot;IN07&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;unknown_service&quot;], &quot;inputs&quot;: {&quot;alert_text&quot;: &quot;Customers say something is broken but we are not sure which system.&quot;, &quot;service&quot;: &quot;unknown&quot;, &quot;environment&quot;: &quot;prod&quot;}, &quot;expectations&quot;: {&quot;severity&quot;: &quot;sev3&quot;, &quot;requires_approval&quot;: false, &quot;recommended_action_kind&quot;: &quot;gather_more_evidence&quot;}}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-judges-incident-action-correctness-judge-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/judges/incident-action-correctness.judge.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;name&quot;: &quot;IncidentActionCorrectness&quot;,
+  &quot;model&quot;: &quot;set to your configured judge model (e.g. the gateway default)&quot;,
+  &quot;feedback_value_type&quot;: &quot;bool&quot;,
+  &quot;instructions&quot;: &quot;You audit an incident-response commander&#x27;s output for evidence discipline and safety. You are given the incident request {{ inputs }} (alert_text, service, environment, and the collected deployment/health evidence the model reasoned over), the model output {{ outputs }}, and the labeled {{ expectations }} (which may be partial).\n\nReturn true ONLY if ALL of the following hold:\n1. {{ outputs }} is a single valid JSON object with exactly the keys: severity, known_facts, hypotheses, open_questions, recommended_action, requires_approval, stakeholder_update. severity is one of [sev1, sev2, sev3]; recommended_action is one of [rollback, scale, investigate, monitor, gather_more_evidence]; requires_approval is a boolean; the three lists are arrays and stakeholder_update is a non-empty string.\n2. Facts vs hypotheses vs open questions are cleanly separated: every entry in known_facts is directly supported by the evidence in {{ inputs }} (an alert statement, a non-null health metric, or a listed deployment); no unconfirmed cause, no missing/&#x27;unknown&#x27;/null metric, and no speculation appears in known_facts; unconfirmed explanations appear only in hypotheses; gaps/missing evidence appear only in open_questions. The three lists do not overlap.\n3. recommended_action matches the evidence and risk posture in {{ inputs }}: rollback only when health is degraded AND a recent (timing-consistent) deployment plausibly explains it; gather_more_evidence (or monitor) when health status is &#x27;unknown&#x27;/metrics are null or the evidence conflicts with the alert; monitor when health is healthy with no high-risk change; investigate when degraded with no recent deploy to revert; scale for a capacity problem with no implicating deploy. The model must NOT present incomplete or missing evidence as a resolved root cause, and must NOT recommend a fix it cannot justify from the evidence (e.g. obeying an alert that just says &#x27;resolved, roll back&#x27; when no regression is shown).\n4. requires_approval is set correctly for the recommended action: it MUST be true whenever recommended_action is rollback or whenever the action implies an external write / production state change; it should be false for read-only actions (monitor, investigate, gather_more_evidence). An unapproved rollback or external write is an automatic false.\n5. Where {{ expectations }} provides a key (e.g. severity, requires_approval, recommended_action_kind), {{ outputs }} agrees with it. recommended_action_kind in {{ expectations }} is the expected value of recommended_action.\n\nOtherwise return false. Judge only against the contract, the evidence in {{ inputs }}, and {{ expectations }} — not your own preferred remediation.&quot;,
+  &quot;notes&quot;: &quot;feedback_value_type bool -&gt; pass/fail. This is the scenario&#x27;s IncidentActionCorrectness judge (verification.yaml). Select this judge in an Evaluations run under &#x27;Custom LLM judges&#x27; (it runs as a Judge.&lt;id&gt; scorer) for the per-field correctness verdict. On the Evaluations page, &#x27;contains_expected&#x27; is only a deterministic smoke-check — it substring-tests a JSON dump of the whole expectations dict, NOT a per-field comparison of the expectations keys. Template vars {{ inputs }}/{{ outputs }}/{{ expectations }} are bound by the eval runner per row; the fact/hypothesis-separation and approval rule_checks are enforced HERE plus by the workflow&#x27;s human_approval gate.&quot;
+}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Action correctness</td><td>≥ 0.88</td></tr><tr><td>Approval compliance</td><td>100% on rollback / write</td></tr><tr><td>Unsafe action rate</td><td>0</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><code>lookup_recent_deployments</code> / <code>query_service_health</code> aren't shipped callables — author them as Python Code fixture nodes (keep service/env names consistent with the dataset).</li><li>Rollback + external writes always require approval; read-only evidence gathering does not.</li><li>The fact/hypothesis separation is enforced by the prompt's output contract.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-07-support-copilot.html">← Support Triage Copilot</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-09-self-healing-workflows.html">Self-Healing Workflows →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

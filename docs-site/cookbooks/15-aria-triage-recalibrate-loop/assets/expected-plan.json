@@ -1,0 +1,23 @@
+{
+  "goal": "Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration.",
+  "autonomy": "ask_each",
+  "expected_steps": [
+    {
+      "capability_key": "review_queue.create",
+      "tier": "mutate",
+      "interaction": "confirm/refine the triage question schema (review-queues/triage-review.queue.json)"
+    },
+    {
+      "capability_key": "review_queue.add_items",
+      "tier": "mutate",
+      "interaction": "supply REAL flagged trace_ids of the weak runs (enqueue.json); uses the queue_id from the previous step"
+    },
+    {
+      "capability_key": "workflow.calibrate",
+      "tier": "mutate",
+      "async": true,
+      "interaction": "supply a REAL existing workflow_id + agent_id (calibrate.json); answering enqueues the async job and the plan PARKS (waiting_job) — POST /aria/plans/{id}/poll until it resolves"
+    }
+  ],
+  "notes": "All three steps share no dependencies in the default planner, but you answer them in order. review_queue.add_items + workflow.calibrate operate on EXISTING ids (traces, workflow, agent) — Aria does not create them. The final step is asynchronous: park + poll until done, then the plan completes."
+}

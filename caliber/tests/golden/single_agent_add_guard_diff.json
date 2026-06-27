@@ -1,0 +1,16 @@
+{
+  "added_edges": [],
+  "added_nodes": [
+    {
+      "id": "guard",
+      "type": "guardrail"
+    }
+  ],
+  "artifact_changes": [],
+  "deploy_gate_changes": [],
+  "empty": false,
+  "modified_edges": [],
+  "modified_nodes": [],
+  "removed_edges": [],
+  "removed_nodes": []
+}

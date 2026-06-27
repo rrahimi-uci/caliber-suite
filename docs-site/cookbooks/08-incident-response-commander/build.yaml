@@ -1,0 +1,65 @@
+workflow_goal: Transform incident input into evidence-backed recommendations and stakeholder-safe updates.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Start from the hitl_review template; gate rollback / external write with the human_approval node.
+  - lookup_recent_deployments and query_service_health are NOT shipped callables — implement them as python_code nodes returning synthetic incident fixtures (recommended), or add real callables to a module and register them.
+  - MCP is optional (Playwright snapshot, GitHub incident issue with requires_approval:true, PostgreSQL read-only).
+  - IncidentActionCorrectness is a real LLM judge; fact/hypothesis separation + approval rule_checks are enforced by the prompt output contract + the gate.
+manual_flow:
+  - step: ingest_incident
+    action: normalize alert, service, environment, and symptom inputs
+  - step: collect_evidence
+    action: query deployments and service health tools
+  - step: capture_external_state
+    action: optionally snapshot browser status via MCP
+  - step: summarize
+    action: generate facts, hypotheses, and open questions
+  - step: recommend
+    action: produce action with risk and approval requirement
+  - step: persist_artifact
+    action: optionally create incident issue after approval
+components:
+  prompts:
+    system: "Distinguish facts from hypotheses and optimize for safety."
+    developer: "Do not claim resolution without evidence."
+  skills:
+    - incident-severity-matrix
+    - rollback-decision-checklist
+    - stakeholder-update-drafting
+  tools:
+    - lookup_recent_deployments # python_code node returning fixtures (no shipped callable)
+    - query_service_health      # python_code node returning fixtures (no shipped callable)
+  mcp:
+    optional:
+      - Playwright snapshot           # mcp_resource node (status page)
+      - GitHub incident issue         # mcp_resource node, requires_approval:true
+      - PostgreSQL incident metadata  # read-only
+  workflow:
+    template: hitl_review        # ships the human_approval gate
+    nodes:
+      - ingest             # normalize alert / service / environment
+      - collect_evidence   # python_code nodes: deployments + service health
+      - summarize          # agent node: facts vs hypotheses vs open questions
+      - recommend_action   # router node on risk + requires_approval
+      - approval_gate      # human_approval node (rollback / external write)
+      - create_issue_optional # mcp_resource node (GitHub), after approval
+contracts:
+  input_schema:
+    type: object
+    required: [alert_text, service, environment]
+  output_schema:
+    type: object
+    required: [severity, known_facts, hypotheses, recommended_action]
+    properties:
+      severity: {type: string}
+      known_facts: {type: array}
+      hypotheses: {type: array}
+      recommended_action: {type: string}
+      stakeholder_update: {type: string}
+failure_modes:
+  - incomplete_evidence_presented_as_fact
+  - unsafe_rollback_recommendation
+  - unapproved_external_write
+fallbacks:
+  - prefer gather_more_evidence when confidence is low.
+  - escalate to human operator on conflicting evidence.

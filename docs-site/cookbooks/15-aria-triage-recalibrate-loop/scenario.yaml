@@ -1,0 +1,38 @@
+id: SCN-15
+slug: aria-triage-recalibrate-loop
+name: "Aria: Triage & Recalibrate Loop"
+track: aria
+objective: Give Aria one intent about weak workflow runs and have it autonomously create a review queue, enqueue the flagged traces, and kick off an ASYNC workflow calibration — then park until the job finishes and resume on its own. Closes the governance -> remediation loop with only human confirmation of the parameters.
+why_it_matters:
+  - Shows Aria's first ASYNC capability end to end - the plan parks (waiting_job) on a real background job and resumes itself when the job completes.
+  - Demonstrates the governance -> remediation loop - flag weak runs, route them to structured human review, AND recalibrate the workflow, all from one sentence.
+  - Bounded honestly by Aria's real capability registry - it operates on EXISTING traces + an EXISTING workflow; it does not author them.
+primary_persona: platform engineer
+secondary_personas:
+  - AI engineer
+  - evaluator
+caliber_surfaces:
+  - Plans
+  - Review Queues
+  - Workflows
+  - Observability
+prerequisites:
+  - An EXISTING workflow with recent runs/traces to operate on (build it in SCN-07 first). This loop remediates; it does not create the subject.
+  - The flagged trace ids and the target workflow_id + agent_id (supplied as interaction answers - Aria does not discover them).
+  - A configured model provider; Aria Plans available (sidebar "Plans").
+time_to_first_value: 20-35 minutes
+success_criteria:
+  - From the intent alone, Aria drafts a plan containing review_queue.create + review_queue.add_items + workflow.calibrate.
+  - After approval and answering the interactions, a real review queue exists with the flagged traces enqueued.
+  - The workflow.calibrate step parks the plan on an async job; after polling, the job completes and the plan resumes + completes.
+demo_profile:
+  recommended_sequence_index: 15
+  tier: aria
+  live_demo_minutes: 20-30
+  depends_on:
+    - SCN-07
+  included_in:
+    - aria_autonomous
+  showcase_capabilities:
+    - Aria plan decompose -> approve -> execute -> park-on-async-job -> poll -> resume
+    - autonomous governance-to-remediation loop (review queue + enqueue + workflow recalibration) from a single intent

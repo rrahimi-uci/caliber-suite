@@ -1,0 +1,45 @@
+workflow_goal: Establish a reliable automated+human scoring loop for release-critical decisions.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Judges are custom LLM judges only (instructions reference {{ inputs }}/{{ outputs }}/{{ expectations }}, feedback_value_type bool/int/float/str). FaithfulnessJudge maps to this.
+  - alignment_score / disagreements are NOT auto-computed — compare the judge scorecard against reviewer answers by hand.
+  - The Test Sets detail page (/eval-datasets/:id) is wired (EvalDatasetDetail row editor) — author/edit rows with + Add example (revise/supersede/from-trace) or via the API. Harvest dataset rows from traces via POST /eval-datasets/{id}/examples/from-trace.
+  - The "workflow" here is a process (evaluate -> review_queue -> reconcile), not a built workflow graph.
+manual_flow:
+  - step: prepare_dataset
+    action: aggregate representative outputs from build scenarios
+  - step: define_judge
+    action: configure scoring rubric and template variables
+  - step: run_eval
+    action: score candidate outputs
+  - step: human_review
+    action: enqueue and answer review questions for sampled traces
+  - step: calibrate
+    action: reconcile disagreements and update judge or artifact
+components:
+  prompts:
+    optional:
+      - rubric wordsmithing variants
+  skills:
+    optional:
+      - rubric-question-writer
+  tools: none
+  mcp: none
+  workflow:
+    nodes:
+      - evaluate
+      - review_queue
+      - reconcile
+contracts:
+  input_schema:
+    type: object
+    required: [dataset_id, judge_id]
+  output_schema:
+    type: object
+    required: [overall_score, alignment_score, disagreements]
+failure_modes:
+  - judge_template_variable_mismatch
+  - human_review_not_trace_linked
+  - disagreement_hidden_by_aggregate_score
+fallbacks:
+  - block release gating until rubric or data issues are resolved.

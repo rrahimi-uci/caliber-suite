@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Object Store Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Object Store Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Data &amp; knowledge</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Object store</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Data &amp; knowledge · Architecture reference</div>
+          <h1 id="top">Object Store Architecture</h1>
+          <p class="doc-summary">MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Object store: console plus managed storage substrate</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>An operator S3/MinIO console plus the backend-agnostic storage substrate the platform writes through, kept as two distinct concerns.</td></tr><tr><td><strong>Where state lives</strong></td><td>Console reads live S3 state per request; scoped storage is DB-backed in <code>CaliberProject</code>, <code>CaliberWorkflowFile</code>, and <code>CaliberWorkflowFileEvent</code>.</td></tr><tr><td><strong>Runtime model</strong></td><td>The console talks to S3 directly via <code>routes/object_store.py</code>; scoped storage flows through <code>WorkingDirectoryService</code> over <code>local</code> or <code>s3</code> backends.</td></tr><tr><td><strong>Key surfaces</strong></td><td>HTTP routes under <code>/ajax-api/2.0/mlflow/caliber</code>: <code>/object-store/...</code> console routes, <code>/workflow-files</code> and run-scoped file routes, and <code>/projects</code> workspace routes.</td></tr><tr><td><strong>Reference grammar</strong></td><td>Runtime code uses <code>caliber://</code> refs resolved against physical objects, never raw bucket keys.</td></tr><tr><td><strong>Trust / safety</strong></td><td>Reads need an authenticated user; console mutations require <code>SCOPE_ADMIN</code> and scoped writes <code>SCOPE_OPERATOR</code>; <code>safe_relative_path</code> and <code>local_realpath_guard</code> block traversal/symlink escape.</td></tr><tr><td><strong>Extends via</strong></td><td>New backends implement the <code>StorageBackend</code> protocol through <code>build_backend(...)</code>.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the scope, boundaries, runtime paths, data model, surfaces, and trust boundaries in detail.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The object-store module in CALIBER carries two closely related but intentionally separate responsibilities: it presents a direct operator console over an S3-compatible endpoint, and it provides the backend-agnostic storage substrate that the rest of the platform writes through. Keeping those two concerns distinct is the central design decision of the module.</p>
+<p>In full, the module is responsible for the following, spanning the console, the storage substrate, and the metadata that ties bytes to runtime scopes:</p>
+<ul><li>It exposes an operator-facing S3/MinIO console for browsing buckets and objects.</li><li>It provides the backend-agnostic storage substrate used by workflow runs, playground runs, and project files.</li><li>It persists canonical file metadata in CALIBER's database while the object bytes live on local disk or in S3-compatible storage.</li><li>It normalizes file references through <code>caliber://</code> URIs so runtime code never manipulates raw bucket keys directly.</li><li>It gives adjacent modules such as workflows, knowledge bases, and logging a consistent object-persistence target.</li></ul>
+<p>These responsibilities are implemented across the following primary code paths, which separate the console routes, the storage abstraction and its backends, the scoped file routes, and the supporting dependencies and models:</p>
+<ul><li><code>caliber/src/caliber/routes/object_store.py</code></li><li><code>caliber/src/caliber/storage/base.py</code></li><li><code>caliber/src/caliber/storage/service.py</code></li><li><code>caliber/src/caliber/storage/local.py</code></li><li><code>caliber/src/caliber/storage/s3.py</code></li><li><code>caliber/src/caliber/routes/files.py</code></li><li><code>caliber/src/caliber/routes/projects.py</code></li><li><code>caliber/src/caliber/routes/_deps.py</code></li><li><code>caliber/src/caliber/db/models.py</code></li><li><code>caliber/caliber-ui/src/pages/ObjectStore.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module draws a firm line between the live console and the managed, DB-backed storage path. The table below assigns each responsibility to its owner and records what that owner is accountable for:</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Bucket/object console</td><td><code>routes/object_store.py</code> + <code>ObjectStore.tsx</code></td><td>Direct S3-compatible browser for buckets, folders, previews, extraction, upload, and delete.</td></tr><tr><td>Canonical ref grammar and path safety</td><td><code>storage/base.py</code></td><td>Defines <code>caliber://</code> refs, file kinds, safe relative paths, and shared exceptions.</td></tr><tr><td>Run/project-scoped file orchestration</td><td><code>storage/service.py</code></td><td>Builds namespaces, validates uploads, records DB rows, and resolves refs back to physical objects.</td></tr><tr><td>Local byte storage</td><td><code>storage/local.py</code></td><td>Atomic filesystem writes with realpath and symlink escape protection.</td></tr><tr><td>S3/MinIO byte storage</td><td><code>storage/s3.py</code></td><td>S3-compatible backend with secret resolution and public/internal endpoint separation.</td></tr><tr><td>Workflow/playground file APIs</td><td><code>routes/files.py</code></td><td>Run-scoped upload, list, download, and artifact registration.</td></tr><tr><td>Project workspace file APIs</td><td><code>routes/projects.py</code></td><td>Project CRUD plus folder/file browsing and backend selection.</td></tr><tr><td>Runtime metadata state</td><td><code>CaliberProject</code>, <code>CaliberWorkflowFile</code>, <code>CaliberWorkflowFileEvent</code></td><td>Database is the source of truth for scoped file metadata, not object listings.</td></tr></tbody></table></div>
+<p>Those owners resolve into one architectural distinction that the rest of the module depends on: the difference between state CALIBER reads live and state it records authoritatively.</p>
+<ul><li>Object-store console state is live bucket and object state, read directly from S3 on each request.</li><li>Scoped file state consists of DB-backed file records that happen to point at local or S3-backed objects.</li></ul>
+<p>Because console state is never mirrored into the database, the console always reflects ground truth, while scoped storage stays authoritative for everything the runtime produces.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The two responsibilities take two different paths through the stack: the console talks to S3 directly, while scoped storage flows through a shared service. The diagram below shows both paths and the backends they reach:</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI1[ObjectStore.tsx]:::ui
+    UI2[Workflow, Playground,&lt;br/&gt;Project, and KB UIs]:::ui
+    API1[routes/object_store.py]:::ctrl
+    API2[routes/files.py&lt;br/&gt;routes/projects.py]:::ctrl
+    DEPS[routes/_deps.py]:::ctrl
+    WDS[WorkingDirectoryService]:::ctrl
+    BASE[storage/base.py]:::ctrl
+    LCL[LocalStorageBackend]:::ctrl
+    S3B[S3StorageBackend]:::ctrl
+    DB[(CaliberProject&lt;br/&gt;CaliberWorkflowFile&lt;br/&gt;CaliberWorkflowFileEvent)]:::store
+    OBJ[(S3 / MinIO)]:::store
+    CONS[Other consumers:&lt;br/&gt;knowledge builds, workflow workers,&lt;br/&gt;S3LogHandler]:::async
+
+    UI1 --&gt; API1 --&gt; OBJ
+    UI2 --&gt; API2 --&gt; DEPS --&gt; WDS
+    WDS --&gt; BASE
+    WDS --&gt; LCL
+    WDS --&gt; S3B --&gt; OBJ
+    API2 --&gt; DB
+    CONS --&gt; OBJ</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties follow from this split and explain why the two paths exist side by side:</p>
+<ul><li>The Object Store page is a direct browser over <code>CALIBER_OBJECT_STORE_*</code> configuration and does not go through <code>StorageBackend</code>.</li><li>Workflow and project storage goes through <code>WorkingDirectoryService</code>, which chooses <code>local</code> or <code>s3</code> based on <code>workflow_storage</code> or the per-project backend.</li><li>A single S3-compatible system can serve multiple roles at once: console browsing, workflow artifact storage, knowledge-base outputs, and service logs.</li><li><code>app.state</code> caches both the general object-store client and the <code>WorkingDirectoryService</code> so request handlers do not rebuild them on every call.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The console is deliberately stateless with respect to buckets and objects: CALIBER does not mirror arbitrary bucket contents into a dedicated <code>object_store_objects</code> table. Scoped storage, by contrast, keeps its state in the database, which is the source of truth for every managed file.</p>
+<p>The primary tables backing scoped storage are:</p>
+<div class="table-wrap"><table><thead><tr><th>Table</th><th>Role</th></tr></thead><tbody><tr><td><code>CaliberProject</code></td><td>Project/workspace metadata, including <code>storage_backend</code> so each project can target <code>local</code> or <code>s3</code>.</td></tr><tr><td><code>CaliberWorkflowFile</code></td><td>Canonical file metadata row for workflow, playground, project, and dataset-scoped files.</td></tr><tr><td><code>CaliberWorkflowFileEvent</code></td><td>Append-only operational telemetry for upload, download, delete, and artifact events.</td></tr><tr><td><code>CaliberEvalDatasetFile</code></td><td>Role mapping from dataset examples to physical file rows.</td></tr></tbody></table></div>
+<p>The <code>CaliberWorkflowFile</code> row is the linchpin: it ties a canonical reference to a physical object and to the runtime scope that produced it. Its notable fields are:</p>
+<ul><li><code>file_ref</code> holds the canonical <code>caliber://...</code> reference.</li><li><code>storage_backend</code> records whether the bytes live on <code>local</code> or <code>s3</code>.</li><li><code>storage_uri</code>, <code>bucket</code>, <code>object_key</code>, <code>object_version_id</code> form the physical locator.</li><li><code>kind</code>, <code>relative_path</code>, <code>status</code>, <code>version</code> track lifecycle and namespace state.</li><li><code>workflow_run_id</code>, <code>playground_run_id</code>, <code>project_id</code>, <code>dataset_id</code> record the scope.</li><li><code>producer_node_id</code>, <code>producer_tool_name</code> capture runtime lineage.</li></ul>
+<p><code>WorkingDirectoryService</code> derives the namespace shape from that scope, so each kind of file lands in a predictable, collision-free prefix:</p>
+<ul><li>Workflow runs use <code>tenant/{tenant}/project/{project}/workflow/{workflow}/runs/{run}/...</code>.</li><li>Playground runs use <code>tenant/{tenant}/project/{project}/playground/{run}/...</code>.</li><li>Project file refs are stored as <code>CaliberWorkflowFile</code> rows with <code>project_id</code> and the chosen backend.</li></ul>
+<p>A file's lifecycle is metadata-driven: the <code>status</code> field advances through a fixed set of states rather than being inferred from object listings:</p>
+<ul><li><code>pending_upload</code></li><li><code>uploaded</code></li><li><code>scanning</code></li><li><code>rejected</code></li><li><code>attached</code></li><li><code>processing</code></li><li><code>artifact</code></li><li><code>deleted</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>All HTTP routes in this module are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix below. The surface divides into the console routes, the scoped file-storage routes, and the project workspace routes.</p>
+<p>Object-store console routes operate directly against the live S3-compatible endpoint:</p>
+<ul><li><code>GET /object-store/status</code></li><li><code>GET /object-store/buckets</code></li><li><code>POST /object-store/buckets</code></li><li><code>DELETE /object-store/buckets/{bucket}</code></li><li><code>GET /object-store/buckets/{bucket}/objects</code></li><li><code>POST /object-store/buckets/{bucket}/objects</code></li><li><code>POST /object-store/buckets/{bucket}/objects/delete</code></li><li><code>POST /object-store/buckets/{bucket}/folders</code></li><li><code>GET /object-store/buckets/{bucket}/object</code></li><li><code>GET /object-store/buckets/{bucket}/object/preview</code></li><li><code>GET /object-store/buckets/{bucket}/object/extract</code></li><li><code>DELETE /object-store/buckets/{bucket}/object</code></li></ul>
+<p>Scoped file-storage routes persist and retrieve run-bound files and artifacts:</p>
+<ul><li><code>POST /workflow-files</code></li><li><code>POST /workflow-runs/{run_id}/files</code></li><li><code>GET /workflow-runs/{run_id}/files</code></li><li><code>GET /workflow-runs/{run_id}/files/{file_id}</code></li><li><code>GET /workflow-runs/{run_id}/files/{file_id}/content</code></li><li><code>POST /workflow-runs/{run_id}/artifacts</code></li><li><code>POST /playground-runs/{run_id}/files</code></li><li><code>GET /playground-runs/{run_id}/files</code></li><li><code>GET /playground-runs/{run_id}/files/{file_id}/content</code></li></ul>
+<p>Project workspace routes manage projects and their browsable file trees:</p>
+<ul><li><code>GET /projects</code></li><li><code>POST /projects</code></li><li><code>GET /projects/storage</code></li><li><code>GET /projects/{project_id}</code></li><li><code>PATCH /projects/{project_id}</code></li><li><code>POST /projects/{project_id}/folders</code></li><li><code>GET /projects/{project_id}/files</code></li><li><code>POST /projects/{project_id}/files</code></li><li><code>GET /projects/{project_id}/files/{file_id}/content</code></li><li><code>DELETE /projects/{project_id}/files/{file_id}</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The two surfaces run two distinct lifecycles: the console performs live object operations, while scoped storage writes bytes through a backend and then anchors all later access in a DB row. The sequence below shows both modes:</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as User or Runtime
+    participant OUI as Object Store UI
+    participant OAPI as routes/object_store.py
+    participant S3 as S3 / MinIO
+    participant FAPI as files.py or projects.py
+    participant WDS as WorkingDirectoryService
+    participant BE as Local or S3 backend
+    participant DB as Metadata DB
+
+    opt Browse or preview arbitrary objects
+        U-&gt;&gt;OUI: open bucket, preview object, upload file
+        OUI-&gt;&gt;OAPI: call /object-store/...
+        OAPI-&gt;&gt;S3: list/head/get/put/delete
+        S3--&gt;&gt;OAPI: live object state
+        OAPI--&gt;&gt;OUI: bucket listing or bounded preview/extract result
+    end
+
+    opt Persist run or project scoped files
+        U-&gt;&gt;FAPI: multipart upload or artifact registration
+        FAPI-&gt;&gt;WDS: create workspace and register file
+        WDS-&gt;&gt;WDS: validate path, sniff media type, check quotas
+        WDS-&gt;&gt;BE: write bytes or stream
+        BE--&gt;&gt;WDS: physical object metadata
+        WDS-&gt;&gt;DB: insert CaliberWorkflowFile and file event
+        DB--&gt;&gt;WDS: commit metadata
+        WDS--&gt;&gt;FAPI: canonical file record and file_ref
+        FAPI--&gt;&gt;U: scoped file response
+    end</pre></div>
+<p>Operationally, that resolves into two modes with different sources of truth:</p>
+<ul><li>Console mode performs direct live object operations against the configured S3-compatible endpoint.</li><li>Managed mode writes bytes through a backend and then anchors all later access through a DB row plus its <code>caliber://</code> ref.</li></ul>
+<p>Both modes treat object content as potentially large and untrusted, so preview and extraction are deliberately bounded:</p>
+<ul><li>Text previews read only a capped byte range.</li><li>Office extraction uses server-side parsers with file-size, row, and column caps before returning inline content.</li><li>Download paths support inline media and byte-range streaming so browsers can play audio and video directly.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Authentication and authorization are split by surface, with console mutations held to a higher bar than scoped file writes. The access rules are:</p>
+<ul><li>Object-store reads require an authenticated user.</li><li>Object-store mutations require <code>SCOPE_ADMIN</code>.</li><li>Workflow and project file reads require an authenticated user.</li><li>Workflow and project file writes require <code>SCOPE_OPERATOR</code>.</li></ul>
+<p>On top of authorization, the module enforces a set of core protections at the boundary between CALIBER and untrusted storage:</p>
+<ul><li>Object-store secrets are resolved indirectly through <code>resolve_secret</code> rather than stored as literal config values.</li><li><code>safe_relative_path</code> and <code>local_realpath_guard</code> block traversal and symlink escape on the local backend.</li><li><code>routes/files.py</code> enforces run binding, so a file ID from one run cannot be fetched through another run's path.</li><li>Server-side media sniffing defeats basic extension and declared-type spoofing.</li><li>The S3 backend uses the configured public endpoint when generating presigned URLs, avoiding internal endpoint leakage when browser-direct access is used.</li></ul>
+<p>Consistent with treating raw object storage as untrusted, the module hardens how content is read back and rendered:</p>
+<ul><li>Previews are size-capped.</li><li>Office extraction returns graceful unsupported errors when parsers are missing or legacy formats are encountered.</li><li>Scoped run/project file downloads (<code>routes/files.py</code>) are served as attachments with <code>X-Content-Type-Options: nosniff</code>, so untrusted HTML or SVG never renders inline. The object-store <em>console</em> download (<code>routes/object_store.py</code>) streams with <code>Content-Disposition</code> and <code>Accept-Ranges</code> and does not set <code>nosniff</code>, since it is an admin-scoped operator console rather than an end-user-facing fetch.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Operational signals come from several layers, from connectivity probes to per-file telemetry to mirrored logs. The available signals are:</p>
+<ul><li><code>GET /object-store/status</code> probes connectivity and returns a structured error instead of throwing a transport exception.</li><li><code>CaliberWorkflowFileEvent</code> records upload, download, delete, and artifact operations for scoped files.</li><li><code>S3LogHandler</code> can mirror structured service logs into object storage as JSONL objects.</li><li>Other modules such as workflows and knowledge bases persist manifests, logs, and outputs back into object storage for inspection from the UI.</li></ul>
+<p>Configuration is split on purpose, separating the console client from the managed-storage backend:</p>
+<ul><li><code>CALIBER_OBJECT_STORE_*</code> configures the console and the general S3-compatible client.</li><li><code>workflow_storage.*</code> configures the managed file-storage backend, bucket, prefixes, limits, and retention behavior.</li></ul>
+<p>That separation gives CALIBER operational flexibility:</p>
+<ul><li>It can browse one S3-compatible endpoint through the Object Store page.</li><li>It can store managed workflow and project files on local disk or another bucket.</li><li>It can point both at the same MinIO deployment when that is operationally useful.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is built to extend along its storage abstraction and ref grammar. The current extension points are:</p>
+<ul><li>New storage backends can implement the <code>StorageBackend</code> protocol and plug in through <code>build_backend(...)</code>.</li><li>More UI consumers can rely on <code>caliber://</code> refs and <code>WorkingDirectoryService</code> without knowing whether bytes live on local disk or S3.</li><li>Additional object viewers can extend the preview and extract logic without changing the core storage model.</li></ul>
+<p>Those extension points sit alongside constraints that bound the current design:</p>
+<ul><li>The Object Store page is S3-compatible only; it does not browse the local filesystem backend used by <code>workflow_storage.backend=local</code>.</li><li>Console object state and DB-backed file metadata are deliberately separate, so there is no automatic reconciliation layer between them.</li><li>Knowledge-base builds currently use their own direct object-store client rather than <code>WorkingDirectoryService</code>, which keeps the feature moving but means the storage story is not yet fully unified.</li><li>Object storage remains whole-object oriented: uploads, copies, and deletes operate on complete objects rather than appendable streams.</li></ul></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

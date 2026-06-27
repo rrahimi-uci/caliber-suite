@@ -1,0 +1,170 @@
+{
+  "steps": [
+    {
+      "where": "Knowledge › Object Store › Bucket browser",
+      "do": "Create a place to hold the source documents. In the <strong>Bucket browser</strong> panel (left rail), type the bucket name into the <em>new-bucket-name</em> field at the bottom, then click the <strong>+</strong> create button (titled “Create bucket”). Names must be 3–63 chars, lowercase. This bucket is backed by S3/MinIO storage.",
+      "fill": [
+        ["new-bucket-name", "<code>doc-intake</code>"]
+      ],
+      "click": "+ (Create bucket)",
+      "see": "A new empty bucket <code>doc-intake</code> appears in the Bucket browser list and opens automatically, ready for uploads.",
+      "asset": "bucket: doc-intake"
+    },
+    {
+      "where": "Knowledge › Object Store › doc-intake",
+      "do": "Open the <code>doc-intake</code> bucket and use the <strong>Upload</strong> button (or drag-and-drop) to add the sample files. For a no-conversion <strong>dry run</strong> you can upload the text stand-ins directly (<code>extract_document</code> reads <code>.md</code>/<code>.csv</code>/<code>.txt</code>); to exercise the real Office path, first convert them to <code>.docx</code>/<code>.xlsx</code> using the one-liners in the sources README. Upload each file under the exact key the dataset expects.",
+      "fill": [
+        ["Golden invoice (all fields → pass)", "Upload <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.md\">invoice-clean.md</a> (dry run) or its converted <code>invoice-clean.docx</code> / <code>invoice-clean.xlsx</code>"],
+        ["Spreadsheet stand-in", "Upload <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.csv\">invoice-clean.csv</a> (or its converted <code>invoice-clean.xlsx</code>)"],
+        ["Partial invoice (missing total → partial)", "Upload <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-partial.md\">invoice-partial.md</a> (or its converted <code>invoice-partial.docx</code>)"],
+        ["Negative cases (need real binaries)", "Create <code>invoice-legacy.doc</code> + <code>invoice-corrupt.docx</code> per <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/README.md\">sources/README.md</a>, then upload"]
+      ],
+      "click": "Upload",
+      "see": "Each uploaded object is listed with its key, size, and a preview action. The eval dataset addresses these files by their <strong>local filesystem path</strong> (the <code>doc_path</code> field) rather than a bucket key — so after landing each file locally, the <code>doc_path</code> values point at the on-disk copy the platform host can open.",
+      "asset": "uploaded source documents",
+      "assetlink": [
+        {"href": "../cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.md", "label": "invoice-clean.md"},
+        {"href": "../cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.csv", "label": "invoice-clean.csv"},
+        {"href": "../cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-partial.md", "label": "invoice-partial.md"}
+      ]
+    },
+    {
+      "where": "Knowledge › Object Store › doc-intake › (preview a file)",
+      "do": "Confirm the platform can read each source before you build the workflow. In the file list, click a row's <strong>preview (eye)</strong> action to open the preview modal. For Office documents (<code>.docx</code>/<code>.xlsx</code>) the modal runs server-side extraction automatically and shows the extracted text/tables; markdown and CSV stand-ins render inline. Open the legacy <code>invoice-legacy.doc</code> the same way to capture the readable unsupported diagnostic. (The Object Store preview is what produces the friendly <code>kind:\"unsupported\"</code> message; the <code>extract_document</code> tool would instead read a <code>.doc</code> as garbled bytes, so this is the right place to capture the negative case.)",
+      "see": "The preview modal shows extracted plain text for the invoice docs (XLSX renders sheet tables); for <code>invoice-legacy.doc</code> a readable <code>kind:\"unsupported\"</code> message naming the format — not a crash.",
+      "asset": "extraction preview + readable unsupported error"
+    },
+    {
+      "where": "Library › Tools › Register Tool",
+      "do": "Register the shipped extractor as a reusable Tool so the workflow can call it. Click <strong>Register Tool</strong> to open the 5-step wizard and fill the steps below. It points at an importable Python callable; because it is a <code>read</code> tool with <em>Allow in Preview</em> on, it runs live in the sandbox. (On Step 3 — Schema — use the <em>Raw JSON</em> toggle to paste the input/output schema.)",
+      "fill": [
+        ["Step 1 Identity — Name", "<code>extract_document</code> · Version <code>1.0</code>"],
+        ["Step 2 Implementation — Module Path", "<code>caliber.workflows.ingestion_tools</code>"],
+        ["Step 2 Implementation — Callable Name", "<code>extract_document</code>"],
+        ["Step 3 Schema (Raw JSON toggle)", "Paste input/output from <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/tools/extract-document.tool.json\">extract-document.tool.json</a> — input requires <code>ref</code> (the object path); output is <code>{text, format, chars, truncated, source, ocr_used}</code>"],
+        ["Step 5 Safety & Review — Side Effect Level", "<code>Read</code>"],
+        ["Step 5 Safety & Review — Allow in Preview", "checked (so the read tool runs live in the sandbox)"]
+      ],
+      "click": "Register Tool",
+      "see": "<code>extract_document</code> appears in the Tools list; opening it shows the per-tool workspace with a <strong>Sandbox</strong> stage tab.",
+      "asset": "tool: extract_document",
+      "assetlink": [{"href": "../cookbooks/04-document-extraction-structuring-lab/assets/tools/extract-document.tool.json", "label": "extract-document.tool.json"}]
+    },
+    {
+      "where": "Library › Tools › extract_document › Sandbox",
+      "do": "Open the tool, switch to the <strong>Sandbox</strong> stage tab, and run it once against a real file to confirm it returns clean text. <strong>Important:</strong> <code>extract_document</code> resolves its <code>ref</code> as a <em>local filesystem path</em> — it opens <code>Path(ref)</code> and requires <code>path.is_file()</code> — so it cannot read an <code>object-store://</code> URI or a bucket key. Pass a real <strong>absolute local path</strong> to a file that exists on the machine running the platform. Put the call arguments into the <em>Input JSON</em> box, then click <strong>Test Run</strong>. Read tools with <em>Allow in Preview</em> execute for real here (the result is marked “Live execution”, not mocked).",
+      "fill": [
+        ["Input JSON (use a real absolute local path)", "<code>{\"ref\": \"/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.md\"}</code> — substitute the absolute path to the checked-out <code>invoice-clean.md</code> stand-in (a <code>.md</code>/<code>.csv</code>/<code>.txt</code> file needs no conversion). For the real Office path, convert it to <code>invoice-clean.docx</code> per the sources README first, then point <code>ref</code> at that converted file's absolute path."]
+      ],
+      "click": "Test Run",
+      "see": "A live result object: <code>text</code> populated, <code>format</code> = <code>docx</code>/<code>markdown</code>, a positive <code>chars</code> count, and <code>truncated:false</code>. The invoke is also saved under the Test Runs tab.",
+      "asset": "sandbox test run"
+    },
+    {
+      "where": "Library › Prompts › New prompt",
+      "do": "Author the structuring prompt that turns extracted text into a JSON record. Paste the template body (everything below the YAML frontmatter) into the authoring textarea. The body instructs the model to extract <strong>only verifiable facts</strong>, match the target schema's types exactly, never invent values, and list anything it cannot ground in <code>missing_fields</code>.",
+      "fill": [
+        ["Name", "<code>doc-structurer</code>"],
+        ["Commit message", "<code>v1 verifiable-facts document structurer</code>"],
+        ["Template body (paste)", "Paste the body of <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/prompts/doc-structurer.md\">doc-structurer.md</a> — it declares variables <code>{{ document_text }}</code>, <code>{{ document_type }}</code>, <code>{{ target_schema }}</code> and demands JSON-only output"]
+      ],
+      "click": "Save as New Version",
+      "see": "<code>doc-structurer</code> v1 is saved and resolvable under the <code>prod</code> alias.",
+      "asset": "prompt: doc-structurer",
+      "assetlink": [{"href": "../cookbooks/04-document-extraction-structuring-lab/assets/prompts/doc-structurer.md", "label": "doc-structurer.md"}]
+    },
+    {
+      "where": "Compose › Workflows › New Workflow",
+      "do": "Create the pipeline workflow. Click <strong>New Workflow</strong> to open the template gallery, type the workflow name in the name box, then click the <strong>Blank Canvas</strong> template tile — selecting the tile creates the workflow (there is no separate Create button) and opens the Studio editor so you can lay out the nodes yourself. The next steps add five nodes in sequence.",
+      "fill": [
+        ["Give your workflow a name…", "<code>doc-intake-to-json</code>"]
+      ],
+      "click": "Blank Canvas (template tile)",
+      "see": "The Workflow Studio editor opens with a node/component palette (Agent · Tool · Knowledge Query · Router · Python Code · MCP Resource).",
+      "asset": "workflow: doc-intake-to-json"
+    },
+    {
+      "where": "Compose › Workflows › doc-intake-to-json (Studio editor)",
+      "do": "Drag a <strong>Tool</strong> node from the palette onto the canvas and bind it to <code>extract_document</code>. The run input carries a <strong>local file path</strong> (the run’s <code>doc_path</code> field), so map that run input into the tool’s <code>ref</code> port. <code>extract_document</code> opens <code>ref</code> as a local filesystem path (<code>Path(ref).is_file()</code>) — it does <em>not</em> understand <code>object-store://</code> URIs or bucket keys — so the file must already exist on the platform host. <strong>Land the file locally first</strong>: download the document from the <code>doc-intake</code> bucket onto the platform host (Object Store preview/download, or <code>mc cp</code> from MinIO) and pass that absolute local path; or just point at the checked-out stand-in under <code>assets/dataset/sources/</code>.",
+      "fill": [
+        ["Tool node", "select tool <code>extract_document</code>; map run input <code>doc_path</code> (an absolute local file path) → <code>ref</code>"]
+      ],
+      "see": "A <code>Tool</code> node bound to <code>extract_document</code> on the canvas, showing its <code>ref</code> input port wired from the run input’s local path.",
+      "asset": "node: extract_document (Tool)"
+    },
+    {
+      "where": "Compose › Workflows › doc-intake-to-json (Studio editor)",
+      "do": "Drag an <strong>Agent</strong> node from the palette and apply the <code>doc-structurer</code> prompt to the extracted text. Bind the prompt and pass the extractor's <code>text</code> output into <code>document_text</code>, the run's <code>document_type</code> into <code>document_type</code>, and paste the target schema JSON into <code>target_schema</code>.",
+      "fill": [
+        ["Bind prompt", "<code>doc-structurer</code> (prod)"],
+        ["document_text", "← <code>extract_document.text</code>"],
+        ["document_type", "← run input <code>document_type</code>"],
+        ["target_schema", "Paste the JSON from <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/schema/extracted-fields.schema.json\">extracted-fields.schema.json</a>"]
+      ],
+      "see": "An <code>agent</code> node wired after the extractor, emitting a JSON record on its output.",
+      "asset": "node: structure_json (doc-structurer)",
+      "assetlink": [{"href": "../cookbooks/04-document-extraction-structuring-lab/assets/schema/extracted-fields.schema.json", "label": "extracted-fields.schema.json"}]
+    },
+    {
+      "where": "Compose › Workflows › doc-intake-to-json (Studio editor) › Python Code node",
+      "do": "Drag a <strong>Python Code</strong> node from the palette to validate the JSON against the schema — no tool registration needed, it runs sandboxed. Paste the whole file as the node body (it must define <code>run_python_node(...)</code> returning a dict). Wire the agent's JSON output into the node input named <code>extracted_json</code> and the schema into <code>target_schema</code>. The node sets <code>validation_status</code> (pass/partial/fail) and <code>missing_fields</code>.",
+      "fill": [
+        ["Node body (paste)", "Paste all of <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/tools/validate_document_json.py\">validate_document_json.py</a> (stdlib-only; defines <code>run_python_node</code>)"],
+        ["inputs.extracted_json", "← <code>doc-structurer</code> node JSON output"],
+        ["inputs.target_schema", "← the same <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/schema/extracted-fields.schema.json\">extracted-fields.schema.json</a>"]
+      ],
+      "see": "A <code>python_code</code> node whose <code>result</code> port carries <code>{validation_status, missing_fields, errors}</code>.",
+      "asset": "python_code: validate_document_json",
+      "assetlink": [{"href": "../cookbooks/04-document-extraction-structuring-lab/assets/tools/validate_document_json.py", "label": "validate_document_json.py"}]
+    },
+    {
+      "where": "Compose › Workflows › doc-intake-to-json (Studio editor)",
+      "do": "Connect the validator to the workflow output, then click <strong>Save</strong> in the editor toolbar. The full chain is <code>extract_document (Tool) → doc-structurer (Agent) → validate_document_json (Python Code) → output</code>.",
+      "click": "Save",
+      "see": "The pipeline is saved as a draft version (an “unsaved” pill clears). The workflow detail page’s <strong>Runs</strong> tab then lets you start a run.",
+      "asset": "workflow saved"
+    },
+    {
+      "where": "Compose › Workflows › doc-intake-to-json › Runs",
+      "do": "On the workflow detail page open the <strong>Runs</strong> tab. <strong>Land each file locally first</strong> — <code>extract_document</code> reads its <code>ref</code> as a local filesystem path, so the file must exist on the platform host (download it from the <code>doc-intake</code> bucket, or use the checked-out stand-ins under <code>assets/dataset/sources/</code>). For each case, put the run input (an absolute local <code>doc_path</code> + document type) in the <em>run input</em> box and click <strong>Run Pipeline</strong> (labeled “Queue Run” if queued runs are enabled). Replace <code>/ABSOLUTE/PATH/TO</code> with the real absolute path on the host. Watch the outcomes differ: the golden file passes, the partial file reports the missing field, and the unsupported/corrupt files fail with a clean diagnostic instead of crashing.",
+      "fill": [
+        ["Golden run (D01)", "<code>{\"doc_path\":\"/ABSOLUTE/PATH/TO/sources/invoice-clean.docx\",\"document_type\":\"invoice\"}</code> → <code>validation_status: pass</code>"],
+        ["Partial run (D03)", "<code>{\"doc_path\":\"/ABSOLUTE/PATH/TO/sources/invoice-partial.docx\",\"document_type\":\"invoice\"}</code> → <code>partial</code>, <code>missing_fields:[\"total\"]</code>"],
+        ["Unsupported run (D05)", "<code>{\"doc_path\":\"/ABSOLUTE/PATH/TO/sources/invoice-legacy.doc\",\"document_type\":\"invoice\"}</code> → run <code>fail</code> with a readable unsupported error"],
+        ["Corrupt run (D06)", "<code>{\"doc_path\":\"/ABSOLUTE/PATH/TO/sources/invoice-corrupt.docx\",\"document_type\":\"invoice\"}</code> → run <code>fail</code> attributed to the extract node"]
+      ],
+      "click": "Run Pipeline",
+      "see": "Distinct run rows under the Runs tab: pass, partial (with <code>missing_fields</code>), and clean failures. Note each run id for your evidence list.",
+      "asset": "workflow runs: pass / partial / fail"
+    },
+    {
+      "where": "Observe › Observability",
+      "do": "Open each run's trace and read the node tree top-to-bottom. Separate <strong>extraction</strong> failures (the <code>extract_document</code> node) from <strong>schema</strong> failures (the <code>validate_document_json</code> node) — the trace makes clear which stage broke. Capture one readable validation-error payload (which node, which field) for the demo evidence.",
+      "see": "A span tree per run; the failing node carries a human-readable message (e.g. an extract error vs a type/missing-field validation error).",
+      "asset": "trace evidence (stage-attributed failures)"
+    },
+    {
+      "where": "Evaluate › Test Sets › + New Test Set",
+      "do": "Build a scored test set so you can prove the schema pass-rate gate. Click <strong>+ New Test Set</strong>, give it a Name and Owner (both required), and click <strong>Create</strong>. Then open its detail page at <code>/eval-datasets/:id</code> and author rows with <strong>+ Add example</strong>, setting <code>inputs</code> = <code>{doc_path, document_type}</code> and the expected answer directly. Alternatively, capture rows from the workflow runs: open <strong>Observe › Observability</strong>, pick a run's trace, and use <strong>Add to test set → Add example</strong> (the trace's request becomes <code>inputs</code> and its response the expected answer). The 6-row cases file (D01–D06) is the reference for which rows to add and the expected <code>validation_status</code>.",
+      "fill": [
+        ["Name", "<code>doc-extraction-cases</code>"],
+        ["Owner", "your handle (required, e.g. <code>@you</code>)"]
+      ],
+      "click": "Create",
+      "see": "A dataset <code>doc-extraction-cases</code> appears; add its golden, edge (missing-field), and negative rows from Observability per <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/dataset/extraction-cases.jsonl\">extraction-cases.jsonl</a>.",
+      "asset": "test set: doc-extraction-cases",
+      "assetlink": [{"href": "../cookbooks/04-document-extraction-structuring-lab/assets/dataset/extraction-cases.jsonl", "label": "extraction-cases.jsonl"}]
+    },
+    {
+      "where": "Evaluate › Evaluations › Run evaluation",
+      "do": "Score the runs deterministically — there is <strong>no LLM judge</strong> here. Click <strong>Run evaluation</strong> to open the run panel, pick the dataset, and check the deterministic scorers that compare the captured output against each row's expected answer. Click <strong>Run</strong>. Read the scorecard; if golden cases miss the schema, tune the prompt or schema and re-run. Gate: golden schema pass rate ≥ 0.95, and the unsupported file produces a readable, stage-identifying error.",
+      "fill": [
+        ["Dataset", "<code>doc-extraction-cases</code>"],
+        ["Scorers", "check <code>Contains expected</code> (<code>contains_expected</code>) and/or <code>Exact match</code> (<code>exact_match</code>) — deterministic, no judge"]
+      ],
+      "click": "Run",
+      "see": "A scorecard with per-example pass/fail and an overall rate; pin it as a baseline to compare future prompt/schema changes.",
+      "asset": "eval run: schema fidelity (deterministic)"
+    }
+  ]
+}

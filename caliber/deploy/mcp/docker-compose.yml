@@ -1,0 +1,47 @@
+# Backing services for the CALIBER MCP catalog.
+#
+# Today: one Postgres with pgvector + Apache AGE, which backs the `postgres`,
+# `pgvector`, and `apache-age` catalog entries (all use the same
+# @modelcontextprotocol/server-postgres adapter via POSTGRES_URL).
+#
+#   docker compose -f deploy/mcp/docker-compose.yml up -d --build
+#
+# Then connect any of those three catalog entries with:
+#   POSTGRES_URL=postgresql://caliber:caliber@localhost:5432/caliber
+#
+# Ollama and MinIO can be added here later as additional backing services.
+
+name: caliber-mcp
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    image: caliber/postgres-vector-graph:pg17
+    container_name: caliber-mcp-postgres
+    environment:
+      POSTGRES_USER: caliber
+      POSTGRES_PASSWORD: caliber
+      POSTGRES_DB: caliber
+    # Preload AGE for every session so the graph functions are usable without a
+    # per-connection `LOAD 'age'`; put ag_catalog on the default search_path so
+    # cypher(...) resolves unqualified. pgvector needs neither.
+    command:
+      - postgres
+      - "-c"
+      - "session_preload_libraries=age"
+      - "-c"
+      - "search_path=ag_catalog,public"
+    ports:
+      - "5432:5432"
+    volumes:
+      - caliber_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caliber -d caliber"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  caliber_pg_data:

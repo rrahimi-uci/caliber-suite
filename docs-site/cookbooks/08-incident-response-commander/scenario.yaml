@@ -1,0 +1,40 @@
+id: SCN-08
+slug: incident-response-commander
+name: "Incident Response Copilot"
+track: build
+objective: Build an incident workflow that separates facts from hypotheses, recommends risk-aware actions, and gates high-impact operations.
+why_it_matters:
+  - Shows CALIBER can support operational decision-making, not only text generation.
+  - Makes approval boundaries and observability first-class.
+primary_persona: platform engineer
+secondary_personas:
+  - AI engineer
+  - solution architect
+caliber_surfaces:
+  - Prompts
+  - Skills
+  - Tools
+  - MCP Servers
+  - Workflows
+  - Evaluations
+  - Review Queues
+  - Observability
+prerequisites:
+  - Incident replay data or synthetic incident fixtures.
+  - Optional MCP integrations for browser evidence and issue tracking.
+time_to_first_value: 180-240 minutes
+success_criteria:
+  - Recommendations clearly separate facts/hypotheses.
+  - Rollback and external writes are approval-gated.
+demo_profile:
+  recommended_sequence_index: 8
+  tier: build
+  live_demo_minutes: 40-65
+  depends_on:
+    - SCN-03
+    - SCN-05
+  included_in:
+    - release_governance
+  showcase_capabilities:
+    - evidence-aware incident recommendations
+    - high-risk action control and approvals

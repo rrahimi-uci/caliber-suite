@@ -1,0 +1,154 @@
+{
+  "steps": [
+    {
+      "where": "Compose › Plans",
+      "do": "Open Aria's planner. Click <strong>Plans</strong> in the left sidebar (under the <strong>Compose</strong> group). This opens the <strong>Aria Plans</strong> page, where you hand Aria a one-line goal and it decomposes it into platform steps you approve before anything runs.",
+      "see": "The Aria Plans page with a <strong>Goal</strong> textarea, an <strong>Autonomy</strong> selector, and a <strong>Decompose goal</strong> button.",
+      "asset": "Aria Plans page open"
+    },
+    {
+      "where": "Compose › Plans › Goal",
+      "do": "State the intent. Paste the canonical one-line intent from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/intent.md\">intent.md</a> into the <strong>Goal</strong> field. The exact wording matters: the default planner keys off the literal domain words <code>judge</code> and <code>eval dataset</code>, so keep both in the sentence (a natural phrasing like \"test set\" would need an LLM planner). Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (this is the <code>ask_each</code> level) so Aria pauses to confirm every mutate step.",
+      "fill": [
+        [
+          "Goal",
+          "Create a judge for answer faithfulness and an eval dataset to run it on."
+        ],
+        [
+          "Autonomy",
+          "Stop before each change (ask_each)"
+        ]
+      ],
+      "click": "Decompose goal",
+      "see": "A draft plan appears below the form.",
+      "asset": "Draft Aria plan",
+      "assetlink": [
+        {
+          "href": "../cookbooks/12-aria-evaluation-harness/assets/intent.md",
+          "label": "intent.md"
+        }
+      ]
+    },
+    {
+      "where": "Compose › Plans › (draft plan)",
+      "do": "Review the decomposed plan. Confirm Aria produced exactly two steps from the one sentence — <code>judge.create</code> and <code>eval_dataset.create</code> — matching <a href=\"../cookbooks/12-aria-evaluation-harness/assets/expected-plan.json\">expected-plan.json</a>. This decomposition is the autonomous-orchestration showcase: one intent in, the right governed steps out.",
+      "see": "The draft plan lists two mutate steps: <code>judge.create</code> and <code>eval_dataset.create</code>.",
+      "asset": "Reviewed plan (2 steps)",
+      "assetlink": [
+        {
+          "href": "../cookbooks/12-aria-evaluation-harness/assets/expected-plan.json",
+          "label": "expected-plan.json"
+        }
+      ]
+    },
+    {
+      "where": "Compose › Plans › (draft plan)",
+      "do": "Approve the plan shape. With the plan in <code>draft</code> status, click <strong>Approve plan</strong>. This records that you accept the orchestration before any step runs.",
+      "click": "Approve plan",
+      "see": "The plan moves to <code>approved</code> status and an <strong>Execute</strong> button appears.",
+      "asset": "Approved plan"
+    },
+    {
+      "where": "Compose › Plans › (approved plan)",
+      "do": "Execute the plan. Click <strong>Execute</strong>. Because autonomy is <em>ask_each</em>, Aria pauses at the first mutate step (<code>judge.create</code>) and raises a permission interaction headed <em>\"Aria needs your approval\"</em> with the prompt <em>\"Approve step 1: … (judge.create)?\"</em> and two buttons, <strong>Approve</strong> and <strong>Deny</strong>. <strong>Important caveat (verified):</strong> the shipped <code>HeuristicPlanner</code> leaves each step's <em>inputs</em> empty and the interaction answer carries only <code>{approved, choice, value}</code> — it never injects a judge/dataset payload. So <strong>Approving</strong> a step makes Aria run its handler with empty inputs, which fails validation; the clean path is to <strong>Deny</strong> each step (which marks it <em>skipped</em>) and then create each real artifact on its own page in the following steps.",
+      "click": "Execute",
+      "see": "The plan starts running and pauses on the <code>judge.create</code> step with a pending permission interaction (an <strong>Approve</strong> / <strong>Deny</strong> prompt).",
+      "asset": "Plan running, paused at judge.create"
+    },
+    {
+      "where": "Compose › Plans › (interaction prompt)",
+      "do": "Resolve the <code>judge.create</code> interaction. Because the step has no inputs to run with, click <strong>Deny</strong> — this marks the step <em>skipped</em> (a terminal state) and advances the plan without a failed handler. (Clicking <strong>Approve</strong> would instead try to run <code>judge.create</code> with empty inputs and fail validation.) You will create the real judge on the Judges page shortly.",
+      "click": "Deny",
+      "see": "The <code>judge.create</code> step flips to <em>skipped</em> and the plan pauses again on the <code>eval_dataset.create</code> permission interaction.",
+      "asset": "judge.create step resolved (skipped)"
+    },
+    {
+      "where": "Compose › Plans › (interaction prompt)",
+      "do": "Resolve the <code>eval_dataset.create</code> interaction the same way — click <strong>Deny</strong> to skip it (the empty-inputs step can't run). With both steps now in a terminal state, the plan settles to <code>completed</code>.",
+      "click": "Deny",
+      "see": "Both steps show as <em>skipped</em> and the plan reaches <code>completed</code> — the orchestration record is done. Now create the two real artifacts on their own pages.",
+      "asset": "Plan completed (both steps skipped)"
+    },
+    {
+      "where": "Evaluate › Judges › + New Judge",
+      "do": "Create the judge that Aria's plan called for. Open <strong>Judges</strong> (under <strong>Evaluate</strong>), click <strong>+ New Judge</strong>, and paste the fields from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/judges/answer-faithfulness.judge.json\">answer-faithfulness.judge.json</a> — this file IS the <code>judge.create</code> payload. The <strong>Instructions</strong> reference <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> (at least one is required); set <strong>Returns</strong> to <code>bool</code>.",
+      "fill": [
+        [
+          "Name",
+          "AnswerFaithfulness"
+        ],
+        [
+          "Model",
+          "your configured judge model (e.g. the gateway default)"
+        ],
+        [
+          "Returns",
+          "bool"
+        ],
+        [
+          "Instructions",
+          "You audit whether an assistant answer is faithful to its evidence. You are given the request <code>{{ inputs }}</code>, the model <code>{{ outputs }}</code>, and the reference <code>{{ expectations }}</code>.<br><br>Return true ONLY if every factual claim in <code>{{ outputs }}</code> is supported by <code>{{ expectations }}</code> (or by evidence cited in <code>{{ inputs }}</code>), and the answer makes no unsupported commitments. If any claim is unsupported, contradicted, or hallucinated, return false. Judge faithfulness only — not style."
+        ]
+      ],
+      "click": "Create judge",
+      "see": "An active judge <code>AnswerFaithfulness</code> appears in the Judges list. It is authored and reusable here, and because the Evaluations page exposes a <strong>Custom LLM judges</strong> section you can also pick it as a <code>Judge.&lt;id&gt;</code> grader there — which you do a couple of steps from now.",
+      "asset": "Judge AnswerFaithfulness",
+      "assetlink": [
+        {
+          "href": "../cookbooks/12-aria-evaluation-harness/assets/judges/answer-faithfulness.judge.json",
+          "label": "answer-faithfulness.judge.json"
+        }
+      ]
+    },
+    {
+      "where": "Evaluate › Test Sets › + New Test Set",
+      "do": "Create the eval dataset Aria's plan called for. Open <strong>Test Sets</strong> (under <strong>Evaluate</strong>), click <strong>+ New Test Set</strong>, and use the spec from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/datasets/support-faithfulness.dataset.json\">support-faithfulness.dataset.json</a> — this file IS the <code>eval_dataset.create</code> payload Aria's plan named. The page creates an <em>empty</em> versioned test set (the <code>eval_dataset.create</code> capability does the same); you add example rows separately afterward.",
+      "fill": [
+        [
+          "Name",
+          "support-faithfulness-eval"
+        ],
+        [
+          "Owner",
+          "admin"
+        ],
+        [
+          "Description",
+          "Held-out support Q/A for faithfulness scoring. Empty versioned test set; add example rows after creation, then run it in Evaluations on the deterministic graders plus the AnswerFaithfulness judge under Custom LLM judges."
+        ]
+      ],
+      "click": "Create",
+      "see": "An empty test set <code>support-faithfulness-eval</code> appears in the Test Sets list at version 1.",
+      "asset": "Test set support-faithfulness-eval",
+      "assetlink": [
+        {
+          "href": "../cookbooks/12-aria-evaluation-harness/assets/datasets/support-faithfulness.dataset.json",
+          "label": "support-faithfulness.dataset.json"
+        }
+      ]
+    },
+    {
+      "where": "Evaluate › Judges  +  Evaluate › Test Sets  +  Compose › Plans",
+      "do": "Verify the end-to-end result. Confirm three things: <strong>Judges</strong> shows <code>AnswerFaithfulness</code> active; <strong>Test Sets</strong> shows <code>support-faithfulness-eval</code>; and the <strong>Plans</strong> page shows the plan <code>completed</code> with both steps <em>skipped</em> (the orchestration record). Together these prove Aria turned one sentence into a governed two-step plan, and that you created the two real artifacts the plan called for.",
+      "see": "An active judge, a real test set, and a completed two-step plan (steps skipped) — the scenario gate.",
+      "asset": "Verified judge + test set + completed plan"
+    },
+    {
+      "where": "Observe › Observability  +  Evaluate › Evaluations",
+      "do": "(Follow-up) Put the harness to work. Add example rows to <code>support-faithfulness-eval</code> — either author them in the row editor at <code>/eval-datasets/:id → + Add example</code>, or in <strong>Observability</strong> open a trace, use its <strong>Add to test set</strong> panel, pick the test set under <strong>Choose test set</strong>, and click <strong>Add example</strong> (or reuse a starter dataset such as <code>cookbooks/01-prompt-regression-lab/assets/dataset/</code>). Then go to <strong>Evaluations</strong>, click <strong>Run evaluation</strong>, pick the test set, tick the built-in <strong>Graders</strong>, and tick your <code>AnswerFaithfulness</code> judge under <strong>Custom LLM judges</strong> so it runs as a <code>Judge.&lt;id&gt;</code> scorer for an automatic per-row verdict. This is the same scored-run loop as SCN-01 / SCN-10.",
+      "fill": [
+        [
+          "Test set",
+          "support-faithfulness-eval"
+        ],
+        [
+          "Graders",
+          "built-in scorers (Contains expected, Token F1, Non-empty) + AnswerFaithfulness under Custom LLM judges"
+        ]
+      ],
+      "click": "Run",
+      "see": "A scorecard run grades the rows on the deterministic scorers plus the AnswerFaithfulness judge column, closing the loop from one intent to a running evaluation harness.",
+      "asset": "(follow-up) Scored run + AnswerFaithfulness judge verdicts using the Aria-built harness"
+    }
+  ]
+}

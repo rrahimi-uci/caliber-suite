@@ -1,0 +1,70 @@
+[
+  {
+    "href": "m-16-cookbooks.html",
+    "label": "All cookbooks"
+  },
+  {
+    "href": "m-cookbook-01-intake-classifier.html",
+    "label": "01 \u00b7 Trustworthy Intake Classifier"
+  },
+  {
+    "href": "m-cookbook-02-precision-skills.html",
+    "label": "02 \u00b7 Precision Skills"
+  },
+  {
+    "href": "m-cookbook-03-policy-safe-tool.html",
+    "label": "03 \u00b7 Policy-Safe Decision Tool"
+  },
+  {
+    "href": "m-cookbook-05-governed-mcp.html",
+    "label": "05 \u00b7 Governed Tool Connectivity (MCP)"
+  },
+  {
+    "href": "m-cookbook-04-doc-to-json.html",
+    "label": "04 \u00b7 Document-to-JSON Pipeline"
+  },
+  {
+    "href": "m-cookbook-06-grounded-knowledge.html",
+    "label": "06 \u00b7 Grounded Knowledge Assistant"
+  },
+  {
+    "href": "m-cookbook-07-support-copilot.html",
+    "label": "07 \u00b7 Support Triage Copilot"
+  },
+  {
+    "href": "m-cookbook-08-incident-copilot.html",
+    "label": "08 \u00b7 Incident Response Copilot"
+  },
+  {
+    "href": "m-cookbook-09-self-healing-workflows.html",
+    "label": "09 \u00b7 Self-Healing Workflows"
+  },
+  {
+    "href": "m-cookbook-16-observability-triage.html",
+    "label": "16 \u00b7 Production Observability & Triage"
+  },
+  {
+    "href": "m-cookbook-10-trustworthy-evaluation.html",
+    "label": "10 \u00b7 Trustworthy Evaluation"
+  },
+  {
+    "href": "m-cookbook-11-release-signoff.html",
+    "label": "11 \u00b7 Release Signoff Factory"
+  },
+  {
+    "href": "m-cookbook-12-aria-eval-harness.html",
+    "label": "12 \u00b7 Aria: Evaluation Harness from Intent"
+  },
+  {
+    "href": "m-cookbook-13-aria-review-queue.html",
+    "label": "13 \u00b7 Aria: Human-Review Queue from Intent"
+  },
+  {
+    "href": "m-cookbook-14-aria-starter-kit.html",
+    "label": "14 \u00b7 Aria: Governance Starter Kit from Intent"
+  },
+  {
+    "href": "m-cookbook-15-aria-triage-loop.html",
+    "label": "15 \u00b7 Aria: Triage & Recalibrate Loop"
+  }
+]

@@ -1,0 +1,23 @@
+# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan
+# Aria drafts + the artifacts it creates. Concrete files are in assets/.
+intents:
+  - id: A12-canonical
+    goal: "Create a judge for answer faithfulness and an eval dataset to run it on."
+    autonomy: ask_each
+    expected_plan_steps: [judge.create, eval_dataset.create]
+  - id: A12-natural
+    goal: "Set up faithfulness scoring for our support answers, with a test set to run it on."
+    note: "Natural phrasing. Relies on an LLM planner to map 'test set' -> eval_dataset and 'faithfulness scoring' -> judge. The default HeuristicPlanner needs the literal words 'judge' and 'eval dataset' — use A12-canonical for the deterministic path."
+# What you supply when Aria pauses (one interaction per mutate step):
+interaction_answers:
+  judge.create:
+    name: AnswerFaithfulness
+    feedback_value_type: bool
+    instructions: "Given {{ inputs }} and the model {{ outputs }}, return true only if every claim in {{ outputs }} is supported by {{ expectations }}; otherwise false."
+  eval_dataset.create:
+    name: support-faithfulness-eval
+    description: "Held-out support Q/A for faithfulness scoring. Add example rows after creation, then run Evaluations."
+done_when:
+  - a judge named AnswerFaithfulness is active in Judges
+  - an eval dataset named support-faithfulness-eval exists in Test Sets
+  - the Aria plan shows both steps completed

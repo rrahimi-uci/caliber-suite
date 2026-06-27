@@ -1,0 +1,36 @@
+# Postgres 17 + pgvector (vector search) + Apache AGE (graph / openCypher).
+#
+# One image backs all three Postgres-family MCP catalog entries — `postgres`,
+# `pgvector`, and `apache-age` — since they share the same
+# `@modelcontextprotocol/server-postgres` adapter pointed at one POSTGRES_URL.
+#
+# Base = pgvector's official image (pgvector preinstalled on the official
+# postgres:17 base); AGE is compiled from its PG17 branch against this exact
+# server, then the build toolchain is removed to keep the runtime image lean.
+
+FROM pgvector/pgvector:pg17
+
+# AGE's per-Postgres-version branch (apache/age uses branch names like "PG17").
+ARG AGE_REF=PG17
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        ca-certificates \
+        flex \
+        bison \
+        postgresql-server-dev-17; \
+    git clone --depth 1 --branch "${AGE_REF}" https://github.com/apache/age.git /tmp/age; \
+    cd /tmp/age; \
+    make; \
+    make install; \
+    cd /; \
+    rm -rf /tmp/age; \
+    apt-get purge -y --auto-remove \
+        build-essential git flex bison postgresql-server-dev-17; \
+    rm -rf /var/lib/apt/lists/*
+
+# Create both extensions on first cluster init (idempotent).
+COPY initdb/ /docker-entrypoint-initdb.d/

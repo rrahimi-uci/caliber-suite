@@ -1,0 +1,45 @@
+id: SCN-07
+slug: support-triage-resolution-loop
+name: "Support Triage Copilot"
+track: build
+objective: Build a support workflow that classifies tickets, gathers account and incident evidence, drafts grounded replies, and escalates safely.
+why_it_matters:
+  - Demonstrates practical composition of prompts, skills, tools, KB, MCP, and approvals.
+  - Creates a strong operator audit trail for customer-impacting decisions.
+primary_persona: support engineer
+secondary_personas:
+  - AI engineer
+  - platform engineer
+caliber_surfaces:
+  - Prompts
+  - Skills
+  - Tools
+  - Knowledge Bases
+  - MCP Servers
+  - Workflows
+  - Evaluations
+  - Review Queues
+  - Observability
+prerequisites:
+  - Stable starter scenarios (01-06).
+  - Sample ticket corpus and support knowledge base.
+time_to_first_value: 180-240 minutes
+success_criteria:
+  - Replies are grounded and cited.
+  - High-risk actions are approval-gated.
+demo_profile:
+  recommended_sequence_index: 7
+  tier: build
+  live_demo_minutes: 45-70
+  depends_on:
+    - SCN-01
+    - SCN-02
+    - SCN-03
+    - SCN-05
+    - SCN-06
+  included_in:
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - full-stack copilot composition
+    - approval-gated customer-impacting actions

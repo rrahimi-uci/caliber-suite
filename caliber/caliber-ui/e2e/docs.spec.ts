@@ -1,0 +1,71 @@
+import { expect, test } from "@playwright/test";
+
+test.describe("Docs Shell", () => {
+  test("landing page exposes the shared search-first shell", async ({ page }) => {
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+    page.on("pageerror", (err) => pageErrors.push(String(err)));
+
+    await page.goto("/caliber/docs/index.html");
+
+    await expect(page.locator("#landingSearch")).toBeVisible();
+    await expect(page.locator("#docsSidebar")).toBeHidden();
+    await expect(page.locator("#menuToggle")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Ask Aria" })).toHaveCount(0);
+    await expect(page.locator("details.guide-section")).toHaveCount(5);
+
+    await page.locator("#landingSearch").fill("workflow");
+    await expect(
+      page.locator('#reference .ref-card[href="m-06-workflows.html"]'),
+    ).toBeVisible();
+    await expect(
+      page.locator('#reference .ref-card[href="m-15-calibration.html"]'),
+    ).toBeVisible();
+
+    await page.locator("#playbook-interface summary").click();
+    await expect
+      .poll(() =>
+        page.locator("#playbook-interface").evaluate((node) =>
+          Boolean((node as HTMLDetailsElement).open),
+        ),
+      )
+      .toBe(true);
+    await expect(page.getByRole("heading", { name: "API surface" })).toBeVisible();
+
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("prompts authoring page renders summary, toc, and copy-page action", async ({
+    page,
+  }) => {
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+    page.on("pageerror", (err) => pageErrors.push(String(err)));
+
+    await page.goto("/caliber/docs/m-02-prompts.html");
+
+    await expect(page.getByRole("heading", { name: "Prompts Architecture" })).toBeVisible();
+    await expect(page.locator(".doc-summary")).toContainText(
+      "MLflow Prompt Registry authoring",
+    );
+    await expect(page.locator(".topbar-links")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Ask Aria" })).toHaveCount(0);
+    await expect(page.locator(".doc-breadcrumb a")).toHaveCount(0);
+    await expect(page.locator("#page-toc a")).toHaveCount(9);
+
+    const copyButton = page.locator(".doc-copy-button");
+    await expect(copyButton).toHaveText("Copy page");
+    await copyButton.click();
+    await expect(copyButton).toHaveText("Copied");
+
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  });
+});

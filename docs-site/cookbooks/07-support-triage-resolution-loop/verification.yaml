@@ -1,0 +1,30 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - GroundedSupportReply is a real LLM judge; the approval/citation rule_checks are enforced by the human_approval gate + the prompt contract, observable in the run trace.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  judges:
+    - name: GroundedSupportReply
+      type: custom_judge
+      criteria: response claims are evidence-backed and customer-safe
+  rule_checks:
+    - citations_required_for_external_claims
+    - approval_required_for_refund_or_external_write
+quality_gates:
+  grounded_reply_score_min: 0.90
+  approval_compliance: 1.0
+  escalation_precision_min: 0.85
+monitoring:
+  traces:
+    - ticket_intake
+    - evidence_lookup
+    - kb_retrieval
+    - approval_gate
+    - external_write
+  metrics:
+    - reply_success_rate
+    - escalation_rate
+    - approval_wait_time
+feedback_loop:
+  - push reviewed failures into eval dataset.
+  - tune skill thresholds before loosening prompts.

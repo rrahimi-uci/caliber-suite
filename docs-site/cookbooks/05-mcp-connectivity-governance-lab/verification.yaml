@@ -1,0 +1,30 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - PolicyCorrectness is a DETERMINISTIC enforcement check (a blocked tool refuses to invoke; assert via the tool calibration panel), not an LLM judge.
+  - MCP test/discovery/invoke/policy paths emit NO MLflow spans (gateway + route use perf_counter only), so MCP invocations do NOT appear in Observe › Observability. The evidence surface is the Playground History panel (per-invoke success/fail rows), the tool's Blocked badge, and the saved calibration verdicts.
+evaluation:
+  deterministic_checks:
+    - name: PolicyCorrectness
+      type: deterministic_scorer  # policy-enforcement assertion, not an LLM judge
+      criteria: blocked/approval-required rules enforced
+  rule_checks:
+    - discovery_schema_present
+    - policy_block_visible_and_enforced
+quality_gates:
+  connection_success_rate: 1.0
+  blocked_tool_enforcement: 1.0
+  at_least_one_read_tool_calibrated: true
+monitoring:
+  # MCP test/discovery/invoke/policy paths emit NO MLflow traces, so there is
+  # nothing to observe in Observe › Observability for this lab. Evidence lives
+  # in the Playground UI instead:
+  evidence:
+    - playground_invocation_history  # per-invoke success/fail rows (read = success:true, blocked write = success:false)
+    - tool_blocked_badge             # red "Blocked" badge on the create_issue tool
+    - calibration_verdicts           # saved per-case pass/fail + pass_rate on the read tool
+  metrics:
+    - discovery_tool_count
+    - policy_block_count
+feedback_loop:
+  - add a saved case for every production-relevant discovered tool.
+  - block workflow binding until direct invoke is stable.

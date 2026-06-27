@@ -1,0 +1,26 @@
+# Apache AGE Viewer — interactive graph console for the AGE graph database.
+#
+# Connect screen (host is the Postgres *service* name on the shared network):
+#   Host: postgres   Port: 5432   Database: caliber   User: caliber   Pass: caliber
+# Then pick the `knowledge_graph` graph and run, e.g.:
+#   MATCH (n)-[r]->(m) RETURN n, r, m
+#
+# Console: http://localhost:8082  (override with AGE_VIEWER_PORT)
+#
+# Built from source (no upstream image) — see Dockerfile. First `up` builds it;
+# afterwards the image is reused unless you pass --build.
+
+name: caliber-age-viewer
+
+services:
+  age-viewer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: caliber/age-viewer:latest
+    container_name: caliber-age-viewer
+    depends_on:
+      - postgres
+    ports:
+      - "${AGE_VIEWER_PORT:-8082}:3000"
+    restart: unless-stopped

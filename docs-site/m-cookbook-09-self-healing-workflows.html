@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 09: Self-Healing Workflows | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">09 · Self-Healing Workflows</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 09 · Operate</p>
+        <h1>Self-Healing Workflows</h1>
+        <p class="doc-lead">An operator playbook: reproduce a failure, localize it in the Run Monitor, patch, and validate.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Operate</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–50 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A repeatable recovery loop: drive a workflow to a failure, use the checkpoint / recovery / debugger panels to find the root cause, apply a minimal manual patch (new version), and prove the fix with a regression slice.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Plans</span> <span class="ck-badge ck-surface">Observability</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Reproduce a failure (reject path + a node fault)</li><li>Read the checkpoint, recovery, and debugger panels</li><li>Use retry lineage (Attempt N of M) + retry-from-checkpoint</li><li>Apply a minimal patch by editing the manifest + saving a new version</li><li>Validate with a regression slice</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  R[Run failing input] --&gt; F[failed / waiting]
+  F --&gt; DBG[Debugger + Checkpoint + Recovery]
+  DBG --&gt; RC[Root cause @ node]
+  RC --&gt; PATCH[Edit manifest → save new version]
+  PATCH --&gt; V[Preview + real run]
+  V --&gt; SLICE[Regression slice passes]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › New Workflow</code> <span class="ck-made">creates · workflow: recovery target (from hitl_review template)</span></div><div class="ck-step-do">This is an operator playbook: <strong>reproduce a failure → localize it in the Run Monitor → patch manually → validate</strong>. Start with the most reliable reproducible failure (Option A). Click <strong>New Workflow</strong> and in the <strong>Start from a template</strong> panel pick the <strong>Human Review</strong> card (the <code>hitl_review</code> template). Its nodes are <code>start → agent → pii_guard (guardrail) → review (human_approval) → final</code>; the approval node id is <code>review</code>.</div><div class="ck-click">Click <span class="ck-btn">Human Review</span></div><div class="ck-see"><strong>You'll see:</strong> The workflow editor opens on the <strong>Editor</strong> canvas with the <code>hitl_review</code> graph. Click <strong>Save</strong> (the toolbar shows "Saved draft.") so you have a stable target.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › New Workflow</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Human Review</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › recovery › Run Monitor</code> <span class="ck-made">creates · failing run id (approval_rejected at review)</span> <a class="ck-assetref" href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl ↓</a></div><div class="ck-step-do">Reproduce the failure (Option A — approval reject). Click the <strong>Run Monitor</strong> toggle, paste a failing input from row <strong>WF01</strong> (an over-limit refund the reviewer should reject), and click <strong>Run</strong>. The run advances to <strong>waiting_approval</strong> at <code>review</code>. Now click <strong>Reject</strong> — the run goes to <strong>failed</strong> with an <code>approval_rejected</code> reason. <strong>Note the failing run id.</strong></div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input (WF01 — over-limit refund, reviewer rejects)</td><td><code>{"response": "Refund of $4,800 approved for account A-1007."}</code> — from <a href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl</a></td></tr><tr><td>Alternative input (WF05 — unsupported commitment)</td><td><code>{"response": "Account A-3300 will be unlocked and credited 3 months free."}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Reject</span></div><div class="ck-see"><strong>You'll see:</strong> The run ends in <strong>failed</strong>; the timeline shows <code>review.waiting_approval</code> then <code>review.rejected</code> with the reject reason.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › recovery › Run Monitor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input (WF01 — over-limit refund, reviewer rejects)</span><span class="ck-mk-input">{&quot;response&quot;: &quot;Refund of $4,800 approved for account A-1007.&quot;} — from failing-inputs.…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Alternative input (WF05 — unsupported commitment)</span><span class="ck-mk-input">{&quot;response&quot;: &quot;Account A-3300 will be unlocked and credited 3 months free.&quot;}</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Reject</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › recovery › Run Monitor › Recovery Diagnostics / Resume Checkpoints / Execution Debugger</code> <span class="ck-made">creates · diagnostics: recovery timeline + checkpoint + debugger trace</span></div><div class="ck-step-do">Open the diagnostics panels in the Run Monitor for the failed run. Read the <strong>Recovery Diagnostics</strong> panel (approval/event timeline + integrity warnings — confirm the reject event and reviewer/reason), the <strong>Resume Checkpoints</strong> panel (the active node = <code>review</code> plus its state blob), and the <strong>Execution Debugger</strong> (per-step inputs/outputs with event markers — the <code>review</code> step shows the rejection).</div><div class="ck-see"><strong>You'll see:</strong> The Recovery Diagnostics panel shows the reject reason; the Resume Checkpoints panel shows <code>review</code> as the active checkpoint; the Debugger step trace highlights the <code>review</code> step with its event markers.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › recovery › Run Monitor › Recovery Diagnostics / Resume Checkpoints / Execution Debugger</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Recovery Diagnostics / Resume Checkpoints / Execution Debugger</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › recovery › Run Monitor › Execution Debugger</code> <span class="ck-made">creates · root-cause note (node review + reject reason)</span> <a class="ck-assetref" href="#asset-assets-skills-workflow-failure-triage-md">workflow-failure-triage.md ↓</a></div><div class="ck-step-do">Localize the root cause. In the Debugger step trace the failing node is <strong><code>review</code></strong> and the evidence is the reject reason. Write a one-line root-cause note tied to that node, e.g. <em>"the human_approval node 'review' was rejected (amount over discretionary limit), so the run failed"</em>. (The <code>workflow-failure-triage</code> skill maps this symptom → a <code>human_approval</code> node → the recovery probe; the optional <code>diagnosis-summary</code> prompt can render the note.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Root-cause note (tie to the node + evidence)</td><td>blame node <code>review</code>; cite the actual reject reason from the Recovery panel</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A concrete root-cause statement naming the node id <code>review</code> and quoting the reject reason.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › recovery › Run Monitor › Execution Debugger</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Execution Debugger</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Root-cause note (tie to the node + evidence)</span><span class="ck-mk-input">blame node review; cite the actual reject reason from the Recovery panel</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › recovery › Run Monitor › Retry Lineage</code> <span class="ck-made">creates · retry lineage: Attempt 2 of 2</span></div><div class="ck-step-do">Retry from the checkpoint. Click <strong>Retry</strong> (or use <strong>Retry from this checkpoint</strong> in the Resume Checkpoints panel). Confirm the <strong>Retry Lineage</strong> panel now shows <strong>"Attempt 2 of 2"</strong> and the run re-enters from the checkpoint back at <strong>waiting_approval</strong> on <code>review</code>.</div><div class="ck-click">Click <span class="ck-btn">Retry</span></div><div class="ck-see"><strong>You'll see:</strong> The Retry Lineage panel shows <strong>Attempt 2 of 2</strong>; the run is paused again at <strong>waiting_approval</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › recovery › Run Monitor › Retry Lineage</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Retry Lineage</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Retry</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › recovery › Run Monitor</code> <span class="ck-made">creates · recovered run: completed via approve → resume</span></div><div class="ck-step-do">Approve and resume to recover. With the retried run paused at <strong>waiting_approval</strong>, click <strong>Approve</strong> on the <code>review</code> gate, then click <strong>Resume</strong>. The run reaches <strong>completed</strong> — that closes the reject → retry → approve → resume recovery loop on a shipped template, no code needed.</div><div class="ck-click">Click <span class="ck-btn">Approve</span></div><div class="ck-see"><strong>You'll see:</strong> After <strong>Approve</strong> then <strong>Resume</strong>, the run reaches <strong>completed</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › recovery › Run Monitor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Approve</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › New Workflow</code> <span class="ck-made">creates · workflow: failing_node lab (blank + Python Code node)</span> <a class="ck-assetref" href="#asset-assets-tools-failing-node-py">failing_node.py ↓</a></div><div class="ck-step-do">Now do Option B — a real node-level exception you fix with a manual code patch. Click <strong>New Workflow</strong> and pick the <strong>Blank Canvas</strong> template. From the left Components palette drag a <strong>Python Code</strong> node, name it <strong><code>failing_node</code></strong>, click it to open the <strong>Inspector</strong>, and paste the entire file body. Wire <code>start</code>'s input into the node's <code>input</code> (or a named <code>payload</code>) input port, and wire the node's <code>result</code>/<code>text</code> to <code>final</code>. Click <strong>Save</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Python Code node — name / body</td><td><code>failing_node</code> — paste the full body of <a href="#asset-assets-tools-failing-node-py">failing_node.py</a></td></tr><tr><td>Wiring</td><td><code>start → failing_node.input</code> (the body also accepts a named <code>payload</code> port); <code>failing_node.result/text → final</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save</span></div><div class="ck-see"><strong>You'll see:</strong> A <code>blank</code> workflow with one <strong>Python Code</strong> node <code>failing_node</code> wired between start and final. The body validates the payload with <code>.get(...)</code> and (with the sentinel <code>STRICT = True</code>) raises a single composed <code>ValueError</code> when a malformed payload fails validation.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › New Workflow</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Python Code node — name / body</span><span class="ck-mk-input">failing_node — paste the full body of failing_node.py</span></label><label class="ck-mk-field"><span class="ck-mk-label">Wiring</span><span class="ck-mk-input">start → failing_node.input (the body also accepts a named payload port); failing_nod…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › failing_node lab › Run Monitor</code> <span class="ck-made">creates · failing run id (node_exception at failing_node)</span></div><div class="ck-step-do">Reproduce the node exception. Click the <strong>Run Monitor</strong> toggle, paste row <strong>WF02</strong> (a payload missing <code>account_id</code>) and click <strong>Run</strong>. The <code>failing_node</code> raises and the run lands in <strong>failed</strong> with a real exception. Note the failing run id. (Row WF03 — <code>amount: "N/A"</code> — reproduces a different <code>ValueError</code>.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input (WF02 — missing account_id)</td><td><code>{"payload": {"amount": 50}}</code> → <code>ValueError: failing_node: invalid input -> missing or empty required field 'account_id'</code></td></tr><tr><td>Input (WF03 — non-numeric amount)</td><td><code>{"payload": {"account_id": "A-2210", "amount": "N/A"}}</code> → <code>ValueError: failing_node: invalid input -> field 'amount' is missing or not a number</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run ends in <strong>failed</strong>; the timeline shows <code>start.completed</code> then <code>failing_node.error</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › failing_node lab › Run Monitor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input (WF02 — missing account_id)</span><span class="ck-mk-input">{&quot;payload&quot;: {&quot;amount&quot;: 50}} → ValueError: failing_node: invalid input -&gt; missing or …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Input (WF03 — non-numeric amount)</span><span class="ck-mk-input">{&quot;payload&quot;: {&quot;account_id&quot;: &quot;A-2210&quot;, &quot;amount&quot;: &quot;N/A&quot;}} → ValueError: failing_node: i…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › failing_node lab › Run Monitor › Execution Debugger</code> <span class="ck-made">creates · localized fault: failing_node + ValueError</span></div><div class="ck-step-do">Localize the exception. Open the <strong>Execution Debugger</strong> panel: the last node with an <code>error</code> marker is <strong><code>failing_node</code></strong>. Read its input (the malformed <code>payload</code>) and the raised error text — that node id plus that exception <em>is</em> the concrete evidence any diagnosis must cite (and the only thing the <code>RootCauseQuality</code> judge accepts).</div><div class="ck-see"><strong>You'll see:</strong> The Debugger shows <code>failing_node</code> with an <code>error</code> marker, its malformed input payload, and the exact <code>ValueError</code> message.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › failing_node lab › Run Monitor › Execution Debugger</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Execution Debugger</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › failing_node lab › Editor › failing_node</code> <span class="ck-made">creates · patched workflow version (STRICT=False)</span></div><div class="ck-step-do">Apply the minimal patch — <strong>manually</strong>. There is no patch tool and no Aria capability for this; the fix is a code edit. Click the <code>failing_node</code> node to open the <strong>Inspector</strong>, find the documented fix line, and change the sentinel <code>STRICT = True</code> → <code>STRICT = False</code>. That flips the node from <em>raising</em> the composed <code>ValueError</code> on a validation failure to <em>returning</em> a structured <code>rejected_input</code> result instead of throwing. Click <strong>Save</strong> — this save <em>is</em> the patch.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Edit (smallest scoped change)</td><td>in the <code>failing_node</code> body, set <code>STRICT = False</code> (the documented fix line in <a href="#asset-assets-tools-failing-node-py">failing_node.py</a>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save</span></div><div class="ck-see"><strong>You'll see:</strong> The toolbar shows "Saved draft." The node now validates input and returns <code>{status: "rejected_input", ...}</code> rather than raising.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › failing_node lab › Editor › failing_node</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">failing_node</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Edit (smallest scoped change)</span><span class="ck-mk-input">in the failing_node body, set STRICT = False (the documented fix line in failing_nod…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › failing_node lab › Run Monitor</code> <span class="ck-made">creates · post-fix run id (completed, rejected_input)</span></div><div class="ck-step-do">Validate the fix on the same failing input. On the new version, run a <strong>Preview</strong> and then a real <strong>Run</strong> of the <em>same</em> WF02/WF03 input. Confirm it now reaches <strong>completed</strong> with <code>status = "rejected_input"</code> instead of crashing the run.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Re-run input</td><td>the same <code>{"payload": {"amount": 50}}</code> (WF02) that previously crashed</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run reaches <strong>completed</strong> and the <code>failing_node</code> output is <code>{"status": "rejected_input", ...}</code> — the fault is now handled, not thrown.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › failing_node lab › Run Monitor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Re-run input</span><span class="ck-mk-input">the same {&quot;payload&quot;: {&quot;amount&quot;: 50}} (WF02) that previously crashed</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › failing_node lab › Run Monitor</code> <span class="ck-made">creates · regression slice: prior-good inputs still pass</span></div><div class="ck-step-do">Run a small regression slice to prove no new failures. Execute a couple of prior-good inputs (a well-formed payload) on the patched version and confirm they still succeed with <code>status = "ok"</code>. Keeping the patch minimal (one sentinel) is what makes this regression check trustworthy.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Regression input (prior-good)</td><td><code>{"payload": {"account_id": "A-1007", "amount": 50}}</code> → expect <code>status: "ok"</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The well-formed run completes with <code>status: "ok"</code>; the regression slice passes (gate target <strong>post_fix_regression_pass_rate_min ≥ 0.95</strong>).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › failing_node lab › Run Monitor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Regression input (prior-good)</span><span class="ck-mk-input">{&quot;payload&quot;: {&quot;account_id&quot;: &quot;A-1007&quot;, &quot;amount&quot;: 50}} → expect status: &quot;ok&quot;</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Observability</code> <span class="ck-made">creates · comparison: pre-fix (failed) vs post-fix (completed) traces</span></div><div class="ck-step-do">Compare pre-fix and post-fix. Open <strong>Observability</strong> and put the failing run id and the patched (post-fix) run id side by side. Confirm the <code>failing_node</code> step is now green on the post-fix trace and that the failing node's evidence (the original exception) is explicit on the pre-fix trace — that is the <code>replay_success_rate = 1.0</code> evidence the gate wants. (Remember: the <code>monitoring.traces</code> labels in verification.yaml are evidence labels, not literal span names — read the node tree.)</div><div class="ck-see"><strong>You'll see:</strong> Two traces side by side: pre-fix shows the <code>failing_node</code> error; post-fix shows it green/completed with the same input.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Observability</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Observability</span><span class="ck-mk-title">Observability</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Evaluations › Run evaluation</code> <span class="ck-made">creates · eval run: RootCauseQuality scorecard (optional)</span> <a class="ck-assetref" href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl ↓</a> <a class="ck-assetref" href="#asset-assets-prompts-diagnosis-summary-md">diagnosis-summary.md ↓</a> <a class="ck-assetref" href="#asset-assets-judges-root-cause-quality-judge-json">root-cause-quality.judge.json ↓</a></div><div class="ck-step-do">Optional — put a number on diagnosis quality. First create the <code>failing-inputs</code> test set (<strong>Evaluate › Test Sets › + New Test Set</strong>; rows carry <code>failing_node</code>/<code>node_input</code>/<code>node_error</code>/<code>recent_events</code> and <code>expectations</code>), author the <code>diagnosis-summary</code> prompt (<strong>Library › Prompts › New prompt</strong> — its variables map 1:1 onto the dataset inputs), and create the <code>RootCauseQuality</code> judge (<strong>Evaluate › Judges › + New Judge</strong>, Returns <code>bool</code>). Then click <strong>Run evaluation</strong>, pick <strong>Test set</strong> = <code>failing-inputs</code>, tick the deterministic graders and the <code>RootCauseQuality</code> judge under <strong>Custom LLM judges</strong> (it runs as a <code>Judge.&lt;id&gt;</code> scorer), and <strong>Run</strong>. The judge column flags a row as passing only when the diagnosis blames the actual failing node, cites the real error, and proposes a minimal scoped fix (the calibration path is an alternative).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Test set</td><td><code>failing-inputs</code> — rows from <a href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl</a></td></tr><tr><td>Prompt</td><td><code>diagnosis-summary</code> — body from <a href="#asset-assets-prompts-diagnosis-summary-md">diagnosis-summary.md</a></td></tr><tr><td>Judge</td><td><code>RootCauseQuality</code> (Returns <code>bool</code>) — instructions from <a href="#asset-assets-judges-root-cause-quality-judge-json">root-cause-quality.judge.json</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The scorecard grades each diagnosis pass/fail against the failing-run evidence. (Evaluations needs a configured provider; with none it returns a 400 — the expected real-only guard.)</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Evaluations › Run evaluation</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Evaluations</span><span class="ck-mk-title">Run evaluation</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Test set</span><span class="ck-mk-input">failing-inputs — rows from failing-inputs.jsonl</span></label><label class="ck-mk-field"><span class="ck-mk-label">Prompt</span><span class="ck-mk-input">diagnosis-summary — body from diagnosis-summary.md</span></label><label class="ck-mk-field"><span class="ck-mk-label">Judge</span><span class="ck-mk-input">RootCauseQuality (Returns bool) — instructions from root-cause-quality.judge.json</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/09-workflow-debugger-self-healing-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-failing-inputs-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/failing-inputs.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;WF01&quot;, &quot;tags&quot;: [&quot;approval_rejected&quot;, &quot;hitl_review&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;hitl_review&quot;, &quot;failing_node&quot;: &quot;review&quot;, &quot;node_input&quot;: {&quot;response&quot;: &quot;Refund of $4,800 approved for account A-1007.&quot;}, &quot;node_error&quot;: &quot;approval_rejected: reviewer rejected (amount over discretionary limit)&quot;, &quot;recent_events&quot;: [&quot;agent.completed&quot;, &quot;pii_guard.passed&quot;, &quot;review.waiting_approval&quot;, &quot;review.rejected&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;approval_rejected&quot;, &quot;expected_root_cause&quot;: &quot;The human_approval node &#x27;review&#x27; was rejected by the reviewer, so the run failed; recover via run-retry -&gt; run-approve -&gt; run-resume.&quot;}}
+{&quot;id&quot;: &quot;WF02&quot;, &quot;tags&quot;: [&quot;node_exception&quot;, &quot;python_code&quot;, &quot;reproducer&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;blank+failing_node&quot;, &quot;failing_node&quot;: &quot;failing_node&quot;, &quot;node_input&quot;: {&quot;payload&quot;: {&quot;amount&quot;: 50}}, &quot;node_error&quot;: &quot;ValueError: failing_node: invalid input -&gt; missing or empty required field &#x27;account_id&#x27;&quot;, &quot;recent_events&quot;: [&quot;start.completed&quot;, &quot;failing_node.error&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;node_exception&quot;, &quot;expected_root_cause&quot;: &quot;The python_code node &#x27;failing_node&#x27; raised because the input payload was missing the required &#x27;account_id&#x27; field; minimal fix validates/defaults that field instead of indexing it.&quot;}}
+{&quot;id&quot;: &quot;WF03&quot;, &quot;tags&quot;: [&quot;node_exception&quot;, &quot;python_code&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;blank+failing_node&quot;, &quot;failing_node&quot;: &quot;failing_node&quot;, &quot;node_input&quot;: {&quot;payload&quot;: {&quot;account_id&quot;: &quot;A-2210&quot;, &quot;amount&quot;: &quot;N/A&quot;}}, &quot;node_error&quot;: &quot;ValueError: failing_node: invalid input -&gt; field &#x27;amount&#x27; is missing or not a number&quot;, &quot;recent_events&quot;: [&quot;start.completed&quot;, &quot;failing_node.error&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;node_exception&quot;, &quot;expected_root_cause&quot;: &quot;The python_code node &#x27;failing_node&#x27; raised because &#x27;amount&#x27; was non-numeric (&#x27;N/A&#x27;); minimal fix coerces/validates &#x27;amount&#x27; and returns a rejected_input result instead of throwing.&quot;}}
+{&quot;id&quot;: &quot;WF04&quot;, &quot;tags&quot;: [&quot;guardrail_block&quot;, &quot;hitl_review&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;hitl_review&quot;, &quot;failing_node&quot;: &quot;pii_guard&quot;, &quot;node_input&quot;: {&quot;response&quot;: &quot;Sure — your card 4111 1111 1111 1111 was charged; email me at jdoe@example.com.&quot;}, &quot;node_error&quot;: &quot;guardrail_block: pii_detection matched [credit_card, email]; on_failure=redact&quot;, &quot;recent_events&quot;: [&quot;agent.completed&quot;, &quot;pii_guard.blocked&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;guardrail_block&quot;, &quot;expected_root_cause&quot;: &quot;The guardrail node &#x27;pii_guard&#x27; blocked/redacted the agent response because it leaked a credit_card and email; fix tightens the upstream agent output (do not emit raw PII) or adjusts the guardrail scope.&quot;}}
+{&quot;id&quot;: &quot;WF05&quot;, &quot;tags&quot;: [&quot;approval_rejected&quot;, &quot;hitl_review&quot;, &quot;edge&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;hitl_review&quot;, &quot;failing_node&quot;: &quot;review&quot;, &quot;node_input&quot;: {&quot;response&quot;: &quot;Account A-3300 will be unlocked and credited 3 months free.&quot;}, &quot;node_error&quot;: &quot;approval_rejected: reviewer rejected (commitment not supported by policy)&quot;, &quot;recent_events&quot;: [&quot;agent.completed&quot;, &quot;pii_guard.passed&quot;, &quot;review.waiting_approval&quot;, &quot;review.rejected&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;approval_rejected&quot;, &quot;expected_root_cause&quot;: &quot;The human_approval node &#x27;review&#x27; was rejected because the drafted reply made an unsupported commitment; recover by editing the upstream draft, then run-retry -&gt; run-approve -&gt; run-resume.&quot;}}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-skills-workflow-failure-triage-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/workflow-failure-triage.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: workflow-failure-triage
+summary: &quot;Triage a failed CALIBER workflow run: classify the symptom (guardrail block / approval reject / node exception / wait timeout), point to the likely node, and name the next probe in the Run Monitor. Diagnosis only — patching is a manual editor edit.&quot;
+category: operations
+tags: [workflow, debugging, run-monitor, recovery, triage]
+render_variables: [run_status, failing_node, node_error, recent_events]
+---
+
+# Workflow Failure Triage
+
+Use this checklist when a workflow run is in a terminal `failed` (or stuck)
+state and you need to localize the cause fast in the **Run Monitor**. It maps a
+symptom to the likely node type and the next concrete probe. It does NOT change
+the workflow: the fix is always a manual edit of the manifest in the editor
+followed by **save a new version** (there is no `propose_workflow_patch` tool),
+and any assistant text here is narration — the actual recovery is done with the
+run-retry / run-approve / run-resume controls.
+
+## First, read the run state
+
+- Open the run in **Run Monitor**. Note `{{ run_status }}` and the active node
+  from the **Checkpoint** panel (active node id + state blob).
+- Open the **Debugger** panel and find the last node with an `error` marker —
+  that node id is your prime suspect. Read its inputs/outputs.
+- Open the **Recovery** panel for the approval/event timeline and any integrity
+  warnings.
+
+## Symptom -&gt; likely node -&gt; next probe
+
+| Symptom (from status / debugger) | Likely failure kind | Likely node | Next probe |
+| --- | --- | --- | --- |
+| Run sat at `waiting_approval`, then went `failed` after a reject; error mentions approval/rejected | **approval_rejected** | a `human_approval` node (e.g. `review`) | Recovery panel: confirm the reject event + reviewer/reason. Recovery = `run-retry` then `run-approve` -&gt; `run-resume`. |
+| A node shows a raised exception in the debugger (`KeyError`, `ValueError`, traceback) | **node_exception** | a `python_code` / `tool` node | Debugger: read that node&#x27;s input; reproduce with the same input. Fix is a manual edit to that one node (validate/guard the bad field), save new version. |
+| Run failed at/after a `guardrail` node; output was blocked or redacted | **guardrail_block** | a `guardrail` node (e.g. `pii_guard`) | Inspect the guardrail node&#x27;s check + `on_failure`. Decide: tighten upstream output, or adjust the guardrail scope. Manual edit + new version. |
+| Run never reached terminal success; stuck/expired waiting on an event or clock | **wait_timeout** | a `wait_for_event` / `wait_until` node | Recovery panel: check the awaited event + timeout. Use `resume-by-event` if the event is now available; else adjust the timeout (manual edit). |
+| Run failed before the first node; &quot;workflow_not_found&quot; / bad input shape | **bad_request** (not a node fault) | none (run setup) | Re-check the workflow id and the input payload against the input schema before re-running. |
+
+## Localize, don&#x27;t guess
+
+- Tie every conclusion to a node id and the actual error text from the
+  debugger. If the evidence does not name a node and a reason, say so and gather
+  more trace detail before proposing a change.
+- Keep the fix minimal and scoped to the failing node. A smaller patch isolates
+  impact and is easier to validate.
+
+## After you localize
+
+1. Reproduce the failing input once more to confirm it is deterministic.
+2. Make the smallest manual edit in the editor that addresses the root cause;
+   **save a new version**.
+3. Validate: Preview + a real run of the failing input on the new version, then
+   re-run a small regression slice of prior-good inputs.
+4. Convert the incident into a regression case (add the reproducer to the
+   scenario dataset) so it cannot silently come back.
+
+Inputs you may be given for narration:
+- run status: `{{ run_status }}`
+- failing node: `{{ failing_node }}`
+- node error: `{{ node_error }}`
+- recent events: `{{ recent_events }}`
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-tools-failing-node-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/failing_node.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>&quot;&quot;&quot;failing_node — Caliber workflow `python_code` node body (deliberate fault).
+
+This is NOT a registered tool. Paste the body of this module into a CALIBER
+**Python Code** node (`Compose → Workflows` → drag a *Python Code* node). It
+needs no registration, versions with the workflow, and uses **stdlib only**.
+
+Its purpose is to MANUFACTURE a reproducible, code-level node failure for the
+workflow-debugger demo (the second failure option in this scenario&#x27;s README):
+on a malformed input it raises, so the run lands in `failed` with a real node
+exception you can localize in the Debugger panel.
+
+CONTRACT (how the sandbox calls this)
+  The node body runs inside the runtime wrapper:
+      run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;)
+  Wire the upstream port so this node receives:
+      inputs[&quot;payload&quot;]  -&gt; a dict; MUST contain a non-empty &quot;account_id&quot;
+                            (str) and an &quot;amount&quot; (number &gt;= 0).
+  It also tolerates the payload arriving as the single `input` dict (or a JSON
+  string) so the node still works when the upstream emits one object.
+
+THE FAULT (what triggers it) — before the patch
+  Pre-patch, the body still validates the payload with `.get(...)` (it never
+  indexes a key directly), collects every problem into an `errors` list, and
+  when `STRICT = True` raises a single composed `ValueError` joining those
+  reasons. So ANY of these inputs reproduces a node-level exception (-&gt; `failed`):
+    * &quot;account_id&quot; missing entirely        -&gt; ValueError (missing/empty id)
+    * &quot;account_id&quot; present but empty &quot;&quot;     -&gt; ValueError (missing/empty id)
+    * &quot;amount&quot; non-numeric, e.g. &quot;N/A&quot;      -&gt; ValueError (bad amount)
+  The raised message is &quot;failing_node: invalid input -&gt; &quot; + &quot;; &quot;.join(errors).
+  In the Debugger step trace this node shows the raised error on its `error`
+  marker; that exception text + this node id IS the concrete evidence the
+  diagnosis-summary prompt and RootCauseQuality judge must cite.
+
+THE FIX (fixed behavior) — after the manual patch
+  The patch is a MANUAL editor edit (save a new workflow version): swap the
+  raising lookups for validated, defaulted access and emit a structured
+  `validation_error` on the result port instead of throwing. The dividing line
+  below — `STRICT = True` — is the smallest change that flips fault-&gt;handled.
+  Flip it to `False` (or delete the raising branch) and re-run the SAME failing
+  input to confirm the node now completes with `status=&quot;rejected_input&quot;`
+  instead of crashing the run. There is no propose_workflow_patch tool; this
+  edit is the patch.
+
+OUTPUTS (on the node&#x27;s `result` / `text` ports), post-fix
+  {
+    &quot;status&quot;:   &quot;ok&quot; | &quot;rejected_input&quot;,
+    &quot;account_id&quot;: &lt;validated id&gt; | None,
+    &quot;amount&quot;:     &lt;float&gt;        | None,
+    &quot;errors&quot;:     [&lt;human-readable reasons the input was rejected&gt;]
+  }
+&quot;&quot;&quot;
+
+# `json` is pre-injected into the node namespace by the workflow Python
+# sandbox, so we deliberately do NOT `import json` here — the sandbox&#x27;s
+# SAFE_BUILTINS has no `__import__`, and an import would crash the node.
+
+# The one knob the manual patch flips. True = original deliberately-faulty
+# behavior (raise on malformed input -&gt; reproducible node exception).
+# Set to False as the minimal scoped fix (validate + return, never throw).
+STRICT = True
+
+
+def _coerce_payload(value):
+    &quot;&quot;&quot;Accept a dict directly or a JSON string; anything else -&gt; {}.&quot;&quot;&quot;
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _validate(payload):
+    &quot;&quot;&quot;Return (account_id, amount, errors) without raising.&quot;&quot;&quot;
+    errors = []
+
+    account_id = payload.get(&quot;account_id&quot;)
+    if not isinstance(account_id, str) or not account_id.strip():
+        errors.append(&quot;missing or empty required field &#x27;account_id&#x27;&quot;)
+        account_id = None
+    else:
+        account_id = account_id.strip()
+
+    raw_amount = payload.get(&quot;amount&quot;)
+    amount = None
+    try:
+        amount = float(raw_amount)
+        if amount &lt; 0:
+            errors.append(&quot;field &#x27;amount&#x27; must be &gt;= 0&quot;)
+            amount = None
+    except Exception:
+        errors.append(&quot;field &#x27;amount&#x27; is missing or not a number&quot;)
+
+    return account_id, amount, errors
+
+
+def run_python_node(input=None, context=None, inputs=None, run_input=&quot;&quot;):
+    src = inputs if isinstance(inputs, dict) else {}
+
+    # Resolve the payload from inputs[&quot;payload&quot;], else the single input object.
+    payload = _coerce_payload(src.get(&quot;payload&quot;))
+    if not payload:
+        payload = _coerce_payload(input if input is not None else context)
+
+    account_id, amount, errors = _validate(payload)
+
+    if STRICT and errors:
+        # --- DELIBERATE FAULT (pre-patch) -----------------------------------
+        # Reproduces a real node-level exception so the run lands in `failed`.
+        # The first failing reason becomes the raised message — exactly the
+        # evidence the debugger surfaces and the diagnosis must cite.
+        raise ValueError(
+            &quot;failing_node: invalid input -&gt; {}&quot;.format(&quot;; &quot;.join(errors))
+        )
+
+    # --- FIXED BEHAVIOR (post-patch: STRICT=False) --------------------------
+    if errors:
+        result = {
+            &quot;status&quot;: &quot;rejected_input&quot;,
+            &quot;account_id&quot;: account_id,
+            &quot;amount&quot;: amount,
+            &quot;errors&quot;: errors,
+        }
+    else:
+        result = {
+            &quot;status&quot;: &quot;ok&quot;,
+            &quot;account_id&quot;: account_id,
+            &quot;amount&quot;: amount,
+            &quot;errors&quot;: [],
+        }
+    return {&quot;text&quot;: json.dumps(result), &quot;result&quot;: result}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-prompts-diagnosis-summary-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/prompts/diagnosis-summary.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: diagnosis-summary
+model_hint: any capable instruct model; this is summarization over a trace, not generation
+variables: [failing_node, node_input, node_error, recent_events]
+commit_message: &quot;v1 trace-grounded workflow failure diagnosis&quot;
+---
+
+You are a workflow recovery assistant. You read the evidence from ONE failing
+workflow run — the failing node, its input, the error it produced, and the
+recent run events — and you write a tight, trace-grounded diagnosis. You do not
+debug or patch anything; the operator does that in the Run Monitor. Your only
+job is to state the root cause from the evidence and propose the smallest
+scoped fix.
+
+You return JSON ONLY — no prose, no markdown, no code fences:
+{
+  &quot;root_cause&quot;: short string: WHY the run failed, stated from the evidence,
+  &quot;evidence_node&quot;: the node id you are blaming (must equal the failing node),
+  &quot;fix_summary&quot;: short string: the single smallest change that addresses the
+                 root cause (a manual editor edit + save-new-version; there is
+                 no automatic patch),
+  &quot;regression_slice&quot;: array of 2-4 short input descriptions to re-run after the
+                      fix to confirm no new failures (include the reproducer
+                      plus a couple of prior-good cases)
+}
+
+Rules:
+- Cite ONLY the concrete evidence below. The blamed `evidence_node` MUST be
+  exactly `{{ failing_node }}`. Quote or paraphrase the actual `{{ node_error }}`
+  text in `root_cause`; do not invent an error you were not shown.
+- Do NOT speculate beyond the trace. If the evidence does not determine the
+  cause, set `root_cause` to &quot;insufficient evidence&quot; and `fix_summary` to
+  &quot;gather more trace detail before patching&quot; — never guess a cause.
+- Classify the failure as exactly one of: an approval rejection (a
+  human_approval node was rejected), a node exception (a node raised), a
+  guardrail block (a guardrail node blocked), or a wait timeout (a
+  wait_for_event / wait_until node expired) — and let that classification drive
+  the `fix_summary`.
+- Keep `fix_summary` minimal and scoped to one node/config. Prefer the smallest
+  change that flips the failing node from fault to handled. Never propose a
+  change to a node other than the failing one unless the evidence names it.
+- Add no commitments, no timelines, and no claims about whether the fix will
+  pass — that is decided by re-running, not by you.
+
+Failing node id: {{ failing_node }}
+Failing node input:
+&quot;&quot;&quot;
+{{ node_input }}
+&quot;&quot;&quot;
+Failing node error / outcome:
+&quot;&quot;&quot;
+{{ node_error }}
+&quot;&quot;&quot;
+Recent run events (most recent last):
+&quot;&quot;&quot;
+{{ recent_events }}
+&quot;&quot;&quot;
+
+Return only the JSON diagnosis.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-judges-root-cause-quality-judge-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/judges/root-cause-quality.judge.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;name&quot;: &quot;RootCauseQuality&quot;,
+  &quot;model&quot;: &quot;set to your configured judge model (e.g. the gateway default)&quot;,
+  &quot;feedback_value_type&quot;: &quot;bool&quot;,
+  &quot;instructions&quot;: &quot;You audit a workflow-failure diagnosis for whether it is grounded in the actual run evidence and proposes a minimal, scoped fix. You are given the failing-run evidence {{ inputs }} (which includes failing_node, node_input, node_error, recent_events) and the diagnosis under test {{ outputs }} (a JSON object with root_cause, evidence_node, fix_summary, regression_slice). You may also be given labeled {{ expectations }} (failure_kind, expected_root_cause).\n\nReturn true ONLY if ALL of the following hold:\n1. {{ outputs }} is a single valid JSON object with the keys root_cause, evidence_node, fix_summary, regression_slice.\n2. outputs.evidence_node equals inputs.failing_node exactly (the diagnosis blames the node that actually failed — not a different node).\n3. outputs.root_cause cites the concrete failing evidence from {{ inputs }}: it reflects the actual inputs.node_error (e.g. the same error kind / missing field / rejected approval / blocked guardrail) and is consistent with inputs.recent_events. It must NOT introduce a cause that the evidence does not support.\n4. The diagnosis&#x27;s failure classification is consistent with the evidence and, when provided, with expectations.failure_kind (approval_rejected / node_exception / guardrail_block / wait_timeout).\n5. outputs.fix_summary is a SINGLE minimal, scoped change addressing that root cause (e.g. validate/default the missing field on the failing node, or re-run the approval, or tighten the upstream output) and does not expand scope to unrelated nodes or propose a broad rewrite.\n6. outputs.regression_slice is a non-empty list that includes re-running the reproducing input plus at least one prior-good case.\n\nReturn false if the diagnosis blames the wrong node, invents an error or cause not present in {{ inputs }}, speculates beyond the trace, or proposes a non-minimal / out-of-scope fix. Base the verdict only on the evidence in {{ inputs }} (and {{ expectations }} when present), not on your own opinion of the workflow.&quot;,
+  &quot;notes&quot;: &quot;Optional LLM judge (verification.yaml: RootCauseQuality, criteria &#x27;diagnosis cites concrete failing evidence&#x27;). feedback_value_type bool -&gt; pass/fail. Select it in an Evaluations run under &#x27;Custom LLM judges&#x27; (it runs as a Judge.&lt;id&gt; scorer; or use the calibration path) over dataset/failing-inputs.jsonl against the diagnosis-summary output. Template vars {{ inputs }}/{{ outputs }}/{{ expectations }} are bound by the eval runner per row.&quot;
+}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Root cause is explicit in the trace</td><td>node + evidence identified</td></tr><tr><td>Post-fix regression slice</td><td>≥ 0.95 pass; no new failures</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>Patching is <strong>manual</strong> — edit the manifest in the editor and save a new version; there is no <code>propose_workflow_patch</code> tool.</li><li>Aria can <em>narrate</em> a diagnosis but cannot debug/patch a workflow as a capability.</li><li>The most reliable demo failure is the <code>hitl_review</code> reject → retry → approve → resume loop.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-08-incident-copilot.html">← Incident Response Copilot</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-16-observability-triage.html">Production Observability &amp; Triage →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

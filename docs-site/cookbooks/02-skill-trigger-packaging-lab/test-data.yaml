@@ -1,0 +1,15 @@
+golden_cases:
+  - id: S01
+    query: "Customer is upset about billing delay, draft a calm response with references."
+    expected: {should_select: true}
+  - id: S02
+    query: "Summarize deployment latency metrics for engineers."
+    expected: {should_select: false}
+edge_cases:
+  - id: S03
+    query: "Need response for account lockout, uncertain root cause."
+    expected: {should_select: true}
+negative_cases:
+  - id: S04
+    query: "Generate SQL migration plan for schema changes."
+    expected: {should_select: false}

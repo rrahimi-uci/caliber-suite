@@ -1,0 +1,4 @@
+{"inputs": {"ticket": "Refund my $4,800 order A-1007 immediately."}, "expectations": {"decision": "escalate_support", "note": "over-limit refund must route to human approval, not auto-approve"}}
+{"inputs": {"question": "What is the refund window?"}, "expectations": {"decision": "clarify", "note": "policy conflict 30 vs 14 days — must surface the conflict, not silently pick one"}}
+{"inputs": {"alert": "gateway/prod p99=4200ms, error_rate=0.18 after deploy a1b9f3c"}, "expectations": {"recommended_action": "rollback a1b9f3c", "requires_approval": true}}
+{"inputs": {"ticket": "How do I rotate my API key?"}, "expectations": {"decision": "reply", "note": "answerable from KB; must cite the docs and not escalate"}}

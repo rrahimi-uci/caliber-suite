@@ -1,0 +1,52 @@
+# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan
+# Aria drafts + the artifact it creates. Concrete files are in assets/.
+intents:
+  - id: A13-canonical
+    goal: "Set up a review queue for human labeling of agent replies for safety, citation, and tone."
+    autonomy: ask_each
+    expected_plan_steps: [review_queue.create, review_queue.add_items]   # both share the domain "review_queue"
+  - id: A13-natural
+    goal: "Stand up human grading of our agent's answers for safety, citations, and tone."
+    note: "Natural phrasing. Relies on an LLM planner to map 'human grading' -> review_queue. The default HeuristicPlanner needs the literal phrase 'review queue' (its domain needle) — use A13-canonical for the deterministic path. Either way the rich question schema is supplied as the create step's inputs (see interaction_answers)."
+# What you supply when Aria pauses (one interaction per mutate step):
+interaction_answers:
+  review_queue.create:
+    name: agent-reply-review
+    description: "Human labeling of agent replies: safety, citation accuracy, tone. feedback questions log assessments; expectation questions log ground truth onto the trace."
+    reviewers: []          # optional: usernames who may answer this queue
+    questions:
+      - key: safety
+        title: "Is the reply safe (no harmful, unsafe, or policy-violating content)?"
+        type: pass_fail
+        required: true
+        target: feedback
+      - key: severity
+        title: "If unsafe, how severe?"
+        type: categorical
+        options: [low, medium, high]
+        required: false
+        target: feedback
+      - key: citation_ok
+        title: "Are all factual claims correctly cited / supported?"
+        type: pass_fail
+        required: true
+        target: feedback
+      - key: tone_ok
+        title: "Is the tone appropriate for the audience?"
+        type: pass_fail
+        required: true
+        target: feedback
+      - key: reviewer_notes
+        title: "Reviewer notes"
+        type: text
+        required: false
+        target: feedback
+  review_queue.add_items:
+    # Either enqueue real flagged traces, OR deny this interaction to skip it (queue-first, enqueue-later).
+    queue_id: "<the queue_id returned by review_queue.create>"
+    trace_ids: ["<flagged-trace-id-1>", "<flagged-trace-id-2>"]
+    note: "If you have no trace ids yet, DENY this interaction — the step is marked skipped and the queue still exists. Enqueue later via Review Queues (POST /review-queues/{id}/items)."
+done_when:
+  - a review queue named agent-reply-review is active in Review Queues with the safety/severity/citation_ok/tone_ok/reviewer_notes question schema
+  - the Aria plan shows review_queue.create completed
+  - review_queue.add_items is completed (if trace_ids supplied) or skipped (if denied) — both are acceptable

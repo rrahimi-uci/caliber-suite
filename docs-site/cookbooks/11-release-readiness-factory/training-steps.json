@@ -1,0 +1,250 @@
+{
+  "steps": [
+    {
+      "where": "(outside the app) Run-id manifest",
+      "do": "This scenario is an <strong>operator process</strong>, not a built workflow — there is no release-scoring engine. Start by opening the fill-in manifest <a href=\"../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json\">run-id-manifest.json</a>. You will paste real evidence (run ids, review states, Allure status) into it across the next steps, then score by hand. Leave a field empty until you have verified it — any empty required field counts as MISSING and forces no_go.",
+      "fill": [
+        [
+          "release_tag",
+          "your candidate tag, e.g. <code>r2026.06.0</code>"
+        ],
+        [
+          "prepared_by",
+          "your name / role"
+        ]
+      ],
+      "see": "The manifest is open with one block per upstream scenario (SCN-07, SCN-08, SCN-09, SCN-10) and an <code>allure</code> block, all empty and ready to fill.",
+      "asset": "Run-id manifest (in progress)",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json",
+          "label": "run-id-manifest.json"
+        }
+      ]
+    },
+    {
+      "where": "Evaluate › Evaluations",
+      "do": "Collect the scorecard run id for each required scenario. Open <strong>Evaluations</strong> (under <strong>Evaluate</strong>) and find each upstream scenario's scorecard run in the table. Copy its run id into the matching <code>eval_run_id</code> field in the manifest. Then open each run and confirm <em>by hand</em> that its pass rate clears that scenario's bar — the <code>pass ≥ …</code> chip on the run detail is a per-row threshold, not a run-level verdict. CALIBER does not compute a single run-level pass/fail gate (the Evaluations table has no gate column), so the go/no-go judgment on each scorecard is yours.",
+      "fill": [
+        [
+          "scenarios[SCN-07].eval_run_id",
+          "the SCN-07 support-triage scorecard run id"
+        ],
+        [
+          "scenarios[SCN-08].eval_run_id",
+          "the SCN-08 incident-response scorecard run id"
+        ],
+        [
+          "scenarios[SCN-09].eval_run_id",
+          "the SCN-09 workflow-debugger scorecard run id"
+        ],
+        [
+          "scenarios[SCN-10].eval_run_id",
+          "the SCN-10 judge-certification scorecard run id"
+        ]
+      ],
+      "see": "Each scenario row in the manifest now carries a real <code>eval_run_id</code>; you have clicked into each run and judged by hand that its pass rate clears that scenario's bar.",
+      "asset": "eval_run_id list",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json",
+          "label": "run-id-manifest.json"
+        }
+      ]
+    },
+    {
+      "where": "Observe › Review Queues",
+      "do": "Confirm review coverage. Open <strong>Review Queues</strong> (under <strong>Observe</strong>) and check that each required queue from the upstream scenarios (e.g. SCN-10's <code>faithfulness-certification</code>) is fully answered with no unresolved items. Set <code>review_queue_complete</code> to <strong>true</strong> only for queues that are completely answered.",
+      "fill": [
+        [
+          "scenarios[*].review_queue_complete",
+          "true only where every item in that scenario's required queue is answered"
+        ]
+      ],
+      "see": "Each scenario's <code>review_queue_complete</code> reflects the real queue state; any queue with open items stays false.",
+      "asset": "Review-coverage states",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json",
+          "label": "run-id-manifest.json"
+        }
+      ]
+    },
+    {
+      "where": "Compose › Workflows  ›  (workflow detail)",
+      "do": "Re-run the high-risk slices to prove they still pass. From <strong>Workflows</strong> (under <strong>Compose</strong>) open each workflow and click <strong>Run Pipeline</strong> (labelled <strong>Queue Run</strong> when queued execution is enabled) to re-execute the critical subsets — the SCN-07 approval branch (its human_approval gate pauses the run; clear it with <strong>Approve</strong> then <strong>Resume</strong> in the run's approval panel), the SCN-08 rollback path, and the SCN-09 retry/resume recovery. Record each fresh run id in the manifest's <code>approval_branch_run_id</code> field for that scenario.",
+      "fill": [
+        [
+          "scenarios[SCN-07].approval_branch_run_id",
+          "fresh run id from re-running the approval branch"
+        ],
+        [
+          "scenarios[SCN-08].approval_branch_run_id",
+          "fresh run id from re-running the rollback path"
+        ],
+        [
+          "scenarios[SCN-09].approval_branch_run_id",
+          "fresh run id from re-running the retry/resume recovery"
+        ]
+      ],
+      "see": "Each critical slice has a fresh, successful run id recorded; you can open each in the workflow's run history and its trace in Observability.",
+      "asset": "Fresh critical-slice run ids",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json",
+          "label": "run-id-manifest.json"
+        }
+      ]
+    },
+    {
+      "where": "(terminal) make allure-report",
+      "do": "Allure is generated <strong>externally</strong> — the app only serves it. Before opening the report, regenerate it from the suite root by running <code>make allure-report</code> (this combines the vitest, playwright, and pytest Allure results). This is the one out-of-band command in the whole recipe.",
+      "see": "The command finishes and writes a fresh static Allure report that the backend can serve.",
+      "asset": "Regenerated Allure report (static HTML)"
+    },
+    {
+      "where": "Platform › Settings › Allure Report",
+      "do": "Open and verify the report in-app. Click <strong>Settings</strong> (under <strong>Platform</strong> at the bottom of the sidebar), then the <strong>Allure Report</strong> tab. Confirm the <strong>Allure report URL</strong> points at the served report (default is the backend-served <code>/observability/allure-report/</code>), click <strong>Open Allure report</strong>, and confirm it loads. Record the URL and set <code>loaded: true</code> in the manifest's <code>allure</code> block.",
+      "fill": [
+        [
+          "Allure report URL",
+          "/observability/allure-report/ (or your served URL)"
+        ],
+        [
+          "manifest allure.report_url",
+          "the same URL"
+        ],
+        [
+          "manifest allure.loaded",
+          "true (only after it visibly loads)"
+        ]
+      ],
+      "click": "Open Allure report",
+      "see": "The Allure report renders in-app. The manifest's <code>allure</code> block now has a URL and <code>loaded: true</code>.",
+      "asset": "In-app Allure report URL + load confirmed",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json",
+          "label": "run-id-manifest.json"
+        }
+      ]
+    },
+    {
+      "where": "(optional) Observe › Review Queues › + New Queue",
+      "do": "(Optional) If issues surfaced and you need to triage which are true blockers, create a triage queue. Click <strong>+ New Queue</strong> and add the questions from <a href=\"../cookbooks/11-release-readiness-factory/assets/review/blocker-questions.json\">blocker-questions.json</a> (use the <strong>+ Add question</strong> button for each; map the <code>type</code> values bool → pass_fail and str → text/categorical). Enqueue the candidate trace ids in the <strong>Add traces to review</strong> field and answer them — answers write back onto each trace.",
+      "fill": [
+        [
+          "Name",
+          "release-blocker-triage"
+        ],
+        [
+          "Description",
+          "Triage candidate release blockers: confirm whether each is a true release blocker, who owns it, and (if waived) when the waiver expires."
+        ],
+        [
+          "Questions",
+          "is_release_blocker (pass_fail), owning_scenario (text), severity (text), waiver_granted (pass_fail), waiver_expiry (text), waiver_owner (text) — paste from <a href=\"../cookbooks/11-release-readiness-factory/assets/review/blocker-questions.json\">blocker-questions.json</a>"
+        ]
+      ],
+      "click": "Create queue",
+      "see": "A <code>release-blocker-triage</code> queue exists; answered items record, per blocker, whether it blocks the release, its owner, and any waiver.",
+      "asset": "(optional) Blocker-triage queue + answers",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/review/blocker-questions.json",
+          "label": "blocker-questions.json"
+        }
+      ]
+    },
+    {
+      "where": "(optional) Library › Prompts › New prompt",
+      "do": "(Optional) To auto-draft the decision rationale from your evidence, register the summarizer prompt. Open <strong>Prompts</strong> (under <strong>Library</strong>), click <strong>New prompt</strong>, and paste the template body (everything below the YAML frontmatter) from <a href=\"../cookbooks/11-release-readiness-factory/assets/prompts/release-risk-summarizer.md\">release-risk-summarizer.md</a>. It only narrates evidence you supply and is hard-wired to force no_go on missing evidence or open blockers — it never invents passing evidence.",
+      "fill": [
+        [
+          "Name",
+          "release-risk-summarizer"
+        ],
+        [
+          "Template",
+          "paste the template body from <a href=\"../cookbooks/11-release-readiness-factory/assets/prompts/release-risk-summarizer.md\">release-risk-summarizer.md</a> (variables: <code>scenario_run_ids</code>, <code>review_summary</code>, <code>allure_status</code>, <code>blocker_list</code>)"
+        ],
+        [
+          "Commit message",
+          "v1 release-risk summarizer (evidence-in, decision-out, no invention)"
+        ]
+      ],
+      "see": "A <code>release-risk-summarizer</code> prompt is registered; feed it your filled manifest to draft the rationale (it returns JSON only).",
+      "asset": "(optional) Prompt release-risk-summarizer",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/prompts/release-risk-summarizer.md",
+          "label": "release-risk-summarizer.md"
+        }
+      ]
+    },
+    {
+      "where": "(outside the app) Release rubric",
+      "do": "Score the release <strong>by hand</strong> using <a href=\"../cookbooks/11-release-readiness-factory/assets/rubric/release-rubric.json\">release-rubric.json</a>. For each of the four dimensions, read the evidence in your filled manifest, mark a status (pass/partial/fail), convert it to a factor (1.0 / 0.5 / 0.0), multiply by the weight, and sum. Then count open blockers. The weights are fixed: component_readiness 0.30, workflow_readiness 0.30, review_coverage 0.20, evidence_visibility 0.20.",
+      "fill": [
+        [
+          "component_readiness (0.30)",
+          "pass if all SCN-07/08/09/10 eval_run_id present AND each scorecard passes"
+        ],
+        [
+          "workflow_readiness (0.30)",
+          "pass if every critical-slice re-run has a fresh run id AND completed successfully"
+        ],
+        [
+          "review_coverage (0.20)",
+          "pass if all required review_queue_complete == true"
+        ],
+        [
+          "evidence_visibility (0.20)",
+          "pass if allure.loaded == true AND allure.report_url set AND every gate state maps to a recorded run id / review answer / Allure result"
+        ],
+        [
+          "overall_release_score",
+          "sum(weight × factor)"
+        ],
+        [
+          "blocker_count",
+          "number of still-open blockers"
+        ]
+      ],
+      "see": "A weighted <code>overall_release_score</code> and a <code>blocker_count</code>. As the worked example in the rubric shows, a score of exactly 0.90 with one open blocker is still a no_go.",
+      "asset": "Hand-computed release score + blocker count",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/rubric/release-rubric.json",
+          "label": "release-rubric.json"
+        }
+      ]
+    },
+    {
+      "where": "(outside the app) Decision record",
+      "do": "Publish the go/no-go decision. Copy <a href=\"../cookbooks/11-release-readiness-factory/assets/decision/decision-record.template.md\">decision-record.template.md</a> and replace every <code>&lt;FILL: …&gt;</code> placeholder: the run-id list, the Allure URL + load confirmation, the per-dimension scores, the blocker list (each mapped to its owning scenario), the waiver log, and the final decision + rationale. Publish <strong>go</strong> only if all three gates hold: <code>overall_release_score ≥ 0.90</code> AND <code>blocker_count = 0</code> AND Allure visible. Otherwise <strong>no_go</strong>, naming each failing gate and the owning scenario per blocker.",
+      "fill": [
+        [
+          "Decision",
+          "go | no_go"
+        ],
+        [
+          "Gate check",
+          "overall_release_score ≥ 0.90? · blocker_count == 0? · Allure visible?"
+        ],
+        [
+          "Rationale",
+          "cite evidence by id/name; for no_go, name the failing gate(s) and each blocker's owning scenario"
+        ]
+      ],
+      "see": "A complete, audit-ready decision record where every gate state traces back to a concrete run id, review answer, or Allure result.",
+      "asset": "Go/no-go decision record",
+      "assetlink": [
+        {
+          "href": "../cookbooks/11-release-readiness-factory/assets/decision/decision-record.template.md",
+          "label": "decision-record.template.md"
+        }
+      ]
+    }
+  ]
+}

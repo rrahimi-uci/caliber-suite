@@ -1,0 +1,26 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - SchemaFidelity is a DETERMINISTIC check (python_code validator + exact_match/contains_expected scorer), not an LLM judge.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  deterministic_checks:
+    - name: SchemaFidelity
+      type: deterministic_scorer  # JSON-schema validator + scorer, not an LLM judge
+      criteria: required fields and value types match target schema
+  rule_checks:
+    - object_lineage_present
+    - unsupported_format_returns_readable_error
+quality_gates:
+  schema_pass_rate_min: 0.95
+  unsupported_format_error_readability: 1.0
+monitoring:
+  traces:
+    - object_extract
+    - structuring_prompt
+    - schema_validation
+  metrics:
+    - extraction_success_rate
+    - schema_failure_rate
+feedback_loop:
+  - convert repeated extraction failures into new parsing fixtures.
+  - revise schema or prompt when failures are systemic, not one-off.

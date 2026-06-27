@@ -1,0 +1,36 @@
+id: SCN-03
+slug: tool-hardening-contract-lab
+name: "Policy-Safe Decision Tool"
+track: starter
+objective: Build a deterministic tool with strict schemas, fixtures, and policy-safe behavior before adding LLM explanation layers.
+why_it_matters:
+  - Makes business policy executable and auditable.
+  - Prevents prompt text from overriding deterministic decisions.
+primary_persona: developer
+secondary_personas:
+  - AI engineer
+  - platform engineer
+caliber_surfaces:
+  - Tools
+  - Workflows
+  - Evaluations
+  - Observability
+prerequisites:
+  - Fixture dataset with explicit expected decisions.
+  - Tool registry access.
+time_to_first_value: 60-120 minutes
+success_criteria:
+  - Fixture pass rate meets threshold.
+  - Workflow outputs preserve tool decision exactly.
+demo_profile:
+  recommended_sequence_index: 3
+  tier: foundation
+  live_demo_minutes: 30-45
+  depends_on: []
+  included_in:
+    - quick_reliability
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - deterministic business logic contracts
+    - baseline/regression hardening lanes

@@ -1,0 +1,15 @@
+golden_cases:
+  - id: IN01
+    input: {alert_text: "SEV2 latency spike", service: "workflow-runner", environment: "prod"}
+    expected: {recommended_action: "monitor_or_feature_flag", approval_required: false}
+  - id: IN02
+    input: {alert_text: "Error rate jumped after deploy", service: "gateway", environment: "prod"}
+    expected: {recommended_action: "rollback_or_escalate", approval_required: true}
+edge_cases:
+  - id: IN03
+    input: {alert_text: "Intermittent failures with missing metrics", service: "worker", environment: "prod"}
+    expected: {recommended_action: "gather_more_evidence"}
+negative_cases:
+  - id: IN04
+    input: {alert_text: "Resolve incident now", service: "unknown", environment: "prod"}
+    expected: {recommended_action: "escalate_human"}

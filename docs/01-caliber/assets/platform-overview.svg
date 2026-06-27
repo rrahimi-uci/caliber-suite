@@ -1,0 +1,287 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 840" width="100%" role="img" aria-labelledby="platform-overview-title platform-overview-desc">
+  <title id="platform-overview-title">CALIBER platform overview</title>
+  <desc id="platform-overview-desc">A presentation diagram showing browser entry surfaces, the CALIBER control plane inside the MLflow server process, durable state and external integrations, and the background workers that reuse the same shared systems off the request path.</desc>
+  <style>
+    .copy {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      fill: var(--text);
+    }
+
+    .muted {
+      fill: var(--text-muted);
+    }
+
+    .kicker {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      font-size: 19px;
+      font-weight: 700;
+    }
+
+    .section-copy {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .card-copy {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .pill-copy {
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .panel {
+      fill: var(--diagram-panel);
+      stroke: var(--diagram-panel-border);
+      stroke-width: 1.5;
+    }
+
+    .stage {
+      fill: var(--diagram-stage-fill);
+      stroke: var(--diagram-stage-border);
+      stroke-width: 1.25;
+    }
+
+    .card {
+      stroke-width: 1.8;
+    }
+
+    .user {
+      fill: var(--diagram-user-fill);
+      stroke: var(--diagram-user-stroke);
+    }
+
+    .ui {
+      fill: var(--diagram-ui-fill);
+      stroke: var(--diagram-ui-stroke);
+    }
+
+    .ctrl {
+      fill: var(--diagram-ctrl-fill);
+      stroke: var(--diagram-ctrl-stroke);
+    }
+
+    .store {
+      fill: var(--diagram-store-fill);
+      stroke: var(--diagram-store-stroke);
+    }
+
+    .ext {
+      fill: var(--diagram-ext-fill);
+      stroke: var(--diagram-ext-stroke);
+    }
+
+    .async {
+      fill: var(--diagram-async-fill);
+      stroke: var(--diagram-async-stroke);
+    }
+
+    .note {
+      fill: var(--diagram-note-fill);
+      stroke: var(--diagram-note-border);
+      stroke-width: 1.25;
+    }
+
+    .chip {
+      fill: var(--diagram-chip-bg);
+      stroke: var(--diagram-chip-border);
+      stroke-width: 1;
+    }
+
+    .chip-text {
+      fill: var(--diagram-chip-text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .edge {
+      fill: none;
+      stroke: var(--diagram-line);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      marker-end: url(#arrow);
+    }
+
+    .edge.dashed {
+      stroke-dasharray: 9 9;
+    }
+
+    .legend-pill {
+      fill: var(--diagram-note-fill);
+      stroke: var(--diagram-note-border);
+      stroke-width: 1.1;
+    }
+
+    .halo {
+      fill: var(--accent-glow);
+    }
+  </style>
+
+  <defs>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 0 1 L 11 7 L 0 13 Z" fill="var(--diagram-line)" />
+    </marker>
+  </defs>
+
+  <circle class="halo" cx="196" cy="72" r="138" />
+  <circle class="halo" cx="1010" cy="748" r="164" />
+
+  <rect class="panel" x="36" y="46" width="236" height="504" rx="28" />
+  <rect class="panel" x="298" y="46" width="408" height="504" rx="28" />
+  <rect class="panel" x="732" y="46" width="392" height="504" rx="28" />
+  <rect class="panel" x="298" y="582" width="826" height="158" rx="28" />
+
+  <text class="copy kicker muted" x="62" y="92">Entry surfaces</text>
+  <text class="copy section-title" x="62" y="122">How users enter</text>
+  <text class="copy section-copy muted" x="62" y="144">Browser users land on a same-origin UI.</text>
+  <text class="copy section-copy muted" x="62" y="162">Every action stays behind one API boundary.</text>
+
+  <text class="copy kicker muted" x="326" y="92">Control plane</text>
+  <text class="copy section-title" x="326" y="122">CALIBER runtime inside MLflow</text>
+  <text class="copy section-copy muted" x="326" y="144">Boot happens once.</text>
+  <text class="copy section-copy muted" x="326" y="162">Feature routes consume shared services.</text>
+
+  <text class="copy kicker muted" x="760" y="92">Durable systems</text>
+  <text class="copy section-title" x="760" y="122">State, artifacts, and integrations</text>
+  <text class="copy section-copy muted" x="760" y="144">Relational state sits at the core.</text>
+  <text class="copy section-copy muted" x="760" y="162">MLflow, storage, and providers surround it.</text>
+
+  <text class="copy kicker muted" x="326" y="626">Async execution</text>
+  <text class="copy section-title" x="326" y="656">Off-request work reuses the substrate</text>
+  <text class="copy section-copy muted" x="326" y="678">Queued work is coordinated durably, not in memory.</text>
+
+  <rect class="card user" x="62" y="176" width="184" height="82" rx="22" />
+  <text class="copy card-title" x="82" y="209">Browser clients</text>
+  <text class="copy card-copy muted" x="82" y="230">Users load <tspan font-family="JetBrains Mono, monospace">/caliber/</tspan></text>
+  <text class="copy card-copy muted" x="82" y="247">and trigger same-origin actions.</text>
+
+  <rect class="card ui" x="62" y="288" width="184" height="116" rx="22" />
+  <text class="copy card-title" x="82" y="321">React SPA</text>
+  <text class="copy card-copy muted" x="82" y="343">Page modules, shared shell,</text>
+  <text class="copy card-copy muted" x="82" y="360">assistant panel, and docs</text>
+  <text class="copy card-copy muted" x="82" y="377">served from the plugin package.</text>
+
+  <rect class="card ctrl" x="62" y="434" width="184" height="86" rx="22" />
+  <text class="copy card-title" x="82" y="468">Static route handler</text>
+  <text class="copy card-copy muted" x="82" y="490">Serves the SPA shell, docs,</text>
+  <text class="copy card-copy muted" x="82" y="507">and packaged UI assets.</text>
+
+  <rect class="stage" x="326" y="176" width="352" height="56" rx="18" />
+  <text class="copy card-title" x="350" y="211">MLflow <tspan font-family="JetBrains Mono, monospace">mlflow.app</tspan> plugin</text>
+  <text class="copy card-copy muted" x="350" y="228">Shared process, shared origin, one failure domain.</text>
+
+  <rect class="card ctrl" x="326" y="260" width="352" height="126" rx="24" />
+  <text class="copy card-title" x="350" y="296">Starlette route modules</text>
+  <text class="copy card-copy muted" x="350" y="318">Single API boundary for prompts, tools, skills, workflows,</text>
+  <text class="copy card-copy muted" x="350" y="335">knowledge bases, evaluation, QA, object store, and Aria.</text>
+  <rect class="chip" x="350" y="354" width="118" height="28" rx="14" />
+  <text class="chip-text pill-copy" x="371" y="372">AJAX namespace</text>
+  <rect class="chip" x="480" y="354" width="104" height="28" rx="14" />
+  <text class="chip-text pill-copy" x="507" y="372">routes/*.py</text>
+  <rect class="chip" x="594" y="354" width="64" height="28" rx="14" />
+  <text class="chip-text pill-copy" x="612" y="372">auth</text>
+
+  <rect class="card ctrl" x="326" y="416" width="166" height="102" rx="22" />
+  <text class="copy card-title" x="348" y="450">Security and policy</text>
+  <text class="copy card-copy muted" x="348" y="472">Identity headers, CSRF,</text>
+  <text class="copy card-copy muted" x="348" y="489">project scoping, rate limits,</text>
+  <text class="copy card-copy muted" x="348" y="506">and audit.</text>
+
+  <rect class="card ctrl" x="512" y="416" width="166" height="102" rx="22" />
+  <text class="copy card-title" x="534" y="450">Shared runtime graph</text>
+  <text class="copy card-copy muted" x="534" y="472">SQLAlchemy sessions,</text>
+  <text class="copy card-copy muted" x="534" y="489">artifact store, providers,</text>
+  <text class="copy card-copy muted" x="534" y="506">services, and workers.</text>
+
+  <rect class="note" x="326" y="534" width="352" height="42" rx="16" />
+  <text class="copy card-copy muted" x="346" y="559">Routes consume the shared dependency graph.</text>
+
+  <rect class="card store" x="760" y="176" width="336" height="82" rx="22" />
+  <text class="copy card-title" x="784" y="210">SQLAlchemy metadata DB</text>
+  <text class="copy card-copy muted" x="784" y="230">Authoritative control-plane state:</text>
+  <text class="copy card-copy muted" x="784" y="247">workflows, assistants, approvals, KBs, evals.</text>
+
+  <rect class="card store" x="760" y="280" width="336" height="82" rx="22" />
+  <text class="copy card-title" x="784" y="314">Object store / S3 / MinIO</text>
+  <text class="copy card-copy muted" x="784" y="334">Owns file bytes, previews, build artifacts,</text>
+  <text class="copy card-copy muted" x="784" y="351">uploads, and run-scoped attachments.</text>
+
+  <rect class="card ext" x="760" y="384" width="336" height="82" rx="22" />
+  <text class="copy card-title" x="784" y="418">MLflow APIs and traces</text>
+  <text class="copy card-copy muted" x="784" y="438">Prompt registry versions, runs, traces,</text>
+  <text class="copy card-copy muted" x="784" y="455">and host services CALIBER builds alongside.</text>
+
+  <rect class="card ext" x="760" y="488" width="336" height="96" rx="22" />
+  <text class="copy card-title" x="784" y="522">Provider adapters</text>
+  <text class="copy card-copy muted" x="784" y="542">LLM, evaluation, promoter, MCP transport,</text>
+  <text class="copy card-copy muted" x="784" y="559">sandbox, and other capability boundaries.</text>
+
+  <rect class="card async" x="326" y="690" width="178" height="84" rx="22" />
+  <text class="copy card-title" x="348" y="724">Event bus</text>
+  <text class="copy card-copy muted" x="348" y="744">Durable dispatch for off-request</text>
+  <text class="copy card-copy muted" x="348" y="761">workflow and background work.</text>
+
+  <rect class="card async" x="534" y="674" width="240" height="116" rx="24" />
+  <text class="copy card-title" x="558" y="709">Background workers</text>
+  <text class="copy card-copy muted" x="558" y="731">Workflow runs, KB builds, refinement,</text>
+  <text class="copy card-copy muted" x="558" y="748">janitor work, and webhooks.</text>
+  <text class="copy card-copy muted" x="558" y="765">The async path mutates the same durable state.</text>
+
+  <rect class="note" x="804" y="690" width="292" height="84" rx="22" />
+  <text class="copy card-copy muted" x="826" y="722">Workers reuse the same stores and adapters</text>
+  <text class="copy card-copy muted" x="826" y="739">as request-path routes. Durable state and</text>
+  <text class="copy card-copy muted" x="826" y="756">timeline events remain the coordination layer.</text>
+
+  <path class="edge" d="M 154 258 C 154 272 154 276 154 288" />
+  <path class="edge" d="M 154 404 C 154 421 154 425 154 434" />
+  <path class="edge" d="M 246 346 C 286 346 288 324 326 324" />
+  <path class="edge" d="M 502 386 C 502 400 466 404 432 416" />
+  <path class="edge" d="M 502 386 C 502 402 548 406 596 416" />
+  <path class="edge" d="M 678 312 C 718 312 720 217 760 217" />
+  <path class="edge" d="M 678 326 C 724 326 722 321 760 321" />
+  <path class="edge" d="M 678 340 C 728 340 728 425 760 425" />
+  <path class="edge" d="M 678 354 C 732 354 730 536 760 536" />
+  <path class="edge" d="M 502 386 C 502 562 414 618 414 690" />
+  <path class="edge" d="M 504 732 C 516 732 522 732 534 732" />
+  <path class="edge dashed" d="M 774 704 C 822 704 806 248 760 248" />
+  <path class="edge dashed" d="M 774 722 C 838 722 824 350 760 350" />
+  <path class="edge dashed" d="M 774 740 C 854 740 840 454 760 454" />
+  <path class="edge dashed" d="M 774 758 C 874 758 850 570 760 570" />
+
+  <rect class="legend-pill" x="36" y="788" width="170" height="34" rx="17" />
+  <rect class="card user" x="52" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="76" y="810">Actors and entry points</text>
+
+  <rect class="legend-pill" x="222" y="788" width="152" height="34" rx="17" />
+  <rect class="card ui" x="238" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="262" y="810">UI and SPA surfaces</text>
+
+  <rect class="legend-pill" x="390" y="788" width="164" height="34" rx="17" />
+  <rect class="card ctrl" x="406" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="430" y="810">CALIBER control plane</text>
+
+  <rect class="legend-pill" x="570" y="788" width="142" height="34" rx="17" />
+  <rect class="card store" x="586" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="610" y="810">Durable storage</text>
+
+  <rect class="legend-pill" x="728" y="788" width="168" height="34" rx="17" />
+  <rect class="card ext" x="744" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="768" y="810">External integrations</text>
+
+  <rect class="legend-pill" x="912" y="788" width="212" height="34" rx="17" />
+  <rect class="card async" x="928" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="952" y="810">Off-request async execution</text>
+</svg>

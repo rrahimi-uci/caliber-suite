@@ -1,0 +1,32 @@
+# Verified against the Aria capability registry + plan executor — see ../ARIA-AUTONOMY.md.
+feasibility:
+  - These gates check Aria's PLAN and the REAL artifacts it created; there is no LLM judge OF Aria here.
+  - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
+  - The kit is complete with judge + eval_dataset + review_queue created. review_queue.add_items is expected to be DENIED (no traces yet) and does not count toward the kit.
+evaluation:
+  plan_checks:
+    - plan_decomposed_from_intent
+    - plan_contains_judge_create
+    - plan_contains_eval_dataset_create
+    - plan_contains_review_queue_create
+  artifact_checks:
+    - judge_active_and_references_a_template_variable
+    - eval_dataset_created
+    - review_queue_created_with_question_schema
+quality_gates:
+  steps_completed_min: 3
+  required_interactions_answered: true
+  artifacts_real: true       # the judge + dataset + review queue exist in Judges / Test Sets / Review Queues
+monitoring:
+  evidence:        # labels for what to look for, not literal span names
+    - aria_plan_created
+    - aria_step_completed
+    - judge_created
+    - eval_dataset_created
+    - review_queue_created
+  metrics:
+    - steps_completed
+    - interactions_count
+feedback_loop:
+  - if the plan misses a capability, sharpen the intent wording (domain needles "judge" / "eval dataset" / "review queue") and re-decompose.
+  - promote the created judge + test set into the Evaluations scoring loop, then route hard/low-confidence cases into the new review queue (SCN-01 / SCN-10).

@@ -1,0 +1,85 @@
+"""CALIBER database layer.
+
+Imports here keep ``from caliber.db import Base, ...`` working without callers
+needing to know the internal module layout. Models are exported so Alembic's
+``target_metadata`` can find every table.
+"""
+
+from __future__ import annotations
+
+from caliber.db.base import Base
+from caliber.db.models import (
+    CaliberAgentConfig,
+    CaliberApprovalRequest,
+    CaliberAssistantDraft,
+    CaliberAssistantMessage,
+    CaliberAssistantPublishEvent,
+    CaliberAssistantRun,
+    CaliberAssistantSession,
+    CaliberAuditLog,
+    CaliberEvalDataset,
+    CaliberEvalDatasetExample,
+    CaliberKnowledgeBase,
+    CaliberKnowledgeBaseChunk,
+    CaliberKnowledgeBaseEntity,
+    CaliberKnowledgeBaseRelationship,
+    CaliberKnowledgeBaseRun,
+    CaliberKnowledgeBaseRunEvent,
+    CaliberKnowledgeBaseSource,
+    CaliberKnowledgeBaseVersion,
+    CaliberLiveEvent,
+    CaliberMcpServer,
+    CaliberRefinementJob,
+    CaliberRegressionRun,
+    CaliberRuntimeLock,
+    CaliberSkill,
+    CaliberToolRegistry,
+    CaliberVerificationItem,
+    CaliberWorkflow,
+    CaliberWorkflowDeployment,
+    CaliberWorkflowPatch,
+    CaliberWorkflowPromotion,
+    CaliberWorkflowRun,
+    CaliberWorkflowSessionMemory,
+    CaliberWorkflowVersion,
+)
+from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
+
+__all__ = [
+    "Base",
+    "CaliberAgentConfig",
+    "CaliberApprovalRequest",
+    "CaliberAssistantDraft",
+    "CaliberAssistantMessage",
+    "CaliberAssistantPublishEvent",
+    "CaliberAssistantRun",
+    "CaliberAssistantSession",
+    "CaliberAuditLog",
+    "CaliberEvalDataset",
+    "CaliberEvalDatasetExample",
+    "CaliberKnowledgeBase",
+    "CaliberKnowledgeBaseChunk",
+    "CaliberKnowledgeBaseEntity",
+    "CaliberKnowledgeBaseRelationship",
+    "CaliberKnowledgeBaseRun",
+    "CaliberKnowledgeBaseRunEvent",
+    "CaliberKnowledgeBaseSource",
+    "CaliberKnowledgeBaseVersion",
+    "CaliberLiveEvent",
+    "CaliberMcpServer",
+    "CaliberRefinementJob",
+    "CaliberRegressionRun",
+    "CaliberRuntimeLock",
+    "CaliberSkill",
+    "CaliberToolRegistry",
+    "CaliberVerificationItem",
+    "CaliberWorkflow",
+    "CaliberWorkflowDeployment",
+    "CaliberWorkflowPatch",
+    "CaliberWorkflowPromotion",
+    "CaliberWorkflowRun",
+    "CaliberWorkflowSessionMemory",
+    "CaliberWorkflowVersion",
+    "create_engine_from_config",
+    "sessionmaker_from_engine",
+]

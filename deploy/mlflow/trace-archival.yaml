@@ -1,0 +1,26 @@
+# Server-owned trace retention & auto-archival (MLflow 3.13+).
+#
+# When enabled, the MLflow tracking server periodically moves aged trace span
+# data out of the Postgres backend store into object storage (MinIO), keeping the
+# DB lean while the traces stay fully readable through the same UI/API. This is
+# the open-source "Trace Retention & Auto Archival" feature.
+#
+# Wired in via the MLFLOW_TRACE_ARCHIVAL_CONFIG env var (see deploy/mlflow/
+# compose.yaml + entrypoint.sh) — OPT-IN: the env var is unset by default so a
+# fresh stack never silently relocates traces. Set it to this file's path to
+# enable. The backend store must support archival (the Postgres SqlAlchemyStore
+# does); CALIBER's trace viewer reads archived traces transparently.
+#
+# Tunables:
+#   location  – artifact repo URI the archived span data is written to. Uses the
+#               same `mlflow` MinIO bucket as run artifacts (a separate prefix).
+#   retention – how long traces stay in the hot store before archival, as
+#               `<int><unit>` (units: d=days, h=hours). e.g. "30d", "720h".
+#   interval_seconds    – how often the archival pass runs (1..86400).
+#   max_traces_per_pass – cap per pass so archival never floods the store.
+trace_archival:
+  enabled: true
+  location: s3://mlflow/trace-archive
+  retention: "30d"
+  interval_seconds: 300
+  max_traces_per_pass: 200

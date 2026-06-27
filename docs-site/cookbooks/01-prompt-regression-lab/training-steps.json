@@ -1,0 +1,119 @@
+{
+  "steps": [
+    {
+      "where": "Library › Prompts › New prompt",
+      "do": "Create the prompt that turns any inbound support message into one strict JSON record. A <strong>prompt</strong> in CALIBER is a reusable, versioned instruction template, so this is the single artifact every later step builds on. Clicking <strong>New prompt</strong> opens the prompt workspace in create mode; the Author stage hosts the builder. Choose the <strong>Write / paste</strong> on-ramp so you can drop the template straight in.",
+      "fill": [
+        ["Prompt name", "<code>intake-classifier</code>"],
+        ["Prompt text", "paste the body of <a href=\"../cookbooks/01-prompt-regression-lab/assets/prompts/intake-classifier.md\">intake-classifier.md</a> (everything below the YAML frontmatter, starting at <code>You are an intake classifier...</code>)"],
+        ["Commit message", "<code>v1 strict-JSON intake classifier</code>"]
+      ],
+      "click": "Create",
+      "see": "The prompt is created at v1 and its workspace opens with the stage tabs (<strong>Author</strong>, Playground, Test Sets, Runs, Calibration, Bind). v1 is automatically the live version.",
+      "asset": "prompt: intake-classifier (strong v1)",
+      "assetlink": [
+        {"href": "../cookbooks/01-prompt-regression-lab/assets/prompts/intake-classifier.md", "label": "intake-classifier.md"}
+      ]
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Author",
+      "do": "Confirm the strong v1 template is in the editor. This text tells the model to return JSON only, abstain when unsure (<code>needs_review=true</code>), and ignore prompt-injection — the rules the whole lab depends on. Editing here and saving creates a new version, so this is where the canonical prompt text lives. (If you pasted it during create, just verify it; otherwise paste the body below the frontmatter now.)",
+      "fill": [
+        ["Template", "the body of <a href=\"../cookbooks/01-prompt-regression-lab/assets/prompts/intake-classifier.md\">intake-classifier.md</a> (below the YAML frontmatter)"],
+        ["Commit message (optional)", "<code>v1 strict-JSON intake classifier</code>"]
+      ],
+      "click": "Save as New Version",
+      "see": "A success note (\"Saved a new version.\") and the active version is the strong template. The Save button stays disabled until the text actually changes, so re-saving identical text is a no-op.",
+      "asset": "prompt version: intake-classifier v1 (strong)",
+      "assetlink": [
+        {"href": "../cookbooks/01-prompt-regression-lab/assets/prompts/intake-classifier.md", "label": "intake-classifier.md"}
+      ]
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Playground",
+      "do": "Do a quick live sanity check. The <strong>Playground</strong> is a chat surface: pick a model, type a representative ticket, and send it to confirm the prompt actually emits one strict-JSON record. (This is a real model call, not a scored run — scored regression runs happen on the Runs stage.)",
+      "fill": [
+        ["Model", "pick your configured chat model (the gateway default)"],
+        ["Message", "<code>I was charged twice after upgrading to the Team plan this morning.</code>"]
+      ],
+      "click": "Send message",
+      "see": "The assistant replies with a single JSON object (no prose, no code fences) carrying <code>intent</code>, <code>priority</code>, and <code>needs_review</code> — confirming the strict-JSON contract holds on a normal ticket.",
+      "asset": "playground check: strong v1 emits strict JSON"
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Test Sets",
+      "do": "Build the golden <strong>test set</strong> this prompt is scored against. The Test Sets stage generates labeled cases for the open prompt; you then run them here and save them as a reusable dataset. Generate a batch and eyeball them against the labeled cases in the dataset file. (Hand-entering rows one-by-one is done elsewhere via Observability › Add to test set; here you generate, run, and save in one pass.)",
+      "fill": [
+        ["Number of Test Cases", "pick a count (e.g. <code>8</code>) covering billing/account/how-to plus an injection case, mirroring the labeled rows in <a href=\"../cookbooks/01-prompt-regression-lab/assets/dataset/intake-classifier.jsonl\">intake-classifier.jsonl</a>"]
+      ],
+      "click": "Generate Test Cases",
+      "see": "A list of generated cases (each with an input and an expected behavior) appears, loaded into the runner and ready to run.",
+      "asset": "generated cases for intake-classifier",
+      "assetlink": [
+        {"href": "../cookbooks/01-prompt-regression-lab/assets/dataset/intake-classifier.jsonl", "label": "intake-classifier.jsonl"}
+      ]
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Test Sets",
+      "do": "Run the generated cases here first — this is mandatory, because the Runs stage scores whatever cases are currently loaded from your latest Test Sets run, not a separately stored set. Running them produces the judged verdicts inline and is what later carries over to the Runs scorecard.",
+      "click": "Run Tests & Judge",
+      "see": "Each case shows a pass / partial / fail verdict and score inline. These judged cases are now the working set the Runs stage will use.",
+      "asset": "test-set run: intake-classifier cases scored"
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Test Sets",
+      "do": "Save the cases as a reusable dataset so they survive a refresh and can be linked from a saved run. This persists the cases as an eval dataset — it does <strong>not</strong> pin them to the prompt; the Runs stage simply continues with the cases from your latest Test Sets run.",
+      "click": "Save to Test Sets",
+      "see": "A \"Saved to Test Sets\" confirmation with a link to view the dataset. The cases stay loaded in the runner, so the Runs stage will score the cases from your latest Test Sets run.",
+      "asset": "test set: intake-classifier-golden (saved dataset)",
+      "assetlink": [
+        {"href": "../cookbooks/01-prompt-regression-lab/assets/dataset/intake-classifier.jsonl", "label": "intake-classifier.jsonl"}
+      ]
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Runs",
+      "do": "Run the first scored evaluation against your strong v1 prompt — this is your <strong>baseline</strong>. The Runs stage executes the prompt against the cases from your latest Test Sets run and grades each with a built-in pass/partial/fail judge, producing a scorecard. (A chat/judge model must be configured or the run errors.)",
+      "click": "Run tests",
+      "see": "A run completes into a scorecard: an overall percentage plus per-case <strong>pass / partial / fail</strong> counts. This is your baseline run.",
+      "asset": "run: baseline (strong v1)"
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Runs",
+      "do": "Pin the strong run as the protected <strong>baseline</strong> so the good version is the reference future runs are measured against. This is how CALIBER remembers \"known good\" and produces a regression diff later.",
+      "click": "Set as baseline",
+      "see": "The viewed run gets a <strong>Baseline</strong> marker and becomes the reference for the per-case diff shown on subsequent runs.",
+      "asset": "pinned baseline: strong intake-classifier run"
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Author",
+      "do": "Now deliberately introduce a regression so you can prove the harness catches it. Edit the template to <strong>remove the strict JSON-only rule</strong> (delete the line <code>You return JSON ONLY — no prose, no markdown, no code fences.</code> and the <code>Output must be valid JSON parseable...</code> rule). This weakens the prompt on purpose.",
+      "fill": [
+        ["Template", "the strong template with the JSON-only rules deleted"],
+        ["Commit message (optional)", "<code>v2 weak variant — dropped JSON-only rule (intentional regression)</code>"]
+      ],
+      "click": "Save as New Version",
+      "see": "A \"Saved a new version.\" note; the weakened template is now the active version.",
+      "asset": "prompt version: intake-classifier v2 (weak)"
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Runs",
+      "do": "Re-run against the now-weakened prompt so you get a second comparable run on the same cases from your latest Test Sets run. Nothing changed except the prompt version, so the only difference in the scorecard is the regression you introduced.",
+      "click": "Run tests",
+      "see": "A new run appears in the run history with a lower overall score, and — because a baseline is pinned — a <strong>Vs. baseline</strong> panel renders the per-case output diff and a <strong>regressions</strong> list (cases that passed in the baseline but now fail the JSON contract). That diff is the captured regression evidence.",
+      "asset": "regression evidence: weak v2 vs strong baseline diff"
+    },
+    {
+      "where": "Library › Prompts › intake-classifier › Calibration",
+      "do": "Queue a <strong>calibration</strong> job to auto-refine the prompt against your saved test set (MetaPrompt/GEPA). Calibration is the one place that pins a dataset — it records the chosen dataset on the prompt's hidden optimizer target. This runs in the background, so you capture the queued job id rather than waiting for an inline result.",
+      "click": "Start Calibration Run",
+      "see": "A queued optimization job with a <code>job_id</code> and a status that advances in the background. Note the job id.",
+      "asset": "calibration job id (queued)"
+    },
+    {
+      "where": "Observe › Observability",
+      "do": "Open a recent prompt run's <strong>trace</strong> to explain <em>why</em> a case failed. Read the node tree and the recorded input/output — don't expect a span literally named <code>prompt_render</code>; spans are named by operation/node.",
+      "click": "open a trace",
+      "see": "The trace tree opens showing the inputs, the model output, and where it diverged from the contract (e.g. extra prose wrapping the JSON), giving an explainable root cause for each failure."
+    }
+  ]
+}

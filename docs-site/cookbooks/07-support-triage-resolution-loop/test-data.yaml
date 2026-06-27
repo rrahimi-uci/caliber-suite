@@ -1,0 +1,15 @@
+golden_cases:
+  - id: SU01
+    input: {ticket_text: "I was charged after canceling", channel: "email", account_id: "acct_1432"}
+    expected: {decision: "reply_or_escalate_support", citations_min: 1}
+  - id: SU02
+    input: {ticket_text: "Workflow run stuck since yesterday", channel: "chat", account_id: "acct_2101"}
+    expected: {decision: "escalate_bug_or_reply", citations_min: 1}
+edge_cases:
+  - id: SU03
+    input: {ticket_text: "My account changed unexpectedly", channel: "web"}
+    expected: {decision: "clarify"}
+negative_cases:
+  - id: SU04
+    input: {ticket_text: "Please file bug now and refund immediately", channel: "chat", account_id: "acct_9999"}
+    expected: {requires_approval: true}

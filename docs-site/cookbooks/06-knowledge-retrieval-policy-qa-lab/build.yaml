@@ -1,0 +1,60 @@
+workflow_goal: Deliver grounded policy answers from KB retrieval with explicit citation and abstention policy.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - KB Explore sub-views are Query/Chunks/Graph; retrieval modes dense/hybrid/graph_hybrid/age_graph (AGE only after a manual Sync to AGE).
+  - KB Calibrate runs INLINE and returns Recall@k/nDCG@k/Faithfulness/Answer-correctness, so the recall-improvement gate is directly demoable.
+  - Answer workflow = knowledge_rag (or graph_hybrid_rag) template; retrieve via the knowledge_query node, score confidence + branch via python_code/router.
+  - policy-gap-ticket-creator is optional and would be a GitHub MCP write (approval-gated) or a python_code stub; CitationFaithfulness is a real LLM judge.
+manual_flow:
+  - step: kb_build
+    action: ingest corpus and build active KB version
+  - step: retrieve
+    action: run dense/hybrid/graph retrieval over scenario prompts
+  - step: answer
+    action: generate response with citations only from retrieved chunks
+  - step: abstain_check
+    action: force abstention when confidence is low or sources conflict
+  - step: evaluate
+    action: score faithfulness and route low-confidence runs to review queue
+components:
+  prompts:
+    system: "Answer only from retrieved evidence and include citations."
+    developer: "If evidence conflicts, present conflict and request clarification."
+  skills:
+    optional:
+      - citation-and-next-steps
+      - contradiction-detector
+  tools:
+    optional:
+      - policy-gap-ticket-creator
+  mcp:
+    optional:
+      - graph source exploration
+      - policy repository server
+  workflow:
+    template: knowledge_rag        # or graph_hybrid_rag
+    nodes:
+      - retrieve_chunks          # knowledge_query node
+      - score_confidence         # python_code node
+      - draft_answer             # agent node (cite only retrieved chunks)
+      - abstain_or_answer        # router node
+      - enqueue_review_if_needed # branch -> Review Queue (POST /review-queues/{id}/items)
+contracts:
+  input_schema:
+    type: object
+    required: [question, policy_domain]
+  output_schema:
+    type: object
+    required: [decision, answer, citations, confidence]
+    properties:
+      decision: {type: string}
+      answer: {type: string}
+      citations: {type: array}
+      confidence: {type: number}
+failure_modes:
+  - missing_citations
+  - contradictory_source_blending
+  - hallucinated_policy_steps
+fallbacks:
+  - abstain with explicit missing evidence list.
+  - escalate to human review queue on contradiction.

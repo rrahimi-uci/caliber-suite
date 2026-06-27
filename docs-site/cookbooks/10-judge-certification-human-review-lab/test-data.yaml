@@ -1,0 +1,15 @@
+golden_cases:
+  - id: J01
+    sample_type: grounded_reply
+    expected: {human_and_auto_align: true}
+  - id: J02
+    sample_type: unsupported_claim
+    expected: {human_and_auto_align: true}
+edge_cases:
+  - id: J03
+    sample_type: partial_evidence
+    expected: {human_and_auto_align: false}
+negative_cases:
+  - id: J04
+    sample_type: malformed_output
+    expected: {auto_score_low: true}

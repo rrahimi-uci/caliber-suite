@@ -1,0 +1,22 @@
+{
+  "agent_count": 2,
+  "compiler_version": "0.1.0",
+  "deploy_gates": [],
+  "edge_count": 2,
+  "entry_node_id": "agent",
+  "export_mode": "agents_sdk_direct",
+  "manifest_hash": "c4ed4d884854cca251af90a74427fe2412e72552ad0c8192dabf8379dd2c6335",
+  "node_count": 4,
+  "output_node_id": "final",
+  "tool_refs": [
+    "tool.get_order.v1",
+    "tool.lookup_policy.v1"
+  ],
+  "validation": {
+    "errors": [],
+    "valid": true,
+    "warnings": []
+  },
+  "version": "1",
+  "workflow_id": "multi_agent_wf"
+}

@@ -1,0 +1,64 @@
+workflow_goal: Turn inbound tickets into grounded resolution decisions with safe escalation.
+# Verified against the live build — see ../FEASIBILITY.md. This scenario composes SCN-01/02/03/05/06; reuse those assets.
+feasibility:
+  - Start from the hitl_review template (ships the human_approval gate). KB retrieval = the knowledge_query node; external write = a GitHub MCP mcp_resource node kept requires_approval:true.
+  - lookup_account_state -> caliber.workflows.demo_tools:get_order / lookup_order (read); lookup_recent_incidents -> demo_tools:search_knowledge_base or a python_code stub.
+  - GroundedSupportReply is a real LLM judge; the citation + approval rule_checks are enforced by the prompt contract + the human_approval gate.
+manual_flow:
+  - step: intake
+    action: classify ticket intent and severity
+  - step: evidence_lookup
+    action: fetch account and incident state via tools
+  - step: kb_retrieval
+    action: retrieve support articles and known issues
+  - step: draft_reply
+    action: generate customer reply plus machine decision
+  - step: escalation_check
+    action: apply policy and approval gates
+  - step: external_write_optional
+    action: create bug issue through MCP only after approval
+components:
+  prompts:
+    system: "Use only supplied evidence and cite every external fact."
+    developer: "Never leak internal process details in customer reply."
+  skills:
+    - support-tone-and-deflection
+    - high-risk-escalation-checklist
+    - citation-and-next-steps
+  tools:
+    - lookup_account_state    # caliber.workflows.demo_tools:get_order / lookup_order (read)
+    - lookup_recent_incidents # demo_tools:search_knowledge_base, or a python_code stub
+  mcp:
+    required:
+      - GitHub (issue creation)  # create_issue tool kept requires_approval:true
+    optional:
+      - PostgreSQL read-only account lookup
+  workflow:
+    template: hitl_review        # ships the human_approval gate
+    nodes:
+      - ticket_intake        # agent node: classify intent + severity, emit decision
+      - account_lookup       # tool node: lookup_order
+      - incident_lookup      # tool/python_code node
+      - kb_query             # knowledge_query node (support KB)
+      - reply_generation     # agent node: cited reply + machine decision
+      - approval_gate        # human_approval node (refund / escalate_bug only)
+      - create_issue_optional # mcp_resource node: GitHub create_issue
+contracts:
+  input_schema:
+    type: object
+    required: [ticket_text, channel]
+  output_schema:
+    type: object
+    required: [decision, customer_reply, citations]
+    properties:
+      decision: {type: string}
+      customer_reply: {type: string}
+      citations: {type: array}
+      issue_id: {type: string}
+failure_modes:
+  - missing_account_identifier
+  - unsupported_claim_without_citation
+  - bug_issue_created_without_approval
+fallbacks:
+  - clarify instead of hallucinating lookup values.
+  - block external write on missing approval event.

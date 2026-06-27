@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 11: Release Signoff Factory | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">11 · Release Signoff Factory</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 11 · Govern</p>
+        <h1>Release Signoff Factory</h1>
+        <p class="doc-lead">Aggregate cross-cookbook evidence into a defensible go / no-go decision.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Govern</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–50 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A release control lane that gathers evaluation run ids, review-queue completion, and the in-app Allure report, scores a weighted rubric by hand, and records a go / no-go decision with blockers mapped to their owning cookbook.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Evaluations</span> <span class="ck-badge ck-surface">Review Queues</span> <span class="ck-badge ck-surface">Observability</span> <span class="ck-badge ck-surface">Settings (Allure)</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Collect evidence from Evaluations + Review Queues</li><li>Re-run critical slices and capture fresh run ids</li><li>Open the in-app Allure report</li><li>Score a weighted release rubric (operator)</li><li>Record a decision with blockers + waivers</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart TD
+  E1[Eval run ids 07/08/10] --&gt; SC[Score rubric]
+  E2[Review queues complete] --&gt; SC
+  E3[Allure report loads] --&gt; SC
+  E4[Re-run critical slices] --&gt; SC
+  SC --&gt; D{&quot;blockers = 0 and score &gt;= 0.90?&quot;}
+  D --&gt;|yes| GO[go]
+  D --&gt;|no| NG[no_go + blockers]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">(outside the app) Run-id manifest</code> <span class="ck-made">creates · Run-id manifest (in progress)</span> <a class="ck-assetref" href="#asset-assets-dataset-run-id-manifest-json">run-id-manifest.json ↓</a></div><div class="ck-step-do">This scenario is an <strong>operator process</strong>, not a built workflow — there is no release-scoring engine. Start by opening the fill-in manifest <a href="#asset-assets-dataset-run-id-manifest-json">run-id-manifest.json</a>. You will paste real evidence (run ids, review states, Allure status) into it across the next steps, then score by hand. Leave a field empty until you have verified it — any empty required field counts as MISSING and forces no_go.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>release_tag</td><td>your candidate tag, e.g. <code>r2026.06.0</code></td></tr><tr><td>prepared_by</td><td>your name / role</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> The manifest is open with one block per upstream scenario (SCN-07, SCN-08, SCN-09, SCN-10) and an <code>allure</code> block, all empty and ready to fill.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · (outside the app) Run-id manifest</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">(outside the app) Run-id manifest</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">release_tag</span><span class="ck-mk-input">your candidate tag, e.g. r2026.06.0</span></label><label class="ck-mk-field"><span class="ck-mk-label">prepared_by</span><span class="ck-mk-input">your name / role</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Evaluations</code> <span class="ck-made">creates · eval_run_id list</span> <a class="ck-assetref" href="#asset-assets-dataset-run-id-manifest-json">run-id-manifest.json ↓</a></div><div class="ck-step-do">Collect the scorecard run id for each required scenario. Open <strong>Evaluations</strong> (under <strong>Evaluate</strong>) and find each upstream scenario's scorecard run in the table. Copy its run id into the matching <code>eval_run_id</code> field in the manifest. Then open each run and confirm <em>by hand</em> that its pass rate clears that scenario's bar — the <code>pass ≥ …</code> chip on the run detail is a per-row threshold, not a run-level verdict. CALIBER does not compute a single run-level pass/fail gate (the Evaluations table has no gate column), so the go/no-go judgment on each scorecard is yours.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>scenarios[SCN-07].eval_run_id</td><td>the SCN-07 support-triage scorecard run id</td></tr><tr><td>scenarios[SCN-08].eval_run_id</td><td>the SCN-08 incident-response scorecard run id</td></tr><tr><td>scenarios[SCN-09].eval_run_id</td><td>the SCN-09 workflow-debugger scorecard run id</td></tr><tr><td>scenarios[SCN-10].eval_run_id</td><td>the SCN-10 judge-certification scorecard run id</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> Each scenario row in the manifest now carries a real <code>eval_run_id</code>; you have clicked into each run and judged by hand that its pass rate clears that scenario's bar.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Evaluations</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Evaluations</span><span class="ck-mk-title">Evaluations</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">scenarios[SCN-07].eval_run_id</span><span class="ck-mk-input">the SCN-07 support-triage scorecard run id</span></label><label class="ck-mk-field"><span class="ck-mk-label">scenarios[SCN-08].eval_run_id</span><span class="ck-mk-input">the SCN-08 incident-response scorecard run id</span></label><label class="ck-mk-field"><span class="ck-mk-label">scenarios[SCN-09].eval_run_id</span><span class="ck-mk-input">the SCN-09 workflow-debugger scorecard run id</span></label><label class="ck-mk-field"><span class="ck-mk-label">scenarios[SCN-10].eval_run_id</span><span class="ck-mk-input">the SCN-10 judge-certification scorecard run id</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues</code> <span class="ck-made">creates · Review-coverage states</span> <a class="ck-assetref" href="#asset-assets-dataset-run-id-manifest-json">run-id-manifest.json ↓</a></div><div class="ck-step-do">Confirm review coverage. Open <strong>Review Queues</strong> (under <strong>Observe</strong>) and check that each required queue from the upstream scenarios (e.g. SCN-10's <code>faithfulness-certification</code>) is fully answered with no unresolved items. Set <code>review_queue_complete</code> to <strong>true</strong> only for queues that are completely answered.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>scenarios[*].review_queue_complete</td><td>true only where every item in that scenario's required queue is answered</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> Each scenario's <code>review_queue_complete</code> reflects the real queue state; any queue with open items stays false.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">Review Queues</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">scenarios[*].review_queue_complete</span><span class="ck-mk-input">true only where every item in that scenario&#x27;s required queue is answered</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows  ›  (workflow detail)</code> <span class="ck-made">creates · Fresh critical-slice run ids</span> <a class="ck-assetref" href="#asset-assets-dataset-run-id-manifest-json">run-id-manifest.json ↓</a></div><div class="ck-step-do">Re-run the high-risk slices to prove they still pass. From <strong>Workflows</strong> (under <strong>Compose</strong>) open each workflow and click <strong>Run Pipeline</strong> (labelled <strong>Queue Run</strong> when queued execution is enabled) to re-execute the critical subsets — the SCN-07 approval branch (its human_approval gate pauses the run; clear it with <strong>Approve</strong> then <strong>Resume</strong> in the run's approval panel), the SCN-08 rollback path, and the SCN-09 retry/resume recovery. Record each fresh run id in the manifest's <code>approval_branch_run_id</code> field for that scenario.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>scenarios[SCN-07].approval_branch_run_id</td><td>fresh run id from re-running the approval branch</td></tr><tr><td>scenarios[SCN-08].approval_branch_run_id</td><td>fresh run id from re-running the rollback path</td></tr><tr><td>scenarios[SCN-09].approval_branch_run_id</td><td>fresh run id from re-running the retry/resume recovery</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> Each critical slice has a fresh, successful run id recorded; you can open each in the workflow's run history and its trace in Observability.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › (workflow detail)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">(workflow detail)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">scenarios[SCN-07].approval_branch_run_id</span><span class="ck-mk-input">fresh run id from re-running the approval branch</span></label><label class="ck-mk-field"><span class="ck-mk-label">scenarios[SCN-08].approval_branch_run_id</span><span class="ck-mk-input">fresh run id from re-running the rollback path</span></label><label class="ck-mk-field"><span class="ck-mk-label">scenarios[SCN-09].approval_branch_run_id</span><span class="ck-mk-input">fresh run id from re-running the retry/resume recovery</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">(terminal) make allure-report</code> <span class="ck-made">creates · Regenerated Allure report (static HTML)</span></div><div class="ck-step-do">Allure is generated <strong>externally</strong> — the app only serves it. Before opening the report, regenerate it from the suite root by running <code>make allure-report</code> (this combines the vitest, playwright, and pytest Allure results). This is the one out-of-band command in the whole recipe.</div><div class="ck-see"><strong>You'll see:</strong> The command finishes and writes a fresh static Allure report that the backend can serve.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · (terminal) make allure-report</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">(terminal) make allure-report</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Platform › Settings › Allure Report</code> <span class="ck-made">creates · In-app Allure report URL + load confirmed</span> <a class="ck-assetref" href="#asset-assets-dataset-run-id-manifest-json">run-id-manifest.json ↓</a></div><div class="ck-step-do">Open and verify the report in-app. Click <strong>Settings</strong> (under <strong>Platform</strong> at the bottom of the sidebar), then the <strong>Allure Report</strong> tab. Confirm the <strong>Allure report URL</strong> points at the served report (default is the backend-served <code>/observability/allure-report/</code>), click <strong>Open Allure report</strong>, and confirm it loads. Record the URL and set <code>loaded: true</code> in the manifest's <code>allure</code> block.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Allure report URL</td><td>/observability/allure-report/ (or your served URL)</td></tr><tr><td>manifest allure.report_url</td><td>the same URL</td></tr><tr><td>manifest allure.loaded</td><td>true (only after it visibly loads)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Open Allure report</span></div><div class="ck-see"><strong>You'll see:</strong> The Allure report renders in-app. The manifest's <code>allure</code> block now has a URL and <code>loaded: true</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Platform › Settings › Allure Report</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Settings</span><span class="ck-mk-title">Allure Report</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Allure report URL</span><span class="ck-mk-input">/observability/allure-report/ (or your served URL)</span></label><label class="ck-mk-field"><span class="ck-mk-label">manifest allure.report_url</span><span class="ck-mk-input">the same URL</span></label><label class="ck-mk-field"><span class="ck-mk-label">manifest allure.loaded</span><span class="ck-mk-input">true (only after it visibly loads)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Open Allure report</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">(optional) Observe › Review Queues › + New Queue</code> <span class="ck-made">creates · (optional) Blocker-triage queue + answers</span> <a class="ck-assetref" href="#asset-assets-review-blocker-questions-json">blocker-questions.json ↓</a></div><div class="ck-step-do">(Optional) If issues surfaced and you need to triage which are true blockers, create a triage queue. Click <strong>+ New Queue</strong> and add the questions from <a href="#asset-assets-review-blocker-questions-json">blocker-questions.json</a> (use the <strong>+ Add question</strong> button for each; map the <code>type</code> values bool → pass_fail and str → text/categorical). Enqueue the candidate trace ids in the <strong>Add traces to review</strong> field and answer them — answers write back onto each trace.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td>release-blocker-triage</td></tr><tr><td>Description</td><td>Triage candidate release blockers: confirm whether each is a true release blocker, who owns it, and (if waived) when the waiver expires.</td></tr><tr><td>Questions</td><td>is_release_blocker (pass_fail), owning_scenario (text), severity (text), waiver_granted (pass_fail), waiver_expiry (text), waiver_owner (text) — paste from <a href="#asset-assets-review-blocker-questions-json">blocker-questions.json</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create queue</span></div><div class="ck-see"><strong>You'll see:</strong> A <code>release-blocker-triage</code> queue exists; answered items record, per blocker, whether it blocks the release, its owner, and any waiver.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · (optional) Observe › Review Queues › + New Queue</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">+ New Queue</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">release-blocker-triage</span></label><label class="ck-mk-field"><span class="ck-mk-label">Description</span><span class="ck-mk-input">Triage candidate release blockers: confirm whether each is a true release blocker, w…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Questions</span><span class="ck-mk-input">is_release_blocker (pass_fail), owning_scenario (text), severity (text), waiver_gran…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create queue</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">(optional) Library › Prompts › New prompt</code> <span class="ck-made">creates · (optional) Prompt release-risk-summarizer</span> <a class="ck-assetref" href="#asset-assets-prompts-release-risk-summarizer-md">release-risk-summarizer.md ↓</a></div><div class="ck-step-do">(Optional) To auto-draft the decision rationale from your evidence, register the summarizer prompt. Open <strong>Prompts</strong> (under <strong>Library</strong>), click <strong>New prompt</strong>, and paste the template body (everything below the YAML frontmatter) from <a href="#asset-assets-prompts-release-risk-summarizer-md">release-risk-summarizer.md</a>. It only narrates evidence you supply and is hard-wired to force no_go on missing evidence or open blockers — it never invents passing evidence.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td>release-risk-summarizer</td></tr><tr><td>Template</td><td>paste the template body from <a href="#asset-assets-prompts-release-risk-summarizer-md">release-risk-summarizer.md</a> (variables: <code>scenario_run_ids</code>, <code>review_summary</code>, <code>allure_status</code>, <code>blocker_list</code>)</td></tr><tr><td>Commit message</td><td>v1 release-risk summarizer (evidence-in, decision-out, no invention)</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A <code>release-risk-summarizer</code> prompt is registered; feed it your filled manifest to draft the rationale (it returns JSON only).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · (optional) Library › Prompts › New prompt</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">New prompt</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">release-risk-summarizer</span></label><label class="ck-mk-field"><span class="ck-mk-label">Template</span><span class="ck-mk-input">paste the template body from release-risk-summarizer.md (variables: scenario_run_ids…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Commit message</span><span class="ck-mk-input">v1 release-risk summarizer (evidence-in, decision-out, no invention)</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">(outside the app) Release rubric</code> <span class="ck-made">creates · Hand-computed release score + blocker count</span> <a class="ck-assetref" href="#asset-assets-rubric-release-rubric-json">release-rubric.json ↓</a></div><div class="ck-step-do">Score the release <strong>by hand</strong> using <a href="#asset-assets-rubric-release-rubric-json">release-rubric.json</a>. For each of the four dimensions, read the evidence in your filled manifest, mark a status (pass/partial/fail), convert it to a factor (1.0 / 0.5 / 0.0), multiply by the weight, and sum. Then count open blockers. The weights are fixed: component_readiness 0.30, workflow_readiness 0.30, review_coverage 0.20, evidence_visibility 0.20.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>component_readiness (0.30)</td><td>pass if all SCN-07/08/09/10 eval_run_id present AND each scorecard passes</td></tr><tr><td>workflow_readiness (0.30)</td><td>pass if every critical-slice re-run has a fresh run id AND completed successfully</td></tr><tr><td>review_coverage (0.20)</td><td>pass if all required review_queue_complete == true</td></tr><tr><td>evidence_visibility (0.20)</td><td>pass if allure.loaded == true AND allure.report_url set AND every gate state maps to a recorded run id / review answer / Allure result</td></tr><tr><td>overall_release_score</td><td>sum(weight × factor)</td></tr><tr><td>blocker_count</td><td>number of still-open blockers</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A weighted <code>overall_release_score</code> and a <code>blocker_count</code>. As the worked example in the rubric shows, a score of exactly 0.90 with one open blocker is still a no_go.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · (outside the app) Release rubric</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">(outside the app) Release rubric</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">component_readiness (0.30)</span><span class="ck-mk-input">pass if all SCN-07/08/09/10 eval_run_id present AND each scorecard passes</span></label><label class="ck-mk-field"><span class="ck-mk-label">workflow_readiness (0.30)</span><span class="ck-mk-input">pass if every critical-slice re-run has a fresh run id AND completed successfully</span></label><label class="ck-mk-field"><span class="ck-mk-label">review_coverage (0.20)</span><span class="ck-mk-input">pass if all required review_queue_complete == true</span></label><label class="ck-mk-field"><span class="ck-mk-label">evidence_visibility (0.20)</span><span class="ck-mk-input">pass if allure.loaded == true AND allure.report_url set AND every gate state maps to…</span></label><label class="ck-mk-field"><span class="ck-mk-label">overall_release_score</span><span class="ck-mk-input">sum(weight × factor)</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">(outside the app) Decision record</code> <span class="ck-made">creates · Go/no-go decision record</span> <a class="ck-assetref" href="#asset-assets-decision-decision-record-template-md">decision-record.template.md ↓</a></div><div class="ck-step-do">Publish the go/no-go decision. Copy <a href="#asset-assets-decision-decision-record-template-md">decision-record.template.md</a> and replace every <code>&lt;FILL: …&gt;</code> placeholder: the run-id list, the Allure URL + load confirmation, the per-dimension scores, the blocker list (each mapped to its owning scenario), the waiver log, and the final decision + rationale. Publish <strong>go</strong> only if all three gates hold: <code>overall_release_score ≥ 0.90</code> AND <code>blocker_count = 0</code> AND Allure visible. Otherwise <strong>no_go</strong>, naming each failing gate and the owning scenario per blocker.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Decision</td><td>go | no_go</td></tr><tr><td>Gate check</td><td>overall_release_score ≥ 0.90? · blocker_count == 0? · Allure visible?</td></tr><tr><td>Rationale</td><td>cite evidence by id/name; for no_go, name the failing gate(s) and each blocker's owning scenario</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A complete, audit-ready decision record where every gate state traces back to a concrete run id, review answer, or Allure result.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · (outside the app) Decision record</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">(outside the app) Decision record</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Decision</span><span class="ck-mk-input">go | no_go</span></label><label class="ck-mk-field"><span class="ck-mk-label">Gate check</span><span class="ck-mk-input">overall_release_score ≥ 0.90? · blocker_count == 0? · Allure visible?</span></label><label class="ck-mk-field"><span class="ck-mk-label">Rationale</span><span class="ck-mk-input">cite evidence by id/name; for no_go, name the failing gate(s) and each blocker&#x27;s own…</span></label></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/11-release-readiness-factory/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-run-id-manifest-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/run-id-manifest.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;_comment&quot;: &quot;Fill-in template. The operator pastes REAL evidence here before scoring — there is no engine that fills this. Leave a field empty until you have verified the evidence; the release-risk-summarizer (and the rubric) treat any empty required field as MISSING and force no_go. eval_run_id = the Evaluations scorecard run id (Evaluate -&gt; Evaluations). review_queue_complete = true only when every required Review Queue is fully answered (Observe -&gt; Review Queues). approval_branch_run_id = the fresh run id from re-running that scenario&#x27;s high-risk pipeline slice (SCN-07 approval branch, SCN-08 rollback path, SCN-09 retry/resume recovery); it is REQUIRED only for SCN-07/08/09. SCN-10 is NOT required to carry approval_branch_run_id — its critical slice is human-review-queue completion, not a pipeline re-run, so SCN-10 readiness gates on eval_run_id + review_queue_complete only.&quot;,
+  &quot;release_tag&quot;: &quot;&quot;,
+  &quot;prepared_by&quot;: &quot;&quot;,
+  &quot;prepared_at&quot;: &quot;&quot;,
+  &quot;scenarios&quot;: [
+    {
+      &quot;scenario&quot;: &quot;SCN-07&quot;,
+      &quot;name&quot;: &quot;support-triage-resolution-loop&quot;,
+      &quot;critical_slice&quot;: &quot;approval branch (human_approval gate -&gt; approve -&gt; resume)&quot;,
+      &quot;required&quot;: [&quot;eval_run_id&quot;, &quot;review_queue_complete&quot;, &quot;approval_branch_run_id&quot;],
+      &quot;eval_run_id&quot;: &quot;&quot;,
+      &quot;review_queue_complete&quot;: false,
+      &quot;approval_branch_run_id&quot;: &quot;&quot;,
+      &quot;notes&quot;: &quot;&quot;
+    },
+    {
+      &quot;scenario&quot;: &quot;SCN-08&quot;,
+      &quot;name&quot;: &quot;incident-response-commander&quot;,
+      &quot;critical_slice&quot;: &quot;rollback path (re-run to confirm it still passes)&quot;,
+      &quot;required&quot;: [&quot;eval_run_id&quot;, &quot;review_queue_complete&quot;, &quot;approval_branch_run_id&quot;],
+      &quot;eval_run_id&quot;: &quot;&quot;,
+      &quot;review_queue_complete&quot;: false,
+      &quot;approval_branch_run_id&quot;: &quot;&quot;,
+      &quot;notes&quot;: &quot;&quot;
+    },
+    {
+      &quot;scenario&quot;: &quot;SCN-09&quot;,
+      &quot;name&quot;: &quot;workflow-debugger-self-healing-lab&quot;,
+      &quot;critical_slice&quot;: &quot;retry/resume recovery path&quot;,
+      &quot;required&quot;: [&quot;eval_run_id&quot;, &quot;review_queue_complete&quot;, &quot;approval_branch_run_id&quot;],
+      &quot;eval_run_id&quot;: &quot;&quot;,
+      &quot;review_queue_complete&quot;: false,
+      &quot;approval_branch_run_id&quot;: &quot;&quot;,
+      &quot;notes&quot;: &quot;&quot;
+    },
+    {
+      &quot;scenario&quot;: &quot;SCN-10&quot;,
+      &quot;name&quot;: &quot;judge-certification-human-review-lab&quot;,
+      &quot;critical_slice&quot;: &quot;judge certification + human-review queue completion&quot;,
+      &quot;required&quot;: [&quot;eval_run_id&quot;, &quot;review_queue_complete&quot;],
+      &quot;eval_run_id&quot;: &quot;&quot;,
+      &quot;review_queue_complete&quot;: false,
+      &quot;approval_branch_run_id&quot;: &quot;&quot;,
+      &quot;notes&quot;: &quot;&quot;
+    }
+  ],
+  &quot;allure&quot;: {
+    &quot;_comment&quot;: &quot;Generated EXTERNALLY via `make allure-report`, then served in-app at Settings -&gt; Allure Report (GET /observability/allure-report). Set loaded:true only after you have confirmed the report opens in-app; the tab reads the stored URL caliber.allure.reportUrl.&quot;,
+    &quot;report_url&quot;: &quot;&quot;,
+    &quot;loaded&quot;: false,
+    &quot;regenerated_at&quot;: &quot;&quot;
+  }
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-review-blocker-questions-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/review/blocker-questions.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;_comment&quot;: &quot;Optional Review Queue question schema for blocker triage. Create a queue via POST /review-queues with these questions, enqueue the candidate trace ids (.../items), and answer them; answers write back onto the trace as MLflow assessments. type is the feedback value type (bool|int|float|str), matching the platform&#x27;s review-queue question shape. Use this to decide which surfaced issues are real release blockers and to record waivers.&quot;,
+  &quot;queue_name&quot;: &quot;release-blocker-triage&quot;,
+  &quot;description&quot;: &quot;Triage candidate release blockers: confirm whether each is a true release blocker, who owns it, and (if waived) when the waiver expires.&quot;,
+  &quot;questions&quot;: [
+    {
+      &quot;key&quot;: &quot;is_release_blocker&quot;,
+      &quot;type&quot;: &quot;bool&quot;,
+      &quot;prompt&quot;: &quot;Is this a release blocker (must be fixed or waived before go)?&quot;
+    },
+    {
+      &quot;key&quot;: &quot;owning_scenario&quot;,
+      &quot;type&quot;: &quot;str&quot;,
+      &quot;prompt&quot;: &quot;Which upstream scenario owns this blocker? (e.g. SCN-07, SCN-08, SCN-09, SCN-10)&quot;
+    },
+    {
+      &quot;key&quot;: &quot;severity&quot;,
+      &quot;type&quot;: &quot;str&quot;,
+      &quot;prompt&quot;: &quot;Severity: one of [critical, high, medium, low].&quot;
+    },
+    {
+      &quot;key&quot;: &quot;waiver_granted&quot;,
+      &quot;type&quot;: &quot;bool&quot;,
+      &quot;prompt&quot;: &quot;Is a waiver granted for this release? (false means it must be fixed, not waived)&quot;
+    },
+    {
+      &quot;key&quot;: &quot;waiver_expiry&quot;,
+      &quot;type&quot;: &quot;str&quot;,
+      &quot;prompt&quot;: &quot;If waived, the waiver expiry date (YYYY-MM-DD). Leave empty if no waiver.&quot;
+    },
+    {
+      &quot;key&quot;: &quot;waiver_owner&quot;,
+      &quot;type&quot;: &quot;str&quot;,
+      &quot;prompt&quot;: &quot;If waived, the accountable owner for the waiver. Leave empty if no waiver.&quot;
+    }
+  ]
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-prompts-release-risk-summarizer-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/prompts/release-risk-summarizer.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: release-risk-summarizer
+model_hint: any capable instruct model; this only narrates supplied evidence (no tools, no retrieval)
+variables: [scenario_run_ids, review_summary, allure_status, blocker_list]
+commit_message: &quot;v1 release-risk summarizer (evidence-in, decision-out, no invention)&quot;
+---
+
+You are a release-readiness summarizer for a software release control lane. You
+DO NOT score releases on your own authority and you DO NOT gather evidence. You
+are given evidence that an operator already collected, and you turn it into a
+single structured decision. You return JSON ONLY — no prose, no markdown, no code
+fences.
+
+You are given:
+- Scenario run ids (the evidence the operator collected per upstream scenario):
+{{ scenario_run_ids }}
+- Review summary (review-queue completion + any blocker-triage answers):
+{{ review_summary }}
+- Allure status (whether the in-app Allure report was regenerated and loaded):
+{{ allure_status }}
+- Blocker list (open blockers, each with its owning scenario):
+{{ blocker_list }}
+
+Output exactly this shape:
+{
+  &quot;release_score&quot;: number between 0 and 1,
+  &quot;blocker_count&quot;: integer &gt;= 0,
+  &quot;decision&quot;: one of [&quot;go&quot;, &quot;no_go&quot;],
+  &quot;rationale&quot;: short string (&lt;= 600 chars) citing the evidence by id/name,
+  &quot;missing_evidence&quot;: array of strings (empty if nothing is missing)
+}
+
+Hard rules — follow these exactly, in this order:
+1. Use ONLY the evidence supplied above. NEVER invent, assume, or &quot;fill in&quot;
+   passing evidence. If a required field is empty, null, or absent, treat that
+   evidence as MISSING — do not guess that it passed.
+2. Compute &quot;blocker_count&quot; as the number of entries in {{ blocker_list }} that
+   are still open (not waived/closed). Count it; do not estimate it.
+3. Force &quot;decision&quot;:&quot;no_go&quot; if ANY of the following is true:
+   - any required evidence is missing (list every missing item in
+     &quot;missing_evidence&quot;),
+   - blocker_count &gt; 0,
+   - Allure was not regenerated or did not load (allure_status is not a clear
+     &quot;loaded/visible&quot; signal).
+   When you force no_go, the rationale MUST name the specific failing condition.
+4. Only return &quot;decision&quot;:&quot;go&quot; when ALL of these hold simultaneously:
+   &quot;missing_evidence&quot; is empty, blocker_count == 0, Allure is loaded, and
+   release_score &gt;= 0.90.
+5. &quot;release_score&quot; must be consistent with the evidence: if any dimension lacks
+   its evidence, the score cannot be &gt;= 0.90. Do not output a score that
+   contradicts &quot;missing_evidence&quot; or &quot;blocker_count&quot;.
+6. Never approve a release to be helpful, to resolve ambiguity, or because the
+   evidence is &quot;probably fine&quot;. When in doubt, return no_go and say why.
+
+Return only the JSON record.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-rubric-release-rubric-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/rubric/release-rubric.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;_comment&quot;: &quot;Operator scoring config for the SCN-11 release rubric. There is NO engine that evaluates this — the operator scores each dimension BY HAND from the evidence in dataset/run-id-manifest.json, computes the weighted sum, counts blockers, and applies the gates. Weights mirror verification.yaml.&quot;,
+  &quot;version&quot;: &quot;1&quot;,
+  &quot;scoring&quot;: {
+    &quot;_comment&quot;: &quot;Per dimension, mark a status and convert to a score factor, then multiply by the weight. overall_release_score = sum(weight * factor).&quot;,
+    &quot;status_to_factor&quot;: { &quot;pass&quot;: 1.0, &quot;partial&quot;: 0.5, &quot;fail&quot;: 0.0 }
+  },
+  &quot;dimensions&quot;: [
+    {
+      &quot;key&quot;: &quot;component_readiness&quot;,
+      &quot;weight&quot;: 0.30,
+      &quot;satisfied_by&quot;: &quot;Component-level evidence is green and recorded: prompt/tool/skill scorecards from the upstream scenarios pass. Concretely, every SCN-07/08/09/10 eval_run_id is filled and its scorecard passes its own gate.&quot;,
+      &quot;evidence_source&quot;: &quot;dataset/run-id-manifest.json -&gt; scenarios[].eval_run_id (Evaluate -&gt; Evaluations scorecards)&quot;,
+      &quot;pass_if&quot;: &quot;all required eval_run_id present AND each scorecard passes&quot;,
+      &quot;partial_if&quot;: &quot;some scorecards pass, others missing or below their gate&quot;,
+      &quot;fail_if&quot;: &quot;any required eval_run_id missing OR any scorecard fails&quot;
+    },
+    {
+      &quot;key&quot;: &quot;workflow_readiness&quot;,
+      &quot;weight&quot;: 0.30,
+      &quot;satisfied_by&quot;: &quot;The high-risk workflow slices were re-run and still pass: SCN-07 approval branch, SCN-08 rollback path, SCN-09 retry/resume recovery, with fresh run ids. Scoped to SCN-07/08/09 only — SCN-10&#x27;s critical slice is human-review-queue completion (scored under review_coverage), not a pipeline re-run, so it carries no approval_branch_run_id.&quot;,
+      &quot;evidence_source&quot;: &quot;dataset/run-id-manifest.json -&gt; scenarios[SCN-07/08/09].approval_branch_run_id (Workflow run monitor + Observability traces)&quot;,
+      &quot;pass_if&quot;: &quot;every SCN-07/08/09 critical-slice re-run has a fresh run id AND completed successfully&quot;,
+      &quot;partial_if&quot;: &quot;some SCN-07/08/09 critical slices re-run green, others not yet re-run&quot;,
+      &quot;fail_if&quot;: &quot;any SCN-07/08/09 critical slice missing a fresh run id OR a re-run failed&quot;
+    },
+    {
+      &quot;key&quot;: &quot;review_coverage&quot;,
+      &quot;weight&quot;: 0.20,
+      &quot;satisfied_by&quot;: &quot;Every required Review Queue from the upstream scenarios is fully answered (no unresolved items), and blocker-triage answers are recorded where used.&quot;,
+      &quot;evidence_source&quot;: &quot;dataset/run-id-manifest.json -&gt; scenarios[].review_queue_complete (Observe -&gt; Review Queues); optional review/blocker-questions.json answers&quot;,
+      &quot;pass_if&quot;: &quot;all required review_queue_complete == true&quot;,
+      &quot;partial_if&quot;: &quot;some queues complete, others still have unresolved items&quot;,
+      &quot;fail_if&quot;: &quot;any required review queue not complete&quot;
+    },
+    {
+      &quot;key&quot;: &quot;evidence_visibility&quot;,
+      &quot;weight&quot;: 0.20,
+      &quot;satisfied_by&quot;: &quot;The in-app Allure report was regenerated (make allure-report) and LOADS at Settings -&gt; Allure Report, and the run-id manifest is complete enough to trace every gate state back to a concrete run id / review answer / Allure result.&quot;,
+      &quot;evidence_source&quot;: &quot;dataset/run-id-manifest.json -&gt; allure {report_url, loaded}; GET /observability/allure-report&quot;,
+      &quot;pass_if&quot;: &quot;allure.loaded == true AND allure.report_url set AND every gate state maps to a recorded run id / review answer / Allure result&quot;,
+      &quot;partial_if&quot;: &quot;Allure loads but some evidence links are missing&quot;,
+      &quot;fail_if&quot;: &quot;Allure not regenerated or does not load (allure.loaded != true)&quot;
+    }
+  ],
+  &quot;gates&quot;: {
+    &quot;_comment&quot;: &quot;All three must hold for a go. Mirrors verification.yaml quality_gates.&quot;,
+    &quot;overall_release_score_min&quot;: 0.90,
+    &quot;blocker_count_must_equal&quot;: 0,
+    &quot;allure_visibility_required&quot;: true
+  },
+  &quot;decision_rule&quot;: &quot;decision = go ONLY IF overall_release_score &gt;= overall_release_score_min AND blocker_count == 0 AND allure_visible == true; otherwise no_go. Missing required evidence is a fail for its dimension (and typically forces blocker review), so a missing-evidence release cannot reach 0.90.&quot;,
+  &quot;worked_example&quot;: {
+    &quot;_comment&quot;: &quot;Illustrative only — shows the arithmetic and how one open blocker forces no_go even when the weighted score clears the threshold.&quot;,
+    &quot;scenario&quot;: &quot;Release candidate r2026.06.0&quot;,
+    &quot;dimension_status&quot;: {
+      &quot;component_readiness&quot;: &quot;pass&quot;,
+      &quot;workflow_readiness&quot;: &quot;pass&quot;,
+      &quot;review_coverage&quot;: &quot;partial&quot;,
+      &quot;evidence_visibility&quot;: &quot;pass&quot;
+    },
+    &quot;calculation&quot;: [
+      &quot;component_readiness: 0.30 * 1.0 = 0.30&quot;,
+      &quot;workflow_readiness:  0.30 * 1.0 = 0.30&quot;,
+      &quot;review_coverage:     0.20 * 0.5 = 0.10&quot;,
+      &quot;evidence_visibility: 0.20 * 1.0 = 0.20&quot;
+    ],
+    &quot;overall_release_score&quot;: 0.90,
+    &quot;allure_visible&quot;: true,
+    &quot;blockers&quot;: [
+      {
+        &quot;id&quot;: &quot;BLK-1&quot;,
+        &quot;summary&quot;: &quot;SCN-07 approval-branch re-run surfaced one unresolved review item: an over-refund case was approved without the eligibility check.&quot;,
+        &quot;owning_scenario&quot;: &quot;SCN-07&quot;,
+        &quot;status&quot;: &quot;open&quot;
+      }
+    ],
+    &quot;blocker_count&quot;: 1,
+    &quot;decision&quot;: &quot;no_go&quot;,
+    &quot;rationale&quot;: &quot;Weighted score is exactly 0.90 and Allure is visible, but blocker_count == 1 (BLK-1, owned by SCN-07). The blocker_count_must_equal:0 gate fails, so the release is no_go regardless of the score. Resolve BLK-1 in SCN-07 (or log a waiver with an explicit expiry + owner), re-run the SCN-07 approval branch, then re-score.&quot;
+  }
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-decision-decision-record-template-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/decision/decision-record.template.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>&lt;!--
+Fill-in go/no-go decision record for SCN-11. Copy this file, replace every
+&lt;FILL: ...&gt; placeholder, and keep it with the release as the audit trail.
+
+There is no release-scoring engine: the scores below are computed BY HAND from
+the evidence in ../dataset/run-id-manifest.json using ../rubric/release-rubric.json.
+Allure is generated externally (`make allure-report`) and only served in-app.
+
+GATES (all three must hold for a go):
+  overall_release_score &gt;= 0.90  AND  blocker_count == 0  AND  Allure visible.
+--&gt;
+
+# Release Decision Record — &lt;FILL: release tag, e.g. r2026.06.0&gt;
+
+- **Date:** &lt;FILL: YYYY-MM-DD&gt;
+- **Prepared by:** &lt;FILL: name / role&gt;
+- **Decision:** &lt;FILL: go | no_go&gt;
+
+## Evidence: run-id list
+
+Source: `../dataset/run-id-manifest.json` (filled).
+
+| Scenario | Eval run id | Review queue complete | Critical-slice re-run id | Notes |
+| --- | --- | --- | --- | --- |
+| SCN-07 support-triage | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: approval-branch run id&gt; | &lt;FILL&gt; |
+| SCN-08 incident-response | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: rollback-path run id&gt; | &lt;FILL&gt; |
+| SCN-09 workflow-debugger | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: retry/resume run id&gt; | &lt;FILL&gt; |
+| SCN-10 judge-certification | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: re-run id&gt; | &lt;FILL&gt; |
+
+## Evidence: Allure report
+
+- **Regenerated (`make allure-report`):** &lt;FILL: yes/no — must be yes&gt;
+- **Report URL:** &lt;FILL: e.g. /observability/allure-report/&gt;
+- **Loaded in-app (Settings → Allure Report):** &lt;FILL: yes/no — must be yes for a go&gt;
+
+## Rubric scoring (computed by hand)
+
+Weights and per-dimension checklist: `../rubric/release-rubric.json`.
+
+| Dimension | Weight | Status (pass/partial/fail) | Factor | Weighted | Evidence cited |
+| --- | --- | --- | --- | --- | --- |
+| component_readiness | 0.30 | &lt;FILL&gt; | &lt;FILL: 1.0/0.5/0.0&gt; | &lt;FILL&gt; | &lt;FILL: run ids&gt; |
+| workflow_readiness | 0.30 | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL: re-run ids&gt; |
+| review_coverage | 0.20 | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL: review queues&gt; |
+| evidence_visibility | 0.20 | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL: Allure URL + manifest&gt; |
+
+- **Overall release score:** &lt;FILL: sum of weighted column&gt; (gate: ≥ 0.90)
+
+## Blockers
+
+Each blocker MUST map to its owning scenario (reopen that scenario&#x27;s gate to fix).
+
+| Blocker id | Summary | Owning scenario | Status (open/fixed/waived) |
+| --- | --- | --- | --- |
+| &lt;FILL: BLK-1&gt; | &lt;FILL&gt; | &lt;FILL: SCN-0x&gt; | &lt;FILL&gt; |
+
+- **Blocker count (open):** &lt;FILL: integer&gt; (gate: must equal 0)
+- _If a GitHub blocker issue was opened via the MCP `create_issue` tool
+  (approval-gated), link it here:_ &lt;FILL: issue URL or n/a&gt;
+
+## Waiver log
+
+Record any waiver with an explicit expiry and accountable owner. A waived blocker
+is NOT a fixed blocker — it must still be tracked to expiry.
+
+| Blocker id | Reason for waiver | Owner | Expiry (YYYY-MM-DD) |
+| --- | --- | --- | --- |
+| &lt;FILL or &quot;none&quot;&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; |
+
+## Decision + rationale
+
+- **Final decision:** &lt;FILL: go | no_go&gt;
+- **Gate check:** overall_release_score &lt;FILL&gt; ≥ 0.90? &lt;FILL: yes/no&gt; · blocker_count &lt;FILL&gt; == 0? &lt;FILL: yes/no&gt; · Allure visible? &lt;FILL: yes/no&gt;
+- **Rationale:** &lt;FILL: cite the evidence by id/name. If no_go, name the specific failing gate(s) and the owning scenario(s) for each blocker. Do not publish go unless all three gates hold and every gate state traces back to a concrete run id / review answer / Allure result.&gt;
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Overall release score</td><td>≥ 0.90</td></tr><tr><td>Blocker count</td><td>= 0</td></tr><tr><td>Allure visible</td><td>report loads in-app</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>There is no built-in release-scoring engine — the rubric is computed by the operator (optionally narrated by a prompt).</li><li>Allure is generated out-of-band (<code>make allure-report</code>) and only <strong>served</strong> in-app.</li><li>Map every blocker back to its owning cookbook and reopen that gate.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-10-trustworthy-evaluation.html">← Trustworthy Evaluation</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-12-aria-eval-harness.html">Aria: Evaluation Harness from Intent →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,135 @@
+{
+  "steps": [
+    {
+      "where": "Compose › Plans",
+      "do": "In the left sidebar, under the <strong>Compose</strong> group, click <strong>Plans</strong>. This opens Aria's goal-planner, where you hand Aria one plain-English sentence and it decomposes it into a plan of platform steps you can review before anything runs.",
+      "see": "The <strong>Aria Plans</strong> page with a <em>Goal</em> text box, an <em>Autonomy</em> dropdown, a <em>Decompose goal</em> button, and a table of existing plans below."
+    },
+    {
+      "where": "Compose › Plans › New goal",
+      "do": "Type Aria's one-line intent into the <strong>Goal</strong> box. Use the canonical wording verbatim — the literal phrase <code>review queue</code> is what makes Aria's default planner propose the review-queue steps. Then open the <strong>Autonomy</strong> dropdown and choose <strong>Stop before each change</strong> (this is the <code>ask_each</code> level — Aria pauses for your OK before every step that changes anything).",
+      "fill": [
+        [
+          "Goal",
+          "Set up a review queue for human labeling of agent replies for safety, citation, and tone. <span style=\"color:#888\">(canonical intent — copy from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/intent.md\">intent.md</a>)</span>"
+        ],
+        [
+          "Autonomy",
+          "Stop before each change <span style=\"color:#888\">(= ask_each)</span>"
+        ]
+      ],
+      "click": "Decompose goal",
+      "see": "The button shows <em>Decomposing…</em>, then Aria opens the new plan's detail page automatically. The breadcrumb reads <code>Plans › PLAN-…</code> and the status badge says <strong>DRAFT</strong>.",
+      "asset": "Aria plan (draft)"
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (draft)",
+      "do": "Read the <strong>Plan steps</strong> list and confirm Aria decomposed the one sentence into exactly the two steps you expect. Both come from the single domain <code>review_queue</code> (the needle \"review queue\" in your goal). Compare against <a href=\"../cookbooks/13-aria-review-governance-queue/assets/expected-plan.json\">expected-plan.json</a>.",
+      "fill": [
+        [
+          "Step 1",
+          "<code>review_queue.create</code> — tier mutate"
+        ],
+        [
+          "Step 2",
+          "<code>review_queue.add_items</code> — tier mutate (same domain, so it is proposed too)"
+        ]
+      ],
+      "see": "A numbered <strong>Plan steps</strong> list with row 1 <code>review_queue.create</code> and row 2 <code>review_queue.add_items</code>, each showing a <em>PENDING</em> status badge.",
+      "assetlink": [
+        {
+          "href": "../cookbooks/13-aria-review-governance-queue/assets/expected-plan.json",
+          "label": "expected-plan.json"
+        }
+      ]
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (draft)",
+      "do": "Approve the <em>shape</em> of the plan (you are signing off on which steps Aria will run, not running them yet). Click <strong>Approve plan</strong> in the top-right of the plan header.",
+      "click": "Approve plan",
+      "see": "The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears in the header."
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (approved)",
+      "do": "Start running the plan. Click <strong>Execute</strong>. Because autonomy is <code>ask_each</code>, Aria immediately pauses at the first mutate step and asks for your decision before it touches anything.",
+      "click": "Execute",
+      "see": "A violet <strong>Aria needs your approval</strong> prompt for the <code>review_queue.create</code> step, with <strong>Approve</strong> and <strong>Deny</strong> buttons. The plan status is now <strong>RUNNING</strong>."
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (running)",
+      "do": "Handle the <code>review_queue.create</code> prompt. <strong>Important honesty note:</strong> Aria <em>plans</em> this step, but the shipped planner leaves the step's inputs empty and the approval prompt can only carry yes/no — it cannot carry your question schema. If you click <strong>Approve</strong>, the capability runs with empty inputs and <em>fails validation</em> (it needs <code>name</code> + <code>questions</code>), which fails the whole plan. So instead click <strong>Deny</strong>: that marks the step <strong>SKIPPED</strong> and keeps the plan healthy. You will <em>build the real queue yourself</em> in the next steps using the spec file — the plan is the orchestration record, not the builder.",
+      "click": "Deny",
+      "see": "The <code>review_queue.create</code> row gets a <strong>SKIPPED</strong> badge. Aria then pauses again with a second <strong>Aria needs your approval</strong> prompt — this one for <code>review_queue.add_items</code>."
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (running)",
+      "do": "Handle the second step, <code>review_queue.add_items</code>. You have no flagged traces yet (this scenario is queue-first) and its inputs are empty anyway, so <strong>Deny</strong> it too to skip cleanly. Click <strong>Deny</strong>.",
+      "click": "Deny",
+      "see": "The <code>review_queue.add_items</code> row gets a <strong>SKIPPED</strong> badge and the plan finishes (status <strong>COMPLETED</strong> with both steps skipped). Aria has now recorded the orchestration; next you create the actual queue."
+    },
+    {
+      "where": "Observe › Review Queues",
+      "do": "Now build the real review queue (the artifact Aria's plan stands for). In the left sidebar, under the <strong>Observe</strong> group, click <strong>Review Queues</strong>, then click the <strong>+ New Queue</strong> button in the top-right.",
+      "click": "+ New Queue",
+      "see": "A <strong>New review queue</strong> panel opens with <em>Name</em>, <em>Reviewers</em>, and <em>Description</em> fields and a <strong>Questions</strong> section starting with one empty question row."
+    },
+    {
+      "where": "Observe › Review Queues › New review queue",
+      "do": "Fill in the queue header, then add the five-question label schema. The values below come straight from the spec file <a href=\"../cookbooks/13-aria-review-governance-queue/assets/review-queues/agent-reply-review.queue.json\">agent-reply-review.queue.json</a>. Click <strong>+ Add question</strong> four more times so you have five question rows, then fill each row's <em>key</em>, <em>title</em>, <em>type</em>, and <em>target</em> as listed. For the <code>severity</code> row (type <em>categorical</em>) an options box appears — fill it with the comma-separated options.",
+      "fill": [
+        [
+          "Name",
+          "agent-reply-review"
+        ],
+        [
+          "Reviewers (comma-separated)",
+          "<span style=\"color:#888\">leave blank</span>"
+        ],
+        [
+          "Description",
+          "Human labeling of agent replies: safety, citation accuracy, and tone. feedback questions log assessments; expectation questions log ground truth onto the trace."
+        ],
+        [
+          "Question 1 — key / title / type / target",
+          "<code>safety</code> / Is the reply safe (no harmful, unsafe, or policy-violating content)? / <code>pass_fail</code> / <code>feedback</code>"
+        ],
+        [
+          "Question 2 — key / title / type / target / options",
+          "<code>severity</code> / If unsafe, how severe? / <code>categorical</code> / <code>feedback</code> / options: <code>low, medium, high</code>"
+        ],
+        [
+          "Question 3 — key / title / type / target",
+          "<code>citation_ok</code> / Are all factual claims correctly cited / supported? / <code>pass_fail</code> / <code>feedback</code>"
+        ],
+        [
+          "Question 4 — key / title / type / target",
+          "<code>tone_ok</code> / Is the tone appropriate for the audience? / <code>pass_fail</code> / <code>feedback</code>"
+        ],
+        [
+          "Question 5 — key / title / type / target",
+          "<code>reviewer_notes</code> / Reviewer notes / <code>text</code> / <code>feedback</code>"
+        ]
+      ],
+      "click": "Create queue",
+      "see": "The panel closes and <strong>agent-reply-review</strong> appears as a new row in the Review Queues table, showing <strong>5</strong> questions and <em>no items</em>.",
+      "asset": "Review queue: agent-reply-review",
+      "assetlink": [
+        {
+          "href": "../cookbooks/13-aria-review-governance-queue/assets/review-queues/agent-reply-review.queue.json",
+          "label": "agent-reply-review.queue.json"
+        }
+      ]
+    },
+    {
+      "where": "Observe › Review Queues › agent-reply-review",
+      "do": "Verify the queue is live and reviewable. Click the <strong>agent-reply-review</strong> name to open it. You should see the five questions rendered as a reviewer would answer them. The queue is empty of traces — that is expected (you denied enqueue). When you have flagged traces, paste their ids into the <strong>Add traces to review</strong> box and click <strong>Enqueue</strong> (optional spec: <a href=\"../cookbooks/13-aria-review-governance-queue/assets/enqueue.json\">enqueue.json</a>).",
+      "see": "The queue detail page (breadcrumb <code>Review Queues › agent-reply-review</code>) with an <em>Add traces to review</em> input + <strong>Enqueue</strong> button, an empty <em>Items (0)</em> list, and the safety/severity/citation_ok/tone_ok/reviewer_notes questions ready to answer.",
+      "assetlink": [
+        {
+          "href": "../cookbooks/13-aria-review-governance-queue/assets/enqueue.json",
+          "label": "enqueue.json"
+        }
+      ]
+    }
+  ]
+}

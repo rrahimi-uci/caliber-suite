@@ -1,0 +1,26 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - RootCauseQuality is a real LLM judge (optional); replay_before_patch and post-fix validation are operator-enforced in the Run Monitor (no auto gate). Patching is manual.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  judges:
+    - name: RootCauseQuality
+      type: custom_judge
+      criteria: diagnosis cites concrete failing evidence
+  rule_checks:
+    - replay_before_patch_required
+    - publish_requires_post_fix_validation
+quality_gates:
+  replay_success_rate: 1.0
+  post_fix_regression_pass_rate_min: 0.95
+monitoring:
+  traces:
+    - failing_run
+    - replay_session
+    - patched_run
+  metrics:
+    - time_to_root_cause
+    - time_to_verified_fix
+feedback_loop:
+  - convert every major incident fix into regression tests.
+  - improve debugger metadata when diagnosis quality is low.

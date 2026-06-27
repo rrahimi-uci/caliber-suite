@@ -1,0 +1,35 @@
+id: SCN-01
+slug: prompt-regression-lab
+name: "Trustworthy Intake Classifier"
+track: starter
+objective: Build a prompt-only classifier that converts free text into stable JSON labels before any tools or workflows are introduced.
+why_it_matters:
+  - Localizes instruction failures without tool or retrieval noise.
+  - Produces a reusable prompt baseline for later workflow binding.
+primary_persona: developer
+secondary_personas:
+  - AI engineer
+  - evaluator
+caliber_surfaces:
+  - Prompts
+  - Evaluations
+  - Observability
+prerequisites:
+  - A working model provider in CALIBER settings.
+  - A small labeled ticket set.
+time_to_first_value: 30-60 minutes
+success_criteria:
+  - JSON contract is stable across golden cases.
+  - Baseline and comparison runs surface regressions clearly.
+demo_profile:
+  recommended_sequence_index: 1
+  tier: foundation
+  live_demo_minutes: 20-30
+  depends_on: []
+  included_in:
+    - quick_reliability
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - prompt lifecycle (author, test, baseline, calibration)
+    - regression visibility

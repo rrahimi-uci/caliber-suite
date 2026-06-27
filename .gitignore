@@ -1,0 +1,31 @@
+.venv/
+.venv-*/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+mlruns/
+mlartifacts/
+caliber-workspaces/
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+
+# Build artifacts / deps
+dist/
+node_modules/
+
+# Local databases & temp artifacts
+*.db
+.tmp/
+.tmp-*
+
+# Postgres migration backups (logical dumps, local only)
+pg16-backup-*/

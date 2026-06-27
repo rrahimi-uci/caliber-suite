@@ -1,0 +1,27 @@
+{
+  "goal": "Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks.",
+  "autonomy": "ask_each",
+  "expected_steps": [
+    {
+      "capability_key": "judge.create",
+      "tier": "mutate",
+      "interaction": "confirm/refine the judge spec (judges/answer-faithfulness.judge.json)"
+    },
+    {
+      "capability_key": "review_queue.create",
+      "tier": "mutate",
+      "interaction": "confirm/refine the review-queue question schema (review-queues/governance-review.queue.json)"
+    },
+    {
+      "capability_key": "eval_dataset.create",
+      "tier": "mutate",
+      "interaction": "confirm/refine the dataset spec (datasets/release-candidates.dataset.json)"
+    },
+    {
+      "capability_key": "review_queue.add_items",
+      "tier": "mutate",
+      "interaction": "DENY this step (answer {approved:false}) — no traces to enqueue yet. It is proposed only because it shares the 'review queue' domain. Supply {queue_id, trace_ids} instead if you already have traces."
+    }
+  ],
+  "notes": "Step order follows registry order; there are no inter-step dependencies in the default planner. The 'review queue' needle matches both review_queue.create and review_queue.add_items, so both appear. Under autonomy=ask_each each mutate step raises one interaction before it runs (deny add_items). Under approve_plan/auto_guarded the steps run automatically once approved — so for this scenario prefer ask_each so you can deny add_items."
+}

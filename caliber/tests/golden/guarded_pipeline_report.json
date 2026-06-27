@@ -1,0 +1,23 @@
+{
+  "agent_count": 1,
+  "compiler_version": "0.1.0",
+  "deploy_gates": [],
+  "edge_count": 3,
+  "entry_node_id": "support_agent",
+  "export_mode": "agents_sdk_direct",
+  "manifest_hash": "1bfe9cb3b4144aa5f6bea13d944da500c0eb7330bac5068a66dd99de5f87d7ed",
+  "node_count": 4,
+  "output_node_id": "final",
+  "tool_refs": [
+    "tool.escalate.v1",
+    "tool.get_order.v1",
+    "tool.lookup_policy.v1"
+  ],
+  "validation": {
+    "errors": [],
+    "valid": true,
+    "warnings": []
+  },
+  "version": "1",
+  "workflow_id": "guarded_pipeline_wf"
+}

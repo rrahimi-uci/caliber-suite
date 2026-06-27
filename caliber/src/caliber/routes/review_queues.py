@@ -1,0 +1,448 @@
+"""``/caliber/review-queues`` endpoints — structured human review of traces.
+
+The CALIBER-native analogue of MLflow Review Queues (Databricks-only). A queue
+defines a label schema of review questions; items pin observed traces; reviewers
+answer the questions and the answers are written back onto each trace as MLflow
+assessments (feedback) or expectations (ground truth) via the OSS primitives.
+
+Surface:
+
+* ``GET /review-queues`` — list (with item/pending counts).
+* ``POST /review-queues`` (operator) — create.
+* ``GET /review-queues/{queue_id}`` — queue + its items.
+* ``PATCH /review-queues/{queue_id}`` (admin) — update / archive.
+* ``POST /review-queues/{queue_id}/items`` (operator) — enqueue traces.
+* ``POST /review-queues/{queue_id}/items/{item_id}/submit`` — answer + write back.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import case, func, select
+from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+from caliber.audit import record as audit_record
+from caliber.auth import (
+    SCOPE_ADMIN,
+    SCOPE_OPERATOR,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
+from caliber.db.models import CaliberReviewItem, CaliberReviewQueue
+from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.ids import new_review_item_id, new_review_queue_id
+from caliber.review.writeback import (
+    AnswerWriteBack,
+    MLflowReviewWriteBackClient,
+    ReviewWriteBackClient,
+)
+from caliber.routes._deps import (
+    envelope_response,
+    envelope_response_dict,
+    get_session_factory,
+    parse_json_object,
+    visibility_param,
+)
+from caliber.schemas import (
+    ReviewItemsAddRequest,
+    ReviewItemSchema,
+    ReviewItemSubmitRequest,
+    ReviewQueueCreateRequest,
+    ReviewQueueSchema,
+    ReviewQueueUpdateRequest,
+)
+
+logger = logging.getLogger(__name__)
+
+LIST_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues"
+DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}"
+ITEMS_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items"
+SUBMIT_PATH = (
+    "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit"
+)
+
+_LIST_STATUS_VALUES: frozenset[str] = frozenset({"active", "archived", "all"})
+
+
+def _resolve_writeback_client(request: Request) -> ReviewWriteBackClient:
+    override: ReviewWriteBackClient | None = getattr(
+        request.app.state, "review_writeback_client", None
+    )
+    if override is not None:
+        return override
+    return MLflowReviewWriteBackClient()
+
+
+def _queue_schema_with_counts(
+    queue: CaliberReviewQueue, item_count: int, pending_count: int
+) -> ReviewQueueSchema:
+    schema = ReviewQueueSchema.model_validate(queue)
+    schema.item_count = item_count
+    schema.pending_count = pending_count
+    return schema
+
+
+async def list_queues(request: Request) -> JSONResponse:
+    require_user(request)
+    identity = resolve_identity(request)
+    requested_status = request.query_params.get("status", "active")
+    if requested_status not in _LIST_STATUS_VALUES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"invalid value for 'status': {requested_status!r}; "
+                f"expected one of {sorted(_LIST_STATUS_VALUES)}"
+            ),
+        )
+    factory = get_session_factory(request)
+    with factory() as session:
+        stmt = select(CaliberReviewQueue).order_by(CaliberReviewQueue.name)
+        if requested_status != "all":
+            stmt = stmt.where(CaliberReviewQueue.status == requested_status)
+        stmt = apply_visibility_filter(
+            stmt,
+            CaliberReviewQueue,
+            identity,
+            identity.active_project_id,
+            only=visibility_param(request),
+        )
+        rows = session.execute(stmt).scalars().all()
+        # Total + pending item counts for every queue in one grouped query,
+        # rather than two COUNT round-trips per queue (was 2N queries). The
+        # ``case`` sum is used over ``count().filter(...)`` for portability
+        # across the SQLite/Postgres backends CALIBER targets.
+        queue_ids = [queue.queue_id for queue in rows]
+        counts: dict[str, tuple[int, int]] = dict.fromkeys(queue_ids, (0, 0))
+        if queue_ids:
+            count_stmt = (
+                select(
+                    CaliberReviewItem.queue_id,
+                    func.count().label("total"),
+                    func.sum(
+                        case((CaliberReviewItem.status == "pending", 1), else_=0)
+                    ).label("pending"),
+                )
+                .where(CaliberReviewItem.queue_id.in_(queue_ids))
+                .group_by(CaliberReviewItem.queue_id)
+            )
+            for queue_id, total, pending in session.execute(count_stmt):
+                counts[queue_id] = (int(total or 0), int(pending or 0))
+        items = [
+            _queue_schema_with_counts(queue, *counts.get(queue.queue_id, (0, 0)))
+            for queue in rows
+        ]
+    return envelope_response(items)
+
+
+def create_review_queue_record(
+    session: Any,
+    *,
+    payload: ReviewQueueCreateRequest,
+    actor: str,
+    project_id: str | None,
+) -> CaliberReviewQueue:
+    """Create a review-queue row (single definition reused by the route + Aria).
+
+    Raises :class:`ValueError` on a duplicate name; flushes but does not commit
+    (the caller owns the transaction).
+    """
+    existing = (
+        session.execute(select(CaliberReviewQueue).where(CaliberReviewQueue.name == payload.name))
+        .scalars()
+        .first()
+    )
+    if existing is not None:
+        raise ValueError(f"review-queue name {payload.name!r} is already in use")
+    queue = CaliberReviewQueue(
+        queue_id=new_review_queue_id(),
+        name=payload.name,
+        description=payload.description,
+        questions=[q.model_dump() for q in payload.questions],
+        reviewers=list(payload.reviewers),
+        owner=actor,
+        project_id=project_id,
+        visibility="project" if project_id else "user",
+        status="active",
+    )
+    session.add(queue)
+    session.flush()
+    audit_record(
+        session,
+        actor=actor,
+        action="create_review_queue",
+        entity_type="review_queue",
+        entity_id=queue.queue_id,
+        details={"name": queue.name, "questions": len(queue.questions)},
+    )
+    return queue
+
+
+async def create_queue(request: Request) -> JSONResponse:
+    body = await parse_json_object(request)
+    payload = ReviewQueueCreateRequest.model_validate(body)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        try:
+            queue = create_review_queue_record(
+                session, payload=payload, actor=actor, project_id=identity.active_project_id
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        session.commit()
+        data = _queue_schema_with_counts(queue, 0, 0)
+    return envelope_response(data, status_code=201)
+
+
+async def get_queue(request: Request) -> JSONResponse:
+    require_user(request)
+    identity = resolve_identity(request)
+    queue_id = request.path_params["queue_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        queue = get_visible(
+            session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
+        )
+        if queue is None:
+            raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
+        rows = (
+            session.execute(
+                select(CaliberReviewItem)
+                .where(CaliberReviewItem.queue_id == queue_id)
+                .order_by(CaliberReviewItem.created_at)
+            )
+            .scalars()
+            .all()
+        )
+        item_schemas = [ReviewItemSchema.model_validate(row) for row in rows]
+        pending = sum(1 for row in rows if row.status == "pending")
+        queue_schema = _queue_schema_with_counts(queue, len(rows), pending)
+    return envelope_response_dict(
+        {
+            "queue": queue_schema.model_dump(mode="json"),
+            "items": [item.model_dump(mode="json") for item in item_schemas],
+        }
+    )
+
+
+_UPDATABLE_FIELDS = ("description", "questions", "reviewers", "status")
+
+
+async def update_queue(request: Request) -> JSONResponse:
+    queue_id = request.path_params["queue_id"]
+    body = await parse_json_object(request)
+    payload = ReviewQueueUpdateRequest.model_validate(body)
+    actor = require_scopes(request, [SCOPE_ADMIN])
+
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(status_code=400, detail="request body must include at least one field")
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        queue = session.get(CaliberReviewQueue, queue_id)
+        if queue is None:
+            raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
+        changed: list[str] = []
+        for field in _UPDATABLE_FIELDS:
+            if field not in changes:
+                continue
+            setattr(queue, field, changes[field])
+            changed.append(field)
+        if changed:
+            audit_record(
+                session,
+                actor=actor,
+                action="update_review_queue",
+                entity_type="review_queue",
+                entity_id=queue_id,
+                details={"changed": sorted(changed)},
+            )
+        session.commit()
+        total = session.execute(
+            select(func.count())
+            .select_from(CaliberReviewItem)
+            .where(CaliberReviewItem.queue_id == queue_id)
+        ).scalar_one()
+        pending = session.execute(
+            select(func.count())
+            .select_from(CaliberReviewItem)
+            .where(CaliberReviewItem.queue_id == queue_id)
+            .where(CaliberReviewItem.status == "pending")
+        ).scalar_one()
+        data = _queue_schema_with_counts(queue, int(total), int(pending))
+    return envelope_response(data)
+
+
+def add_review_items_records(
+    session: Any,
+    *,
+    queue_id: str,
+    trace_ids: list[str],
+    experiment_id: str | None,
+    assigned_to: str | None,
+    actor: str,
+) -> list[CaliberReviewItem]:
+    """Enqueue traces into a review queue (single definition; route + Aria reuse).
+
+    Idempotent — a trace is queued at most once per queue. Raises
+    :class:`ValueError` if the queue is missing; flushes but does not commit.
+    """
+    queue = session.get(CaliberReviewQueue, queue_id)
+    if queue is None:
+        raise ValueError(f"review queue {queue_id!r} not found")
+    existing_traces = {
+        row.trace_id
+        for row in session.execute(
+            select(CaliberReviewItem).where(CaliberReviewItem.queue_id == queue_id)
+        )
+        .scalars()
+        .all()
+    }
+    created: list[CaliberReviewItem] = []
+    for trace_id in trace_ids:
+        if trace_id in existing_traces:
+            continue
+        existing_traces.add(trace_id)
+        item = CaliberReviewItem(
+            item_id=new_review_item_id(),
+            queue_id=queue_id,
+            trace_id=trace_id,
+            experiment_id=experiment_id,
+            status="pending",
+            assigned_to=assigned_to,
+            answers={},
+            assessment_ids=[],
+        )
+        session.add(item)
+        session.flush()
+        created.append(item)
+    audit_record(
+        session,
+        actor=actor,
+        action="add_review_items",
+        entity_type="review_queue",
+        entity_id=queue_id,
+        details={"added": len(created)},
+    )
+    return created
+
+
+async def add_items(request: Request) -> JSONResponse:
+    queue_id = request.path_params["queue_id"]
+    body = await parse_json_object(request)
+    payload = ReviewItemsAddRequest.model_validate(body)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        try:
+            created = add_review_items_records(
+                session,
+                queue_id=queue_id,
+                trace_ids=list(payload.trace_ids),
+                experiment_id=payload.experiment_id,
+                assigned_to=payload.assigned_to,
+                actor=actor,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        schemas = [ReviewItemSchema.model_validate(item) for item in created]
+        session.commit()
+    return envelope_response(schemas, status_code=201)
+
+
+def _build_writebacks(
+    questions: list[dict[str, Any]], answers: dict[str, Any]
+) -> list[AnswerWriteBack]:
+    """Validate the submitted answers against the queue schema and map them to
+    write-backs. Raises HTTP 400 on a missing required answer / unknown key."""
+    by_key = {str(q.get("key")): q for q in questions}
+    unknown = set(answers) - set(by_key)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown answer keys: {sorted(unknown)}")
+    writebacks: list[AnswerWriteBack] = []
+    for key, question in by_key.items():
+        if key not in answers or answers[key] is None or answers[key] == "":
+            if question.get("required", True):
+                raise HTTPException(status_code=400, detail=f"missing required answer {key!r}")
+            continue
+        writebacks.append(
+            AnswerWriteBack(
+                name=key,
+                value=answers[key],
+                target=str(question.get("target", "feedback")),
+            )
+        )
+    return writebacks
+
+
+async def submit_item(request: Request) -> JSONResponse:
+    queue_id = request.path_params["queue_id"]
+    item_id = request.path_params["item_id"]
+    body = await parse_json_object(request)
+    payload = ReviewItemSubmitRequest.model_validate(body)
+    actor = require_user(request)
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        queue = session.get(CaliberReviewQueue, queue_id)
+        if queue is None:
+            raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
+        item = session.get(CaliberReviewItem, item_id)
+        if item is None or item.queue_id != queue_id:
+            raise HTTPException(status_code=404, detail=f"review item {item_id!r} not found")
+        writebacks = _build_writebacks(list(queue.questions), dict(payload.answers))
+        trace_id = item.trace_id
+
+    # Write answers back to the trace (outside the session — guarded MLflow call).
+    client = _resolve_writeback_client(request)
+    try:
+        assessment_ids = client.write_answers(
+            trace_id=trace_id, answers=writebacks, user=actor
+        )
+    except Exception as exc:  # pragma: no cover - exercised via raising fake
+        logger.warning("review write-back failed for trace %s (%s)", trace_id, exc)
+        raise HTTPException(
+            status_code=502, detail=f"failed writing review answers to trace: {exc}"
+        ) from exc
+
+    with factory() as session:
+        item = session.get(CaliberReviewItem, item_id)
+        if item is None:  # pragma: no cover - deleted mid-submit
+            raise HTTPException(status_code=404, detail=f"review item {item_id!r} not found")
+        item.answers = dict(payload.answers)
+        item.assessment_ids = list(assessment_ids)
+        item.status = "completed"
+        item.completed_at = datetime.now(timezone.utc)
+        item.completed_by = actor
+        audit_record(
+            session,
+            actor=actor,
+            action="submit_review_item",
+            entity_type="review_queue",
+            entity_id=queue_id,
+            details={"item_id": item_id, "assessments": len(assessment_ids)},
+        )
+        session.commit()
+        data = ReviewItemSchema.model_validate(item)
+    return envelope_response(data)
+
+
+def register(app: Starlette) -> None:
+    app.routes.append(Route(LIST_PATH, list_queues, methods=["GET"]))
+    app.routes.append(Route(LIST_PATH, create_queue, methods=["POST"]))
+    app.routes.append(Route(DETAIL_PATH, get_queue, methods=["GET"]))
+    app.routes.append(Route(DETAIL_PATH, update_queue, methods=["PATCH"]))
+    app.routes.append(Route(ITEMS_PATH, add_items, methods=["POST"]))
+    app.routes.append(Route(SUBMIT_PATH, submit_item, methods=["POST"]))

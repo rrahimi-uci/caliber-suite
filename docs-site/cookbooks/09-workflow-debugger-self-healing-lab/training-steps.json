@@ -1,0 +1,135 @@
+{
+  "steps": [
+    {
+      "where": "Compose › Workflows › New Workflow",
+      "do": "This is an operator playbook: <strong>reproduce a failure → localize it in the Run Monitor → patch manually → validate</strong>. Start with the most reliable reproducible failure (Option A). Click <strong>New Workflow</strong> and in the <strong>Start from a template</strong> panel pick the <strong>Human Review</strong> card (the <code>hitl_review</code> template). Its nodes are <code>start → agent → pii_guard (guardrail) → review (human_approval) → final</code>; the approval node id is <code>review</code>.",
+      "click": "Human Review",
+      "see": "The workflow editor opens on the <strong>Editor</strong> canvas with the <code>hitl_review</code> graph. Click <strong>Save</strong> (the toolbar shows \"Saved draft.\") so you have a stable target.",
+      "asset": "workflow: recovery target (from hitl_review template)"
+    },
+    {
+      "where": "Compose › Workflows › recovery › Run Monitor",
+      "do": "Reproduce the failure (Option A — approval reject). Click the <strong>Run Monitor</strong> toggle, paste a failing input from row <strong>WF01</strong> (an over-limit refund the reviewer should reject), and click <strong>Run</strong>. The run advances to <strong>waiting_approval</strong> at <code>review</code>. Now click <strong>Reject</strong> — the run goes to <strong>failed</strong> with an <code>approval_rejected</code> reason. <strong>Note the failing run id.</strong>",
+      "fill": [
+        ["Input (WF01 — over-limit refund, reviewer rejects)", "<code>{\"response\": \"Refund of $4,800 approved for account A-1007.\"}</code> — from <a href=\"../cookbooks/09-workflow-debugger-self-healing-lab/assets/dataset/failing-inputs.jsonl\">failing-inputs.jsonl</a>"],
+        ["Alternative input (WF05 — unsupported commitment)", "<code>{\"response\": \"Account A-3300 will be unlocked and credited 3 months free.\"}</code>"]
+      ],
+      "click": "Reject",
+      "see": "The run ends in <strong>failed</strong>; the timeline shows <code>review.waiting_approval</code> then <code>review.rejected</code> with the reject reason.",
+      "asset": "failing run id (approval_rejected at review)",
+      "assetlink": [{ "href": "../cookbooks/09-workflow-debugger-self-healing-lab/assets/dataset/failing-inputs.jsonl", "label": "failing-inputs.jsonl" }]
+    },
+    {
+      "where": "Compose › Workflows › recovery › Run Monitor › Recovery Diagnostics / Resume Checkpoints / Execution Debugger",
+      "do": "Open the diagnostics panels in the Run Monitor for the failed run. Read the <strong>Recovery Diagnostics</strong> panel (approval/event timeline + integrity warnings — confirm the reject event and reviewer/reason), the <strong>Resume Checkpoints</strong> panel (the active node = <code>review</code> plus its state blob), and the <strong>Execution Debugger</strong> (per-step inputs/outputs with event markers — the <code>review</code> step shows the rejection).",
+      "see": "The Recovery Diagnostics panel shows the reject reason; the Resume Checkpoints panel shows <code>review</code> as the active checkpoint; the Debugger step trace highlights the <code>review</code> step with its event markers.",
+      "asset": "diagnostics: recovery timeline + checkpoint + debugger trace"
+    },
+    {
+      "where": "Compose › Workflows › recovery › Run Monitor › Execution Debugger",
+      "do": "Localize the root cause. In the Debugger step trace the failing node is <strong><code>review</code></strong> and the evidence is the reject reason. Write a one-line root-cause note tied to that node, e.g. <em>\"the human_approval node 'review' was rejected (amount over discretionary limit), so the run failed\"</em>. (The <code>workflow-failure-triage</code> skill maps this symptom → a <code>human_approval</code> node → the recovery probe; the optional <code>diagnosis-summary</code> prompt can render the note.)",
+      "fill": [
+        ["Root-cause note (tie to the node + evidence)", "blame node <code>review</code>; cite the actual reject reason from the Recovery panel"]
+      ],
+      "see": "A concrete root-cause statement naming the node id <code>review</code> and quoting the reject reason.",
+      "asset": "root-cause note (node review + reject reason)",
+      "assetlink": [{ "href": "../cookbooks/09-workflow-debugger-self-healing-lab/assets/skills/workflow-failure-triage.md", "label": "workflow-failure-triage.md" }]
+    },
+    {
+      "where": "Compose › Workflows › recovery › Run Monitor › Retry Lineage",
+      "do": "Retry from the checkpoint. Click <strong>Retry</strong> (or use <strong>Retry from this checkpoint</strong> in the Resume Checkpoints panel). Confirm the <strong>Retry Lineage</strong> panel now shows <strong>\"Attempt 2 of 2\"</strong> and the run re-enters from the checkpoint back at <strong>waiting_approval</strong> on <code>review</code>.",
+      "click": "Retry",
+      "see": "The Retry Lineage panel shows <strong>Attempt 2 of 2</strong>; the run is paused again at <strong>waiting_approval</strong>.",
+      "asset": "retry lineage: Attempt 2 of 2"
+    },
+    {
+      "where": "Compose › Workflows › recovery › Run Monitor",
+      "do": "Approve and resume to recover. With the retried run paused at <strong>waiting_approval</strong>, click <strong>Approve</strong> on the <code>review</code> gate, then click <strong>Resume</strong>. The run reaches <strong>completed</strong> — that closes the reject → retry → approve → resume recovery loop on a shipped template, no code needed.",
+      "click": "Approve",
+      "see": "After <strong>Approve</strong> then <strong>Resume</strong>, the run reaches <strong>completed</strong>.",
+      "asset": "recovered run: completed via approve → resume"
+    },
+    {
+      "where": "Compose › Workflows › New Workflow",
+      "do": "Now do Option B — a real node-level exception you fix with a manual code patch. Click <strong>New Workflow</strong> and pick the <strong>Blank Canvas</strong> template. From the left Components palette drag a <strong>Python Code</strong> node, name it <strong><code>failing_node</code></strong>, click it to open the <strong>Inspector</strong>, and paste the entire file body. Wire <code>start</code>'s input into the node's <code>input</code> (or a named <code>payload</code>) input port, and wire the node's <code>result</code>/<code>text</code> to <code>final</code>. Click <strong>Save</strong>.",
+      "fill": [
+        ["Python Code node — name / body", "<code>failing_node</code> — paste the full body of <a href=\"../cookbooks/09-workflow-debugger-self-healing-lab/assets/tools/failing_node.py\">failing_node.py</a>"],
+        ["Wiring", "<code>start → failing_node.input</code> (the body also accepts a named <code>payload</code> port); <code>failing_node.result/text → final</code>"]
+      ],
+      "click": "Save",
+      "see": "A <code>blank</code> workflow with one <strong>Python Code</strong> node <code>failing_node</code> wired between start and final. The body validates the payload with <code>.get(...)</code> and (with the sentinel <code>STRICT = True</code>) raises a single composed <code>ValueError</code> when a malformed payload fails validation.",
+      "asset": "workflow: failing_node lab (blank + Python Code node)",
+      "assetlink": [{ "href": "../cookbooks/09-workflow-debugger-self-healing-lab/assets/tools/failing_node.py", "label": "failing_node.py" }]
+    },
+    {
+      "where": "Compose › Workflows › failing_node lab › Run Monitor",
+      "do": "Reproduce the node exception. Click the <strong>Run Monitor</strong> toggle, paste row <strong>WF02</strong> (a payload missing <code>account_id</code>) and click <strong>Run</strong>. The <code>failing_node</code> raises and the run lands in <strong>failed</strong> with a real exception. Note the failing run id. (Row WF03 — <code>amount: \"N/A\"</code> — reproduces a different <code>ValueError</code>.)",
+      "fill": [
+        ["Input (WF02 — missing account_id)", "<code>{\"payload\": {\"amount\": 50}}</code> → <code>ValueError: failing_node: invalid input -> missing or empty required field 'account_id'</code>"],
+        ["Input (WF03 — non-numeric amount)", "<code>{\"payload\": {\"account_id\": \"A-2210\", \"amount\": \"N/A\"}}</code> → <code>ValueError: failing_node: invalid input -> field 'amount' is missing or not a number</code>"]
+      ],
+      "click": "Run",
+      "see": "The run ends in <strong>failed</strong>; the timeline shows <code>start.completed</code> then <code>failing_node.error</code>.",
+      "asset": "failing run id (node_exception at failing_node)"
+    },
+    {
+      "where": "Compose › Workflows › failing_node lab › Run Monitor › Execution Debugger",
+      "do": "Localize the exception. Open the <strong>Execution Debugger</strong> panel: the last node with an <code>error</code> marker is <strong><code>failing_node</code></strong>. Read its input (the malformed <code>payload</code>) and the raised error text — that node id plus that exception <em>is</em> the concrete evidence any diagnosis must cite (and the only thing the <code>RootCauseQuality</code> judge accepts).",
+      "see": "The Debugger shows <code>failing_node</code> with an <code>error</code> marker, its malformed input payload, and the exact <code>ValueError</code> message.",
+      "asset": "localized fault: failing_node + ValueError"
+    },
+    {
+      "where": "Compose › Workflows › failing_node lab › Editor › failing_node",
+      "do": "Apply the minimal patch — <strong>manually</strong>. There is no patch tool and no Aria capability for this; the fix is a code edit. Click the <code>failing_node</code> node to open the <strong>Inspector</strong>, find the documented fix line, and change the sentinel <code>STRICT = True</code> → <code>STRICT = False</code>. That flips the node from <em>raising</em> the composed <code>ValueError</code> on a validation failure to <em>returning</em> a structured <code>rejected_input</code> result instead of throwing. Click <strong>Save</strong> — this save <em>is</em> the patch.",
+      "fill": [
+        ["Edit (smallest scoped change)", "in the <code>failing_node</code> body, set <code>STRICT = False</code> (the documented fix line in <a href=\"../cookbooks/09-workflow-debugger-self-healing-lab/assets/tools/failing_node.py\">failing_node.py</a>)"]
+      ],
+      "click": "Save",
+      "see": "The toolbar shows \"Saved draft.\" The node now validates input and returns <code>{status: \"rejected_input\", ...}</code> rather than raising.",
+      "asset": "patched workflow version (STRICT=False)"
+    },
+    {
+      "where": "Compose › Workflows › failing_node lab › Run Monitor",
+      "do": "Validate the fix on the same failing input. On the new version, run a <strong>Preview</strong> and then a real <strong>Run</strong> of the <em>same</em> WF02/WF03 input. Confirm it now reaches <strong>completed</strong> with <code>status = \"rejected_input\"</code> instead of crashing the run.",
+      "fill": [
+        ["Re-run input", "the same <code>{\"payload\": {\"amount\": 50}}</code> (WF02) that previously crashed"]
+      ],
+      "click": "Run",
+      "see": "The run reaches <strong>completed</strong> and the <code>failing_node</code> output is <code>{\"status\": \"rejected_input\", ...}</code> — the fault is now handled, not thrown.",
+      "asset": "post-fix run id (completed, rejected_input)"
+    },
+    {
+      "where": "Compose › Workflows › failing_node lab › Run Monitor",
+      "do": "Run a small regression slice to prove no new failures. Execute a couple of prior-good inputs (a well-formed payload) on the patched version and confirm they still succeed with <code>status = \"ok\"</code>. Keeping the patch minimal (one sentinel) is what makes this regression check trustworthy.",
+      "fill": [
+        ["Regression input (prior-good)", "<code>{\"payload\": {\"account_id\": \"A-1007\", \"amount\": 50}}</code> → expect <code>status: \"ok\"</code>"]
+      ],
+      "click": "Run",
+      "see": "The well-formed run completes with <code>status: \"ok\"</code>; the regression slice passes (gate target <strong>post_fix_regression_pass_rate_min ≥ 0.95</strong>).",
+      "asset": "regression slice: prior-good inputs still pass"
+    },
+    {
+      "where": "Observe › Observability",
+      "do": "Compare pre-fix and post-fix. Open <strong>Observability</strong> and put the failing run id and the patched (post-fix) run id side by side. Confirm the <code>failing_node</code> step is now green on the post-fix trace and that the failing node's evidence (the original exception) is explicit on the pre-fix trace — that is the <code>replay_success_rate = 1.0</code> evidence the gate wants. (Remember: the <code>monitoring.traces</code> labels in verification.yaml are evidence labels, not literal span names — read the node tree.)",
+      "see": "Two traces side by side: pre-fix shows the <code>failing_node</code> error; post-fix shows it green/completed with the same input.",
+      "asset": "comparison: pre-fix (failed) vs post-fix (completed) traces"
+    },
+    {
+      "where": "Evaluate › Evaluations › Run evaluation",
+      "do": "Optional — put a number on diagnosis quality. First create the <code>failing-inputs</code> test set (<strong>Evaluate › Test Sets › + New Test Set</strong>; rows carry <code>failing_node</code>/<code>node_input</code>/<code>node_error</code>/<code>recent_events</code> and <code>expectations</code>), author the <code>diagnosis-summary</code> prompt (<strong>Library › Prompts › New prompt</strong> — its variables map 1:1 onto the dataset inputs), and create the <code>RootCauseQuality</code> judge (<strong>Evaluate › Judges › + New Judge</strong>, Returns <code>bool</code>). Then click <strong>Run evaluation</strong>, pick <strong>Test set</strong> = <code>failing-inputs</code>, tick the deterministic graders and the <code>RootCauseQuality</code> judge under <strong>Custom LLM judges</strong> (it runs as a <code>Judge.&lt;id&gt;</code> scorer), and <strong>Run</strong>. The judge column flags a row as passing only when the diagnosis blames the actual failing node, cites the real error, and proposes a minimal scoped fix (the calibration path is an alternative).",
+      "fill": [
+        ["Test set", "<code>failing-inputs</code> — rows from <a href=\"../cookbooks/09-workflow-debugger-self-healing-lab/assets/dataset/failing-inputs.jsonl\">failing-inputs.jsonl</a>"],
+        ["Prompt", "<code>diagnosis-summary</code> — body from <a href=\"../cookbooks/09-workflow-debugger-self-healing-lab/assets/prompts/diagnosis-summary.md\">diagnosis-summary.md</a>"],
+        ["Judge", "<code>RootCauseQuality</code> (Returns <code>bool</code>) — instructions from <a href=\"../cookbooks/09-workflow-debugger-self-healing-lab/assets/judges/root-cause-quality.judge.json\">root-cause-quality.judge.json</a>"]
+      ],
+      "click": "Run",
+      "see": "The scorecard grades each diagnosis pass/fail against the failing-run evidence. (Evaluations needs a configured provider; with none it returns a 400 — the expected real-only guard.)",
+      "asset": "eval run: RootCauseQuality scorecard (optional)",
+      "assetlink": [
+        { "href": "../cookbooks/09-workflow-debugger-self-healing-lab/assets/dataset/failing-inputs.jsonl", "label": "failing-inputs.jsonl" },
+        { "href": "../cookbooks/09-workflow-debugger-self-healing-lab/assets/prompts/diagnosis-summary.md", "label": "diagnosis-summary.md" },
+        { "href": "../cookbooks/09-workflow-debugger-self-healing-lab/assets/judges/root-cause-quality.judge.json", "label": "root-cause-quality.judge.json" }
+      ]
+    }
+  ]
+}

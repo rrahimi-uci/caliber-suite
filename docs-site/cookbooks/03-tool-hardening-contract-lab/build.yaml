@@ -1,0 +1,61 @@
+workflow_goal: Enforce deterministic business logic first, then optionally add LLM explanation.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Tools must be importable Python (module_path+callable_name); there is no inline tool editor. Use shipped caliber.workflows.demo_tools callables, or put logic in a python_code workflow node.
+  - decide_refund is best implemented as a python_code node (deterministic eligibility) so it versions with the workflow.
+  - The write tool (initiate_refund) is mocked in the sandbox and becomes approval-gated in a workflow — exactly the safety behavior this scenario wants.
+  - Deterministic Hardening runs inline (POST /tools/{id}/calibrate); the LLM-judge lane is queued.
+  - approval_gate = the human_approval node; start the workflow from the hitl_review template.
+  - ExplanationFaithfulness is a real LLM judge; the deterministic rule_checks are enforced by the python_code node + the approval gate, not by a deterministic judge.
+manual_flow:
+  - step: register_tools
+    action: Register lookup and decision tools with schema contracts.
+  - step: run_fixtures
+    action: Execute fixture suite and inspect failing branches.
+  - step: harden
+    action: Pin baseline and run hardening comparison.
+  - step: workflow_bind
+    action: Bind tool into minimal workflow branch.
+  - step: explain_optional
+    action: Add prompt/skills for customer-safe explanation without changing decision.
+components:
+  prompts:
+    optional_explanation:
+      system: "Explain the deterministic decision without changing it."
+  skills:
+    - policy-reason-normalizer
+    - customer-safe-refund-language
+  tools:
+    - lookup_order_state   # realize as caliber.workflows.demo_tools:lookup_order (read)
+    - lookup_risk_flags    # realize as a python_code node, or a registered read callable
+    - decide_refund        # realize as a python_code node (deterministic eligibility) — recommended
+    - initiate_refund      # caliber.workflows.demo_tools:initiate_refund (write -> mocked/approval-gated)
+  mcp:
+    optional:
+      - PostgreSQL read-only verification (quick-connect catalog)
+  workflow:
+    template: hitl_review        # ships the human_approval gate
+    nodes:
+      - tool_lookup              # tool node: lookup_order
+      - deterministic_decision   # python_code node: decide_refund
+      - approval_gate            # human_approval node (high-risk cases only)
+      - explanation_optional     # agent/prompt; must not change the decision
+contracts:
+  input_schema:
+    type: object
+    required: [order_id, account_id]
+  output_schema:
+    type: object
+    required: [decision, reason_code, requires_approval]
+    properties:
+      decision: {type: string}
+      reason_code: {type: string}
+      requires_approval: {type: boolean}
+      explanation: {type: string}
+failure_modes:
+  - schema_drift_between_tool_and_workflow
+  - decision_explanation_mismatch
+  - missing_approval_on_high_risk_case
+fallbacks:
+  - fail closed to manual review when risk data is missing.
+  - suppress explanation generation if deterministic decision is invalid.

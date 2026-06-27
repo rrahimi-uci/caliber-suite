@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "caliber://cookbooks/04/extracted-fields.schema.json",
+  "title": "ExtractedInvoiceFields",
+  "description": "Target schema for the structured JSON extracted from an invoice document. The doc-structurer prompt fills these from verifiable facts only; the validate_document_json python_code node checks required keys + value types against this schema.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["invoice_id", "vendor", "line_items", "total", "currency", "issue_date"],
+  "properties": {
+    "invoice_id": {
+      "type": "string",
+      "description": "Invoice number/identifier as printed on the document, e.g. \"INV-2026-0042\"."
+    },
+    "vendor": {
+      "type": "string",
+      "description": "Name of the issuing vendor/supplier."
+    },
+    "line_items": {
+      "type": "array",
+      "description": "One object per billed line on the invoice, in source order.",
+      "items": {
+        "type": "object",
+        "required": ["description", "amount"],
+        "properties": {
+          "description": {"type": "string"},
+          "quantity": {"type": "number"},
+          "unit_price": {"type": "number"},
+          "amount": {"type": "number", "description": "Extended line amount (quantity * unit_price) as printed."}
+        }
+      }
+    },
+    "total": {
+      "type": "number",
+      "description": "Invoice grand total as printed. Must be a JSON number, not a string. Omit (and list in missing_fields) if the document does not state a total — never compute it."
+    },
+    "currency": {
+      "type": "string",
+      "description": "ISO 4217 currency code, e.g. \"USD\", \"EUR\"."
+    },
+    "issue_date": {
+      "type": "string",
+      "description": "Invoice issue date as an ISO 8601 date string YYYY-MM-DD."
+    },
+    "due_date": {
+      "type": "string",
+      "description": "Optional payment due date, ISO 8601 YYYY-MM-DD."
+    }
+  }
+}

@@ -1,0 +1,35 @@
+id: SCN-05
+slug: mcp-connectivity-governance-lab
+name: "Governed Tool Connectivity (MCP)"
+track: starter
+objective: Connect one MCP server, enforce policy overlays, and validate that direct invoke behavior is safe before workflow integration.
+why_it_matters:
+  - External tools are a major reliability and safety boundary.
+  - Policy enforcement must be proven in direct invoke paths.
+primary_persona: platform engineer
+secondary_personas:
+  - developer
+  - AI engineer
+caliber_surfaces:
+  # MCP invoke/policy paths emit no MLflow traces, so Observability is NOT a
+  # surface for this lab; evidence lives in MCP Servers › Playground › History.
+  - MCP Servers
+prerequisites:
+  - One MCP server template and credentials.
+  - At least one read-only tool in discovered inventory.
+time_to_first_value: 45-90 minutes
+success_criteria:
+  - Discovery works and schemas are visible.
+  - Blocked or approval-required tools fail correctly.
+demo_profile:
+  recommended_sequence_index: 4
+  tier: foundation
+  live_demo_minutes: 20-35
+  depends_on: []
+  included_in:
+    - quick_reliability
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - MCP connection and discovery
+    - policy overlays and enforcement

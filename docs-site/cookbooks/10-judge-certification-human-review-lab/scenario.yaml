@@ -1,0 +1,36 @@
+id: SCN-10
+slug: judge-certification-human-review-lab
+name: "Trustworthy Evaluation"
+track: gate
+objective: Certify that automated judges and human reviewers produce aligned, explainable decisions before release blocking.
+why_it_matters:
+  - Prevents silent rubric drift and over-trusting automated scores.
+  - Makes disagreement explicit and actionable.
+primary_persona: evaluator
+secondary_personas:
+  - platform engineer
+  - AI engineer
+caliber_surfaces:
+  - Judges
+  - Evaluations
+  - Review Queues
+  - Observability
+prerequisites:
+  - Candidate artifact runs from build scenarios.
+  - Reviewers available for sampled traces.
+time_to_first_value: 60-120 minutes
+success_criteria:
+  - Automated-human alignment meets threshold.
+  - Disagreements feed calibration backlog.
+demo_profile:
+  recommended_sequence_index: 10
+  tier: gate
+  live_demo_minutes: 30-50
+  depends_on:
+    - SCN-07
+    - SCN-08
+  included_in:
+    - release_governance
+  showcase_capabilities:
+    - judge rubric governance
+    - automated-human alignment and disagreement handling

@@ -1,0 +1,35 @@
+id: SCN-02
+slug: skill-trigger-packaging-lab
+name: "Precision Skills"
+track: starter
+objective: Build one reusable skill with deterministic trigger behavior, package portability, and baseline-calibrated quality.
+why_it_matters:
+  - Prevents over-broad skill activation in production assistants.
+  - Proves portability via export/import without semantic drift.
+primary_persona: AI engineer
+secondary_personas:
+  - developer
+  - evaluator
+caliber_surfaces:
+  - Skills
+  - Evaluations
+  - Observability
+prerequisites:
+  - Skill workspace access.
+  - Queries for positive and negative trigger testing.
+time_to_first_value: 45-75 minutes
+success_criteria:
+  - Trigger precision and recall pass threshold.
+  - Package round-trip preserves behavior.
+demo_profile:
+  recommended_sequence_index: 2
+  tier: foundation
+  live_demo_minutes: 25-40
+  depends_on:
+    - SCN-01
+  included_in:
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - deterministic skill triggering
+    - package portability and equivalence

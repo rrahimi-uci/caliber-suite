@@ -1,0 +1,30 @@
+# MLflow AI Gateway (LLM Gateway). Part of the `app` profile.
+#
+# Fronts the configured LLM providers behind one endpoint surface on :5002.
+# CALIBER discovers it (Gateway page) via CALIBER_GATEWAY_URI and can OPT IN to
+# routing its own LLM calls through it by setting CALIBER_LLM_BASE_URL to the
+# gateway (left unset by default so existing direct-provider routing is intact).
+#
+#   curl http://localhost:5002/api/2.0/endpoints/      # list endpoints
+#   curl http://localhost:5002/health
+
+name: caliber-mlflow-gateway
+
+services:
+  mlflow-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: caliber/mlflow-gateway:latest
+    container_name: caliber-mlflow-gateway
+    profiles: ["app"]
+    ports:
+      - "${MLFLOW_GATEWAY_PORT:-5002}:5002"
+    environment:
+      MLFLOW_GATEWAY_PORT: 5002
+      MLFLOW_GATEWAY_CONFIG: /etc/mlflow/gateway.yaml
+      # Provider keys resolved into the endpoint config at startup ($VAR refs).
+      # Sourced from the suite-root .env (interpolated via the include's env_file).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped

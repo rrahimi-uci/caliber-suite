@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QA Plan Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="QA Plan Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Quality &amp; trust</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">QA plan</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Quality &amp; trust · Architecture reference</div>
+          <h1 id="top">QA Plan Architecture</h1>
+          <p class="doc-summary">Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<p>This document describes the QA plan, the subsystem in CALIBER that governs quality for both product behavior and engineering change safety. It explains how the runtime QA control plane, the engineering validation plane, and the shared evidence plane are separated, how each one works, and how they converge into a single operator-facing view of quality. The companion feature documents assume the substrate established in the platform architecture; this document focuses on how quality governance is layered on top of it.</p>
+<p>Throughout, all runtime QA HTTP routes are mounted under the <code>/ajax-api/2.0/mlflow/caliber</code> prefix. To keep the prose readable, endpoint paths are shown relative to that prefix once the convention has been stated.</p>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>QA plan: quality governance for product behavior and change safety</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>The seam where two notions of quality meet, spanning a runtime QA control plane, an engineering validation plane, and a shared evidence plane.</td></tr><tr><td><strong>Runtime QA state</strong></td><td>Durable rows — <code>CaliberVerificationItem</code>, <code>CaliberRefinementJob</code>, <code>CaliberRegressionRun</code> — moving artifacts through triage → evidence → diagnosis → candidate → eval → apply.</td></tr><tr><td><strong>Runtime approvals</strong></td><td>Paused live runs via <code>CaliberRuntimeApprovalRequest</code> + <code>CaliberWorkflowRunCheckpoint</code>, kept distinct from artifact promotion history.</td></tr><tr><td><strong>Validation suites</strong></td><td>Backend pytest, frontend Vitest, and browser Playwright E2E run from repo-root <code>Makefile</code> / <code>test-all.sh</code>.</td></tr><tr><td><strong>Evidence model</strong></td><td>MLflow assessments, Prometheus counters, dashboard summaries, and merged Allure reports served at <code>/observability/allure-report</code>.</td></tr><tr><td><strong>Key surfaces</strong></td><td>Runtime QA HTTP routes under <code>/ajax-api/2.0/mlflow/caliber</code>; CLI commands like <code>make test-all</code> for validation.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the scope, boundaries, runtime, data model, surfaces, lifecycle, security, observability, and constraints in detail.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The QA plan module in CALIBER is the combined quality-governance architecture for both product behavior and engineering change safety. It is neither merely a test runner nor merely a verification queue; it is the seam where two different notions of quality meet. Concretely, it spans three distinct planes:</p>
+<ul><li>The runtime QA control plane captures verification signals, executes refinement jobs, persists regression evidence, applies accepted candidates, and pauses live workflow runs for human approval when policy requires it.</li><li>The engineering validation plane runs backend pytest, frontend Vitest, and browser E2E suites through stable repo-root entry points.</li><li>The shared evidence plane turns trace feedback, job outcomes, raw test artifacts, and merged Allure reports into operator-visible quality proof.</li></ul>
+<p>Those planes give the module a deliberately broad mandate. Its responsibilities are to do the following:</p>
+<ul><li>Capture durable QA signals from prompt optimization, prompt calibration, skill calibration, workflow calibration, assistant promotion proposals, and human trace feedback.</li><li>Move artifact-level issues through the triage -&gt; evidence -&gt; diagnosis -&gt; candidate -&gt; eval -&gt; apply lifecycle with replay-safe provenance, so that every promotion can be traced back to the signal that prompted it.</li><li>Enforce runtime approval pauses and checkpoint-based resume semantics for live workflow runs without conflating them with offline artifact promotion.</li><li>Provide one-command test orchestration for backend, frontend, and browser validation.</li><li>Merge backend and frontend test artifacts into one Allure surface that the product can serve directly.</li><li>Expose quality pressure, approvals, regressions, and report artifacts through the dashboard, observability, and workflow-runtime surfaces.</li></ul>
+<p>These responsibilities are realized across a small set of primary code paths, which serve as the entry points for the rest of this document:</p>
+<ul><li><code>Makefile</code></li><li><code>test-all.sh</code></li><li><code>caliber/Makefile</code></li><li><code>caliber/pyproject.toml</code></li><li><code>caliber/scripts/pytest_clean_exit.py</code></li><li><code>caliber/scripts/run-playwright-server.sh</code></li><li><code>caliber/src/caliber/db/models.py</code></li><li><code>caliber/src/caliber/schemas.py</code></li><li><code>caliber/src/caliber/routes/prompts.py</code></li><li><code>caliber/src/caliber/routes/skills.py</code></li><li><code>caliber/src/caliber/routes/workflow_calibration.py</code></li><li><code>caliber/src/caliber/routes/jobs.py</code></li><li><code>caliber/src/caliber/routes/workflow_runs.py</code></li><li><code>caliber/src/caliber/routes/capabilities.py</code></li><li><code>caliber/src/caliber/routes/dashboard.py</code></li><li><code>caliber/src/caliber/routes/observability.py</code></li><li><code>caliber/src/caliber/mlflow_client.py</code></li><li><code>caliber/src/caliber/regression.py</code></li><li><code>caliber/src/caliber/apply.py</code></li><li><code>caliber/src/caliber/promoter.py</code></li><li><code>caliber/src/caliber/observability/metrics.py</code></li><li><code>caliber/src/caliber/assistant/service.py</code></li><li><code>caliber/caliber-ui/package.json</code></li><li><code>caliber/caliber-ui/vitest.config.ts</code></li><li><code>caliber/caliber-ui/playwright.config.ts</code></li><li><code>caliber/caliber-ui/scripts/run-vitest-sequential.sh</code></li><li><code>caliber/caliber-ui/scripts/generate-allure.mjs</code></li><li><code>caliber/caliber-ui/scripts/check-allure-java.mjs</code></li><li><code>caliber/caliber-ui/scripts/allure-report.sh</code></li><li><code>caliber/caliber-ui/src/test/setup.ts</code></li><li><code>caliber/caliber-ui/src/test/handlers.ts</code></li><li><code>caliber/caliber-ui/src/pages/Overview.tsx</code></li><li><code>caliber/caliber-ui/src/pages/WorkflowDetail.tsx</code></li><li><code>caliber/caliber-ui/src/pages/WorkflowEditor.tsx</code></li><li><code>caliber/caliber-ui/src/components/workflows/TraceReplayGraph.tsx</code></li><li><code>caliber/caliber-ui/src/components/workflows/WorkflowRunRecoveryPanel.tsx</code></li><li><code>caliber/caliber-ui/src/api/caliberApi.ts</code></li><li><code>caliber/caliber-ui/e2e/</code></li><li><code>caliber/tests/</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Given that breadth, the QA plan is best understood as a set of cooperating responsibilities rather than a single component. The table below names each responsibility, the code that owns it, and the role it plays in the wider quality story.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Verification-item ingress</td><td><code>routes/prompts.py</code>, <code>routes/skills.py</code>, <code>routes/workflow_calibration.py</code>, <code>assistant/service.py</code></td><td>Feature-specific entry points create already-verified items and queued refinement jobs directly.</td></tr><tr><td>Curated human-review queues</td><td><code>routes/review_queues.py</code> + <code>CaliberReviewQueue</code> (migration 0054), FE <code>ReviewQueues.tsx</code></td><td>Dedicated <code>/review-queues</code> CRUD plus enqueue/submit surface for operator-curated review batches.</td></tr><tr><td>Authored judges</td><td><code>routes/judges.py</code> + <code>CaliberJudge</code> (migration 0053), FE <code>Judges.tsx</code></td><td><code>/judges</code> list/create/detail/update plus <code>/test-run</code> and <code>/alignment</code>; judges are reusable scorers across calibration, the eval scorecard, and assessments.</td></tr><tr><td>Durable artifact QA state</td><td><code>CaliberVerificationItem</code> + <code>VerificationItemSchema</code></td><td>Source of truth for artifact-scoped QA items linked to traces, sessions, workflows, and assessments.</td></tr><tr><td>Refinement and replay evidence</td><td><code>CaliberRefinementJob</code>, <code>CaliberRegressionRun</code>, <code>regression.py</code></td><td>Tracks staged diagnosis and candidate evaluation separately from final promotion history.</td></tr><tr><td>Promotion and rollback provenance</td><td><code>apply.py</code>, <code>promoter.py</code>, <code>CaliberApprovalRequest</code>, <code>CaliberRollbackCheckpoint</code></td><td>Applies only ready candidates and stores rollback anchors before mutation.</td></tr><tr><td>Runtime approvals and checkpoints</td><td><code>routes/workflow_runs.py</code>, <code>CaliberRuntimeApprovalRequest</code>, <code>CaliberWorkflowRunCheckpoint</code></td><td>Governs paused live workflow runs and resume-safe recovery.</td></tr><tr><td>Feedback bridge from traces</td><td><code>routes/observability.py</code>, <code>mlflow_client.py</code>, <code>CaliberRuntimeLock</code></td><td>Human review lands on traces first and can later feed QA-oriented persistence.</td></tr><tr><td>Repo-root validation orchestration</td><td><code>Makefile</code>, <code>test-all.sh</code></td><td>Defines the canonical full-suite entry points and final failure semantics.</td></tr><tr><td>Backend Python tests</td><td><code>caliber/Makefile</code>, <code>caliber/tests/</code>, <code>pyproject.toml</code></td><td>Runs pytest with shared defaults, Allure emission, and the clean-exit wrapper.</td></tr><tr><td>Frontend unit/component tests</td><td><code>package.json</code>, <code>vitest.config.ts</code>, <code>src/test/*</code></td><td>Uses jsdom, Testing Library, MSW, and serialized workers for deterministic UI coverage.</td></tr><tr><td>Browser E2E harness</td><td><code>playwright.config.ts</code>, <code>e2e/*.spec.ts</code>, <code>run-playwright-server.sh</code></td><td>Drives real browser flows against an isolated or explicitly reused CALIBER instance.</td></tr><tr><td>Shared report composition</td><td><code>generate-allure.mjs</code>, <code>allure-report.sh</code>, <code>routes/observability.py</code></td><td>Merges raw results, renders HTML, and serves the final report in-product.</td></tr></tbody></table></div>
+<p>The architectural separation that matters most inside the QA plan is the split between the three planes already introduced, because each operates on a different object and at a different cadence:</p>
+<ul><li>The runtime QA plane owns verification items, refinement jobs, regression runs, promotion, rollback, and workflow-run approvals — the state that decides whether artifacts and live executions may advance.</li><li>The engineering validation plane owns backend pytest, frontend Vitest, and browser E2E execution — the suites that decide whether code changes are safe to land.</li><li>The shared evidence plane owns the MLflow assessments, Prometheus counters, dashboard summaries, and Allure artifacts that let operators judge the quality state produced by the other two planes.</li></ul>
+<p>Keeping these planes distinct is what allows runtime promotion safety and engineering test safety to evolve independently while still reporting into one view.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The boundaries above resolve, at runtime, into two largely independent execution systems that meet only at the evidence layer. The diagram below shows the runtime QA control plane on one side, the engineering validation plane on the other, and the Allure pipeline that funnels both into operator surfaces.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    subgraph RQ["Runtime QA control plane"]
+        P[Prompt / Skill / Workflow&lt;br/&gt;calibration routes]:::ctrl
+        A[Assistant promotion proposal]:::ctrl
+        FB[Observability feedback&lt;br/&gt;on traces]:::ext
+        VQ[(CaliberVerificationItem)]:::store
+        JOB[(CaliberRefinementJob)]:::store
+        REG[(CaliberRegressionRun)]:::store
+        APP[Apply flow&lt;br/&gt;jobs.py + apply.py]:::ctrl
+        PROV[(Promoter / MLflow / deploy target)]:::ext
+        APPR[(CaliberApprovalRequest&lt;br/&gt;CaliberRollbackCheckpoint)]:::store
+        RUN[Workflow run worker]:::async
+        CK[(CaliberWorkflowRunCheckpoint)]:::store
+        RA[(CaliberRuntimeApprovalRequest)]:::store
+        QUI[Overview + Workflow runtime UI]:::ui
+
+        P --&gt; VQ --&gt; JOB --&gt; REG --&gt; APP --&gt; APPR --&gt; PROV
+        A --&gt; VQ
+        FB --&gt; VQ
+        RUN --&gt; CK
+        RUN --&gt; RA
+        QUI --&gt; JOB
+        QUI --&gt; RA
+        QUI --&gt; CK
+    end
+
+    subgraph TV["Engineering validation plane"]
+        DEV[Developer or CI]:::user
+        ROOT[Repo-root Makefile&lt;br/&gt;test-all.sh]:::ctrl
+        BKT[caliber/Makefile]:::ctrl
+        PY[pytest_clean_exit.py]:::ctrl
+        BT[(caliber/tests)]:::store
+        VT[npm test / Vitest]:::ctrl
+        MSW[src/test/setup.ts&lt;br/&gt;src/test/handlers.ts]:::ctrl
+        FUT[(src/**/*.test.tsx)]:::store
+        E2E[npm run test:e2e / Playwright]:::async
+        BOOT[run-playwright-server.sh]:::async
+        APP2[(Ephemeral or existing CALIBER)]:::async
+        SPECS[(e2e/*.spec.ts)]:::store
+        RES1[(caliber/allure-results)]:::store
+        RES2[(caliber-ui/allure-results)]:::store
+
+        DEV --&gt; ROOT
+        ROOT --&gt; BKT --&gt; PY --&gt; BT --&gt; RES1
+        ROOT --&gt; VT --&gt; MSW --&gt; FUT --&gt; RES2
+        ROOT --&gt; E2E --&gt; BOOT --&gt; APP2 --&gt; SPECS --&gt; RES2
+    end
+
+    RES1 --&gt; MERGE[generate-allure.mjs]:::ext
+    RES2 --&gt; MERGE
+    MERGE --&gt; HTML[(caliber-ui/allure-report)]:::store
+    HTML --&gt; OBS[observability/allure-report]:::ctrl
+    OBS --&gt; OPS[Operator evidence surfaces]:::ui
+    PROV --&gt; OPS</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties follow from this topology and are worth making explicit, because they shape how the QA plan behaves in practice:</p>
+<ul><li>Runtime QA and engineering validation are separate execution systems, yet they converge into the same operator-facing evidence model, which is what lets a single surface speak to both kinds of quality.</li><li>Artifact QA enters either through feature-specific calibration/test flows or through the dedicated <code>/review-queues</code> module, so an item's originating feature — or an explicitly curated review queue — owns the moment it enters the pipeline.</li><li>Runtime approvals are intentionally distinct from artifact promotion approvals, even though both belong to the broader QA plan, so that live-run control flow and offline promotion history never blur together.</li><li>Backend pytest, Vitest, and Playwright keep independent execution models but share one downstream Allure artifact path, which is the only place the two planes touch.</li><li>The final Allure report is a served artifact, not the source of truth for whether tests ran successfully; the underlying exit codes remain authoritative.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>With the runtime established, the next question is where authoritative QA state lives. The QA plan deliberately uses two kinds of state: durable database rows for runtime governance, and file- and process-oriented state for the test plane. That split is intentional, because the two planes have different durability and recovery needs.</p>
+<p>The table below lists the representative state holders, grouped by the plane they belong to.</p>
+<div class="table-wrap"><table><thead><tr><th>Plane</th><th>State holder</th><th>Role</th></tr></thead><tbody><tr><td>Runtime QA</td><td><code>CaliberVerificationItem</code></td><td>Durable artifact QA item with trace, session, workflow, and assessment linkage.</td></tr><tr><td>Runtime QA</td><td><code>CaliberRefinementJob</code></td><td>Multi-stage refinement execution for one verification item.</td></tr><tr><td>Runtime QA</td><td><code>CaliberRegressionRun</code></td><td>Replay/eval record that explains candidate readiness.</td></tr><tr><td>Runtime QA</td><td><code>CaliberApprovalRequest</code></td><td>Apply-time provenance anchor created already approved after governance-table removal.</td></tr><tr><td>Runtime QA</td><td><code>CaliberRollbackCheckpoint</code></td><td>Restore point for rollback after promotion.</td></tr><tr><td>Runtime QA</td><td><code>CaliberRuntimeApprovalRequest</code></td><td>Live workflow-run approval state for paused runtime gates.</td></tr><tr><td>Runtime QA</td><td><code>CaliberWorkflowRunCheckpoint</code></td><td>Resume-safe state snapshot for approval or event waits.</td></tr><tr><td>Runtime QA</td><td><code>CaliberRuntimeLock</code></td><td>Durable lease/checkpoint row for poller-style background coordination.</td></tr><tr><td>Runtime QA</td><td><code>CaliberAuditLog</code></td><td>Append-only history of QA mutations, approvals, promotions, and rollbacks.</td></tr><tr><td>Engineering validation</td><td><code>caliber/tests/</code></td><td>Backend unit, integration, route, storage, workflow, and runtime contract tests.</td></tr><tr><td>Engineering validation</td><td><code>caliber/caliber-ui/src/**/*.{test,spec}.{ts,tsx}</code></td><td>Frontend component, page, API-client, and state-management tests.</td></tr><tr><td>Engineering validation</td><td><code>caliber/caliber-ui/e2e/</code></td><td>Browser-driven full-stack validation flows.</td></tr><tr><td>Evidence/reporting</td><td><code>caliber/allure-results/</code></td><td>Raw backend Allure results emitted by pytest.</td></tr><tr><td>Evidence/reporting</td><td><code>caliber/caliber-ui/allure-results/</code></td><td>Shared raw frontend Allure results for Vitest and Playwright.</td></tr><tr><td>Evidence/reporting</td><td><code>caliber/caliber-ui/allure-report/</code></td><td>Generated HTML report served locally and in-product.</td></tr><tr><td>Engineering validation</td><td><code>.tmp/playwright-server-$MLFLOW_PORT/</code></td><td>Per-port E2E bootstrap state, PID files, logs, DB path, and locks.</td></tr></tbody></table></div>
+<p>A handful of semantic rules govern how this state behaves, and they hold consistently across the plane:</p>
+<ul><li><code>CaliberVerificationItem.assessment_id</code> is unique, which makes assessment-driven ingest idempotent across retries.</li><li>Verification items preserve origin metadata such as <code>trace_id</code>, <code>session_id</code>, <code>workflow_id</code>, <code>artifact_ref</code>, and <code>submitted_context</code>, so that QA can route back to the original asset or execution.</li><li>Refinement jobs own the staged lifecycle and can terminate in <code>candidate_ready</code>, <code>applied</code>, <code>failed</code>, or <code>rejected</code> states, all of which are surfaced by <code>routes/jobs.py</code>.</li><li>Runtime approval rows are never reused for artifact promotion history, which prevents live-run control flow from mutating promotion provenance.</li><li>The engineering test plane is file- and process-oriented rather than database-backed, so its raw evidence lives in result directories and ephemeral bootstrap state instead of tables.</li><li>Report generation is downstream of raw artifact emission, which means HTML rendering can summarize evidence but cannot recover skipped test execution.</li></ul>
+<p>The test plane is also tuned through a set of high-value configuration knobs, read by the Makefiles and shell scripts that drive validation:</p>
+<ul><li><code>ALLURE</code></li><li><code>ARGS</code></li><li><code>VENV</code></li><li><code>PLAYWRIGHT_WORKERS</code></li><li><code>CALIBER_E2E_USE_EXISTING_SERVER</code></li><li><code>CALIBER_E2E_BASE_URL</code></li><li><code>CALIBER_E2E_ENV_FILE</code></li><li><code>MLFLOW_PORT</code></li><li><code>CALIBER_SKIP_KNOWLEDGE_WARMUP</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because the QA plan governs two planes, it is reached through two kinds of surface: HTTP control routes for runtime QA, and CLI-driven commands for engineering validation. The runtime QA routes are grouped below by purpose, followed by the validation entry points.</p>
+<p>All runtime QA routes live under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix.</p>
+<p>Artifact QA enters the pipeline through the feature-specific calibration and optimization routes observed in the current checkout:</p>
+<ul><li><code>POST /prompts/optimization/runs</code></li><li><code>POST /prompts/calibration/runs</code></li><li><code>POST /skills/{skill_id}/calibrate</code></li><li><code>GET /workflows/{workflow_id}/calibration/options</code></li><li><code>POST /workflows/{workflow_id}/calibration/runs</code></li></ul>
+<p>Curated human review enters through the dedicated review-queue and judge modules:</p>
+<ul><li><code>GET</code>/<code>POST /review-queues</code>, <code>GET</code>/<code>PATCH /review-queues/{id}</code>, and the enqueue/submit endpoints (<code>routes/review_queues.py</code>, <code>CaliberReviewQueue</code>)</li><li><code>GET</code>/<code>POST /judges</code>, <code>GET</code>/<code>PATCH /judges/{id}</code>, <code>POST /judges/{id}/test-run</code>, <code>POST /judges/{id}/alignment</code> (<code>routes/judges.py</code>, <code>CaliberJudge</code>)</li></ul>
+<p>Once items are in flight, the inspection and apply routes drive them toward promotion:</p>
+<ul><li><code>GET /jobs</code></li><li><code>GET /jobs/{job_id}</code></li><li><code>GET /jobs/{job_id}/targets</code></li><li><code>POST /jobs/{job_id}/apply</code></li></ul>
+<p>A separate set of routes governs runtime QA for live workflow executions, where the unit of control is a paused run rather than an artifact:</p>
+<ul><li><code>GET /workflow-runs/{run_id}/checkpoints</code></li><li><code>GET /workflow-runs/{run_id}/approvals</code></li><li><code>POST /workflow-runs/{run_id}/approval/approve</code></li><li><code>POST /workflow-runs/{run_id}/approval/reject</code></li><li><code>POST /workflow-runs/{run_id}/resume</code></li><li><code>POST /workflow-runs/resume-by-event</code></li></ul>
+<p>Several adjacent routes supply the feedback, capability, and evidence surfaces the QA plan depends on:</p>
+<ul><li><code>POST /observability/traces/{trace_id}/feedback</code></li><li><code>GET /capabilities</code></li><li><code>GET /dashboard/summary</code></li><li><code>GET /observability/allure-report</code></li><li><code>GET /observability/allure-report/{path:path}</code></li></ul>
+<p>The engineering validation plane, by contrast, is driven from the command line. Its canonical entry points are:</p>
+<ul><li><code>make test</code></li><li><code>make test-all</code></li><li><code>make test-allure</code></li><li><code>make allure-report</code></li><li><code>make allure-publish</code></li><li><code>make allure</code></li><li><code>./test-all.sh [--no-allure]</code></li><li><code>cd caliber &amp;&amp; make test</code></li><li><code>cd caliber &amp;&amp; make test-allure</code></li><li><code>cd caliber/caliber-ui &amp;&amp; npm test</code></li><li><code>cd caliber/caliber-ui &amp;&amp; npm run test:full:stable</code></li><li><code>cd caliber/caliber-ui &amp;&amp; npm run test:e2e</code></li><li><code>cd caliber/caliber-ui &amp;&amp; npm run test:e2e:workflow-platform</code></li><li><code>cd caliber/caliber-ui &amp;&amp; npm run test:e2e:age</code></li><li><code>cd caliber/caliber-ui &amp;&amp; npm run allure:generate:all</code></li></ul>
+<p>A few contract nuances are worth noting, because the surface as deployed differs from the surface the client still anticipates:</p>
+<ul><li>The frontend API client and test mocks still model generic <code>/verification-queue</code>, <code>/verification-queue/{id}/verify</code>, <code>/verification-queue/{id}/dismiss</code>, <code>/verification-queue/{id}/duplicate</code>, and <code>/verification-queue/batch</code> endpoints.</li><li>The artifact-QA ingress is served by a dedicated queue route module, <code>routes/review_queues.py</code> (the <code>/review-queues</code> CRUD plus enqueue/submit surface, backed by <code>CaliberReviewQueue</code>, migration 0054, FE page <code>ReviewQueues.tsx</code>), alongside <code>routes/judges.py</code> (<code>/judges</code> list/create/detail/update plus <code>/test-run</code> and <code>/alignment</code>, backed by <code>CaliberJudge</code>, migration 0053, FE page <code>Judges.tsx</code>). The narrower claim that there is no backend <code>/verification-queue</code> route specifically still holds — that generic contract above remains only a frontend client stub.</li><li>The engineering validation plane is driven by CLI contracts first and product routes second, because report serving is downstream of test execution.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The two planes also run on two distinct lifecycles, which the sequence below places side by side. The runtime QA lifecycle advances artifacts and live runs; the engineering validation lifecycle advances code changes. They never block each other, and they meet only when their evidence reaches the operator.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant F as Feature Route or Reviewer
+    participant Q as QA persistence
+    participant J as Refinement jobs
+    participant P as Apply / runtime gate
+    participant D as Developer or CI
+    participant T as Makefile / test-all.sh
+    participant S as Pytest and Vitest
+    participant W as Playwright + bootstrap
+    participant R as Allure pipeline
+    participant O as Operator surfaces
+
+    alt Runtime QA lifecycle
+        F-&gt;&gt;Q: create verification item or trace feedback
+        Q-&gt;&gt;Q: persist verification state
+        Q-&gt;&gt;J: enqueue refinement job
+        J-&gt;&gt;J: triage -&gt; evidence -&gt; diagnosis -&gt; candidate -&gt; eval
+        J--&gt;&gt;O: candidate_ready or terminal failure
+
+        opt Promote accepted candidate
+            O-&gt;&gt;P: POST /jobs/{job_id}/apply
+            P-&gt;&gt;P: mint rollback checkpoints and provenance
+            P--&gt;&gt;O: applied artifact_ref + version details
+        end
+
+        opt Pause live workflow run
+            P-&gt;&gt;Q: persist checkpoint + runtime approval row
+            O-&gt;&gt;P: approve, reject, or resume-by-event
+            P--&gt;&gt;O: resumed execution or terminal failure
+        end
+    end
+
+    alt Engineering validation lifecycle
+        D-&gt;&gt;T: make test-all
+        T-&gt;&gt;S: backend make test-allure + frontend npm test
+        S--&gt;&gt;T: raw backend/frontend allure-results
+        T-&gt;&gt;W: npm run test:e2e
+        W-&gt;&gt;W: bootstrap or reuse server, wait for /health
+        W--&gt;&gt;T: E2E exit code + shared allure-results
+        opt ALLURE enabled
+            T-&gt;&gt;R: npm run allure:generate:all
+            R-&gt;&gt;R: merge result dirs and replace report contents in place
+            R--&gt;&gt;O: refreshed /observability/allure-report
+        end
+    end</pre></div>
+<p>The quality story is intentionally split but convergent, and the lifecycle makes that explicit:</p>
+<ul><li>Runtime QA decides whether artifacts and live executions are safe to advance.</li><li>Engineering validation decides whether code changes are safe to land.</li><li>Both pipelines emit operator-readable evidence rather than relying on hidden process state, so the decision of either plane can be inspected after the fact.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Quality governance is only as trustworthy as the controls around it, so the QA plan enforces authorization, isolation, and data-integrity protections at every point where state can change or code can run. The authorization model anchors each sensitive action to an explicit scope and feature flag.</p>
+<p>The QA plan enforces the following authorization rules:</p>
+<ul><li>Calibration and apply routes require <code>SCOPE_OPERATOR</code>.</li><li>Runtime approval decision routes also require <code>SCOPE_OPERATOR</code>, and the queue, runtime-approval, and checkpointing feature flags must allow the action.</li><li>Observability feedback requires an authenticated user and records that actor as the reviewer.</li></ul>
+<p>Layered over the authorization model is a set of isolation boundaries that keep unsafe state and unsafe execution from leaking across the plane:</p>
+<ul><li>Artifact QA is fail-closed: <code>POST /jobs/{job_id}/apply</code> rejects any job that is not already in <code>candidate_ready</code>.</li><li>Runtime approval resume logic validates checkpoint integrity, node identity, and policy shape before a live workflow run may continue.</li><li>Vitest defaults to an MSW-backed local trust boundary rather than a live backend dependency.</li><li>Playwright only reuses an existing server when explicitly configured to do so; otherwise it boots an isolated local instance with per-port state.</li><li>The E2E bootstrap loads only a small allowlist of <code>.env</code> values rather than importing the entire ambient environment.</li></ul>
+<p>A further set of protections defends the integrity of the evidence itself, so that what operators read can be trusted:</p>
+<ul><li>Assessment ingest is idempotent because <code>assessment_id</code> is unique on <code>CaliberVerificationItem</code>.</li><li>Audit records are appended for item creation, job creation, approval decisions, promotions, and rollbacks.</li><li><code>pytest_clean_exit.py</code> calls <code>os._exit()</code> only after pytest has already computed the real result, which avoids a misleading interpreter-finalization crash without masking genuine failures.</li><li>Raw Allure results are evidence artifacts emitted by the test adapters, while the report-serving route exposes only static generated content.</li></ul>
+<p>Taken together, these controls express a deliberate trust model:</p>
+<ul><li>Human trace feedback is durable reviewer intent, but it is not automatically final artifact truth until it has been materialized into QA state and acted upon.</li><li>Promotion history and runtime approval history are intentionally split, so a live workflow decision can never silently rewrite artifact governance.</li><li>The Allure report is informative evidence, not a replacement for checking the underlying suite exit codes.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The QA plan is deeply coupled to CALIBER's observability stack, because quality evidence is only useful if it is inspectable in the same production-like operator flows as traces and metrics. The operational signals that matter most are exposed through metrics, the dashboard, the workflow runtime panels, and the served report.</p>
+<p>Operators rely on the following signals:</p>
+<ul><li><code>observability/metrics.py</code> exports verification queue depth, approvals, job-terminal outcomes, promotions, and rollbacks as first-class Prometheus metrics.</li><li><code>dashboard/summary</code> rolls those counts into the Overview page, which is the most visible high-level QA-pressure surface in the current SPA.</li><li>The workflow runtime panels load checkpoints, approval rows, live events, and recovery information, so paused or blocked executions can be diagnosed in context.</li><li>The generated Allure report is available through <code>/observability/allure-report</code>, which makes test artifacts part of the same operator workflow as traces and metrics.</li><li>Playwright bootstrap state under <code>.tmp/playwright-server-$MLFLOW_PORT/</code> is the first operational inspection point when the browser harness flakes.</li></ul>
+<p>These signals reflect that the planes operate at different tempos, and the distinctions matter when diagnosing an issue:</p>
+<ul><li>Artifact QA is generally asynchronous and can culminate in promotion.</li><li>Runtime QA is synchronous relative to a live execution and can culminate in resume or failure.</li><li>Engineering validation is usually developer- or CI-triggered and culminates in exit codes plus report artifacts.</li><li>Observability feedback remains durable even when downstream queue-ingest mechanics are unavailable or still evolving.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The QA plan is built to grow along its existing seams rather than to be rewired, and most extensions reuse the row, checkpoint, and Allure patterns already in place. The primary extension points are:</p>
+<ul><li>New artifact sources can create <code>CaliberVerificationItem</code> rows without redesigning the refinement, regression, or apply stages.</li><li>Runtime approvals already expose a stable row-plus-checkpoint pattern that can be extended to richer policies or multi-actor review.</li><li>New backend or frontend suites can emit into the existing Allure result directories and join the same report pipeline.</li><li><code>run-playwright-server.sh</code> already supports existing-server and bootstrap modes, which makes new environment profiles straightforward to add.</li><li>The repo-root Makefile exposes stable entry points that CI and local tooling can wrap without learning the internals of pytest, Vitest, or Playwright.</li></ul>
+<p>Set against those seams are the constraints the QA plan currently accepts, stated plainly so that future work can weigh them deliberately:</p>
+<ul><li>The generic <code>/verification-queue</code> contract still appears in the frontend client and test mocks with no matching backend route. The curated-review surface that did ship is the dedicated <code>/review-queues</code> module (<code>routes/review_queues.py</code>, <code>CaliberReviewQueue</code>/<code>CaliberReviewItem</code>, migration 0054) — the <code>/verification-queue</code> client methods are the vestigial ones, not the queue feature as a whole.</li><li>The normalized assessment client and runtime-lock schema clearly prepare for a feedback-poller path, but a standalone co-located poller implementation is not as obvious as the newer modules in this checkout.</li><li><code>CaliberApprovalRequest</code> now represents apply-time provenance rather than the older multi-review governance workflow, so older approval-queue mental models are stale for the current codebase.</li><li><code>make test-all</code> does not include linting or <code>npm run typecheck</code>, so those remain adjacent quality gates rather than part of the canonical full-suite path.</li><li>Vitest remains intentionally serialized for stability and Playwright keeps <code>fullyParallel: false</code>, so throughput is bounded by these determinism choices.</li><li>Direct <code>npm run allure:generate:all</code> depends on Java for the npm rendering path, while the shell wrapper remains the more portable render option.</li><li>The QA plan is architecturally one quality system but operationally split across artifact refinement, workflow runtime control, and engineering test execution, so it still does not map to a single isolated microservice boundary inside the monolith today.</li></ul>
+<p>Taken together, the picture is consistent: the QA plan is one quality system expressed as three cooperating planes — a runtime control plane, an engineering validation plane, and a shared evidence plane — that decide, respectively, whether artifacts, live runs, and code changes are safe to advance, and then report their verdicts into a single operator-facing surface.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,34 @@
+id: SCN-12
+slug: aria-evaluation-harness
+name: "Aria: Evaluation Harness from Intent"
+track: aria
+objective: Give Aria a single clear intent and have it autonomously plan and create a faithfulness judge plus an eval dataset to run it on — end to end, with only human confirmation of the parameters.
+why_it_matters:
+  - Shows Aria turning one sentence into governed, real artifacts via plan -> approve -> execute.
+  - Establishes the autonomous-orchestration pattern, bounded honestly by Aria's real capability registry.
+primary_persona: AI engineer
+secondary_personas:
+  - evaluator
+  - platform engineer
+caliber_surfaces:
+  - Plans
+  - Judges
+  - Test Sets
+  - Evaluations
+prerequisites:
+  - A configured model provider (the judge runs on a real model; an LLM planner, if enabled, also needs it).
+  - Aria Plans available (sidebar "Plans").
+time_to_first_value: 15-30 minutes
+success_criteria:
+  - From the intent alone, Aria drafts a plan containing judge.create + eval_dataset.create.
+  - After approval and answering the interactions, a real active judge and a test set exist.
+demo_profile:
+  recommended_sequence_index: 12
+  tier: aria
+  live_demo_minutes: 15-25
+  depends_on: []
+  included_in:
+    - aria_autonomous
+  showcase_capabilities:
+    - Aria plan decompose -> approve -> execute
+    - autonomous judge + test-set creation from a single intent

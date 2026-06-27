@@ -1,0 +1,28 @@
+{
+  "queue_name": "faithfulness-certification",
+  "description": "Human review of sampled traces graded by Judge.FaithfulnessJudge. Reviewers answer the same faithfulness criterion the judge uses, so the two verdicts can be laid side by side on the alignment worksheet. Answers write back onto each trace.",
+  "questions": [
+    {
+      "key": "faithful",
+      "title": "Is EVERY factual claim supported by the evidence/expectations? (Mirror Judge.FaithfulnessJudge: pass = all claims grounded; fail = any unsupported, hallucinated, or unverifiable claim. This is the 'human_verdict' column on the alignment worksheet.)",
+      "type": "pass_fail",
+      "required": true,
+      "target": "feedback"
+    },
+    {
+      "key": "unsupported_claims",
+      "title": "If not faithful, quote the specific claim(s) that the evidence does not support. Leave blank when the verdict is pass — these quotes become the rationale for adding the row back to the dataset as a hard case.",
+      "type": "text",
+      "required": false,
+      "target": "feedback"
+    },
+    {
+      "key": "notes",
+      "title": "Any other reviewer notes (tone, partial evidence, why you disagreed with the automated score).",
+      "type": "text",
+      "required": false,
+      "target": "feedback"
+    }
+  ],
+  "notes": "Configure these when creating the queue (Observe -> Review Queues -> New queue), then enqueue the sampled trace ids via POST /review-queues/{id}/items {trace_ids:[...]}. Keep the 'faithful' question wording aligned with judges/faithfulness-judge.judge.json so a pass/fail answer maps cleanly to the judge's true/false verdict. Alignment between the two is tallied by hand on alignment/alignment-worksheet.md — it is not auto-computed."
+}

@@ -1,0 +1,16 @@
+required_inputs:
+  - scenario_run_ids:
+      - scn01
+      - scn03
+      - scn05
+      - scn07
+      - scn08
+      - scn10
+  - review_queue_summary
+  - allure_report_path
+edge_cases:
+  - allure_report_generated_but_not_served
+  - scenario_slice_passes_locally_but_missing_saved_run
+negative_cases:
+  - missing_required_run_id
+  - unresolved_blocker_present

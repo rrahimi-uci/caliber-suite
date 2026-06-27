@@ -1,0 +1,51 @@
+workflow_goal: Create an operator-safe workflow remediation loop from failure to validated patch.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Recovery surfaces are real (Run Monitor, checkpoint/recovery/debugger panels, retry lineage, run-retry/run-resume/resume-by-event).
+  - Patching is MANUAL — edit the manifest in the editor and save a new version. There is no propose_workflow_patch tool (the semantic patch API is not wired to the UI).
+  - Aria/Aria Plans cannot debug a workflow as a capability; use it only to narrate the diagnosis, not to apply fixes.
+  - Reliable reproducible failure for a demo = the hitl_review template driven reject -> retry -> approve -> resume.
+manual_flow:
+  - step: reproduce
+    action: run failing input and capture trace id
+  - step: localize
+    action: use replay/debugger/checkpoints to locate failing node
+  - step: diagnose
+    action: produce symptoms, hypotheses, and minimal fix plan
+  - step: patch
+    action: apply draft fix and rerun preview
+  - step: validate
+    action: run regression slice and confirm no new failures
+components:
+  prompts:
+    optional:
+      - diagnosis-summary prompt
+  skills:
+    optional:
+      - workflow-failure-triage
+  tools:
+    optional:
+      - propose_workflow_patch  # NOT shipped — patch manually in the editor (save new version)
+  mcp:
+    optional:
+      - Playwright for UI-state dependent workflows
+  workflow:
+    focus:
+      - replay
+      - debugger
+      - recovery
+      - checkpoint_resume
+contracts:
+  input_schema:
+    type: object
+    required: [workflow_id, failing_input]
+  output_schema:
+    type: object
+    required: [root_cause, fix_summary, verification_status]
+failure_modes:
+  - replay_state_mismatch
+  - patch_without_reproducible_evidence
+  - fix_introduces_secondary_regression
+fallbacks:
+  - hold publish and require manual review when evidence is insufficient.
+  - prefer minimal patch scope to isolate impact.

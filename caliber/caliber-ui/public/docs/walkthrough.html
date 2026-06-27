@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guided walkthrough | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Step-by-step runbook to bring up MLflow with the CALIBER plugin against object storage and real LLM providers, then tour every page of the SPA and build a governed artifact with Aria.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <style>
+    /* Walkthrough content components — scoped to the shared doc body so they sit
+       on top of docs.css without touching the shell (topbar / sidebar / TOC). */
+    .doc-body section[id] { scroll-margin-top: calc(var(--topbar-h) + 1rem); padding: .35rem 0 1.4rem; }
+
+    .doc-body h2 .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 1.75rem; height: 1.75rem; border-radius: 999px;
+      background: var(--accent); color: #fff;
+      font-size: .9rem; font-weight: 700; margin-right: .6rem; vertical-align: -.18em;
+    }
+
+    .runbook-meta { display: flex; flex-wrap: wrap; gap: .6rem 1.4rem; margin-top: 1.1rem; font-size: .85rem; color: var(--text-muted); }
+    .runbook-meta strong { color: var(--text); }
+
+    /* Typed callout variants on top of docs.css's base .callout. */
+    .doc-body .callout-warn { border-left-color: var(--orange); background: var(--orange-bg); }
+    .doc-body .callout-warn strong { color: var(--orange); }
+    .doc-body .callout-success { border-left-color: var(--green); background: var(--green-bg); }
+    .doc-body .callout-success strong { color: var(--green); }
+
+    .doc-body .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin: 1.25rem 0 1.5rem; }
+    .doc-body .card { background: var(--bg-card-hover); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem 1.125rem; box-shadow: none; }
+    .doc-body .card:hover { background: var(--bg-card-hover); }
+    .doc-body .card h4 { margin: 0 0 .35rem; font-size: .9rem; color: var(--text); }
+    .doc-body .card p { font-size: .84rem; color: var(--text-muted); margin: 0; }
+
+    .doc-body .terminal {
+      background: #0d1117; color: #d1d9e0; border: 1px solid #1f2937;
+      border-radius: var(--radius-sm); padding: .9rem 1.15rem; overflow-x: auto;
+      font-family: var(--mono); font-size: .8125rem; line-height: 1.55;
+      margin: .8rem 0 1rem; white-space: pre;
+    }
+    .doc-body .terminal .prompt { color: #8b949e; -webkit-user-select: none; user-select: none; }
+    .doc-body .terminal .cmd { color: #79c0ff; }
+    .doc-body .terminal .ok { color: #56d364; }
+    .doc-body .terminal .warn { color: #e3b341; }
+    .doc-body .terminal .err { color: #f85149; }
+    .doc-body .terminal .dim { color: #6e7681; }
+
+    .doc-body .checklist { list-style: none; margin-left: 0; }
+    .doc-body .checklist li { padding-left: 1.5rem; position: relative; }
+    .doc-body .checklist li::before { content: "\2713"; position: absolute; left: 0; color: var(--green); font-weight: 700; }
+  </style>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Walkthrough</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Guided walkthrough</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Walkthrough · Local runbook</div>
+          <h1 id="top">Bring up MLflow, run CALIBER, tour the platform.</h1>
+          <p class="doc-summary">
+            This is a copy-pasteable runbook for the current build. CALIBER runs as
+            an MLflow application plugin against object storage and real LLM
+            providers — there is no canned demo seed to load. You bring the stack up,
+            confirm it is healthy, and then either tour each surface of the SPA or
+            let Aria, the embedded agentic copilot, build and test a governed
+            artifact for you while you watch.
+          </p>
+          <div class="runbook-meta">
+            <span>⏱ <strong>~15 min</strong> to a running stack</span>
+            <span>🧰 Requires: <strong>Python 3.11+</strong>, <strong>Node 20+</strong>, <strong>Docker</strong> (MinIO), <strong>git</strong></span>
+            <span>🔑 An <strong>OpenAI</strong> or <strong>Anthropic</strong> API key for Aria and LLM-backed features</span>
+          </div>
+        </header>
+
+    <section id="prereqs">
+      <h2>Prerequisites</h2>
+      <p>You need a working Unix-like shell (macOS, Linux, or WSL) with the following on <code>$PATH</code>:</p>
+      <ul class="checklist">
+        <li><strong>Python ≥ 3.11</strong> — <code>python3 --version</code> should print 3.11 or newer.</li>
+        <li><strong>Node ≥ 20</strong> and <strong>npm</strong> — to build and serve the React SPA.</li>
+        <li><strong>Docker</strong> (or a reachable S3-compatible endpoint) — CALIBER stores artifacts in object storage; the suite ships a local MinIO stack.</li>
+        <li><strong>git</strong> — to clone the repo.</li>
+      </ul>
+      <div class="callout">
+        <strong>Provider posture:</strong> this build uses real providers — there is no <code>fake</code> default.
+        Aria's engine defaults to <code>auto</code>, resolving to OpenAI if <code>OPENAI_API_KEY</code> is set, otherwise
+        Anthropic if <code>ANTHROPIC_API_KEY</code> is set. Export at least one before you start the server so Aria and
+        the LLM-backed evaluation/calibration paths work. The <code>fake</code> engine still exists but is reserved for
+        the test suite.
+      </div>
+    </section>
+
+    <section id="clone">
+      <h2><span class="step-num">1</span>Clone &amp; install</h2>
+      <p>Clone the suite and install the plugin in editable mode with the dev and S3 extras, then install the SPA's npm dependencies:</p>
+      <pre><code>git clone https://github.com/<your-org>/caliber-mlflow.git
+cd caliber-mlflow/caliber
+
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev,s3]"
+
+cd caliber-ui
+npm install</code></pre>
+      <p>What that gives you:</p>
+      <ul>
+        <li>A <code>.venv/</code> with CALIBER, MLflow (<code>&ge; 3.14</code>), Alembic, the Starlette runtime, and the dev toolchain (pytest, ruff, mypy).</li>
+        <li>The <code>s3</code> extra, which pulls in the object-storage client CALIBER uses for artifacts.</li>
+        <li>The SPA's build dependencies (Vite, React, TanStack Query) under <code>caliber-ui/</code>.</li>
+      </ul>
+      <div class="callout">
+        <strong>Two ways to serve the UI.</strong> For a production-style run, build the bundle into the package with
+        <code>make ui</code> (from <code>caliber/</code>) so the server serves the SPA at <code>/caliber/</code>. For
+        live frontend development, run <code>npm run dev</code> in <code>caliber-ui/</code> against the running backend.
+        This runbook assumes the built-in bundle.
+      </div>
+    </section>
+
+    <section id="storage">
+      <h2><span class="step-num">2</span>Object storage &amp; provider keys</h2>
+      <p>
+        CALIBER is object-storage-only: MLflow artifacts and CALIBER's own object store both write to an
+        S3-compatible bucket, not a local <code>mlruns/</code> tree. <code>make dev</code> defaults the artifact root to
+        <code>s3://mlflow/mlruns</code> via a MinIO endpoint at <code>http://127.0.0.1:9000</code>, so bring that up
+        first (the suite ships a compose stack under <code>deploy/</code>), or point the variables at your own endpoint.
+      </p>
+      <p>Set the provider keys CALIBER should use before launching (a suite-root <code>.env</code> is the usual home for these):</p>
+      <pre><code># Real LLM provider for Aria + LLM-backed eval/calibration
+export OPENAI_API_KEY=sk-...        # or ANTHROPIC_API_KEY=...
+
+# Object storage (defaults shown; override for your own endpoint)
+export MLFLOW_S3_ENDPOINT_URL=http://127.0.0.1:9000
+export MLFLOW_ARTIFACT_ROOT=s3://mlflow/mlruns
+export AWS_ACCESS_KEY_ID=minioadmin
+export AWS_SECRET_ACCESS_KEY=minioadmin</code></pre>
+      <div class="callout-warn callout">
+        <strong>If MinIO isn't up,</strong> the server will start but artifact writes (workflow runs, evaluation
+        artifacts, object-store uploads) will fail. Bring up the suite MinIO stack first, or set
+        <code>MLFLOW_ARTIFACT_ROOT</code> to a <code>file://</code> path if you only want to tour the read surfaces.
+      </div>
+    </section>
+
+    <section id="start">
+      <h2><span class="step-num">3</span>Start MLflow with the CALIBER plugin</h2>
+      <p>
+        CALIBER doesn't run as a separate service. It's an MLflow <em>application</em>:
+        when the server launches with <code>--app-name caliber</code>, MLflow
+        mounts CALIBER's SPA at <code>/caliber/</code> and its REST endpoints
+        at <code>/ajax-api/2.0/mlflow/caliber/*</code> on the same port,
+        alongside MLflow's native UI at <code>/</code>.
+      </p>
+      <p>From <code>caliber/</code> with the venv active, in <em>terminal 1</em>:</p>
+      <pre><code>make dev</code></pre>
+      <p>That wraps <code>scripts/run-dev.sh</code>, which:</p>
+      <ol>
+        <li>Sources <code>.env</code> if present (without clobbering anything already exported).</li>
+        <li>Applies local-dev defaults: a metadata database (SQLite at <code>./caliber.db</code> unless you point <code>CALIBER_DATABASE_URL</code> at Postgres), the MinIO artifact root, and a dev admin identity.</li>
+        <li>Runs <code>alembic upgrade head</code> to bring the schema current.</li>
+        <li>Enables the workflow run queue, runtime approvals, and checkpointing.</li>
+        <li>Execs <code>mlflow server --app-name caliber</code> in the foreground.</li>
+      </ol>
+      <p>The startup banner echoes the resolved configuration and the exact URLs to open:</p>
+      <div class="terminal">
+<span class="cmd">$ make dev</span>
+<span class="ok">&gt;&gt; caliber dev server</span>
+   database         : sqlite:///./caliber.db
+   artifact root    : s3://mlflow/mlruns
+   s3 endpoint      : http://127.0.0.1:9000
+   listen           : http://127.0.0.1:5000
+   caliber UI       : http://127.0.0.1:5000/caliber/
+   caliber API      : http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/
+   dev identity     : @local-admin
+   workflow queue   : true
+   approvals        : true
+   checkpointing    : true
+<span class="ok">&gt;&gt; applying caliber migrations</span>
+<span class="dim">INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Running upgrade ... -&gt; 0051_assistant_queued_messages</span>
+<span class="ok">&gt;&gt; starting mlflow server with --app-name caliber</span>
+<span class="dim">[INFO] Listening at: http://127.0.0.1:5000
+caliber.app: plugin initialised, ui=/caliber/, api=/ajax-api/2.0/mlflow/caliber/</span>
+      </div>
+      <div class="callout">
+        <strong>Port note:</strong> <code>run-dev.sh</code> listens on <code>5000</code> by default; a suite-level
+        <code>.env</code> commonly sets <code>MLFLOW_PORT=5001</code>. Always use the <em>caliber UI</em> URL the banner
+        prints — the examples below use <code>5000</code> to match the script default.
+      </div>
+    </section>
+
+    <section id="verify">
+      <h2><span class="step-num">4</span>Verify the server is healthy</h2>
+      <p>In a <em>second</em> terminal (leave <code>make dev</code> running in the first), hit the CALIBER health endpoint:</p>
+      <pre><code>curl -s http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/health | jq</code></pre>
+      <div class="terminal">
+<span class="ok">{
+  "status": "ok",
+  "version": "0.1.0.dev0"
+}</span>
+      </div>
+      <p>
+        The readiness endpoint reports which providers are real versus simulated — this is the same honesty signal the
+        SPA shows in its banner. With a provider key exported, <code>llm</code> should read <code>openai</code> or
+        <code>anthropic</code> and the <code>simulated</code> list should be empty (or list only the subsystems you left
+        on a stub):
+      </p>
+      <pre><code>curl -s http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/readiness | jq .data</code></pre>
+      <div class="terminal">
+<span class="ok">{
+  "providers": {
+    "llm": "openai",
+    "eval": "mlflow",
+    "promoter": "mlflow",
+    "artifact_store": "mlflow"
+  },
+  "simulated": []
+}</span>
+      </div>
+      <p>You can also confirm MLflow itself answered (its native UI is at <code>/</code>):</p>
+      <pre><code>curl -sI http://127.0.0.1:5000/ | head -1</code></pre>
+      <div class="terminal">
+HTTP/1.1 <span class="ok">200 OK</span>
+      </div>
+      <div class="callout-success callout">
+        <strong>You're good if:</strong> health returns <code>"status":"ok"</code> and readiness shows your real
+        provider. If anything failed, jump to <a href="#troubleshoot">Troubleshooting</a>.
+      </div>
+    </section>
+
+    <section id="open">
+      <h2><span class="step-num">5</span>Open the SPA</h2>
+      <p>In your browser, open the <em>caliber UI</em> URL from the startup banner:</p>
+      <pre><code>open http://127.0.0.1:5000/caliber/      # macOS
+xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
+      <p>
+        On first load you'll authenticate as the dev identity (<code>@local-admin</code> by default, an admin). The
+        database starts empty — there is no demo seed in this build, so the lists are blank until you create
+        artifacts, either by hand on each page or by asking Aria to build them for you. The rest of this runbook walks
+        the SPA in sidebar order and then has Aria build a governed artifact end to end.
+      </p>
+      <div class="callout">
+        <strong>Light or dark?</strong> The theme toggle is in the top bar of every page; layout and copy are identical
+        in both. The provider/readiness banner sits in the same top bar so you can always see whether a surface is
+        running on a real provider.
+      </div>
+    </section>
+
+    <section id="dashboard">
+      <h2>Dashboard · the platform at a glance</h2>
+      <p>
+        The landing page summarizes platform state — recent workflow runs, registered artifacts, and quick links into
+        each surface. It is the jumping-off point; every count is a link into the page that owns those rows. On a fresh
+        database it is mostly empty, which is the honest starting state for a new install.
+      </p>
+      <h4>Try this</h4>
+      <ul>
+        <li>Open Aria from the top bar and say <em>hello</em>. It should greet you and explain what it can do — it does not start building anything until you express intent.</li>
+        <li>Note the provider banner. It reflects the same <code>/readiness</code> payload you curled above.</li>
+      </ul>
+    </section>
+
+    <section id="workflows">
+      <h2>Build · Workflows (Studio)</h2>
+      <p>
+        Workflows are the composition surface — the agentic graphs that wire prompts, tools, skills, and knowledge
+        bases together. The Studio editor lets you build a workflow version, preview-run it, and publish it; the run
+        views surface each run's MLflow trace, per-tool-call spans, runtime approvals, and checkpoints.
+      </p>
+      <table>
+        <thead><tr><th>Route</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>/workflows</code></td><td>Lists workflows; create a new one or open an existing version.</td></tr>
+          <tr><td><code>/workflows/:id/editor/:versionId</code></td><td>The Studio graph editor for a draft version.</td></tr>
+          <tr><td><code>/workflows/:id</code></td><td>Workflow detail: versions, runs, deployment alias.</td></tr>
+          <tr><td><code>/workflow-runs/:runId</code></td><td>A single run — status, trace spans, approvals, checkpoints.</td></tr>
+        </tbody>
+      </table>
+      <h4>Try this</h4>
+      <ul>
+        <li>Create a workflow, add a node or two in the editor, and use <strong>Preview run</strong> — it executes without persisting a published version.</li>
+        <li>Enqueue a real run. With the run queue enabled, it lands in the queue and streams status; open the run to inspect its trace.</li>
+      </ul>
+    </section>
+
+    <section id="libraries">
+      <h2>Libraries · Prompts, Tools, Skills, MCP Servers</h2>
+      <p>
+        The Library supplies what Build composes. Each library resource is its own versioned asset with a
+        "pytest-for-an-asset" workspace — a status header, stage tabs, and durable test runs with baseline/diff — so you
+        can develop and verify a prompt, tool, or skill in isolation before a workflow ever uses it.
+      </p>
+      <div class="grid">
+        <div class="card"><h4>Prompts</h4><p><code>/prompts</code> — versioned prompts backed by MLflow's Prompt Registry, with aliases and a per-prompt test workspace.</p></div>
+        <div class="card"><h4>Tools</h4><p><code>/tools</code>, <code>/tools/:id</code> — tool definitions runnable in a subprocess sandbox; test a draft against inputs before publishing.</p></div>
+        <div class="card"><h4>Skills</h4><p><code>/skills</code>, <code>/skills/:id</code> — named capabilities with selection logic; preview which skills resolve for a given input.</p></div>
+        <div class="card"><h4>MCP Servers</h4><p><code>/mcp-servers</code> — registered Model Context Protocol servers, including the first-party database server, exposed as tools.</p></div>
+      </div>
+      <h4>Try this</h4>
+      <ul>
+        <li>Open a tool's workspace and run its draft in the sandbox against a sample input — the run is recorded and diffable against a baseline.</li>
+        <li>On a skill, use the selection preview to see which skills a given user message would pull in.</li>
+      </ul>
+    </section>
+
+    <section id="data">
+      <h2>Knowledge · Knowledge Base &amp; Object Store</h2>
+      <p>
+        These pages are the data plane — the grounding sources agents retrieve over. Knowledge bases provide hybrid
+        retrieval; the object store is the file UI over the S3-compatible bucket.
+      </p>
+      <div class="grid">
+        <div class="card"><h4>Knowledge Base</h4><p><code>/knowledge-bases</code> — versioned KBs with hybrid search (BM25 + dense RRF, tri-hybrid with graph) and calibration metrics (Recall@k, nDCG@k, faithfulness, answer-correctness).</p></div>
+        <div class="card"><h4>Object Store</h4><p><code>/object-store</code> — the file UI over object storage. This is the storage surface; there is no separate local file-directory page.</p></div>
+      </div>
+      <h4>Try this</h4>
+      <ul>
+        <li>Upload a file in the Object Store and confirm it lands in the bucket (MinIO console or <code>aws s3 ls</code>).</li>
+      </ul>
+    </section>
+
+    <section id="evaluate">
+      <h2>Evaluate · Test Sets, Judges &amp; Evaluations</h2>
+      <p>
+        The evaluate group is the scoring plane: curate datasets, define how to judge, then run and inspect scores.
+        Test sets are the datasets every scored run draws from; judges are custom LLM rubrics; evaluations run a test
+        set through scorers and persist per-example results.
+      </p>
+      <div class="grid">
+        <div class="card"><h4>Test Sets</h4><p><code>/eval-datasets</code> — evaluation datasets of <code>{input, expected}</code> examples, versioned, that scorers run against; one-click <strong>Sync to MLflow</strong> pushes them to MLflow's native dataset registry.</p></div>
+        <div class="card"><h4>Judges</h4><p><code>/judges</code> — reusable custom LLM judges built via <code>mlflow.genai.make_judge</code> (NL rubrics over inputs/outputs/expectations), used by calibration/optimization and by-hand review (not selectable on the Evaluations page, which exposes only deterministic scorers).</p></div>
+        <div class="card"><h4>Evaluations</h4><p><code>/evaluations</code>, <code>/evaluations/:runId</code> — run a dataset through scorers, inspect per-example results, compare runs, and add a trace to a dataset.</p></div>
+      </div>
+      <h4>Try this</h4>
+      <ul>
+        <li>Create a small test set, then click <strong>Sync to MLflow</strong> and watch the row's badge flip to <em>Synced</em>.</li>
+        <li>Author a Judge with a one-line rubric (it becomes available to calibration and optimization), then run a small Evaluations pass over your test set with the built-in graders and open the result for per-example scores.</li>
+      </ul>
+    </section>
+
+    <section id="observe">
+      <h2>Observe · Observability &amp; Review Queues</h2>
+      <p>
+        The observe surfaces close the loop on what actually happened at runtime. Observability is the trace view over
+        MLflow tracing; Review Queues add structured human review of those traces on top of MLflow 3.14's assessment
+        primitives.
+      </p>
+      <div class="grid">
+        <div class="card"><h4>Observability</h4><p><code>/observability</code> — traces and per-tool-call spans for workflow runs, wired to MLflow tracing (document-extraction spans carry the source file as a multimodal attachment).</p></div>
+        <div class="card"><h4>Review Queues</h4><p><code>/review-queues</code> — define review questions, enqueue traces, and review them; answers write back onto each trace as MLflow assessments and expectations.</p></div>
+      </div>
+      <h4>Try this</h4>
+      <ul>
+        <li>Open a workflow run's trace and inspect the per-tool-call spans (and any attached source documents).</li>
+        <li>Create a Review Queue with a pass/fail question, enqueue a trace, and review it — the answer lands back on the trace.</li>
+      </ul>
+    </section>
+
+    <section id="platform">
+      <h2>Platform · LLM Gateway &amp; Settings</h2>
+      <p>
+        The platform group is configuration and discovery. The Gateway page surfaces an external MLflow AI Gateway when
+        one is configured (it is discovery and visibility, not a CALIBER-owned gateway). Settings is the grouped,
+        safe-to-display inventory of runtime configuration.
+      </p>
+      <div class="grid">
+        <div class="card"><h4>LLM Gateway</h4><p><code>/gateway</code> — visibility into a configured external MLflow AI Gateway; routing is opt-in via <code>CALIBER_LLM_BASE_URL</code>.</p></div>
+        <div class="card"><h4>Settings</h4><p><code>/settings</code> — grouped inventory: assistant, LLM, storage, security, worker, webhook, and sandbox configuration, plus the provider posture.</p></div>
+      </div>
+      <h4>Try this</h4>
+      <ul>
+        <li>Open Settings and find the assistant group — it shows the resolved engine (<code>auto</code> → your real provider) and model.</li>
+        <li>Confirm the storage group reflects the object-storage endpoint you configured.</li>
+      </ul>
+    </section>
+
+    <section id="aria">
+      <h2>Build with Aria · the agentic copilot</h2>
+      <p>
+        Aria is the embedded copilot, available from the top bar on every page. On OpenAI and Claude it runs a real
+        tool-calling loop: within one turn it reads live CALIBER state, executes and observes real capabilities, and
+        iterates before it answers. It supports interaction modes (<code>chat</code>, <code>build</code>,
+        <code>plan</code>), approval modes (<code>manual</code>, <code>auto_safe</code>, <code>auto_all</code>), context
+        attachments, a message queue, and steering — the same affordances a code assistant gives you.
+      </p>
+      <div class="grid">
+        <div class="card"><h4>Modes</h4><p><code>chat</code> talks, <code>plan</code> outlines, <code>build</code> materializes drafts. Aria only authors artifacts in <code>build</code>.</p></div>
+        <div class="card"><h4>Approvals</h4><p>The approval mode controls how far Aria auto-advances a passing draft through validate → test → approve → publish — never past the gates.</p></div>
+        <div class="card"><h4>Permissioned tools</h4><p>Read tools in every mode; reversible/sandboxed tools in <code>build</code> + <code>auto_safe</code>; real runs, approve, and publish only in <code>build</code> + <code>auto_all</code>.</p></div>
+        <div class="card"><h4>Transparency</h4><p>Each turn records the tool calls it executed and a compact process-steps trail, so you can see exactly what Aria did.</p></div>
+      </div>
+    </section>
+
+    <section id="aria-loop">
+      <h2>Run, observe, fix · an end-to-end turn</h2>
+      <p>
+        Put Aria in <code>build</code> mode with <code>auto_safe</code> approvals and ask it to build a small tool. A
+        single turn typically reads the relevant registry, drafts the artifact, validates it, and runs it in the
+        sandbox — then reports what it observed, all before handing control back to you.
+      </p>
+      <div class="terminal">
+<span class="dim"># In the Aria panel, mode = build, approval = auto_safe</span>
+<span class="cmd">You:</span> Build a tool that returns the day of week for an ISO date, then test it.
+
+<span class="cmd">Aria:</span> <span class="dim">(actions this turn)</span>
+  <span class="ok">✓</span> list_tools            <span class="dim">— checked for a name clash</span>
+  <span class="ok">✓</span> validate_draft        <span class="dim">— schema + signature OK</span>
+  <span class="ok">✓</span> run_tool_sandbox      <span class="dim">— "2026-06-20" → "Saturday"</span>
+  I drafted <span class="ok">iso_weekday</span>, validated it, and ran it in the sandbox: it
+  returns "Saturday" for 2026-06-20. It's at the <em>tested</em> gate — say the word
+  and I'll request approval and publish.
+      </div>
+      <p>
+        Switch the approval mode to <code>auto_all</code> and Aria will carry a passing draft through approve and
+        publish as part of the turn. Everything it does is gated by mode &times; approval and recorded in the message's
+        tool-call trail, so the autonomy is bounded and auditable.
+      </p>
+      <div class="callout">
+        <strong>Why no mid-turn prompt?</strong> A single Aria <em>turn</em> is synchronous, so it can't pause to ask
+        for a click mid-loop. Instead the toolset only <em>exposes</em> the tools the current mode and approval level
+        allow — that's the permission model. To gate more tightly, drop to <code>manual</code> (Aria proposes; you
+        advance the gates). When you want an explicit mid-run prompt, hand Aria a <strong>goal</strong> instead: the
+        goal-plan orchestrator (<code>/aria/plans</code>) walks a durable plan and <em>does</em> pause for an
+        approve/deny interaction — with separation of duties on gated steps — then resumes where it stopped.
+      </div>
+    </section>
+
+    <section id="recap">
+      <h2>What you just ran — the receipt</h2>
+      <p>To pin it down in one place, by the end of this runbook you have:</p>
+      <ol>
+        <li>Brought up MLflow with the CALIBER plugin co-resident at <code>/caliber/</code>, against object storage.</li>
+        <li>Confirmed via <code>/health</code> and <code>/readiness</code> that the server is healthy and running on a real LLM provider.</li>
+        <li>Toured every SPA surface in sidebar order: Dashboard, Workflows, the Library, the data plane, the observe surfaces, and Platform.</li>
+        <li>Used Aria's agentic loop to draft, validate, sandbox-test, and (optionally) publish a governed artifact — with every action recorded.</li>
+      </ol>
+      <p>
+        Everything Aria did this session is visible in the message's tool-call trail and persisted in the assistant
+        tables. Artifact changes flow through the same validate → test → approve → publish gates as a manual edit, so
+        there is no Aria-specific bypass to audit separately.
+      </p>
+    </section>
+
+    <section id="reset">
+      <h2>Reset the database</h2>
+      <p>
+        There is no demo seed to re-run — state is whatever you (or Aria) created. To start from a clean schema, stop
+        the server and drop the metadata database, then let Alembic rebuild it:
+      </p>
+      <pre><code># Stop terminal 1 (Ctrl-C), then, for the default SQLite metadata DB:
+rm -f caliber.db caliber.db-wal caliber.db-shm
+make dev   # alembic re-creates the schema; the database is empty</code></pre>
+      <p>
+        If you're on Postgres, drop and recreate the CALIBER database (or its schema) instead, then run
+        <code>make dev</code> so Alembic migrates the fresh database to head. Object-storage artifacts live in the
+        bucket independently — clear the bucket separately if you want a truly clean slate.
+      </p>
+    </section>
+
+    <section id="troubleshoot">
+      <h2>Troubleshooting</h2>
+      <table>
+        <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>pip install</code> fails on a build wheel</td>
+            <td>Python &lt; 3.11, or missing build tools</td>
+            <td><code>python3 --version</code>; install Python 3.11+ via <code>pyenv</code> or your package manager</td>
+          </tr>
+          <tr>
+            <td><code>/health</code> returns 404</td>
+            <td>Server started without <code>--app-name caliber</code></td>
+            <td>Use <code>make dev</code>, not a raw <code>mlflow server</code></td>
+          </tr>
+          <tr>
+            <td>Readiness shows <code>llm: fake</code> / Aria won't build</td>
+            <td>No provider key exported, so <code>auto</code> can't resolve a real engine</td>
+            <td>Export <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> before <code>make dev</code> and restart</td>
+          </tr>
+          <tr>
+            <td>MinIO / S3 shows not configured; artifact writes fail</td>
+            <td>Object storage endpoint or credentials not reachable</td>
+            <td>Start the suite MinIO stack, or set <code>MLFLOW_S3_ENDPOINT_URL</code>, <code>MLFLOW_ARTIFACT_ROOT</code>, and the AWS credential variables</td>
+          </tr>
+          <tr>
+            <td>UI deep link returns 404</td>
+            <td>Hitting the Vite dev server with the wrong base, or the bundle isn't built</td>
+            <td>Open the <em>caliber UI</em> URL from the banner, or run <code>make ui</code> to build the bundle into the package</td>
+          </tr>
+          <tr>
+            <td>Aria starts building on "hello"</td>
+            <td>Stale build — the current engine is intent-aware and greets without authoring</td>
+            <td>Confirm you're on the current build; Aria only authors on explicit build intent or an active authoring flow</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        If you hit something not on this table, capture the output of
+        <code>curl -s http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/readiness</code> — that payload tells us which
+        providers are real versus simulated in one shot.
+      </p>
+    </section>
+
+        <footer>
+          <p>
+            Source: <code>caliber-mlflow</code> ·
+            Bring-up: <code>caliber/scripts/run-dev.sh</code> ·
+            <a href="index.html">← Back to overview</a>
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>
