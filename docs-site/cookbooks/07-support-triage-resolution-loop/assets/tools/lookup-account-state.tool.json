@@ -1,0 +1,26 @@
+{
+  "name": "lookup_account_state",
+  "version": "1",
+  "module_path": "caliber.workflows.demo_tools",
+  "callable_name": "get_order",
+  "side_effect_level": "read",
+  "allow_in_preview": true,
+  "input_schema": {
+    "type": "object",
+    "required": ["order_id"],
+    "properties": {
+      "order_id": {
+        "type": "string",
+        "description": "Account/order identifier from the ticket, e.g. \"ord_1120\" or the order behind an \"acct_*\" reference. The shipped get_order callable keys on this single arg."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "order_id": {"type": "string"},
+      "status": {"type": "string"}
+    }
+  },
+  "notes": "Read-only account/order state. Maps to demo_tools:get_order, which returns {order_id, status}. Runs LIVE in the sandbox (read tools execute when allow_in_preview). Wire it as the account_lookup node; when the ticket has no identifier the reply node should clarify rather than invent a value. (lookup_order is the richer read alternative — it also returns items — but this scenario reuses get_order per build.yaml.)"
+}

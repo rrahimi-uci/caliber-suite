@@ -1,0 +1,17 @@
+{
+  "goal": "Create a judge for answer faithfulness and an eval dataset to run it on.",
+  "autonomy": "ask_each",
+  "expected_steps": [
+    {
+      "capability_key": "judge.create",
+      "tier": "mutate",
+      "interaction": "confirm/refine the judge spec (judges/answer-faithfulness.judge.json)"
+    },
+    {
+      "capability_key": "eval_dataset.create",
+      "tier": "mutate",
+      "interaction": "confirm/refine the dataset spec (datasets/support-faithfulness.dataset.json)"
+    }
+  ],
+  "notes": "Step order follows registry order; there are no inter-step dependencies in the default planner. Under autonomy=ask_each each mutate step raises one interaction before it runs. Under approve_plan/auto_guarded both run automatically once the plan is approved."
+}

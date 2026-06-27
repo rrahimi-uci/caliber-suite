@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.vite/
+# Allure test reporting (raw results + generated HTML report)
+allure-results/
+allure-report/
+.allure/

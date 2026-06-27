@@ -1,0 +1,44 @@
+{
+  "queue_name": "prod-triage",
+  "description": "Human triage of failing production traces. Reviewers classify each flagged trace so the failure mode, severity, and the correct expected output are captured as structured labels written back onto the trace (assessments + an expectation).",
+  "questions": [
+    {
+      "key": "root_cause_known",
+      "title": "Is the root cause identifiable from the trace?",
+      "type": "pass_fail",
+      "required": true,
+      "target": "feedback"
+    },
+    {
+      "key": "failure_mode",
+      "title": "Where did it fail?",
+      "type": "categorical",
+      "options": ["prompt", "tool", "retrieval", "data", "infra"],
+      "required": true,
+      "target": "feedback"
+    },
+    {
+      "key": "severity",
+      "title": "Operational severity",
+      "type": "categorical",
+      "options": ["low", "medium", "high"],
+      "required": true,
+      "target": "feedback"
+    },
+    {
+      "key": "expected_output",
+      "title": "What should the run have produced?",
+      "type": "text",
+      "required": false,
+      "target": "expectation"
+    },
+    {
+      "key": "reviewer_notes",
+      "title": "Triage notes",
+      "type": "text",
+      "required": false,
+      "target": "feedback"
+    }
+  ],
+  "notes": "Question field shape matches the Review Queues 'New Queue' form: key, title, type (pass_fail | categorical | numeric | text), options (categorical only), required, target (feedback | expectation). 'expected_output' targets expectation so the reviewer's answer becomes a trace expectation; the rest are feedback. Enqueue real failing trace ids (copied from the Observability ?trace= URL); answers write back onto each trace as MLflow assessments/expectations."
+}

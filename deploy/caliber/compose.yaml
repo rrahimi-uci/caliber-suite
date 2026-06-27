@@ -1,0 +1,129 @@
+# Standalone CALIBER service. Part of the `app` profile.
+#
+# Separated from MLflow: runs its own ASGI app on :5001 and talks to the MLflow
+# container over HTTP. Object/workflow storage goes to MinIO.
+
+name: caliber-app
+
+services:
+  caliber:
+    build:
+      context: ../..
+      dockerfile: deploy/caliber/Dockerfile
+      args:
+        CALIBER_DEFAULT_SPACY_MODEL: ${CALIBER_KNOWLEDGE_GRAPH_SPACY_MODEL:-en_core_web_sm}
+        CALIBER_INSTALL_EXTRAS: ${CALIBER_INSTALL_EXTRAS:-s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge}
+        CALIBER_TORCH_SPEC: "${CALIBER_TORCH_SPEC:-torch>=1.11,<3}"
+    image: caliber/caliber:latest
+    container_name: caliber
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      minio:
+        condition: service_started
+    ports:
+      - "${CALIBER_PORT:-5001}:5001"
+    environment:
+      CALIBER_HOST: 0.0.0.0
+      CALIBER_PORT: 5001
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      # Metadata store → the Postgres container (psycopg v3 driver).
+      CALIBER_DATABASE_URL: ${CALIBER_DATABASE_URL:-postgresql+psycopg://caliber:caliber@postgres:5432/caliber}
+
+      # Local dev identity / RBAC (override for real auth).
+      CALIBER_DEV_USER: ${CALIBER_DEV_USER:-@local-admin}
+      CALIBER_ADMIN_USERS: ${CALIBER_ADMIN_USERS:-@local-admin}
+      CALIBER_APPROVER_USERS: ${CALIBER_APPROVER_USERS:-@local-admin}
+      CALIBER_OPERATOR_USERS: ${CALIBER_OPERATOR_USERS:-@local-admin}
+
+      # Object/workflow storage → MinIO.
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      CALIBER_WORKFLOW_STORAGE_BACKEND: s3
+      CALIBER_WORKFLOW_STORAGE_BUCKET: ${MINIO_WORKSPACES_BUCKET:-caliber-workspaces}
+      CALIBER_WORKFLOW_STORAGE_INTERNAL_ENDPOINT_URL: http://minio:9000
+      CALIBER_WORKFLOW_STORAGE_PUBLIC_ENDPOINT_URL: ${CALIBER_WORKFLOW_STORAGE_PUBLIC_ENDPOINT_URL:-http://localhost:9000}
+      CALIBER_WORKFLOW_STORAGE_FORCE_PATH_STYLE: "true"
+      CALIBER_WORKFLOW_STORAGE_ACCESS_KEY_SOURCE: AWS_ACCESS_KEY_ID
+      CALIBER_WORKFLOW_STORAGE_SECRET_KEY_SOURCE: AWS_SECRET_ACCESS_KEY
+      CALIBER_OBJECT_STORE_ENDPOINT_URL: http://minio:9000
+      CALIBER_OBJECT_STORE_REGION: ${CALIBER_OBJECT_STORE_REGION:-us-east-1}
+      CALIBER_OBJECT_STORE_FORCE_PATH_STYLE: "true"
+      CALIBER_OBJECT_STORE_ACCESS_KEY_SOURCE: AWS_ACCESS_KEY_ID
+      CALIBER_OBJECT_STORE_SECRET_KEY_SOURCE: AWS_SECRET_ACCESS_KEY
+
+      # Provider selection + LLM key pass-through (from host/root .env).
+      # Default to CALIBER's fake provider so the stack boots cleanly even
+      # when no OpenAI-compatible secret is present. Override with
+      # CALIBER_LLM_PROVIDER=openai once the required key is configured.
+      CALIBER_LLM_PROVIDER: ${CALIBER_LLM_PROVIDER:-fake}
+      CALIBER_EVAL_PROVIDER: mlflow
+      CALIBER_PROMOTER_PROVIDER: mlflow
+      CALIBER_ARTIFACT_STORE_PROVIDER: mlflow
+      CALIBER_LLM_API_KEY_ENV: ${CALIBER_LLM_API_KEY_ENV:-OPENAI_API_KEY}
+      # MLflow AI Gateway (LLM gateway) discovery URI — the CALIBER "Gateway"
+      # page reads its endpoints + status from here. This only makes the gateway
+      # VISIBLE; it does not route CALIBER's own LLM calls through it.
+      CALIBER_GATEWAY_URI: ${CALIBER_GATEWAY_URI:-http://mlflow-gateway:5002}
+      # OPT-IN routing: leave CALIBER_LLM_BASE_URL unset to keep talking to the
+      # provider directly. Set it to the gateway's OpenAI-compatible base
+      # (e.g. http://mlflow-gateway:5002/gateway) to route every LLM call through
+      # the gateway (guardrails + rate limits + a single key boundary).
+      CALIBER_LLM_BASE_URL: ${CALIBER_LLM_BASE_URL:-}
+      # Keep interpolation optional so docker compose down/config can run even
+      # before secrets are populated. The app still fails fast at startup when
+      # CALIBER_LLM_PROVIDER=openai and the resolved key is empty.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Anthropic key so Claude assistant models work (assistant engine switches
+      # to the Anthropic SDK when a Claude model is selected in Settings).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      # Bounded fan-out for ForEach agent loops (per-chunk extraction parallelism).
+      # 40 concurrent gpt-5.2 reasoning calls overwhelmed the gateway (connection
+      # errors) + destabilized the single-host dev stack; 12 is stable + still 12x.
+      CALIBER_WORKFLOW_FOREACH_MAX_WORKERS: ${CALIBER_WORKFLOW_FOREACH_MAX_WORKERS:-12}
+      # Whole-document KG JSON + HTML report can exceed the 1 MiB default.
+      CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES: ${CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES:-8388608}
+      # Async run queue so long runs execute server-side via the worker (the
+      # lease heartbeat keeps the lease alive across long ForEach nodes).
+      CALIBER_WORKFLOW_RUN_QUEUE_ENABLED: ${CALIBER_WORKFLOW_RUN_QUEUE_ENABLED:-true}
+      CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED: ${CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED:-true}
+      CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED: ${CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED:-true}
+      # Persist each completed run's artifacts (kg.json/report.html) + a JSON log
+      # to this object-store bucket: pipeline/<run_id>/* and logs/<run_id>.json.
+      CALIBER_WORKFLOW_RUN_ARTIFACT_BUCKET: ${CALIBER_WORKFLOW_RUN_ARTIFACT_BUCKET:-caliber-suite}
+      CALIBER_WORKFLOW_RUN_ARTIFACT_PREFIX: ${CALIBER_WORKFLOW_RUN_ARTIFACT_PREFIX:-pipeline}
+      CALIBER_WORKFLOW_RUN_LOG_PREFIX: ${CALIBER_WORKFLOW_RUN_LOG_PREFIX:-logs}
+
+      # Shared event fan-out → selected backend (NATS by default in deploy).
+      CALIBER_WORKFLOW_RUN_EVENT_BACKEND: ${CALIBER_WORKFLOW_RUN_EVENT_BACKEND:-nats}
+      CALIBER_NATS_URL: ${CALIBER_NATS_URL:-nats://nats:4222}
+      CALIBER_NATS_SUBJECT: ${CALIBER_NATS_SUBJECT:-caliber.events}
+
+      # Seed Caliber's public built-in skill catalog on first Skills page load.
+      CALIBER_BUILTIN_SKILLS_AUTO_SEED: ${CALIBER_BUILTIN_SKILLS_AUTO_SEED:-true}
+      # Richer entity extraction for knowledge-base graph builds + graph-aware RAG.
+      CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND: ${CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND:-spacy}
+      CALIBER_KNOWLEDGE_GRAPH_SPACY_MODEL: ${CALIBER_KNOWLEDGE_GRAPH_SPACY_MODEL:-en_core_web_sm}
+      # Enable Apache AGE sync + retrieval in the shipped Build / Knowledge Base flow.
+      CALIBER_KNOWLEDGE_AGE_ENABLED: ${CALIBER_KNOWLEDGE_AGE_ENABLED:-true}
+      CALIBER_KNOWLEDGE_AGE_GRAPH_NAME: ${CALIBER_KNOWLEDGE_AGE_GRAPH_NAME:-knowledge_graph}
+      CALIBER_KNOWLEDGE_AGE_VIEWER_URL: ${CALIBER_KNOWLEDGE_AGE_VIEWER_URL:-http://localhost:8082}
+      # Keep local Hugging Face embeddings opt-in. When enabled at build time via
+      # CALIBER_INSTALL_EXTRAS=...,knowledge-local, this runtime guard should stay
+      # false unless you explicitly accept flagged dependency risk.
+      CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS: ${CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS:-false}
+      # Serve the generated Allure report in-app at /observability/allure-report.
+      # Default reads the host dir mounted below (single-host: make allure-report).
+      # For multi-node, set this to s3://<bucket>/<prefix> and publish with
+      # `make allure-publish` — every node then serves from shared object storage.
+      CALIBER_ALLURE_REPORT_DIR: ${CALIBER_ALLURE_REPORT_DIR:-/app/allure-report}
+    volumes:
+      # Host-generated Allure report → served in-app. Empty/missing until the
+      # first `make allure-report`; the route shows a friendly hint until then.
+      # Path is resolved from this compose file dir (deploy/caliber).
+      - ${CALIBER_ALLURE_REPORT_HOST_DIR:-../../caliber/caliber-ui/allure-report}:/app/allure-report:ro
+    restart: unless-stopped

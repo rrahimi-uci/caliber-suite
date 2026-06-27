@@ -1,0 +1,37 @@
+id: SCN-14
+slug: aria-governance-starter-kit
+name: "Aria: Governance Starter Kit from Intent"
+track: aria
+objective: Give Aria a single intent and have it autonomously plan and stand up a whole evaluation + governance scaffold — a faithfulness judge, an eval dataset to score against, AND a human-review queue — in one plan, with only human confirmation of the parameters.
+why_it_matters:
+  - The flagship "one sentence -> whole governance setup" showcase: judge + test set + review queue, all real, from a single intent.
+  - Proves Aria composes MULTIPLE mutate capabilities into one plan -> approve -> execute flow, bounded honestly by its real capability registry.
+  - Establishes the autonomous-orchestration pattern teams adopt on day one to make a new agent governable.
+primary_persona: platform engineer
+secondary_personas:
+  - AI engineer
+  - evaluator
+caliber_surfaces:
+  - Plans
+  - Judges
+  - Test Sets
+  - Review Queues
+  - Evaluations
+prerequisites:
+  - A configured model provider (the judge runs on a real model; an LLM planner, if enabled, also needs it).
+  - Aria Plans available (sidebar "Plans").
+time_to_first_value: 15-30 minutes
+success_criteria:
+  - From the intent alone, Aria drafts a plan containing judge.create + eval_dataset.create + review_queue.create.
+  - After approval and answering the interactions, a real active judge, a test set, and a review queue all exist.
+demo_profile:
+  recommended_sequence_index: 14
+  tier: aria
+  live_demo_minutes: 15-25
+  depends_on: []
+  included_in:
+    - aria_autonomous
+  showcase_capabilities:
+    - Aria plan decompose -> approve -> execute
+    - autonomous judge + test-set + review-queue creation from a single intent
+    - multi-capability plan composition (three mutate steps in one plan)

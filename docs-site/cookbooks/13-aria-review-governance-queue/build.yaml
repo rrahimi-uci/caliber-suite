@@ -1,0 +1,58 @@
+workflow_goal: From one clear intent, have Aria autonomously create a structured human-review queue for labeling agent replies (safety, citation, tone).
+# Verified against the Aria capability registry + plan executor — see ../FEASIBILITY.md and ../ARIA-AUTONOMY.md.
+feasibility:
+  - Aria's autonomous capability registry today = judge.create, review_queue.create, eval_dataset.create, review_queue.add_items, workflow.calibrate (+ judge.list/review_queue.list reads). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set.
+  - The default HeuristicPlanner proposes a step for each non-read capability whose DOMAIN word (the part of the key before the dot) appears in the goal. review_queue.create AND review_queue.add_items share the domain "review_queue" -> needle "review queue". The canonical intent says "review queue" literally, so the planner proposes BOTH steps. Be honest about this — see the add_items handling below.
+  - review_queue.add_items requires queue_id + a non-empty trace_ids list; the handler raises if either is missing. So at execute time you either (a) supply real flagged trace_ids to enqueue them, or (b) DENY that interaction to skip the step (queue-first, enqueue-later). The queue itself is created by review_queue.create regardless.
+  - EXECUTION GAP (verified) - the mid-run interaction is a permission ask (Approve / Deny); its answer ({approved, choice, value}) CANNOT carry the question schema. The shipped HeuristicPlanner emits the step with EMPTY inputs, so the queue is CREATED VIA ITS OWN ROUTE (POST /review-queues) using the schema below (which IS a POST /review-queues body). Full hands-off autonomy needs an LLM planner to fill PlannedStep.inputs (not wired).
+  - autonomy "ask_each" pauses on every mutate step so you confirm each one; "approve_plan"/"auto_guarded" auto-run mutate steps after the plan is approved; gated steps always pause. There is no gated step here — both steps are TIER_MUTATE.
+  - The queue is created EMPTY of items; submitting answers later writes mlflow feedback (assessments) and expectations (ground truth) back onto each enqueued trace (target: feedback vs expectation per question).
+manual_flow:
+  - step: state_intent
+    action: Open Plans, create a new goal with the one-line intent and pick autonomy (ask_each for the demo).
+  - step: review_plan
+    action: Aria decomposes the intent into review_queue.create + review_queue.add_items (both domain review_queue); review the steps.
+  - step: approve
+    action: Approve the plan shape.
+  - step: execute_and_answer
+    action: Execute; answer the review_queue.create interaction with the concrete question schema. For review_queue.add_items, either supply flagged trace_ids OR deny the interaction to skip it.
+  - step: verify
+    action: Confirm the queue is active in Review Queues with the question schema; the plan shows the create step completed (add_items completed if enqueued, skipped if denied).
+components:
+  aria:
+    intent: "Set up a review queue for human labeling of agent replies for safety, citation, and tone."
+    autonomy: ask_each        # or approve_plan to auto-run mutate steps after approval
+    capabilities:
+      - review_queue.create     # TIER_MUTATE
+      - review_queue.add_items  # TIER_MUTATE (same domain "review_queue" -> also proposed by the heuristic planner)
+    step_inputs_needed:   # inputs each step needs — supply via the capability's route (an LLM planner would fill these for autonomy)
+      - "review_queue.create: provide {name, questions:[{key,title,type,options?,required,target}], description?, reviewers?}"
+      - "review_queue.add_items: provide {queue_id, trace_ids:[...]} to enqueue, OR DENY to skip (queue-first, enqueue-later)"
+  prompts: none          # Aria acts via capabilities, not prompt assets
+  skills: none
+  tools: none
+  mcp: none
+  workflow: none
+contracts:
+  intent_schema:
+    type: object
+    required: [goal]
+    properties:
+      goal: {type: string}
+      autonomy: {type: string}
+  output_artifacts:
+    type: object
+    required: [queue_id]
+    properties:
+      queue_id: {type: string}
+      added: {type: integer}   # present only if review_queue.add_items ran with trace_ids
+failure_modes:
+  - intent omits the "review queue" domain needle -> planner skips both review_queue steps
+  - review_queue.create answered with no questions -> rejects ("a review queue needs at least one question")
+  - a categorical question with no options -> rejects ("categorical questions require a non-empty 'options' list")
+  - duplicate question keys -> rejects ("question keys must be unique")
+  - review_queue.add_items executed with no trace_ids -> the handler raises; deny it instead to skip cleanly
+fallbacks:
+  - to skip add_items, deny its interaction (the step is marked skipped; the queue still exists).
+  - if the queue step is missing from the plan, re-create the plan with the literal phrase "review queue" in the intent.
+  - enqueue later via Review Queues -> add items (POST /review-queues/{id}/items) once you have flagged trace ids.

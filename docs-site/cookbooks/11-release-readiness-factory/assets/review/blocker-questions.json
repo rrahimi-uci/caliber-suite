@@ -1,0 +1,37 @@
+{
+  "_comment": "Optional Review Queue question schema for blocker triage. Create a queue via POST /review-queues with these questions, enqueue the candidate trace ids (.../items), and answer them; answers write back onto the trace as MLflow assessments. type is the feedback value type (bool|int|float|str), matching the platform's review-queue question shape. Use this to decide which surfaced issues are real release blockers and to record waivers.",
+  "queue_name": "release-blocker-triage",
+  "description": "Triage candidate release blockers: confirm whether each is a true release blocker, who owns it, and (if waived) when the waiver expires.",
+  "questions": [
+    {
+      "key": "is_release_blocker",
+      "type": "bool",
+      "prompt": "Is this a release blocker (must be fixed or waived before go)?"
+    },
+    {
+      "key": "owning_scenario",
+      "type": "str",
+      "prompt": "Which upstream scenario owns this blocker? (e.g. SCN-07, SCN-08, SCN-09, SCN-10)"
+    },
+    {
+      "key": "severity",
+      "type": "str",
+      "prompt": "Severity: one of [critical, high, medium, low]."
+    },
+    {
+      "key": "waiver_granted",
+      "type": "bool",
+      "prompt": "Is a waiver granted for this release? (false means it must be fixed, not waived)"
+    },
+    {
+      "key": "waiver_expiry",
+      "type": "str",
+      "prompt": "If waived, the waiver expiry date (YYYY-MM-DD). Leave empty if no waiver."
+    },
+    {
+      "key": "waiver_owner",
+      "type": "str",
+      "prompt": "If waived, the accountable owner for the waiver. Leave empty if no waiver."
+    }
+  ]
+}

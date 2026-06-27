@@ -1,0 +1,30 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - There is no built-in release-scoring engine — the release_rubric is computed by the operator from gathered evidence (run ids, review completion, Allure load).
+  - allure_route_loads is real (Settings -> Allure Report, served from GET /observability/allure-report); regenerate with make allure-report first.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  release_rubric:
+    component_readiness: 0.30
+    workflow_readiness: 0.30
+    review_coverage: 0.20
+    evidence_visibility: 0.20
+  rule_checks:
+    - allure_route_loads
+    - required_scenario_evidence_present
+quality_gates:
+  overall_release_score_min: 0.90
+  blocker_count_must_equal: 0
+  allure_visibility_required: true
+monitoring:
+  traces:
+    - release_summary_generation
+    - blocker_review
+    - allure_access
+  metrics:
+    - release_score
+    - blocker_count
+    - unresolved_review_count
+feedback_loop:
+  - map each blocker to the owning scenario and reopen that scenario gate.
+  - keep waiver log with explicit expiry and owner.

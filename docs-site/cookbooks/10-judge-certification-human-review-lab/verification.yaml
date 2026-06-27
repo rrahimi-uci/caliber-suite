@@ -1,0 +1,28 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - FaithfulnessJudge is a real LLM judge (instructions must reference {{ inputs }}/{{ outputs }}/{{ expectations }}). review_items_link_to_trace is real (answers write back to the trace).
+  - automated_human_alignment / disagreement_rate are NOT auto-computed — tally judge verdicts vs reviewer answers by hand.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  judges:
+    - name: FaithfulnessJudge
+      type: custom_judge
+      criteria: output claims supported by expectations
+  rule_checks:
+    - judge_template_variables_valid
+    - review_items_link_to_trace
+quality_gates:
+  overall_eval_score_min: 0.85
+  automated_human_alignment_min: 0.80
+  reviewed_trace_count_min: 3
+monitoring:
+  traces:
+    - judge_creation
+    - eval_run
+    - review_answer_submission
+  metrics:
+    - disagreement_rate
+    - review_turnaround_time
+feedback_loop:
+  - treat disagreement as calibration input, not noise.
+  - expand dataset with hard disagreement cases.

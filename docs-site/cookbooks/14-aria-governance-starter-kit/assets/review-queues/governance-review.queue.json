@@ -1,0 +1,37 @@
+{
+  "name": "governance-review",
+  "description": "Human spot-check of release-candidate answers: faithfulness, citation correctness, tone, and free-text notes. Pairs with the AnswerFaithfulness judge and the release-candidates-eval test set as the human layer of the governance kit.",
+  "questions": [
+    {
+      "key": "faithful",
+      "title": "Is the answer faithful to the evidence?",
+      "type": "pass_fail",
+      "required": true,
+      "target": "feedback"
+    },
+    {
+      "key": "citation_ok",
+      "title": "Are the citations correct and sufficient?",
+      "type": "pass_fail",
+      "required": false,
+      "target": "feedback"
+    },
+    {
+      "key": "tone",
+      "title": "Tone of the answer",
+      "type": "categorical",
+      "options": ["on_brand", "neutral", "off_brand"],
+      "required": false,
+      "target": "feedback"
+    },
+    {
+      "key": "notes",
+      "title": "Reviewer notes",
+      "type": "text",
+      "required": false,
+      "target": "feedback"
+    }
+  ],
+  "reviewers": [],
+  "notes": "Answer to the Aria review_queue.create interaction (same shape as a POST /review-queues body). Each question item is {key, title, type in [pass_fail, categorical, numeric, text], options (for categorical), required, target in [feedback, expectation]}; only key + title are strictly required per item, and the queue requires name + a non-empty questions array. 'reviewers' is optional (a list of identities). Submitted answers write back onto each trace as MLflow assessments/expectations. Aria does NOT enqueue traces here — that is review_queue.add_items, which you DENY in this scenario (no traces yet); add traces later via POST /review-queues/{id}/items {trace_ids}."
+}

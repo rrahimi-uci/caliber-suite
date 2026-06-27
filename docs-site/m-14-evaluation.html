@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Evaluation Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Evaluation Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Quality &amp; trust</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Evaluation</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Quality &amp; trust · Architecture reference</div>
+          <h1 id="top">Evaluation Architecture</h1>
+          <p class="doc-summary">Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<p>This document describes how CALIBER turns a dataset and an artifact into scores. Evaluation is the scoring engine of the platform: it is consumed both by an operator-facing <strong>scorecard</strong> surface, where a dataset is run through scorers and inspected example by example, and by the <strong>refinement and calibration pipeline</strong>, where a candidate artifact is scored against a baseline and gated before it can be promoted. The dataset model that supplies the examples is documented separately in <a href="m-11-test-sets.html">Test Sets</a>, and the pipeline that consumes the gate is documented in <a href="m-15-calibration.html">Calibration</a>; this document covers the engine that sits between them.</p>
+<p>Throughout, all HTTP routes are mounted under the <code>/ajax-api/2.0/mlflow/caliber</code> prefix; endpoint paths are shown relative to that prefix once the convention has been stated.</p>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Evaluation engine</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>The scoring engine that turns a dataset and an artifact into scores, feeding both a scorecard surface and the refinement gate.</td></tr><tr><td><strong>Scorers / judges</strong></td><td>MLflow GenAI judges, scorecard heuristics (<code>exact_match</code>, <code>token_f1</code>, <code>contains_expected</code>, <code>non_empty</code>), the workflow LLM judge, and custom judges via <code>mlflow.genai.make_judge</code>.</td></tr><tr><td><strong>Run targets</strong></td><td><code>predict_target</code> selects what is scored: <code>llm</code>, <code>prompt</code>, <code>skill</code>, or <code>workflow</code>.</td></tr><tr><td><strong>Human alignment</strong></td><td><code>POST /judges/{id}/alignment</code> reports agreement rate and Cohen's kappa against operator labels.</td></tr><tr><td><strong>Where state lives</strong></td><td>Durable <code>CaliberEvalRun</code> (<code>caliber_eval_runs</code>, migration 0049) plus ephemeral <code>ScoreSet</code> / <code>EvalComparison</code> types crossing the <code>EvalProvider</code> boundary.</td></tr><tr><td><strong>Key surfaces</strong></td><td><code>GET</code>/<code>POST /evaluations</code> scorecard routes and the internal gate via <code>orchestrator/eval_stage.py</code>.</td></tr><tr><td><strong>Fail behavior</strong></td><td>Fails closed: no real LLM provider returns <code>400</code> and never fabricates scores; per-row errors isolate rather than abort.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the scope, boundaries, data model, lifecycle, and scoring details.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Evaluation exists so that quality is measured by data rather than asserted by intuition. The module owns the contract for scoring a set of inputs against expected references, the adapters that realize that contract on top of MLflow or a deterministic in-process scorer, and the gate that converts raw scores into a promote-or-reject decision. It deliberately never fabricates a score: when no real model is configured, the scoring path fails closed rather than inventing numbers.</p>
+<p>Its responsibilities are:</p>
+<ul><li>It defines the provider contract (<code>EvalProvider</code>) and the score, comparison, and request data types that flow across it.</li><li>It runs candidate-versus-baseline evaluations for the refinement pipeline and computes the per-dimension deltas the gate inspects.</li><li>It runs synchronous, per-example scorecard evaluations for the standalone Evaluations surface and persists their full results.</li><li>It applies the promotion gate — the aggregate-score floor and the regression-delta ceiling.</li><li>It hosts the scorer catalog and its capability gating, spanning MLflow GenAI judges, deterministic heuristics, the workflow LLM judge, and operator-authored <strong>custom judges</strong> built via <code>mlflow.genai.make_judge</code> (these families serve different callers and are not fully interchangeable on one surface — see §7 and §10: the deterministic heuristics <strong>and</strong> operator-authored custom judges (as <code>Judge.&lt;judge_id&gt;</code> scorer tokens) are selectable on the Evaluations scorecard surface, while the built-in MLflow-GenAI and workflow judge families run on the calibration and gate path).</li></ul>
+<p>These responsibilities are realized across a small set of primary code paths:</p>
+<ul><li><code>caliber/src/caliber/eval/provider.py</code></li><li><code>caliber/src/caliber/eval/mlflow_runner.py</code></li><li><code>caliber/src/caliber/eval/fake.py</code></li><li><code>caliber/src/caliber/eval/gate.py</code></li><li><code>caliber/src/caliber/eval/scorecard.py</code></li><li><code>caliber/src/caliber/eval/predict.py</code></li><li><code>caliber/src/caliber/routes/evaluations.py</code></li><li><code>caliber/src/caliber/routes/judges.py</code></li><li><code>caliber/src/caliber/orchestrator/eval_stage.py</code></li><li><code>caliber/caliber-ui/src/pages/Evaluations.tsx</code></li><li><code>caliber/caliber-ui/src/pages/Judges.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>CALIBER carries two evaluation subsystems that share scoring concepts but serve different callers. The first is the refinement gate, which compares a candidate to a baseline and returns a structured decision. The second is the scorecard surface, which scores a dataset row by row and stores the evidence for inspection. The table below assigns ownership across both.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Provider contract</td><td><code>EvalProvider</code> protocol (<code>eval/provider.py</code>)</td><td>A single <code>evaluate(EvalRequest) -&gt; EvalComparison</code>; failures are wrapped in <code>EvalProviderError</code> rather than leaking the backend exception.</td></tr><tr><td>MLflow scoring</td><td><code>MLflowEvalProvider</code> (<code>eval/mlflow_runner.py</code>)</td><td>Runs <code>mlflow.genai.evaluate</code> per pass (candidate, baseline) and aggregates <code>result.metrics</code> into a <code>ScoreSet</code>.</td></tr><tr><td>Deterministic test double</td><td><code>FakeEvalProvider</code> (<code>eval/fake.py</code>)</td><td>The default provider; returns fixed scores for tests and honors cold-start when no baseline content is supplied.</td></tr><tr><td>Promotion gate</td><td><code>apply_gate</code> (<code>eval/gate.py</code>)</td><td>A pure function turning an <code>EvalComparison</code> plus thresholds into a <code>GateDecision</code>.</td></tr><tr><td>Scorecard run</td><td><code>run_scorecard</code> (<code>eval/scorecard.py</code>)</td><td>Per-example prediction and scoring with per-row error isolation; the basis of the Evaluations surface.</td></tr><tr><td>Real-LLM prediction</td><td><code>build_completion_fn</code> (<code>eval/predict.py</code>)</td><td>Builds the completion function from configuration; returns <code>None</code> for fake/unset providers so callers fail closed.</td></tr><tr><td>Scorecard persistence</td><td><code>CaliberEvalRun</code> (<code>db/models.py</code>, migration 0049)</td><td>Stores run config, recomputed summaries, and the heavy per-example <code>results</code> array.</td></tr></tbody></table></div></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The two subsystems converge on the same idea — predict, then score — but reach it through different entry points, as the diagram shows.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    subgraph Scorecard
+      UI[Evaluations UI]:::ui
+      API[routes/evaluations.py]:::ctrl
+      SC[run_scorecard]:::ctrl
+      RUN[(CaliberEvalRun)]:::store
+    end
+    subgraph Gate
+      ES[orchestrator/eval_stage.py]:::ctrl
+      PROV[EvalProvider]:::ext
+      RUNNER[MLflow / Fake]:::ext
+      GATE[apply_gate]:::ctrl
+    end
+    DS[(Eval dataset examples)]:::store
+    PREDICT[predict_fn&lt;br/&gt;real LLM]:::ext
+
+    UI --&gt; API --&gt; SC
+    SC --&gt; PREDICT
+    SC --&gt; DS
+    SC --&gt; RUN
+    ES --&gt; PROV --&gt; RUNNER
+    RUNNER --&gt; PREDICT
+    RUNNER --&gt; DS
+    PROV --&gt; GATE</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties follow from this split:</p>
+<ul><li>Scoring is <strong>provider-mediated</strong>: callers depend on the <code>EvalProvider</code> contract, and only <code>server.py</code> selects the concrete provider at boot via <code>build_provider</code>.</li><li>The engine <strong>fails closed</strong>: <code>build_completion_fn</code> returns <code>None</code> for unset, <code>fake</code>, or <code>deterministic</code> providers, so the scorecard route returns <code>400</code> and the gate's default factory is absent rather than producing fabricated scores.</li><li>Reproducibility is built in: every evaluation can pin an <code>eval_dataset_version</code>, and the loaders select the historical example set as of that version.</li><li>The two subsystems persist differently: the scorecard writes a durable <code>CaliberEvalRun</code>, while the gate returns an in-memory <code>EvalComparison</code> that the refinement job stores as part of its own provenance.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Evaluation state lives in two places: ephemeral data types that cross the provider boundary, and the durable scorecard run.</p>
+<div class="table-wrap"><table><thead><tr><th>State</th><th>Storage</th><th>Purpose</th></tr></thead><tbody><tr><td>Score set</td><td><code>ScoreSet</code> (<code>eval/provider.py</code>)</td><td><code>overall: float</code> plus a <code>dimensions</code> map; <code>overall</code> is what the gate compares to the score floor.</td></tr><tr><td>Comparison</td><td><code>EvalComparison</code> (<code>eval/provider.py</code>)</td><td>Candidate and optional baseline <code>ScoreSet</code>s, the per-dimension <code>deltas</code>, the dataset id, and the example count.</td></tr><tr><td>Request</td><td><code>EvalRequest</code> (<code>eval/provider.py</code>)</td><td>Carries candidate/baseline content, the pinned dataset id and version, and the scorer names, configs, and weights.</td></tr><tr><td>Scorecard run</td><td><code>CaliberEvalRun</code> (<code>caliber_eval_runs</code>)</td><td>Run config (<code>label</code>, <code>predict_target</code>, <code>model</code>, <code>scorers</code>, <code>pass_threshold</code>), server-recomputed summaries, the full per-example <code>results</code>, and <code>status</code>/<code>error_message</code>.</td></tr></tbody></table></div>
+<p>The provider applies scorer weights with <code>apply_scorer_weights</code>, which recomputes <code>overall</code> as a weighted mean over the named dimensions and rounds to four decimal places, leaving the score unchanged when the weights sum to zero. The scorecard run is deliberately summary-rich: <code>n_examples</code>, <code>passed_count</code>, <code>failed_count</code>, <code>overall_score</code>, <code>pass_rate</code>, and a per-scorer <code>aggregate</code> map are recomputed server-side so list views never have to parse the heavy <code>results</code> array. Migration 0049 creates <code>caliber_eval_runs</code> with these columns and the <code>(dataset_id, created_at)</code> and <code>created_at</code> indexes.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The scorecard surface exposes three routes, all mounted under the standard prefix.</p>
+<ul><li><code>GET /evaluations</code> — lists run summaries, filterable by <code>dataset_id</code>, with project-visibility scoping and the heavy <code>results</code> array omitted.</li><li><code>GET /evaluations/{run_id}</code> — returns the full run including per-example results.</li><li><code>POST /evaluations</code> — creates and runs an evaluation synchronously.</li></ul>
+<p>Creation accepts an <code>EvalRunCreateRequest</code> (<code>dataset_id</code>, optional <code>dataset_version</code>, <code>label</code>, <code>scorers</code>, <code>pass_threshold</code> defaulting to <code>0.5</code>, and an optional <code>max_examples</code>). The request is version-aware: an explicit <code>dataset_version</code> selects the historical example set, while its absence uses the current active set. The route requires a real LLM provider and returns <code>400</code> when none is configured, so the Evaluations surface can never display fabricated scores.</p>
+<p>The refinement gate has no public route of its own; it is invoked internally by the calibration pipeline through <code>orchestrator/eval_stage.py</code>, which builds an <code>EvalRequest</code>, calls the provider, and applies the gate.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>A scorecard run is synchronous and bounded, which keeps the request predictable and the per-example evidence complete.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as Operator
+    participant API as routes/evaluations.py
+    participant DB as CALIBER DB
+    participant P as predict_fn (LLM)
+    participant SC as run_scorecard
+
+    U-&gt;&gt;API: POST /evaluations (dataset, scorers, threshold)
+    API-&gt;&gt;DB: Load dataset + example rows (version-aware)
+    API-&gt;&gt;API: Resolve scorers, require real LLM (else 400)
+    API-&gt;&gt;SC: run_scorecard(rows, predict, scorers, threshold)
+    loop per example (capped)
+        SC-&gt;&gt;P: predict(input)
+        SC-&gt;&gt;SC: score prediction vs expected, passed = score &gt;= threshold
+    end
+    SC--&gt;&gt;API: rows + aggregate + pass_rate
+    API-&gt;&gt;DB: Persist CaliberEvalRun (+ audit)
+    API--&gt;&gt;U: EvalRunSchema (201)</pre></div>
+<p>The lifecycle is governed by a few firm rules:</p>
+<ul><li>Runs are capped: the example count is limited to <code>max_examples</code> or a default of <code>50</code>, because each example costs one LLM call and the run blocks the request.</li><li>Failures are isolated per row: a prediction that raises degrades that single row to an error with a zero score rather than aborting the run; only when every row errors is the run marked <code>failed</code>.</li><li>The gate path mirrors this but compares two passes: the provider runs the candidate and, when present, the baseline, then computes deltas for the gate.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-scoring-gating-and-trust-boundaries">7. Scoring, gating, and trust boundaries<a class="anchor" href="#7-scoring-gating-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Three scorer families coexist, each suited to a different caller. Naming them explicitly avoids confusing a deterministic heuristic with an LLM judgment.</p>
+<ul><li><strong>MLflow GenAI judges</strong>, used by the refinement gate: <code>Correctness</code>, <code>Guidelines</code> (requires a configured guideline list), <code>RelevanceToQuery</code>, and <code>Safety</code>, plus provider-prefixed <code>DeepEval.*</code> metrics (<code>AnswerRelevancy</code>, <code>Faithfulness</code>, <code>Toxicity</code>, <code>ToolUse</code>). The default suite is <code>Correctness</code>, <code>Guidelines</code>, <code>RelevanceToQuery</code>, and <code>Safety</code>.</li><li><strong>Scorecard heuristics</strong>, used by the Evaluations surface: <code>exact_match</code>, <code>token_f1</code> (SQuAD-style token-overlap F1), <code>contains_expected</code>, and <code>non_empty</code>. The default set is <code>exact_match</code>, <code>token_f1</code>, and <code>contains_expected</code>.</li><li><strong>The workflow LLM judge</strong>, used by workflow calibration, which scores a single quality dimension and degrades to a structural scorer when unavailable.</li></ul>
+<p>The <code>DeepEval.*</code> family is capability-gated: when the <code>deepeval</code> package is not importable, those scorers are marked unavailable with an install hint and excluded from the defaults, so a missing optional dependency degrades cleanly instead of failing a run.</p>
+<p>The gate itself is a pure function. It reads <code>min_aggregate_score</code> (default <code>0.85</code>) and <code>max_regression_delta</code> (default <code>0.02</code>) from the agent's thresholds, falling back to those defaults, and applies two rules: the candidate's <code>overall</code> must meet the score floor, and — only when a baseline exists — no per-dimension delta may fall below the negative regression ceiling. Cold-start evaluations, which have no baseline, skip the regression rule entirely. The decision carries its reasons and the thresholds it used.</p>
+<p>The trust boundary is that scores must be earned: creating a scorecard run requires the <code>operator</code> scope, evaluation requires a real configured LLM provider, and version pinning makes a run reproducible against the exact example set it scored.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Evaluation is configured through a small set of keys and leaves durable evidence behind. The provider is selected by <code>eval_provider</code> (env <code>CALIBER_EVAL_PROVIDER</code>), which defaults to <code>fake</code>; production deployments set it to <code>mlflow</code>. The prediction path is driven by <code>llm_provider</code>, <code>llm_diagnosis_model</code>, and <code>llm_api_key_env</code>, and the completion function returns <code>None</code> for unset or fake providers — the mechanism that makes the engine fail closed.</p>
+<p>For inspection, the scorecard persists the full per-example <code>results</code> on each <code>CaliberEvalRun</code>, and the refinement gate's <code>EvalComparison</code> is stored on the refinement job alongside provenance tags such as the aggregate score, the example count, the regression-detected flag, and the gate outcome. Runs are listed by dataset and read individually; comparison between runs is performed client-side from the persisted summaries and results rather than by a dedicated server route.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The clearest extension points are new scorers and new providers. Provider-prefixed scorers (the <code>DeepEval.*</code> convention) show how additional judge libraries can be surfaced behind capability gating, scorer weights allow re-balancing dimensions without changing the scorers themselves, and the <code>EvalProvider</code> contract admits new backends behind the same <code>evaluate</code> call.</p>
+<p>The current constraints are deliberate trade-offs. Scorecard runs are synchronous and capped, which keeps evidence complete but bounds dataset size per run. There is no server-side run-comparison endpoint; comparison is a client concern over the persisted runs. And gate thresholds are per-agent rather than global, which keeps promotion policy close to the artifact it governs at the cost of a single platform-wide knob.</p>
+<p>Evaluation is therefore the measurement substrate beneath both inspection and promotion: it scores honestly or not at all, it records enough to be audited, and it hands the calibration pipeline a single, well-defined gate decision.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="10-custom-llm-judges">10. Custom LLM judges<a class="anchor" href="#10-custom-llm-judges" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Beyond the built-in scorer catalog, operators can author reusable <strong>custom judges</strong> backed by MLflow 3.14's <code>mlflow.genai.make_judge</code>. A judge is a named, natural-language rubric — instructions that reference the evaluation variables <code>{{ inputs }}</code>, <code>{{ outputs }}</code>, and <code>{{ expectations }}</code> — plus an optional model and a feedback value type (<code>bool</code> / <code>int</code> / <code>float</code> / <code>str</code>). They are managed on the <strong>Judges</strong> page and stored in <code>caliber_judges</code> (migration <code>0053</code>), scoped and archived like the other CALIBER assets. A schema validator enforces that the instructions reference at least one evaluation variable so a judge always has something to score.</p>
+<p>CALIBER is the source of truth for the definition; the judge is rebuilt deterministically on every run rather than persisted in MLflow. Every judge in the platform is now built one way — through the shared <code>caliber.eval.judge_scorer.build_judge(...)</code> wrapper around <code>make_judge</code> — and run one way, via <code>score_with_judge(...)</code>, which invokes the judge on literal <code>inputs</code> / <code>outputs</code> / <code>expectations</code> fields and coerces the returned <code>Feedback</code> into a <code>[0, 1]</code> score plus its raw verdict and rationale. <code>make_judge</code> itself is OSS and needs no Databricks workspace.</p>
+<h3 id="judges-on-the-evaluations-scorecard">Judges on the Evaluations scorecard<a class="anchor" href="#judges-on-the-evaluations-scorecard" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>Authored judges are selectable directly in the Evaluations run panel, not just the refinement gate. A judge rides through the run's <code>scorers</code> list under the reserved token <code>Judge.&lt;judge_id&gt;</code>; <code>routes/evaluations</code> hydrates each token from <code>caliber_judges</code> (404 on unknown/archived), builds the judge through <code>build_judge</code>, and passes it to <code>run_scorecard</code> as a judge-runner alongside the deterministic scorers. The scorecard threads each example's full inputs/prediction/expected into the judge and records its per-row score in the same <code>scores</code> map as <code>exact_match</code> et al.; one judge failing a row degrades that cell to an error rather than voiding the run. Judge columns render with the judge's name and are compared run-over-run like any other scorer.</p>
+<h3 id="scoring-a-real-artifact">Scoring a real artifact<a class="anchor" href="#scoring-a-real-artifact" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>A run's <code>predict_target</code> selects <em>what</em> is scored. The default <code>llm</code> produces a generic completion; <code>prompt</code> and <code>skill</code> instead render the <strong>artifact itself</strong> (a registered prompt version's template, or a skill's content) as the system instruction via the gate's <code>build_default_predict_fn_factory</code>, so the thing under test is the real asset, not a neutral completion. <code>workflow</code> compiles the version <strong>once</strong> (the same <code>caliber.workflows.promoter</code> <code>build_plan</code> + <code>build_executor</code> seam the preview/run paths use) and then executes that plan per example in preview mode (tools sandboxed), scoring the workflow's output; because a workflow run is heavy, the example count is bounded tighter (<code>_WORKFLOW_MAX_EXAMPLES</code>) than the generic cap. Every run records <code>predict_target</code> + <code>subject_ref</code> (prompt <code>&lt;name&gt;@&lt;version&gt;</code>, skill id, or workflow version id) for reproducibility.</p>
+<h3 id="try-it-playground-and-human-alignment">"Try it" playground and human alignment<a class="anchor" href="#try-it-playground-and-human-alignment" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>Two trust surfaces close the loop on judge quality. <code>POST /judges/{id}/test-run</code> runs a judge once on a sample (no persistence) and returns its score, raw verdict, and rationale — the <strong>"Try it"</strong> playground on the Judges page. <code>POST /judges/{id}/alignment</code> runs the judge over operator-labeled examples and reports the <strong>agreement rate and Cohen's kappa</strong> (chance-corrected) between the judge's thresholded verdicts and the human labels, plus a binary confusion breakdown (<code>caliber.eval.alignment</code>). A judge that doesn't agree with humans shouldn't gate releases; alignment makes that measurable before the judge is trusted.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,39 @@
+# CALIBER
+
+> MLflow-native control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the embedded Aria copilot.
+
+The pages below are the architecture reference, one per module. Each link is the raw Markdown source, built for programmatic access.
+
+## Platform
+
+- [Platform](m-01-platform.md): Boot and dependency graph, same-origin MLflow plugin model, shared runtime state, async workers, and the trust boundary the whole product stands on.
+
+## Authoring
+
+- [Prompts](m-02-prompts.md): MLflow Prompt Registry authoring, render/test history, hidden runtime targets, and queued optimizer-backed calibration.
+- [Tools](m-03-tools.md): Versioned callable registry, sandboxed test runs, fixture suites and baselines, and deterministic replay calibration.
+- [Skills](m-04-skills.md): Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.
+- [MCP servers](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
+- [Workflows](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.
+- [Workflow components](m-06-workflows-components.md): The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 29 built-in components.
+
+## Data & knowledge
+
+- [Object store](m-07-object-store.md): MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing.
+- [Knowledge bases](m-08-knowledge-bases.md): Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration.
+
+## Quality & trust
+
+- [Test sets](m-11-test-sets.md): Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring.
+- [Evaluation](m-14-evaluation.md): Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation.
+- [Calibration](m-15-calibration.md): Optimizer-driven calibration for prompts, skills, and workflows on one unified make_judge scoring path, plus deterministic inline tool calibration from saved fixtures.
+- [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
+
+## Operations
+
+- [Observability](m-09-observability.md): MLflow traces with multimodal attachments, feedback, Prometheus metrics, SSE live events, service visibility, and trace retention.
+- [Gateways](m-10-gateways.md): Read-only discovery of an external MLflow AI Gateway and a clear account of whether CALIBER routes outbound traffic through it.
+
+## Aria assistant
+
+- [Overview](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.

@@ -1,0 +1,36 @@
+id: SCN-09
+slug: workflow-debugger-self-healing-lab
+name: "Self-Healing Workflows"
+track: build
+objective: Use CALIBER runtime and trace tools to replay, debug, recover, and patch failing workflows while preserving operator control.
+why_it_matters:
+  - End-to-end systems need fast failure localization and safe remediation.
+  - Clarifies the boundary between assistant suggestions and human-approved changes.
+primary_persona: platform engineer
+secondary_personas:
+  - AI engineer
+  - evaluator
+caliber_surfaces:
+  - Workflows
+  - Aria
+  - Aria Plans
+  - Observability
+prerequisites:
+  - One failing workflow run with reproducible inputs.
+  - Access to replay/debugger/recovery surfaces.
+time_to_first_value: 90-150 minutes
+success_criteria:
+  - Failing run is replayed and root cause isolated.
+  - Proposed patch is validated before publish.
+demo_profile:
+  recommended_sequence_index: 9
+  tier: operations
+  live_demo_minutes: 30-50
+  depends_on:
+    - SCN-07
+  included_in:
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - replay/debugger/checkpoint recovery loop
+    - evidence-backed patch validation

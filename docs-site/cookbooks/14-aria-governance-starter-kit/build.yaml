@@ -1,0 +1,57 @@
+workflow_goal: From one clear intent, have Aria autonomously stand up a governance starter kit — a faithfulness judge, an eval dataset to score against, and a human-review queue — in a single plan.
+# Verified against the Aria capability registry + plan executor — see ../FEASIBILITY.md and ../ARIA-AUTONOMY.md.
+feasibility:
+  - Aria's autonomous capability registry today = judge.create, eval_dataset.create, review_queue.create, review_queue.add_items, workflow.calibrate (+ judge.list/review_queue.list reads). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set.
+  - The default HeuristicPlanner proposes a step for each non-read capability whose DOMAIN word (the part of the key before the dot, with "_" -> " ") appears in the goal. So the intent must contain ALL THREE literal needles "judge", "eval dataset", and "review queue" (not "test set"). An LLM planner, if wired, maps natural phrasing.
+  - Both review_queue.create AND review_queue.add_items share the "review queue" domain, so the planner proposes BOTH. The 4th step (add_items) needs concrete trace_ids; with none yet, DENY its interaction to skip it (or supply trace_ids if you already have traces). The kit is complete without it.
+  - EXECUTION GAP (verified) - the shipped HeuristicPlanner emits steps with EMPTY inputs and the interaction answer ({approved, choice, value}) CANNOT inject them, so the artifacts are CREATED VIA EACH CAPABILITY'S OWN ROUTE using the assets/ specs (POST /judges, POST /eval-datasets, POST /review-queues). The Aria answer only gates a step (approve/deny). Full hands-off autonomy needs an LLM planner to fill PlannedStep.inputs (not wired). autonomy ask_each pauses each mutate step.
+  - eval_dataset.create makes the EMPTY test set; example rows are added separately (not an Aria capability) — add them after, then run Evaluations (see SCN-01/SCN-10).
+manual_flow:
+  - step: state_intent
+    action: Open Plans, create a new goal with the one-line intent and pick autonomy.
+  - step: review_plan
+    action: Aria decomposes the intent into a draft plan (judge.create + eval_dataset.create + review_queue.create [+ review_queue.add_items]); review the steps.
+  - step: approve
+    action: Approve the plan shape.
+  - step: execute_and_answer
+    action: Execute; answer each interaction with the concrete judge spec, dataset name, and review-queue question schema. Deny the add_items interaction (no traces yet) to skip it.
+  - step: verify
+    action: Confirm the judge is active (Judges), the test set exists (Test Sets), and the review queue exists with its question schema (Review Queues).
+components:
+  aria:
+    intent: "Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks."
+    autonomy: ask_each        # or approve_plan to auto-run mutate steps after approval
+    capabilities:
+      - judge.create          # TIER_MUTATE
+      - eval_dataset.create   # TIER_MUTATE
+      - review_queue.create   # TIER_MUTATE
+      - review_queue.add_items # TIER_MUTATE — proposed (shares the "review queue" domain); deny to skip, or supply trace_ids
+    step_inputs_needed:   # inputs each step needs — supply via the capability's route (an LLM planner would fill these for autonomy)
+      - "judge.create: provide {name, instructions (must reference {{ inputs }}/{{ outputs }}/{{ expectations }}), feedback_value_type}"
+      - "eval_dataset.create: provide {name, description}"
+      - "review_queue.create: provide {name, questions[] (each {key, title, type in [pass_fail, categorical, numeric, text], options, required, target in [feedback, expectation]})}"
+      - "review_queue.add_items: provide {queue_id, trace_ids} — DENY to skip (no traces yet), or supply ids"
+  prompts: none          # Aria acts via capabilities, not prompt assets
+  skills: none
+  tools: none
+  mcp: none
+  workflow: none
+contracts:
+  intent_schema:
+    type: object
+    required: [goal]
+    properties:
+      goal: {type: string}
+      autonomy: {type: string}
+  output_artifacts:
+    type: object
+    required: [judge_id, dataset_id, queue_id]
+failure_modes:
+  - intent omits a domain needle -> planner skips that capability (e.g. "test set" instead of "eval dataset" drops eval_dataset.create)
+  - judge instructions reference no template variable -> judge.create rejects (operator scope + validation)
+  - review_queue.create with empty questions -> rejected (questions is required)
+  - review_queue.add_items answered without trace_ids -> rejected (queue_id + non-empty trace_ids required); deny it instead
+  - no model provider -> the judge (and an LLM planner, if used) cannot run
+fallbacks:
+  - if an unwanted step is proposed (e.g. review_queue.add_items with no traces), deny its interaction to skip it.
+  - if a capability is missing from the plan, re-create the plan with the domain words explicit ("judge", "eval dataset", "review queue").

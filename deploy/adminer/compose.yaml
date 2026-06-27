@@ -1,0 +1,24 @@
+# Adminer — a lightweight web UI for the Postgres database (the DB counterpart
+# of the MinIO console). Single tiny container; supports Postgres + pgvector.
+#
+# Console: http://localhost:8081
+# Open the prefill link for a near-zero-entry login (everything but password):
+#   http://localhost:8081/?pgsql=postgres&username=caliber&db=caliber
+# then type password `caliber`. (Adminer 5 blocks scripted full autologin via
+# CSP, so the password is the one field it won't let us prefill.) Browse all
+# databases on the server: caliber (CALIBER + MCP graph/vector) and mlflow.
+
+name: caliber-adminer
+
+services:
+  adminer:
+    image: adminer:latest
+    container_name: caliber-adminer
+    depends_on:
+      - postgres
+    environment:
+      # Pre-fills the "Server" field on the login screen.
+      ADMINER_DEFAULT_SERVER: postgres
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
+    restart: unless-stopped

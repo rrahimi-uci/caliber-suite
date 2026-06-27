@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 15: Aria: Triage &amp; Recalibrate Loop | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">15 · Aria: Triage &amp; Recalibrate Loop</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 15 · Aria — Autonomous</p>
+        <h1>Aria: Triage &amp; Recalibrate Loop</h1>
+        <p class="doc-lead">One sentence → review the weak runs, then kick off an async workflow calibration.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Aria — Autonomous</span><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">20–35 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> On an existing workflow with weak runs, Aria plans <code>review_queue.create</code> + <code>add_items</code> + the async <code>workflow.calibrate</code>; you create the queue, enqueue the flagged traces, trigger calibration, and watch the plan park + poll.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Plans</span> <span class="ck-badge ck-surface">Review Queues</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Observability</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Plan a remediation loop from one intent</li><li>Operate on existing ids (traces, workflow, agent)</li><li>Read flagged trace ids from Observability</li><li>Trigger a workflow calibration</li><li>Understand async parking + polling in Aria plans</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  I[/&quot;Intent: review the flagged traces + calibrate the workflow&quot;/] --&gt; PL[Aria Plans]
+  PL --&gt; Q[review_queue.create] -.UI.-&gt; RQ[Review Queues]
+  PL --&gt; E[review_queue.add_items] -.real trace ids.-&gt; ENQ[enqueue]
+  PL --&gt; C[workflow.calibrate · async] --&gt; POLL[park → poll → done]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows (prerequisite)</code></div><div class="ck-step-do"><strong>Prerequisite — this loop remediates things that already exist.</strong> Before starting, build and run the <strong>Support Triage Copilot</strong> from cookbook 07 so you have a real workflow with recent runs. You will need three real ids from it: a few <em>flagged trace ids</em>, the <em>workflow_id</em>, and an <em>agent_id</em> bound in that workflow. Aria does not create the subject workflow or its traces.</div><div class="ck-see"><strong>You'll see:</strong> An existing workflow (from SCN-07) listed under <strong>Workflows</strong>, with recent runs you can open.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows (prerequisite)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Workflows (prerequisite)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Observability</code></div><div class="ck-step-do">Collect the <strong>flagged trace ids</strong> you will enqueue. In the sidebar, under <strong>Observe</strong>, click <strong>Observability</strong>, stay on the <strong>Traces</strong> tab, and set the <strong>Filter by status</strong> dropdown to <strong>Error</strong> to surface the weak runs. Click each weak trace to open it on the right — its full <code>trace_id</code> appears in the page URL (<code>?trace=…</code>) and you can also paste an id into the <em>Search traces</em> box to confirm it. Note 2-3 trace ids — you will paste them later.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Filter by status</td><td><code>Error</code> <span style="color:#888">(the option values are All statuses / OK / Error / In progress)</span></td></tr><tr><td>What to copy</td><td>2-3 <code>trace_id</code> values from the weak runs (from the URL after selecting each trace)</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A filtered list of trace rows (each showing the trace <em>name</em> + an <em>ERROR</em> status badge). Selecting a row opens its detail and puts the full <code>trace_id</code> in the URL — keep those ids handy for the enqueue step.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Observability</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Observability</span><span class="ck-mk-title">Observability</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Filter by status</span><span class="ck-mk-input">Error (the option values are All statuses / OK / Error / In progress)</span></label><label class="ck-mk-field"><span class="ck-mk-label">What to copy</span><span class="ck-mk-input">2-3 trace_id values from the weak runs (from the URL after selecting each trace)</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Plans › New goal</code> <span class="ck-made">creates · Aria plan (draft)</span></div><div class="ck-step-do">In the sidebar, under <strong>Compose</strong>, click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Goal</td><td>Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration. <span style="color:#888">(canonical intent — copy from <a href="#asset-assets-intent-md">intent.md</a>)</span></td></tr><tr><td>Autonomy</td><td>Stop before each change <span style="color:#888">(= ask_each)</span></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Decompose goal</span></div><div class="ck-see"><strong>You'll see:</strong> The button shows <em>Decomposing…</em>, then Aria opens the plan's detail page. Breadcrumb <code>Plans › PLAN-…</code>, status badge <strong>DRAFT</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Plans › New goal</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">New goal</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Goal</span><span class="ck-mk-input">Our workflow&#x27;s recent runs look weak — set up a review queue for the flagged traces …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Autonomy</span><span class="ck-mk-input">Stop before each change (= ask_each)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Decompose goal</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Plans › PLAN-… (draft)</code>  <a class="ck-assetref" href="#asset-assets-expected-plan-json">expected-plan.json ↓</a></div><div class="ck-step-do">Confirm Aria decomposed the sentence into the three remediation steps. Note the third step, <code>workflow.calibrate</code>, is Aria's first <strong>async</strong> capability. Compare against <a href="#asset-assets-expected-plan-json">expected-plan.json</a>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Step 1</td><td><code>review_queue.create</code> — tier mutate</td></tr><tr><td>Step 2</td><td><code>review_queue.add_items</code> — tier mutate (needs EXISTING trace ids)</td></tr><tr><td>Step 3</td><td><code>workflow.calibrate</code> — tier mutate, ASYNC (needs EXISTING workflow_id + agent_id)</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A three-row <strong>Plan steps</strong> list (<code>review_queue.create</code>, <code>review_queue.add_items</code>, <code>workflow.calibrate</code>), each with a <em>PENDING</em> badge.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Plans › PLAN-… (draft)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (draft)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Step 1</span><span class="ck-mk-input">review_queue.create — tier mutate</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 2</span><span class="ck-mk-input">review_queue.add_items — tier mutate (needs EXISTING trace ids)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 3</span><span class="ck-mk-input">workflow.calibrate — tier mutate, ASYNC (needs EXISTING workflow_id + agent_id)</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Plans › PLAN-… (draft)</code></div><div class="ck-step-do">Approve the plan shape. Click <strong>Approve plan</strong> in the top-right of the plan header.</div><div class="ck-click">Click <span class="ck-btn">Approve plan</span></div><div class="ck-see"><strong>You'll see:</strong> The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Plans › PLAN-… (draft)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (draft)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Approve plan</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Plans › PLAN-… (approved)</code></div><div class="ck-step-do">Start running the plan. Click <strong>Execute</strong>. Aria pauses at the first step. <strong>Honesty note:</strong> Aria <em>plans</em> these steps, but the shipped planner leaves their inputs empty and the approval prompt only carries yes/no. If you <strong>Approve</strong> a step it runs with empty inputs and <em>fails validation</em> (e.g. <code>workflow.calibrate</code> requires <code>workflow_id</code> + <code>agent_id</code>), which fails the whole plan. So you will <strong>Deny</strong> each prompt — that skips the step and keeps the plan healthy — and <em>drive each step yourself</em> via its own UI page using the spec files (with the real ids you collected).</div><div class="ck-click">Click <span class="ck-btn">Execute</span></div><div class="ck-see"><strong>You'll see:</strong> A violet <strong>Aria needs your approval</strong> prompt for <code>review_queue.create</code> with <strong>Approve</strong> / <strong>Deny</strong> buttons; plan status <strong>RUNNING</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Plans › PLAN-… (approved)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (approved)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Execute</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Plans › PLAN-… (running)</code> <span class="ck-made">creates · Aria plan (completed, steps skipped — orchestration record)</span></div><div class="ck-step-do">Walk the three prompts in order, clicking <strong>Deny</strong> on each as it appears (<code>review_queue.create</code>, then <code>review_queue.add_items</code>, then <code>workflow.calibrate</code>). Denying marks each step <strong>SKIPPED</strong> so the plan completes cleanly as the orchestration record; you perform the real work (create the queue, enqueue traces, start the calibration) on the dedicated pages in the next steps. The genuine <em>async</em> behavior you will see is on the workflow's <strong>Calibration runs</strong> list — not on a parked plan step.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>review_queue.create</td><td>click <strong>Deny</strong> (build it yourself in Review Queues)</td></tr><tr><td>review_queue.add_items</td><td>click <strong>Deny</strong> (enqueue yourself in the queue page)</td></tr><tr><td>workflow.calibrate</td><td>click <strong>Deny</strong> (start it yourself in the Workflow Calibrate panel)</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> Each denied step gets a <strong>SKIPPED</strong> badge; after the third the plan reaches <strong>COMPLETED</strong> with all three steps skipped. Now build the real artifacts.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Plans › PLAN-… (running)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (running)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">review_queue.create</span><span class="ck-mk-input">click Deny (build it yourself in Review Queues)</span></label><label class="ck-mk-field"><span class="ck-mk-label">review_queue.add_items</span><span class="ck-mk-input">click Deny (enqueue yourself in the queue page)</span></label><label class="ck-mk-field"><span class="ck-mk-label">workflow.calibrate</span><span class="ck-mk-input">click Deny (start it yourself in the Workflow Calibrate panel)</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › New review queue</code> <span class="ck-made">creates · Review queue: weak-runs-triage</span> <a class="ck-assetref" href="#asset-assets-review-queues-triage-review-queue-json">triage-review.queue.json ↓</a></div><div class="ck-step-do">Build the triage queue. In the sidebar, under <strong>Observe</strong>, click <strong>Review Queues</strong>, then <strong>+ New Queue</strong>. Fill from <a href="#asset-assets-review-queues-triage-review-queue-json">triage-review.queue.json</a>. Click <strong>+ Add question</strong> until you have four rows. Note two special types: <code>failure_mode</code> is <em>categorical</em> (fill its options) and <code>expected_answer</code> uses target <strong>expectation</strong> (its answer becomes ground truth on the trace).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td>weak-runs-triage</td></tr><tr><td>Reviewers (comma-separated)</td><td><span style="color:#888">leave blank</span></td></tr><tr><td>Description</td><td>Human triage of weak workflow runs: was the resolution correct, what failed, how severe, and what the answer should have been.</td></tr><tr><td>Question 1 — key / title / type / target</td><td><code>resolution_correct</code> / Did the workflow reach the correct resolution? / <code>pass_fail</code> / <code>feedback</code></td></tr><tr><td>Question 2 — key / title / type / target / options</td><td><code>failure_mode</code> / Primary failure mode / <code>categorical</code> / <code>feedback</code> / options: <code>wrong_tool, missing_evidence, hallucinated_claim, bad_escalation, none</code></td></tr><tr><td>Question 3 — key / title / type / target</td><td><code>severity</code> / Severity (1-5) / <code>numeric</code> / <code>feedback</code></td></tr><tr><td>Question 4 — key / title / type / target</td><td><code>expected_answer</code> / What should the answer have been? (becomes the expectation) / <code>text</code> / <code>expectation</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create queue</span></div><div class="ck-see"><strong>You'll see:</strong> The panel closes and <strong>weak-runs-triage</strong> appears in the Review Queues table with <strong>4</strong> questions and <em>no items</em> yet.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › New review queue</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">New review queue</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">weak-runs-triage</span></label><label class="ck-mk-field"><span class="ck-mk-label">Reviewers (comma-separated)</span><span class="ck-mk-input">leave blank</span></label><label class="ck-mk-field"><span class="ck-mk-label">Description</span><span class="ck-mk-input">Human triage of weak workflow runs: was the resolution correct, what failed, how sev…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Question 1 — key / title / type / target</span><span class="ck-mk-input">resolution_correct / Did the workflow reach the correct resolution? / pass_fail / fe…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Question 2 — key / title / type / target / options</span><span class="ck-mk-input">failure_mode / Primary failure mode / categorical / feedback / options: wrong_tool, …</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create queue</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › weak-runs-triage</code> <span class="ck-made">creates · Flagged traces enqueued for triage</span> <a class="ck-assetref" href="#asset-assets-enqueue-json">enqueue.json ↓</a></div><div class="ck-step-do">Enqueue the real flagged traces (the <code>review_queue.add_items</code> step). Open <strong>weak-runs-triage</strong>, then paste the <strong>real</strong> trace ids you noted from Observability into the <strong>Add traces to review</strong> box (comma- or space-separated) and click <strong>Enqueue</strong>. Replace the placeholders in <a href="#asset-assets-enqueue-json">enqueue.json</a> with those real ids.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Add traces to review (ids, comma or space separated)</td><td><code>tr-… tr-… tr-…</code> <span style="color:#888">(the REAL flagged trace ids from Observability — not placeholders)</span></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Enqueue</span></div><div class="ck-see"><strong>You'll see:</strong> The <em>Items (N)</em> list fills with the enqueued traces, each showing a <strong>PENDING</strong> status, and the first trace opens in the review form on the right.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › weak-runs-triage</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">weak-runs-triage</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Add traces to review (ids, comma or space separated)</span><span class="ck-mk-input">tr-… tr-… tr-… (the REAL flagged trace ids from Observability — not placeholders)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Enqueue</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › (SCN-07 workflow) › Calibrate</code> <span class="ck-made">creates · Workflow calibration job (async)</span> <a class="ck-assetref" href="#asset-assets-calibrate-json">calibrate.json ↓</a></div><div class="ck-step-do">Kick off the real workflow calibration (the <code>workflow.calibrate</code> step). Open <strong>Workflows</strong>, click into your SCN-07 workflow, and click the <strong>Calibrate</strong> button (top-right of the header) to reveal the calibration panel. In the panel, pick the bound <strong>Agent</strong> (this is the <code>agent_id</code>), leave <strong>Objective</strong> on <em>quality</em>, leave <strong>Epsilon</strong> and <strong>Candidates</strong> on their defaults, then click <strong>Start Calibration</strong>. <strong>Note:</strong> the button stays disabled until a deploy-gate eval dataset is available for the workflow — the panel shows that availability status, so make sure SCN-07 has its gate dataset attached. Use the real workflow + agent from <a href="#asset-assets-calibrate-json">calibrate.json</a>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Agent</td><td><span style="color:#888">the agent bound in this workflow (the real</span> <code>agent_id</code><span style="color:#888">)</span></td></tr><tr><td>Objective</td><td><code>quality</code></td></tr><tr><td>Epsilon / Candidates</td><td><span style="color:#888">leave the defaults (0.02 / 3)</span></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Start Calibration</span></div><div class="ck-see"><strong>You'll see:</strong> The button shows <em>Starting...</em>, then a new entry appears under <strong>Calibration runs</strong> (just below the panel) with a <em>queued</em>/<em>running</em> status — this is the real async refinement job, the live counterpart of the <code>workflow.calibrate</code> step Aria planned.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › (SCN-07 workflow) › Calibrate</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Calibrate</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Agent</span><span class="ck-mk-input">the agent bound in this workflow (the real agent_id)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Objective</span><span class="ck-mk-input">quality</span></label><label class="ck-mk-field"><span class="ck-mk-label">Epsilon / Candidates</span><span class="ck-mk-input">leave the defaults (0.02 / 3)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Start Calibration</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › (SCN-07 workflow) › Calibration runs</code></div><div class="ck-step-do">Let the async job run. This is the genuinely asynchronous part of the loop. Stay on the workflow page and use your browser <strong>Refresh</strong> (the <strong>Calibration runs</strong> list re-fetches) every minute or so to watch the run advance from <em>queued</em> → <em>running</em> → <em>completed</em>. The refinement worker scores the candidate(s) against the workflow's gate dataset behind the scenes.</div><div class="ck-see"><strong>You'll see:</strong> The <strong>Calibration runs</strong> entry you started ticks from <em>queued</em>/<em>running</em> to a terminal status; on completion it shows the run's eval summary (e.g. pass-rate / score) inline.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › (SCN-07 workflow) › Calibration runs</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Calibration runs</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › (SCN-07 workflow) › Calibration runs</code></div><div class="ck-step-do">Confirm the loop closed. When the calibration job reaches <em>completed</em>, the workflow has been recalibrated against its gate dataset and the run's results are visible inline. (The Aria plan itself is already <strong>COMPLETED</strong> with its three steps <em>SKIPPED</em> — it is the orchestration record; the real async work lived in this Calibration runs list, not on a parked plan step.)</div><div class="ck-see"><strong>You'll see:</strong> A <em>completed</em> calibration run under <strong>Calibration runs</strong>, plus the Aria plan showing <strong>COMPLETED</strong> (three steps skipped) as the record of what was orchestrated.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › (SCN-07 workflow) › Calibration runs</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Calibration runs</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues / Compose › Workflows</code></div><div class="ck-step-do">Final verification across surfaces. <strong>Review Queues › weak-runs-triage</strong> shows the flagged traces enqueued and ready to review. <strong>Workflows › (your workflow) › Calibration runs</strong> shows the calibration job <em>completed</em>. The Aria plan (under <strong>Plans</strong>, status <strong>COMPLETED</strong> with skipped steps) stands as the orchestration record for the whole triage → remediation loop.</div><div class="ck-see"><strong>You'll see:</strong> A populated <code>weak-runs-triage</code> queue, a completed calibration run on the workflow, and a completed Aria plan (steps skipped) — the governance → remediation loop end to end.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues / Compose › Workflows</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Workflows</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › weak-runs-triage (follow-up)</code></div><div class="ck-step-do"><strong>(Optional follow-up)</strong> Have reviewers answer the queue's questions — the <strong>expectation</strong>-targeted <code>expected_answer</code> writes ground truth back onto each trace. Then compare the recalibrated workflow against its baseline runs and feed the hard cases into its eval dataset (see SCN-01 / SCN-10) to keep tightening the loop.</div><div class="ck-see"><strong>You'll see:</strong> Submitted reviews write assessments + expectations back onto the traces, giving you ground-truth labels to compare the recalibrated workflow against its baseline.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › weak-runs-triage (follow-up)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">weak-runs-triage (follow-up)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/15-aria-triage-recalibrate-loop/assets/</code>.</p><div class="ck-asset" id="asset-assets-intent-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/intent.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># The intent you give Aria
+
+## Canonical (works with the default HeuristicPlanner)
+
+&gt; Our workflow&#x27;s recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration.
+
+Why this wording: the default planner proposes a step for each capability whose
+**domain word** appears in the goal. The phrase **&quot;review queue&quot;** maps to
+**both** `review_queue.create` **and** `review_queue.add_items`; the word
+**&quot;workflow&quot;** (calibration) maps to `workflow.calibrate`. Keep both literal
+needles in the sentence.
+
+Autonomy: **ask_each** (pauses on every mutate step so you confirm each input).
+
+## Natural-language variant (needs an LLM planner)
+
+&gt; Our latest runs aren&#x27;t great — get a human to look at the bad ones and then tune the pipeline.
+
+This reads better but relies on an LLM planner to map &quot;get a human to look at
+the bad ones&quot; → `review_queue.create` + `review_queue.add_items` and &quot;tune the
+pipeline&quot; → `workflow.calibrate`. With the default heuristic planner, use the
+canonical wording.
+
+## Remember: this loop remediates EXISTING things
+
+`review_queue.add_items` needs **real existing** `trace_ids` and
+`workflow.calibrate` needs an **existing** `workflow_id` + `agent_id`. Aria does
+not create the subject workflow or its traces — build that in **SCN-07** first,
+then supply the ids when Aria pauses (see [`enqueue.json`](enqueue.json) and
+[`calibrate.json`](calibrate.json)).
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-expected-plan-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/expected-plan.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;goal&quot;: &quot;Our workflow&#x27;s recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration.&quot;,
+  &quot;autonomy&quot;: &quot;ask_each&quot;,
+  &quot;expected_steps&quot;: [
+    {
+      &quot;capability_key&quot;: &quot;review_queue.create&quot;,
+      &quot;tier&quot;: &quot;mutate&quot;,
+      &quot;interaction&quot;: &quot;confirm/refine the triage question schema (review-queues/triage-review.queue.json)&quot;
+    },
+    {
+      &quot;capability_key&quot;: &quot;review_queue.add_items&quot;,
+      &quot;tier&quot;: &quot;mutate&quot;,
+      &quot;interaction&quot;: &quot;supply REAL flagged trace_ids of the weak runs (enqueue.json); uses the queue_id from the previous step&quot;
+    },
+    {
+      &quot;capability_key&quot;: &quot;workflow.calibrate&quot;,
+      &quot;tier&quot;: &quot;mutate&quot;,
+      &quot;async&quot;: true,
+      &quot;interaction&quot;: &quot;supply a REAL existing workflow_id + agent_id (calibrate.json); answering enqueues the async job and the plan PARKS (waiting_job) — POST /aria/plans/{id}/poll until it resolves&quot;
+    }
+  ],
+  &quot;notes&quot;: &quot;All three steps share no dependencies in the default planner, but you answer them in order. review_queue.add_items + workflow.calibrate operate on EXISTING ids (traces, workflow, agent) — Aria does not create them. The final step is asynchronous: park + poll until done, then the plan completes.&quot;
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-review-queues-triage-review-queue-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/review-queues/triage-review.queue.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;name&quot;: &quot;weak-runs-triage&quot;,
+  &quot;description&quot;: &quot;Human triage of weak workflow runs: was the resolution correct, what failed, how severe, and what the answer should have been.&quot;,
+  &quot;reviewers&quot;: [],
+  &quot;questions&quot;: [
+    {
+      &quot;key&quot;: &quot;resolution_correct&quot;,
+      &quot;title&quot;: &quot;Did the workflow reach the correct resolution?&quot;,
+      &quot;type&quot;: &quot;pass_fail&quot;,
+      &quot;required&quot;: true,
+      &quot;target&quot;: &quot;feedback&quot;
+    },
+    {
+      &quot;key&quot;: &quot;failure_mode&quot;,
+      &quot;title&quot;: &quot;Primary failure mode&quot;,
+      &quot;type&quot;: &quot;categorical&quot;,
+      &quot;options&quot;: [&quot;wrong_tool&quot;, &quot;missing_evidence&quot;, &quot;hallucinated_claim&quot;, &quot;bad_escalation&quot;, &quot;none&quot;],
+      &quot;required&quot;: true,
+      &quot;target&quot;: &quot;feedback&quot;
+    },
+    {
+      &quot;key&quot;: &quot;severity&quot;,
+      &quot;title&quot;: &quot;Severity (1-5)&quot;,
+      &quot;type&quot;: &quot;numeric&quot;,
+      &quot;required&quot;: false,
+      &quot;target&quot;: &quot;feedback&quot;
+    },
+    {
+      &quot;key&quot;: &quot;expected_answer&quot;,
+      &quot;title&quot;: &quot;What should the answer have been? (becomes the expectation)&quot;,
+      &quot;type&quot;: &quot;text&quot;,
+      &quot;required&quot;: false,
+      &quot;target&quot;: &quot;expectation&quot;
+    }
+  ],
+  &quot;notes&quot;: &quot;Answer to the Aria review_queue.create interaction (same shape as POST /review-queues). &#x27;target: expectation&#x27; writes the reviewer&#x27;s answer back onto the trace as ground truth; &#x27;target: feedback&#x27; logs it as an assessment.&quot;
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-enqueue-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/enqueue.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;queue_id&quot;: &quot;&lt;the queue_id returned by the review_queue.create step&gt;&quot;,
+  &quot;trace_ids&quot;: [
+    &quot;&lt;REAL flagged trace id 1 from Observability&gt;&quot;,
+    &quot;&lt;REAL flagged trace id 2 from Observability&gt;&quot;,
+    &quot;&lt;REAL flagged trace id 3 from Observability&gt;&quot;
+  ],
+  &quot;assigned_to&quot;: &quot;@reviewer&quot;,
+  &quot;notes&quot;: &quot;Answer to the Aria review_queue.add_items interaction (same shape as POST /review-queues/{id}/items). PLACEHOLDERS — replace trace_ids with REAL ids of the weak runs (read them from Observability) and queue_id with the id from the create step. Aria does not discover traces. experiment_id is optional.&quot;
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-calibrate-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/calibrate.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;workflow_id&quot;: &quot;&lt;REAL existing workflow id — e.g. the SCN-07 support workflow you built&gt;&quot;,
+  &quot;agent_id&quot;: &quot;&lt;REAL existing agent id bound in that workflow&gt;&quot;,
+  &quot;notes&quot;: &quot;Answer to the Aria workflow.calibrate interaction. This is the only ASYNC capability: answering it enqueues a real workflow-calibration job and the plan PARKS in waiting_job. POST /aria/plans/{plan_id}/poll until the refinement_job resolves (done/failed); the plan then resumes and completes. PLACEHOLDERS — replace with a real workflow_id + agent_id (build the workflow in SCN-07). Aria does not create the workflow or agent.&quot;
+}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Queue + items exist</td><td>flagged traces enqueued</td></tr><tr><td>Calibration completes</td><td>async job resolves; plan completes</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>This is a <strong>remediation</strong> loop — it operates on EXISTING ids (traces, workflow, agent). Build the subject workflow in cookbook 07 first.</li><li><code>workflow.calibrate</code> is Aria's async capability: the plan parks (<code>waiting_job</code>) and you poll until it resolves.</li><li>As elsewhere in the Aria track, create the queue + enqueue + calibration via the UI (planner emits empty inputs).</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-14-aria-starter-kit.html">← Aria: Governance Starter Kit from Intent</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><span></span></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

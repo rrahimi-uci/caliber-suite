@@ -1,0 +1,37 @@
+{
+  "name": "weak-runs-triage",
+  "description": "Human triage of weak workflow runs: was the resolution correct, what failed, how severe, and what the answer should have been.",
+  "reviewers": [],
+  "questions": [
+    {
+      "key": "resolution_correct",
+      "title": "Did the workflow reach the correct resolution?",
+      "type": "pass_fail",
+      "required": true,
+      "target": "feedback"
+    },
+    {
+      "key": "failure_mode",
+      "title": "Primary failure mode",
+      "type": "categorical",
+      "options": ["wrong_tool", "missing_evidence", "hallucinated_claim", "bad_escalation", "none"],
+      "required": true,
+      "target": "feedback"
+    },
+    {
+      "key": "severity",
+      "title": "Severity (1-5)",
+      "type": "numeric",
+      "required": false,
+      "target": "feedback"
+    },
+    {
+      "key": "expected_answer",
+      "title": "What should the answer have been? (becomes the expectation)",
+      "type": "text",
+      "required": false,
+      "target": "expectation"
+    }
+  ],
+  "notes": "Answer to the Aria review_queue.create interaction (same shape as POST /review-queues). 'target: expectation' writes the reviewer's answer back onto the trace as ground truth; 'target: feedback' logs it as an assessment."
+}

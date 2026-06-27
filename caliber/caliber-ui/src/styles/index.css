@@ -1,0 +1,719 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base layer overrides ─── */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-surface-50;
+  }
+  ::selection {
+    background: rgba(124, 58, 237, 0.15);
+  }
+}
+
+/* ─── Component utilities ─── */
+@layer components {
+  /* Form controls */
+  .input-base {
+    @apply w-full rounded-md border border-surface-200 bg-white px-3 py-1.5 text-sm text-gray-900 transition-colors hover:border-surface-300 focus:border-caliber-purple focus:outline-none focus:ring-1 focus:ring-caliber-purple dark:border-slate-700/70 dark:bg-slate-950 dark:text-slate-100;
+  }
+  .textarea-base {
+    @apply w-full rounded-md border border-surface-200 bg-white px-3 py-2 text-sm text-gray-900 transition-colors hover:border-surface-300 focus:border-caliber-purple focus:outline-none focus:ring-1 focus:ring-caliber-purple dark:border-slate-700/70 dark:bg-slate-950 dark:text-slate-100;
+  }
+
+  /* Navigation */
+  .nav-item {
+    @apply flex items-center gap-2.5 px-4 py-2 mx-2 text-sm text-slate-500 rounded-lg transition-all duration-200;
+  }
+  .nav-item:hover {
+    @apply bg-slate-100/80 text-slate-700;
+  }
+  .nav-item-active {
+    @apply bg-gradient-to-r from-violet-50 to-caliber-50/50 text-caliber-purple font-medium shadow-nav-active;
+  }
+
+  /* Cards */
+  .stat-card {
+    @apply rounded-2xl border border-slate-200/60 bg-white p-5 transition-all duration-300 shadow-card dark:border-slate-700/70 dark:bg-slate-950;
+  }
+  .stat-card:hover {
+    @apply shadow-card-hover border-slate-200 -translate-y-0.5;
+  }
+
+  /* Flat surface panel — the shared "card" idiom used across pages. Apply
+     padding (p-4/p-5/p-6) and any hover lift contextually at the call site. */
+  .card {
+    @apply rounded-2xl border border-slate-200/60 bg-white shadow-card dark:border-slate-700/70 dark:bg-slate-950;
+  }
+
+  /* Secondary / ghost button — neutral bordered action next to btn-primary. */
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700/70 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900;
+  }
+
+  /* Inputs */
+  .form-input {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm transition-all duration-200 dark:border-slate-700/70 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500;
+  }
+  .form-input:focus {
+    @apply outline-none ring-2 ring-caliber-purple/20 border-caliber-purple/40;
+  }
+
+  /* Glass morphism card */
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-xl border border-white/20 rounded-2xl shadow-glass;
+  }
+
+  /* Gradient border effect */
+  .gradient-border {
+    position: relative;
+  }
+  .gradient-border::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(124, 58, 237, 0.3),
+      rgba(99, 102, 241, 0.15),
+      rgba(59, 130, 246, 0.3)
+    );
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .gradient-border:hover::before {
+    opacity: 1;
+  }
+
+  /* Shimmer loading */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(124, 58, 237, 0.04) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite linear;
+  }
+
+  /* Professional button */
+  .btn-primary {
+    @apply rounded-xl bg-gradient-brand px-5 py-2.5 text-sm font-medium text-white shadow-md transition-all duration-200;
+  }
+  .btn-primary:hover {
+    @apply shadow-lg -translate-y-0.5 brightness-110;
+  }
+  .btn-primary:active {
+    @apply translate-y-0 shadow-md;
+  }
+}
+
+/* Assistant panel slide-in */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-slide-in-right {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .shimmer,
+  .animate-slide-in-right {
+    animation: none;
+  }
+}
+
+/* ─── Gateway toolbar offset ─── */
+body:has(#caliber-suite-toolbar) #caliber-suite-toolbar {
+  font-size: 90% !important;
+}
+body:has(#caliber-suite-toolbar) .fixed.top-0 {
+  top: 36px !important;
+}
+body:has(#caliber-suite-toolbar) .fixed.top-14 {
+  top: calc(3.5rem + 36px) !important;
+}
+body:has(#caliber-suite-toolbar) .pt-14 {
+  padding-top: calc(3.5rem + 36px) !important;
+}
+body:has(#caliber-suite-toolbar) .h-\[calc\(100vh-56px\)\] {
+  height: calc(100vh - 92px) !important;
+}
+body:has(#caliber-suite-toolbar) .min-h-\[calc\(100vh-56px\)\] {
+  min-height: calc(100vh - 92px) !important;
+}
+
+/* ─── Dark theme ─── */
+html.dark {
+  background-color: #0b0f1a;
+  color: #e2e8f0;
+}
+html.dark body {
+  background-color: #0b0f1a;
+  color: #e2e8f0;
+}
+
+/* Surfaces */
+html.dark .bg-white {
+  background-color: #111827 !important;
+}
+html.dark .bg-white\/80 {
+  background-color: rgba(17, 24, 39, 0.8) !important;
+}
+html.dark .bg-white\/85 {
+  background-color: rgba(17, 24, 39, 0.84) !important;
+}
+html.dark .bg-white\/90 {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+}
+html.dark .bg-white\/95 {
+  background-color: rgba(15, 23, 42, 0.95) !important;
+}
+html.dark .bg-white\/70 {
+  background-color: rgba(15, 23, 42, 0.78) !important;
+}
+html.dark .bg-surface-50 {
+  background-color: #0b0f1a !important;
+}
+html.dark .bg-surface-100 {
+  background-color: #111827 !important;
+}
+html.dark .bg-surface-200 {
+  background-color: #1f2937 !important;
+}
+html.dark .bg-slate-50 {
+  background-color: #111827 !important;
+}
+html.dark .bg-slate-50\/50 {
+  background-color: rgba(15, 23, 42, 0.58) !important;
+}
+html.dark .bg-slate-50\/60 {
+  background-color: rgba(15, 23, 42, 0.68) !important;
+}
+html.dark .bg-slate-50\/70 {
+  background-color: rgba(15, 23, 42, 0.78) !important;
+}
+html.dark .bg-slate-50\/80 {
+  background-color: rgba(15, 23, 42, 0.84) !important;
+}
+html.dark .bg-slate-100 {
+  background-color: #1f2937 !important;
+}
+html.dark .bg-violet-50 {
+  background-color: rgba(124, 58, 237, 0.15) !important;
+}
+html.dark .bg-caliber-50 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+}
+html.dark .bg-caliber-50\/30 {
+  background-color: rgba(99, 102, 241, 0.16) !important;
+}
+html.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+}
+html.dark .bg-amber-50\/95 {
+  background-color: rgba(120, 53, 15, 0.35) !important;
+}
+html.dark .bg-amber-100 {
+  background-color: rgba(245, 158, 11, 0.18) !important;
+}
+html.dark .bg-sky-50 {
+  background-color: rgba(14, 165, 233, 0.12) !important;
+}
+html.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+}
+html.dark .bg-blue-50\/70 {
+  background-color: rgba(30, 64, 175, 0.35) !important;
+}
+html.dark .bg-red-100,
+html.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+html.dark .bg-red-50\/95 {
+  background-color: rgba(127, 29, 29, 0.35) !important;
+}
+html.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.18) !important;
+}
+html.dark .bg-green-100,
+html.dark .bg-green-50,
+html.dark .bg-emerald-100,
+html.dark .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+}
+html.dark .bg-emerald-50\/50 {
+  background-color: rgba(6, 95, 70, 0.3) !important;
+}
+html.dark .bg-emerald-50\/70 {
+  background-color: rgba(6, 95, 70, 0.4) !important;
+}
+html.dark .bg-gray-50 {
+  background-color: #111827 !important;
+}
+html.dark .bg-gray-100 {
+  background-color: #1f2937 !important;
+}
+html.dark .bg-zinc-50 {
+  background-color: #111827 !important;
+}
+html.dark .bg-zinc-100 {
+  background-color: #1f2937 !important;
+}
+html.dark .bg-zinc-50\/50 {
+  background-color: rgba(17, 24, 39, 0.5) !important;
+}
+
+/* Borders */
+html.dark .border-surface-100,
+html.dark .border-slate-100 {
+  border-color: #1f2937 !important;
+}
+html.dark .border-surface-200,
+html.dark .border-slate-200,
+html.dark .border-slate-200\/60,
+html.dark .border-slate-200\/70,
+html.dark .border-slate-200\/80 {
+  border-color: #1f2937 !important;
+}
+html.dark .border-surface-300,
+html.dark .border-slate-300 {
+  border-color: #374151 !important;
+}
+html.dark .border-gray-100 {
+  border-color: #1f2937 !important;
+}
+html.dark .border-gray-200 {
+  border-color: #1f2937 !important;
+}
+html.dark .border-gray-300 {
+  border-color: #374151 !important;
+}
+html.dark .border-zinc-200 {
+  border-color: #1f2937 !important;
+}
+html.dark .border-zinc-300 {
+  border-color: #374151 !important;
+}
+html.dark .border-white\/20 {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Text */
+html.dark .text-gray-900,
+html.dark .text-slate-900,
+html.dark .text-zinc-900 {
+  color: #f1f5f9 !important;
+}
+html.dark .text-gray-800,
+html.dark .text-slate-800,
+html.dark .text-zinc-800 {
+  color: #e2e8f0 !important;
+}
+html.dark .text-gray-700,
+html.dark .text-slate-700,
+html.dark .text-zinc-700 {
+  color: #cbd5e1 !important;
+}
+html.dark .text-gray-600,
+html.dark .text-slate-600,
+html.dark .text-zinc-600 {
+  color: #94a3b8 !important;
+}
+html.dark .text-gray-500,
+html.dark .text-slate-500,
+html.dark .text-zinc-500 {
+  color: #94a3b8 !important;
+}
+html.dark .text-gray-400,
+html.dark .text-slate-400,
+html.dark .text-zinc-400 {
+  color: #64748b !important;
+}
+html.dark .text-gray-300 {
+  color: #475569 !important;
+}
+
+/* Accents */
+html.dark .text-caliber-purple {
+  color: #c4b5fd !important;
+}
+html.dark .text-caliber-purple-light {
+  color: #ddd6fe !important;
+}
+html.dark .bg-caliber-purple {
+  background-color: #8b5cf6 !important;
+}
+
+/* Status pills */
+html.dark .text-red-700 {
+  color: #fca5a5 !important;
+}
+html.dark .text-amber-700 {
+  color: #fcd34d !important;
+}
+html.dark .text-blue-700 {
+  color: #93c5fd !important;
+}
+html.dark .text-green-700,
+html.dark .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+html.dark .text-violet-700 {
+  color: #c4b5fd !important;
+}
+html.dark .text-caliber-700 {
+  color: #a5b4fc !important;
+}
+html.dark .text-sky-700 {
+  color: #7dd3fc !important;
+}
+html.dark .bg-violet-100 {
+  background-color: rgba(139, 92, 246, 0.18) !important;
+}
+html.dark .bg-caliber-100 {
+  background-color: rgba(99, 102, 241, 0.18) !important;
+}
+html.dark .bg-sky-100 {
+  background-color: rgba(14, 165, 233, 0.18) !important;
+}
+
+/* -600 / -500 text accents */
+html.dark .text-violet-600 {
+  color: #c4b5fd !important;
+}
+html.dark .text-amber-600 {
+  color: #fcd34d !important;
+}
+html.dark .text-sky-600 {
+  color: #7dd3fc !important;
+}
+html.dark .text-emerald-600 {
+  color: #6ee7b7 !important;
+}
+html.dark .text-red-600 {
+  color: #fca5a5 !important;
+}
+html.dark .text-red-500 {
+  color: #fca5a5 !important;
+}
+html.dark .text-blue-600 {
+  color: #93c5fd !important;
+}
+html.dark .text-slate-300 {
+  color: #475569 !important;
+}
+
+/* Ring overrides */
+html.dark .ring-violet-200\/50 {
+  --tw-ring-color: rgba(139, 92, 246, 0.2) !important;
+}
+html.dark .ring-amber-200\/50 {
+  --tw-ring-color: rgba(245, 158, 11, 0.2) !important;
+}
+html.dark .ring-sky-200\/50 {
+  --tw-ring-color: rgba(14, 165, 233, 0.2) !important;
+}
+html.dark .ring-emerald-200\/50 {
+  --tw-ring-color: rgba(16, 185, 129, 0.2) !important;
+}
+html.dark .ring-slate-200\/50 {
+  --tw-ring-color: rgba(71, 85, 105, 0.2) !important;
+}
+html.dark .ring-red-200\/50 {
+  --tw-ring-color: rgba(239, 68, 68, 0.2) !important;
+}
+html.dark .ring-blue-200\/50 {
+  --tw-ring-color: rgba(59, 130, 246, 0.2) !important;
+}
+html.dark .ring-caliber-purple\/10 {
+  --tw-ring-color: rgba(124, 58, 237, 0.1) !important;
+}
+
+/* Border overrides */
+html.dark .border-red-200\/60 {
+  border-color: rgba(239, 68, 68, 0.2) !important;
+}
+
+/* Code */
+html.dark code,
+html.dark pre {
+  background-color: #0b0f1a !important;
+  color: #e2e8f0 !important;
+}
+
+/* Inputs */
+html.dark .form-input {
+  background-color: #111827 !important;
+  border-color: #1f2937 !important;
+  color: #e2e8f0 !important;
+}
+
+/* Active nav */
+html.dark .nav-item-active {
+  background: linear-gradient(
+    to right,
+    rgba(124, 58, 237, 0.15),
+    rgba(99, 102, 241, 0.08)
+  ) !important;
+}
+html.dark .nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Glass card dark */
+html.dark .glass-card {
+  background-color: rgba(17, 24, 39, 0.8) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Gradient backgrounds in dark mode */
+html.dark .bg-gradient-sidebar {
+  background: linear-gradient(180deg, #0b0f1a 0%, #111827 100%) !important;
+}
+html.dark .bg-gradient-hero {
+  background: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.08) 0%,
+    rgba(99, 102, 241, 0.04) 30%,
+    rgba(59, 130, 246, 0.08) 100%
+  ) !important;
+}
+html.dark .bg-gradient-brand-subtle {
+  background: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.12) 0%,
+    rgba(99, 102, 241, 0.06) 50%,
+    rgba(59, 130, 246, 0.12) 100%
+  ) !important;
+}
+
+/* Shadow adjustments for dark */
+html.dark .shadow-card {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.15) !important;
+}
+html.dark .shadow-card-hover {
+  box-shadow:
+    0 8px 25px rgba(124, 58, 237, 0.15),
+    0 4px 10px rgba(0, 0, 0, 0.2) !important;
+}
+html.dark .shadow-topbar {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* ─── Workflow editor dark overrides ─── */
+
+/* Outline & palette text */
+html.dark .text-caliber-900 {
+  color: #c7d2fe !important;
+}
+html.dark .text-caliber-600 {
+  color: #a5b4fc !important;
+}
+html.dark .bg-caliber-500 {
+  background-color: #6366f1 !important;
+}
+html.dark .border-caliber-200 {
+  border-color: rgba(99, 102, 241, 0.3) !important;
+}
+html.dark .border-red-200 {
+  border-color: rgba(239, 68, 68, 0.25) !important;
+}
+html.dark .border-violet-200 {
+  border-color: rgba(139, 92, 246, 0.25) !important;
+}
+html.dark .border-zinc-100 {
+  border-color: #1f2937 !important;
+}
+
+/* React Flow Controls (zoom +/−/fit) */
+html.dark .react-flow__controls {
+  background-color: #1f2937 !important;
+  border-color: #374151 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+}
+html.dark .react-flow__controls-button {
+  background-color: #1f2937 !important;
+  border-color: #374151 !important;
+  fill: #e2e8f0 !important;
+  color: #e2e8f0 !important;
+}
+html.dark .react-flow__controls-button:hover {
+  background-color: #374151 !important;
+}
+html.dark .react-flow__controls-button svg {
+  fill: #e2e8f0 !important;
+}
+
+/* React Flow MiniMap */
+html.dark .react-flow__minimap {
+  background-color: #111827 !important;
+  border-color: #374151 !important;
+}
+html.dark .react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.25) !important;
+}
+
+/* React Flow background */
+html.dark .react-flow__background {
+  background-color: #0b0f1a !important;
+}
+
+/* React Flow panel / attribution */
+html.dark .react-flow__panel {
+  color: #94a3b8 !important;
+}
+
+/* Tool wizard — blue tips / info boxes */
+html.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+}
+html.dark .border-blue-200 {
+  border-color: rgba(59, 130, 246, 0.25) !important;
+}
+html.dark .text-blue-700 {
+  color: #93c5fd !important;
+}
+
+/* Tool wizard — amber warning boxes */
+html.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.1) !important;
+}
+html.dark .border-amber-200 {
+  border-color: rgba(245, 158, 11, 0.25) !important;
+}
+html.dark .text-amber-700 {
+  color: #fcd34d !important;
+}
+
+/* Object Store — responsive/resizable storage-console layout. */
+.caliber-object-store-page {
+  --object-store-bucket-width: 300px;
+  --object-store-preview-width: 400px;
+}
+
+.caliber-object-store-page .object-store-resizer {
+  touch-action: none;
+}
+
+@media (min-width: 1024px) {
+  .caliber-object-store-page .object-store-resizable-shell {
+    grid-template-columns: var(--object-store-bucket-width) minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 1280px) {
+  .caliber-object-store-page .object-store-browser-grid {
+    grid-template-columns: minmax(0, 1fr) var(--object-store-preview-width);
+  }
+}
+
+/* Object Store — dark mode: the muted slate text scale (labels like CURRENT
+   LOCATION / TYPE, the type chips, the footer summary + pagination, the bucket
+   naming-rules help, and the upload-validation note) was too dim/dark to read on
+   the dark console background. Brighten the whole slate text scale within the
+   page. These rules come BEFORE the element-specific overrides below so file
+   names / table heads / active rows keep their individually-tuned colors. */
+html.dark .caliber-object-store-page .text-slate-900,
+html.dark .caliber-object-store-page .text-slate-800,
+html.dark .caliber-object-store-page .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+html.dark .caliber-object-store-page .text-slate-600,
+html.dark .caliber-object-store-page .text-slate-500 {
+  color: #cbd5e1 !important;
+}
+html.dark .caliber-object-store-page .text-slate-400 {
+  color: #9aa6b8 !important;
+}
+html.dark .caliber-object-store-page input::placeholder {
+  color: #64748b !important;
+}
+
+/* Object Store — scoped contrast tuning for the richer storage-console UI. */
+html.dark .caliber-object-store-page .object-store-table-head {
+  color: #cbd5e1 !important;
+  background-color: rgba(15, 23, 42, 0.82) !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark .caliber-object-store-page .object-store-row {
+  color: #cbd5e1 !important;
+  border-color: rgba(148, 163, 184, 0.1) !important;
+}
+
+html.dark .caliber-object-store-page .object-store-row:hover {
+  background-color: rgba(255, 255, 255, 0.055) !important;
+}
+
+html.dark .caliber-object-store-page .object-store-selected-row {
+  background-color: rgba(124, 58, 237, 0.14) !important;
+}
+
+html.dark .caliber-object-store-page .object-store-open-row {
+  background: linear-gradient(
+    90deg,
+    rgba(245, 158, 11, 0.18),
+    rgba(15, 23, 42, 0.94)
+  ) !important;
+  box-shadow: inset 3px 0 0 #f59e0b !important;
+}
+
+html.dark .caliber-object-store-page .object-store-file-name {
+  color: #dbeafe !important;
+}
+
+html.dark .caliber-object-store-page .object-store-file-name:hover {
+  color: #ede9fe !important;
+}
+
+html.dark
+  .caliber-object-store-page
+  .object-store-open-row
+  .object-store-file-name {
+  color: #fde68a !important;
+}
+
+html.dark .caliber-object-store-page .object-store-bucket-row:hover {
+  background-color: rgba(255, 255, 255, 0.055) !important;
+}
+
+html.dark .caliber-object-store-page .object-store-bucket-active {
+  /* Clean subtle violet tint + left accent — no purple→cyan gradient clash. */
+  background-color: rgba(124, 58, 237, 0.16) !important;
+  box-shadow: inset 2px 0 0 #a78bfa !important;
+}
+
+/* Active bucket name must read as light on the tinted active row. */
+html.dark .caliber-object-store-page .object-store-bucket-active-name {
+  color: #ede9fe !important;
+}
+
+/* Panel headers: a flat dark fill instead of the light slate→white gradient. */
+html.dark .caliber-object-store-page .object-store-panel-header {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}

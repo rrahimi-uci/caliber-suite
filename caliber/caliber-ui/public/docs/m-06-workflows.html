@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workflows Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Workflows Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Authoring</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Workflows</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Authoring · Architecture reference</div>
+          <h1 id="top">Workflows Architecture</h1>
+          <p class="doc-summary">Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Workflows module</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>CALIBER's execution backbone — authoring, deterministic compilation, and durable runtime for agent workflows.</td></tr><tr><td><strong>Source of truth</strong></td><td>The workflow graph as a manifest (<code>workflows/manifest.py</code>), from which every downstream step derives.</td></tr><tr><td><strong>Runtime model</strong></td><td>The interpreter (<code>workflows/runtime.py</code>) executes the IR directly via a background worker (<code>orchestrator/workflow_run_worker.py</code>); generated Python is export/review material only.</td></tr><tr><td><strong>Where state lives</strong></td><td>Authoring records (<code>CaliberWorkflowVersion</code>, <code>CaliberWorkflowDeployment</code>) kept separate from runtime records (<code>CaliberWorkflowRun</code>, events, checkpoints, approvals).</td></tr><tr><td><strong>Key surfaces</strong></td><td>HTTP routes under <code>/ajax-api/2.0/mlflow/caliber</code> plus Workflow Studio (<code>Workflows.tsx</code>, <code>WorkflowEditor.tsx</code>).</td></tr><tr><td><strong>Trust / safety</strong></td><td>User-authored manifests are accepted as data, never executed directly; mutating endpoints require the <code>operator</code> scope; transitions validated via <code>run_state.py</code>.</td></tr><tr><td><strong>Calibration</strong></td><td><code>routes/workflow_calibration.py</code> enqueues workflow-specific calibration runs with dataset/judge gating.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the scope, boundaries, data model, APIs, lifecycle, and trust boundaries in detail.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The workflows module is CALIBER's most complex bounded context, because it has to reconcile three concerns that most subsystems keep apart: how an agent workflow is authored, how it is compiled into something executable, and how it actually runs over time. To do that, the module spans the logical workflow inventory, the immutable and draft workflow versions and their deployment aliases, manifest validation and deterministic compilation, both queued and preview execution, and the full runtime surface of events, checkpoints, approvals, lineage, files, and traces. It also carries the workflow calibration and patch-generation machinery that lets operators measure and improve a workflow after it ships.</p>
+<p>From those concerns follow the module's concrete responsibilities. It stores the workflow graph as a manifest that serves as the single source of truth; it validates and compiles that manifest into typed intermediate representation (IR) and generated review artifacts; it publishes deployment aliases that point at compiled versions; it enqueues and executes workflow runs; it persists runtime lineage, events, checkpoints, and approvals; and it exposes session memory and benchmark reports for the operators who own a workflow.</p>
+<p>The work is carried by the following primary code paths, spanning the route layer, the core workflow engine, the background worker, and the Workflow Studio front end:</p>
+<ul><li><code>caliber/src/caliber/routes/workflows.py</code></li><li><code>caliber/src/caliber/routes/workflow_versions.py</code></li><li><code>caliber/src/caliber/routes/workflow_runs.py</code></li><li><code>caliber/src/caliber/routes/workflow_deployments.py</code></li><li><code>caliber/src/caliber/routes/workflow_calibration.py</code></li><li><code>caliber/src/caliber/workflows/manifest.py</code></li><li><code>caliber/src/caliber/workflows/compiler.py</code></li><li><code>caliber/src/caliber/workflows/runtime.py</code></li><li><code>caliber/src/caliber/workflows/run_launch.py</code></li><li><code>caliber/src/caliber/orchestrator/workflow_run_worker.py</code></li><li><code>caliber/caliber-ui/src/pages/Workflows.tsx</code></li><li><code>caliber/caliber-ui/src/pages/WorkflowEditor.tsx</code></li><li><code>caliber/caliber-ui/src/pages/WorkflowVersionDetail.tsx</code></li><li><code>caliber/caliber-ui/src/pages/WorkflowDetail.tsx</code></li></ul>
+<p>For a developer-facing guide to the individual building blocks — component anatomy, the typed port system, how to add/configure/connect/code/run nodes, and a complete reference for every built-in component — see <a href="m-06-workflows-components.html">Workflow components</a>.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Each responsibility above maps to a clear owner, so that authoring, compilation, and execution can evolve independently. The following table records who owns what:</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Workflow inventory</td><td><code>routes/workflows.py</code>, <code>CaliberWorkflow</code></td><td>Logical workflow containers, imports, benchmark reports, session memory.</td></tr><tr><td>Version lifecycle</td><td><code>routes/workflow_versions.py</code>, <code>CaliberWorkflowVersion</code>, <code>CaliberWorkflowDeployment</code></td><td>Drafting, optimistic update, validate, compile, publish, export, preview, run.</td></tr><tr><td>Manifest schema</td><td><code>workflows/manifest.py</code></td><td>Source-of-truth typed schema and canonical hashing rules.</td></tr><tr><td>Deterministic compilation</td><td><code>workflows/compiler.py</code></td><td>Manifest -&gt; IR -&gt; generated Python artifact and report.</td></tr><tr><td>Runtime interpreter</td><td><code>workflows/runtime.py</code></td><td>Executes the IR directly inside CALIBER. Generated Python is export/review material, not the execution path.</td></tr><tr><td>Queued execution</td><td><code>workflows/run_launch.py</code>, <code>orchestrator/workflow_run_worker.py</code></td><td>Durable enqueue plus background worker claim/execute/heartbeat lifecycle.</td></tr><tr><td>Run read/write API</td><td><code>routes/workflow_runs.py</code></td><td>Create, lineage, manifest, events, trace, checkpoints, cancel, retry, approvals, resume.</td></tr><tr><td>Calibration</td><td><code>routes/workflow_calibration.py</code></td><td>Workflow-specific calibration queue entry and dataset/judge gating.</td></tr></tbody></table></div>
+<p>These owners reflect a deliberate three-way split that recurs throughout the rest of this document: authoring-time graph state is kept distinct from compilation-time validation and IR generation, which in turn is kept distinct from runtime queued execution and lineage persistence. Holding those phases apart is what lets a workflow be edited, compiled, and replayed without one phase corrupting the state of another.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The diagram below shows how those phases connect at runtime, from the Workflow Studio front end down through the routes, the compiler and interpreter, and out to MLflow, object storage, and the prompts, tools, skills, MCP servers, and knowledge bases a workflow depends on.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI[Workflow UI and editor]:::ui
+    WF[routes/workflows.py]:::ctrl
+    WV[routes/workflow_versions.py]:::ctrl
+    WR[routes/workflow_runs.py]:::ctrl
+    WC[routes/workflow_calibration.py]:::ctrl
+    DB[(Workflow tables)]:::store
+    MAN[workflows/manifest.py]:::ctrl
+    CMP[workflows/compiler.py]:::ctrl
+    RT[workflows/runtime.py]:::ctrl
+    ENQ[workflows/run_launch.py]:::ctrl
+    WKR[workflow_run_worker.py]:::async
+    ST[(Object storage and file metadata)]:::store
+    ML[MLflow traces and runs]:::ext
+    DEP[Prompts, tools, skills, MCP, knowledge]:::ext
+
+    UI --&gt; WF
+    UI --&gt; WV
+    UI --&gt; WR
+    UI --&gt; WC
+    WF --&gt; DB
+    WV --&gt; MAN
+    WV --&gt; CMP
+    WV --&gt; DB
+    WR --&gt; ENQ
+    WR --&gt; DB
+    ENQ --&gt; DB
+    WKR --&gt; DB
+    WKR --&gt; CMP
+    WKR --&gt; RT
+    RT --&gt; DEP
+    RT --&gt; ST
+    RT --&gt; ML</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties hold this picture together. The manifest is the source of truth for the workflow graph, so every downstream step derives from it rather than from ad hoc state. Compilation is deterministic and free of side effects beyond the generated artifacts and reports it is meant to produce, which makes the same manifest compile to the same result every time. Execution is durable and background-worker-driven through the queue rather than inline with the request that started it. The runtime executes the IR directly instead of running the exported Python module, keeping a single trusted execution path. And run metadata, events, checkpoints, and the file inventory are all CALIBER-owned, so observability does not depend on any external system being reachable.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The properties above are enforced by a relational model that separates authoring records from runtime records. The primary entities are:</p>
+<div class="table-wrap"><table><thead><tr><th>Table</th><th>Role</th></tr></thead><tbody><tr><td><code>CaliberWorkflow</code></td><td>Logical workflow root and inventory record.</td></tr><tr><td><code>CaliberWorkflowVersion</code></td><td>Draft or published immutable manifest version with validation and compilation artifacts.</td></tr><tr><td><code>CaliberWorkflowDeployment</code></td><td>Mutable alias pointer to an active version.</td></tr><tr><td><code>CaliberWorkflowRun</code></td><td>Queued/running/completed execution index row with summary and trace linkage.</td></tr><tr><td><code>CaliberWorkflowRunEvent</code></td><td>Append-only runtime timeline.</td></tr><tr><td><code>CaliberWorkflowRunCheckpoint</code></td><td>Resume-capable state snapshots.</td></tr><tr><td><code>CaliberRuntimeApprovalRequest</code></td><td>In-run approval gates.</td></tr><tr><td><code>CaliberWorkflowFile</code> and <code>CaliberWorkflowFileEvent</code></td><td>File metadata and lifecycle independent of storage backend.</td></tr><tr><td><code>CaliberWorkflowSessionMemory</code></td><td>Durable session memory for workflow nodes.</td></tr><tr><td><code>CaliberWorkflowBenchmarkReport</code></td><td>Product bakeoff scorecards.</td></tr><tr><td><code>CaliberWorkflowPatch</code> and <code>CaliberWorkflowPromotion</code></td><td>Patch proposals and publish lineage.</td></tr><tr><td><code>CaliberWorkflowService</code></td><td>Optional published HTTP service view over a workflow.</td></tr></tbody></table></div>
+<p>This shape carries several intentional consequences. Workflow authoring state and runtime state are kept deliberately separate, so editing a workflow never disturbs a run already in flight. The manifest snapshot is persisted per run, which means replay and debugging survive later version churn even after the source version has moved on. Events and checkpoints are append-oriented runtime observability state rather than mere log output, so the timeline of a run can be reconstructed faithfully. Finally, published versions are immutable by convention while deployment aliases are the mutable switch point, which is what lets a workflow be re-pointed to a new version without rewriting history.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module exposes its capabilities over HTTP, grouped to match the lifecycle phases described above. All routes are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix throughout.</p>
+<p>The first group supports the workflow inventory and the editor that lists, creates, imports, and inspects workflows:</p>
+<ul><li><code>GET /workflows</code></li><li><code>POST /workflows</code></li><li><code>POST /workflows/import</code></li><li><code>GET /workflows/{workflow_id}</code></li><li><code>PATCH /workflows/{workflow_id}</code></li><li><code>DELETE /workflows/{workflow_id}</code></li><li><code>GET /workflow-components</code></li><li><code>GET /workflow-templates</code></li><li><code>GET /workflows/{workflow_id}/session-memory</code></li><li><code>DELETE /workflows/{workflow_id}/session-memory</code></li><li>benchmark report CRUD</li></ul>
+<p>The second group drives the version lifecycle, from drafting a manifest through validation, compilation, publication, preview, run, patch proposal, and export:</p>
+<ul><li><code>GET /workflows/{workflow_id}/versions</code></li><li><code>POST /workflows/{workflow_id}/versions</code></li><li><code>GET /workflow-versions/{version_id}</code></li><li><code>PATCH /workflow-versions/{version_id}</code></li><li><code>POST /workflow-versions/{version_id}/validate</code></li><li><code>POST /workflow-versions/{version_id}/compile</code></li><li><code>POST /workflow-versions/{version_id}/publish</code></li><li><code>POST /workflow-versions/{version_id}/preview-run</code></li><li><code>POST /workflow-versions/{version_id}/run</code></li><li><code>POST /workflow-versions/{version_id}/propose-patch</code></li><li><code>POST /workflow-versions/{version_id}/copilot-edit</code></li><li><code>GET /workflow-versions/{version_id}/export/manifest</code></li><li><code>GET /workflow-versions/{version_id}/export/python</code></li></ul>
+<p>The third group covers the run lifecycle, including creation, the read surfaces for lineage, manifest, events, trace, and checkpoints, and the control actions for cancel, retry, approval, resume, and trigger:</p>
+<ul><li><code>POST /workflow-runs</code></li><li><code>GET /workflow-runs/{run_id}</code></li><li><code>GET /workflow-runs/{run_id}/lineage</code></li><li><code>GET /workflow-runs/{run_id}/manifest</code></li><li><code>GET /workflow-runs/{run_id}/events</code></li><li><code>GET /workflow-runs/{run_id}/trace</code></li><li><code>GET /workflow-runs/{run_id}/checkpoints</code></li><li><code>POST /workflow-runs/{run_id}/cancel</code></li><li><code>POST /workflow-runs/{run_id}/retry</code></li><li>approval and resume endpoints</li><li><code>POST /workflows/{workflow_id}/trigger</code></li></ul>
+<p>The fourth group, served by <code>routes/workflow_deployments.py</code>, handles deployment and promotion: listing deployments, promoting or rolling back an alias, and moving promotions through approval:</p>
+<ul><li><code>GET /workflows/{workflow_id}/deployments</code></li><li><code>POST /workflows/{workflow_id}/deployments/{alias}/promote</code></li><li><code>POST /workflows/{workflow_id}/deployments/{alias}/rollback</code></li><li><code>GET /workflows/{workflow_id}/promotions</code></li><li><code>POST /workflow-promotions/{promotion_id}/approve</code></li><li><code>POST /workflow-promotions/{promotion_id}/reject</code></li></ul>
+<p>The final group exposes calibration, which discovers the available options for a workflow and enqueues calibration runs against it:</p>
+<ul><li><code>GET /workflows/{workflow_id}/calibration/options</code></li><li><code>POST /workflows/{workflow_id}/calibration/runs</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The endpoints above come together in a single end-to-end flow. The sequence below traces an operator editing a manifest, compiling and publishing it, and then running the workflow through the background worker, the compiler, the runtime interpreter, and MLflow.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as Operator
+    participant UI as Workflow UI
+    participant VER as workflow_versions route
+    participant RUN as workflow_runs route
+    participant DB as CALIBER DB
+    participant WKR as workflow_run_worker
+    participant CMP as compiler
+    participant RT as runtime
+    participant ML as MLflow and storage
+
+    U-&gt;&gt;UI: Edit manifest and save draft version
+    UI-&gt;&gt;VER: POST or PATCH workflow version
+    VER-&gt;&gt;DB: Persist manifest and manifest_hash
+
+    U-&gt;&gt;UI: Validate / compile / publish
+    UI-&gt;&gt;VER: POST validate, compile, publish
+    VER-&gt;&gt;CMP: Parse manifest, validate, build IR, generate Python artifact
+    VER-&gt;&gt;DB: Persist report, bundle, deployment alias
+
+    U-&gt;&gt;UI: Run workflow
+    UI-&gt;&gt;RUN: POST /workflow-runs or /workflow-versions/{id}/run
+    RUN-&gt;&gt;DB: Insert queued CaliberWorkflowRun and first event
+    RUN--&gt;&gt;UI: Return queued run metadata
+
+    WKR-&gt;&gt;DB: Claim queued run
+    WKR-&gt;&gt;CMP: Rebuild execution plan if needed
+    WKR-&gt;&gt;RT: Execute IR
+    RT-&gt;&gt;ML: Emit traces, use providers, persist files
+    WKR-&gt;&gt;DB: Persist status, events, checkpoints, approvals, summary
+    UI-&gt;&gt;RUN: Poll run detail, events, trace, checkpoints</pre></div>
+<p>The two lifecycles in that flow are intentionally different state machines, because authoring a version and running it are different problems. The version lifecycle is a short, operator-driven progression:</p>
+<ul><li>create</li><li>validate</li><li>compile</li><li>publish</li></ul>
+<p>The run lifecycle, by contrast, is a longer-lived machine that must account for queued work, pausing on external conditions, and several distinct terminal outcomes:</p>
+<ul><li>queued</li><li>running</li><li>waiting_approval or waiting_event</li><li>completed, failed, cancelled, or expired</li></ul>
+<p>The legal transitions between these run states are centralized in <code>run_state.py</code>, so the routes that enqueue work and the worker that executes it share exactly one contract for what state changes are allowed.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because workflows accept user-authored graphs and then execute them, the module draws careful lines around what is trusted and what is merely accepted as data. On the access-control side, the following controls apply:</p>
+<ul><li>Mutating workflow endpoints require the <code>operator</code> scope.</li><li>Workflow manifests reject inline secret values and force callers to use secret references instead.</li><li>Runtime approvals create durable <code>CaliberRuntimeApprovalRequest</code> rows rather than transient in-memory prompts.</li><li>Queue transitions are state-validated using <code>run_state.py</code>, so no caller can force an illegal status change.</li><li>Idempotency keys prevent duplicate queued runs originating from external or event-driven sources.</li><li>File metadata is DB-owned even when the underlying bytes live in S3 or MinIO.</li></ul>
+<p>Those controls rest on a clear set of trust boundaries. User-authored manifests are accepted as data and never executed directly; the compiler first parses and validates them into typed structures before anything runs. Runtime execution is then constrained by the IR, the declared tool bindings, the approval gates, and the file and storage abstractions rather than by raw user code. The generated Python export sits entirely outside this path: it is a review artifact for humans, not the execution engine, which is why it can be inspected freely without becoming an attack surface.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The workflows domain is the deepest observability producer in CALIBER, since a single run can fan out across providers, tools, files, and approvals. It emits a correspondingly rich set of signals:</p>
+<ul><li>MLflow traces and span tags emitted by <code>workflows/runtime.py</code>.</li><li>Run rows carrying the summary, trace linkage, and the manifest snapshot for that run.</li><li>An append-only stream of run events.</li><li>Resume checkpoints that capture recoverable state.</li><li>Runtime approval rows recording in-run gates.</li><li>File metadata and artifact persistence summaries.</li><li>Session memory and benchmark reports for operator review.</li></ul>
+<p>Several operational choices shape how those signals behave in practice. Preview runs and queued runs share the same compilation and runtime primitives but differ in their durability and persistence semantics, so a preview can exercise the real engine without leaving the same permanent footprint as a queued run. Run artifacts and logs can be persisted through the configured storage backends, keeping output portable across deployments. Worker shutdown uses leases and grace periods so that in-flight runs can drain cleanly rather than being killed mid-execution. And the benchmark and patch surfaces let operators compare product behavior at a level above the narrow run log, which is where regressions and improvements are easiest to judge.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is built to grow along well-defined seams. Its primary extension points are:</p>
+<ul><li>Adding new manifest node types coherently across <code>workflows/manifest.py</code>, <code>compiler.py</code>, and <code>runtime.py</code>.</li><li>Expanding workflow service publication and external invocation surfaces.</li><li>Adding new calibration strategies and patch-generation logic.</li><li>Widening the compile-cache, storage, and event-bus backends.</li></ul>
+<p>These seams come with a set of deliberate constraints that callers should understand. Runtime execution is in-process and worker-driven rather than a separate service. The generated Python exists for export and review and is not the live execution path. Synchronous SQLAlchemy and synchronous run orchestration remain core assumptions of the design. Workflow versions are immutable by convention after publication, so most edits are expressed as new versions or patches rather than in-place mutation. And several advanced behaviors, including wait/resume and approvals, are durable but operationally complex, which is precisely why events and checkpoints are mandatory rather than optional conveniences.</p>
+<p>Taken together, these pieces make the workflows module the product's execution backbone. It combines a strict graph source of truth, a deterministic compiler, and a durable runtime lineage model so that complex agent workflows can be authored, published, executed, resumed, and audited inside the same CALIBER control plane.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

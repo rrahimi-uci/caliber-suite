@@ -1,0 +1,30 @@
+{
+  "name": "extract_document",
+  "version": "1",
+  "module_path": "caliber.workflows.ingestion_tools",
+  "callable_name": "extract_document",
+  "side_effect_level": "read",
+  "allow_in_preview": true,
+  "input_schema": {
+    "type": "object",
+    "required": ["ref"],
+    "properties": {
+      "ref": {
+        "type": "string",
+        "description": "Absolute LOCAL filesystem path of the source file. The callable opens Path(ref) and requires path.is_file(); it does NOT understand object-store:// URIs or bucket keys, so download/land the file locally first. Dispatch is by extension: .pdf/.docx/.pptx/.xlsx/.md/.txt/.csv. Unknown extensions (incl. legacy .doc/.ppt/.xls) are read best-effort as UTF-8 text."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "text": {"type": "string", "description": "Extracted plain text (XLSX = tab-separated rows under '## Sheet:' headers; PPTX = per-slide blocks)."},
+      "format": {"type": "string", "description": "Logical format the extension mapped to: pdf|docx|pptx|xlsx|markdown|text."},
+      "chars": {"type": "integer"},
+      "truncated": {"type": "boolean"},
+      "source": {"type": "string"},
+      "ocr_used": {"type": "boolean"}
+    }
+  },
+  "notes": "Read-only; runs live in the sandbox (allow_in_preview). The shipped callable signature is extract_document(ref, *, max_chars=200000, ocr='auto'); only `ref` is exposed here (defaults are fine for the demo). Real .docx/.pptx/.xlsx parse to clean text; a missing file raises IngestionError ('document not found'). NOTE: this tool does NOT raise a typed 'unsupported_format' error for legacy .doc/.ppt/.xls — it reads them as best-effort UTF-8 (garbled binary). The readable kind:'unsupported' diagnostic is produced by the Object Store extract endpoint (GET /object-store/buckets/{bucket}/object/extract?key=...), which is the surface used for the negative case in the dataset."
+}

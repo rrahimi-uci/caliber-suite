@@ -1,0 +1,111 @@
+{
+  "steps": [
+    {
+      "where": "Library › Skills › Build Skill",
+      "do": "Create the skill that holds your customer-support response policy (tone, citations, escalation). A <strong>skill</strong> is a reusable behavior an agent can select; the one-line <strong>summary</strong> is the trigger text the selector reads, so keep it narrow. Clicking <strong>Build Skill</strong> opens the guided wizard (Identity → Content → … → Review &amp; Create). Names must be kebab-case and must not start with <code>claude</code> or <code>anthropic</code>.",
+      "fill": [
+        ["Name", "<code>support-tone-and-citation</code>"],
+        ["Category", "<code>support</code> (or the closest option)"],
+        ["Tags", "<code>support, tone, citation, escalation, customer-facing</code>"],
+        ["Summary", "<code>Voice and citation rules for customer-facing support replies (billing, refunds, account, how-to); NOT for engineering, code, API, infra, or schema questions.</code>"],
+        ["Content", "paste the body of <a href=\"../cookbooks/02-skill-trigger-packaging-lab/assets/skills/support-tone-and-citation.md\">support-tone-and-citation.md</a> (everything below the YAML frontmatter, starting at <code>You shape how a support reply is written...</code>)"]
+      ],
+      "click": "Create Skill",
+      "see": "The skill is created at v1 and its workspace opens with stage tabs (<strong>Author</strong>, Render Preview, Trigger Tests, Scenario Sets, Runs, Bind).",
+      "asset": "skill: support-tone-and-citation",
+      "assetlink": [
+        {"href": "../cookbooks/02-skill-trigger-packaging-lab/assets/skills/support-tone-and-citation.md", "label": "support-tone-and-citation.md"}
+      ]
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Author",
+      "do": "Confirm the summary and content saved correctly, and tweak them here if needed. Editing on the Author stage is what updates the skill, so this is where the trigger summary and the policy body live.",
+      "fill": [
+        ["Summary / Content", "verify the trigger summary and the policy body match the asset; adjust wording if needed"]
+      ],
+      "click": "Save changes",
+      "see": "A success toast and the updated summary/content become the live skill definition.",
+      "asset": "skill version: support-tone-and-citation"
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Render Preview",
+      "do": "Check that the skill's template variables fill in cleanly. <strong>Render Preview</strong> substitutes <code>{{ vars }}</code> and reports any it could not resolve — supply all three required variables so nothing is left unresolved.",
+      "fill": [
+        ["Variables", "paste the <code>variables</code> object from <a href=\"../cookbooks/02-skill-trigger-packaging-lab/assets/dataset/render-vars.json\">render-vars.json</a> (supplies <code>user_message</code>, <code>audience</code>, and <code>policy_context</code>)"]
+      ],
+      "click": "Render Skill",
+      "see": "A rendered reply that cites <code>[KB-1042]</code>/<code>[KB-1007]</code> and avoids a fixed date, with <strong>unresolved_variables</strong> reported as empty (<code>[]</code>).",
+      "assetlink": [
+        {"href": "../cookbooks/02-skill-trigger-packaging-lab/assets/dataset/render-vars.json", "label": "render-vars.json"}
+      ]
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Trigger Tests",
+      "do": "Run the <strong>positive</strong> trigger cases — customer-facing support phrasing that <em>should</em> select this skill. Trigger testing is deterministic (no LLM): it returns <code>is_selected</code>, <code>selection_score</code>, and <code>selection_reason</code>. Run rows T01–T06 from the cases file, one at a time.",
+      "fill": [
+        ["user_message", "for each positive row, paste its <code>user_message</code> (e.g. <code>How do I get a refund for the duplicate charge on my account?</code>) from <a href=\"../cookbooks/02-skill-trigger-packaging-lab/assets/dataset/trigger-cases.jsonl\">trigger-cases.jsonl</a>"],
+        ["artifact_type", "the row's <code>artifact_type</code> (e.g. <code>support_reply</code>)"],
+        ["session_goal", "the row's <code>session_goal</code> (e.g. <code>Draft a customer-facing support reply</code>)"]
+      ],
+      "click": "Check selection",
+      "see": "Each positive case returns <strong>is_selected = true</strong> with a selection score and a human-readable reason.",
+      "asset": "trigger results: positive cases T01–T06",
+      "assetlink": [
+        {"href": "../cookbooks/02-skill-trigger-packaging-lab/assets/dataset/trigger-cases.jsonl", "label": "trigger-cases.jsonl"}
+      ]
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Trigger Tests",
+      "do": "Now run the <strong>negative</strong> cases — engineering/code/API/infra/schema queries that should <em>not</em> select this support skill. This proves the skill is narrow and won't fire on the wrong work. Run rows T07–T12.",
+      "fill": [
+        ["user_message", "for each negative row, paste its <code>user_message</code> (e.g. <code>How do I rotate the JWT signing key without invalidating active sessions?</code>) from <a href=\"../cookbooks/02-skill-trigger-packaging-lab/assets/dataset/trigger-cases.jsonl\">trigger-cases.jsonl</a>"],
+        ["artifact_type", "the row's <code>artifact_type</code> (e.g. <code>code_answer</code>)"],
+        ["session_goal", "the row's <code>session_goal</code> (e.g. <code>Implement secure key rotation</code>)"]
+      ],
+      "click": "Check selection",
+      "see": "Each negative case returns <strong>is_selected = false</strong>. Tally false-positives + false-negatives across all 12 cases — the gate is trigger accuracy &ge; 0.95.",
+      "asset": "trigger results: negative cases T07–T12"
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Author",
+      "do": "If any negative case wrongly selected (a false positive), <strong>sharpen the summary first</strong> — the summary/trigger text dominates selection, so tighten it before touching the long-form content. (Skip this edit if all 12 cases already passed.)",
+      "fill": [
+        ["Summary", "tighten the boundary wording, e.g. add explicit exclusions like <code>...NOT for engineering, code, API, infra, database, schema, or internal-tooling questions.</code>"]
+      ],
+      "click": "Save changes",
+      "see": "The updated summary is saved; re-running the Trigger Tests now shows the previously mis-selected negative case returning <code>is_selected = false</code>.",
+      "asset": "skill update: tightened summary"
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Runs",
+      "do": "Save a passing trigger run as the <strong>baseline</strong> so the current stable trigger behavior is the reference for future changes. The Runs stage records durable runs and lets you pin one as the baseline.",
+      "click": "Set as baseline",
+      "see": "The run gets a <strong>Baseline</strong> marker in the run history, recording the known-good positive/negative trigger decisions.",
+      "asset": "pinned baseline: trigger run"
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Runs",
+      "do": "Queue a <strong>calibration</strong> job to refine the skill (the agent-free optimizer auto-provisions the target — no agent to pick). It runs in the background, so capture the queued job id rather than waiting for it to finish inline.",
+      "click": "Calibrate",
+      "see": "A confirmation reading \"Calibration queued — job <code>{job_id}</code>.\"; the job runs in the background. Note the job id.",
+      "asset": "calibration job id (queued)"
+    },
+    {
+      "where": "Skill detail page (/skills/&lt;skill_id&gt;)",
+      "do": "Export the skill as a portable package. <strong>Download ZIP</strong> lives only on the standalone skill <em>detail page</em>, a separate surface from the in-page Workspace (clicking a skill in the Skills list opens the Workspace stages, which have no Download ZIP). Navigate directly to <code>/skills/&lt;skill_id&gt;</code> in the address bar — copy the skill's id from the Workspace and paste it into the URL. <strong>Download ZIP</strong> produces a self-contained bundle (<code>SKILL.md</code> + <code>agents/openai.yaml</code> + bundled resources) you can move between workspaces — this is the portability artifact the lab is proving.",
+      "click": "Download ZIP",
+      "see": "A <code>.zip</code> file downloads containing <code>SKILL.md</code> and the OpenAI agent manifest. Inspect it to confirm the summary, content, and resources round-trip out cleanly.",
+      "asset": "skill package: support-tone-and-citation.zip"
+    },
+    {
+      "where": "Library › Skills › support-tone-and-citation › Bind",
+      "do": "Bind the skill to an agent (or a workflow node) so it can be used at runtime. Binding makes the skill available to the chosen target without any extra registration.",
+      "fill": [
+        ["Bind target", "choose an agent (or workflow node) to attach the skill to"]
+      ],
+      "click": "Bind",
+      "see": "A confirmation that <code>support-tone-and-citation</code> is now bound to the selected target, ready for use.",
+      "asset": "skill binding: support-tone-and-citation"
+    }
+  ]
+}

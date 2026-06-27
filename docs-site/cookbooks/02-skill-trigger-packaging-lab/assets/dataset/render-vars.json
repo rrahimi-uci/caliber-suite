@@ -1,0 +1,11 @@
+{
+  "variables": {
+    "user_message": "Hi — I was charged twice for my Team plan this month and I'd like one of the charges refunded. This is really frustrating.",
+    "audience": "non-technical customer",
+    "policy_context": "Decision: duplicate-charge refund APPROVED for the second charge; refunds post in 5-7 business days. Cite [KB-1042] (duplicate-charge refunds) and [KB-1007] (refund timing). Do not promise a specific calendar date."
+  },
+  "expected": {
+    "unresolved_variables": []
+  },
+  "notes": "Paste the `variables` object into Skills -> Render Preview (POST /skills/{id}/test-render {variables:{...}}). All three render_contract variables (user_message, audience, policy_context) are supplied, so the response's `unresolved_variables` must be []. The rendered output should read as a calm reply that cites [KB-1042]/[KB-1007] and avoids a fixed date."
+}

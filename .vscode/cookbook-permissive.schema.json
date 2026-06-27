@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CALIBER demo scenario file (permissive)",
+  "description": "Demo scenario pack files under scenarios/ are free-form YAML. This permissive schema exists only to stop the YAML language server from auto-matching them against the unrelated CrowdSec 'scenarios' schema from SchemaStore (which would wrongly demand type/name/leakspeed). It intentionally allows any object shape.",
+  "type": "object",
+  "additionalProperties": true
+}

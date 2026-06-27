@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assistant (Aria) Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Assistant (Aria) Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Aria assistant</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Overview</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Aria assistant · Architecture reference</div>
+          <h1 id="top">Assistant (Aria) Architecture</h1>
+          <p class="doc-summary">Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Aria, CALIBER's embedded authoring assistant</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>An in-product agent that turns a chat conversation into governed CALIBER actions — drafting tools, skills, prompts, workflows, and MCP servers.</td></tr><tr><td><strong>Session model</strong></td><td>Per-user authoring sessions with turn-by-turn message history, persisted in the <code>CaliberAssistant*</code> tables.</td></tr><tr><td><strong>Engine</strong></td><td>A pluggable provider behind one <code>AssistantEngine</code> protocol (<code>fake</code> / <code>openai</code> / <code>anthropic</code> / <code>ollama</code>), selected once at boot in <code>server.py</code>.</td></tr><tr><td><strong>Interaction modes</strong></td><td><code>chat</code>, <code>build</code>, and <code>plan</code> — only <code>build</code> materializes <code>draft_deltas</code>; <code>plan</code> creates durable goal-plans via <code>POST /aria/plans</code>.</td></tr><tr><td><strong>Tool loop</strong></td><td>The OpenAI and Anthropic engines run an agentic tool-calling loop with read-only registry access (<code>list_skills</code> / <code>get_skill</code> / <code>list_tools</code>).</td></tr><tr><td><strong>Approval / governance</strong></td><td>Drafts move through validate → test → approve → publish; publishing is gated and the agentic orchestrator pauses <code>gated</code>-tier steps for a human.</td></tr><tr><td><strong>Trust / safety</strong></td><td>Engine output is a proposal, never an authorization; attachments are capped text snapshots and platform RBAC outranks injected prompt content.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the detail — scope, module boundaries, runtime path, data model, surfaces, lifecycle, security, observability, agentic orchestration, and extension points.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The assistant module is <strong>Aria</strong>, CALIBER's in-product agent for authoring and operating platform artifacts. Aria is an embedded reasoning and orchestration layer: it turns a chat conversation into concrete, governed CALIBER actions — drafting tools, skills, prompts, workflows, and MCP servers, validating and testing those drafts, and proposing them for publication through the platform's normal approval gates. Because it is embedded rather than bolted on, every action it takes flows through the same governance the rest of CALIBER enforces.</p>
+<p>Concretely, Aria owns the following responsibilities:</p>
+<ul><li>It owns per-user authoring <strong>sessions</strong> and their turn-by-turn message history.</li><li>It runs a pluggable provider <strong>engine</strong> (fake, OpenAI, Anthropic, or Ollama) behind a single <code>AssistantEngine</code> protocol, so the rest of the system never has to know which provider is active.</li><li>It assembles grounded context for each turn — the selected skills, the current drafts, and any user-attached <strong>context attachments</strong> ("+ add files").</li><li>It supports interaction <strong>modes</strong> (chat, build, and plan) that shape its behavior the way a code assistant's mode toggle does.</li><li>It manages <strong>drafts</strong> through a validate → test → approve → publish state machine.</li><li>It runs an intent-driven <strong>plan workbench</strong> (resolve intent → build plan → execute) for structured, confirmable single mutations — now used mainly by authoring surfaces such as the Prompts page rather than by the assistant drawer's Plan mode.</li><li>It runs the <strong>agentic orchestrator</strong> (§9) that decomposes a stated goal into a durable, reviewable <strong>plan</strong> of capability-bound steps and walks it under supervision — pausing mid-run for permission or choices, enforcing separation of duties on gated steps, parking on long-running async jobs, and escalating below-quality-gate results instead of silently passing. (In the shipped build the default planner proposes steps without populated inputs, so approving a create/mutate step hands artifact creation off to the operator's asset page; parked async steps advance only via the inline goal-plan card's poll or an explicit poll — the standalone Plans page does not poll on its own.) The assistant drawer's <strong>Plan</strong> mode now creates these durable plans and renders them as an inline goal-plan card; a standalone Plans page and a sidebar "needs you" badge let a user leave a plan running and return when it needs a decision. This is the "Claude Code for CALIBER" model.</li><li>It exposes runtime <strong>config</strong> (engine, model, reasoning, and disabled intents/domains) and surfaces the caller's <strong>access level</strong>.</li></ul>
+<p>The behavior described above lives across a small set of backend code paths:</p>
+<ul><li><code>caliber/src/caliber/routes/assistant.py</code></li><li><code>caliber/src/caliber/assistant/service.py</code></li><li><code>caliber/src/caliber/assistant/models.py</code></li><li><code>caliber/src/caliber/assistant/engine.py</code></li><li><code>caliber/src/caliber/assistant/{openai_engine,anthropic_engine,ollama_engine,fake}.py</code></li><li><code>caliber/src/caliber/assistant/prompt_builder.py</code></li><li><code>caliber/src/caliber/assistant/tools.py</code></li><li><code>caliber/src/caliber/assistant/skill_runtime.py</code></li><li><code>caliber/src/caliber/assistant/{publisher,validators,tracing}.py</code></li><li><code>caliber/src/caliber/assistant/{capabilities,plans,executor,plan_worker}.py</code> (the agentic orchestrator — §9)</li><li><code>caliber/src/caliber/routes/aria_plans.py</code> (the goal-plan HTTP surface)</li><li><code>caliber/src/caliber/db/models.py</code> (the <code>CaliberAssistant*</code> and <code>CaliberAria*</code> tables)</li><li><code>caliber/src/caliber/server.py</code> (engine selection, service wiring, and the plan-worker lifespan)</li></ul>
+<p>The user-facing surface is implemented in a parallel set of frontend code paths:</p>
+<ul><li><code>caliber/caliber-ui/src/components/assistant/CaliberAssistantPanel.tsx</code></li><li><code>caliber/caliber-ui/src/components/assistant/{AttachmentBar,ModeSelector,AssistantSettings,ChatHistory,AccessBadge}.tsx</code></li><li><code>caliber/caliber-ui/src/components/assistant/{QuestionList,DraftStatusBadge,ArtifactTypeSelector,ValidationPanel,TestPanel,AriaLogo,AssistantPanelContext}.tsx</code></li><li><code>caliber/caliber-ui/src/components/assistant/AriaPlanCard.tsx</code> (inline goal-plan card) plus <code>caliber/caliber-ui/src/{pages/AriaPlans.tsx,components/aria/planView.tsx}</code> (the standalone Plans page and shared plan-rendering atoms — the orchestrator surface of §9)</li><li><code>caliber/caliber-ui/src/api/{caliberApi.ts,assistantTypes.ts}</code></li></ul>
+<p>A separate proposal, <code>aria-microservice-proposal.md</code>, discusses extracting the reasoning layer into its own service; this document describes the <strong>current embedded architecture</strong> as it ships today.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Aria's design draws a firm line between orchestration and reasoning, so that the parts that touch CALIBER state are separable from the parts that talk to a model. The table below names each responsibility, the component that owns it, and what that ownership entails.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Orchestration</td><td><code>AssistantService</code> (<code>service.py</code>)</td><td>Persists turns/runs, assembles context, calls the engine, applies draft deltas, drives intent plans, and gates publishing.</td></tr><tr><td>Provider engine</td><td><code>AssistantEngine</code> protocol (<code>engine.py</code>)</td><td>One <code>run_turn(AssistantTurnRequest) -&gt; AssistantTurnResult</code> contract; concrete engines in <code>openai_engine.py</code>, <code>anthropic_engine.py</code>, <code>ollama_engine.py</code>, <code>fake.py</code>.</td></tr><tr><td>Engine selection</td><td><code>server.py</code></td><td>Picks the engine at boot from <code>assistant_engine</code> (default <code>auto</code> → a real provider by available API key: OpenAI if <code>OPENAI_API_KEY</code>, else Anthropic/Claude if <code>ANTHROPIC_API_KEY</code>, else OpenAI). <code>FakeAssistantEngine</code> is a deterministic test double, never selected automatically.</td></tr><tr><td>System prompt assembly</td><td><code>prompt_builder.py</code></td><td>Builds one shared system prompt from policy, mode guidance, selected skills, and attached context.</td></tr><tr><td>Skill selection</td><td><code>skill_runtime.py</code></td><td>Deterministic <code>resolve_assistant_skills</code> (auto / manual / off) over <code>CaliberSkill</code> rows.</td></tr><tr><td>Read-only registry access</td><td><code>RegistryToolDispatcher</code> (<code>tools.py</code>)</td><td>Lets tool-calling engines <code>list_skills</code> / <code>get_skill</code> / <code>list_tools</code> directly from the DB.</td></tr><tr><td>Draft validation / test</td><td><code>validators.py</code>, <code>service.py</code></td><td>Validates draft artifacts and runs draft tests (tool sandbox, skill render, workflow compile).</td></tr><tr><td>Publishing</td><td><code>publisher.py</code></td><td>Publishes approved drafts into the real artifact registries behind approval gates.</td></tr><tr><td>Tracing</td><td><code>tracing.py</code></td><td><code>AssistantTracer</code> emits MLflow spans with session/correlation/user attributes.</td></tr><tr><td>Persistence</td><td><code>CaliberAssistant*</code> rows (<code>db/models.py</code>)</td><td>Sessions, messages, drafts, runs, publish events, and attachments.</td></tr></tbody></table></div>
+<p>The result is a layered ownership model: the service is the only component that mutates CALIBER state, the engine is the only component that reasons, and the seam between them is the single <code>run_turn</code> contract.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The components above compose into a single request path that fans out from the service to skill selection, prompt assembly, the engine, and persistence. The following diagram traces that path end to end.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI[Aria panel UI]:::ui
+    API[routes/assistant.py]:::ctrl
+    SVC[AssistantService]:::ctrl
+    ENG[AssistantEngine&lt;br/&gt;fake / openai / anthropic / ollama]:::ext
+    PB[prompt_builder.py]:::ctrl
+    SR[skill_runtime.py]:::ctrl
+    DISP[RegistryToolDispatcher]:::ctrl
+    DB[(CaliberAssistant* tables)]:::store
+    OS[(Object store)]:::store
+    REG[(Skill / tool / workflow / KB registries)]:::store
+    MLF[(MLflow traces)]:::ext
+
+    UI --&gt; API
+    API --&gt; SVC
+    SVC --&gt; DB
+    SVC --&gt; SR
+    SR --&gt; DB
+    SVC --&gt; PB
+    PB --&gt; ENG
+    ENG --&gt; DISP
+    DISP --&gt; DB
+    SVC --&gt; REG
+    API --&gt; OS
+    SVC --&gt; MLF</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties of this path are worth calling out, because they explain why the architecture stays simple as providers and features grow:</p>
+<ul><li>The engine is <strong>pluggable behind one protocol</strong>. The service never branches on provider; only <code>server.py</code> does, and only once, at boot — so provider-specific code stays contained at the edge.</li><li>The engine returns data (<code>reply</code>, <code>questions</code>, <code>draft_deltas</code>), not user-facing prose. The service owns persistence, draft application, and run bookkeeping, which keeps reasoning and side effects cleanly separated.</li><li><strong>Context is pre-resolved.</strong> Attachments are reduced to a capped plain-text snapshot at attach time, so every engine sees uniform text regardless of the underlying source.</li><li>Skill selection is <strong>deterministic and DB-backed</strong>, not model-decided, so the same session state always yields the same skill set.</li><li>Mutations flow through the same governance the rest of CALIBER uses (validate → test → approve → publish), which means Aria cannot bypass approval gates.</li></ul>
+<p>Together these properties make the engine a replaceable detail and the service the durable, governed core.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Aria persists everything it needs to reconstruct and audit a conversation in a dedicated family of <code>CaliberAssistant*</code> tables. Each kind of state maps to one table with a clear purpose.</p>
+<div class="table-wrap"><table><thead><tr><th>State</th><th>Storage</th><th>Purpose</th></tr></thead><tbody><tr><td>Session</td><td><code>CaliberAssistantSession</code> (<code>caliber_assistant_sessions</code>)</td><td>Per-user authoring conversation; carries <code>owner</code>, <code>status</code>, <code>goal</code>, <code>active_draft_id</code>, and a <code>metadata</code> JSON bag.</td></tr><tr><td>Message</td><td><code>CaliberAssistantMessage</code> (<code>caliber_assistant_messages</code>)</td><td>Ordered turn history (<code>role</code>, <code>content</code>, per-turn <code>metadata</code>) with a unique <code>(session_id, sequence_number)</code>.</td></tr><tr><td>Draft</td><td><code>CaliberAssistantDraft</code> (<code>caliber_assistant_drafts</code>)</td><td>Work-in-progress artifact with <code>spec</code>, <code>artifact</code>, validation/test reports, and lifecycle <code>status</code>.</td></tr><tr><td>Run</td><td><code>CaliberAssistantRun</code> (<code>caliber_assistant_runs</code>)</td><td>One engine execution: engine/model, input/output summaries, <code>trace_id</code>, <code>mlflow_run_id</code>, error.</td></tr><tr><td>Publish event</td><td><code>CaliberAssistantPublishEvent</code> (<code>caliber_assistant_publish_events</code>)</td><td>Audit row recording a draft published to a registry artifact.</td></tr><tr><td>Attachment</td><td><code>CaliberAssistantAttachment</code> (<code>caliber_assistant_attachments</code>)</td><td>Context the user attached to a session, with a capped text snapshot.</td></tr></tbody></table></div>
+<p>The agentic orchestrator (§9) persists its own durable state in a parallel <code>CaliberAria*</code> family, so a plan survives restarts and can be resumed by a background worker:</p>
+<div class="table-wrap"><table><thead><tr><th>State</th><th>Storage</th><th>Purpose</th></tr></thead><tbody><tr><td>Plan</td><td><code>CaliberAriaPlan</code> (<code>caliber_aria_plans</code>)</td><td>A goal decomposed into ordered steps; carries <code>goal</code>, <code>owner</code>, <code>autonomy</code>, <code>status</code>, <code>visibility</code>, the originating session/project, and the task contract the planner reasons over — <code>constraints</code>, <code>done_when</code>, and <code>context_refs</code>.</td></tr><tr><td>Plan step</td><td><code>CaliberAriaPlanStep</code> (<code>caliber_aria_plan_steps</code>)</td><td>One capability-bound action with <code>inputs</code>, an optional quality <code>gate</code>, <code>status</code>, and the captured <code>result</code>.</td></tr><tr><td>Interaction</td><td><code>CaliberAriaInteraction</code> (<code>caliber_aria_interactions</code>)</td><td>A mid-run pause awaiting an answer — <code>kind</code> is <code>confirm</code> (accept/reject a result) or a permission prompt — with the supporting <code>evidence</code>, optional <code>required_scope</code>, and resolution.</td></tr></tbody></table></div>
+<p>Some session state does not warrant its own columns and instead lives in the session <code>metadata</code> JSON bag:</p>
+<ul><li><code>assistant_mode</code> holds the last interaction mode (<code>chat</code>, <code>build</code>, or <code>plan</code>).</li><li><code>assistant_skill_runtime</code> holds the skill mode together with pinned and disabled skill names and the last selected skills.</li><li><code>intent_workbench</code> holds the latest resolved intent and plan.</li><li><code>assistant_correlation_id</code> groups a session's traces.</li></ul>
+<p>Context attachments are the mechanism behind the "+ add files" affordance, and they come in four kinds (<code>AttachmentKind</code>, <code>models.py</code>), each resolved to text at attach time:</p>
+<ul><li><code>object_file</code> is an existing object-store file (bucket + key), fetched and text-extracted at attach time.</li><li><code>upload</code> is a file uploaded directly through the panel; it is text-extracted and optionally persisted to the object store.</li><li><code>library_resource</code> is an existing CALIBER asset (prompt, skill, tool, workflow, or knowledge_base) resolved into a text summary.</li><li><code>text_snippet</code> is a freeform pasted text block.</li></ul>
+<p>Whatever the kind, each attachment stores a <code>content_text</code> snapshot capped at <code>ATTACHMENT_TEXT_MAX_CHARS</code> (50k chars) and marked with a <code>truncated</code> flag, and each session is bounded by <code>max_attachments_per_session</code> (default 25). These limits keep the prompt-injection surface and context size predictable.</p>
+<p>Drafts move through a single lifecycle, encoded in <code>DraftStatus</code>, that mirrors CALIBER's broader governance progression:</p>
+<pre><code>draft → validating → validated | validation_failed
+validated → testing → tested | test_failed
+tested → approved → publishing → published | publish_failed</code></pre></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Aria exposes a CALIBER-owned HTTP API together with a set of frontend entry points that drive it. All routes are mounted under <code>/ajax-api/2.0/mlflow/caliber/assistant</code> (<code>_PFX</code>); the paths below are shown relative to that prefix.</p>
+<p>Session lifecycle is handled by a small CRUD-style set of routes:</p>
+<ul><li><code>GET /sessions</code></li><li><code>POST /sessions</code></li><li><code>GET /sessions/{session_id}</code></li><li><code>PATCH /sessions/{session_id}</code></li></ul>
+<p>Messages and one-shot drafting cover the core conversational turn and a stateless draft shortcut:</p>
+<ul><li><code>GET /sessions/{session_id}/messages</code></li><li><code>POST /sessions/{session_id}/messages</code>  (carries <code>mode</code>)</li><li><code>POST /prompt-draft</code></li></ul>
+<p>Context attachments back the "+ add files" affordance, with one route per source plus a deletion route:</p>
+<ul><li><code>GET /sessions/{session_id}/attachments</code></li><li><code>POST /sessions/{session_id}/attachments</code>  (<code>object_file</code> / <code>library_resource</code> / <code>text_snippet</code>)</li><li><code>POST /sessions/{session_id}/attachments/upload</code>  (multipart file upload)</li><li><code>DELETE /attachments/{attachment_id}</code></li></ul>
+<p>The intent plan workbench drives structured, confirmable mutations through a resolve → plan → execute progression:</p>
+<ul><li><code>POST /sessions/{session_id}/intent/resolve</code></li><li><code>POST /sessions/{session_id}/plans</code></li><li><code>GET /sessions/{session_id}/plans/latest</code></li><li><code>POST /sessions/{session_id}/plans/execute</code></li><li><code>GET /sessions/{session_id}/operations/{operation_id}</code></li></ul>
+<p>Drafts and runs expose the validate/test/approve/publish lifecycle and the records of each engine execution:</p>
+<ul><li><code>GET /sessions/{session_id}/drafts</code></li><li><code>GET /drafts/{draft_id}</code></li><li><code>PATCH /drafts/{draft_id}</code></li><li><code>POST /drafts/{draft_id}/validate</code></li><li><code>POST /drafts/{draft_id}/test</code></li><li><code>POST /drafts/{draft_id}/approve</code></li><li><code>POST /drafts/{draft_id}/publish</code></li><li><code>GET /runs/{run_id}</code></li></ul>
+<p>Runtime configuration is read and updated through two routes:</p>
+<ul><li><code>GET /config</code></li><li><code>PATCH /config</code></li></ul>
+<p>The agentic orchestrator (§9) exposes a sibling surface under the <code>/ajax-api/2.0/mlflow/caliber/aria</code> prefix, covering the plan lifecycle and the mid-run interaction protocol:</p>
+<ul><li><code>GET /aria/plans</code> · <code>POST /aria/plans</code>  (decompose a goal — with optional <code>constraints</code>, <code>done_when</code>, and <code>context_refs</code> — into a draft plan)</li><li><code>GET /aria/plans/{plan_id}</code> · <code>PATCH /aria/plans/{plan_id}</code>  (edit autonomy / cancel a draft)</li><li><code>POST /aria/plans/{plan_id}/approve</code></li><li><code>POST /aria/plans/{plan_id}/execute</code></li><li><code>POST /aria/plans/{plan_id}/poll</code>  (advance any parked async steps)</li><li><code>GET /aria/plans/{plan_id}/interactions</code></li><li><code>POST /aria/interactions/{interaction_id}/answer</code>  (resume a paused plan)</li></ul>
+<p>On the frontend, a focused set of components binds these routes to the user:</p>
+<ul><li><code>CaliberAssistantPanel.tsx</code> is the right-side "Ask Aria" drawer host.</li><li><code>ModeSelector.tsx</code> is the Chat / Build / Plan toggle.</li><li><code>AttachmentBar.tsx</code> is the "+ add context" menu (upload, object store, library, and pasted text) together with the attachment chips.</li><li><code>AssistantSettings.tsx</code> edits model, reasoning, and disabled-intents settings over <code>/config</code>.</li><li><code>ChatHistory.tsx</code> lets the user browse, switch, rename, and archive past sessions.</li><li><code>AccessBadge.tsx</code> surfaces the caller's access level from <code>/me</code>.</li><li><code>AriaPlanCard.tsx</code> renders a durable goal-plan inline in the conversation and drives its lifecycle (approve, execute, resume) together with the mid-run interaction prompts.</li><li><code>pages/AriaPlans.tsx</code> is the standalone Plans page for inspecting and resuming goal-plans (sharing render atoms in <code>components/aria/planView.tsx</code>), and the sidebar shows a "needs you" badge counting plans paused awaiting a human decision.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>A single chat turn is the workhorse of Aria, and it stitches together persistence, skill selection, the engine, and mode gating in a fixed order. The sequence below shows that order for a <code>POST /sessions/{id}/messages</code> request.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as User
+    participant UI as Aria panel
+    participant API as routes/assistant.py
+    participant SVC as AssistantService
+    participant SR as skill_runtime
+    participant ENG as AssistantEngine
+    participant DB as CALIBER DB
+
+    U-&gt;&gt;UI: Type a message (mode = chat/build/plan)
+    UI-&gt;&gt;API: POST /sessions/{id}/messages
+    API-&gt;&gt;SVC: send_message(body, user)
+    SVC-&gt;&gt;DB: Persist user message, resolve and persist mode
+    SVC-&gt;&gt;DB: Load history, drafts, attachments
+    SVC-&gt;&gt;SR: resolve_assistant_skills(...)
+    SVC-&gt;&gt;DB: Insert run (status=running)
+    SVC-&gt;&gt;ENG: run_turn(AssistantTurnRequest)
+    ENG--&gt;&gt;SVC: reply, questions, draft_deltas
+    SVC-&gt;&gt;DB: Persist assistant message + run completion
+    alt mode == build
+        SVC-&gt;&gt;DB: Apply draft deltas
+    end
+    SVC--&gt;&gt;UI: TurnResponse (message, questions, draft_updates, run)</pre></div>
+<p>A few rules govern how that lifecycle behaves in practice:</p>
+<ul><li><strong>Mode gating</strong> determines what a turn is allowed to produce. <code>build</code> is the only mode that materializes <code>draft_deltas</code>; <code>chat</code> and <code>plan</code> suppress drafts, and the prompt builder injects per-mode guidance to match. In the UI, selecting <strong>Plan</strong> now creates a durable goal-plan via <code>POST /aria/plans</code> and renders it as an inline goal-plan card (§9) rather than calling <code>send_message</code>; the intent-plan workbench (<code>/intent/resolve</code> → <code>/plans</code> → <code>/plans/execute</code>) remains a separate backend path used by authoring surfaces such as the Prompts page.</li><li><strong>Context injection</strong> is how grounding reaches the model. The prompt builder (<code>prompt_builder.py</code>) adds the selected skills and attachment snapshots to the system prompt, while attachments are loaded per turn and passed on <code>AssistantTurnRequest.attachments</code>.</li><li><strong>Turn and draft limits</strong> keep sessions bounded. Sessions are capped by <code>max_turns</code>, <code>max_questions_per_turn</code>, and <code>max_drafts_per_session</code>, and each engine call runs under a <code>run_timeout_seconds</code> watchdog.</li><li><strong>Intent execution</strong> is the structured-mutation path. <code>execute_intent_plan</code> dispatches to per-intent <code>_execute_*</code> adapters (create_tool/skill/workflow/ mcp_server, prompt write, optimization, eval-dataset save, workflow calibration, and propose_promotion).</li></ul>
+<p>Each turn therefore produces a complete, auditable result — a persisted message, an optional set of draft updates, and a run record — before control returns to the UI.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Aria is an authoring agent with access to platform state, so its security model assumes that engine output is untrusted and that every mutation must clear the same gates as a human author's would. The following controls enforce that assumption.</p>
+<ul><li>Every route requires an authenticated user (<code>require_user</code>), and the mutating intent-workbench routes — sessions, messages, attachments, drafts, intent-plan execution (<code>POST /sessions/{id}/plans/execute</code>), and config — require <code>operator</code> scope. (The agentic <code>/aria/plans/*</code> routes are <strong>owner-scoped</strong>, not operator-scoped — see the next bullet.)</li><li>Listing another owner's sessions requires <code>admin</code> scope; otherwise sessions are owner-scoped, and cross-owner reads return empty results or a 404.</li><li>Plans are owner-scoped on <strong>every</strong> route, not just the list: the detail, edit, approve, execute, poll, and interactions endpoints resolve the plan through <code>db.scoping.get_visible</code> with the caller's identity, so a guessed <code>plan_id</code> from another owner returns 404 (admins bypass). Editing a plan's autonomy dial is audited.</li><li>Publishing a draft is gated by approval (<code>publish_requires_approval</code>), so Aria proposes but cannot unilaterally publish.</li><li>Attachment content is reduced to a <strong>capped text snapshot</strong> at attach time and per-session counts are bounded, which limits both the prompt-injection surface and context blowup.</li><li>The registry tool dispatcher exposed to engines is <strong>read-only</strong> (<code>list_skills</code> / <code>get_skill</code> / <code>list_tools</code>).</li><li>Draft testing runs in the shared tool sandbox (subprocess isolation) rather than in the request handler, so untrusted draft code never executes in-process.</li><li>In the agentic orchestrator (§9), <code>gated</code>-tier capabilities are a <strong>non-negotiable floor</strong>: they always pause for a human regardless of autonomy, and the tool projection (<code>agent_tools.py</code>) refuses to expose them for autonomous tool-calling. Approving such a step enforces <strong>separation of duties</strong> — the approver must hold the required scope and cannot be the plan owner who requested it (an unmapped <code>required_scope</code> denies rather than admitting anyone). A non-gated permission ask is the plan owner's (or an admin's) to answer — a third party cannot approve or deny it.</li><li>Capability <strong>RBAC scopes are enforced at execution</strong>, not just the autonomy tier: before a step's handler runs, the executor checks the capability's declared <code>required_scopes</code> against the <strong>plan owner's</strong> scopes (the principal the plan runs on behalf of), so an under-privileged owner's auto-running plan can't invoke an operator-only capability. A separate gate-approver and the <code>@system</code> async poller don't need to hold the capability scope themselves.</li></ul>
+<p>Underpinning those controls are two trust boundaries that hold regardless of what an engine returns:</p>
+<ul><li>Engine output is treated as a proposal, never as an authorization; the service re-validates it and routes any mutation through normal governance.</li><li>Platform policy and RBAC outrank any skill or attachment content injected into the prompt, so injected text cannot escalate privileges.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because Aria's turns are LLM-driven and provider-configurable, the system is built so that every turn is traceable, every run is recorded, and the active configuration is both inspectable and changeable at runtime.</p>
+<ul><li>Every turn opens an MLflow span via <code>AssistantTracer</code> carrying <code>caliber.assistant.*</code> attributes — session id, run id, engine, mode, attachment count, and skill-runtime selection.</li><li><code>CaliberAssistantRun</code> rows persist engine/model, input/output summaries, <code>trace_id</code>, <code>mlflow_run_id</code>, and any error, so a turn can be reconstructed after the fact.</li><li>A per-session correlation id groups multi-turn traces into one conversation.</li><li><code>GET /config</code> reports the active engine, model, provider, reasoning, and disabled intents/domains, while <code>PATCH /config</code> rebuilds the engine at runtime (operator-scoped).</li></ul>
+<p>These behaviors are driven by configuration on <code>CaliberConfig</code>, surfaced through <code>CALIBER_ASSISTANT_*</code> environment variables, grouped here by what they control:</p>
+<ul><li>Engine and model selection: <code>assistant_enabled</code>, <code>assistant_engine</code> (<code>auto</code> default / <code>openai</code> / <code>anthropic</code> / <code>ollama</code> / <code>fake</code>-for-tests), <code>assistant_model</code> (empty → the resolved provider's default), and <code>assistant_reasoning</code>.</li><li>Skill runtime and intent gating: <code>assistant_skill_runtime_enabled</code>, <code>assistant_disabled_intents</code>, and <code>assistant_disabled_domains</code>.</li><li>Session bounds: <code>assistant_max_turns</code>, <code>assistant_max_questions_per_turn</code>, and <code>assistant_max_drafts_per_session</code>.</li><li>Safety and governance: <code>assistant_publish_requires_approval</code>, <code>assistant_tool_source_max_bytes</code>, and <code>assistant_run_timeout_seconds</code>.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-agentic-orchestration-goal-plan-supervised-execution">9. Agentic orchestration (goal → plan → supervised execution)<a class="anchor" href="#9-agentic-orchestration-goal-plan-supervised-execution" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Beyond drafting a single artifact in a chat turn, Aria can take a stated <strong>goal</strong> and drive it through CALIBER's processes the way a coding agent drives a repository: it decomposes the goal into a plan, then walks that plan step by step, pausing for a human whenever a step needs permission, a choice, or an approval. (In the shipped build the default <code>HeuristicPlanner</code> proposes capability-bound steps with empty inputs and the interaction answer carries no input payload, so an approved mutate step — e.g. <code>judge.create</code> — runs with empty inputs and fails validation: Aria plans the work and pauses for approval, but the operator still creates the artifact on its own asset page. Auto-populated step inputs are a planned, not-yet-shipped capability.) The conversational assistant (§1–§8) reasons and drafts; the orchestrator described here is designed to <em>operate the platform</em> under supervision. The two share the same governance and tracing but live in separate, independently testable modules.</p>
+<h3 id="91-components">9.1 Components<a class="anchor" href="#91-components" aria-hidden="true" tabindex="-1">#</a></h3>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Capability registry</td><td><code>capabilities.py</code></td><td>Single-definition <code>Capability</code> objects (key, title, tier, handler) plus a <code>CapabilityContext</code>. Handlers reuse the same extracted route helpers the HTTP API uses, so there is one execution path per action. Builtins today: <code>judge.list/create</code>, <code>review_queue.list/create/add_items</code>, <code>eval_dataset.create</code>, and the async <code>workflow.calibrate</code> (this is the backend capability registry; the shipped planner does not yet populate step inputs, so create-tier steps require the operator to supply inputs on the asset page rather than being created autonomously).</td></tr><tr><td>Tool projection</td><td><code>agent_tools.py</code></td><td>Projects the registry into engine tool specs and dispatches calls back through it, so the conversational engine and the orchestrator share one capability surface. <code>gated</code>-tier capabilities are never projected for autonomous calling.</td></tr><tr><td>Planner</td><td><code>plans.py</code> (<code>Planner</code> protocol, <code>HeuristicPlanner</code>)</td><td>Decomposes a goal into ordered <code>PlannedStep</code>s, each bound to a capability and carrying an optional quality <code>gate</code>. The default planner is registry-driven: it matches the capability domain named in the goal (the richer task contract is persisted on the plan for a future state-aware planner).</td></tr><tr><td>Plan service</td><td><code>plans.py</code> (<code>PlanService</code>)</td><td>Persists plans and steps — including the per-plan task contract (<code>constraints</code>, <code>done_when</code>, <code>context_refs</code>) — with create / get / list / <code>set_status</code>.</td></tr><tr><td>Plan executor</td><td><code>executor.py</code> (<code>PlanExecutor</code>)</td><td>Walks an approved plan, dispatches each step's capability, applies the autonomy gate, raises interactions, parks async steps, and runs the quality-gate / self-correction logic.</td></tr><tr><td>Plan worker</td><td><code>plan_worker.py</code> (<code>AriaPlanWorker</code>)</td><td>A background asyncio task that periodically polls plans parked on async jobs and resumes them. Wired into the <code>server.py</code> lifespan, gated by <code>background_tasks_enabled</code> (interval <code>aria_plan_worker_interval_seconds</code>, default 10s).</td></tr></tbody></table></div>
+<h3 id="92-lifecycle">9.2 Lifecycle<a class="anchor" href="#92-lifecycle" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>A plan moves through <code>draft → approved → (running) → paused ↔ resumed → completed</code> (or <code>cancelled</code>). The executor advances steps in order; between steps it consults the <strong>autonomy dial</strong> to decide whether to run a step or pause for a human via a <code>CaliberAriaInteraction</code>.</p>
+<div class="diagram"><pre class="mermaid">flowchart TD
+    G[Goal stated]:::ctrl --&gt; P[Planner decomposes into a draft plan]:::ctrl
+    P --&gt; A{Approved?}
+    A -- no --&gt; EDIT[Edit autonomy or cancel]:::ctrl
+    A -- yes --&gt; EX[PlanExecutor walks steps]:::ctrl
+    EX --&gt; D{gate_decision:&lt;br/&gt;autonomy x tier}
+    D -- run --&gt; R[Dispatch capability]:::ctrl
+    D -- ask --&gt; I[Create interaction;&lt;br/&gt;plan paused]:::ctrl
+    I --&gt;|answer| EX
+    R --&gt; ASY{Async job?}
+    ASY -- yes --&gt; W[Park waiting_job;&lt;br/&gt;worker polls and resumes]:::async
+    ASY -- no --&gt; Q{Quality gate met?}
+    W --&gt; Q
+    Q -- yes --&gt; NEXT[Next step / completed]:::ctrl
+    Q -- no --&gt; CONF[confirm interaction:&lt;br/&gt;accept-anyway or reject]:::ctrl
+    CONF --&gt; NEXT</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<h3 id="93-supervision-autonomy-capability-tier">9.3 Supervision: autonomy × capability tier<a class="anchor" href="#93-supervision-autonomy-capability-tier" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>Whether a step runs autonomously or pauses is a function of the step's capability <strong>tier</strong> and the plan's <strong>autonomy</strong> setting (<code>gate_decision</code>):</p>
+<div class="table-wrap"><table><thead><tr><th>Tier</th><th><code>ask_each</code></th><th><code>approve_plan</code> / <code>auto_guarded</code></th></tr></thead><tbody><tr><td><code>read</code></td><td>run</td><td>run</td></tr><tr><td><code>safe</code></td><td>ask</td><td>run</td></tr><tr><td><code>mutate</code></td><td>ask</td><td>run</td></tr><tr><td><code>gated</code></td><td>ask</td><td>ask</td></tr></tbody></table></div>
+<p><code>gated</code> is the non-negotiable floor — it always pauses, and §7 records the separation-of-duties rule that governs who may approve it.</p>
+<h3 id="94-async-steps-and-self-correction">9.4 Async steps and self-correction<a class="anchor" href="#94-async-steps-and-self-correction" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>Two behaviors make the executor durable rather than a one-shot walk:</p>
+<ul><li><strong>Async jobs.</strong> A capability whose work is long-running (today, <code>workflow.calibrate</code>) returns an <code>AsyncJobHandle</code> instead of a result. The executor parks the step as <code>waiting_job</code>, and the <code>AriaPlanWorker</code> polls the job's status through a <code>JobStatusResolver</code> (the <code>MLflowJobStatusResolver</code> maps refinement-job / eval-run status to <code>done</code> / <code>failed</code>), resuming the plan when the job finishes. <code>POST /aria/plans/{id}/poll</code> does the same on demand.</li><li><strong>Self-correction.</strong> When a step carries a quality <code>gate</code> and its result falls below the threshold, the executor does not silently pass and does not blindly retry — it raises a <code>confirm</code> interaction carrying the failing evidence, so a human explicitly accepts the below-gate result (preserving it) or rejects it (skipping the step). This reuses the same interaction infrastructure as permission pauses.</li></ul>
+<p>The full design rationale lives in <code>aria-agentic-orchestration.md</code>.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="10-extension-points-and-current-constraints">10. Extension points and current constraints<a class="anchor" href="#10-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Aria's seams make it straightforward to extend along a few well-defined axes:</p>
+<ul><li>New provider engines can be added behind the <code>AssistantEngine</code> protocol.</li><li>Richer context attachment kinds and resolvers can be added in the route and service layer.</li><li>Additional intent adapters can be added in <code>service.py</code>.</li><li>New agentic capabilities are added by registering a <code>Capability</code> in <code>capabilities.py</code> (§9); they are picked up by both the conversational tool loop and the goal-plan orchestrator with no further wiring, and a richer planner can be supplied behind the <code>Planner</code> protocol.</li><li>The reasoning layer can be extracted into a remote backend (see <code>aria-microservice-proposal.md</code>).</li></ul>
+<p>Equally important are the constraints that hold in the current design, which callers should plan around:</p>
+<ul><li>Turns are <strong>single-shot</strong>, not streamed; <code>send_message</code> returns a complete <code>TurnResponse</code>.</li><li>Attachment text is snapshotted at attach time and does not refresh if the source later changes.</li><li>The OpenAI and Anthropic (Claude) engines run the agentic tool-calling loop (read/observe/act within a turn); the Ollama engine is still single-shot and receives context purely through the assembled system prompt.</li><li>Raw uploaded files are persisted to the object store only when a target bucket is supplied — otherwise only the extracted text snapshot is retained.</li></ul>
+<p>Taken together, these properties make Aria the conversational front door to CALIBER authoring: it reasons over grounded context, drafts governed artifacts, and drives them through the same validate/test/approve/publish pipeline the rest of the platform uses.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

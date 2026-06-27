@@ -1,0 +1,39 @@
+# Verified against the Aria capability registry + plan executor — see ../ARIA-AUTONOMY.md and ../FEASIBILITY.md.
+feasibility:
+  - These gates check Aria's PLAN and the REAL artifacts it created/triggered; there is no LLM judge OF Aria here.
+  - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
+  - The async step is observable as status "waiting_job" on the workflow.calibrate step; it advances to "done" only after POST /aria/plans/{id}/poll resolves the refinement_job (CaliberRefinementJob.status -> completed).
+evaluation:
+  plan_checks:
+    - plan_decomposed_from_intent
+    - plan_contains_review_queue_create
+    - plan_contains_review_queue_add_items
+    - plan_contains_workflow_calibrate
+  artifact_checks:
+    - review_queue_created_with_question_schema
+    - flagged_traces_enqueued_to_queue
+    - workflow_calibration_job_enqueued        # returns an AsyncJobHandle; step parks in waiting_job
+    - workflow_calibration_job_completed        # only after poll resolves the async job (done) and the plan resumes
+quality_gates:
+  steps_completed_min: 3
+  required_interactions_answered: true       # review_queue.create, review_queue.add_items, workflow.calibrate
+  async_job_polled_to_terminal: true         # the calibrate step reached "done" via poll (not left in waiting_job)
+  artifacts_real: true                       # the review queue + enqueued items exist; the calibration job is real
+monitoring:
+  evidence:        # labels for what to look for, not literal span names
+    - aria_plan_created
+    - aria_step_completed
+    - review_queue_created
+    - review_items_enqueued
+    - workflow_calibration_enqueued
+    - aria_step_waiting_job          # the plan parked on the async calibration job
+    - async_job_resolved_done        # poll mapped the refinement_job to completed; the plan resumed
+  metrics:
+    - steps_completed
+    - interactions_count
+    - items_enqueued
+    - poll_count_to_terminal
+feedback_loop:
+  - if the plan misses a capability, sharpen the intent wording (domain needles "review queue" / "workflow") and re-decompose.
+  - have reviewers answer the queue's questions (answers write back onto the traces as MLflow assessments/expectations), then compare the recalibrated workflow against its baseline runs in Observability / Evaluations (SCN-01 / SCN-10).
+  - feed the reviewed hard cases into the workflow's eval dataset and re-run, closing the governance -> remediation -> re-evaluation loop.

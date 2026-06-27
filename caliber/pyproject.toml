@@ -1,0 +1,390 @@
+[project]
+name = "caliber"
+version = "0.1.0.dev0"
+description = "Human-in-the-loop refinement pipeline for AI agents — an MLflow server plugin."
+readme = "README.md"
+license = { file = "LICENSE" }
+# Packaging and CI currently validate the 3.10-3.12 matrix. Keep the supported
+# range honest until the optional LLM / embedding stack is fully remediated and
+# re-verified on newer interpreters.
+requires-python = ">=3.10,<3.13"
+authors = [{ name = "The CALIBER Authors" }]
+keywords = ["mlflow", "llm", "agents", "prompt-optimization", "human-in-the-loop", "evaluation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+# Runtime dependencies are intentionally minimal at v0.1.0.dev0; only what the
+# plugin shell needs to load and respond to a health check. Later phases add:
+#   Phase 2 (Refinement Pipeline): openai-agents, mlflow[genai], dspy-ai, textgrad
+#   Phase 3 (Approval & Promotion): no new deps; uses MLflow Prompt Registry
+#   Phase 4 (Multi-agent / Conversational): no new deps for the orchestrator
+#   Phase 5 (Production hardening): structlog, opentelemetry-sdk
+dependencies = [
+    "mlflow>=3.14.0,<4",
+    "sqlalchemy>=2.0,<3",
+    "alembic>=1.13,<2",
+    "pydantic>=2.6,<3",
+    # CVE-2026-54282 / CVE-2026-54283 are fixed in 1.3.1+.
+    "starlette>=1.3.1,<2",
+    "python-multipart>=0.0.9",
+    "typing-extensions>=4.10",
+    # Keep vulnerable MLflow/MCP transitives above known fixed versions.
+    "aiohttp>=3.14,<4",
+    "PyJWT>=2.13,<3",
+    # YAML parsing for workflow definitions and skill packages.
+    "PyYAML>=6.0",
+    # Prometheus exposition for the /metrics endpoint. The library is
+    # small (no runtime deps) and the canonical pick for Python
+    # services — switching later costs almost nothing.
+    "prometheus-client>=0.20,<1",
+    # MCP gateway transport client (stdio/SSE/streamable-http).
+    "mcp>=1.27,<2",
+    "httpx>=0.27,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "allure-pytest>=2.13",       # Allure report results (only emits with --alluredir)
+    "httpx>=0.27",
+    "httpx2>=2.3",                # for Starlette 1.x TestClient against ASGI
+    "fpdf2>=2.8",                 # test helper for generating fixture PDFs
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+    "types-PyYAML",
+    "moto[s3]>=5.0",             # in-process S3 mock for the s3 backend tests
+]
+# Production deployments using the S3/MinIO storage backend install this extra.
+# The local-backend MVP and the core package never import boto3.
+s3 = [
+    "boto3>=1.34",
+]
+nats = [
+    "nats-py>=2.7,<3",
+]
+redis = [
+    "redis>=5,<6",
+]
+# Production deployments install with this extra to wire in real LLM calls
+# for diagnosis, candidate generation, and other orchestrator stages. The
+# core CALIBER package stays usable (and unit-testable) without it via the
+# FakeLLMProvider in caliber.llm.fake.
+llm = [
+    "openai-agents>=0.0.7",
+    "openai>=1.40",
+    "gepa>=0.0.27",
+]
+# DSPy teleprompters (BootstrapFewShot / MIPROv2) are optional on top of the
+# OpenAI-backed provider. Keep them isolated from the base ``[llm]`` extra so
+# production-safe installs can enable OpenAI workflow execution without also
+# pulling the flagged diskcache / LiteLLM optimizer stack.
+dspy = [
+    "dspy>=3.0",
+    # CVE-2026-42203 / 42208 / 42271 and CVE-2026-40217 are fixed in 1.83.10+.
+    # DSPy pulls LiteLLM transitively, so we pin a safe floor across every
+    # supported Python environment instead of relying on DSPy's wider minimum.
+    "litellm>=1.83.10",
+]
+# Anthropic assistant engine (assistant/anthropic_engine.py).
+anthropic = [
+    "anthropic>=0.30",
+]
+# Agent long-term memory (caliber.memory) via mem0, over the platform's existing
+# pgvector + gateway LLM. Optional + lazy-imported, default-off
+# (``CALIBER_MEMORY_ENABLED``); ``psycopg-pool`` is what mem0's pgvector store
+# needs on top of the psycopg the core already uses.
+memory = [
+    "mem0ai>=2.0",
+    "psycopg-pool>=3.2",
+]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
+# Postgres driver for the first-party DB MCP server (caliber.mcp_servers.db).
+# The core package and its pure builders import without this; psycopg is lazy
+# imported in caliber.mcp_servers.db.connection only when a tool hits Postgres.
+postgres = [
+    "psycopg[binary]>=3.2,<4",
+]
+# Multi-format document ingestion (caliber.workflows.ingestion_tools). Parsers
+# are lazy-imported per format; plain text / markdown work without this extra.
+ingest = [
+    "pypdf>=4",
+    "python-pptx>=0.6",
+    "openpyxl>=3.1",
+    "python-docx>=1.1",
+    "markdown>=3.5",
+]
+# OCR fallback for scanned / image-only PDFs (caliber.workflows.ingestion_tools).
+# PyMuPDF rasterizes pages; pytesseract drives the system ``tesseract`` binary
+# (install separately, e.g. ``brew install tesseract``). Lazy-imported only when
+# a PDF yields little/no extractable text.
+ocr = [
+    "pymupdf>=1.24",
+    "pytesseract>=0.3.10",
+    "Pillow>=10.1",
+]
+# Knowledge-base chunking, graph extraction, and retrieval orchestration.
+# Keep the local Hugging Face embedding runtime in a separate extra so secure
+# installs can use the KB authoring surface without pulling torch by default.
+knowledge = [
+    "langchain-text-splitters>=0.3",
+    "langchain-experimental>=0.3",
+    "spacy>=3.8",
+    "tiktoken>=0.8",
+]
+# Local Hugging Face embedding backends for offline KB builds. This extra stays
+# opt-in because sentence-transformers pulls torch, which currently remains on
+# the advisory watchlist in the supported matrix.
+knowledge-local = [
+    "langchain-huggingface>=0.1",
+    "sentence-transformers>=3.0",
+]
+
+# MLflow plugin discovery — the entry point that lets `mlflow server --app-name caliber`
+# locate CALIBER's ASGI app. See caliber-backend.md §3.1 (Plugin Architecture).
+[project.entry-points."mlflow.app"]
+caliber = "caliber.server:create_app"
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+# Include the built SPA bundle (caliber-ui/dist -> src/caliber/ui) in source
+# distributions even though the staged files are gitignored in a normal checkout.
+artifacts = ["src/caliber/ui/**"]
+exclude = [
+    "/.venv/**",
+    "/.venv-security-audit/**",
+    "/.venv-security-audit-safe/**",
+    "/.venv-security-audit-extended/**",
+    "/.mypy_cache/**",
+    "/.pytest_cache/**",
+    "/.ruff_cache/**",
+    "/.tmp/**",
+    "/.tmp-pip-audit.*",
+    "/build/**",
+    "/dist/**",
+    "/caliber.db*",
+    "/coverage.xml",
+    "/mlflow.db*",
+    "/caliber-ui/node_modules/**",
+    "/caliber-ui/dist/**",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/caliber"]
+# Include the built SPA bundle (caliber-ui/dist → src/caliber/ui) in the
+# wheel even though it's .gitignored. CI populates it via
+# `npm run build && cp -R caliber-ui/dist src/caliber/ui` before the
+# Python build. For `pip install -e .` against a fresh checkout the
+# directory may be absent; the static route degrades to an operator-
+# facing 503 with instructions to start the SPA dev server.
+
+# ---------------------------------------------------------------------------
+# Ruff — single tool for lint + format (replaces black + isort + flake8).
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = [
+    "src/caliber/db/migrations/versions",   # auto-generated; we don't lint these
+    "tests/golden",                          # compiler golden output samples; not hand-written
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "N",      # pep8-naming
+    "S",      # bandit — security
+    "T20",    # flake8-print (no stray prints in production)
+    "SIM",    # flake8-simplify
+    "RET",    # flake8-return
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "ERA",    # eradicate (no commented-out code)
+    "PL",     # pylint subset
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line-length handled by formatter
+    "PLR0913",  # too many arguments — common in route handlers
+    "S101",   # assert allowed (we use it in tests)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests prioritize readability over a handful of style rules that are idiomatic
+# in test code: function-local imports (isolation), lambdas/lambda-assigns in
+# fixtures, broad ``pytest.raises(Exception)``, nested ``with`` for stacked
+# mocks, tuple-unpack throwaways, etc. Production rules stay fully enforced.
+"tests/**" = [
+    "S",        # bandit — test data/subprocess are trusted
+    "PLR2004",  # magic numbers in assertions
+    "ARG",      # unused fixture/callback args
+    "PLC0415",  # imports inside test functions
+    "E402",     # module-level imports after test setup
+    "E731",     # lambda assignment in fixtures
+    "B017",     # pytest.raises(Exception)
+    "B905",     # zip() without strict= in test data
+    "B007",     # unused loop var
+    "B904",     # raise-from in test helpers
+    "PLW0108",  # lambdas in test data/fixtures
+    "SIM117",   # nested with (stacked patch context managers)
+    "SIM401",   # dict .get() rewrite
+    "RET504",   # assign-then-return for readability
+    "RUF002",   # ambiguous unicode in docstrings
+    "RUF012",   # mutable class attrs in test fakes
+    "RUF043",   # pytest.raises match string
+    "RUF059",   # unused unpacked assignment
+    "F841",     # unused locals captured for clarity
+    "ERA001",   # commented-out example payloads
+]
+# The local storage backend does deliberate low-level filesystem work
+# (os.open O_NOFOLLOW, fsync, atomic os.replace) that pathlib does not model,
+# implements a Protocol whose signatures carry params it doesn't all use, and
+# builds temp files under its own realpath-guarded root (not /tmp).
+"src/caliber/storage/local.py" = ["PTH", "ARG", "S108"]
+# The s3 backend implements the StorageBackend Protocol; some signature params
+# (recursive, hard) don't apply to S3's prefix-listing / single delete model.
+"src/caliber/storage/s3.py" = ["ARG"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ---------------------------------------------------------------------------
+# Mypy — strict type checking on src/, lenient on tests/ and migrations.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_reexport = true
+disallow_any_generics = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# Third-party libraries without type stubs.
+[[tool.mypy.overrides]]
+module = ["mlflow.*", "alembic.*"]
+ignore_missing_imports = true
+
+# ``agents`` (openai-agents) is an optional dependency under the ``[llm]`` extra.
+# The production provider lazy-imports it; CI runs without the extra installed.
+[[tool.mypy.overrides]]
+module = ["agents", "agents.*"]
+ignore_missing_imports = true
+
+# ``dspy`` ships in the ``[llm]`` extra. The DSPy optimizer bridge imports it
+# eagerly and it ships no type stubs; CI core runs without the extra installed.
+[[tool.mypy.overrides]]
+module = ["dspy", "dspy.*"]
+ignore_missing_imports = true
+
+# ``mem0`` ships in the ``[memory]`` extra. The memory service lazy-imports it
+# and it ships no type stubs; CI core runs without the extra installed.
+[[tool.mypy.overrides]]
+module = ["mem0", "mem0.*"]
+ignore_missing_imports = true
+
+# ``boto3``/``botocore`` are optional (``[s3]`` extra); the s3 backend lazy-imports
+# them and ships no stubs, so the core/local-backend type-check stays clean.
+[[tool.mypy.overrides]]
+module = ["boto3", "boto3.*", "botocore", "botocore.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["psycopg", "psycopg.*"]
+ignore_missing_imports = true
+
+# ``jsonschema`` validates service invocation payloads against the derived
+# input schema; it ships no type stubs in the core install.
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "caliber.db.migrations.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "-p",
+    "caliber._pytest_cov_plugin",
+    "--cov=caliber",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+]
+filterwarnings = [
+    "error",
+    # MLflow emits a mix of FutureWarning (API moves into mlflow.genai),
+    # DeprecationWarning (from its own deps), and UserWarning (from its
+    # schema-inference utilities) on import. None of these are CALIBER
+    # bugs and they get noisy fast — silence everything from the mlflow
+    # namespace.
+    "ignore::DeprecationWarning:mlflow.*",
+    "ignore::FutureWarning:mlflow.*",
+    "ignore::UserWarning:mlflow.*",
+    "ignore::DeprecationWarning:sqlalchemy.*",
+    # dspy (``[llm]`` extra, eager-imported by the optimizer bridge) emits
+    # DeprecationWarnings from its own internal signatures/fields on import.
+    # Not CALIBER bugs — silence the dspy namespace like we do for mlflow.
+    "ignore::DeprecationWarning:dspy.*",
+    "ignore::UserWarning:dspy.*",
+]
+markers = [
+    "integration: integration tests requiring an MLflow server (deselect with -m 'not integration')",
+    "slow: tests that take >1s",
+]
+
+[tool.coverage.run]
+source = ["caliber"]
+branch = true
+omit = [
+    "src/caliber/db/migrations/*",
+    "src/caliber/__main__.py",
+    "src/caliber/mcp_servers/db/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+fail_under = 80

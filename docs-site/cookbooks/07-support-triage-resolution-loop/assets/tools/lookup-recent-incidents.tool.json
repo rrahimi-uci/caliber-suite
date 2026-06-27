@@ -1,0 +1,26 @@
+{
+  "name": "lookup_recent_incidents",
+  "version": "1",
+  "module_path": "caliber.workflows.demo_tools",
+  "callable_name": "search_knowledge_base",
+  "side_effect_level": "read",
+  "allow_in_preview": true,
+  "input_schema": {
+    "type": "object",
+    "required": ["query"],
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Free-text query describing the reported symptom, used to find recent incidents / known issues, e.g. \"workflow run stuck\" or \"export 500 error\"."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string"},
+      "articles": {"type": "array", "items": {"type": "string"}}
+    }
+  },
+  "notes": "Read-only known-issue / incident lookup. Maps to demo_tools:search_knowledge_base, which returns {query, articles}. Runs LIVE in the sandbox. Wire it as the incident_lookup node feeding the reply node's {{ incidents }} block; an articles hit on a bug report supports an escalate_bug decision. (A python_code stub is the documented alternative if you want a richer, bespoke incident shape.)"
+}

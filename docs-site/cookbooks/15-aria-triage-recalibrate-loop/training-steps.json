@@ -1,0 +1,207 @@
+{
+  "steps": [
+    {
+      "where": "Compose › Workflows (prerequisite)",
+      "do": "<strong>Prerequisite — this loop remediates things that already exist.</strong> Before starting, build and run the <strong>Support Triage Copilot</strong> from cookbook 07 so you have a real workflow with recent runs. You will need three real ids from it: a few <em>flagged trace ids</em>, the <em>workflow_id</em>, and an <em>agent_id</em> bound in that workflow. Aria does not create the subject workflow or its traces.",
+      "see": "An existing workflow (from SCN-07) listed under <strong>Workflows</strong>, with recent runs you can open."
+    },
+    {
+      "where": "Observe › Observability",
+      "do": "Collect the <strong>flagged trace ids</strong> you will enqueue. In the sidebar, under <strong>Observe</strong>, click <strong>Observability</strong>, stay on the <strong>Traces</strong> tab, and set the <strong>Filter by status</strong> dropdown to <strong>Error</strong> to surface the weak runs. Click each weak trace to open it on the right — its full <code>trace_id</code> appears in the page URL (<code>?trace=…</code>) and you can also paste an id into the <em>Search traces</em> box to confirm it. Note 2-3 trace ids — you will paste them later.",
+      "fill": [
+        [
+          "Filter by status",
+          "<code>Error</code> <span style=\"color:#888\">(the option values are All statuses / OK / Error / In progress)</span>"
+        ],
+        [
+          "What to copy",
+          "2-3 <code>trace_id</code> values from the weak runs (from the URL after selecting each trace)"
+        ]
+      ],
+      "see": "A filtered list of trace rows (each showing the trace <em>name</em> + an <em>ERROR</em> status badge). Selecting a row opens its detail and puts the full <code>trace_id</code> in the URL — keep those ids handy for the enqueue step."
+    },
+    {
+      "where": "Compose › Plans › New goal",
+      "do": "In the sidebar, under <strong>Compose</strong>, click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).",
+      "fill": [
+        [
+          "Goal",
+          "Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration. <span style=\"color:#888\">(canonical intent — copy from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md\">intent.md</a>)</span>"
+        ],
+        [
+          "Autonomy",
+          "Stop before each change <span style=\"color:#888\">(= ask_each)</span>"
+        ]
+      ],
+      "click": "Decompose goal",
+      "see": "The button shows <em>Decomposing…</em>, then Aria opens the plan's detail page. Breadcrumb <code>Plans › PLAN-…</code>, status badge <strong>DRAFT</strong>.",
+      "asset": "Aria plan (draft)"
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (draft)",
+      "do": "Confirm Aria decomposed the sentence into the three remediation steps. Note the third step, <code>workflow.calibrate</code>, is Aria's first <strong>async</strong> capability. Compare against <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/expected-plan.json\">expected-plan.json</a>.",
+      "fill": [
+        [
+          "Step 1",
+          "<code>review_queue.create</code> — tier mutate"
+        ],
+        [
+          "Step 2",
+          "<code>review_queue.add_items</code> — tier mutate (needs EXISTING trace ids)"
+        ],
+        [
+          "Step 3",
+          "<code>workflow.calibrate</code> — tier mutate, ASYNC (needs EXISTING workflow_id + agent_id)"
+        ]
+      ],
+      "see": "A three-row <strong>Plan steps</strong> list (<code>review_queue.create</code>, <code>review_queue.add_items</code>, <code>workflow.calibrate</code>), each with a <em>PENDING</em> badge.",
+      "assetlink": [
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/expected-plan.json",
+          "label": "expected-plan.json"
+        }
+      ]
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (draft)",
+      "do": "Approve the plan shape. Click <strong>Approve plan</strong> in the top-right of the plan header.",
+      "click": "Approve plan",
+      "see": "The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears."
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (approved)",
+      "do": "Start running the plan. Click <strong>Execute</strong>. Aria pauses at the first step. <strong>Honesty note:</strong> Aria <em>plans</em> these steps, but the shipped planner leaves their inputs empty and the approval prompt only carries yes/no. If you <strong>Approve</strong> a step it runs with empty inputs and <em>fails validation</em> (e.g. <code>workflow.calibrate</code> requires <code>workflow_id</code> + <code>agent_id</code>), which fails the whole plan. So you will <strong>Deny</strong> each prompt — that skips the step and keeps the plan healthy — and <em>drive each step yourself</em> via its own UI page using the spec files (with the real ids you collected).",
+      "click": "Execute",
+      "see": "A violet <strong>Aria needs your approval</strong> prompt for <code>review_queue.create</code> with <strong>Approve</strong> / <strong>Deny</strong> buttons; plan status <strong>RUNNING</strong>."
+    },
+    {
+      "where": "Compose › Plans › PLAN-… (running)",
+      "do": "Walk the three prompts in order, clicking <strong>Deny</strong> on each as it appears (<code>review_queue.create</code>, then <code>review_queue.add_items</code>, then <code>workflow.calibrate</code>). Denying marks each step <strong>SKIPPED</strong> so the plan completes cleanly as the orchestration record; you perform the real work (create the queue, enqueue traces, start the calibration) on the dedicated pages in the next steps. The genuine <em>async</em> behavior you will see is on the workflow's <strong>Calibration runs</strong> list — not on a parked plan step.",
+      "fill": [
+        [
+          "review_queue.create",
+          "click <strong>Deny</strong> (build it yourself in Review Queues)"
+        ],
+        [
+          "review_queue.add_items",
+          "click <strong>Deny</strong> (enqueue yourself in the queue page)"
+        ],
+        [
+          "workflow.calibrate",
+          "click <strong>Deny</strong> (start it yourself in the Workflow Calibrate panel)"
+        ]
+      ],
+      "see": "Each denied step gets a <strong>SKIPPED</strong> badge; after the third the plan reaches <strong>COMPLETED</strong> with all three steps skipped. Now build the real artifacts.",
+      "asset": "Aria plan (completed, steps skipped — orchestration record)"
+    },
+    {
+      "where": "Observe › Review Queues › New review queue",
+      "do": "Build the triage queue. In the sidebar, under <strong>Observe</strong>, click <strong>Review Queues</strong>, then <strong>+ New Queue</strong>. Fill from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/review-queues/triage-review.queue.json\">triage-review.queue.json</a>. Click <strong>+ Add question</strong> until you have four rows. Note two special types: <code>failure_mode</code> is <em>categorical</em> (fill its options) and <code>expected_answer</code> uses target <strong>expectation</strong> (its answer becomes ground truth on the trace).",
+      "fill": [
+        [
+          "Name",
+          "weak-runs-triage"
+        ],
+        [
+          "Reviewers (comma-separated)",
+          "<span style=\"color:#888\">leave blank</span>"
+        ],
+        [
+          "Description",
+          "Human triage of weak workflow runs: was the resolution correct, what failed, how severe, and what the answer should have been."
+        ],
+        [
+          "Question 1 — key / title / type / target",
+          "<code>resolution_correct</code> / Did the workflow reach the correct resolution? / <code>pass_fail</code> / <code>feedback</code>"
+        ],
+        [
+          "Question 2 — key / title / type / target / options",
+          "<code>failure_mode</code> / Primary failure mode / <code>categorical</code> / <code>feedback</code> / options: <code>wrong_tool, missing_evidence, hallucinated_claim, bad_escalation, none</code>"
+        ],
+        [
+          "Question 3 — key / title / type / target",
+          "<code>severity</code> / Severity (1-5) / <code>numeric</code> / <code>feedback</code>"
+        ],
+        [
+          "Question 4 — key / title / type / target",
+          "<code>expected_answer</code> / What should the answer have been? (becomes the expectation) / <code>text</code> / <code>expectation</code>"
+        ]
+      ],
+      "click": "Create queue",
+      "see": "The panel closes and <strong>weak-runs-triage</strong> appears in the Review Queues table with <strong>4</strong> questions and <em>no items</em> yet.",
+      "asset": "Review queue: weak-runs-triage",
+      "assetlink": [
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/review-queues/triage-review.queue.json",
+          "label": "triage-review.queue.json"
+        }
+      ]
+    },
+    {
+      "where": "Observe › Review Queues › weak-runs-triage",
+      "do": "Enqueue the real flagged traces (the <code>review_queue.add_items</code> step). Open <strong>weak-runs-triage</strong>, then paste the <strong>real</strong> trace ids you noted from Observability into the <strong>Add traces to review</strong> box (comma- or space-separated) and click <strong>Enqueue</strong>. Replace the placeholders in <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/enqueue.json\">enqueue.json</a> with those real ids.",
+      "fill": [
+        [
+          "Add traces to review (ids, comma or space separated)",
+          "<code>tr-… tr-… tr-…</code> <span style=\"color:#888\">(the REAL flagged trace ids from Observability — not placeholders)</span>"
+        ]
+      ],
+      "click": "Enqueue",
+      "see": "The <em>Items (N)</em> list fills with the enqueued traces, each showing a <strong>PENDING</strong> status, and the first trace opens in the review form on the right.",
+      "asset": "Flagged traces enqueued for triage",
+      "assetlink": [
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/enqueue.json",
+          "label": "enqueue.json"
+        }
+      ]
+    },
+    {
+      "where": "Compose › Workflows › (SCN-07 workflow) › Calibrate",
+      "do": "Kick off the real workflow calibration (the <code>workflow.calibrate</code> step). Open <strong>Workflows</strong>, click into your SCN-07 workflow, and click the <strong>Calibrate</strong> button (top-right of the header) to reveal the calibration panel. In the panel, pick the bound <strong>Agent</strong> (this is the <code>agent_id</code>), leave <strong>Objective</strong> on <em>quality</em>, leave <strong>Epsilon</strong> and <strong>Candidates</strong> on their defaults, then click <strong>Start Calibration</strong>. <strong>Note:</strong> the button stays disabled until a deploy-gate eval dataset is available for the workflow — the panel shows that availability status, so make sure SCN-07 has its gate dataset attached. Use the real workflow + agent from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/calibrate.json\">calibrate.json</a>.",
+      "fill": [
+        [
+          "Agent",
+          "<span style=\"color:#888\">the agent bound in this workflow (the real</span> <code>agent_id</code><span style=\"color:#888\">)</span>"
+        ],
+        [
+          "Objective",
+          "<code>quality</code>"
+        ],
+        [
+          "Epsilon / Candidates",
+          "<span style=\"color:#888\">leave the defaults (0.02 / 3)</span>"
+        ]
+      ],
+      "click": "Start Calibration",
+      "see": "The button shows <em>Starting...</em>, then a new entry appears under <strong>Calibration runs</strong> (just below the panel) with a <em>queued</em>/<em>running</em> status — this is the real async refinement job, the live counterpart of the <code>workflow.calibrate</code> step Aria planned.",
+      "asset": "Workflow calibration job (async)",
+      "assetlink": [
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/calibrate.json",
+          "label": "calibrate.json"
+        }
+      ]
+    },
+    {
+      "where": "Compose › Workflows › (SCN-07 workflow) › Calibration runs",
+      "do": "Let the async job run. This is the genuinely asynchronous part of the loop. Stay on the workflow page and use your browser <strong>Refresh</strong> (the <strong>Calibration runs</strong> list re-fetches) every minute or so to watch the run advance from <em>queued</em> → <em>running</em> → <em>completed</em>. The refinement worker scores the candidate(s) against the workflow's gate dataset behind the scenes.",
+      "see": "The <strong>Calibration runs</strong> entry you started ticks from <em>queued</em>/<em>running</em> to a terminal status; on completion it shows the run's eval summary (e.g. pass-rate / score) inline."
+    },
+    {
+      "where": "Compose › Workflows › (SCN-07 workflow) › Calibration runs",
+      "do": "Confirm the loop closed. When the calibration job reaches <em>completed</em>, the workflow has been recalibrated against its gate dataset and the run's results are visible inline. (The Aria plan itself is already <strong>COMPLETED</strong> with its three steps <em>SKIPPED</em> — it is the orchestration record; the real async work lived in this Calibration runs list, not on a parked plan step.)",
+      "see": "A <em>completed</em> calibration run under <strong>Calibration runs</strong>, plus the Aria plan showing <strong>COMPLETED</strong> (three steps skipped) as the record of what was orchestrated."
+    },
+    {
+      "where": "Observe › Review Queues / Compose › Workflows",
+      "do": "Final verification across surfaces. <strong>Review Queues › weak-runs-triage</strong> shows the flagged traces enqueued and ready to review. <strong>Workflows › (your workflow) › Calibration runs</strong> shows the calibration job <em>completed</em>. The Aria plan (under <strong>Plans</strong>, status <strong>COMPLETED</strong> with skipped steps) stands as the orchestration record for the whole triage → remediation loop.",
+      "see": "A populated <code>weak-runs-triage</code> queue, a completed calibration run on the workflow, and a completed Aria plan (steps skipped) — the governance → remediation loop end to end."
+    },
+    {
+      "where": "Observe › Review Queues › weak-runs-triage (follow-up)",
+      "do": "<strong>(Optional follow-up)</strong> Have reviewers answer the queue's questions — the <strong>expectation</strong>-targeted <code>expected_answer</code> writes ground truth back onto each trace. Then compare the recalibrated workflow against its baseline runs and feed the hard cases into its eval dataset (see SCN-01 / SCN-10) to keep tightening the loop.",
+      "see": "Submitted reviews write assessments + expectations back onto the traces, giving you ground-truth labels to compare the recalibrated workflow against its baseline."
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - ExplanationFaithfulness is a real LLM judge; deterministic_decision_preserved / approval_required_for_high_risk are enforced by the python_code node + the human_approval gate, not by a judge.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  judges:
+    - name: ExplanationFaithfulness
+      type: custom_judge
+      criteria: explanation must match deterministic decision
+  rule_checks:
+    - deterministic_decision_preserved
+    - approval_required_for_high_risk
+quality_gates:
+  tool_fixture_pass_rate_min: 0.97
+  decision_mismatch_rate: 0.0
+  explanation_faithfulness_min: 0.92
+monitoring:
+  traces:
+    - tool_lookup
+    - deterministic_decision
+    - approval_gate
+    - explanation_node
+  metrics:
+    - approve_rate
+    - deny_rate
+    - manual_review_rate
+feedback_loop:
+  - convert reviewed failures into new deterministic fixtures.
+  - recalibrate explanation only after deterministic lane is green.

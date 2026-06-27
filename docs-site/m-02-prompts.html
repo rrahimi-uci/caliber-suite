@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prompts Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Prompts Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Authoring</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Prompts</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Authoring · Architecture reference</div>
+          <h1 id="top">Prompts Architecture</h1>
+          <p class="doc-summary">MLflow Prompt Registry authoring, render/test history, hidden runtime targets, and queued optimizer-backed calibration.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Prompts as a composition-layer control plane</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>CALIBER's prompt control plane for authoring, versioning, testing, and calibrating prompts.</td></tr><tr><td><strong>Where state lives</strong></td><td>No <code>caliber_prompts</code> table; content in the MLflow Prompt Registry, workspace/test metadata in CALIBER carriers.</td></tr><tr><td><strong>Key surfaces</strong></td><td><code>caliber/src/caliber/routes/prompts.py</code>, <code>Prompts.tsx</code>, and <code>PromptBuilder.tsx</code>, mounted under <code>/ajax-api/2.0/mlflow/caliber</code>.</td></tr><tr><td><strong>Runtime model</strong></td><td>One route entry point fans out to MLflow, <code>prompt_template_library.py</code>, <code>prompt_targets.py</code>, the DB, and the shared refinement pipeline.</td></tr><tr><td><strong>Runtime identity</strong></td><td>A hidden <code>CaliberAgentConfig</code> prompt target keyed on prompt name gives each prompt an <code>agent_id</code>.</td></tr><tr><td><strong>Trust / safety</strong></td><td>Mutations need <code>operator</code> scope; template-preview and test-render are read-only, non-executing transformations.</td></tr><tr><td><strong>Calibration</strong></td><td>Optimization and calibration enqueue <code>CaliberVerificationItem</code> and <code>CaliberRefinementJob</code> into the shared pipeline.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the detail behind each dimension.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The prompts module is CALIBER's prompt control plane: the single operator-facing surface through which prompts are authored, versioned, tested, and calibrated. What distinguishes it from the other asset modules is that it owns no canonical storage of its own. There is no standalone <code>caliber_prompts</code> table; instead, the module composes three distinct sources of truth into one coherent surface:</p>
+<ul><li>the MLflow Prompt Registry, which stores prompt versions and aliases and acts as the canonical artifact backend;</li><li>CALIBER runtime target rows, which give each prompt a durable runtime identity so it can be tested and calibrated like any other asset;</li><li>CALIBER-owned history rows, which capture prompt test runs and drive refinement orchestration.</li></ul>
+<p>Working from those sources, the module carries the following responsibilities. It lists, creates, inspects, versions, aliases, and deletes prompts through MLflow. It surfaces prompt-builder templates and renders template previews. It provides prompt test-render along with durable prompt test-run history. It enqueues prompt optimization and calibration work into the generic refinement pipeline shared across the product. Finally, it exposes workspace state such as the bind target, the baseline run, the dataset binding, and the derived lifecycle status.</p>
+<p>These responsibilities are realized across a small set of primary code paths:</p>
+<ul><li><code>caliber/src/caliber/routes/prompts.py</code></li><li><code>caliber/src/caliber/prompt_template_library.py</code></li><li><code>caliber/src/caliber/prompt_targets.py</code></li><li><code>caliber/caliber-ui/src/pages/Prompts.tsx</code></li><li><code>caliber/caliber-ui/src/components/PromptBuilder.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because the module is a composition layer, its boundaries are best understood as a map of which subsystem owns which concern. The table below assigns each responsibility to its owner and explains the rationale.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Prompt version and alias storage</td><td>MLflow Prompt Registry</td><td>CALIBER writes directly to MLflow so prompts remain visible from both systems.</td></tr><tr><td>Prompt runtime identity</td><td>Hidden <code>CaliberAgentConfig</code> prompt target</td><td>Needed because downstream refinement/test machinery is keyed by <code>agent_id</code>.</td></tr><tr><td>Prompt template catalog</td><td><code>prompt_template_library.py</code></td><td>Pure CALIBER module powering builder templates and previews.</td></tr><tr><td>Test-run history</td><td><code>CaliberPromptTestRun</code></td><td>Durable CALIBER-owned run history for the Prompts page.</td></tr><tr><td>Calibration queueing</td><td><code>CaliberRefinementJob</code>, <code>CaliberVerificationItem</code></td><td>Shared refinement pipeline used by prompts, skills, and workflows.</td></tr><tr><td>Workflow prompt visibility</td><td><code>routes/prompts.py</code> extraction helpers</td><td>Workflow-agent prompts are surfaced into the same prompt inventory.</td></tr></tbody></table></div>
+<p>These assignments make the module deliberately hybrid, and that hybrid character follows a consistent rule. Authoritative prompt content lives in MLflow, while authoritative prompt workspace and testing metadata lives in CALIBER, and the list and detail responses compose both into a single API surface. The remainder of this document follows from that division.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>At runtime the module fans a single API entry point out to the several backends it coordinates. The diagram below shows how a request flows from the user interface through the route module to each downstream system.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI[Prompts page and PromptBuilder]:::ui
+    API[routes/prompts.py]:::ctrl
+    ML[MLflow Prompt Registry]:::ext
+    PL[prompt_template_library.py]:::ctrl
+    PT[prompt_targets.py]:::ctrl
+    DB[(CALIBER DB)]:::store
+    RJ[Refinement jobs and verification items]:::async
+    WF[Workflow prompt extraction]:::ctrl
+
+    UI --&gt; API
+    API --&gt; ML
+    API --&gt; PL
+    API --&gt; PT
+    API --&gt; DB
+    API --&gt; RJ
+    API --&gt; WF</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties make this more than a thin proxy. Prompt listing is not a trivial database query: <code>list_prompts()</code> merges alias-backed MLflow prompts, prompt-target-backed agent prompts, and workflow-agent prompt references extracted from workflow manifests into one inventory. Prompt authoring writes through MLflow rather than through CALIBER rows, keeping the registry canonical. Test-run persistence and workspace metadata remain CALIBER concerns, since they have no natural home in the registry. And although prompt optimization options and runs are exposed as prompt-specific APIs, they are implemented by queueing the shared refinement pipeline rather than a bespoke engine.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The defining design decision of this module is what it does not store: it intentionally avoids a dedicated prompt row. Prompt state is therefore spread across the registry and a handful of CALIBER carriers, each chosen for a specific purpose.</p>
+<div class="table-wrap"><table><thead><tr><th>State</th><th>Storage</th><th>Purpose</th></tr></thead><tbody><tr><td>Prompt versions, aliases, template text</td><td>MLflow Prompt Registry</td><td>Canonical prompt artifact store and deploy target.</td></tr><tr><td>Hidden runtime identity</td><td><code>CaliberAgentConfig</code> keyed by prompt name</td><td>Gives prompt tests, traces, jobs, and baselines an <code>agent_id</code>.</td></tr><tr><td>Prompt test history</td><td><code>CaliberPromptTestRun</code></td><td>Durable per-run results, score, trace ID, and MLflow run linkage.</td></tr><tr><td>Optimization/calibration queue</td><td><code>CaliberVerificationItem</code>, <code>CaliberRefinementJob</code></td><td>Feeds prompt work into the same background refinement engine used elsewhere.</td></tr><tr><td>Workspace status</td><td><code>optimizer_config</code> on hidden prompt target</td><td>Stores model pin, dataset binding, bind target, and baseline run ID.</td></tr></tbody></table></div>
+<p>This layout has three consequences worth making explicit. Deleting a prompt means deleting it from MLflow, not removing a CALIBER row, because no such row exists. Lifecycle state such as <code>Draft</code>, <code>Tested</code>, <code>Calibrated</code>, or <code>Bound</code> is derived from target, test, and job state rather than stored directly as a single status column. And a prompt can participate in CALIBER workflows without ever being represented as a standalone SQLAlchemy model.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>All HTTP routes in this module are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix below. The public surface in <code>routes/prompts.py</code> is broad because it unifies registry CRUD, template-builder helpers, testing, and calibration behind one router. The endpoints group naturally into four areas.</p>
+<p>The first area covers core inventory and versioning, backed by the registry:</p>
+<ul><li><code>GET /prompts</code></li><li><code>POST /prompts</code></li><li><code>GET /prompts/{name}</code></li><li><code>DELETE /prompts/{name}</code></li><li><code>POST /prompts/{name}/versions</code></li><li><code>GET /prompts/{name}/versions</code></li><li><code>GET /prompts/{name}/versions/{version}</code></li><li><code>POST /prompts/{name}/aliases/{alias}</code></li></ul>
+<p>The second area serves the builder and preview experience, transforming templates without executing them:</p>
+<ul><li><code>POST /prompts/{agent_id}/test-render</code></li><li><code>GET /prompts/template-library</code></li><li><code>POST /prompts/template-library/preview</code></li></ul>
+<p>The third area enqueues optimization and calibration into the shared pipeline:</p>
+<ul><li><code>GET /prompts/optimization/options</code></li><li><code>POST /prompts/optimization/runs</code></li><li><code>GET /prompts/calibration/options</code></li><li><code>POST /prompts/calibration/runs</code></li></ul>
+<p>The fourth area manages workspace state and durable test history:</p>
+<ul><li><code>POST /prompts/test-runs</code></li><li><code>GET /prompts/test-runs</code></li><li><code>GET /prompts/test-runs/{test_run_id}</code></li><li><code>GET /prompts/{name}/workspace</code></li><li><code>POST /prompts/{name}/bind</code></li><li><code>POST /prompts/{name}/baseline</code></li></ul>
+<p>The frontend reaches these endpoints through two entry points:</p>
+<ul><li><code>caliber/caliber-ui/src/pages/Prompts.tsx</code></li><li><code>caliber/caliber-ui/src/components/PromptBuilder.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The endpoints above come together in three recurring flows: authoring a prompt, testing it, and calibrating it. The sequence diagram traces each in turn.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as User
+    participant UI as Prompts UI
+    participant API as routes/prompts.py
+    participant ML as MLflow Prompt Registry
+    participant DB as CALIBER DB
+    participant Q as Refinement pipeline
+
+    U-&gt;&gt;UI: Create or edit prompt
+    UI-&gt;&gt;API: POST /prompts or /prompts/{name}/versions
+    API-&gt;&gt;ML: Register prompt/version
+    API--&gt;&gt;UI: Return merged prompt metadata
+
+    U-&gt;&gt;UI: Run prompt tests
+    UI-&gt;&gt;API: POST /prompts/test-runs
+    API-&gt;&gt;DB: Persist CaliberPromptTestRun
+    API--&gt;&gt;UI: Return durable test-run detail
+
+    U-&gt;&gt;UI: Start optimization/calibration
+    UI-&gt;&gt;API: POST /prompts/optimization/runs
+    API-&gt;&gt;DB: Ensure hidden prompt target
+    API-&gt;&gt;DB: Insert verification item and refinement job
+    API--&gt;&gt;UI: Return queued job metadata
+    Q-&gt;&gt;DB: Process refinement stages
+    Q-&gt;&gt;ML: Read and eventually update prompt alias/version</pre></div>
+<p>A few lifecycle rules govern how these flows behave. The module in <code>prompt_targets.py</code> auto-provisions a hidden runtime identity keyed on the prompt name, so a prompt can be tested and calibrated without the operator ever managing an explicit agent row. Test-run history is durable and CALIBER-owned, but replay is effectively a frontend re-run that inserts a fresh row rather than a server-side replay API. Bind and baseline are workspace metadata operations on the hidden prompt target, not registry mutations. And workflow-node binding is currently best-effort metadata only: the route records the intent to bind but does not yet fully rewrite workflow manifests in place.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because the module spans a registry and CALIBER-owned state, its controls are split across both. The enforced controls are as follows. Mutating endpoints require <code>operator</code> scope or higher. Prompt target creation inherits project scoping through the active identity. Prompt aliases are constrained by the CALIBER-side allowed alias set. And optional scorer support is capability-gated at runtime rather than assumed to be present.</p>
+<p>Three design choices reinforce these boundaries. Prompt content is not stored redundantly in CALIBER tables, so there is a single canonical copy in MLflow. Workspace metadata and lifecycle state stay in CALIBER's database rather than being smuggled into MLflow custom tags or prompt metadata blobs. And the template-preview and test-render endpoints are read-only transformations, not execution paths, which keeps the authoring surface free of code execution.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module emits both artifact metadata and runtime quality signals, which gives operators visibility into prompt health. Its operational characteristics include the following. Prompt test runs persist <code>trace_id</code> and <code>mlflow_run_id</code> when those values are available. The route module caches prompt lookups to reduce repeated MLflow registry calls during list and detail surfaces. Scorer capability construction checks the runtime availability of optional packages such as <code>deepeval</code> before offering them. And single-environment mode is encoded directly in prompt alias discovery and write policy, where <code>_PROMPT_DISCOVERY_ALIASES</code> currently defaults to <code>("prod",)</code>.</p>
+<p>Taken together, these mechanisms expose a layered view of each prompt:</p>
+<ul><li>template previews and builder defaults;</li><li>prompt version inventory;</li><li>historical test-run scores;</li><li>calibration queue entry points;</li><li>lifecycle and baseline workspace state.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is designed to grow along a few clear seams, and it carries a known set of constraints that follow directly from its composition-layer design.</p>
+<p>The primary extension points are the following. The prompt template catalog can be expanded in <code>prompt_template_library.py</code>. New scorer providers or scorer capabilities can be added in <code>routes/prompts.py</code>. The alias model can be widened beyond single-environment mode. And workflow prompt binding can be advanced from metadata-only recording to full manifest rewrite flows.</p>
+<p>The current constraints are the corollaries of those same choices. There is no standalone <code>CaliberPrompt</code> table. Prompt binding to workflow nodes is not yet a full graph rewrite path. Prompt test replay is not a dedicated server operation. Prompt inventory depends on the MLflow APIs being available and readable. And lifecycle state is derived from multiple sources rather than stored as one canonical prompt status.</p>
+<p>The throughline of all of this is that the module is intentionally a composition layer. It presents prompts as a first-class CALIBER surface while allowing MLflow to remain the canonical prompt artifact backend.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,25 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - SelectionPrecision is a DETERMINISTIC scorer (POST /skills/{id}/test-selection, no LLM), not an LLM judge.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  deterministic_checks:
+    - name: SelectionPrecision
+      type: deterministic_scorer  # skill selection scorer, not an LLM judge
+      criteria: expected vs actual trigger decisions
+  rule_checks:
+    - no_false_positive_on_engineering_queries
+    - package_round_trip_equivalence
+quality_gates:
+  trigger_accuracy_min: 0.95
+  package_round_trip_success: 1.0
+monitoring:
+  traces:
+    - skill_test_render
+    - skill_test_selection
+  metrics:
+    - false_positive_count
+    - false_negative_count
+feedback_loop:
+  - add every reviewed trigger miss into test-data.
+  - recalibrate after metadata or content edits.

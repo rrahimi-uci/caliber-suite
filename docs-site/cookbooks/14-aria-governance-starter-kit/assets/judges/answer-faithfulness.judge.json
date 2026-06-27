@@ -1,0 +1,8 @@
+{
+  "name": "AnswerFaithfulness",
+  "model": "set to your configured judge model (e.g. the gateway default)",
+  "feedback_value_type": "bool",
+  "instructions": "You audit whether an assistant answer is faithful to its evidence. You are given the request {{ inputs }}, the model {{ outputs }}, and the reference {{ expectations }}.\n\nReturn true ONLY if every factual claim in {{ outputs }} is supported by {{ expectations }} (or by evidence cited in {{ inputs }}), and the answer makes no unsupported commitments. If any claim is unsupported, contradicted, or hallucinated, return false. Judge faithfulness only — not style.",
+  "tags": ["aria-created", "faithfulness", "governance"],
+  "notes": "This IS the judge.create payload — POST it to /judges (a POST /judges body). Aria's plan proposes the judge.create step, but the shipped interaction answer can't carry the payload (only {approved,choice,value}), so create the judge via its route; an LLM planner would fill step inputs for full autonomy (see ARIA-AUTONOMY.md). Instructions reference {{ inputs }}/{{ outputs }}/{{ expectations }} — at least one template variable is required. Same faithfulness judge as SCN-12; here it's one piece of a larger governance kit."
+}

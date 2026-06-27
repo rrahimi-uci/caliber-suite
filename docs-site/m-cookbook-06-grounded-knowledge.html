@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 06: Grounded Knowledge Assistant | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">06 · Grounded Knowledge Assistant</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 06 · Build</p>
+        <h1>Grounded Knowledge Assistant</h1>
+        <p class="doc-lead">Cited answers, honest abstention on missing/conflicting evidence, and a measured retrieval lift.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Build</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">40–60 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A retrieval assistant over a small policy corpus that cites its sources, abstains when evidence is missing, surfaces conflicts, and routes low-confidence answers to human review.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Knowledge Base</span> <span class="ck-badge ck-surface">Prompts</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Evaluations</span> <span class="ck-badge ck-surface">Review Queues</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Build a KB version from an Object Store corpus</li><li>Compare dense / hybrid / graph_hybrid retrieval in Explore</li><li>Run inline KB calibration (Recall@k, nDCG@k, Faithfulness)</li><li>Wire a knowledge_query → answer → router workflow</li><li>Route low-confidence runs to a Review Queue</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  C[(Corpus: policy docs)] --&gt; KB[KB build → version]
+  KB --&gt; EXP[Explore: dense/hybrid/graph]
+  KB --&gt; CAL[Calibrate: Recall@k…]
+  KB --&gt; KQ[knowledge_query] --&gt; ANS[Agent: cite or abstain]
+  ANS --&gt; RT{router}
+  RT --&gt;|low confidence| RV[(Review Queue)]
+  ANS --&gt; JF[Judge: CitationFaithfulness]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Object Store › Bucket browser</code> <span class="ck-made">creates · bucket: policy-corpus (4 docs)</span> <a class="ck-assetref" href="#asset-assets-dataset-sources-refund-policy-md">refund-policy.md ↓</a> <a class="ck-assetref" href="#asset-assets-dataset-sources-refund-faq-md">refund-faq.md ↓</a> <a class="ck-assetref" href="#asset-assets-dataset-sources-security-policy-md">security-policy.md ↓</a> <a class="ck-assetref" href="#asset-assets-dataset-sources-data-retention-policy-md">data-retention-policy.md ↓</a></div><div class="ck-step-do">Create a bucket for the policy corpus, then upload the four Markdown policy docs (skip the READMEs). In the <strong>Bucket browser</strong> panel, type the bucket name into the <em>new-bucket-name</em> field and click the <strong>+</strong> create button (“Create bucket”). With the bucket open, click <strong>Upload</strong> (or drag-and-drop) to add the four files. The corpus ships a <strong>deliberate 30-vs-14-day refund contradiction</strong> across two of the files — keep both, since it drives the clarify/abstain behavior later.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>new-bucket-name</td><td><code>policy-corpus</code></td></tr><tr><td>Upload — refund policy (30-day, authoritative)</td><td><a href="#asset-assets-dataset-sources-refund-policy-md">refund-policy.md</a></td></tr><tr><td>Upload — refund FAQ (14-day, the contradiction)</td><td><a href="#asset-assets-dataset-sources-refund-faq-md">refund-faq.md</a></td></tr><tr><td>Upload — security policy</td><td><a href="#asset-assets-dataset-sources-security-policy-md">security-policy.md</a></td></tr><tr><td>Upload — data retention policy</td><td><a href="#asset-assets-dataset-sources-data-retention-policy-md">data-retention-policy.md</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">+ (Create bucket), then Upload</span></div><div class="ck-see"><strong>You'll see:</strong> Bucket <code>policy-corpus</code> listing the four <code>*.md</code> documents, each previewable in-app (Created / Modified / Size / Content-type chips above the rendered markdown), with the <code>Source id:</code> line visible near the top of each rendered document body.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Object Store › Bucket browser</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">Bucket browser</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">new-bucket-name</span><span class="ck-mk-input">policy-corpus</span></label><label class="ck-mk-field"><span class="ck-mk-label">Upload — refund policy (30-day, authoritative)</span><span class="ck-mk-input">refund-policy.md</span></label><label class="ck-mk-field"><span class="ck-mk-label">Upload — refund FAQ (14-day, the contradiction)</span><span class="ck-mk-input">refund-faq.md</span></label><label class="ck-mk-field"><span class="ck-mk-label">Upload — security policy</span><span class="ck-mk-input">security-policy.md</span></label><label class="ck-mk-field"><span class="ck-mk-label">Upload — data retention policy</span><span class="ck-mk-input">data-retention-policy.md</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">+ (Create bucket), then Upload</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Knowledge Base › New knowledge base</code> <span class="ck-made">creates · KB version: policy-qa-kb</span></div><div class="ck-step-do">Build a Knowledge Base from the corpus. Click <strong>New knowledge base</strong>, pick <code>policy-corpus</code> as the source bucket, select the four policy docs, and expand the <strong>Advanced configuration</strong> disclosure to choose an embedding model. Click <strong>Create knowledge base</strong> and wait for the build run to finish.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>policy-qa-kb</code></td></tr><tr><td>Source bucket</td><td><code>policy-corpus</code></td></tr><tr><td>Documents</td><td>the 4 policy <code>*.md</code> files</td></tr><tr><td>Advanced configuration</td><td>choose an embedding model (defaults are fine)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create knowledge base</span></div><div class="ck-see"><strong>You'll see:</strong> A build run starts on the Build stage; when it reaches <code>completed</code> the KB has an active version you can Explore. Gate evidence: capture the KB version id.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Knowledge Base › New knowledge base</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">New knowledge base</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">policy-qa-kb</span></label><label class="ck-mk-field"><span class="ck-mk-label">Source bucket</span><span class="ck-mk-input">policy-corpus</span></label><label class="ck-mk-field"><span class="ck-mk-label">Documents</span><span class="ck-mk-input">the 4 policy *.md files</span></label><label class="ck-mk-field"><span class="ck-mk-label">Advanced configuration</span><span class="ck-mk-input">choose an embedding model (defaults are fine)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create knowledge base</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Knowledge Base › policy-qa-kb › Explore › Chunks</code> <span class="ck-made">creates · chunk + lineage check</span></div><div class="ck-step-do">Select the built version in the header switcher, then open <strong>Explore → Chunks</strong> to confirm the corpus chunked cleanly with correct source lineage.</div><div class="ck-see"><strong>You'll see:</strong> Chunks attributed to all four sources by their <strong>filename / source_key</strong> — <code>refund-policy.md</code>, <code>refund-faq.md</code>, <code>security-policy.md</code>, <code>data-retention-policy.md</code> (this filename is the identifier the calibrator matches gold <code>sources</code> against — NOT the in-document <code>Source id:</code> string).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Knowledge Base › policy-qa-kb › Explore › Chunks</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">Chunks</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Knowledge Base › policy-qa-kb › Explore › Query</code> <span class="ck-made">creates · retrieval mode comparison</span></div><div class="ck-step-do">Compare retrieval modes on one question. In the <strong>Query</strong> view (“Ask the corpus”), type the question, pick a retrieval mode on the segmented control, and click <strong>Ask</strong>; repeat for <code>dense</code>, then <code>hybrid</code>, then <code>graph_hybrid</code>, and note which mode surfaces the right chunk highest. (If AGE is enabled: open <strong>Explore → Graph</strong>, click <strong>Sync to AGE</strong> first, then re-ask with mode <code>age_graph</code> — the build does not auto-sync.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Question</td><td><code>How long are audit logs retained?</code></td></tr><tr><td>Retrieval mode (segmented control)</td><td><code>dense</code> → <code>hybrid</code> → <code>graph_hybrid</code> (then <code>age_graph</code> if synced)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Ask</span></div><div class="ck-see"><strong>You'll see:</strong> Ranked chunks per mode; the <code>data-retention-policy.md</code> chunk should rank highest under the stronger mode — your mode-comparison evidence.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Knowledge Base › policy-qa-kb › Explore › Query</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">Query</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Question</span><span class="ck-mk-input">How long are audit logs retained?</span></label><label class="ck-mk-field"><span class="ck-mk-label">Retrieval mode (segmented control)</span><span class="ck-mk-input">dense → hybrid → graph_hybrid (then age_graph if synced)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Ask</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Knowledge Base › policy-qa-kb › Calibrate</code> <span class="ck-made">creates · calibration run (Recall / nDCG / Faithfulness)</span> <a class="ck-assetref" href="#asset-assets-dataset-calibration-questions-jsonl">calibration-questions.jsonl ↓</a></div><div class="ck-step-do">Run KB calibration to get hard numbers. The Calibrate stage scores retrieval against a <strong>Test set</strong> of questions whose gold lives <strong>only</strong> in <code>expected.sources</code> (a list of <strong>source keys</strong> — each the chunk's filename / source_key as shown in <strong>Explore → Chunks</strong>, e.g. <code>data-retention-policy.md</code>, NOT the in-document Source id) and <code>expected.answer</code> — that is what the calibrator reads for Recall@k / nDCG@k / Answer-correctness. The Observability <em>Add to test set</em> widget captures just <code>{expected: &lt;response text&gt;}</code> (no <code>sources</code>/<code>answer</code> field), so author this gold set in the <strong>UI row editor</strong>: create the test set (next pattern: <strong>Evaluate › Test Sets › + New Test Set</strong>), open its detail page at <code>/eval-datasets/:id</code>, and click <strong>+ Add example</strong> for each question, setting <code>inputs</code> = <code>{question}</code> and <code>expectations</code> = <code>{sources:["data-retention-policy.md"], answer:"…"}</code> from the rows in <a href="#asset-assets-dataset-calibration-questions-jsonl">calibration-questions.jsonl</a> (each row already carries <code>expectations.sources</code> + <code>expectations.answer</code>). (Prefer the API? <code>POST</code> the same rows to <code>/eval-datasets/{id}/examples</code>.) Back on Calibrate, choose the built <strong>version</strong>, the <strong>Test set</strong>, a <strong>retrieval mode</strong>, and <strong>Top-k</strong>, then click <strong>Run calibration</strong>. Tune chunking or switch the mode, re-run, and show recall improve without lowering faithfulness; then set it as the baseline.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Version</td><td>the completed <code>policy-qa-kb</code> version</td></tr><tr><td>Test set</td><td>your calibration question set (C01–C06), each row POSTed as <code>{input:{question}, expected:{sources:[…], answer:…}}</code></td></tr><tr><td>Retrieval mode / Top-k</td><td>e.g. <code>hybrid</code> / <code>5</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run calibration</span></div><div class="ck-see"><strong>You'll see:</strong> Server-side scored metrics: <strong>Recall</strong>, <strong>nDCG</strong>, <strong>Faithfulness</strong>, and <strong>Answer-correctness</strong> cards plus a per-question table. Re-run after a tweak to show the recall lift; use <em>Set baseline</em>. Gate: retrieval recall improves after calibration.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Knowledge Base › policy-qa-kb › Calibrate</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">Calibrate</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Version</span><span class="ck-mk-input">the completed policy-qa-kb version</span></label><label class="ck-mk-field"><span class="ck-mk-label">Test set</span><span class="ck-mk-input">your calibration question set (C01–C06), each row POSTed as {input:{question}, expec…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Retrieval mode / Top-k</span><span class="ck-mk-input">e.g. hybrid / 5</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run calibration</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Prompts › New prompt</code> <span class="ck-made">creates · prompt: kb-answer</span> <a class="ck-assetref" href="#asset-assets-prompts-kb-answer-md">kb-answer.md ↓</a></div><div class="ck-step-do">Author the answer prompt. Paste the template body (below the frontmatter). It tells the model to answer <strong>only</strong> from retrieved chunks, cite every claim, <strong>abstain</strong> when evidence is missing, and <strong>clarify</strong> (not pick a side) when sources conflict — emitting the JSON contract <code>{decision, answer, citations, confidence}</code> the router reads.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>kb-answer</code></td></tr><tr><td>Commit message</td><td><code>v1 grounded policy-QA answerer (cite-or-abstain, conflict-aware)</code></td></tr><tr><td>Template body (paste)</td><td>Paste the body of <a href="#asset-assets-prompts-kb-answer-md">kb-answer.md</a> — variables <code>{{ question }}</code>, <code>{{ policy_domain }}</code>, <code>{{ retrieved_chunks }}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save as New Version</span></div><div class="ck-see"><strong>You'll see:</strong> <code>kb-answer</code> v1 saved under the <code>prod</code> alias.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Prompts › New prompt</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">New prompt</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">kb-answer</span></label><label class="ck-mk-field"><span class="ck-mk-label">Commit message</span><span class="ck-mk-input">v1 grounded policy-QA answerer (cite-or-abstain, conflict-aware)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Template body (paste)</span><span class="ck-mk-input">Paste the body of kb-answer.md — variables {{ question }}, {{ policy_domain }}, {{ r…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save as New Version</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › Build Skill</code> <span class="ck-made">creates · skills: contradiction-detector + citation-and-next-steps</span> <a class="ck-assetref" href="#asset-assets-skills-contradiction-detector-md">contradiction-detector.md ↓</a> <a class="ck-assetref" href="#asset-assets-skills-citation-and-next-steps-md">citation-and-next-steps.md ↓</a></div><div class="ck-step-do">(Optional reinforcement) Author two small skills. Click <strong>Build Skill</strong> to open the wizard (Identity → Content → Composability → Triggers → Review & create). <code>contradiction-detector</code> runs ahead of the agent to force a <code>clarify</code> on the 30-vs-14-day conflict; <code>citation-and-next-steps</code> runs after it to format citations + one next step. On <em>Identity</em> set the kebab-case name, a real skill category (<code>compliance_safety</code> for <code>contradiction-detector</code>, <code>research</code> for <code>citation-and-next-steps</code>), and tags; on <em>Content</em> set the summary (the narrow trigger text the selector reads — keep it tight) and the SKILL.md body. Finish with <strong>Create Skill</strong>. Names must <em>not</em> start with <code>claude</code>/<code>anthropic</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Skill 1</td><td>From <a href="#asset-assets-skills-contradiction-detector-md">contradiction-detector.md</a> — name + category <code>compliance_safety</code> + tags (Identity); summary + content (Content)</td></tr><tr><td>Skill 2</td><td>From <a href="#asset-assets-skills-citation-and-next-steps-md">citation-and-next-steps.md</a> — name + category <code>research</code> + tags (Identity); summary + content (Content)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create Skill</span></div><div class="ck-see"><strong>You'll see:</strong> Both kebab-case skills listed in the Library; opening one shows its workspace (render preview + trigger tests).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › Build Skill</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Build Skill</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Skill 1</span><span class="ck-mk-input">From contradiction-detector.md — name + category compliance_safety + tags (Identity)…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Skill 2</span><span class="ck-mk-input">From citation-and-next-steps.md — name + category research + tags (Identity); summar…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create Skill</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › New Workflow</code> <span class="ck-made">creates · workflow: kb-assistant</span></div><div class="ck-step-do">Create the answer workflow from a knowledge-retrieval template. Click <strong>New Workflow</strong>, type the name in the name box, then click the <strong>Knowledge Q&A</strong> template tile (the <code>knowledge_rag</code> template; or <strong>GraphRAG Hybrid</strong> for <code>graph_hybrid_rag</code>) — selecting the tile creates the workflow and opens the Studio editor. The next step wires the nodes and binds your prompt.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Give your workflow a name…</td><td><code>kb-assistant</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Knowledge Q&amp;A (template tile)</span></div><div class="ck-see"><strong>You'll see:</strong> The Workflow Studio editor opens with a <code>knowledge_query</code>-centric starter graph.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › New Workflow</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Give your workflow a name…</span><span class="ck-mk-input">kb-assistant</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Knowledge Q&amp;A (template tile)</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › kb-assistant (Studio editor)</code> <span class="ck-made">creates · workflow saved (RAG + router)</span></div><div class="ck-step-do">Wire the four-stage chain. Point the <strong>Knowledge Query</strong> node at the <code>policy-qa-kb</code> version (mode <code>hybrid</code>); add a <strong>Python Code</strong> node <code>score_confidence</code> that derives a confidence + conflict flag from the retrieved set (define <code>run_python_node(...)</code> returning a dict); bind prompt <code>kb-answer</code> on the <strong>Agent</strong> node <code>draft_answer</code> (pass <code>question</code>, <code>policy_domain</code>, <code>retrieved_chunks</code>); add a <strong>Router</strong> that branches on <code>decision</code> (answer | abstain | clarify), routing the non-answer branches to the output so they’re flagged for review. Click <strong>Save</strong>. (Routing uncertain runs to a human queue happens in the last step via Review Queues, by enqueuing the run’s trace id — there is no review-enqueue node in the palette.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>retrieve_chunks (Knowledge Query)</td><td>KB = <code>policy-qa-kb</code>, mode = <code>hybrid</code></td></tr><tr><td>score_confidence (Python Code)</td><td>derive <code>confidence</code> + conflict flag from retrieved chunks</td></tr><tr><td>draft_answer (Agent)</td><td>bind <code>kb-answer</code>; inputs ← question / policy_domain / retrieved_chunks</td></tr><tr><td>abstain_or_answer (Router)</td><td>branch on <code>decision</code> = answer | abstain | clarify</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save</span></div><div class="ck-see"><strong>You'll see:</strong> Saved graph: <code>knowledge_query → score_confidence → draft_answer(kb-answer) → router → output</code>, with abstain/clarify branches surfaced for review.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › kb-assistant (Studio editor)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">kb-assistant (Studio editor)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">retrieve_chunks (Knowledge Query)</span><span class="ck-mk-input">KB = policy-qa-kb, mode = hybrid</span></label><label class="ck-mk-field"><span class="ck-mk-label">score_confidence (Python Code)</span><span class="ck-mk-input">derive confidence + conflict flag from retrieved chunks</span></label><label class="ck-mk-field"><span class="ck-mk-label">draft_answer (Agent)</span><span class="ck-mk-input">bind kb-answer; inputs ← question / policy_domain / retrieved_chunks</span></label><label class="ck-mk-field"><span class="ck-mk-label">abstain_or_answer (Router)</span><span class="ck-mk-input">branch on decision = answer | abstain | clarify</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › kb-assistant › Runs</code> <span class="ck-made">creates · workflow runs: answer / abstain / clarify</span></div><div class="ck-step-do">On the workflow detail page open the <strong>Runs</strong> tab. For each behavior, put the question in the <em>run input</em> box and click <strong>Run Pipeline</strong> (or “Queue Run”). An <strong>answerable</strong> question returns a cited answer; a <strong>missing-evidence</strong> question abstains with a <code>missing_evidence</code> list; the <strong>conflicting</strong> refund-window question retrieves both refund docs and returns <code>clarify</code> (not a silently-picked side).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Answerable</td><td><code>How long do we retain security audit logs?</code> → <code>decision: answer</code>, cites <code>DATA-RETENTION-POLICY</code> (365 days)</td></tr><tr><td>Missing-evidence</td><td><code>What is the enterprise incident SLA, in minutes?</code> → <code>decision: abstain</code> + <code>missing_evidence</code></td></tr><tr><td>Conflicting</td><td><code>How many days do I have to request a refund?</code> → <code>decision: clarify</code> (30 vs 14 days)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run Pipeline</span></div><div class="ck-see"><strong>You'll see:</strong> Three run rows under the Runs tab showing answer / abstain / clarify. Note their trace ids for evaluation + review.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › kb-assistant › Runs</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Runs</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Answerable</span><span class="ck-mk-input">How long do we retain security audit logs? → decision: answer, cites DATA-RETENTION-…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Missing-evidence</span><span class="ck-mk-input">What is the enterprise incident SLA, in minutes? → decision: abstain + missing_evide…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Conflicting</span><span class="ck-mk-input">How many days do I have to request a refund? → decision: clarify (30 vs 14 days)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run Pipeline</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Judges › + New Judge</code> <span class="ck-made">creates · judge: CitationFaithfulness</span> <a class="ck-assetref" href="#asset-assets-judges-citation-faithfulness-judge-json">citation-faithfulness.judge.json ↓</a></div><div class="ck-step-do">Create the LLM faithfulness judge. Click <strong>+ New Judge</strong> and fill the fields. The <em>Instructions</em> must reference <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> (use the insert buttons) and pass an <code>answer</code> only if every claim is cited, an <code>abstain</code> only if it declined with a <code>missing_evidence</code> list, and a <code>clarify</code> only if it surfaced the conflict. Set <em>Returns</em> to <code>bool</code> (pass/fail), then click <strong>Create judge</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>CitationFaithfulness</code></td></tr><tr><td>Model</td><td>your configured judge model (e.g. <code>openai:/gpt-4o-mini</code> / gateway default)</td></tr><tr><td>Returns</td><td><code>bool</code></td></tr><tr><td>Instructions (paste)</td><td>Paste <code>instructions</code> from <a href="#asset-assets-judges-citation-faithfulness-judge-json">citation-faithfulness.judge.json</a> (must reference <code>{{ inputs }}</code>/<code>{{ outputs }}</code>/<code>{{ expectations }}</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create judge</span></div><div class="ck-see"><strong>You'll see:</strong> Judge <code>CitationFaithfulness</code> appears in the Judges list. It is a registered judge for tracing/assessments and — because the Evaluations <em>scorer</em> picker exposes a <strong>Custom LLM judges</strong> section — is also selectable as a <code>Judge.&lt;id&gt;</code> scorer on the Evaluations page, which you wire in as a grader two steps from now.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Judges › + New Judge</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Judges</span><span class="ck-mk-title">+ New Judge</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">CitationFaithfulness</span></label><label class="ck-mk-field"><span class="ck-mk-label">Model</span><span class="ck-mk-input">your configured judge model (e.g. openai:/gpt-4o-mini / gateway default)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Returns</span><span class="ck-mk-input">bool</span></label><label class="ck-mk-field"><span class="ck-mk-label">Instructions (paste)</span><span class="ck-mk-input">Paste instructions from citation-faithfulness.judge.json (must reference {{ inputs }…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create judge</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Test Sets › + New Test Set</code> <span class="ck-made">creates · test set: policy-qa-eval</span> <a class="ck-assetref" href="#asset-assets-dataset-qa-eval-jsonl">qa-eval.jsonl ↓</a></div><div class="ck-step-do">Build the scored evaluation set. Click <strong>+ New Test Set</strong>, give it a Name and Owner (both required), and click <strong>Create</strong> — the set is created empty. Then open its detail page at <code>/eval-datasets/:id</code> and author rows with <strong>+ Add example</strong>: set each row's curated top-level <code>expected</code> substring that <code>contains_expected</code> reads (e.g. <code>365 days</code>, <code>AES-256</code>) directly — these <strong>cannot</strong> be set through Observability's <em>Add to test set</em> (it auto-derives <code>expected</code> from the full trace response). Add each row from <a href="#asset-assets-dataset-qa-eval-jsonl">qa-eval.jsonl</a> (each answerable row carries its curated <code>expected</code> substring), covering answer, clarify (Q05), and abstain (Q06/Q07) rows. (Prefer the API? POST the same rows to <code>/eval-datasets/{id}/examples</code>.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>policy-qa-eval</code></td></tr><tr><td>Owner</td><td>your handle (required, e.g. <code>@you</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create</span></div><div class="ck-see"><strong>You'll see:</strong> Dataset <code>policy-qa-eval</code> appears; at <code>/eval-datasets/:id</code> use <strong>+ Add example</strong> to add its golden answer rows plus the clarify (Q05) and abstain (Q06/Q07) rows (each answerable row's curated <code>expected</code> substring) per <a href="../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/qa-eval.jsonl">qa-eval.jsonl</a> (Q01–Q08).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Test Sets › + New Test Set</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Test Sets</span><span class="ck-mk-title">+ New Test Set</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">policy-qa-eval</span></label><label class="ck-mk-field"><span class="ck-mk-label">Owner</span><span class="ck-mk-input">your handle (required, e.g. @you)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Evaluations › Run evaluation</code> <span class="ck-made">creates · eval run: faithfulness + abstention</span></div><div class="ck-step-do">Score faithfulness and abstention. Click <strong>Run evaluation</strong> to open the run panel, pick <code>policy-qa-eval</code>, and check the deterministic scorers — <code>Contains expected</code> (<code>contains_expected</code>) checks whether the gold substring in each row's top-level <code>expected</code> field appears in the prediction, and <code>Token F1</code>/<code>Exact match</code> sharpen it. The scorer reads the substring from <code>expected</code> (e.g. <code>"365 days"</code>, <code>"AES-256"</code>); the answerable + clarify rows carry one, while the abstain rows (Q06/Q07) set <code>expected: ""</code> — so <code>contains_expected</code> is meaningful only on the answerable rows, and abstain/clarify behavior is judged by the decision rows, not by this substring scorer. Also tick the <code>CitationFaithfulness</code> judge from the prior step under <strong>Custom LLM judges</strong> so it runs as a <code>Judge.&lt;id&gt;</code> scorer for an automatic per-row faithfulness verdict. Click <strong>Run</strong>, read the scorecard, pin a baseline, and optionally compare a weaker prompt/mode in the compare view.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Dataset</td><td><code>policy-qa-eval</code></td></tr><tr><td>Scorers</td><td>check <code>Contains expected</code> (<code>contains_expected</code>); add <code>Token F1</code> / <code>Exact match</code> as desired; tick <code>CitationFaithfulness</code> under <strong>Custom LLM judges</strong></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> A scorecard with per-example pass/fail + overall, including the <code>CitationFaithfulness</code> judge column. Gate: abstain/clarify rows behave correctly (<code>abstention_policy_compliance = 1.0</code>); faithfulness from the judge column (<code>faithfulness_min ≥ 0.90</code>).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Evaluations › Run evaluation</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Evaluations</span><span class="ck-mk-title">Run evaluation</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Dataset</span><span class="ck-mk-input">policy-qa-eval</span></label><label class="ck-mk-field"><span class="ck-mk-label">Scorers</span><span class="ck-mk-input">check Contains expected (contains_expected); add Token F1 / Exact match as desired; …</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Review Queues › + New Queue</code> <span class="ck-made">creates · review queue: policy-qa-review</span></div><div class="ck-step-do">Route the uncertain runs to human review. Click <strong>+ New Queue</strong>, give it a name and one or more reviewer questions, and click <strong>Create queue</strong>. Then paste the <strong>trace ids</strong> of the <code>abstain</code> and <code>clarify</code> runs (from the workflow Runs tab) into the queue's enqueue box and click <strong>Enqueue</strong>. Answer the questions — answers write back onto the trace, closing the feedback loop.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>policy-qa-review</code></td></tr><tr><td>Questions</td><td>e.g. “Is the abstention justified by missing evidence?”, “Did the answer cite the right source?”</td></tr><tr><td>Enqueue (trace ids)</td><td>the abstain + clarify run trace ids, space/newline separated</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create queue</span></div><div class="ck-see"><strong>You'll see:</strong> A trace-linked review queue; enqueued traces appear as items, and submitted answers write back on each trace as assessments/expectations.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Review Queues › + New Queue</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">+ New Queue</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">policy-qa-review</span></label><label class="ck-mk-field"><span class="ck-mk-label">Questions</span><span class="ck-mk-input">e.g. “Is the abstention justified by missing evidence?”, “Did the answer cite the ri…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Enqueue (trace ids)</span><span class="ck-mk-input">the abstain + clarify run trace ids, space/newline separated</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create queue</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-sources-refund-policy-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/refund-policy.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># Refund Policy
+
+Source id: REFUND-POLICY
+Policy domain: billing
+Owner: Finance Operations
+Last reviewed: 2026-03-01
+
+## Eligibility
+
+Customers on a monthly or annual subscription may request a refund for the most
+recent charge. To be eligible, the account must be in good standing (no open
+billing disputes filed with a card network) at the time of the request.
+
+## Refund window
+
+A refund request must be submitted within **30 days** of the charge date.
+Requests received after 30 days are reviewed on a case-by-case basis by Finance
+Operations and are not guaranteed.
+
+## How to request a refund
+
+1. Sign in to the Billing portal at Account → Billing → Charges.
+2. Locate the charge and select **Request refund**.
+3. Choose a reason and submit. You will receive a confirmation email.
+
+Refunds are issued to the original payment method. Card refunds typically settle
+within 5–10 business days; the exact timing is set by the card issuer, not by us.
+
+## Partial and prorated refunds
+
+When a customer downgrades or cancels mid-cycle, the unused portion of an annual
+plan is refunded on a prorated basis. Monthly plans are not prorated; service
+continues until the end of the paid month.
+
+## What is not refundable
+
+One-time setup fees and usage-based overage charges that have already been
+metered and invoiced are non-refundable.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-sources-refund-faq-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/refund-faq.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># Refund FAQ (customer-facing)
+
+Source id: REFUND-FAQ
+Policy domain: billing
+Owner: Support Enablement
+Last reviewed: 2025-11-12
+
+&gt; NOTE: This FAQ is the deliberately CONTRADICTORY companion to
+&gt; `refund-policy.md`. It states a different refund window on purpose so the
+&gt; assistant&#x27;s &quot;sources conflict → clarify&quot; path can be demonstrated. See
+&gt; `sources/README.md`.
+
+## How long do I have to ask for a refund?
+
+You can request a refund within **14 days** of your charge. After 14 days the
+charge is considered final.
+
+## How do I get my money back?
+
+Open the Billing portal, find the charge, and choose **Request refund**. Refunds
+go back to the card you paid with and usually arrive within about a week.
+
+## Do annual plans get prorated?
+
+Yes — if you cancel an annual plan partway through, we refund the unused months.
+
+## Are setup fees refundable?
+
+No. One-time setup fees are non-refundable.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-sources-security-policy-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/security-policy.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># Information Security Policy
+
+Source id: SECURITY-POLICY
+Policy domain: security
+Owner: Security &amp; Trust
+Last reviewed: 2026-02-15
+
+## Authentication
+
+All employee and customer-admin accounts must use multi-factor authentication
+(MFA). Password-only access is not permitted for any account that can change
+billing, manage users, or access customer data. Single sign-on (SSO) via SAML or
+OIDC is available on Enterprise plans and, when enabled, MFA is enforced by the
+identity provider.
+
+## Encryption
+
+Customer data is encrypted in transit using TLS 1.2 or higher. Data at rest is
+encrypted using AES-256. Encryption keys are managed in a dedicated key
+management service and rotated at least every 12 months.
+
+## Access control
+
+Access to production systems follows least privilege and is granted on a
+need-to-know basis. Production access requires an approved access request and is
+reviewed quarterly. All production access is logged.
+
+## Incident response
+
+Suspected security incidents must be reported to the Security &amp; Trust team
+immediately. Confirmed incidents follow a documented response process:
+containment, eradication, recovery, and post-incident review. Affected customers
+are notified in line with the contractual and regulatory timelines in their
+agreement.
+
+## Vendor and subprocessor security
+
+Third-party subprocessors are reviewed before onboarding and must meet our
+security and data-protection requirements. The current subprocessor list is
+maintained by Security &amp; Trust and available on request.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-sources-data-retention-policy-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/data-retention-policy.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># Data Retention Policy
+
+Source id: DATA-RETENTION-POLICY
+Policy domain: security
+Owner: Security &amp; Trust / Legal
+Last reviewed: 2026-01-20
+
+## Purpose
+
+This policy defines how long different categories of data are retained and when
+they are deleted. Retention periods balance operational need, customer
+expectations, and legal or contractual obligations.
+
+## Audit logs
+
+Security and access audit logs are retained for **365 days**, after which they
+are automatically purged. Audit logs may be retained longer only when required
+by an active legal hold.
+
+## Customer content
+
+Customer content (documents, records, and uploads) is retained for the life of
+the subscription. After an account is closed, customer content is deleted within
+**30 days**, unless a longer period is required by contract or law.
+
+## Backups
+
+Encrypted backups are kept for **35 days** on a rolling basis and are then
+overwritten. Deletion requests do not remove data from backups already taken;
+that data ages out of the backup window naturally.
+
+## Legal holds
+
+When a legal hold is in effect, the affected data is exempt from automatic
+deletion until the hold is released, regardless of the periods above.
+
+## Deletion requests
+
+Customers may request deletion of their personal data. Verified requests are
+completed within 30 days for active systems; backups follow the rolling window
+described above.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-calibration-questions-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/calibration-questions.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;C01&quot;, &quot;inputs&quot;: {&quot;question&quot;: &quot;How long are security audit logs retained before they are purged?&quot;}, &quot;expectations&quot;: {&quot;sources&quot;: [&quot;data-retention-policy.md&quot;], &quot;answer&quot;: &quot;Audit logs are retained for 365 days, then automatically purged unless under a legal hold.&quot;}}
+{&quot;id&quot;: &quot;C02&quot;, &quot;inputs&quot;: {&quot;question&quot;: &quot;What authentication is required for accounts that can change billing or access customer data?&quot;}, &quot;expectations&quot;: {&quot;sources&quot;: [&quot;security-policy.md&quot;], &quot;answer&quot;: &quot;Multi-factor authentication (MFA) is required; password-only access is not permitted for those accounts.&quot;}}
+{&quot;id&quot;: &quot;C03&quot;, &quot;inputs&quot;: {&quot;question&quot;: &quot;What encryption is used for customer data at rest and in transit?&quot;}, &quot;expectations&quot;: {&quot;sources&quot;: [&quot;security-policy.md&quot;], &quot;answer&quot;: &quot;Data at rest is encrypted with AES-256; data in transit uses TLS 1.2 or higher.&quot;}}
+{&quot;id&quot;: &quot;C04&quot;, &quot;inputs&quot;: {&quot;question&quot;: &quot;What are the steps for a customer to request a refund?&quot;}, &quot;expectations&quot;: {&quot;sources&quot;: [&quot;refund-policy.md&quot;], &quot;answer&quot;: &quot;Sign in to the Billing portal under Account &gt; Billing &gt; Charges, select the charge, choose Request refund, pick a reason, and submit.&quot;}}
+{&quot;id&quot;: &quot;C05&quot;, &quot;inputs&quot;: {&quot;question&quot;: &quot;How long are encrypted backups kept?&quot;}, &quot;expectations&quot;: {&quot;sources&quot;: [&quot;data-retention-policy.md&quot;], &quot;answer&quot;: &quot;Encrypted backups are kept on a rolling 35-day basis and are then overwritten.&quot;}}
+{&quot;id&quot;: &quot;C06&quot;, &quot;inputs&quot;: {&quot;question&quot;: &quot;Are one-time setup fees refundable?&quot;}, &quot;expectations&quot;: {&quot;sources&quot;: [&quot;refund-policy.md&quot;], &quot;answer&quot;: &quot;No. One-time setup fees are non-refundable.&quot;}}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-prompts-kb-answer-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/prompts/kb-answer.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: kb-answer
+model_hint: a capable instruct model that follows JSON contracts and abstains reliably (grounded QA, not creative writing)
+variables: [question, policy_domain, retrieved_chunks]
+commit_message: &quot;v1 grounded policy-QA answerer (cite-or-abstain, conflict-aware)&quot;
+---
+
+You are a grounded policy assistant. You answer questions about internal company
+policy using ONLY the evidence retrieved for this question. You never rely on
+prior knowledge, assumptions, or anything outside `{{ retrieved_chunks }}`.
+
+The question is scoped to the policy domain `{{ policy_domain }}` (e.g. billing,
+security, support, legal). Stay within that scope.
+
+## Evidence
+
+`{{ retrieved_chunks }}` is a list of retrieved passages. Each chunk has an id
+and a source id (e.g. `chunk_id`, `source_id` like `REFUND-POLICY`). Treat each
+chunk as the only ground truth you may use. If a chunk is irrelevant to the
+question, ignore it.
+
+## Decision rules
+
+Choose exactly one `decision`:
+
+- **answer** — The retrieved chunks contain enough evidence to answer, and the
+  evidence does not conflict. Every substantive claim in your answer MUST be
+  backed by a citation to the specific chunk/source it came from.
+- **abstain** — The retrieved chunks do NOT contain the evidence needed to
+  answer (the topic is missing, or only tangentially mentioned), or the question
+  asks for something outside documented policy (e.g. personal legal advice). Do
+  not guess. State plainly that the documented policy does not cover it, and list
+  what evidence would be needed in `missing_evidence`.
+- **clarify** — The retrieved chunks CONFLICT on the fact being asked about
+  (two sources give incompatible answers, e.g. a 30-day vs a 14-day window).
+  Do not silently pick one. Present both positions with their citations and ask
+  a single clarifying question so a human can resolve which source governs.
+
+When in doubt between `answer` and `abstain`, prefer `abstain`. When sources
+disagree, prefer `clarify` over `answer`. Never invent a citation, and never
+cite a chunk or source id that is not present in `{{ retrieved_chunks }}`.
+
+## Citations
+
+- For `answer`: cite every substantive claim inline by source id and/or chunk id
+  (e.g. &quot;Refund requests must be filed within 30 days [REFUND-POLICY].&quot;), and
+  list each cited chunk in the `citations` array.
+- For `clarify`: cite each conflicting source so the conflict is auditable.
+- For `abstain`: `citations` is empty.
+
+## Confidence
+
+`confidence` is a number in [0,1] reflecting how well the retrieved evidence
+supports your decision. Lower it when chunks are thin, partially on-topic, or
+when you had to stretch. A low confidence on an `answer` is a signal for
+downstream review routing; do not inflate it.
+
+## Output
+
+Return JSON ONLY — no prose, no markdown, no code fences — with exactly this
+shape:
+
+{
+  &quot;decision&quot;: one of [&quot;answer&quot;, &quot;abstain&quot;, &quot;clarify&quot;],
+  &quot;answer&quot;: string,            // the grounded answer, the conflict summary + clarifying question, or the abstention message
+  &quot;citations&quot;: [               // chunk/source references actually used; empty for abstain
+    {&quot;source_id&quot;: string, &quot;chunk_id&quot;: string, &quot;quote&quot;: short supporting snippet}
+  ],
+  &quot;confidence&quot;: number,        // 0..1
+  &quot;missing_evidence&quot;: [string] // present (possibly empty) for abstain/clarify; what evidence would resolve it
+}
+
+Constraints:
+- Valid JSON, strict-parseable, no trailing commas.
+- Do not include any claim in `answer` that is not supported by a chunk in
+  `citations` (for `answer`) — if you cannot cite it, do not say it.
+- Keep `answer` concise and factual; quote/paraphrase the policy, do not editorialize.
+
+Policy domain: {{ policy_domain }}
+Question:
+&quot;&quot;&quot;
+{{ question }}
+&quot;&quot;&quot;
+Retrieved chunks:
+&quot;&quot;&quot;
+{{ retrieved_chunks }}
+&quot;&quot;&quot;
+
+Return only the JSON record.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-skills-contradiction-detector-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/contradiction-detector.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: contradiction-detector
+summary: &quot;Detect when retrieved policy/KB chunks disagree on the same fact and force a clarify-or-abstain instead of blending them; applies when answering FROM multiple retrieved evidence passages, NOT to single-source answers or free-form text.&quot;
+category: compliance_safety
+tags: [contradiction, conflict, grounding, abstention, clarify, policy-qa]
+render_variables: [question, retrieved_chunks]
+---
+
+You inspect the retrieved evidence BEFORE an answer is written and decide whether
+the sources agree. Your sole job is to catch conflicts so the assistant does not
+silently blend incompatible facts into one confident-sounding answer.
+
+Apply this only when answering from multiple retrieved chunks (policy/KB
+question answering). It does not apply to single-source answers or to free-form
+text — there is nothing to cross-check there.
+
+## What counts as a contradiction
+
+Two (or more) chunks contradict when they answer the SAME question with
+incompatible facts, for example:
+
+- Different numeric thresholds for the same rule (refund window of 30 days in one
+  source, 14 days in another).
+- Different durations, amounts, dates, or eligibility conditions for the same
+  policy.
+- One source permits what another forbids.
+
+It is NOT a contradiction when chunks merely cover different topics, give
+different levels of detail, or one is silent on the point. Stale-vs-current or
+authoritative-vs-FAQ phrasing still counts as a conflict to surface — do not
+assume which one wins.
+
+## How to check
+
+1. Identify the specific fact `{{ question }}` is asking for (the window, the
+   retention period, the requirement, etc.).
+2. Scan `{{ retrieved_chunks }}` for every chunk that asserts that fact.
+3. Compare them. If two assert incompatible values for that same fact, it is a
+   conflict.
+
+## What to do
+
+- **No conflict** → report `conflict: false`; the answerer proceeds normally
+  (cite-or-abstain on its own merits).
+- **Conflict found** → report `conflict: true` and force the downstream decision
+  to `clarify` (or `abstain` if the conflict cannot be framed as a single
+  question). List each conflicting source id and the value it asserts. Do NOT
+  pick a winner and do NOT average the values.
+
+## Output
+
+Return JSON ONLY, strict-parseable, no code fences:
+
+{
+  &quot;conflict&quot;: boolean,
+  &quot;fact_in_question&quot;: short string describing the fact being checked,
+  &quot;conflicting_sources&quot;: [
+    {&quot;source_id&quot;: string, &quot;chunk_id&quot;: string, &quot;asserted_value&quot;: string}
+  ],
+  &quot;recommended_decision&quot;: one of [&quot;proceed&quot;, &quot;clarify&quot;, &quot;abstain&quot;]
+}
+
+`conflicting_sources` is empty when `conflict` is false. Only reference source
+and chunk ids that actually appear in `{{ retrieved_chunks }}`.
+
+Question:
+&quot;&quot;&quot;
+{{ question }}
+&quot;&quot;&quot;
+Retrieved chunks:
+&quot;&quot;&quot;
+{{ retrieved_chunks }}
+&quot;&quot;&quot;
+
+Return only the JSON record.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-skills-citation-and-next-steps-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/citation-and-next-steps.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: citation-and-next-steps
+summary: &quot;Format inline citations and propose concrete next steps for a grounded policy answer or abstention; applies to answering questions FROM retrieved policy/KB evidence, NOT to drafting free-form prose or summarizing untrusted text.&quot;
+category: research
+tags: [citation, grounding, abstention, next-steps, policy-qa]
+render_variables: [decision, answer, citations]
+---
+
+You take a grounded policy result and make it auditable and actionable. You do
+NOT change the underlying decision or the facts — the decision (`answer`,
+`abstain`, or `clarify`) and the evidence arrive in `{{ decision }}`,
+`{{ answer }}`, and `{{ citations }}`. Your job is to attach clean citations and
+a single clear next step.
+
+Apply this only when a result is grounded in retrieved evidence (policy/KB
+question answering). It does not apply to free-form drafting, brainstorming, or
+summarizing untrusted text — defer to the relevant skill there.
+
+## Citation rules
+
+- Cite by the source/chunk ids present in `{{ citations }}` (e.g.
+  `[REFUND-POLICY]`, `[DATA-RETENTION-POLICY #chunk_3]`). Place the citation
+  inline, right after the claim it supports.
+- Cite ONLY ids that appear in `{{ citations }}`. Never invent a source id and
+  never cite an id you were not given.
+- One claim, one (or more) citation. If a sentence asserts two facts from two
+  sources, cite both.
+- If `{{ decision }}` is `answer` and a claim has no matching entry in
+  `{{ citations }}`, do not state that claim — drop it rather than leave it
+  uncited.
+
+## Next-step rules
+
+End with exactly one concrete next step, chosen by `{{ decision }}`:
+
+- **answer** — Offer the most relevant follow-up the cited policy enables (e.g.
+  &quot;Want the step-by-step for requesting the refund in the Billing portal?&quot;).
+- **abstain** — Name what is missing and the realistic path to resolve it (e.g.
+  &quot;I don&#x27;t see this in the current policy set — I can route this to the policy
+  owner to confirm.&quot;). Do not improvise an answer to fill the gap.
+- **clarify** — Ask the single clarifying question that resolves the conflict
+  (e.g. &quot;Two sources disagree on the refund window (30 vs 14 days). Which one
+  governs for this account — the policy or the customer FAQ?&quot;). Ask one thing.
+
+## Output
+
+Produce only the finished, citation-annotated reply text plus its single next
+step. No headers, no internal notes, no JSON, no commentary about these rules.
+
+Decision: {{ decision }}
+Citations available (source/chunk ids you may cite):
+&quot;&quot;&quot;
+{{ citations }}
+&quot;&quot;&quot;
+Draft answer to annotate:
+&quot;&quot;&quot;
+{{ answer }}
+&quot;&quot;&quot;
+
+Write the final cited reply with its next step now.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-judges-citation-faithfulness-judge-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/judges/citation-faithfulness.judge.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;name&quot;: &quot;CitationFaithfulness&quot;,
+  &quot;model&quot;: &quot;set to your configured judge model (e.g. the gateway default)&quot;,
+  &quot;feedback_value_type&quot;: &quot;bool&quot;,
+  &quot;instructions&quot;: &quot;You audit a grounded policy assistant for citation faithfulness and correct abstention. You are given the original request {{ inputs }} (question, policy_domain), the model output {{ outputs }} (decision, answer, citations, confidence, missing_evidence), and the labeled {{ expectations }} (decision, must_cite, optional expected gold substring).\n\nReturn true ONLY if ALL of the following hold:\n1. {{ outputs }} is a single valid JSON object with a decision that is one of [answer, abstain, clarify], and its decision matches {{ expectations }}.decision.\n2. If {{ outputs }}.decision is \&quot;answer\&quot;: every substantive claim in {{ outputs }}.answer is supported by an entry in {{ outputs }}.citations (a source_id/chunk_id that the answer actually relies on), there are no uncited factual claims, and no citation refers to a source that does not appear to back the claim. If {{ expectations }}.must_cite is true, {{ outputs }}.citations must be non-empty. If {{ expectations }}.expected is a non-empty string, {{ outputs }}.answer must contain that text (case-insensitive substring).\n3. If {{ outputs }}.decision is \&quot;abstain\&quot;: the model did NOT assert a substantive policy answer, {{ outputs }}.citations is empty, and {{ outputs }}.missing_evidence names what evidence is missing. This is the required behavior when the retrieved evidence does not cover the question or the question is outside documented policy.\n4. If {{ outputs }}.decision is \&quot;clarify\&quot;: the model surfaced a genuine conflict between sources rather than picking one, cited each conflicting source in {{ outputs }}.citations, and asked a clarifying question instead of asserting a single answer.\n5. The model abstained or asked to clarify whenever evidence was missing or sources conflicted (it did not fabricate an answer or a citation to fill a gap).\n\nOtherwise return false. Judge faithfulness and abstention discipline against the cited evidence and {{ expectations }} only — do not reward a fluent answer that is uncited, and do not penalize a correct abstention for &#x27;not answering&#x27;.&quot;,
+  &quot;notes&quot;: &quot;feedback_value_type bool -&gt; pass/fail. This is the real LLM &#x27;CitationFaithfulness&#x27; judge from verification.yaml (custom_judge). Select this judge in an Evaluations run under &#x27;Custom LLM judges&#x27; (it runs as a Judge.&lt;id&gt; scorer) alongside the deterministic scorer &#x27;contains_expected&#x27; (which reads the gold substring from the top-level expectations.expected for the answerable rows). Template vars {{ inputs }}/{{ outputs }}/{{ expectations }} are bound by the eval runner per row in dataset/qa-eval.jsonl. Gate target: faithfulness_min &gt;= 0.90, abstention_policy_compliance = 1.0.&quot;
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-qa-eval-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/qa-eval.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;Q01&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;answer&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;How long do we retain security audit logs?&quot;, &quot;policy_domain&quot;: &quot;security&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;answer&quot;, &quot;must_cite&quot;: true, &quot;expected&quot;: &quot;365 days&quot;}}
+{&quot;id&quot;: &quot;Q02&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;answer&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;Is multi-factor authentication required for admin accounts?&quot;, &quot;policy_domain&quot;: &quot;security&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;answer&quot;, &quot;must_cite&quot;: true, &quot;expected&quot;: &quot;MFA&quot;}}
+{&quot;id&quot;: &quot;Q03&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;answer&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;How does a customer request a refund for a recent charge?&quot;, &quot;policy_domain&quot;: &quot;billing&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;answer&quot;, &quot;must_cite&quot;: true, &quot;expected&quot;: &quot;Billing portal&quot;}}
+{&quot;id&quot;: &quot;Q04&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;answer&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;How is customer data encrypted at rest?&quot;, &quot;policy_domain&quot;: &quot;security&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;answer&quot;, &quot;must_cite&quot;: true, &quot;expected&quot;: &quot;AES-256&quot;}}
+{&quot;id&quot;: &quot;Q05&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;clarify&quot;, &quot;contradiction&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;How many days do I have to request a refund?&quot;, &quot;policy_domain&quot;: &quot;billing&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;clarify&quot;, &quot;must_cite&quot;: true, &quot;expected&quot;: &quot;30&quot;}}
+{&quot;id&quot;: &quot;Q06&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;abstain&quot;, &quot;missing_evidence&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;What is the guaranteed SLA response time for an enterprise incident, in minutes?&quot;, &quot;policy_domain&quot;: &quot;security&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;abstain&quot;, &quot;must_cite&quot;: false, &quot;expected&quot;: &quot;&quot;}}
+{&quot;id&quot;: &quot;Q07&quot;, &quot;tags&quot;: [&quot;negative&quot;, &quot;abstain&quot;, &quot;out_of_scope&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;Can you give me legal advice on whether I can sue a competitor over this policy?&quot;, &quot;policy_domain&quot;: &quot;legal&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;abstain&quot;, &quot;must_cite&quot;: false, &quot;expected&quot;: &quot;&quot;}}
+{&quot;id&quot;: &quot;Q08&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;answer&quot;], &quot;inputs&quot;: {&quot;question&quot;: &quot;After an account is closed, when is the customer&#x27;s content deleted?&quot;, &quot;policy_domain&quot;: &quot;security&quot;}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;answer&quot;, &quot;must_cite&quot;: true, &quot;expected&quot;: &quot;30 days&quot;}}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Citation faithfulness</td><td>≥ 0.90</td></tr><tr><td>Abstention policy compliance</td><td>100% on missing/conflicting</td></tr><tr><td>Retrieval lift after calibration</td><td>Recall@k improves, faithfulness holds</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>Explore sub-views are <code>Query</code> / <code>Chunks</code> / <code>Graph</code>. AGE retrieval needs a manual <strong>Sync to AGE</strong> first.</li><li>KB Calibrate runs inline and returns the four metrics immediately.</li><li><code>CitationFaithfulness</code> is a real LLM judge; the abstain/clarify behavior is enforced by the prompt contract.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-04-doc-to-json.html">← Document-to-JSON Pipeline</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-07-support-copilot.html">Support Triage Copilot →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

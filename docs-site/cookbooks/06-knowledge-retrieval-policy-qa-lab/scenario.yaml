@@ -1,0 +1,39 @@
+id: SCN-06
+slug: knowledge-retrieval-policy-qa-lab
+name: "Grounded Knowledge Assistant"
+track: build
+objective: Build a grounded retrieval assistant over internal docs and policies with measurable faithfulness and abstention behavior.
+why_it_matters:
+  - Retrieval quality and answer quality fail in different ways and must be separated.
+  - Policy assistants must cite sources or abstain.
+primary_persona: AI engineer
+secondary_personas:
+  - compliance analyst
+  - solution architect
+caliber_surfaces:
+  - Knowledge Bases
+  - Prompts
+  - Workflows
+  - Evaluations
+  - Review Queues
+  - Observability
+prerequisites:
+  - Seeded document corpus.
+  - Retrieval modes available (dense/hybrid and optional graph).
+time_to_first_value: 120-180 minutes
+success_criteria:
+  - Answers are citation-backed or abstained.
+  - Retrieval calibration improves recall without reducing faithfulness.
+demo_profile:
+  recommended_sequence_index: 6
+  tier: build
+  live_demo_minutes: 40-60
+  depends_on:
+    - SCN-04
+    - SCN-05
+  included_in:
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - retrieval mode comparison (dense, hybrid, graph)
+    - citation and abstention governance

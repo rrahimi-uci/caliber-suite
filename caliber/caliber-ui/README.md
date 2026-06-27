@@ -1,0 +1,122 @@
+# CALIBER UI
+
+Single-page application served by the CALIBER MLflow plugin.
+
+## Overview
+
+This app is the browser control plane for CALIBER. It covers login, overview,
+prompts, tools, skills, MCP servers, file directories, workflows, workflow runs,
+approvals, settings, and assistant authoring. In development it runs on Vite; in
+production the Python plugin serves the built bundle at `/caliber/`.
+
+## Stack
+
+- **Vite 8** + **React 18** + **TypeScript** in strict mode.
+- **Tailwind CSS** plus Radix UI primitives for accessible controls.
+- **React Router** for client-side routing under `/caliber/`.
+- **@tanstack/react-query** for cached API state, with a legacy `useApi` hook still used by older pages.
+- Native **`EventSource`** for the SSE live-update channel.
+- **Vitest**, Testing Library, MSW, and **Playwright** for unit/integration/E2E tests.
+
+## Quick start
+
+```bash
+# Install dependencies (one-time)
+npm install
+
+# Run the dev server with HMR.
+# Vite proxies /ajax-api/* to http://localhost:5000 by default — start
+# the CALIBER backend separately:
+#   (in caliber/) make dev
+npm run dev
+```
+
+The SPA is served from `http://localhost:5173/caliber/` in dev. Open that URL — the Overview page hits `GET /dashboard/summary` and subscribes to `GET /events/stream` for live updates.
+
+## Configuration
+
+| Env var | Where | Default | Notes |
+| --- | --- | --- | --- |
+| `CALIBER_API_TARGET` | Vite dev | `http://localhost:5000` | Backend URL the dev proxy forwards `/ajax-api/*` to. |
+| `CALIBER_UI_BASE` | Vite build | `/caliber/` | Public base path of the built SPA. Override for non-default reverse-proxy mounts. |
+
+At runtime the hosting backend stamps `window.__CALIBER_STATIC_PREFIX__` into the served `index.html` (e.g. `"/mlflow"`) so the API client and the router agree on the deployment's mount point. Locally the value defaults to `""` (no prefix).
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Vite dev server with HMR + backend proxy. |
+| `npm run typecheck` | `tsc --noEmit -p tsconfig.app.json` (strict app-code typecheck; excludes test fixtures). |
+| `npm run build` | Type-check, then build to `dist/`. CI copies `dist/` into the Python wheel via the Hatchling `force-include` hook (added in a Phase 4 milestone). |
+| `npm run preview` | Serve `dist/` locally to sanity-check the production build. |
+| `npm run lint` | ESLint over `src/`. |
+| `npm run format` | Prettier write-in-place over the tree. |
+| `npm run test:coverage` | Vitest unit/integration suite with V8 coverage. |
+| `npm run test:e2e` | Playwright E2E suite. |
+| `npm run playwright:install` | Install Chromium for Playwright. |
+
+## Project layout
+
+```
+caliber-ui/
+├── e2e/                    Playwright tests
+└── src/
+    ├── api/
+    │   ├── caliberApi.ts       Thin fetch wrapper + typed endpoint functions
+    │   ├── types.ts            Response shapes mirroring backend schemas
+    │   └── workflowTypes.ts    Workflow-specific response and request types
+    ├── components/
+    │   ├── AppShell.tsx        Top bar + sidebar + main content slot
+    │   ├── assistant/          Assistant panel and draft/test subcomponents
+    │   ├── workflows/          Canvas, node details, run file panels
+    │   ├── Sidebar.tsx         Left navigation with prefix-matched active states
+    │   ├── StatCard.tsx        Dashboard stat card (link-or-static)
+    │   └── TopBar.tsx          Fixed top header
+    ├── hooks/
+    │   ├── useApi.ts           Minimal data-fetching hook (data/error/loading/refresh)
+    │   └── useEventStream.ts   EventSource subscription with type filtering
+    ├── pages/
+    │   ├── Overview.tsx        Overview / Dashboard landing page
+    │   ├── Settings.tsx        Admin settings inventory
+    │   ├── WorkflowDetail.tsx  Workflow graph, versions, deployments, runs
+    │   └── WorkflowEditor.tsx  Visual workflow builder
+    ├── styles/
+    │   └── index.css           Tailwind directives + component utilities
+    ├── App.tsx                 Router + chrome
+    └── main.tsx                Entry point + BrowserRouter basename
+```
+
+## How the SPA is served in production
+
+The CALIBER backend serves the built bundle from `caliber.routes.static`. The
+Python wheel includes packaged SPA assets from `src/caliber/ui`; CI or release
+automation should build `caliber-ui/dist` and copy it there before producing the
+wheel. If the bundle is absent, the backend returns an operator-facing 503 with
+instructions to start the SPA dev server or rebuild the package.
+
+## Current Validation
+
+Latest local run on 2026-06-07:
+
+| Gate | Result |
+| --- | --- |
+| ESLint | Passed. |
+| TypeScript | Passed. |
+| Production build | Passed on Vite 8.0.16. |
+| Vitest coverage | 475 tests passed; 85.02% statements, 75.79% branches, 87.35% lines. |
+| Playwright | 8 tests passed across auth/shell, navigation, workflow creation, and file-directory storage. |
+| npm audit | 0 vulnerabilities at `--audit-level=moderate`. |
+
+The 97% coverage goal is not yet met. The largest frontend gaps are large page
+components such as `Overview`, `WorkflowEditor`, `VerificationDetail`,
+`WorkflowDetail`, `NodeDetailPanel`, and the broad API client.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| E2E browser is missing | Run `npm run playwright:install`. |
+| API calls hit the wrong backend | Set `CALIBER_API_TARGET` before `npm run dev`. |
+| Routes render 404 in production | Verify the app is served under the same base path as `CALIBER_UI_BASE`. |
+| Test coverage is unexpectedly low | Run `npm run test:coverage`; Playwright coverage is not included in Vitest's V8 report. |

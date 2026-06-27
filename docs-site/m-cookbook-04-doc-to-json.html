@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 04: Document-to-JSON Pipeline | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">04 · Document-to-JSON Pipeline</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 04 · Build</p>
+        <h1>Document-to-JSON Pipeline</h1>
+        <p class="doc-lead">Turn Office documents into schema-valid JSON, with readable failures for bad inputs.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Build</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">35–55 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A workflow that fetches a document, extracts its text/tables, structures it to JSON with a prompt, and validates the result against a target schema — separating extraction failures from validation failures.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Object Store</span> <span class="ck-badge ck-surface">Prompts</span> <span class="ck-badge ck-surface">Tools</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Observability</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Upload + preview + extract Office docs in Object Store</li><li>Register the shipped extractor tool</li><li>Author a structuring prompt that never invents values</li><li>Validate JSON in a Python Code node</li><li>Separate extraction vs normalization vs validation failures in traces</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  OB[(Object Store: docs)] -.upload + preview/extract.-&gt; LF[/local file path/]
+  LF --&gt; EX[Tool: extract_document · reads a local path]
+  EX --&gt; ST[Agent: doc-structurer prompt]
+  ST --&gt; VAL[Python Code: validate_document_json]
+  VAL --&gt;|pass / partial / fail| OUT[output]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Object Store › Bucket browser</code> <span class="ck-made">creates · bucket: doc-intake</span></div><div class="ck-step-do">Create a place to hold the source documents. In the <strong>Bucket browser</strong> panel (left rail), type the bucket name into the <em>new-bucket-name</em> field at the bottom, then click the <strong>+</strong> create button (titled “Create bucket”). Names must be 3–63 chars, lowercase. This bucket is backed by S3/MinIO storage.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>new-bucket-name</td><td><code>doc-intake</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">+ (Create bucket)</span></div><div class="ck-see"><strong>You'll see:</strong> A new empty bucket <code>doc-intake</code> appears in the Bucket browser list and opens automatically, ready for uploads.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Object Store › Bucket browser</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">Bucket browser</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">new-bucket-name</span><span class="ck-mk-input">doc-intake</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">+ (Create bucket)</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Object Store › doc-intake</code> <span class="ck-made">creates · uploaded source documents</span> <a class="ck-assetref" href="#asset-assets-dataset-sources-invoice-clean-md">invoice-clean.md ↓</a> <a class="ck-assetref" href="#asset-assets-dataset-sources-invoice-clean-csv">invoice-clean.csv ↓</a> <a class="ck-assetref" href="#asset-assets-dataset-sources-invoice-partial-md">invoice-partial.md ↓</a></div><div class="ck-step-do">Open the <code>doc-intake</code> bucket and use the <strong>Upload</strong> button (or drag-and-drop) to add the sample files. For a no-conversion <strong>dry run</strong> you can upload the text stand-ins directly (<code>extract_document</code> reads <code>.md</code>/<code>.csv</code>/<code>.txt</code>); to exercise the real Office path, first convert them to <code>.docx</code>/<code>.xlsx</code> using the one-liners in the sources README. Upload each file under the exact key the dataset expects.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Golden invoice (all fields → pass)</td><td>Upload <a href="#asset-assets-dataset-sources-invoice-clean-md">invoice-clean.md</a> (dry run) or its converted <code>invoice-clean.docx</code> / <code>invoice-clean.xlsx</code></td></tr><tr><td>Spreadsheet stand-in</td><td>Upload <a href="#asset-assets-dataset-sources-invoice-clean-csv">invoice-clean.csv</a> (or its converted <code>invoice-clean.xlsx</code>)</td></tr><tr><td>Partial invoice (missing total → partial)</td><td>Upload <a href="#asset-assets-dataset-sources-invoice-partial-md">invoice-partial.md</a> (or its converted <code>invoice-partial.docx</code>)</td></tr><tr><td>Negative cases (need real binaries)</td><td>Create <code>invoice-legacy.doc</code> + <code>invoice-corrupt.docx</code> per <a href="#asset-assets-dataset-sources-readme-md">sources/README.md</a>, then upload</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Upload</span></div><div class="ck-see"><strong>You'll see:</strong> Each uploaded object is listed with its key, size, and a preview action. The eval dataset addresses these files by their <strong>local filesystem path</strong> (the <code>doc_path</code> field) rather than a bucket key — so after landing each file locally, the <code>doc_path</code> values point at the on-disk copy the platform host can open.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Object Store › doc-intake</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">doc-intake</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Golden invoice (all fields → pass)</span><span class="ck-mk-input">Upload invoice-clean.md (dry run) or its converted invoice-clean.docx / invoice-clea…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Spreadsheet stand-in</span><span class="ck-mk-input">Upload invoice-clean.csv (or its converted invoice-clean.xlsx)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Partial invoice (missing total → partial)</span><span class="ck-mk-input">Upload invoice-partial.md (or its converted invoice-partial.docx)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Negative cases (need real binaries)</span><span class="ck-mk-input">Create invoice-legacy.doc + invoice-corrupt.docx per sources/README.md, then upload</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Upload</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Knowledge › Object Store › doc-intake › (preview a file)</code> <span class="ck-made">creates · extraction preview + readable unsupported error</span></div><div class="ck-step-do">Confirm the platform can read each source before you build the workflow. In the file list, click a row's <strong>preview (eye)</strong> action to open the preview modal. For Office documents (<code>.docx</code>/<code>.xlsx</code>) the modal runs server-side extraction automatically and shows the extracted text/tables; markdown and CSV stand-ins render inline. Open the legacy <code>invoice-legacy.doc</code> the same way to capture the readable unsupported diagnostic. (The Object Store preview is what produces the friendly <code>kind:"unsupported"</code> message; the <code>extract_document</code> tool would instead read a <code>.doc</code> as garbled bytes, so this is the right place to capture the negative case.)</div><div class="ck-see"><strong>You'll see:</strong> The preview modal shows extracted plain text for the invoice docs (XLSX renders sheet tables); for <code>invoice-legacy.doc</code> a readable <code>kind:"unsupported"</code> message naming the format — not a crash.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Knowledge › Object Store › doc-intake › (preview a file)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Knowledge Base</span><span class="ck-mk-title">(preview a file)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Tools › Register Tool</code> <span class="ck-made">creates · tool: extract_document</span> <a class="ck-assetref" href="#asset-assets-tools-extract-document-tool-json">extract-document.tool.json ↓</a></div><div class="ck-step-do">Register the shipped extractor as a reusable Tool so the workflow can call it. Click <strong>Register Tool</strong> to open the 5-step wizard and fill the steps below. It points at an importable Python callable; because it is a <code>read</code> tool with <em>Allow in Preview</em> on, it runs live in the sandbox. (On Step 3 — Schema — use the <em>Raw JSON</em> toggle to paste the input/output schema.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Step 1 Identity — Name</td><td><code>extract_document</code> · Version <code>1.0</code></td></tr><tr><td>Step 2 Implementation — Module Path</td><td><code>caliber.workflows.ingestion_tools</code></td></tr><tr><td>Step 2 Implementation — Callable Name</td><td><code>extract_document</code></td></tr><tr><td>Step 3 Schema (Raw JSON toggle)</td><td>Paste input/output from <a href="#asset-assets-tools-extract-document-tool-json">extract-document.tool.json</a> — input requires <code>ref</code> (the object path); output is <code>{text, format, chars, truncated, source, ocr_used}</code></td></tr><tr><td>Step 5 Safety &amp; Review — Side Effect Level</td><td><code>Read</code></td></tr><tr><td>Step 5 Safety &amp; Review — Allow in Preview</td><td>checked (so the read tool runs live in the sandbox)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Register Tool</span></div><div class="ck-see"><strong>You'll see:</strong> <code>extract_document</code> appears in the Tools list; opening it shows the per-tool workspace with a <strong>Sandbox</strong> stage tab.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Tools › Register Tool</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Register Tool</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Step 1 Identity — Name</span><span class="ck-mk-input">extract_document · Version 1.0</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 2 Implementation — Module Path</span><span class="ck-mk-input">caliber.workflows.ingestion_tools</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 2 Implementation — Callable Name</span><span class="ck-mk-input">extract_document</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 3 Schema (Raw JSON toggle)</span><span class="ck-mk-input">Paste input/output from extract-document.tool.json — input requires ref (the object …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 5 Safety &amp; Review — Side Effect Level</span><span class="ck-mk-input">Read</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Register Tool</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Tools › extract_document › Sandbox</code> <span class="ck-made">creates · sandbox test run</span></div><div class="ck-step-do">Open the tool, switch to the <strong>Sandbox</strong> stage tab, and run it once against a real file to confirm it returns clean text. <strong>Important:</strong> <code>extract_document</code> resolves its <code>ref</code> as a <em>local filesystem path</em> — it opens <code>Path(ref)</code> and requires <code>path.is_file()</code> — so it cannot read an <code>object-store://</code> URI or a bucket key. Pass a real <strong>absolute local path</strong> to a file that exists on the machine running the platform. Put the call arguments into the <em>Input JSON</em> box, then click <strong>Test Run</strong>. Read tools with <em>Allow in Preview</em> execute for real here (the result is marked “Live execution”, not mocked).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input JSON (use a real absolute local path)</td><td><code>{"ref": "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.md"}</code> — substitute the absolute path to the checked-out <code>invoice-clean.md</code> stand-in (a <code>.md</code>/<code>.csv</code>/<code>.txt</code> file needs no conversion). For the real Office path, convert it to <code>invoice-clean.docx</code> per the sources README first, then point <code>ref</code> at that converted file's absolute path.</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Test Run</span></div><div class="ck-see"><strong>You'll see:</strong> A live result object: <code>text</code> populated, <code>format</code> = <code>docx</code>/<code>markdown</code>, a positive <code>chars</code> count, and <code>truncated:false</code>. The invoke is also saved under the Test Runs tab.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Tools › extract_document › Sandbox</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Sandbox</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input JSON (use a real absolute local path)</span><span class="ck-mk-input">{&quot;ref&quot;: &quot;/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/d…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Test Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Prompts › New prompt</code> <span class="ck-made">creates · prompt: doc-structurer</span> <a class="ck-assetref" href="#asset-assets-prompts-doc-structurer-md">doc-structurer.md ↓</a></div><div class="ck-step-do">Author the structuring prompt that turns extracted text into a JSON record. Paste the template body (everything below the YAML frontmatter) into the authoring textarea. The body instructs the model to extract <strong>only verifiable facts</strong>, match the target schema's types exactly, never invent values, and list anything it cannot ground in <code>missing_fields</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>doc-structurer</code></td></tr><tr><td>Commit message</td><td><code>v1 verifiable-facts document structurer</code></td></tr><tr><td>Template body (paste)</td><td>Paste the body of <a href="#asset-assets-prompts-doc-structurer-md">doc-structurer.md</a> — it declares variables <code>{{ document_text }}</code>, <code>{{ document_type }}</code>, <code>{{ target_schema }}</code> and demands JSON-only output</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save as New Version</span></div><div class="ck-see"><strong>You'll see:</strong> <code>doc-structurer</code> v1 is saved and resolvable under the <code>prod</code> alias.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Prompts › New prompt</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">New prompt</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">doc-structurer</span></label><label class="ck-mk-field"><span class="ck-mk-label">Commit message</span><span class="ck-mk-input">v1 verifiable-facts document structurer</span></label><label class="ck-mk-field"><span class="ck-mk-label">Template body (paste)</span><span class="ck-mk-input">Paste the body of doc-structurer.md — it declares variables {{ document_text }}, {{ …</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save as New Version</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › New Workflow</code> <span class="ck-made">creates · workflow: doc-intake-to-json</span></div><div class="ck-step-do">Create the pipeline workflow. Click <strong>New Workflow</strong> to open the template gallery, type the workflow name in the name box, then click the <strong>Blank Canvas</strong> template tile — selecting the tile creates the workflow (there is no separate Create button) and opens the Studio editor so you can lay out the nodes yourself. The next steps add five nodes in sequence.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Give your workflow a name…</td><td><code>doc-intake-to-json</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Blank Canvas (template tile)</span></div><div class="ck-see"><strong>You'll see:</strong> The Workflow Studio editor opens with a node/component palette (Agent · Tool · Knowledge Query · Router · Python Code · MCP Resource).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › New Workflow</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Give your workflow a name…</span><span class="ck-mk-input">doc-intake-to-json</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Blank Canvas (template tile)</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › doc-intake-to-json (Studio editor)</code> <span class="ck-made">creates · node: extract_document (Tool)</span></div><div class="ck-step-do">Drag a <strong>Tool</strong> node from the palette onto the canvas and bind it to <code>extract_document</code>. The run input carries a <strong>local file path</strong> (the run’s <code>doc_path</code> field), so map that run input into the tool’s <code>ref</code> port. <code>extract_document</code> opens <code>ref</code> as a local filesystem path (<code>Path(ref).is_file()</code>) — it does <em>not</em> understand <code>object-store://</code> URIs or bucket keys — so the file must already exist on the platform host. <strong>Land the file locally first</strong>: download the document from the <code>doc-intake</code> bucket onto the platform host (Object Store preview/download, or <code>mc cp</code> from MinIO) and pass that absolute local path; or just point at the checked-out stand-in under <code>assets/dataset/sources/</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Tool node</td><td>select tool <code>extract_document</code>; map run input <code>doc_path</code> (an absolute local file path) → <code>ref</code></td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A <code>Tool</code> node bound to <code>extract_document</code> on the canvas, showing its <code>ref</code> input port wired from the run input’s local path.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › doc-intake-to-json (Studio editor)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">doc-intake-to-json (Studio editor)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Tool node</span><span class="ck-mk-input">select tool extract_document; map run input doc_path (an absolute local file path) →…</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › doc-intake-to-json (Studio editor)</code> <span class="ck-made">creates · node: structure_json (doc-structurer)</span> <a class="ck-assetref" href="#asset-assets-schema-extracted-fields-schema-json">extracted-fields.schema.json ↓</a></div><div class="ck-step-do">Drag an <strong>Agent</strong> node from the palette and apply the <code>doc-structurer</code> prompt to the extracted text. Bind the prompt and pass the extractor's <code>text</code> output into <code>document_text</code>, the run's <code>document_type</code> into <code>document_type</code>, and paste the target schema JSON into <code>target_schema</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Bind prompt</td><td><code>doc-structurer</code> (prod)</td></tr><tr><td>document_text</td><td>← <code>extract_document.text</code></td></tr><tr><td>document_type</td><td>← run input <code>document_type</code></td></tr><tr><td>target_schema</td><td>Paste the JSON from <a href="#asset-assets-schema-extracted-fields-schema-json">extracted-fields.schema.json</a></td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> An <code>agent</code> node wired after the extractor, emitting a JSON record on its output.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › doc-intake-to-json (Studio editor)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">doc-intake-to-json (Studio editor)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Bind prompt</span><span class="ck-mk-input">doc-structurer (prod)</span></label><label class="ck-mk-field"><span class="ck-mk-label">document_text</span><span class="ck-mk-input">← extract_document.text</span></label><label class="ck-mk-field"><span class="ck-mk-label">document_type</span><span class="ck-mk-input">← run input document_type</span></label><label class="ck-mk-field"><span class="ck-mk-label">target_schema</span><span class="ck-mk-input">Paste the JSON from extracted-fields.schema.json</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › doc-intake-to-json (Studio editor) › Python Code node</code> <span class="ck-made">creates · python_code: validate_document_json</span> <a class="ck-assetref" href="#asset-assets-tools-validate-document-json-py">validate_document_json.py ↓</a></div><div class="ck-step-do">Drag a <strong>Python Code</strong> node from the palette to validate the JSON against the schema — no tool registration needed, it runs sandboxed. Paste the whole file as the node body (it must define <code>run_python_node(...)</code> returning a dict). Wire the agent's JSON output into the node input named <code>extracted_json</code> and the schema into <code>target_schema</code>. The node sets <code>validation_status</code> (pass/partial/fail) and <code>missing_fields</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Node body (paste)</td><td>Paste all of <a href="#asset-assets-tools-validate-document-json-py">validate_document_json.py</a> (stdlib-only; defines <code>run_python_node</code>)</td></tr><tr><td>inputs.extracted_json</td><td>← <code>doc-structurer</code> node JSON output</td></tr><tr><td>inputs.target_schema</td><td>← the same <a href="#asset-assets-schema-extracted-fields-schema-json">extracted-fields.schema.json</a></td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A <code>python_code</code> node whose <code>result</code> port carries <code>{validation_status, missing_fields, errors}</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › doc-intake-to-json (Studio editor) › Python Code node</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Python Code node</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Node body (paste)</span><span class="ck-mk-input">Paste all of validate_document_json.py (stdlib-only; defines run_python_node)</span></label><label class="ck-mk-field"><span class="ck-mk-label">inputs.extracted_json</span><span class="ck-mk-input">← doc-structurer node JSON output</span></label><label class="ck-mk-field"><span class="ck-mk-label">inputs.target_schema</span><span class="ck-mk-input">← the same extracted-fields.schema.json</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › doc-intake-to-json (Studio editor)</code> <span class="ck-made">creates · workflow saved</span></div><div class="ck-step-do">Connect the validator to the workflow output, then click <strong>Save</strong> in the editor toolbar. The full chain is <code>extract_document (Tool) → doc-structurer (Agent) → validate_document_json (Python Code) → output</code>.</div><div class="ck-click">Click <span class="ck-btn">Save</span></div><div class="ck-see"><strong>You'll see:</strong> The pipeline is saved as a draft version (an “unsaved” pill clears). The workflow detail page’s <strong>Runs</strong> tab then lets you start a run.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › doc-intake-to-json (Studio editor)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">doc-intake-to-json (Studio editor)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Save</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Compose › Workflows › doc-intake-to-json › Runs</code> <span class="ck-made">creates · workflow runs: pass / partial / fail</span></div><div class="ck-step-do">On the workflow detail page open the <strong>Runs</strong> tab. <strong>Land each file locally first</strong> — <code>extract_document</code> reads its <code>ref</code> as a local filesystem path, so the file must exist on the platform host (download it from the <code>doc-intake</code> bucket, or use the checked-out stand-ins under <code>assets/dataset/sources/</code>). For each case, put the run input (an absolute local <code>doc_path</code> + document type) in the <em>run input</em> box and click <strong>Run Pipeline</strong> (labeled “Queue Run” if queued runs are enabled). Replace <code>/ABSOLUTE/PATH/TO</code> with the real absolute path on the host. Watch the outcomes differ: the golden file passes, the partial file reports the missing field, and the unsupported/corrupt files fail with a clean diagnostic instead of crashing.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Golden run (D01)</td><td><code>{"doc_path":"/ABSOLUTE/PATH/TO/sources/invoice-clean.docx","document_type":"invoice"}</code> → <code>validation_status: pass</code></td></tr><tr><td>Partial run (D03)</td><td><code>{"doc_path":"/ABSOLUTE/PATH/TO/sources/invoice-partial.docx","document_type":"invoice"}</code> → <code>partial</code>, <code>missing_fields:["total"]</code></td></tr><tr><td>Unsupported run (D05)</td><td><code>{"doc_path":"/ABSOLUTE/PATH/TO/sources/invoice-legacy.doc","document_type":"invoice"}</code> → run <code>fail</code> with a readable unsupported error</td></tr><tr><td>Corrupt run (D06)</td><td><code>{"doc_path":"/ABSOLUTE/PATH/TO/sources/invoice-corrupt.docx","document_type":"invoice"}</code> → run <code>fail</code> attributed to the extract node</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run Pipeline</span></div><div class="ck-see"><strong>You'll see:</strong> Distinct run rows under the Runs tab: pass, partial (with <code>missing_fields</code>), and clean failures. Note each run id for your evidence list.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Compose › Workflows › doc-intake-to-json › Runs</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Runs</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Golden run (D01)</span><span class="ck-mk-input">{&quot;doc_path&quot;:&quot;/ABSOLUTE/PATH/TO/sources/invoice-clean.docx&quot;,&quot;document_type&quot;:&quot;invoice&quot;…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Partial run (D03)</span><span class="ck-mk-input">{&quot;doc_path&quot;:&quot;/ABSOLUTE/PATH/TO/sources/invoice-partial.docx&quot;,&quot;document_type&quot;:&quot;invoic…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Unsupported run (D05)</span><span class="ck-mk-input">{&quot;doc_path&quot;:&quot;/ABSOLUTE/PATH/TO/sources/invoice-legacy.doc&quot;,&quot;document_type&quot;:&quot;invoice&quot;…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Corrupt run (D06)</span><span class="ck-mk-input">{&quot;doc_path&quot;:&quot;/ABSOLUTE/PATH/TO/sources/invoice-corrupt.docx&quot;,&quot;document_type&quot;:&quot;invoic…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run Pipeline</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Observe › Observability</code> <span class="ck-made">creates · trace evidence (stage-attributed failures)</span></div><div class="ck-step-do">Open each run's trace and read the node tree top-to-bottom. Separate <strong>extraction</strong> failures (the <code>extract_document</code> node) from <strong>schema</strong> failures (the <code>validate_document_json</code> node) — the trace makes clear which stage broke. Capture one readable validation-error payload (which node, which field) for the demo evidence.</div><div class="ck-see"><strong>You'll see:</strong> A span tree per run; the failing node carries a human-readable message (e.g. an extract error vs a type/missing-field validation error).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Observe › Observability</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Observability</span><span class="ck-mk-title">Observability</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Test Sets › + New Test Set</code> <span class="ck-made">creates · test set: doc-extraction-cases</span> <a class="ck-assetref" href="#asset-assets-dataset-extraction-cases-jsonl">extraction-cases.jsonl ↓</a></div><div class="ck-step-do">Build a scored test set so you can prove the schema pass-rate gate. Click <strong>+ New Test Set</strong>, give it a Name and Owner (both required), and click <strong>Create</strong>. Then open its detail page at <code>/eval-datasets/:id</code> and author rows with <strong>+ Add example</strong>, setting <code>inputs</code> = <code>{doc_path, document_type}</code> and the expected answer directly. Alternatively, capture rows from the workflow runs: open <strong>Observe › Observability</strong>, pick a run's trace, and use <strong>Add to test set → Add example</strong> (the trace's request becomes <code>inputs</code> and its response the expected answer). The 6-row cases file (D01–D06) is the reference for which rows to add and the expected <code>validation_status</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>doc-extraction-cases</code></td></tr><tr><td>Owner</td><td>your handle (required, e.g. <code>@you</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create</span></div><div class="ck-see"><strong>You'll see:</strong> A dataset <code>doc-extraction-cases</code> appears; add its golden, edge (missing-field), and negative rows from Observability per <a href="../cookbooks/04-document-extraction-structuring-lab/assets/dataset/extraction-cases.jsonl">extraction-cases.jsonl</a>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Test Sets › + New Test Set</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Test Sets</span><span class="ck-mk-title">+ New Test Set</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">doc-extraction-cases</span></label><label class="ck-mk-field"><span class="ck-mk-label">Owner</span><span class="ck-mk-input">your handle (required, e.g. @you)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Evaluate › Evaluations › Run evaluation</code> <span class="ck-made">creates · eval run: schema fidelity (deterministic)</span></div><div class="ck-step-do">Score the runs deterministically — there is <strong>no LLM judge</strong> here. Click <strong>Run evaluation</strong> to open the run panel, pick the dataset, and check the deterministic scorers that compare the captured output against each row's expected answer. Click <strong>Run</strong>. Read the scorecard; if golden cases miss the schema, tune the prompt or schema and re-run. Gate: golden schema pass rate ≥ 0.95, and the unsupported file produces a readable, stage-identifying error.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Dataset</td><td><code>doc-extraction-cases</code></td></tr><tr><td>Scorers</td><td>check <code>Contains expected</code> (<code>contains_expected</code>) and/or <code>Exact match</code> (<code>exact_match</code>) — deterministic, no judge</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> A scorecard with per-example pass/fail and an overall rate; pin it as a baseline to compare future prompt/schema changes.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Evaluate › Evaluations › Run evaluation</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Evaluations</span><span class="ck-mk-title">Run evaluation</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Dataset</span><span class="ck-mk-input">doc-extraction-cases</span></label><label class="ck-mk-field"><span class="ck-mk-label">Scorers</span><span class="ck-mk-input">check Contains expected (contains_expected) and/or Exact match (exact_match) — deter…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/04-document-extraction-structuring-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-sources-invoice-clean-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/invoice-clean.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># INVOICE
+
+**Invoice ID:** INV-2026-0042
+**Vendor:** Northwind Traders, Inc.
+**Issue Date:** 2026-05-01
+**Due Date:** 2026-05-31
+**Currency:** USD
+
+Bill To: Caliber Demo Co., 500 Market St, Seattle WA
+
+| # | Description                       | Quantity | Unit Price | Amount  |
+|---|-----------------------------------|----------|------------|---------|
+| 1 | Standard Widget (part WGT-100)    | 10       | 12.50      | 125.00  |
+| 2 | Premium Widget (part WGT-200)     | 5        | 30.00      | 150.00  |
+| 3 | On-site installation (per hour)   | 4        | 95.00      | 380.00  |
+
+Subtotal: 655.00
+Tax (8%): 52.40
+**Total: 707.40 USD**
+
+Payment terms: Net 30. Please reference the invoice ID on remittance.
+
+&lt;!--
+STAND-IN for the GOLDEN case (dataset rows D01/D02).
+Every required field of schema/extracted-fields.schema.json is present and
+verifiable: invoice_id, vendor, line_items[] (3 rows), total (707.40),
+currency (USD), issue_date (2026-05-01). Expected validation_status: pass.
+Convert to a real .docx (D01) and .xlsx (D02) per sources/README.md before the
+live extract path; for a dry run you can extract this .md directly.
+--&gt;
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-sources-invoice-clean-csv">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/invoice-clean.csv</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="csv"><code>field,value
+invoice_id,INV-2026-0042
+vendor,&quot;Northwind Traders, Inc.&quot;
+issue_date,2026-05-01
+due_date,2026-05-31
+currency,USD
+line_item,&quot;Standard Widget (part WGT-100)|qty=10|unit_price=12.50|amount=125.00&quot;
+line_item,&quot;Premium Widget (part WGT-200)|qty=5|unit_price=30.00|amount=150.00&quot;
+line_item,&quot;On-site installation (per hour)|qty=4|unit_price=95.00|amount=380.00&quot;
+subtotal,655.00
+tax,52.40
+total,707.40
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-sources-invoice-partial-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/invoice-partial.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># INVOICE
+
+**Invoice ID:** INV-2026-0099
+**Vendor:** Contoso Office Supplies
+**Issue Date:** 2026-05-10
+**Currency:** USD
+
+Bill To: Caliber Demo Co., 500 Market St, Seattle WA
+
+| # | Description                  | Quantity | Unit Price | Amount  |
+|---|------------------------------|----------|------------|---------|
+| 1 | Managed print service (May)  | 1        | 300.00     | 300.00  |
+| 2 | Toner cartridge (black)      | 2        | 45.00      | 90.00   |
+
+Notes: This is a draft invoice. The grand total has NOT yet been finalized and
+is intentionally omitted from this document — do not compute or infer it.
+
+&lt;!--
+STAND-IN for the EDGE / missing-field case (dataset row D03).
+Required fields invoice_id, vendor, line_items[], currency, issue_date are
+present and verifiable, but `total` is deliberately absent. The doc-structurer
+prompt must NOT invent a total; it should list &quot;total&quot; in missing_fields, and
+validate_document_json must then return validation_status: partial with
+missing_fields == [&quot;total&quot;]. Convert to a real .docx per sources/README.md, or
+extract this .md directly for a dry run.
+--&gt;
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-sources-readme-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/sources/README.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># Source documents for SCN-04 — stand-ins + how to make real Office files
+
+The extraction pipeline runs on **real binary Office files** (`.docx` / `.pptx`
+/ `.xlsx`). Those are ZIP containers and **cannot be authored as text**, so this
+folder ships **stand-in source content** you *can* read and edit:
+
+| Stand-in file | Represents | Dataset row(s) | Expected outcome |
+| --- | --- | --- | --- |
+| [`invoice-clean.md`](invoice-clean.md) | clean invoice (all fields) | D01 (`.docx`) | `validation_status: pass` |
+| [`invoice-clean.csv`](invoice-clean.csv) | same invoice as a sheet | D02 (`.xlsx`) | `validation_status: pass` |
+| [`invoice-partial.md`](invoice-partial.md) | invoice missing `total` | D03 (`.docx`) | `partial`, `missing_fields:[&quot;total&quot;]` |
+
+The dataset ([`../extraction-cases.jsonl`](../extraction-cases.jsonl)) also
+references three files that are **deliberately not provided as content** because
+they only exist to exercise error paths — create them with the one-liners below:
+
+- `invoice-no-vendor.docx` (D04) — copy `invoice-clean.md`, delete the
+  **Vendor** line, save as `.docx`. Expect `partial`, `missing_fields:[&quot;vendor&quot;]`.
+- `invoice-legacy.doc` (D05) — a **legacy** Word doc (the unsupported-format
+  negative case). See &quot;Making the unsupported `.doc`&quot; below.
+- `invoice-corrupt.docx` (D06) — a deliberately broken `.docx`. See &quot;Making the
+  corrupt file&quot; below.
+
+## Dry run (no conversion) — fastest
+
+`caliber.workflows.ingestion_tools:extract_document` reads `.md`, `.csv`, and
+`.txt` as text directly. To smoke-test the **prompt + validator** wiring without
+producing Office binaries, upload the `.md`/`.csv` stand-ins to the `doc-intake`
+bucket and point the workflow at them. The text the structurer sees is
+equivalent; only the `format` field of the extract output differs
+(`markdown`/`text` instead of `docx`/`xlsx`). The golden/partial assertions in
+the dataset still hold.
+
+&gt; Note: a dry run does **not** cover the negative cases (D05/D06) — those need a
+&gt; real legacy `.doc` and a real corrupt `.docx` (see below).
+
+## Make the real Office files
+
+### Option A — LibreOffice headless (no code; converts in place)
+
+```sh
+cd cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources
+# .md -&gt; .docx  (D01, and the basis for D04 after you remove the Vendor line)
+soffice --headless --convert-to docx invoice-clean.md
+soffice --headless --convert-to docx invoice-partial.md
+# .csv -&gt; .xlsx (D02)
+soffice --headless --convert-to xlsx invoice-clean.csv
+```
+
+### Option B — Python (`python-docx` + `openpyxl`, from the `caliber[ingest]` extra)
+
+```python
+# invoice-clean.docx (D01)
+from docx import Document
+doc = Document()
+for line in open(&quot;invoice-clean.md&quot;, encoding=&quot;utf-8&quot;):
+    line = line.rstrip(&quot;\n&quot;)
+    if line.strip().startswith(&quot;&lt;!--&quot;):
+        break  # stop at the trailing HTML comment
+    doc.add_paragraph(line)
+doc.save(&quot;invoice-clean.docx&quot;)
+
+# invoice-clean.xlsx (D02)
+import csv
+from openpyxl import Workbook
+wb = Workbook(); ws = wb.active; ws.title = &quot;Invoice&quot;
+with open(&quot;invoice-clean.csv&quot;, newline=&quot;&quot;, encoding=&quot;utf-8&quot;) as fh:
+    for row in csv.reader(fh):
+        ws.append(row)
+wb.save(&quot;invoice-clean.xlsx&quot;)
+```
+
+Then land each produced file on the platform host at the **exact absolute
+local path** named in the dataset&#x27;s `doc_path` (e.g. the
+`.../assets/dataset/sources/invoice-clean.docx` placeholder). You can also upload
+the files to the `doc-intake` bucket (`Object Store → doc-intake → Upload`) for
+preview, but the extractor reads them by local path, not by bucket key.
+
+## Making the unsupported `.doc` (negative case D05)
+
+The extractor tool does **not** raise a typed error for a `.doc` — it would read
+the binary as best-effort UTF-8 (garbage). The **readable** `kind:&quot;unsupported&quot;`
+diagnostic is produced by the **Object Store extract endpoint**, which is the
+surface this case targets. Produce a genuine legacy binary `.doc` and confirm
+the endpoint rejects it:
+
+```sh
+# Real legacy .doc (binary Word 97-2003), NOT a renamed .docx:
+soffice --headless --convert-to doc invoice-clean.md   # -&gt; invoice-clean.doc
+mv invoice-clean.doc invoice-legacy.doc
+```
+
+Upload `invoice-legacy.doc`, then in the UI open it and click **Extract** (or
+call `GET /object-store/buckets/doc-intake/object/extract?key=invoice-legacy.doc`).
+Expect a readable `kind:&quot;unsupported&quot;` error naming the format — that is the
+`unsupported_format_returns_readable_error` rule check, and the workflow run
+should surface it cleanly (status `fail`) rather than crash.
+
+&gt; Do **not** simply rename a `.docx` to `.doc`; that produces a Zip-with-a-`.doc`
+&gt; name, not a real legacy OLE document, and won&#x27;t represent the case faithfully.
+
+## Making the corrupt file (negative case D06)
+
+Truncate a valid `.docx` so the parser fails mid-read:
+
+```sh
+# after producing invoice-clean.docx above:
+head -c 2048 invoice-clean.docx &gt; invoice-corrupt.docx   # truncated ZIP -&gt; parse error
+```
+
+Upload `invoice-corrupt.docx`. The `extract_document` tool raises
+`IngestionError(&quot;failed to extract docx ...&quot;)`; the workflow run ends `fail`
+with that message attributed to the **extract** node (not the validate node) —
+which is exactly the extraction-vs-validation separation the gate asks for.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-tools-extract-document-tool-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/extract-document.tool.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;name&quot;: &quot;extract_document&quot;,
+  &quot;version&quot;: &quot;1&quot;,
+  &quot;module_path&quot;: &quot;caliber.workflows.ingestion_tools&quot;,
+  &quot;callable_name&quot;: &quot;extract_document&quot;,
+  &quot;side_effect_level&quot;: &quot;read&quot;,
+  &quot;allow_in_preview&quot;: true,
+  &quot;input_schema&quot;: {
+    &quot;type&quot;: &quot;object&quot;,
+    &quot;required&quot;: [&quot;ref&quot;],
+    &quot;properties&quot;: {
+      &quot;ref&quot;: {
+        &quot;type&quot;: &quot;string&quot;,
+        &quot;description&quot;: &quot;Absolute LOCAL filesystem path of the source file. The callable opens Path(ref) and requires path.is_file(); it does NOT understand object-store:// URIs or bucket keys, so download/land the file locally first. Dispatch is by extension: .pdf/.docx/.pptx/.xlsx/.md/.txt/.csv. Unknown extensions (incl. legacy .doc/.ppt/.xls) are read best-effort as UTF-8 text.&quot;
+      }
+    }
+  },
+  &quot;output_schema&quot;: {
+    &quot;type&quot;: &quot;object&quot;,
+    &quot;properties&quot;: {
+      &quot;text&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Extracted plain text (XLSX = tab-separated rows under &#x27;## Sheet:&#x27; headers; PPTX = per-slide blocks).&quot;},
+      &quot;format&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Logical format the extension mapped to: pdf|docx|pptx|xlsx|markdown|text.&quot;},
+      &quot;chars&quot;: {&quot;type&quot;: &quot;integer&quot;},
+      &quot;truncated&quot;: {&quot;type&quot;: &quot;boolean&quot;},
+      &quot;source&quot;: {&quot;type&quot;: &quot;string&quot;},
+      &quot;ocr_used&quot;: {&quot;type&quot;: &quot;boolean&quot;}
+    }
+  },
+  &quot;notes&quot;: &quot;Read-only; runs live in the sandbox (allow_in_preview). The shipped callable signature is extract_document(ref, *, max_chars=200000, ocr=&#x27;auto&#x27;); only `ref` is exposed here (defaults are fine for the demo). Real .docx/.pptx/.xlsx parse to clean text; a missing file raises IngestionError (&#x27;document not found&#x27;). NOTE: this tool does NOT raise a typed &#x27;unsupported_format&#x27; error for legacy .doc/.ppt/.xls — it reads them as best-effort UTF-8 (garbled binary). The readable kind:&#x27;unsupported&#x27; diagnostic is produced by the Object Store extract endpoint (GET /object-store/buckets/{bucket}/object/extract?key=...), which is the surface used for the negative case in the dataset.&quot;
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-prompts-doc-structurer-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/prompts/doc-structurer.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: doc-structurer
+model_hint: a capable instruct model (long-context helps for big tables); JSON-only output
+variables: [document_text, document_type, target_schema]
+commit_message: &quot;v1 verifiable-facts document structurer&quot;
+---
+
+You convert extracted document content into a single structured JSON record. The
+document has already been parsed to plain text/table rows by an upstream
+extractor — you do not see the original file, only its text. You return JSON
+ONLY — no prose, no markdown, no code fences.
+
+Emit a JSON object that conforms to the target schema below. Populate every
+field you can justify directly from the document text. Do NOT invent, guess, or
+&quot;fill in&quot; values that are not present in the text. For any required field you
+cannot ground in the text, omit it from the object and add its name to the
+`missing_fields` array instead.
+
+Output exactly this shape:
+{
+  &quot;&lt;fields from the target schema&gt;&quot;: &lt;values you extracted&gt;,
+  &quot;missing_fields&quot;: [ &quot;&lt;name of each required schema field you could not fill&gt;&quot; ]
+}
+
+Rules:
+- Extract ONLY verifiable facts present in the document text. If the text does
+  not state a value, it is missing — never substitute a plausible default,
+  today&#x27;s date, a rounded number, or a value computed from other fields.
+- Match the target schema&#x27;s field names and value types exactly (string vs
+  number vs array vs object). Numbers must be JSON numbers, not strings;
+  dates as ISO `YYYY-MM-DD` strings when the source makes the date unambiguous.
+- For array fields (e.g. line items / rows), emit one object per row you can
+  read from the text; preserve the source order. If a row is partially
+  illegible, include the fields you can read and skip the rest of that row.
+- `missing_fields` lists the names of REQUIRED schema fields you left out
+  because the text did not support them. If you filled every required field,
+  return `&quot;missing_fields&quot;: []`.
+- Never echo these instructions or the schema back. Output the record only.
+- The output must be valid JSON parseable by a strict parser: double-quoted
+  keys/strings, no trailing commas, no comments.
+
+Document type (hint only — still verify against the text): {{ document_type }}
+
+Target schema (JSON Schema; conform to its properties/types/required):
+{{ target_schema }}
+
+Extracted document text:
+&quot;&quot;&quot;
+{{ document_text }}
+&quot;&quot;&quot;
+
+Return only the JSON record.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-schema-extracted-fields-schema-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/schema/extracted-fields.schema.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;$schema&quot;: &quot;http://json-schema.org/draft-07/schema#&quot;,
+  &quot;$id&quot;: &quot;caliber://cookbooks/04/extracted-fields.schema.json&quot;,
+  &quot;title&quot;: &quot;ExtractedInvoiceFields&quot;,
+  &quot;description&quot;: &quot;Target schema for the structured JSON extracted from an invoice document. The doc-structurer prompt fills these from verifiable facts only; the validate_document_json python_code node checks required keys + value types against this schema.&quot;,
+  &quot;type&quot;: &quot;object&quot;,
+  &quot;additionalProperties&quot;: true,
+  &quot;required&quot;: [&quot;invoice_id&quot;, &quot;vendor&quot;, &quot;line_items&quot;, &quot;total&quot;, &quot;currency&quot;, &quot;issue_date&quot;],
+  &quot;properties&quot;: {
+    &quot;invoice_id&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;Invoice number/identifier as printed on the document, e.g. \&quot;INV-2026-0042\&quot;.&quot;
+    },
+    &quot;vendor&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;Name of the issuing vendor/supplier.&quot;
+    },
+    &quot;line_items&quot;: {
+      &quot;type&quot;: &quot;array&quot;,
+      &quot;description&quot;: &quot;One object per billed line on the invoice, in source order.&quot;,
+      &quot;items&quot;: {
+        &quot;type&quot;: &quot;object&quot;,
+        &quot;required&quot;: [&quot;description&quot;, &quot;amount&quot;],
+        &quot;properties&quot;: {
+          &quot;description&quot;: {&quot;type&quot;: &quot;string&quot;},
+          &quot;quantity&quot;: {&quot;type&quot;: &quot;number&quot;},
+          &quot;unit_price&quot;: {&quot;type&quot;: &quot;number&quot;},
+          &quot;amount&quot;: {&quot;type&quot;: &quot;number&quot;, &quot;description&quot;: &quot;Extended line amount (quantity * unit_price) as printed.&quot;}
+        }
+      }
+    },
+    &quot;total&quot;: {
+      &quot;type&quot;: &quot;number&quot;,
+      &quot;description&quot;: &quot;Invoice grand total as printed. Must be a JSON number, not a string. Omit (and list in missing_fields) if the document does not state a total — never compute it.&quot;
+    },
+    &quot;currency&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;ISO 4217 currency code, e.g. \&quot;USD\&quot;, \&quot;EUR\&quot;.&quot;
+    },
+    &quot;issue_date&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;Invoice issue date as an ISO 8601 date string YYYY-MM-DD.&quot;
+    },
+    &quot;due_date&quot;: {
+      &quot;type&quot;: &quot;string&quot;,
+      &quot;description&quot;: &quot;Optional payment due date, ISO 8601 YYYY-MM-DD.&quot;
+    }
+  }
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-tools-validate-document-json-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/validate_document_json.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>&quot;&quot;&quot;validate_document_json — Caliber workflow `python_code` node body.
+
+Paste this into the **Python Code** node `validate_document_json` (no tool
+registration; the python_code sandbox runs it). It performs a minimal,
+stdlib-only JSON-Schema-ish check of the structurer&#x27;s output against the target
+schema and reports whether the record is schema-valid.
+
+CONTRACT (how the sandbox calls this)
+  The node body runs inside:
+      run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;)
+  Wire the upstream ports into this node&#x27;s `inputs` so it receives:
+      inputs[&quot;extracted_json&quot;]  -&gt; the doc-structurer node output (dict, or a
+                                   JSON string; both are accepted)
+      inputs[&quot;target_schema&quot;]   -&gt; the JSON Schema (schema/extracted-fields.schema.json),
+                                   as a dict or a JSON string
+  If `inputs` is not populated, it falls back to reading those keys off `input`
+  / `context` so the node still works when the upstream emits a single dict.
+
+OUTPUTS (returned on the node&#x27;s `result` port)
+  {
+    &quot;validation_status&quot;: &quot;pass&quot; | &quot;partial&quot; | &quot;fail&quot;,
+    &quot;missing_fields&quot;:    [&lt;required schema fields absent from extracted_json&gt;],
+    &quot;errors&quot;:            [&lt;human-readable type/shape problems&gt;]
+  }
+    - &quot;pass&quot;    : every required field present AND all type checks pass.
+    - &quot;partial&quot; : some required fields missing (or echoed via the structurer&#x27;s
+                  own `missing_fields`) BUT no type errors on what IS present.
+                  This is the README&#x27;s &quot;missing_fields populated&quot; edge case
+                  (a.k.a. pass_with_warnings).
+    - &quot;fail&quot;    : at least one type/shape error, or the payload is not a JSON
+                  object at all (unparseable / wrong root type).
+  The same dict is also returned on `text` (as JSON) so the node&#x27;s text port and
+  the downstream `contains_expected` scorer can read `validation_status` /
+  `missing_fields` directly.
+&quot;&quot;&quot;
+
+import json
+
+# Map JSON Schema &quot;type&quot; -&gt; Python types for a basic isinstance check.
+# bool is excluded from &quot;number&quot;/&quot;integer&quot; on purpose (bool is a subclass of int).
+_JSON_TYPES = {
+    &quot;string&quot;: str,
+    &quot;number&quot;: (int, float),
+    &quot;integer&quot;: int,
+    &quot;boolean&quot;: bool,
+    &quot;array&quot;: list,
+    &quot;object&quot;: dict,
+    &quot;null&quot;: type(None),
+}
+
+
+def _coerce_obj(value):
+    &quot;&quot;&quot;Accept a dict directly or a JSON string; anything else -&gt; None.&quot;&quot;&quot;
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _type_ok(value, json_type):
+    py = _JSON_TYPES.get(json_type)
+    if py is None:
+        return True  # unknown declared type -&gt; don&#x27;t fail the record on it
+    if json_type in (&quot;number&quot;, &quot;integer&quot;) and isinstance(value, bool):
+        return False  # booleans are not numbers here
+    if json_type == &quot;number&quot;:
+        return isinstance(value, (int, float))
+    return isinstance(value, py)
+
+
+def _check_value(name, value, prop_schema, errors):
+    &quot;&quot;&quot;Type/shape-check one value against its property subschema (one level deep
+    into array item objects, which is enough for the invoice line_items case).&quot;&quot;&quot;
+    declared = prop_schema.get(&quot;type&quot;)
+    if declared and not _type_ok(value, declared):
+        errors.append(
+            &quot;field {!r}: expected type {!r}, got {!r}&quot;.format(
+                name, declared, type(value).__name__
+            )
+        )
+        return  # don&#x27;t descend into a value of the wrong type
+
+    if declared == &quot;array&quot;:
+        item_schema = prop_schema.get(&quot;items&quot;) or {}
+        item_required = item_schema.get(&quot;required&quot;) or []
+        item_props = item_schema.get(&quot;properties&quot;) or {}
+        for idx, item in enumerate(value):
+            if item_schema.get(&quot;type&quot;) and not _type_ok(item, item_schema[&quot;type&quot;]):
+                errors.append(
+                    &quot;field {!r}[{}]: expected item type {!r}, got {!r}&quot;.format(
+                        name, idx, item_schema[&quot;type&quot;], type(item).__name__
+                    )
+                )
+                continue
+            if isinstance(item, dict):
+                for req in item_required:
+                    if req not in item or item.get(req) is None:
+                        errors.append(
+                            &quot;field {!r}[{}]: missing required item key {!r}&quot;.format(
+                                name, idx, req
+                            )
+                        )
+                for key, sub in item_props.items():
+                    if key in item and item.get(key) is not None:
+                        _check_value(&quot;{}[{}].{}&quot;.format(name, idx, key), item[key], sub, errors)
+
+
+def run_python_node(input=None, context=None, inputs=None, run_input=&quot;&quot;):
+    src = inputs if isinstance(inputs, dict) else {}
+
+    def _pick(key):
+        if key in src:
+            return src[key]
+        if isinstance(input, dict) and key in input:
+            return input[key]
+        if isinstance(context, dict) and key in context:
+            return context[key]
+        return None
+
+    extracted = _coerce_obj(_pick(&quot;extracted_json&quot;))
+    schema = _coerce_obj(_pick(&quot;target_schema&quot;)) or {}
+
+    errors = []
+    missing_fields = []
+
+    # Root must be a JSON object; otherwise the structurer broke the contract.
+    if extracted is None:
+        result = {
+            &quot;validation_status&quot;: &quot;fail&quot;,
+            &quot;missing_fields&quot;: [],
+            &quot;errors&quot;: [&quot;extracted_json is missing or is not a JSON object&quot;],
+        }
+        return {&quot;text&quot;: json.dumps(result), &quot;result&quot;: result}
+
+    required = schema.get(&quot;required&quot;) or []
+    props = schema.get(&quot;properties&quot;) or {}
+
+    # 1) Required-key presence (treat null as absent).
+    for field in required:
+        if field not in extracted or extracted.get(field) is None:
+            missing_fields.append(field)
+
+    # Honor the structurer&#x27;s self-declared missing_fields (the prompt is told to
+    # list required fields it could not ground). Union, preserving order.
+    declared_missing = extracted.get(&quot;missing_fields&quot;)
+    if isinstance(declared_missing, list):
+        for field in declared_missing:
+            if isinstance(field, str) and field not in missing_fields:
+                missing_fields.append(field)
+
+    # 2) Type/shape checks for fields that ARE present.
+    for field, prop_schema in props.items():
+        if field in extracted and extracted.get(field) is not None:
+            _check_value(field, extracted[field], prop_schema, errors)
+
+    if errors:
+        status = &quot;fail&quot;
+    elif missing_fields:
+        status = &quot;partial&quot;
+    else:
+        status = &quot;pass&quot;
+
+    result = {
+        &quot;validation_status&quot;: status,
+        &quot;missing_fields&quot;: missing_fields,
+        &quot;errors&quot;: errors,
+    }
+    return {&quot;text&quot;: json.dumps(result), &quot;result&quot;: result}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-extraction-cases-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/extraction-cases.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;D01&quot;, &quot;tags&quot;: [&quot;golden&quot;], &quot;inputs&quot;: {&quot;doc_path&quot;: &quot;/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.docx&quot;, &quot;document_type&quot;: &quot;invoice&quot;}, &quot;expectations&quot;: {&quot;validation_status&quot;: &quot;pass&quot;, &quot;must_contain_fields&quot;: [&quot;invoice_id&quot;, &quot;vendor&quot;, &quot;line_items&quot;, &quot;total&quot;, &quot;currency&quot;, &quot;issue_date&quot;]}}
+{&quot;id&quot;: &quot;D02&quot;, &quot;tags&quot;: [&quot;golden&quot;], &quot;inputs&quot;: {&quot;doc_path&quot;: &quot;/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.xlsx&quot;, &quot;document_type&quot;: &quot;spreadsheet&quot;}, &quot;expectations&quot;: {&quot;validation_status&quot;: &quot;pass&quot;, &quot;must_contain_fields&quot;: [&quot;invoice_id&quot;, &quot;vendor&quot;, &quot;line_items&quot;, &quot;total&quot;, &quot;currency&quot;, &quot;issue_date&quot;]}}
+{&quot;id&quot;: &quot;D03&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;missing_field&quot;], &quot;inputs&quot;: {&quot;doc_path&quot;: &quot;/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-partial.docx&quot;, &quot;document_type&quot;: &quot;invoice&quot;}, &quot;expectations&quot;: {&quot;validation_status&quot;: &quot;partial&quot;, &quot;must_contain_fields&quot;: [&quot;invoice_id&quot;, &quot;vendor&quot;, &quot;line_items&quot;, &quot;currency&quot;, &quot;issue_date&quot;], &quot;missing_fields&quot;: [&quot;total&quot;]}}
+{&quot;id&quot;: &quot;D04&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;missing_field&quot;], &quot;inputs&quot;: {&quot;doc_path&quot;: &quot;/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-no-vendor.docx&quot;, &quot;document_type&quot;: &quot;invoice&quot;}, &quot;expectations&quot;: {&quot;validation_status&quot;: &quot;partial&quot;, &quot;must_contain_fields&quot;: [&quot;invoice_id&quot;, &quot;line_items&quot;, &quot;total&quot;, &quot;currency&quot;, &quot;issue_date&quot;], &quot;missing_fields&quot;: [&quot;vendor&quot;]}}
+{&quot;id&quot;: &quot;D05&quot;, &quot;tags&quot;: [&quot;negative&quot;, &quot;unsupported_format&quot;], &quot;inputs&quot;: {&quot;doc_path&quot;: &quot;/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-legacy.doc&quot;, &quot;document_type&quot;: &quot;unsupported&quot;}, &quot;expectations&quot;: {&quot;validation_status&quot;: &quot;fail&quot;, &quot;error_kind&quot;: &quot;unsupported&quot;, &quot;error_readable&quot;: true, &quot;must_contain_fields&quot;: []}}
+{&quot;id&quot;: &quot;D06&quot;, &quot;tags&quot;: [&quot;negative&quot;, &quot;corrupt&quot;], &quot;inputs&quot;: {&quot;doc_path&quot;: &quot;/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-corrupt.docx&quot;, &quot;document_type&quot;: &quot;invoice&quot;}, &quot;expectations&quot;: {&quot;validation_status&quot;: &quot;fail&quot;, &quot;error_readable&quot;: true, &quot;must_contain_fields&quot;: []}}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Golden schema pass rate</td><td>≥ 0.95</td></tr><tr><td>Unsupported format error readability</td><td>100% (identifies the stage)</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>Extract supports <code>.docx/.pptx/.xlsx</code> — not legacy <code>.doc/.ppt/.xls</code>. The readable “unsupported” error comes from the Object Store <strong>extract endpoint</strong>.</li><li>Schema validation is deterministic (Python Code node) — not an LLM judge.</li><li>Binary .docx/.xlsx can't be authored as text; <code>assets/dataset/sources/</code> ships stand-ins + conversion notes.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-05-governed-mcp.html">← Governed Tool Connectivity (MCP)</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-06-grounded-knowledge.html">Grounded Knowledge Assistant →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Observability Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Observability Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Operations</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Observability</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Operations · Architecture reference</div>
+          <h1 id="top">Observability Architecture</h1>
+          <p class="doc-summary">MLflow traces with multimodal attachments, feedback, Prometheus metrics, SSE live events, service visibility, and trace retention.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>CALIBER's runtime telemetry spine</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>An in-process telemetry layer embedded in the same Starlette app, not a sidecar.</td></tr><tr><td><strong>Tracing</strong></td><td>MLflow is the system of record for spans, tags, token/cost rollups, and assessments; CALIBER reads and annotates rather than originates.</td></tr><tr><td><strong>Metrics</strong></td><td>A CALIBER-owned Prometheus <code>CollectorRegistry</code> scraped at <code>GET /metrics</code>.</td></tr><tr><td><strong>Live events</strong></td><td>Ephemeral event-bus frames pushed to the SPA over <code>GET /events/stream</code> via a swappable fanout backend.</td></tr><tr><td><strong>Key surfaces</strong></td><td>In-app trace viewer and monitoring dashboard (<code>Observability.tsx</code>) plus structured review queues that write back as MLflow assessments and expectations.</td></tr><tr><td><strong>Retention</strong></td><td>Server-owned MLflow trace archival (Postgres → MinIO) via <code>MLFLOW_TRACE_ARCHIVAL_CONFIG</code>, opt-in and read transparently.</td></tr><tr><td><strong>Trust / safety</strong></td><td>Authenticated trace surfaces, redaction and byte-caps before MLflow, and safe degradation to empty responses when MLflow is unavailable.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into each concern in detail, from scope and module boundaries through to retention and review queues.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The observability module is CALIBER's runtime telemetry spine, serving operators who need to know whether the platform is healthy and developers who need to understand how a given execution behaved. It is the seam through which the rest of the platform becomes legible. Concretely, the module is responsible for the following:</p>
+<ul><li>capturing request-correlated trace context and propagating a stable <code>X-Request-Id</code>;</li><li>emitting MLflow traces and span metadata for workflows, tools, approvals, and LLM calls, including multimodal attachments (e.g. the source document on a document-extraction span);</li><li>exposing an in-app trace viewer and monitoring dashboard so users can inspect execution behavior without leaving CALIBER;</li><li>driving structured human review of traces through review queues whose answers are written back onto the trace as MLflow assessments and expectations;</li><li>recording structured JSON logs and, optionally, batching them into S3-compatible object storage;</li><li>publishing live workflow events over Server-Sent Events for the SPA;</li><li>exporting Prometheus metrics for scraping; and</li><li>serving a generated Allure report from local disk or <code>s3://...</code> storage.</li></ul>
+<p>These responsibilities are implemented across the following primary code paths:</p>
+<ul><li><code>caliber/src/caliber/observability/mlflow_tracing.py</code></li><li><code>caliber/src/caliber/observability/trace.py</code></li><li><code>caliber/src/caliber/observability/logging.py</code></li><li><code>caliber/src/caliber/observability/metrics.py</code></li><li><code>caliber/src/caliber/trace_client.py</code></li><li><code>caliber/src/caliber/routes/observability.py</code></li><li><code>caliber/src/caliber/routes/review_queues.py</code></li><li><code>caliber/src/caliber/review/writeback.py</code></li><li><code>caliber/src/caliber/routes/metrics.py</code></li><li><code>caliber/src/caliber/routes/events_stream.py</code></li><li><code>caliber/src/caliber/events/bus.py</code></li><li><code>caliber/src/caliber/events/database_bus.py</code></li><li><code>caliber/src/caliber/events/nats_bus.py</code></li><li><code>caliber/src/caliber/routes/system_services.py</code></li><li><code>caliber/src/caliber/routes/health.py</code></li><li><code>caliber/caliber-ui/src/pages/Observability.tsx</code></li><li><code>caliber/caliber-ui/src/components/observability/TraceMetricsCharts.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module deliberately distributes its work across several focused owners rather than concentrating it in a single telemetry component. The table below maps each responsibility to the file that owns it.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Trace/span lifecycle</td><td><code>observability/mlflow_tracing.py</code></td><td>Wraps MLflow tracing with CALIBER-safe helpers, redaction, token/cost attribution, and no-op degradation when tracing is unavailable.</td></tr><tr><td>Request correlation</td><td><code>observability/trace.py</code></td><td>Binds the current trace/request ID into context and injects <code>X-Request-Id</code> through middleware.</td></tr><tr><td>Structured logging</td><td><code>observability/logging.py</code></td><td>Emits single-line JSON logs to stderr or an S3-compatible sink while preserving request correlation.</td></tr><tr><td>Prometheus metrics</td><td><code>observability/metrics.py</code></td><td>Owns the CALIBER registry, counters, histograms, and gauges for runtime health and throughput.</td></tr><tr><td>Trace viewer APIs</td><td><code>routes/observability.py</code></td><td>Lists traces, fetches trace detail, logs human feedback, computes monitoring buckets, and serves Allure assets.</td></tr><tr><td>SSE live updates</td><td><code>routes/events_stream.py</code> + <code>events/*</code></td><td>Streams event frames from <code>app.state.event_bus</code> to the SPA, with heartbeat support and pluggable fanout backends.</td></tr><tr><td>Trace data access</td><td><code>trace_client.py</code></td><td>Normalizes MLflow trace reads into CALIBER's trace-detail shape for the UI and downstream consumers.</td></tr><tr><td>Operator service probes</td><td><code>routes/system_services.py</code> + <code>routes/health.py</code></td><td>Adjacent operational truth surfaces for backing service status and readiness honesty.</td></tr><tr><td>Frontend observability UX</td><td><code>Observability.tsx</code> + <code>TraceMetricsCharts.tsx</code></td><td>Provides trace list/detail, compare mode, filters, feedback UI, and time-series monitoring charts.</td></tr></tbody></table></div>
+<p>Underneath those owners, the module draws one sharp line: it separates the three fundamentally different kinds of telemetry it handles, each with its own store and lifetime.</p>
+<ul><li>Durable trace data is external MLflow state that CALIBER reads and annotates rather than originates.</li><li>Ephemeral live events are short-lived event-bus frames used to update the SPA in near real time.</li><li>Process-local telemetry consists of Prometheus registry samples and structured log records emitted by the current server process.</li></ul>
+<p>Keeping these three concerns distinct is what allows each to fail or degrade independently without taking the others down.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The runtime topology shows how a single action fans out into the durable, ephemeral, and process-local telemetry paths described above, and how the UI later reads them back.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    U[User or Worker Action]:::user
+    MW[TraceIdMiddleware&lt;br/&gt;observability/trace.py]:::ctrl
+    API[Application routes&lt;br/&gt;workflows, approvals, tools, etc.]:::ctrl
+    TR[Tracer / TraceSpan&lt;br/&gt;mlflow_tracing.py]:::ctrl
+    MLF[(MLflow traces)]:::ext
+    MET[Prometheus registry&lt;br/&gt;observability/metrics.py]:::ctrl
+    LOG[JSON logger&lt;br/&gt;logging.py]:::ctrl
+    S3LOG[(S3 / MinIO log sink)]:::store
+    BUS[Event bus&lt;br/&gt;app.state.event_bus]:::async
+    FAN[(In-memory / DB / broker fanout)]:::async
+    OBS[routes/observability.py]:::ctrl
+    SSE[routes/events_stream.py]:::ctrl
+    ALLURE[(Local dir or S3 Allure report)]:::store
+    UI[Observability.tsx]:::ui
+
+    U --&gt; MW --&gt; API
+    API --&gt; TR --&gt; MLF
+    API --&gt; MET
+    API --&gt; LOG --&gt; S3LOG
+    API --&gt; BUS --&gt; FAN
+    UI --&gt; OBS --&gt; MLF
+    UI --&gt; SSE --&gt; BUS
+    OBS --&gt; ALLURE</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties follow from this layout and explain why it is shaped the way it is.</p>
+<ul><li>Observability is not a separate sidecar; it is embedded into the same Starlette application and instruments the platform in-process, which keeps context correlation cheap and exact.</li><li>MLflow is the system of record for traces, assessments, and span trees, while CALIBER renders that state through its own API and UI.</li><li>The event bus is deliberately swappable so that multi-replica deployments can push the same live event stream across processes.</li><li>The Allure surface is static artifact serving, not report generation.</li><li>The metrics registry is CALIBER-owned rather than a re-export of every default process metric from the host runtime, which keeps the scrape surface focused on platform-meaningful signals.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Observability state is intentionally split across multiple stores rather than forced into a single telemetry table, because each kind of state has a different durability requirement and a different reader. The following table summarizes where each lives and why.</p>
+<div class="table-wrap"><table><thead><tr><th>State</th><th>Backing store</th><th>Role</th></tr></thead><tbody><tr><td>Trace spans, tags, token/cost rollups, feedback assessments</td><td>MLflow</td><td>Source of truth for trace inspection and human review.</td></tr><tr><td>Live event payloads</td><td>In-memory queue, database rows, or broker transport</td><td>Source of truth for SSE subscribers waiting on state changes.</td></tr><tr><td>Metrics counters, histograms, and gauges</td><td>In-process Prometheus <code>CollectorRegistry</code></td><td>Scrape-time operational counters and distributions.</td></tr><tr><td>Structured logs</td><td>stderr and optional S3 JSONL batches</td><td>Operational logs with request correlation.</td></tr><tr><td>Request correlation</td><td><code>contextvars</code> + response headers</td><td>Carries <code>trace_id</code> / request ID through async execution paths.</td></tr></tbody></table></div>
+<p>The only observability state that touches the relational database exists to solve one specific problem: fanning live events out across replicas.</p>
+<div class="table-wrap"><table><thead><tr><th>Table</th><th>Role</th></tr></thead><tbody><tr><td><code>CaliberLiveEvent</code></td><td>Append-only event payload mirror used by the database-backed event bus.</td></tr></tbody></table></div>
+<p>A handful of runtime semantics govern how that state is produced and consumed, and they are worth stating explicitly.</p>
+<ul><li><code>TraceIdMiddleware</code> binds or generates the request ID early, then echoes it back as <code>X-Request-Id</code>, so correlation exists from the first instruction.</li><li><code>mlflow_tracing.py</code> enforces redaction and byte limits before trace attributes are attached to spans.</li><li><code>trace_client.py</code> reconstructs tree-shaped trace detail directly from MLflow rather than reading a CALIBER shadow table.</li><li><code>routes/observability.py</code> treats missing MLflow support as a degraded mode and returns empty results instead of surfacing internal exceptions.</li><li><code>app.state.event_bus</code> is the single fanout abstraction consumed by the SSE route, which is what keeps the transport swappable.</li></ul>
+<p>Operators tuning the module reach for a small set of high-value configuration knobs:</p>
+<ul><li><code>CALIBER_TRACING_ENABLED</code></li><li><code>CALIBER_TRACING_AUTOLOG_ENABLED</code></li><li><code>CALIBER_TRACING_MAX_ATTRIBUTE_BYTES</code></li><li><code>CALIBER_TRACING_EXPERIMENT</code></li><li><code>CALIBER_ALLURE_REPORT_DIR</code></li><li><code>CALIBER_WORKFLOW_RUN_EVENT_BACKEND</code></li><li><code>CALIBER_NATS_URL</code></li><li><code>CALIBER_REDIS_URL</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>All HTTP routes in CALIBER are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix below; even the seemingly top-level <code>/metrics</code> and <code>/events/stream</code> endpoints carry it. The observability routes group into trace inspection, report serving, raw telemetry, and a pair of adjacent operator surfaces.</p>
+<p>The trace and monitoring routes back the in-app viewer and dashboard:</p>
+<ul><li><code>GET /observability/traces</code></li><li><code>GET /observability/traces/{trace_id}</code></li><li><code>POST /observability/traces/{trace_id}/feedback</code></li><li><code>GET /observability/experiments</code></li><li><code>GET /observability/metrics</code></li></ul>
+<p>The report-serving routes expose the static Allure tree:</p>
+<ul><li><code>GET /observability/allure-report</code></li><li><code>GET /observability/allure-report/{path:path}</code></li></ul>
+<p>The platform telemetry routes are the machine-facing surfaces:</p>
+<ul><li><code>GET /metrics</code></li><li><code>GET /events/stream</code></li></ul>
+<p>Two further routes are not part of observability proper but are the surfaces it depends on operationally:</p>
+<ul><li><code>GET /system/services</code></li><li><code>GET /readiness</code></li></ul>
+<p>On the frontend, these routes compose into a single coherent interaction model.</p>
+<ul><li>The trace tab calls <code>/observability/traces</code> with filters such as <code>experiment_id</code>, <code>status</code>, <code>session</code>, <code>since_ms</code>, and <code>limit</code>.</li><li>Selecting a row triggers <code>/observability/traces/{trace_id}</code> to fetch the full span tree, request/response bodies, tags, token counts, and assessments.</li><li>The monitor tab calls <code>/observability/metrics</code>, which buckets recent traces into fixed time windows for latency, error-rate, token, and cost charts.</li><li>Submitting human review uses <code>/observability/traces/{trace_id}/feedback</code>, which writes an MLflow assessment and then returns the refreshed assessment list.</li><li>The SPA opens <code>EventSource("/events/stream")</code> to keep progress indicators, queue counters, and approval surfaces fresh without polling.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The sequence below traces a single action from request through telemetry emission to the UI's later reads, including the optional human-feedback loop.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant C as Client or Worker
+    participant MW as TraceIdMiddleware
+    participant R as CALIBER route
+    participant TR as mlflow_tracing.py
+    participant M as MLflow
+    participant P as Prometheus registry
+    participant B as Event bus
+    participant UI as Observability UI
+
+    C-&gt;&gt;MW: HTTP request or runtime action
+    MW-&gt;&gt;R: bind request ID and context
+    R-&gt;&gt;TR: open span / record inputs
+    TR-&gt;&gt;M: emit redacted trace data
+    R-&gt;&gt;P: update counters and histograms
+    R-&gt;&gt;B: publish live event when state changes
+    R--&gt;&gt;C: response with X-Request-Id
+    TR-&gt;&gt;M: close span with outputs, status, tokens, cost
+
+    UI-&gt;&gt;R: GET /observability/traces or /metrics
+    R-&gt;&gt;M: search traces or fetch detail
+    M--&gt;&gt;R: trace summaries or full span tree
+    R--&gt;&gt;UI: CALIBER-shaped JSON for list, detail, or charts
+
+    opt Human feedback
+        UI-&gt;&gt;R: POST /observability/traces/{trace_id}/feedback
+        R-&gt;&gt;M: log_feedback(HUMAN)
+        R-&gt;&gt;M: refetch trace detail
+        R--&gt;&gt;UI: refreshed assessments
+    end</pre></div>
+<p>The Allure flow is intentionally kept separate from this live path, because report generation is an out-of-band concern rather than a request-time one.</p>
+<ul><li>A test or CI process generates the HTML report out-of-band.</li><li>CALIBER serves the resulting report tree from <code>CALIBER_ALLURE_REPORT_DIR</code>.</li><li>If <code>index.html</code> is missing, the route returns a placeholder page explaining how to generate the report instead of failing.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because observability surfaces sensitive execution detail, its security posture is built around authenticated access, payload sanitization, and clear trust lines toward MLflow.</p>
+<p>The authentication and authorization behavior is straightforward:</p>
+<ul><li>Trace list, trace detail, feedback, experiment list, monitoring charts, and SSE all require an authenticated user.</li><li>The Prometheus exposition endpoint at <code>GET /metrics</code> is intentionally unauthenticated today, matching the current deployment assumptions.</li><li>Feedback entries are attributed to the authenticated actor and stored in MLflow as human assessments.</li></ul>
+<p>Several data-handling protections guard what actually reaches MLflow and the browser:</p>
+<ul><li>Trace inputs and outputs pass through CALIBER's redactor before they are attached to spans.</li><li>Trace attributes are byte-capped so that oversized payloads cannot explode MLflow storage or UI rendering.</li><li>The Allure file-serving path rejects traversal via <code>..</code> path segments.</li><li>SSE strips private <code>_caliber_*</code> fields before sending payloads to browsers.</li><li>Route handlers degrade to safe empty responses when MLflow is unavailable instead of dumping raw stack traces into the UI.</li></ul>
+<p>These protections rest on a small number of explicit trust boundaries:</p>
+<ul><li>MLflow is trusted as the durable trace store but not as CALIBER's UI or auth layer.</li><li>The event bus transport is trusted for fanout, but browser subscribers receive only the normalized payload CALIBER emits.</li><li>Optional S3 log sinks are best-effort and always retain stderr as the startup fallback.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Fittingly, this module is both a consumer and a producer of telemetry, and its operational story is mostly about giving operators an honest picture of runtime capability.</p>
+<p>The behaviors that matter most in operation are these:</p>
+<ul><li><code>server.py</code> wires the event bus, logging, and route registration during app startup, so observability surfaces are available as soon as the API is up.</li><li><code>GET /readiness</code> reports whether providers are real or simulated and whether tracing is enabled, which keeps operator dashboards honest about runtime capabilities.</li><li><code>GET /system/services</code> probes MLflow, the object store, AI Gateway, the database, NATS, and related dependencies, so operators can separate a CALIBER bug from an unavailable backing service.</li><li><code>GET /observability/metrics</code> computes time buckets over recent traces for the in-app charts, while <code>GET /metrics</code> remains the machine-scrape surface for Prometheus.</li></ul>
+<p>Knowing how the module degrades is just as important as knowing how it behaves when healthy. The common degraded modes are:</p>
+<ul><li>With tracing disabled, the trace list and detail surfaces return empty datasets.</li><li>With a fake or missing MLflow provider, observability remains reachable but mostly shows no trace content.</li><li>With missing Allure assets, the report route serves explanatory placeholder HTML.</li><li>With broker or cross-process event issues, SSE still works for in-process events, but cross-replica liveliness depends on the configured backend.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is built to grow along a few well-defined seams, and its present limitations are deliberate consequences of those same design choices.</p>
+<p>The principal extension points are:</p>
+<ul><li>The event bus can run in-memory or be backed by database or broker-backed transports without changing the SSE route contract.</li><li>Additional Prometheus counters or histograms can be added centrally in <code>observability/metrics.py</code>.</li><li>New trace enrichment fields can be attached in <code>mlflow_tracing.py</code>, provided they respect redaction and size limits.</li><li>The Allure route already supports both local directories and S3-compatible sources.</li></ul>
+<p>The matching constraints reflect the module's read-heavy, projection-first stance:</p>
+<ul><li>CALIBER does not maintain its own durable trace warehouse; the trace viewer is a projection over MLflow, so MLflow availability and retention policies directly shape the user experience.</li><li>The monitoring API computes buckets from a bounded recent trace search rather than from a dedicated time-series database.</li><li>Allure generation is external to the app, so CALIBER can serve a report but cannot produce one on demand.</li><li><code>GET /metrics</code> exposes only the CALIBER registry, not a full host-runtime or node-level telemetry picture.</li><li>The module is intentionally read-heavy; outside of feedback logging it mostly observes other runtime systems rather than owning business state.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="10-multimodal-trace-attachments">10. Multimodal trace attachments<a class="anchor" href="#10-multimodal-trace-attachments" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>MLflow 3.12+ supports multimodal tracing: a binary artifact set as a span input or output is uploaded alongside the trace and the span value is replaced with a reference URI, so the trace UI renders the actual source. CALIBER exposes this through <code>TraceSpan.attach(name, content_bytes, content_type)</code> on the tracer handle in <code>mlflow_tracing.py</code>, which wraps the bytes in <code>mlflow.tracing.attachments.Attachment</code>, accumulates multiple attachments on one span without clobbering, and records a plain-text <code>caliber.attachment.&lt;name&gt;</code> marker so the redacted in-app viewer can surface the attachment without the binary. Attachment, like every other tracing call, is best-effort: it returns <code>False</code> (never raises) when tracing is inert or the attachment cannot be built.</p>
+<p>The first consumer is the document-ingestion tool: <code>extract_document</code> (<code>workflows/ingestion_tools.py</code>) now runs inside a <code>tool.extract_document</code> span and attaches the source file (PDF, DOCX, image, …) to it, capped to avoid bloating traces with very large scans. The result is that the KG/OCR pipeline's extraction steps show the exact document they processed directly in the trace, which is a substantial debugging aid for document-heavy workflows.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="11-trace-retention-and-auto-archival">11. Trace retention and auto-archival<a class="anchor" href="#11-trace-retention-and-auto-archival" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The MLflow tracking server (<code>deploy/mlflow/</code>) supports server-owned trace retention and archival (MLflow 3.13+): a periodic pass moves aged trace span data out of the Postgres backend store into object storage (MinIO) while keeping the traces fully readable through the same UI and API. It is configured by a YAML file (<code>deploy/mlflow/trace-archival.yaml</code>) declaring <code>enabled</code>, an artifact-repo <code>location</code>, a <code>retention</code> window (<code>&lt;int&gt;&lt;unit&gt;</code>, e.g. <code>30d</code>), and the pass cadence, and is wired through the <code>MLFLOW_TRACE_ARCHIVAL_CONFIG</code> env var. It is opt-in: the env var is unset by default so a fresh stack never relocates traces; setting it to the baked-in config path activates archival. CALIBER's trace viewer reads archived traces transparently, so retention tuning is an operational lever rather than an application concern.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="12-review-queues">12. Review queues<a class="anchor" href="#12-review-queues" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Review queues give the trace viewer a structured human-review workflow. Because MLflow's native Review Queues are Databricks-only, CALIBER implements the same UX on the open-source assessment primitives. A queue (<code>caliber_review_queues</code>, migration <code>0054</code>) carries a label schema of <code>questions</code> — pass/fail, categorical, numeric, or free-text, each tagged as a <em>feedback</em> or <em>expectation</em> target — plus a set of assigned reviewers; each item (<code>caliber_review_items</code>) pins one observed trace. Reviewers answer the questions per trace on the <strong>Review Queues</strong> page, and on submit the answers are written straight back onto the trace via <code>review/writeback.py</code>: feedback questions through <code>mlflow.log_feedback</code> and expectation (ground-truth) questions through <code>mlflow.log_expectation</code>, with the reviewer recorded as a <code>HUMAN</code> assessment source. The resulting assessment ids are stored on the item for provenance, and because the answers land on the trace as ordinary assessments and expectations they immediately feed evaluation, judge alignment, and trace-derived dataset capture. Submission validates the answers against the queue's schema (required coverage, no unknown keys) and degrades to a clean <code>502</code> if the trace write-back fails, leaving CALIBER state consistent.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

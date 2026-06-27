@@ -1,0 +1,6 @@
+{
+  "name": "support-faithfulness-eval",
+  "description": "Held-out support Q/A for faithfulness scoring. Aria creates the empty versioned test set; add example rows after creation, then run it in Evaluations with the deterministic graders plus AnswerFaithfulness ticked under Custom LLM judges (it runs as a Judge.<id> scorer).",
+  "tags": ["aria-created", "faithfulness", "support"],
+  "notes": "Answer to the Aria eval_dataset.create interaction (same shape as a POST /eval-datasets body; owner is forced to the acting identity). Example rows are NOT added by Aria — add them via POST /eval-datasets/{id}/examples or harvest-from-trace, e.g. reuse cookbooks/01-prompt-regression-lab/assets/dataset/ as a starting point."
+}

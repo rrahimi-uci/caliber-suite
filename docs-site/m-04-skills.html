@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skills Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Skills Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Authoring</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Skills</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Authoring · Architecture reference</div>
+          <h1 id="top">Skills Architecture</h1>
+          <p class="doc-summary">Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Skills module orientation</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>A registry of reusable, versioned instruction assets composed into agents and assistant turns — lighter than a prompt or workflow.</td></tr><tr><td><strong>Where state lives</strong></td><td>Canonical <code>CaliberSkill</code> rows, with <code>CaliberSkillTestRun</code> history and hidden <code>CaliberAgentConfig</code> targets keyed <code>skill::{name}</code>.</td></tr><tr><td><strong>Key surfaces</strong></td><td>HTTP routes in <code>routes/skills.py</code> under <code>/ajax-api/2.0/mlflow/caliber</code>; UI via <code>Skills.tsx</code>, <code>SkillWizard.tsx</code>, <code>SkillDetail.tsx</code>.</td></tr><tr><td><strong>Runtime model</strong></td><td>The assistant selects skills <code>auto</code>/<code>manual</code>/<code>off</code> via <code>assistant/skill_runtime.py</code>, reading <code>CaliberSkill</code> rows directly.</td></tr><tr><td><strong>Trust / safety</strong></td><td>Skills are prompt material, not code; reserved prefixes (<code>claude</code>, <code>anthropic</code>) rejected, angle brackets filtered, deterministic auto-selection.</td></tr><tr><td><strong>Calibration</strong></td><td>Reuses the shared refinement pipeline via <code>CaliberVerificationItem</code> and <code>CaliberRefinementJob</code>, with no user-managed host agent.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down into the responsibilities, boundaries, data model, surfaces, and lifecycle in detail.</p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The skills module manages reusable prompt fragments that can be composed into agents and assistant turns. A skill is a structured instruction asset rather than a full executable artifact like a workflow or a tool; what makes it a first-class asset is the testing, packaging, selection, and calibration behavior built around it.</p>
+<p>The module carries the following responsibilities. It stores versioned skill rows with progressive-disclosure fields, so that a short description and a full body serve different stages of activation. It tests both skill render behavior and the deterministic auto-selection behavior that decides when a skill applies. It packages and imports skills using an OpenAI-compatible folder format (import is a backend/API capability via POST /skills/import-package; the shipped UI exposes export only, via "Download ZIP" on the skill detail page). It exposes workspace state, baseline pinning, bind targets, and lifecycle. It calibrates skills through the shared refinement pipeline without requiring a user-managed host agent. And it provides skill selection inputs to the assistant runtime.</p>
+<p>These responsibilities are realized across a small set of primary code paths:</p>
+<ul><li><code>caliber/src/caliber/routes/skills.py</code></li><li><code>caliber/src/caliber/skill_packages.py</code></li><li><code>caliber/src/caliber/skill_targets.py</code></li><li><code>caliber/src/caliber/assistant/skill_runtime.py</code></li><li><code>caliber/caliber-ui/src/pages/Skills.tsx</code></li><li><code>caliber/caliber-ui/src/pages/SkillWizard.tsx</code></li><li><code>caliber/caliber-ui/src/pages/SkillDetail.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Skills span both authoring-time registry concerns and assistant-runtime selection concerns, so each responsibility has a distinct owner. The table below maps them.</p>
+<div class="table-wrap"><table><thead><tr><th>Responsibility</th><th>Owner</th><th>Notes</th></tr></thead><tbody><tr><td>Skill registry</td><td><code>CaliberSkill</code></td><td>Canonical row storing summary, content, metadata, dependencies, and tags.</td></tr><tr><td>Packaging/import</td><td><code>skill_packages.py</code></td><td>Maps DB rows to and from an OpenAI-style skill package folder or ZIP.</td></tr><tr><td>Auto-selection scoring</td><td><code>assistant/skill_runtime.py</code></td><td>Deterministic scorer used by the assistant runtime and selection tests.</td></tr><tr><td>Hidden runtime identity</td><td><code>skill_targets.py</code></td><td>Auto-provisions <code>skill::{name}</code> agent identities for testing and calibration.</td></tr><tr><td>Skill test history</td><td><code>CaliberSkillTestRun</code></td><td>Durable render/selection/scenario run history.</td></tr><tr><td>Calibration queueing</td><td><code>CaliberVerificationItem</code>, <code>CaliberRefinementJob</code></td><td>Shared refinement path reused from prompts and workflows.</td></tr></tbody></table></div>
+<p>The unifying observation is that the skill module sits across two worlds at once: the authoring-time registry that defines what a skill is, and the assistant-runtime selection logic that decides when a skill is used. Everything below elaborates on how those two halves are kept consistent.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>At runtime the route module coordinates the registry, packaging, hidden targets, the refinement pipeline, and the assistant runtime, which itself reads skill rows directly. The diagram traces those relationships.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    UI[Skills UI]:::ui
+    API[routes/skills.py]:::ctrl
+    DB[(CaliberSkill&lt;br/&gt;CaliberSkillTestRun)]:::store
+    PKG[skill_packages.py]:::ctrl
+    TGT[skill_targets.py]:::ctrl
+    AR[assistant/skill_runtime.py]:::ctrl
+    RJ[Refinement jobs]:::ctrl
+    AG[Agent configs]:::ctrl
+
+    UI --&gt; API
+    API --&gt; DB
+    API --&gt; PKG
+    API --&gt; TGT
+    API --&gt; AR
+    API --&gt; RJ
+    API --&gt; AG
+    AR --&gt; DB</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties distinguish skills from the other asset modules. Skill rows are first-class database artifacts, unlike prompts, which are MLflow-registry-backed. The assistant runtime needs no separate skill catalog because it reads ordinary <code>CaliberSkill</code> rows directly. Testing and calibration rely on hidden host identities, so skills behave like independently testable units without polluting the visible agent inventory. And package import and export form an interoperability layer, not a second source of truth that could drift from the canonical rows.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Skill state is anchored in a single canonical row and supported by a small set of companion carriers for history, runtime identity, and calibration. The table summarizes each.</p>
+<div class="table-wrap"><table><thead><tr><th>State</th><th>Storage</th><th>Purpose</th></tr></thead><tbody><tr><td>Skill row</td><td><code>CaliberSkill</code></td><td>Canonical artifact with summary, content, category, tags, dependencies, and metadata.</td></tr><tr><td>Durable test history</td><td><code>CaliberSkillTestRun</code></td><td>Render, selection, and scenario run results with scores and optional host identity.</td></tr><tr><td>Hidden runtime target</td><td><code>CaliberAgentConfig</code> keyed by <code>skill::{name}</code></td><td>Provides an <code>agent_id</code> for jobs, traces, baselines, and workspace state.</td></tr><tr><td>Calibration queue</td><td><code>CaliberVerificationItem</code>, <code>CaliberRefinementJob</code></td><td>Shared refinement pipeline entry point for skill calibration.</td></tr></tbody></table></div>
+<p>The <code>CaliberSkill</code> row encodes the progressive-disclosure model that defines a skill. The <code>summary</code> is the always-available level-1 description used to decide when the skill should activate. The <code>content</code> is the full instruction body, loaded only once the skill is actually selected. The <code>allowed_tools</code> and <code>depends_on</code> fields express composition and execution guidance. And <code>status</code> is soft-delete oriented, taking the values <code>active</code> or <code>archived</code> rather than hard-deleting by default.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>All HTTP routes in this module are mounted under <code>/ajax-api/2.0/mlflow/caliber</code> and are shown relative to that prefix below. The surface in <code>routes/skills.py</code> divides cleanly into four areas that mirror the skill lifecycle.</p>
+<p>The first area covers registry and lifecycle operations on the canonical row:</p>
+<ul><li><code>GET /skills</code></li><li><code>POST /skills</code></li><li><code>GET /skills/{skill_id}</code></li><li><code>PATCH /skills/{skill_id}</code></li></ul>
+<p>The second area handles packaging in the OpenAI-compatible format:</p>
+<ul><li><code>POST /skills/import-package</code></li><li><code>GET /skills/{skill_id}/package</code></li><li><code>GET /skills/{skill_id}/package.zip</code></li></ul>
+<p>The third area covers testing and durable run history:</p>
+<ul><li><code>POST /skills/{skill_id}/test-render</code></li><li><code>POST /skills/{skill_id}/test-selection</code></li><li><code>POST /skills/test-runs</code></li><li><code>GET /skills/test-runs</code></li><li><code>GET /skills/test-runs/{test_run_id}</code></li></ul>
+<p>The fourth area manages workspace state and calibration:</p>
+<ul><li><code>GET /skills/{skill_id}/workspace</code></li><li><code>POST /skills/{skill_id}/baseline</code></li><li><code>POST /skills/{skill_id}/bind</code></li><li><code>POST /skills/{skill_id}/calibrate</code></li></ul>
+<p>The frontend reaches these endpoints through three entry points:</p>
+<ul><li><code>caliber/caliber-ui/src/pages/Skills.tsx</code></li><li><code>caliber/caliber-ui/src/pages/SkillWizard.tsx</code></li><li><code>caliber/caliber-ui/src/pages/SkillDetail.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The endpoints above drive three recurring flows: authoring a skill, testing its selection or render behavior, and calibrating it. The sequence diagram follows each.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as Operator
+    participant UI as Skills UI
+    participant API as routes/skills.py
+    participant DB as CALIBER DB
+    participant TGT as Hidden skill target
+    participant AR as assistant/skill_runtime.py
+    participant Q as Refinement pipeline
+
+    U-&gt;&gt;UI: Create or edit skill
+    UI-&gt;&gt;API: POST or PATCH /skills
+    API-&gt;&gt;DB: Persist CaliberSkill
+    API--&gt;&gt;UI: Return skill record
+
+    U-&gt;&gt;UI: Test selection or render
+    UI-&gt;&gt;API: POST /test-render or /test-selection
+    API-&gt;&gt;AR: Score or render against current skill row
+    API-&gt;&gt;DB: Persist optional durable test run
+    API--&gt;&gt;UI: Return result
+
+    U-&gt;&gt;UI: Calibrate skill
+    UI-&gt;&gt;API: POST /skills/{id}/calibrate
+    API-&gt;&gt;TGT: Ensure skill::{name} runtime target
+    API-&gt;&gt;DB: Insert verification item and refinement job
+    API--&gt;&gt;UI: Return queued job metadata
+    Q-&gt;&gt;DB: Process refinement job against hidden target agent_id</pre></div>
+<p>These flows obey a few lifecycle rules. The module in <code>skill_targets.py</code> creates a hidden <code>CaliberAgentConfig</code> row keyed on <code>skill::{skill_name}</code>, which lets skills reuse the shared job and trace machinery without appearing in the agent inventory. The skill workspace status is not stored as a single field but derived from several signals:</p>
+<ul><li>whether the skill is bound;</li><li>whether a calibration job was applied;</li><li>whether it has durable test runs;</li><li>whether it has scenario evidence.</li></ul>
+<p>Finally, the assistant runtime can select skills in <code>auto</code>, <code>manual</code>, or <code>off</code> mode using <code>assistant/skill_runtime.py</code>, giving operators explicit control over how aggressively skills are applied.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Skills are instruction material, not code, and the module's controls are designed to keep them that way. The enforced controls are the following. Reserved skill-name prefixes such as <code>claude</code>, <code>anthropic</code>, and other schema-level reserved values are rejected. XML-like angle brackets are rejected in a skill's <code>description</code> and <code>summary</code> fields for instruction-safety hardening; the long-form <code>content</code> body is deliberately not bracket-filtered, since legitimate instructions may contain such characters. There is no hard delete in the normal operator surface. Mutating actions are guarded by operator and admin scopes. And package import validation checks the canonical generated files and the allowed bundled resource directories.</p>
+<p>These controls rest on one important trust boundary: skill content is prompt material, not code. Packaging and import form a structured content-interchange path, not a code-execution path. And assistant auto-selection is deterministic and database-backed rather than model-decided, which keeps selection auditable.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module is built to be inspectable, exposing enough signal to understand both what a skill is and why it was selected. Its operational characteristics include the following. Durable test-run kinds distinguish <code>render</code>, <code>selection</code>, and <code>scenario</code> behavior. Workspace state exposes the baseline, the latest run, the bind target, and the lifecycle. Assistant skill selection stores selected-skill metadata in session metadata for later inspection. And built-in skill seeding can be enabled at runtime through config.</p>
+<p>The assistant skill runtime is intentionally deterministic in the current design, applying a fixed priority order:</p>
+<ul><li>explicit skills win first;</li><li>pinned skills are added next;</li><li>active skills are scored using a small text scorer;</li><li>dependency expansion is bounded by depth and content budgets.</li></ul>
+<p>This ordering keeps the skill layer inspectable and testable rather than heuristic-only, which is what allows selection behavior to be tested as a unit.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The module has clear seams for growth alongside a set of constraints that reflect its current design.</p>
+<p>The primary extension points are the following. Selection scoring and metadata in <code>assistant/skill_runtime.py</code> can be made richer. Package metadata import and export can be broadened for wider compatibility. Workflow-node binding can be improved to rewrite manifests directly. And scenarios can be given dedicated storage instead of being inferred from durable runs.</p>
+<p>The current constraints are the counterparts of those seams. The scenario concept has no standalone store yet. Workflow-node binding records durable intent but does not fully rewrite manifests in place. Hidden host targets are an implementation device and must continue to stay out of normal agent inventory views. And skill calibration reuses the generic refinement system rather than a skill-specific optimizer runtime.</p>
+<p>In sum, the skills module is the bridge between reusable instruction assets and concrete runtime behavior. It packages, tests, selects, and calibrates skills while keeping them lightweight compared with full prompts or workflows.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

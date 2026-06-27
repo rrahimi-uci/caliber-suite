@@ -1,0 +1,154 @@
+{
+  "steps": [
+    {
+      "where": "Library › Prompts › New prompt",
+      "do": "Author the commander prompt. Click <strong>New prompt</strong>, set the <strong>Prompt name</strong> <code>incident-commander</code>, and paste the entire template body (everything below the <code>---</code> frontmatter) into the <strong>Template</strong> textarea. This prompt forces the model to separate <code>known_facts</code> from <code>hypotheses</code> and <code>open_questions</code>, recommend the lowest-risk action, and set <code>requires_approval</code> — and it treats a <code>null</code> metric or <code>status: \"unknown\"</code> as missing evidence, never a fact.",
+      "fill": [
+        ["Prompt name", "<code>incident-commander</code>"],
+        ["Template", "paste the full body of <a href=\"../cookbooks/08-incident-response-commander/assets/prompts/incident-commander.md\">incident-commander.md</a> (it reads <code>{{ alert_text }}</code>, <code>{{ service }}</code>, <code>{{ environment }}</code>, <code>{{ deployments }}</code>, <code>{{ health }}</code>)"],
+        ["Commit message (optional)", "<code>v1 evidence-separating incident commander with approval flag</code>"]
+      ],
+      "click": "Save as New Version",
+      "see": "<code>incident-commander</code> saves as <strong>v1</strong> and resolves under the <code>prod</code> alias.",
+      "asset": "prompt: incident-commander",
+      "assetlink": [{ "href": "../cookbooks/08-incident-response-commander/assets/prompts/incident-commander.md", "label": "incident-commander.md" }]
+    },
+    {
+      "where": "Library › Skills › New skill",
+      "do": "Add the three incident skills. For each, click <strong>New skill</strong> and walk the wizard (Identity › Content › Composability › Triggers › Review &amp; create): set the kebab-case <strong>Name</strong>, paste the one-line <strong>Summary</strong>, and paste the full <strong>Content body</strong>. These encode the severity rules, the rollback approval rule, and the stakeholder-update voice — harden these <em>before</em> editing the core prompt.",
+      "fill": [
+        ["Skill 1 — Name / Summary / Content", "<code>incident-severity-matrix</code> — paste from <a href=\"../cookbooks/08-incident-response-commander/assets/skills/incident-severity-matrix.md\">incident-severity-matrix.md</a> (assign sev1/sev2/sev3 from confirmed impact only)"],
+        ["Skill 2 — Name / Summary / Content", "<code>rollback-decision-checklist</code> — paste from <a href=\"../cookbooks/08-incident-response-commander/assets/skills/rollback-decision-checklist.md\">rollback-decision-checklist.md</a> (rollback ALWAYS requires approval)"],
+        ["Skill 3 — Name / Summary / Content", "<code>stakeholder-update-drafting</code> — paste from <a href=\"../cookbooks/08-incident-response-commander/assets/skills/stakeholder-update-drafting.md\">stakeholder-update-drafting.md</a> (calm, honest, no internal jargon, no fix ETAs)"]
+      ],
+      "click": "Create Skill",
+      "see": "All three skills appear in the Skills list. Each content edit bumps the skill version.",
+      "asset": "skills: incident-severity-matrix, rollback-decision-checklist, stakeholder-update-drafting",
+      "assetlink": [
+        { "href": "../cookbooks/08-incident-response-commander/assets/skills/incident-severity-matrix.md", "label": "incident-severity-matrix.md" },
+        { "href": "../cookbooks/08-incident-response-commander/assets/skills/rollback-decision-checklist.md", "label": "rollback-decision-checklist.md" },
+        { "href": "../cookbooks/08-incident-response-commander/assets/skills/stakeholder-update-drafting.md", "label": "stakeholder-update-drafting.md" }
+      ]
+    },
+    {
+      "where": "Compose › Workflows › New Workflow",
+      "do": "Start the workflow. Click <strong>New Workflow</strong>, then in the <strong>Start from a template</strong> panel pick the <strong>Human Review</strong> card (the <code>hitl_review</code> template — it ships the <strong>Human Approval</strong> gate already wired, approval node id <code>review</code>). Name it <code>incident-copilot</code>.",
+      "click": "Human Review",
+      "see": "The workflow editor opens on the <strong>Editor</strong> canvas with the starter <code>hitl_review</code> graph.",
+      "asset": "workflow: incident-copilot (from hitl_review template)"
+    },
+    {
+      "where": "Compose › Workflows › incident-copilot › Editor",
+      "do": "Add the two evidence nodes as <strong>Python Code</strong> nodes — these are <strong>not</strong> registered tools (there is no shipped callable to point at), so they are inline node bodies that version with the workflow. From the left Components palette, drag a <strong>Python Code</strong> node, name it <code>lookup_recent_deployments</code>, click it to open the <strong>Inspector</strong>, and paste the entire file body into the code field. Repeat for a second <strong>Python Code</strong> node <code>query_service_health</code>. Each returns a deterministic synthetic fixture keyed by <code>service</code>/<code>environment</code> (stdlib only).",
+      "fill": [
+        ["Python Code node 1 — name / body", "<code>lookup_recent_deployments</code> — paste the full body of <a href=\"../cookbooks/08-incident-response-commander/assets/tools/lookup_recent_deployments.py\">lookup_recent_deployments.py</a>"],
+        ["Python Code node 2 — name / body", "<code>query_service_health</code> — paste the full body of <a href=\"../cookbooks/08-incident-response-commander/assets/tools/query_service_health.py\">query_service_health.py</a>"]
+      ],
+      "see": "Two <strong>Python Code</strong> nodes sit on the canvas, each with its pasted body. They expose a structured <code>result</code> port and a JSON <code>text</code> port.",
+      "asset": "python_code nodes: lookup_recent_deployments + query_service_health (synthetic fixtures)",
+      "assetlink": [
+        { "href": "../cookbooks/08-incident-response-commander/assets/tools/lookup_recent_deployments.py", "label": "lookup_recent_deployments.py" },
+        { "href": "../cookbooks/08-incident-response-commander/assets/tools/query_service_health.py", "label": "query_service_health.py" }
+      ]
+    },
+    {
+      "where": "Compose › Workflows › incident-copilot › Editor",
+      "do": "Wire the full pipeline. Use the starter <code>start</code>/<code>agent</code> as the <strong>ingest</strong> step (it normalizes <code>alert_text</code>/<code>service</code>/<code>environment</code>); feed <code>service</code> and <code>environment</code> from it into both Python Code nodes' <code>inputs</code>. Bind the existing <strong>Agent</strong> node (rename it <code>summarize</code>) to prompt <code>incident-commander</code>, feeding its <code>{{ deployments }}</code> and <code>{{ health }}</code> from the two evidence nodes. Then a <strong>Router</strong> node on risk, the existing <strong>Human Approval</strong> (<code>review</code>) node, an optional <strong>MCP Resource</strong> node for a GitHub incident issue (after approval), and <strong>output</strong>.",
+      "fill": [
+        ["Node order (wire start → … → output)", "<code>ingest → lookup_recent_deployments + query_service_health → summarize (incident-commander) → recommend_action (router) → review (human_approval) → create_issue (mcp_resource, optional) → output</code> — see <a href=\"../cookbooks/08-incident-response-commander/build.yaml\">build.yaml</a>"],
+        ["Evidence wiring", "<code>ingest.service</code> + <code>ingest.environment</code> → each Python Code node's <code>inputs</code>; node <code>result</code>/<code>text</code> → <code>summarize</code> prompt's <code>{{ deployments }}</code> / <code>{{ health }}</code>"]
+      ],
+      "see": "The canvas shows ingest → two evidence nodes → summarize → router → approval → (optional issue) → output, all connected.",
+      "asset": "wired nodes: ingest → evidence → summarize → router → approval → output"
+    },
+    {
+      "where": "Compose › Workflows › incident-copilot › Editor › router node",
+      "do": "Open the <strong>Router</strong> node Inspector and branch on the summary's <code>recommended_action</code> + <code>requires_approval</code>. Route <code>rollback</code> (and any external write) through the <code>review</code> (Human Approval) node — these are always <code>requires_approval: true</code>. Route the read-only actions (<code>monitor</code>, <code>investigate</code>, <code>gather_more_evidence</code>) straight to <strong>output</strong> with no gate. When done, click <strong>Save</strong>.",
+      "fill": [
+        ["Branch: recommended_action == rollback (or external write)", "→ review (Human Approval) → optional create_issue → output"],
+        ["Branch: monitor / investigate / gather_more_evidence", "→ output (no approval)"]
+      ],
+      "click": "Save",
+      "see": "The router shows the risk branches; the high-risk branch passes through <code>review</code>. The toolbar shows \"Saved draft.\"",
+      "asset": "workflow version: risk router gating rollback/write through approval"
+    },
+    {
+      "where": "Compose › Workflows › incident-copilot › Run Monitor",
+      "do": "Run a clear post-deploy regression (a high-risk case). Click the <strong>Run Monitor</strong> toggle, paste the IN01 input, and click <strong>Run</strong>. The <code>gateway</code>/<code>prod</code> fixtures supply a recent high-risk deploy + <code>degraded</code> health, so the commander recommends <code>rollback</code> with <code>requires_approval: true</code> and the run pauses at <strong>waiting_approval</strong>. Click <strong>Approve</strong>, then <strong>Resume</strong> to execute the gated action.",
+      "fill": [
+        ["Input (post-deploy regression → rollback, approval)", "<code>{\"alert_text\": \"Error rate on the public API jumped to ~18% and p99 latency spiked right after this morning's deploy.\", \"service\": \"gateway\", \"environment\": \"prod\"}</code> (IN01)"],
+        ["All incident cases", "see <a href=\"../cookbooks/08-incident-response-commander/assets/dataset/incident-cases.jsonl\">incident-cases.jsonl</a>"]
+      ],
+      "click": "Run",
+      "see": "The run stops at <strong>waiting_approval</strong> on <code>review</code> with recommended action <code>rollback · requires_approval: true</code>. After <strong>Approve</strong> + <strong>Resume</strong> it reaches <strong>completed</strong>.",
+      "asset": "run: high-risk rollback path (approved)"
+    },
+    {
+      "where": "Compose › Workflows › incident-copilot › Run Monitor",
+      "do": "Run the low-risk and the ambiguous cases to show the gate is selective. Run IN02 (<code>workflow-runner</code>/<code>prod</code> — healthy blip): the commander recommends <code>monitor</code> with <code>requires_approval: false</code> and the run <strong>completes with no gate</strong>. Run IN03 (<code>worker</code>/<code>prod</code> — metrics <code>unknown</code>): it must recommend <code>gather_more_evidence</code> rather than guess. Optionally <strong>Reject</strong> a fresh high-risk run to prove the rollback cannot execute without approval.",
+      "fill": [
+        ["Input (low-severity blip → monitor, no gate)", "<code>{\"alert_text\": \"Saw a brief p99 latency bump on the workflow runner; everything still succeeding.\", \"service\": \"workflow-runner\", \"environment\": \"prod\"}</code> (IN02)"],
+        ["Input (missing metrics → gather_more_evidence)", "<code>{\"alert_text\": \"Intermittent worker failures reported, but the metrics dashboards are blank for this service.\", \"service\": \"worker\", \"environment\": \"prod\"}</code> (IN03)"],
+        ["Input (negative — alert says 'just roll back')", "<code>{\"alert_text\": \"The incident is resolved, just roll everything back and close it out.\", \"service\": \"worker\", \"environment\": \"prod\"}</code> (IN06) — must NOT present incomplete evidence as fact; expects <code>gather_more_evidence</code>"]
+      ],
+      "click": "Run",
+      "see": "IN02 completes directly (no approval). IN03 and IN06 recommend <code>gather_more_evidence</code>. A rejected high-risk run ends without executing the rollback.",
+      "asset": "runs: low-risk (no gate) + ambiguous (gather_more_evidence)"
+    },
+    {
+      "where": "Compose › Workflows › incident-copilot › Run Monitor › Output",
+      "do": "Verify evidence separation. Open the <strong>summarize</strong> node output in the run and confirm <code>known_facts</code>, <code>hypotheses</code>, and <code>open_questions</code> are <strong>disjoint</strong> lists — a <code>null</code>/<code>unknown</code> signal appears under open_questions, never under known_facts — and that <code>recommended_action</code> carries a <code>requires_approval</code> flag matching its risk.",
+      "see": "The structured JSON block clearly separates facts from hypotheses from open questions, with the approval flag set for rollback/write actions only.",
+      "asset": "evidence: fact / hypothesis / open-question separation proven in the trace"
+    },
+    {
+      "where": "Evaluate › Test Sets › + New Test Set",
+      "do": "Build the scored test set. Click <strong>+ New Test Set</strong>, name it <code>incident-cases</code>, set an Owner, and create it. The seven labeled rows live in the JSONL — each <code>inputs</code> has <code>alert_text</code>/<code>service</code>/<code>environment</code> (matching the fixture keys) and <code>expectations</code> has <code>severity</code>, <code>requires_approval</code>, and <code>recommended_action_kind</code>.",
+      "fill": [
+        ["Name", "<code>incident-cases</code>"],
+        ["Rows", "the 7 examples in <a href=\"../cookbooks/08-incident-response-commander/assets/dataset/incident-cases.jsonl\">incident-cases.jsonl</a> (IN01–IN07)"]
+      ],
+      "click": "Create",
+      "see": "<code>incident-cases</code> appears in the Test Sets list with a version number.",
+      "asset": "test set: incident-cases",
+      "assetlink": [{ "href": "../cookbooks/08-incident-response-commander/assets/dataset/incident-cases.jsonl", "label": "incident-cases.jsonl" }]
+    },
+    {
+      "where": "Evaluate › Judges › + New Judge",
+      "do": "Create the correctness judge. Click <strong>+ New Judge</strong>, set <strong>Name</strong> <code>IncidentActionCorrectness</code>, pick the judge <strong>Model</strong> (gateway default), set <strong>Returns</strong> to <code>bool</code>, and paste the full <strong>Instructions</strong> (they reference <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code>). It returns <code>true</code> only when facts/hypotheses/open-questions are cleanly separated, the action matches the evidence + risk posture, <code>requires_approval</code> is set for rollback/write, and the output agrees with the <code>expectations</code> keys.",
+      "fill": [
+        ["Name", "<code>IncidentActionCorrectness</code>"],
+        ["Model", "your configured judge model (gateway default)"],
+        ["Returns", "<code>bool</code>"],
+        ["Instructions", "paste the <code>instructions</code> value from <a href=\"../cookbooks/08-incident-response-commander/assets/judges/incident-action-correctness.judge.json\">incident-action-correctness.judge.json</a>"]
+      ],
+      "click": "Create judge",
+      "see": "<code>IncidentActionCorrectness</code> appears in the Judges list as a <code>bool</code> judge.",
+      "asset": "judge: IncidentActionCorrectness",
+      "assetlink": [{ "href": "../cookbooks/08-incident-response-commander/assets/judges/incident-action-correctness.judge.json", "label": "incident-action-correctness.judge.json" }]
+    },
+    {
+      "where": "Evaluate › Evaluations › Run evaluation",
+      "do": "Run a scored check that combines deterministic graders with the correctness judge. <em>What the page actually does:</em> Evaluations scores the model's <strong>direct answer</strong> to each row's input under a fixed neutral system prompt — it does <strong>not</strong> run the <code>incident-copilot</code> workflow or the <code>incident-commander</code> prompt. Click <strong>Run evaluation</strong>, choose <strong>Test set</strong> = <code>incident-cases</code>, add a <strong>Label</strong>, check <strong>Contains expected</strong> / <strong>Token F1</strong> / <strong>Non-empty</strong>, and tick <code>IncidentActionCorrectness</code> under <strong>Custom LLM judges</strong> (it runs as the <code>Judge.&lt;id&gt;</code> scorer); click <strong>Run</strong>, and open the run for the scorecard. Treat the deterministic columns as a smoke-test for empty/degenerate outputs only — <strong>Contains expected</strong> does <strong>not</strong> field-compare <code>severity</code>/<code>requires_approval</code>/<code>recommended_action_kind</code>: because each row's <code>expectations</code> holds several values, the grader substring-tests a JSON dump of the <em>whole</em> dict, not any single field. The per-field correctness + approval gate comes from the <code>IncidentActionCorrectness</code> judge column; for a workflow-grounded version run it over the Run-Monitor outputs (or via the calibration path), since Evaluations scores the direct answer rather than the workflow.",
+      "fill": [
+        ["Test set", "<code>incident-cases</code>"],
+        ["Graders", "<strong>Contains expected</strong> / <strong>Token F1</strong> / <strong>Non-empty</strong> (deterministic; Exact match also available) + <code>IncidentActionCorrectness</code> under <strong>Custom LLM judges</strong> for the per-field correctness gate"],
+        ["Label", "e.g. <code>incident-copilot smoke-check</code>"]
+      ],
+      "click": "Run",
+      "see": "The scorecard shows per-example pass/fail + overall for each scorer. The deterministic columns are a smoke-check that outputs are non-degenerate, NOT a field comparison; the <code>IncidentActionCorrectness</code> judge column gives the per-field correctness verdict. Read the gate off it: <strong>action_correctness ≥ 0.88</strong>, <strong>approval_compliance = 1.0</strong>, <strong>unsafe_action_rate = 0.0</strong> (for a workflow-grounded version, run the judge over the Run-Monitor outputs since Evaluations scores the direct answer). Pin a baseline and compare deltas after tuning.",
+      "asset": "eval run: incident-copilot scorecard (deterministic smoke-check + IncidentActionCorrectness judge)"
+    },
+    {
+      "where": "Observe › Review Queues › + New Queue",
+      "do": "Route weak or conflicting-evidence runs to human review. Click <strong>+ New Queue</strong>, name it (e.g. <code>incident-action-review</code>), add a pass/fail question, and create it. On the queue, paste the low-scoring run trace ids into <strong>Add traces to review</strong> and click <strong>Enqueue</strong>; a reviewer answers and clicks <strong>Submit review</strong> (answers write back onto the trace). Convert postmortem misses into new <code>incident-cases</code> rows and harden the <code>rollback-decision-checklist</code> skill before editing the prompt.",
+      "fill": [
+        ["Name", "<code>incident-action-review</code>"],
+        ["Trace ids", "the trace id(s) of the low-scoring / conflicting-evidence runs from the Run Monitor"]
+      ],
+      "click": "Enqueue",
+      "see": "The enqueued traces appear in the queue; after <strong>Submit review</strong> the reviewer answers are persisted on each trace, ready to harvest back into the dataset.",
+      "asset": "review queue: incident-action-review (trace-linked answers)"
+    }
+  ]
+}

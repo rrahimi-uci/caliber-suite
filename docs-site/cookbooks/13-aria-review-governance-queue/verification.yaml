@@ -1,0 +1,33 @@
+# Verified against the Aria capability registry + plan executor — see ../ARIA-AUTONOMY.md.
+feasibility:
+  - These gates check Aria's PLAN and the REAL artifact it created; there is no LLM judge OF Aria here.
+  - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
+  - review_queue.add_items shares the domain "review_queue", so it is also proposed. It is OPTIONAL: completed if you enqueue trace_ids, skipped if you deny it. Gate on the queue, not on enqueue.
+evaluation:
+  plan_checks:
+    - plan_decomposed_from_intent
+    - plan_contains_review_queue_create
+    - plan_contains_review_queue_add_items   # same domain "review_queue"; expected but optional to run
+  artifact_checks:
+    - review_queue_active_with_question_schema
+    - questions_include_safety_and_citation_and_tone   # the demo schema (keys are yours)
+    - review_queue_add_items_completed_or_skipped       # completed if trace_ids supplied, else cleanly skipped
+quality_gates:
+  steps_completed_min: 1     # review_queue.create; add_items may be skipped by denying it
+  required_interactions_answered: true
+  artifacts_real: true       # the review queue exists in Review Queues with its questions
+monitoring:
+  evidence:        # labels for what to look for, not literal span names
+    - aria_plan_created
+    - aria_step_completed
+    - review_queue_created
+    - review_items_added        # only when add_items ran with trace_ids
+  metrics:
+    - steps_completed
+    - interactions_count
+    - questions_count
+    - items_added                # 0 when add_items was denied/skipped
+feedback_loop:
+  - if the plan misses the queue capability, sharpen the intent wording (the literal phrase "review queue") and re-decompose.
+  - reviewers answer the queue's questions; answers write mlflow feedback (assessments) + expectations back onto the trace.
+  - promote the labeled expectations into an eval dataset (from-trace) and into the Evaluations / Judge-certification loop (SCN-10 / SCN-01).

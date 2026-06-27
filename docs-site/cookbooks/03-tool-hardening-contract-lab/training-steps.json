@@ -1,0 +1,193 @@
+{
+  "steps": [
+    {
+      "where": "Library › Tools › Register Tool",
+      "do": "Register the read-only order lookup. Clicking <strong>Register Tool</strong> opens the tool wizard. A registered <strong>Tool</strong> must point at importable Python, so you give it a <code>Module Path</code> and <code>Callable Name</code> for a shipped callable — no code to write. Mark it <code>read</code> and allow it in preview so the sandbox runs it live.",
+      "fill": [
+        ["Name", "<code>lookup_order</code>"],
+        ["Module Path", "<code>caliber.workflows.demo_tools</code>"],
+        ["Callable Name", "<code>lookup_order</code>"],
+        ["Side effect level", "<code>read</code>"],
+        ["Allow in preview", "enabled (run the real callable in sandbox)"],
+        ["Input / Output schema", "paste the <code>input_schema</code> (requires <code>order_id</code>) and <code>output_schema</code> from <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/tools/lookup-order.tool.json\">lookup-order.tool.json</a> into the Schema step's raw-JSON fields"]
+      ],
+      "click": "Register Tool",
+      "see": "The tool <code>lookup_order</code> is registered and opens in its workspace with stage tabs (<strong>Spec</strong>, Sandbox, Fixtures, Test Runs, Hardening, Publish).",
+      "asset": "tool: lookup_order (read)",
+      "assetlink": [
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/tools/lookup-order.tool.json", "label": "lookup-order.tool.json"}
+      ]
+    },
+    {
+      "where": "Library › Tools › Register Tool",
+      "do": "Register the refund <strong>write</strong> tool the same way. Because <code>side_effect_level</code> is <code>write</code>, it is automatically mocked in the sandbox and becomes approval-gated when used in a workflow — exactly the safety behavior this lab wants. Leave Allow-in-preview off (writes are mocked regardless).",
+      "fill": [
+        ["Name", "<code>initiate_refund</code>"],
+        ["Module Path", "<code>caliber.workflows.demo_tools</code>"],
+        ["Callable Name", "<code>initiate_refund</code>"],
+        ["Side effect level", "<code>write</code>"],
+        ["Input / Output schema", "paste the <code>input_schema</code> (requires <code>order_id</code>) and <code>output_schema</code> from <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/tools/initiate-refund.tool.json\">initiate-refund.tool.json</a>"]
+      ],
+      "click": "Register Tool",
+      "see": "The tool <code>initiate_refund</code> appears in the Tools list and opens in its own workspace.",
+      "asset": "tool: initiate_refund (write)",
+      "assetlink": [
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/tools/initiate-refund.tool.json", "label": "initiate-refund.tool.json"}
+      ]
+    },
+    {
+      "where": "Library › Tools › lookup_order › Sandbox",
+      "do": "Run the read tool live in the <strong>Sandbox</strong> to confirm it imports and returns real output. Because it is a <code>read</code> tool with preview allowed, you get the genuine lookup result.",
+      "fill": [
+        ["Input JSON", "<code>{\"order_id\": \"ord_1120\"}</code>"]
+      ],
+      "click": "Test Run",
+      "see": "A real response object (e.g. <code>{order_id, items, status}</code>) with no <code>mocked</code> flag — proving the live read works."
+    },
+    {
+      "where": "Library › Tools › initiate_refund › Sandbox",
+      "do": "Run the write tool in the Sandbox to confirm it is safely <strong>mocked</strong>. Write/external-action tools never execute for real in preview, so you can test the contract without issuing an actual refund.",
+      "fill": [
+        ["Input JSON", "<code>{\"order_id\": \"ord_1120\", \"amount\": 49.0}</code>"]
+      ],
+      "click": "Test Run",
+      "see": "A response carrying <code>mocked: true</code>, confirming the refund did not really fire in the sandbox."
+    },
+    {
+      "where": "Library › Tools › lookup_order › Fixtures",
+      "do": "Save deterministic <strong>fixtures</strong> (named cases with assertions) so you can score the tool repeatably. Use <strong>Add case</strong> once per fixture; each case pairs an input JSON with an assertion. <code>lookup_order</code> takes only <code>order_id</code>, so each case's input JSON must be scoped to just that key — passing the full multi-key fixture row would raise a TypeError and fail the case. The available assertion types are <code>no_error</code>, <code>output_contains</code>, and <code>equals</code> — use <code>output_contains</code> with a value like <code>status</code> to assert the lookup output.",
+      "fill": [
+        ["Cases", "for each row in <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/dataset/refund-fixtures.jsonl\">refund-fixtures.jsonl</a>, add a case whose input JSON is scoped to just the order id (e.g. <code>{\"order_id\": \"ord_1120\"}</code>) paired with the assertion <code>output_contains</code> = <code>status</code>"]
+      ],
+      "click": "Save cases",
+      "see": "The saved fixture cases appear in the panel, ready to run as a suite.",
+      "asset": "tool fixtures: lookup_order suite",
+      "assetlink": [
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/dataset/refund-fixtures.jsonl", "label": "refund-fixtures.jsonl"}
+      ]
+    },
+    {
+      "where": "Library › Tools › lookup_order › Hardening",
+      "do": "Run the saved fixture suite. The deterministic Hardening lane scores the assertions <strong>inline</strong> and reports a pass rate you can gate on (target &ge; 0.97). Save the cases first if you edited them, then run.",
+      "click": "Run calibration",
+      "see": "An immediate result line: <strong>Pass rate NN%</strong> — passed/total — recorded as a run with per-case pass/fail. No waiting for a background job.",
+      "asset": "hardening run: lookup_order pass rate"
+    },
+    {
+      "where": "Library › Tools › lookup_order › Test Runs",
+      "do": "Pin the passing hardening run as the tool's <strong>baseline</strong> so future fixture/schema edits are measured against this known-good result. Open the run in the Test Runs history and pin it.",
+      "click": "Set as baseline",
+      "see": "The run gets a <strong>Baseline</strong> marker; the Test Runs tab now shows deltas against it. (Optional: edit a fixture or schema and re-run to watch a regression delta appear.)",
+      "asset": "pinned baseline: lookup_order hardening"
+    },
+    {
+      "where": "Compose › Workflows › New Workflow",
+      "do": "Create the workflow from the <strong>Human Review</strong> template (the <code>hitl_review</code> kind) — it ships the <strong>human_approval</strong> node you need for the approval gate. Name it, then click the template tile to create it. Starting from this template means the gate is already wired for you.",
+      "fill": [
+        ["Name", "<code>refund-decision-flow</code>"],
+        ["Template", "the <strong>Human Review</strong> tile (Agent → PII redact → human approval → output)"]
+      ],
+      "click": "Human Review",
+      "see": "The workflow opens in the editor with a starting graph that already contains a <code>human_approval</code> node.",
+      "asset": "workflow: refund-decision-flow (hitl_review)"
+    },
+    {
+      "where": "Compose › Workflows › refund-decision-flow › Editor",
+      "do": "Add the deterministic decision as a <strong>Python Code</strong> node (drag it from the palette, or use the quick-add + menu, then paste the body in the node inspector). Custom decision logic lives in a python_code node (not a registered tool), so it versions with the workflow and needs no registration. This node sits first after START and reads the run input directly: a python_code node receives the run input as an unparsed string, so the pasted <code>run_python_node(...)</code> entrypoint parses it as JSON and reads <code>order_state</code>, <code>risk_flags</code>, <code>amount</code>, and <code>days_since_order</code> from it.",
+      "fill": [
+        ["Python Code node body", "paste the body of <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/tools/decide_refund.py\">decide_refund.py</a> (it defines <code>decide_refund(...)</code> and the <code>run_python_node(...)</code> entrypoint that parses the JSON run input and returns <code>{decision, reason_code, requires_approval}</code>)"]
+      ],
+      "click": "💾 Save",
+      "see": "A <strong>Python Code</strong> node for the refund decision is on the canvas with the pasted body saved to the draft.",
+      "asset": "python_code node: decide_refund",
+      "assetlink": [
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/tools/decide_refund.py", "label": "decide_refund.py"}
+      ]
+    },
+    {
+      "where": "Compose › Workflows › refund-decision-flow › Editor",
+      "do": "Wire the safety chain by adding the nodes and connecting them in order: <code>START</code> &rarr; <code>decide_refund</code> (python_code, which parses the JSON run input) &rarr; <code>human_approval</code> &rarr; <code>initiate_refund</code>. Add the <code>initiate_refund</code> Tool node from the palette, drag port-to-port to connect, and route through the existing human_approval gate so the write only fires after approval. The human_approval node has no condition field: when runtime approvals are enabled on the run, it pauses <em>every</em> run that reaches it (it does not read <code>requires_approval</code>). The <code>requires_approval</code> flag from decide_refund is informational only — surfaced for the reviewer, not consumed by the gate. (Keep <code>lookup_order</code> as the Tools-sandbox demo from the earlier steps; it is not part of this decision chain — decide_refund reads the decision fields straight from the run input.)",
+      "fill": [
+        ["Nodes to add", "a Tool node for <code>initiate_refund</code> (decide_refund and human_approval are already on the canvas)"],
+        ["Edges", "<code>START → decide_refund → human_approval → initiate_refund</code>"]
+      ],
+      "click": "💾 Save",
+      "see": "The saved draft graph shows START → decide_refund → human_approval → initiate_refund in sequence, with the approval gate sitting before the refund write.",
+      "asset": "workflow graph: decide → approve → refund"
+    },
+    {
+      "where": "Compose › Workflows › refund-decision-flow › Run Monitor",
+      "do": "Prove the gate <strong>holds</strong>. Runtime approvals are a <strong>deployment-level</strong> setting, not a per-run checkbox: an admin enables them in the environment by setting <code>CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED=true</code> <em>together with</em> checkpointing (<code>CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED=true</code>) and the run queue (<code>CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true</code>) in <code>.env</code>, then restarting — the approve/resume routes reject requests unless all three are on. (Their current values are shown read-only under <strong>Settings › Workflow runs</strong>; only LLM credentials are live-editable in the UI, so these flags come from the deployment env, not a Settings toggle.) With those enabled, open the <strong>Run Monitor</strong> panel in the editor, paste a case as the run input, and execute. The human_approval node then pauses the run at the gate instead of letting the write fire — it pauses every run that reaches it, regardless of the decision's <code>requires_approval</code> value. Use a high-risk case so the paused run is also one a reviewer would actually hold.",
+      "fill": [
+        ["Run input", "a case from <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/dataset/refund-fixtures.jsonl\">refund-fixtures.jsonl</a>, e.g. the high-risk F08 <code>{\"order_id\":\"ord_1166\",\"order_state\":\"delivered\",\"risk_flags\":[\"fraud_suspected\"],\"amount\":49.0,\"days_since_order\":4}</code>"]
+      ],
+      "click": "Run",
+      "see": "The run advances to the gate and stops at status <strong>waiting_approval</strong> (shown as \"Awaiting approval\") — the refund has NOT fired, and Approve / Reject buttons appear.",
+      "asset": "run evidence: high-risk blocked at approval",
+      "assetlink": [
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/dataset/refund-fixtures.jsonl", "label": "refund-fixtures.jsonl"}
+      ]
+    },
+    {
+      "where": "Compose › Workflows › refund-decision-flow › Run Monitor",
+      "do": "Clear the paused run in <strong>two steps</strong>. First click <strong>Approve</strong>: this only records the approval decision (the approval row flips to <code>approved</code>) — the run <em>stays</em> at <code>waiting_approval</code> and the write does NOT fire yet. Then click <strong>Resume</strong>, a separate action, which advances the paused run from the checkpoint; only now does <code>initiate_refund</code> execute. (Resume refuses to advance until an approved decision exists, so the order matters.)",
+      "click": "Approve, then Resume",
+      "see": "After Approve the status is still <strong>waiting_approval</strong> with the approval marked approved; after Resume the run advances and completes, and the timeline shows <code>initiate_refund</code> running only AFTER the resume — the write never fires while the run is paused at the gate.",
+      "asset": "run evidence: approve marks approved, resume fires refund"
+    },
+    {
+      "where": "Compose › Workflows › refund-decision-flow › Run Monitor",
+      "do": "Now prove the gate also <strong>stops the write entirely when you reject</strong>. Start another run (runtime approvals are still on at the deployment level) so it pauses at the gate, then click <strong>Reject</strong> instead of Approve. Rejection ends the run as failed — there is no Resume after a rejection — and the refund never fires.",
+      "fill": [
+        ["Run input", "any case from <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/dataset/refund-fixtures.jsonl\">refund-fixtures.jsonl</a>, e.g. F08 <code>{\"order_id\":\"ord_1166\",\"order_state\":\"delivered\",\"risk_flags\":[\"fraud_suspected\"],\"amount\":49.0,\"days_since_order\":4}</code>"]
+      ],
+      "click": "Reject",
+      "see": "The run ends at status <strong>failed</strong> (error <code>approval_rejected</code>) — <code>initiate_refund</code> never ran and the run cannot be resumed, confirming the write is hard-gated behind the approval decision.",
+      "asset": "run evidence: rejected → write never fires"
+    },
+    {
+      "where": "Library › Prompts › New prompt",
+      "do": "Add the optional <strong>explanation</strong> layer that phrases the decision for the customer <em>without changing it</em>. Use the <strong>Write / paste</strong> on-ramp, name it, and paste the body (the lines below the YAML frontmatter).",
+      "fill": [
+        ["Prompt name", "<code>refund-explanation</code>"],
+        ["Prompt text", "paste the body of <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/prompts/refund-explanation.md\">refund-explanation.md</a> (below the frontmatter; variables <code>decision</code>, <code>reason_code</code>, <code>order_state</code>, <code>customer_name</code>)"],
+        ["Commit message", "<code>v1 explanation layer — explains, never overrides, the deterministic decision</code>"]
+      ],
+      "click": "Create",
+      "see": "The prompt <code>refund-explanation</code> is created at v1 and opens in its workspace, ready to test. (Optionally also create the two support skills below to govern its wording.)",
+      "asset": "prompt: refund-explanation",
+      "assetlink": [
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/prompts/refund-explanation.md", "label": "refund-explanation.md"},
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/skills/policy-reason-normalizer.md", "label": "policy-reason-normalizer.md"},
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/skills/customer-safe-refund-language.md", "label": "customer-safe-refund-language.md"}
+      ]
+    },
+    {
+      "where": "Library › Prompts › refund-explanation › Test Sets",
+      "do": "Build a test set for the explanation prompt from the fixtures' decision contexts. Generate cases for the open prompt (each input carries a <code>decision</code>, <code>reason_code</code>, and <code>order_state</code>), review them against the fixtures, then save them as the prompt's pinned test set.",
+      "fill": [
+        ["Number of Test Cases", "pick a count covering approve / deny / manual_review reason codes, mirroring the decision contexts in <a href=\"../cookbooks/03-tool-hardening-contract-lab/assets/dataset/refund-fixtures.jsonl\">refund-fixtures.jsonl</a>"]
+      ],
+      "click": "Generate Test Cases",
+      "see": "Generated cases appear, each pairing a decision context with the expected behavior that the explanation must restate the decision faithfully.",
+      "asset": "generated cases for refund-explanation",
+      "assetlink": [
+        {"href": "../cookbooks/03-tool-hardening-contract-lab/assets/dataset/refund-fixtures.jsonl", "label": "refund-fixtures.jsonl"}
+      ]
+    },
+    {
+      "where": "Library › Prompts › refund-explanation › Test Sets",
+      "do": "Save the cases so the Runs stage can score the explanation against them. The expected behavior encodes faithfulness: the explanation must never upgrade, downgrade, or invent commitments beyond the fixed decision.",
+      "click": "Save to Test Sets",
+      "see": "A \"Saved to Test Sets\" confirmation; the set is pinned to the refund-explanation prompt.",
+      "asset": "test set: refund-explanation faithfulness cases (pinned)"
+    },
+    {
+      "where": "Library › Prompts › refund-explanation › Runs",
+      "do": "Run the explanation prompt against its pinned test set. The Runs stage executes the prompt and grades each case with the built-in pass/partial/fail judge, scoring whether the explanation stays faithful to the decision (the gate is &ge; 0.92). Run only after the deterministic refund lane above is green.",
+      "click": "Run tests",
+      "see": "A scorecard with a high overall pass rate (target &ge; 0.92), confirming the explanation never contradicts the deterministic decision — completing the deterministic-first, explanation-last gate.",
+      "asset": "run: explanation faithfulness"
+    }
+  ]
+}

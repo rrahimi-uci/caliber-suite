@@ -1,0 +1,82 @@
+{
+  "_comment": "Operator scoring config for the SCN-11 release rubric. There is NO engine that evaluates this — the operator scores each dimension BY HAND from the evidence in dataset/run-id-manifest.json, computes the weighted sum, counts blockers, and applies the gates. Weights mirror verification.yaml.",
+  "version": "1",
+  "scoring": {
+    "_comment": "Per dimension, mark a status and convert to a score factor, then multiply by the weight. overall_release_score = sum(weight * factor).",
+    "status_to_factor": { "pass": 1.0, "partial": 0.5, "fail": 0.0 }
+  },
+  "dimensions": [
+    {
+      "key": "component_readiness",
+      "weight": 0.30,
+      "satisfied_by": "Component-level evidence is green and recorded: prompt/tool/skill scorecards from the upstream scenarios pass. Concretely, every SCN-07/08/09/10 eval_run_id is filled and its scorecard passes its own gate.",
+      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].eval_run_id (Evaluate -> Evaluations scorecards)",
+      "pass_if": "all required eval_run_id present AND each scorecard passes",
+      "partial_if": "some scorecards pass, others missing or below their gate",
+      "fail_if": "any required eval_run_id missing OR any scorecard fails"
+    },
+    {
+      "key": "workflow_readiness",
+      "weight": 0.30,
+      "satisfied_by": "The high-risk workflow slices were re-run and still pass: SCN-07 approval branch, SCN-08 rollback path, SCN-09 retry/resume recovery, with fresh run ids. Scoped to SCN-07/08/09 only — SCN-10's critical slice is human-review-queue completion (scored under review_coverage), not a pipeline re-run, so it carries no approval_branch_run_id.",
+      "evidence_source": "dataset/run-id-manifest.json -> scenarios[SCN-07/08/09].approval_branch_run_id (Workflow run monitor + Observability traces)",
+      "pass_if": "every SCN-07/08/09 critical-slice re-run has a fresh run id AND completed successfully",
+      "partial_if": "some SCN-07/08/09 critical slices re-run green, others not yet re-run",
+      "fail_if": "any SCN-07/08/09 critical slice missing a fresh run id OR a re-run failed"
+    },
+    {
+      "key": "review_coverage",
+      "weight": 0.20,
+      "satisfied_by": "Every required Review Queue from the upstream scenarios is fully answered (no unresolved items), and blocker-triage answers are recorded where used.",
+      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].review_queue_complete (Observe -> Review Queues); optional review/blocker-questions.json answers",
+      "pass_if": "all required review_queue_complete == true",
+      "partial_if": "some queues complete, others still have unresolved items",
+      "fail_if": "any required review queue not complete"
+    },
+    {
+      "key": "evidence_visibility",
+      "weight": 0.20,
+      "satisfied_by": "The in-app Allure report was regenerated (make allure-report) and LOADS at Settings -> Allure Report, and the run-id manifest is complete enough to trace every gate state back to a concrete run id / review answer / Allure result.",
+      "evidence_source": "dataset/run-id-manifest.json -> allure {report_url, loaded}; GET /observability/allure-report",
+      "pass_if": "allure.loaded == true AND allure.report_url set AND every gate state maps to a recorded run id / review answer / Allure result",
+      "partial_if": "Allure loads but some evidence links are missing",
+      "fail_if": "Allure not regenerated or does not load (allure.loaded != true)"
+    }
+  ],
+  "gates": {
+    "_comment": "All three must hold for a go. Mirrors verification.yaml quality_gates.",
+    "overall_release_score_min": 0.90,
+    "blocker_count_must_equal": 0,
+    "allure_visibility_required": true
+  },
+  "decision_rule": "decision = go ONLY IF overall_release_score >= overall_release_score_min AND blocker_count == 0 AND allure_visible == true; otherwise no_go. Missing required evidence is a fail for its dimension (and typically forces blocker review), so a missing-evidence release cannot reach 0.90.",
+  "worked_example": {
+    "_comment": "Illustrative only — shows the arithmetic and how one open blocker forces no_go even when the weighted score clears the threshold.",
+    "scenario": "Release candidate r2026.06.0",
+    "dimension_status": {
+      "component_readiness": "pass",
+      "workflow_readiness": "pass",
+      "review_coverage": "partial",
+      "evidence_visibility": "pass"
+    },
+    "calculation": [
+      "component_readiness: 0.30 * 1.0 = 0.30",
+      "workflow_readiness:  0.30 * 1.0 = 0.30",
+      "review_coverage:     0.20 * 0.5 = 0.10",
+      "evidence_visibility: 0.20 * 1.0 = 0.20"
+    ],
+    "overall_release_score": 0.90,
+    "allure_visible": true,
+    "blockers": [
+      {
+        "id": "BLK-1",
+        "summary": "SCN-07 approval-branch re-run surfaced one unresolved review item: an over-refund case was approved without the eligibility check.",
+        "owning_scenario": "SCN-07",
+        "status": "open"
+      }
+    ],
+    "blocker_count": 1,
+    "decision": "no_go",
+    "rationale": "Weighted score is exactly 0.90 and Allure is visible, but blocker_count == 1 (BLK-1, owned by SCN-07). The blocker_count_must_equal:0 gate fails, so the release is no_go regardless of the score. Resolve BLK-1 in SCN-07 (or log a waiver with an explicit expiry + owner), re-run the SCN-07 approval branch, then re-score."
+  }
+}

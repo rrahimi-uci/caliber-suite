@@ -1,0 +1,28 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - InstructionCompliance is a real LLM judge (authored on Judges; selectable in an Evaluations run under "Custom LLM judges", where it runs as a Judge.<id> scorer). The rule_checks map to the deterministic scorer contains_expected, run on the prompt's Test Sets / Runs stage; note the standalone Evaluations page scores the model's direct answer to dataset inputs, not the prompt asset itself, so use the Runs stage for a prompt-grounded check.
+  - monitoring.traces below are evidence labels to look for in the MLflow trace tree, not literal span names (spans are named by node/operation).
+evaluation:
+  judges:
+    - name: InstructionCompliance
+      type: custom_judge
+      criteria: output follows JSON schema and intent policy
+  rule_checks:
+    - valid_json
+    - allowed_intent_values
+quality_gates:
+  min_overall_score: 0.90
+  contract_fidelity: 1.0
+  required_artifacts:
+    - baseline_run_id
+    - comparison_run_id
+monitoring:
+  traces:
+    - prompt_render
+    - prompt_test_run
+  metrics:
+    - pass_rate
+    - regression_count
+feedback_loop:
+  - convert repeated failures into new test-data rows.
+  - tune prompt before enabling workflow binding.

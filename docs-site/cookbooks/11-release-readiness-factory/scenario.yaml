@@ -1,0 +1,38 @@
+id: SCN-11
+slug: release-readiness-factory
+name: "Release Signoff Factory"
+track: gate
+objective: Aggregate cross-scenario evidence into a clear go/no-go release decision with traceable blockers.
+why_it_matters:
+  - Turns scenario outputs into operational release confidence.
+  - Prevents subjective signoff without durable evidence.
+primary_persona: release manager
+secondary_personas:
+  - platform engineer
+  - evaluator
+caliber_surfaces:
+  - Observability
+  - Allure
+  - Evaluations
+  - Review Queues
+prerequisites:
+  - Completed build scenarios with saved run IDs.
+  - In-app Allure path configured and visible.
+time_to_first_value: 60-120 minutes
+success_criteria:
+  - Required gates pass with no unresolved blockers.
+  - Final decision maps back to concrete evidence.
+demo_profile:
+  recommended_sequence_index: 11
+  tier: gate
+  live_demo_minutes: 20-35
+  depends_on:
+    - SCN-07
+    - SCN-08
+    - SCN-09
+    - SCN-10
+  included_in:
+    - release_governance
+  showcase_capabilities:
+    - cross-scenario release evidence aggregation
+    - deterministic go/no-go gating

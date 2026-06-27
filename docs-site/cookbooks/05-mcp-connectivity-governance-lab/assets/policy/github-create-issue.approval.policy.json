@@ -1,0 +1,5 @@
+{
+  "_comment": "Alternative to the hard block. PATCH /mcp-servers/{id}/tools/create_issue/policy. Marks create_issue as a write-side-effect tool that requires approval. NOTE: requires_approval gates the tool when it runs inside a workflow (via the human-approval node); it is NOT enforced on the direct Playground invoke path, which only honors allowed:false. For a true read-only explorer, prefer the .block.policy.json. Strip this _comment before sending.",
+  "requires_approval": true,
+  "side_effect_level": "write"
+}

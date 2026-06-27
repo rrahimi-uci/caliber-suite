@@ -1,0 +1,10 @@
+{
+  "queue_id": "<the queue_id returned by the review_queue.create step>",
+  "trace_ids": [
+    "<REAL flagged trace id 1 from Observability>",
+    "<REAL flagged trace id 2 from Observability>",
+    "<REAL flagged trace id 3 from Observability>"
+  ],
+  "assigned_to": "@reviewer",
+  "notes": "Answer to the Aria review_queue.add_items interaction (same shape as POST /review-queues/{id}/items). PLACEHOLDERS — replace trace_ids with REAL ids of the weak runs (read them from Observability) and queue_id with the id from the create step. Aria does not discover traces. experiment_id is optional."
+}

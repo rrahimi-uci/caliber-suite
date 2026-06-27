@@ -1,0 +1,15 @@
+golden_cases:
+  - id: D01
+    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/msa-001.docx", document_type: "contract"}
+    expected: {validation_status: "pass"}
+  - id: D02
+    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/q2-forecast.xlsx", document_type: "spreadsheet"}
+    expected: {validation_status: "pass"}
+edge_cases:
+  - id: D03
+    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/roadmap-v3.pptx", document_type: "presentation"}
+    expected: {validation_status: "pass_with_warnings"}
+negative_cases:
+  - id: D04
+    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/scan-archive.doc", document_type: "unsupported"}
+    expected_error: "unsupported_format"

@@ -1,0 +1,43 @@
+workflow_goal: Prove MCP safety and reliability before any workflow dependency.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Policy field mapping — blocked = allowed:false is the ONLY control enforced on the DIRECT invoke path (a blocked tool refuses); requires_approval:true gates the tool at WORKFLOW time (human_approval node), NOT on direct invoke; side_effect_level = read|write.
+  - Quick-connect catalog has 8 templates (GitHub, PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, Playwright); data-testid catalog-<id>.
+  - Tool calibration is real (PUT .../tools/{tool}/test-cases then POST .../tools/{tool}/calibrate); PolicyCorrectness is a deterministic assertion check, not an LLM judge.
+manual_flow:
+  - step: register
+    action: register server config and credentials
+  - step: discover
+    action: sync tools and inspect input/output schemas
+  - step: invoke
+    action: run read-only tool with golden payload
+  - step: govern
+    action: set block/approval policy on one risky tool
+  - step: calibrate
+    action: save tool cases and run calibration
+components:
+  prompts: none
+  skills: optional_policy_summary_only
+  tools: discovered_mcp_tools_only
+  mcp:
+    required:
+      - one quick-connect server
+    policy_overlay:
+      - blocked            # PATCH .../tools/{tool}/policy {allowed:false}
+      - approval_required  # PATCH .../tools/{tool}/policy {requires_approval:true}
+      - side_effect_level  # read | write
+  workflow: optional_future_binding_only
+contracts:
+  input_schema:
+    type: object
+    required: [tool_name, arguments]
+  output_schema:
+    type: object
+    required: [status, payload_or_error]
+failure_modes:
+  - connection_failure
+  - discovery_schema_missing
+  - policy_not_enforced
+fallbacks:
+  - stop integration and fix transport/auth before workflow use.
+  - keep write-capable tools blocked by default.

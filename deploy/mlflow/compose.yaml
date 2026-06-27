@@ -1,0 +1,58 @@
+# Vanilla MLflow tracking server (no plugin). Part of the `app` profile.
+#
+#   docker compose -f deploy/compose.yaml --profile app up -d --build
+#
+# Artifacts live in MinIO under a single `mlflow` bucket: run artifacts at
+# s3://mlflow/mlruns/<experiment>/<run>/artifacts/ (via http://minio:9000).
+# Run/trace METADATA lives in the Postgres `mlflow` DB (the backend store).
+# CALIBER (deploy/caliber/) connects to this over the compose network.
+
+name: caliber-mlflow
+
+services:
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Optional (free) Guardrails Hub token. When set, the image build
+        # downloads the Hub validators (ToxicLanguage / DetectPII / DetectJailbreak
+        # / …) that back MLflow's gateway guardrails. Unset → guardrails-ai is
+        # installed but validators are added later via `guardrails hub install`.
+        GUARDRAILS_HUB_TOKEN: ${GUARDRAILS_HUB_TOKEN:-}
+    image: caliber/mlflow:latest
+    container_name: caliber-mlflow
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    environment:
+      MLFLOW_HOST: 0.0.0.0
+      MLFLOW_PORT: 5000
+      # Tracking store → a DEDICATED `mlflow` database on the Postgres container,
+      # pinned to the `public` schema. Two reasons this must be separate + pinned:
+      #   1. Sharing CALIBER's DB collides on alembic's `alembic_version` table.
+      #   2. The mcp Postgres runs `search_path=ag_catalog,public` (for AGE); MLflow
+      #      must use `public` so its 48 tables don't land in AGE's catalog schema.
+      # MLflow's server creates the schema itself on first start (no `db upgrade`).
+      MLFLOW_BACKEND_URI: "${MLFLOW_BACKEND_URI:-postgresql://caliber:caliber@postgres:5432/mlflow?options=-csearch_path%3Dpublic}"
+      MLFLOW_ARTIFACT_ROOT: ${MLFLOW_ARTIFACT_ROOT:-s3://mlflow/mlruns}
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # MLflow 3.13 enforces a Host-header allowlist (DNS-rebinding protection).
+      # Behind the gateway, MLflow receives Host: mlflow:5000 (the upstream name),
+      # which isn't allowed by default → 403. This is a local stack reached only
+      # via the gateway, so accept all hosts. Tighten to a CSV list for prod.
+      MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS:-*}
+      # Server-owned trace retention & auto-archival (MLflow 3.13+). OPT-IN:
+      # unset by default so a fresh stack never relocates traces. Set to the
+      # baked-in config path to enable aged-trace archival to MinIO:
+      #   MLFLOW_TRACE_ARCHIVAL_CONFIG=/etc/mlflow/trace-archival.yaml
+      # (edit deploy/mlflow/trace-archival.yaml to tune retention/location).
+      MLFLOW_TRACE_ARCHIVAL_CONFIG: ${MLFLOW_TRACE_ARCHIVAL_CONFIG:-}
+    restart: unless-stopped

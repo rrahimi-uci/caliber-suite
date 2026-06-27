@@ -1,0 +1,51 @@
+# Umbrella infra stack for the CALIBER suite.
+#
+# One file per backing service lives in its own folder under deploy/ and is
+# pulled in here via `include`. Adding a new open-source service is two steps:
+#   1. create deploy/<service>/compose.yaml
+#   2. add it to the `include` list below
+#
+# Usage:
+#   docker compose -f deploy/compose.yaml up -d            # minio + postgres
+#   docker compose -f deploy/compose.yaml --profile nats up -d   # + nats
+#   docker compose -f deploy/compose.yaml down
+#
+# Config can come from deploy/.env (infra ports / bucket names) and the
+# suite-root .env (app settings / secrets). The top-level scripts load both,
+# with the suite-root .env taking precedence.
+
+name: caliber-infra
+
+include:
+  # Object storage (MLflow artifacts, CALIBER workspaces + logs).
+  - minio/compose.yaml
+  # Postgres + pgvector + Apache AGE — backs the MCP DB servers.
+  # Referenced in place so deploy/mcp/ stays the source of truth (not moved).
+  - ../caliber/deploy/mcp/docker-compose.yml
+  # Adminer — web UI for Postgres (the DB counterpart of the MinIO console).
+  - adminer/compose.yaml
+  # Apache AGE Viewer — interactive graph console for the AGE graph DB.
+  - age-viewer/compose.yaml
+  # Message bus profiles — selected explicitly by the startup helpers.
+  - nats/compose.yaml
+  # App tier (separated) — only starts under `--profile app`:
+  #   mlflow         : vanilla tracking server (:5000)
+  #   mlflow-gateway : MLflow AI Gateway / LLM routing (:5002)
+  #   caliber        : standalone CALIBER service (:5001) — serves its own SPA at
+  #                    /caliber and talks to mlflow over HTTP
+  - mlflow/compose.yaml
+  # MLflow AI Gateway (LLM gateway) — fronts the LLM providers on :5002. Uses
+  # the suite-root .env for the provider keys it substitutes into its endpoint
+  # config (same include env_file rationale as the CALIBER service below).
+  - path: mlflow-gateway/compose.yaml
+    env_file:
+      - ../.env
+  # Interpolate the CALIBER service from the suite-root .env (app settings +
+  # secrets) so CALIBER_LLM_PROVIDER and the API keys resolve even on a bare
+  # `docker compose -f deploy/compose.yaml up` with no --env-file. Docker does
+  # NOT propagate the auto-discovered root .env into `include`d files — only an
+  # explicit env_file is — so without this an included service silently falls
+  # back to its ${VAR:-default} (e.g. CALIBER_LLM_PROVIDER → fake).
+  - path: caliber/compose.yaml
+    env_file:
+      - ../.env

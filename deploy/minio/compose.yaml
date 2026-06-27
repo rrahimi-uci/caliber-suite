@@ -1,0 +1,52 @@
+# MinIO — S3-compatible object storage for the CALIBER suite.
+#
+# Backs MLflow artifacts, CALIBER workflow/run files (Object Store), and the
+# S3 log sink. The one-shot `createbuckets` job provisions the buckets the apps
+# expect so a fresh `docker compose up` is immediately usable.
+#
+# Run on its own:   docker compose -f deploy/minio/compose.yaml up -d
+# Or via umbrella:  docker compose -f deploy/compose.yaml up -d   (see deploy/README.md)
+
+name: caliber-minio
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: caliber-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"       # S3 API
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"   # web console
+    volumes:
+      - caliber_minio_data:/data
+    restart: unless-stopped
+
+  # One-shot init: wait for MinIO, then create the buckets the apps expect.
+  # Exits 0 when done; `--ignore-existing` makes re-runs idempotent.
+  createbuckets:
+    image: minio/mc:latest
+    container_name: caliber-minio-init
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MLFLOW_BUCKET: ${MINIO_MLFLOW_BUCKET:-mlflow}
+      WORKSPACES_BUCKET: ${MINIO_WORKSPACES_BUCKET:-caliber-workspaces}
+      LOG_BUCKET: ${MINIO_LOG_BUCKET:-caliber-log}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" >/dev/null 2>&1; do
+        echo 'waiting for minio...'; sleep 1;
+      done;
+      mc mb --ignore-existing local/$$MLFLOW_BUCKET;
+      mc mb --ignore-existing local/$$WORKSPACES_BUCKET;
+      mc mb --ignore-existing local/$$LOG_BUCKET;
+      echo 'minio buckets ready';
+      "
+
+volumes:
+  caliber_minio_data:

@@ -1,0 +1,339 @@
+# Workflow Components
+
+Components are the building blocks of a CALIBER workflow. Each component is a
+single **node** on the Workflow Studio canvas, designed for one job — run an
+agent, call a tool, query a knowledge base, make an HTTP request, branch, wait,
+or move data in and out of the graph. You assemble a workflow by dropping
+components onto the canvas, configuring each one, and connecting their typed
+ports so data flows from one node to the next.
+
+Unlike a code-first orchestration framework, a CALIBER component is **declarative**.
+Every node you place is stored in the workflow **manifest** — a typed JSON
+document that is the single source of truth for the workflow. The visual canvas,
+the inspector form, and the per-node code view are three editors over that same
+manifest; the compiler turns the manifest into a typed intermediate
+representation (IR) and the runtime executes it as a deterministic graph
+interpreter. That means a component has no hidden per-node Python to maintain —
+its behaviour is fully described by its type and its configuration.
+
+This page explains the anatomy of a component, how to add, configure, connect,
+inspect, and run one, the data-type port system, and a complete reference for
+every built-in component. For the engine internals (manifest schema, compiler,
+runtime, deployments) see the [Workflows Architecture](architecture.md).
+
+## At a glance
+
+| Dimension | What this reference covers |
+| --- | --- |
+| **Component model** | A component is a declarative **node** whose behaviour is fully described by its type and config in the workflow **manifest** — no hidden per-node Python. |
+| **Component anatomy** | Each node renders as a card: header, description, configuration detail, typed **Ports**, and a hover toolbar. |
+| **Port system** | Five color-coded data types — `string`, `structured`, `messages`, `boolean`, and `void` — that connect cleanly only when compatible. |
+| **Working with nodes** | Add from the palette, configure in the **Inspector**, connect node-to-node via an **edge map**, view/edit each node's **manifest JSON** (`<>`), and preview or run. |
+| **Component categories** | Seven palette groups: Inputs & Outputs, Orchestration, Agents, Logic, Safety, Integrations, and Utilities. |
+| **Custom code** | The only component that runs real code is **Python Code**, whose sandboxed `code` field is part of the same manifest JSON. |
+| **Built-in reference** | Every built-in component, grouped by category, with default ports, key fields, and setup checks. |
+
+The sections below start from this picture and drill down into the detail — the
+anatomy of a component, the port system, how to work with nodes, and the full
+reference for every built-in component.
+
+## Reference
+
+## Anatomy of a component
+
+Every component renders as a card with a consistent layout, so you can read a
+node at a glance without opening it.
+
+- **Header** — a category-tinted icon, the node's name, and its type
+  (for example `api_request`). A status dot or badge on the right shows the
+  node's readiness: a **setup**/**error**/**warning** badge when required
+  configuration is missing or invalid, or a live execution status during a
+  preview or run.
+- **Description** — a one-line summary of what the component does, taken from
+  the component definition.
+- **Configuration detail** — a compact, monospace line summarizing the node's
+  key settings (for example `POST · https://api.example.com` for an API
+  Request, or `gpt-4o · 2 tools` for an Agent).
+- **Ports** — the typed input and output connection points, listed as labelled
+  rows. Inputs sit on the left edge, outputs on the right edge, each with a
+  colored dot that encodes the data type it carries (see
+  [Port data types](#port-data-types)).
+- **Toolbar** — a floating row of actions that appears on hover or selection:
+  view/edit code (`<>`), duplicate, and quick-add a connected node.
+
+The **Start** trigger is the one exception to the card layout: it renders as a
+circular puck because it has no inputs and a single outgoing edge.
+
+### Port data types
+
+Ports are **typed**. A connection is meaningful only when an output port and an
+input port carry compatible data, and CALIBER color-codes every port by its data
+type so compatibility is visible at a glance. Matching colors connect cleanly;
+mismatched types are flagged during validation.
+
+| Data type    | Port color        | Carries                                                        |
+| ------------ | ----------------- | -------------------------------------------------------------- |
+| `string`     | Indigo (`#4F46E5`) | Plain text — prompts, responses, rendered output, identifiers. |
+| `structured` | Red (`#DC2626`)    | JSON objects/arrays — tool results, payloads, metadata, lists. |
+| `messages`   | Fuchsia (`#C026D3`)| Conversation history (role/content message arrays).           |
+| `boolean`    | Gold (`#CA8A04`)   | True/false control values.                                    |
+| `void`       | Gray (`#6B7280`)   | A pure control-flow signal that carries no data.              |
+
+Most CALIBER components publish a primary `text` (string) output for the common
+"pass the result downstream" case, plus a `structured` output (often named
+`result`, `response`, or `metadata`) that carries the full typed payload for
+nodes that need it.
+
+### Configuration fields and setup checks
+
+A component's parameters are edited in the **Inspector** — the panel that opens
+on the right when you select a node. By default the inspector shows the fields
+that matter for that component type (a Webhook shows URL, method, headers, and
+timeout; an Agent shows model, instructions, tools, skills, and handoffs).
+
+Many components also carry **setup checks** — lightweight readiness rules that
+power the node's setup badge and the Problems panel. A setup check is advisory:
+it nudges you toward a complete configuration (for example "Provide a request
+URL" on a Webhook, or "Select a tool binding" on a Tool node) before you
+compile or run. Hard schema errors (an invalid type, an unmappable edge) are
+surfaced separately as validation errors.
+
+## Working with components
+
+### Add a component
+
+Open the **component palette** on the left of the Workflow Studio. Components are
+grouped by category, each with its own icon, and every item is searchable by
+name, description, or docs. To add one, either:
+
+- **Drag** the component from the palette onto the canvas at the position you
+  want, or
+- **Click** it to drop it at a default position.
+
+Each palette card shows the component's icon, name, and description, plus badges
+for how many config fields, setup rules, and default input/output ports it has.
+Server-backed components also expose an **Inspect** button that opens a
+read-only reference — setup rules, ports, and field schema — before you commit
+the node to the canvas.
+
+### Configure a component
+
+Select a node to open the Inspector and edit its fields. As you type, the node's
+status badge and the Problems panel update live, so you always know whether the
+node is ready. The node's header detail line and port rows also re-render to
+reflect the new configuration.
+
+Every node also has a **Node** section at the top of the Inspector for a
+**Display name** (a human-friendly label shown on the canvas in place of the
+id — the id itself stays the stable identifier that edges reference) and a
+**Description** (an author note that supports Markdown and surfaces as the node's
+tooltip). Both are optional and presentation-only — they never reach the
+compiler or runtime.
+
+Components with tuning parameters keep them behind a **Show advanced fields**
+toggle, so the inspector shows only the primary options by default. A field with
+an unresolved issue is always shown so problems stay reachable.
+
+### Connect components
+
+CALIBER wires **node to node**: drag from a source node's right-edge handle to a
+target node's left-edge handle. When you connect two nodes, CALIBER
+automatically derives an **edge map** — it pairs each of the source's outputs to
+a compatible input on the target by matching name and data type. The edge label
+shows the resulting mapping (for example `final_output→input`).
+
+To change which output feeds which input, open the **connection map** editor on
+the edge and remap the ports, or use **Auto-Map** to let CALIBER re-derive the
+pairing. Because the mapping lives on the edge rather than on individual port
+handles, a single connection between two nodes can carry several typed values at
+once.
+
+You can also use the **quick-add** (`+`) action on a node to drop and connect a
+new downstream node in one step.
+
+### View or edit a component's code
+
+Every node has a **`<>` code** button in its toolbar. It opens the node's
+**manifest JSON** — the declarative definition that is the source of truth for
+that component — in an editable code panel. You can read the full configuration,
+edit it as JSON, and **Apply** to write it straight back into the workflow.
+
+This is the same "no-code and code edit the same artifact" model as the
+whole-workflow **Code view**, scoped to one node. The node's `id` is held fixed
+(edges reference it); everything else flows back through the normal validator,
+so the canvas and inspector immediately reflect your edit.
+
+> **Why the code view shows JSON, not Python.** CALIBER runs a **manifest-driven
+> interpreter**, not generated per-node Python. The manifest is the single source
+> of truth, and the compiled Agents-SDK Python is a deterministic, reviewable
+> *projection* of it. Editing a node's manifest JSON is therefore completely
+> safe — it introduces no new execution path and cannot change runtime behaviour
+> or break determinism. The only component that runs real code is **Python
+> Code**, whose sandboxed `code` field is part of that same JSON. The generated
+> Python is intentionally read-only (available in the workflow Code view) to
+> preserve the manifest-as-truth and security guarantees.
+
+### Run, preview, and inspect output
+
+Compile and **preview** a workflow to dry-run the graph with the fake executor,
+or **run** it for real through the queued runtime. During both, each node shows
+an execution badge (running / ok / error / skipped) and the current node is
+highlighted, so you can watch data move through the components. After a preview
+or run, selecting a node shows its **Last output** — status, output text, timing,
+detail, and tool-call count — right in the Inspector, alongside the full traces
+and run lineage available from the run surfaces.
+
+### Duplicate and remove
+
+Use the node toolbar to **duplicate** a configured node (handy for repeating a
+tool or agent with small changes), and delete nodes from the canvas. The Start
+and Output endpoints cannot be duplicated.
+
+## Component categories
+
+The palette groups components by purpose:
+
+| Category            | What it's for                                                                 |
+| ------------------- | ----------------------------------------------------------------------------- |
+| **Inputs & Outputs**| Get data into and out of the graph — the Start trigger, file/folder/bucket inputs, output endpoints. |
+| **Orchestration**   | Shape control flow over time — wait, fan-out/fan-in, iterate, loop, and call sub-workflows. |
+| **Agents**          | LLM-powered reasoning steps with tools, skills, and handoffs.                 |
+| **Logic**           | Branch execution conditionally.                                               |
+| **Safety**          | Guardrails, human approval, and error boundaries.                             |
+| **Integrations**    | Call out to tools, MCP servers, HTTP APIs, and knowledge bases.               |
+| **Utilities**       | No-code templating, sandboxed Python, and canvas notes.                       |
+
+A component may also be marked **Legacy** — kept working for existing workflows
+but de-emphasized in favor of a modern replacement. Legacy components are hidden
+in the palette until you enable **Show legacy components**, and carry a "Legacy"
+badge naming their suggested replacement (for example, **External App** →
+Tool / Python Code / API Request).
+
+## Component reference
+
+Every built-in component, grouped by category. **Inputs → Outputs** lists the
+default typed ports; **Key fields** lists the main configuration parameters
+(every node also accepts an optional `execution_policy` for timeout/retry).
+**Setup** lists the readiness checks that must be satisfied before the node is
+considered configured.
+
+### Inputs & Outputs
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Start** | `start` | Entry point of the flow; can fire manually, on an event, or on a cron schedule. | — → `user_message` | `trigger` | — |
+| **File Input** | `file_input` | Read one local text file and publish its content into the graph. | `path` → `text`, `path`, `metadata` | `path`, `encoding`, `max_bytes` | Provide a file path |
+| **Input Folder** | `folder_input` | Read a bounded set of local text files from a folder. | `path` → `text`, `files`, `metadata` | `path`, `pattern`, `recursive`, `max_files`, `max_bytes_per_file`, `encoding` | Provide a folder path |
+| **Input Bucket** | `input_bucket` | Read a bounded set of text objects from an object-storage bucket. | `prefix` → `text`, `files`, `metadata` | `bucket`, `prefix`, `recursive`, `max_files`, `max_bytes_per_file`, `encoding` | Select an input bucket |
+| **Output Bucket** | `output_bucket` | Write the workflow's artifacts to an object-storage bucket. | `input` → `keys`, `metadata` | `bucket`, `prefix`, `overwrite` | Select an output bucket |
+| **Output Folder** | `output_folder` | Write the workflow's artifacts to a local folder. | `input` → `files`, `metadata` | `path`, `overwrite` | Provide an output folder path |
+| **Output** | `output` | Final response endpoint — maps the field returned as the workflow's result. | `response` → — | — | — |
+
+### Orchestration
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Wait Until** | `wait_until` | Pause execution until a wall-clock timestamp (a resumable checkpoint). | `input` → `output` | `wait_until`, `timezone` | Set the target timestamp |
+| **Wait For Event** | `wait_for_event` | Pause until an external system or operator resumes the run with a named event. | `input` → `output`, `event_payload`, `event_name` | `event_name`, `correlation_key`, `timeout_seconds` | Name the resume event |
+| **Parallel** | `parallel` | Explicit fan-out marker — branch execution across multiple downstream paths. | `input` → `output` | — | Add at least two downstream branches |
+| **Join** | `join` | Explicit fan-in barrier — merge branches back into one control path. | (edge-driven) → `output`, `merged` | `mode` (`all`/`any`) | Connect ≥2 upstream branches; use distinct join input ports |
+| **For Each** | `for_each` | Iterate a structured list through one executable target and collect results. | `items` → `results`, `text`, `metadata` | `target_node_id`, `item_input_port`, `max_items` | Use an executable target when set |
+| **Loop** | `loop` | Repeat a target node until a stop condition matches or the iteration cap is reached. | `input`, `state` → `output`, `result`, `iterations`, `metadata` | `target_node_id`, `max_iterations`, `stop_condition` | Select an executable loop target |
+| **Subworkflow** | `subworkflow` | Invoke another published workflow by id and alias. | `input` → `output`, `result` | `workflow_id`, `alias`, `timeout_seconds` | Select the workflow to invoke; avoid recursion |
+
+### Agents
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Agent** | `agent` | An LLM reasoning step with inline or registered instructions, tools, skills, structured output, and handoffs to other agents. | `input`, `history` → `final_output`, `history` | `name`, `model`, `instructions`, `tools`, `skills`, `tool_constraints`, `handoffs`, `output_type`, `eval_dataset` | Provide instructions or a prompt reference |
+
+### Logic
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Router** | `router` | Route execution conditionally across explicit branches; the first matching condition wins. Branches are expressed as outgoing edges. | `decision` → (edge-driven) | `branches` | Add ≥1 branch; connect every branch target |
+
+### Safety
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Guardrail** | `guardrail` | Apply validation or safety checks before or after an agent step, with block/redact/escalate behavior and bounded retries. | `response` → `passthrough` | `mode`, `checks`, `on_failure`, `max_retries` | Configure at least one guardrail check |
+| **Human Approval** | `human_approval` | Pause the workflow until a human reviewer approves or rejects it; resolved from the run monitor. | `request` → `request` | `required_role`, `approval_count`, `timeout_behavior` | — |
+| **Error Boundary** | `error_boundary` | Execute a target node with fallback text or a compensation node when it fails. | `input` → `output`, `error` | `target_node_id`, `fallback_text`, `compensate_with` | Use executable target / compensation nodes when set |
+
+### Integrations
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Tool** | `tool` | Invoke a registered workflow tool binding directly — same registry, MCP bindings, and retry/timeout policy agents use. | `input`, `arguments` → `text`, `result`, `metadata` | `tool_name` | Select a tool binding |
+| **MCP Resource** | `mcp_resource` | Call a tool exposed by a registered MCP server as a first-class node. | `input` → `text`, `result`, `metadata` | `server_id`, `tool_name`, `timeout_seconds` | Select an MCP server and tool |
+| **Webhook** | `webhook` | Send an outbound HTTP request to an external URL; the upstream payload becomes the body (JSON-encoded if structured). | `payload`, `input` → `text`, `response`, `metadata` | `url`, `method`, `headers`, `timeout_seconds` | Provide a request URL |
+| **API Request** | `api_request` | Make an HTTP request from a URL + method, or paste a cURL command that the node parses for method/URL/headers/body. | `payload`, `input` → `text`, `response`, `metadata` | `mode` (`url`/`curl`), `url`, `method`, `curl`, `headers`, `body`, `timeout_seconds` | Provide a URL or cURL command |
+| **Knowledge Query** | `knowledge_query` | Query a knowledge base with dense, GraphRAG hybrid, or Apache AGE graph retrieval, with query-time overrides. | `question`, `history`, `retrieval_modes`, `version_ids`, `graph_overrides` → `text`, `answer`, `result`, `citations`, `chunks`, `graph_context` | `knowledge_base_id`, `version_ids`, `retrieval_modes`, `top_k`, `chat_model`, `graph_overrides` | Select a knowledge base or pinned versions |
+| **Knowledge Build** | `knowledge_build` | Launch a new knowledge-base version build (chunking, embeddings, graph) from inside a workflow. | `input`, `sources`, `chunking_strategy`, `embedding_model`, … → `status`, `version_id`, `run_id`, `result`, … | `knowledge_base_id`, `chunking_strategy`, `embedding_model`, `chunking_config`, `graph_config`, `activate_when_complete`, `wait_for_completion`, `wait_timeout_seconds` | Select a KB, chunking strategy, and embedding model |
+| **External App** | `external_app` | Migration bridge — invoke an existing hand-coded Python entrypoint while it is converted to a first-class node. | `input`, `context` → `text`, `result`, `metadata` | `entrypoint` | Set the external app entrypoint |
+
+### Utilities
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Template** | `template` | Render a no-code text or JSON payload from workflow inputs using `{{placeholders}}`. | `input`, `variables` → `text`, `result`, `metadata` | `template`, `output_format` (`text`/`json`), `missing_variable_mode` | Provide a template |
+| **Python Code** | `python_code` | Run custom Python in the isolated tool sandbox for lightweight glue logic. | `input`, `context` → `text`, `result`, `metadata` | `code`, `timeout_seconds` | Provide Python code |
+| **Note** | `note` | Canvas-only annotation for workflow authors — never executes at runtime. | — → — | `text` | — |
+
+## How a component executes
+
+When you compile a workflow, each component becomes a typed IR node, and the
+runtime interpreter walks the graph, carrying typed values along each edge's
+map. A few behaviours are worth understanding when you build with components:
+
+- **Side-effecting components** — Tool, MCP Resource, Webhook, API Request, and
+  Python Code actually call out to external systems or run sandboxed code. In
+  tests and previews these run through injectable executors (a fake tool
+  resolver, a fake HTTP sender), so a preview never has to hit the network.
+- **Checkpoints** — Wait Until and Wait For Event create resumable checkpoints;
+  the run pauses and resumes when the time/event arrives.
+- **Human-in-the-loop** — Human Approval pauses the run and surfaces a runtime
+  approval that a reviewer resolves; Guardrail can block, redact, or escalate
+  and retry a step.
+- **Control flow** — Router branches by condition over outgoing edges; Parallel
+  fans out and Join fans in; For Each and Loop drive a single executable target
+  repeatedly; Subworkflow composes a published child workflow.
+- **Executable targets** — For Each, Loop, and Error Boundary act *on* another
+  node. Their target must be an executable component (Agent, Tool, MCP Resource,
+  Knowledge Query/Build, Template, Python Code, External App, Webhook, API
+  Request, or Subworkflow).
+
+## Defining a new component (for developers)
+
+Because a component is declarative, adding a new built-in component means
+defining its shape in a few places that stay in lock-step — there is no per-node
+runtime class to register. The end-to-end surface is:
+
+- **Manifest** (`caliber/src/caliber/workflows/manifest.py`) — a Pydantic node
+  model added to the discriminated `WorkflowNode` union: its `type` literal,
+  config fields, and default input/output `PortMap`.
+- **IR** (`workflows/ir.py`) — a `NodeType` enum value and an `IR*` dataclass
+  mirroring the config the runtime needs. Codegen is generic, so no per-type
+  emitter is required.
+- **Compiler** (`workflows/compiler.py`) — one branch mapping the manifest node
+  to its IR node.
+- **Runtime** (`workflows/runtime.py`) — one execution branch that reads the
+  node's inputs, does the work, and publishes its declared outputs. Side-effect
+  dependencies (HTTP, tools) are injected via the runtime plan so they stay
+  testable; executable nodes are added to the orchestration-target sets.
+- **Validation** (`workflows/validation.py`) — register the node as an
+  executable target where applicable.
+- **Component catalog** (`workflows/component_catalog.py`) — the label,
+  category, description, docs, setup checks, starter node, and field
+  descriptions that drive this page and the palette. Fields are introspected
+  from the manifest model automatically.
+- **Front end** — the node type union, a Lucide icon, palette/guidance/color/
+  subtitle entries, the default-node factory, and an Inspector section for the
+  node's fields.
+
+The catalog is the shared source of truth between the runtime and the designer,
+so the palette, the inspector, the setup badges, and this reference all stay in
+sync with the validated node shape. For the full engine design — manifest
+hashing, deterministic compilation, the runtime interpreter, deployments, and
+calibration — see the [Workflows Architecture](architecture.md).

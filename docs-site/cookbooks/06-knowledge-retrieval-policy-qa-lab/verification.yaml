@@ -1,0 +1,29 @@
+# Verified — see ../FEASIBILITY.md.
+feasibility:
+  - CitationFaithfulness is a real LLM judge selectable in an Evaluations run under "Custom LLM judges" (it runs as a Judge.<id> scorer alongside the four deterministic scorers). retrieval_recall_improvement is from the KB Calibrate metrics (Recall@k), whose gold sources are the chunk filenames (e.g. data-retention-policy.md).
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  judges:
+    - name: CitationFaithfulness
+      type: custom_judge
+      criteria: answer claims supported by cited chunks
+  rule_checks:
+    - citations_present_for_substantive_answers
+    - abstain_on_conflict_or_missing_evidence
+quality_gates:
+  faithfulness_min: 0.90
+  abstention_policy_compliance: 1.0
+  retrieval_recall_improvement_after_calibration: true
+monitoring:
+  traces:
+    - kb_build_run
+    - retrieval_query
+    - answer_generation
+    - review_queue_enqueue
+  metrics:
+    - citation_coverage
+    - abstention_rate
+    - contradiction_rate
+feedback_loop:
+  - add failed retrieval queries to calibration dataset.
+  - revise chunking before prompt loosening.

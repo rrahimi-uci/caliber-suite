@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 02: Precision Skills | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">02 · Precision Skills</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 02 · Foundations</p>
+        <h1>Precision Skills</h1>
+        <p class="doc-lead">Deterministic triggering + portable packaging — a skill that fires only when it should.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Foundations</span><span class="ck-badge ck-ok">Starter</span><span class="ck-badge ck-orange">25–40 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A reusable response skill (<code>support-tone-and-citation</code>) that activates on support queries but stays silent on engineering ones, and exports cleanly as a portable package (Download ZIP).
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Skills</span> <span class="ck-badge ck-surface">Observability</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Author a skill with a tight trigger summary (the selector reads it)</li><li>Render-preview variable substitution</li><li>Run deterministic trigger tests (positive vs negative)</li><li>Export a portable skill package (Download ZIP)</li><li>Tighten the summary first when a negative query mis-fires</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart TD
+  A[Author skill: summary + content] --&gt; R[Render Preview]
+  A --&gt; T{Trigger Tests}
+  T --&gt;|positive queries| Y[is_selected = true]
+  T --&gt;|engineering queries| N[is_selected = false]
+  A --&gt; X[Export ZIP: portable package]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › Build Skill</code> <span class="ck-made">creates · skill: support-tone-and-citation</span> <a class="ck-assetref" href="#asset-assets-skills-support-tone-and-citation-md">support-tone-and-citation.md ↓</a></div><div class="ck-step-do">Create the skill that holds your customer-support response policy (tone, citations, escalation). A <strong>skill</strong> is a reusable behavior an agent can select; the one-line <strong>summary</strong> is the trigger text the selector reads, so keep it narrow. Clicking <strong>Build Skill</strong> opens the guided wizard (Identity → Content → … → Review &amp; Create). Names must be kebab-case and must not start with <code>claude</code> or <code>anthropic</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>support-tone-and-citation</code></td></tr><tr><td>Category</td><td><code>support</code> (or the closest option)</td></tr><tr><td>Tags</td><td><code>support, tone, citation, escalation, customer-facing</code></td></tr><tr><td>Summary</td><td><code>Voice and citation rules for customer-facing support replies (billing, refunds, account, how-to); NOT for engineering, code, API, infra, or schema questions.</code></td></tr><tr><td>Content</td><td>paste the body of <a href="#asset-assets-skills-support-tone-and-citation-md">support-tone-and-citation.md</a> (everything below the YAML frontmatter, starting at <code>You shape how a support reply is written...</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create Skill</span></div><div class="ck-see"><strong>You'll see:</strong> The skill is created at v1 and its workspace opens with stage tabs (<strong>Author</strong>, Render Preview, Trigger Tests, Scenario Sets, Runs, Bind).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › Build Skill</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Build Skill</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">support-tone-and-citation</span></label><label class="ck-mk-field"><span class="ck-mk-label">Category</span><span class="ck-mk-input">support (or the closest option)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Tags</span><span class="ck-mk-input">support, tone, citation, escalation, customer-facing</span></label><label class="ck-mk-field"><span class="ck-mk-label">Summary</span><span class="ck-mk-input">Voice and citation rules for customer-facing support replies (billing, refunds, acco…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Content</span><span class="ck-mk-input">paste the body of support-tone-and-citation.md (everything below the YAML frontmatte…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create Skill</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Author</code> <span class="ck-made">creates · skill version: support-tone-and-citation</span></div><div class="ck-step-do">Confirm the summary and content saved correctly, and tweak them here if needed. Editing on the Author stage is what updates the skill, so this is where the trigger summary and the policy body live.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Summary / Content</td><td>verify the trigger summary and the policy body match the asset; adjust wording if needed</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save changes</span></div><div class="ck-see"><strong>You'll see:</strong> A success toast and the updated summary/content become the live skill definition.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Author</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Author</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Summary / Content</span><span class="ck-mk-input">verify the trigger summary and the policy body match the asset; adjust wording if ne…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save changes</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Render Preview</code>  <a class="ck-assetref" href="#asset-assets-dataset-render-vars-json">render-vars.json ↓</a></div><div class="ck-step-do">Check that the skill's template variables fill in cleanly. <strong>Render Preview</strong> substitutes <code>{{ vars }}</code> and reports any it could not resolve — supply all three required variables so nothing is left unresolved.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Variables</td><td>paste the <code>variables</code> object from <a href="#asset-assets-dataset-render-vars-json">render-vars.json</a> (supplies <code>user_message</code>, <code>audience</code>, and <code>policy_context</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Render Skill</span></div><div class="ck-see"><strong>You'll see:</strong> A rendered reply that cites <code>[KB-1042]</code>/<code>[KB-1007]</code> and avoids a fixed date, with <strong>unresolved_variables</strong> reported as empty (<code>[]</code>).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Render Preview</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Render Preview</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Variables</span><span class="ck-mk-input">paste the variables object from render-vars.json (supplies user_message, audience, a…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Render Skill</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Trigger Tests</code> <span class="ck-made">creates · trigger results: positive cases T01–T06</span> <a class="ck-assetref" href="#asset-assets-dataset-trigger-cases-jsonl">trigger-cases.jsonl ↓</a></div><div class="ck-step-do">Run the <strong>positive</strong> trigger cases — customer-facing support phrasing that <em>should</em> select this skill. Trigger testing is deterministic (no LLM): it returns <code>is_selected</code>, <code>selection_score</code>, and <code>selection_reason</code>. Run rows T01–T06 from the cases file, one at a time.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>user_message</td><td>for each positive row, paste its <code>user_message</code> (e.g. <code>How do I get a refund for the duplicate charge on my account?</code>) from <a href="#asset-assets-dataset-trigger-cases-jsonl">trigger-cases.jsonl</a></td></tr><tr><td>artifact_type</td><td>the row's <code>artifact_type</code> (e.g. <code>support_reply</code>)</td></tr><tr><td>session_goal</td><td>the row's <code>session_goal</code> (e.g. <code>Draft a customer-facing support reply</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Check selection</span></div><div class="ck-see"><strong>You'll see:</strong> Each positive case returns <strong>is_selected = true</strong> with a selection score and a human-readable reason.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Trigger Tests</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Trigger Tests</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">user_message</span><span class="ck-mk-input">for each positive row, paste its user_message (e.g. How do I get a refund for the du…</span></label><label class="ck-mk-field"><span class="ck-mk-label">artifact_type</span><span class="ck-mk-input">the row&#x27;s artifact_type (e.g. support_reply)</span></label><label class="ck-mk-field"><span class="ck-mk-label">session_goal</span><span class="ck-mk-input">the row&#x27;s session_goal (e.g. Draft a customer-facing support reply)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Check selection</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Trigger Tests</code> <span class="ck-made">creates · trigger results: negative cases T07–T12</span></div><div class="ck-step-do">Now run the <strong>negative</strong> cases — engineering/code/API/infra/schema queries that should <em>not</em> select this support skill. This proves the skill is narrow and won't fire on the wrong work. Run rows T07–T12.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>user_message</td><td>for each negative row, paste its <code>user_message</code> (e.g. <code>How do I rotate the JWT signing key without invalidating active sessions?</code>) from <a href="#asset-assets-dataset-trigger-cases-jsonl">trigger-cases.jsonl</a></td></tr><tr><td>artifact_type</td><td>the row's <code>artifact_type</code> (e.g. <code>code_answer</code>)</td></tr><tr><td>session_goal</td><td>the row's <code>session_goal</code> (e.g. <code>Implement secure key rotation</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Check selection</span></div><div class="ck-see"><strong>You'll see:</strong> Each negative case returns <strong>is_selected = false</strong>. Tally false-positives + false-negatives across all 12 cases — the gate is trigger accuracy &ge; 0.95.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Trigger Tests</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Trigger Tests</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">user_message</span><span class="ck-mk-input">for each negative row, paste its user_message (e.g. How do I rotate the JWT signing …</span></label><label class="ck-mk-field"><span class="ck-mk-label">artifact_type</span><span class="ck-mk-input">the row&#x27;s artifact_type (e.g. code_answer)</span></label><label class="ck-mk-field"><span class="ck-mk-label">session_goal</span><span class="ck-mk-input">the row&#x27;s session_goal (e.g. Implement secure key rotation)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Check selection</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Author</code> <span class="ck-made">creates · skill update: tightened summary</span></div><div class="ck-step-do">If any negative case wrongly selected (a false positive), <strong>sharpen the summary first</strong> — the summary/trigger text dominates selection, so tighten it before touching the long-form content. (Skip this edit if all 12 cases already passed.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Summary</td><td>tighten the boundary wording, e.g. add explicit exclusions like <code>...NOT for engineering, code, API, infra, database, schema, or internal-tooling questions.</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save changes</span></div><div class="ck-see"><strong>You'll see:</strong> The updated summary is saved; re-running the Trigger Tests now shows the previously mis-selected negative case returning <code>is_selected = false</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Author</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Author</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Summary</span><span class="ck-mk-input">tighten the boundary wording, e.g. add explicit exclusions like ...NOT for engineeri…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save changes</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Runs</code> <span class="ck-made">creates · pinned baseline: trigger run</span></div><div class="ck-step-do">Save a passing trigger run as the <strong>baseline</strong> so the current stable trigger behavior is the reference for future changes. The Runs stage records durable runs and lets you pin one as the baseline.</div><div class="ck-click">Click <span class="ck-btn">Set as baseline</span></div><div class="ck-see"><strong>You'll see:</strong> The run gets a <strong>Baseline</strong> marker in the run history, recording the known-good positive/negative trigger decisions.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Runs</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Runs</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Set as baseline</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Runs</code> <span class="ck-made">creates · calibration job id (queued)</span></div><div class="ck-step-do">Queue a <strong>calibration</strong> job to refine the skill (the agent-free optimizer auto-provisions the target — no agent to pick). It runs in the background, so capture the queued job id rather than waiting for it to finish inline.</div><div class="ck-click">Click <span class="ck-btn">Calibrate</span></div><div class="ck-see"><strong>You'll see:</strong> A confirmation reading "Calibration queued — job <code>{job_id}</code>."; the job runs in the background. Note the job id.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Runs</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Runs</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Calibrate</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Skill detail page (/skills/&amp;lt;skill_id&amp;gt;)</code> <span class="ck-made">creates · skill package: support-tone-and-citation.zip</span></div><div class="ck-step-do">Export the skill as a portable package. <strong>Download ZIP</strong> lives only on the standalone skill <em>detail page</em>, a separate surface from the in-page Workspace (clicking a skill in the Skills list opens the Workspace stages, which have no Download ZIP). Navigate directly to <code>/skills/&lt;skill_id&gt;</code> in the address bar — copy the skill's id from the Workspace and paste it into the URL. <strong>Download ZIP</strong> produces a self-contained bundle (<code>SKILL.md</code> + <code>agents/openai.yaml</code> + bundled resources) you can move between workspaces — this is the portability artifact the lab is proving.</div><div class="ck-click">Click <span class="ck-btn">Download ZIP</span></div><div class="ck-see"><strong>You'll see:</strong> A <code>.zip</code> file downloads containing <code>SKILL.md</code> and the OpenAI agent manifest. Inspect it to confirm the summary, content, and resources round-trip out cleanly.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Skill detail page (/skills/&amp;lt;skill_id&amp;gt;)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Skill detail page (/skills/&amp;lt;skill_id&amp;gt;)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Download ZIP</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Library › Skills › support-tone-and-citation › Bind</code> <span class="ck-made">creates · skill binding: support-tone-and-citation</span></div><div class="ck-step-do">Bind the skill to an agent (or a workflow node) so it can be used at runtime. Binding makes the skill available to the chosen target without any extra registration.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Bind target</td><td>choose an agent (or workflow node) to attach the skill to</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Bind</span></div><div class="ck-see"><strong>You'll see:</strong> A confirmation that <code>support-tone-and-citation</code> is now bound to the selected target, ready for use.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Library › Skills › support-tone-and-citation › Bind</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Skills</span><span class="ck-mk-title">Bind</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Bind target</span><span class="ck-mk-input">choose an agent (or workflow node) to attach the skill to</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Bind</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/02-skill-trigger-packaging-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-skills-support-tone-and-citation-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/support-tone-and-citation.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code>---
+name: support-tone-and-citation
+summary: &quot;Voice and citation rules for customer-facing support replies (billing, refunds, account, how-to); NOT for engineering, code, API, infra, or schema questions.&quot;
+category: support
+tags: [support, tone, citation, escalation, customer-facing]
+render_variables: [user_message, audience, policy_context]
+---
+
+You shape how a support reply is written. You do NOT decide the underlying
+policy outcome (refund approved/denied, account unlocked, etc.) — that decision
+arrives in `{{ policy_context }}`. Your job is to deliver it to the customer in
+the right voice, with the right citations and the right escalation hint.
+
+Apply this only to **customer-facing support replies**. If the request is an
+engineering, code, API, infrastructure, database, or internal-tooling question,
+this skill does not apply — defer to the relevant engineering skill instead.
+
+## Tone rules
+
+- Stay calm and plain-spoken. Acknowledge the customer&#x27;s situation in one
+  sentence before getting to the answer; do not gush or over-apologize.
+- Write for `{{ audience }}`. A non-technical customer gets no product
+  internals; a technical contact may get precise field/feature names but still
+  no internal system names.
+- No internal jargon. Never expose internal team names, ticket/queue ids,
+  service or component names, codenames, or model/provider names.
+- No over-promising. Do not commit to dates, amounts, or outcomes that are not
+  already stated in `{{ policy_context }}`. If something is &quot;under review&quot;, say
+  exactly that — never &quot;this will be fixed&quot; or &quot;you&#x27;ll get a full refund&quot;
+  unless `{{ policy_context }}` says so.
+- One ask at a time. If you need information from the customer, request a single
+  clear thing.
+
+## Citation hints
+
+- When you assert a fact, a policy, or an eligibility rule, cite the supporting
+  knowledge-base article by id (e.g. `[KB-1042]`) inline right after the claim.
+- Only cite article ids that appear in `{{ policy_context }}`. Never invent a
+  KB id, and never cite an id you were not given.
+- If `{{ policy_context }}` contains no supporting article for a claim, soften
+  the claim to what you can support and add: &quot;I&#x27;m confirming the exact policy
+  and will follow up.&quot; Do not fabricate a citation to fill the gap.
+
+## Escalation hints
+
+- Escalate (hand to a human/specialist) when `{{ policy_context }}` is empty or
+  contradictory, when the customer is at financial or security risk, or when the
+  resolution requires an action this reply cannot itself authorize.
+- When escalating, tell the customer plainly that you are routing them to
+  someone who can help and set a realistic next-step expectation — without
+  naming the internal team or queue.
+
+## Output
+
+Produce only the customer-facing reply text. No headers, no internal notes, no
+JSON. End with a single concrete next step or a clear closing line.
+
+Audience: {{ audience }}
+Policy context (decision + any KB article ids to cite):
+&quot;&quot;&quot;
+{{ policy_context }}
+&quot;&quot;&quot;
+Customer message:
+&quot;&quot;&quot;
+{{ user_message }}
+&quot;&quot;&quot;
+
+Write the reply now.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-render-vars-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/render-vars.json</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{
+  &quot;variables&quot;: {
+    &quot;user_message&quot;: &quot;Hi — I was charged twice for my Team plan this month and I&#x27;d like one of the charges refunded. This is really frustrating.&quot;,
+    &quot;audience&quot;: &quot;non-technical customer&quot;,
+    &quot;policy_context&quot;: &quot;Decision: duplicate-charge refund APPROVED for the second charge; refunds post in 5-7 business days. Cite [KB-1042] (duplicate-charge refunds) and [KB-1007] (refund timing). Do not promise a specific calendar date.&quot;
+  },
+  &quot;expected&quot;: {
+    &quot;unresolved_variables&quot;: []
+  },
+  &quot;notes&quot;: &quot;Paste the `variables` object into Skills -&gt; Render Preview (POST /skills/{id}/test-render {variables:{...}}). All three render_contract variables (user_message, audience, policy_context) are supplied, so the response&#x27;s `unresolved_variables` must be []. The rendered output should read as a calm reply that cites [KB-1042]/[KB-1007] and avoids a fixed date.&quot;
+}
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-trigger-cases-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/trigger-cases.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;T01&quot;, &quot;tags&quot;: [&quot;positive&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;How do I get a refund for the duplicate charge on my account?&quot;, &quot;artifact_type&quot;: &quot;support_reply&quot;, &quot;session_goal&quot;: &quot;Draft a customer-facing support reply&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: true}}
+{&quot;id&quot;: &quot;T02&quot;, &quot;tags&quot;: [&quot;positive&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;A customer is upset about a billing delay — draft a calm response that references our policy.&quot;, &quot;artifact_type&quot;: &quot;support_reply&quot;, &quot;session_goal&quot;: &quot;Reply to an upset billing customer&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: true}}
+{&quot;id&quot;: &quot;T03&quot;, &quot;tags&quot;: [&quot;positive&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;Customer can&#x27;t access their account after a lockout and wants to know what to do next.&quot;, &quot;artifact_type&quot;: &quot;support_reply&quot;, &quot;session_goal&quot;: &quot;Help a customer with account lockout&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: true}}
+{&quot;id&quot;: &quot;T04&quot;, &quot;tags&quot;: [&quot;positive&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;Write a reply explaining why we can&#x27;t approve the refund, but keep the tone friendly.&quot;, &quot;artifact_type&quot;: &quot;support_reply&quot;, &quot;session_goal&quot;: &quot;Decline a refund politely&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: true}}
+{&quot;id&quot;: &quot;T05&quot;, &quot;tags&quot;: [&quot;positive&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;How do I tell the customer their plan downgrade takes effect next billing cycle?&quot;, &quot;artifact_type&quot;: &quot;support_reply&quot;, &quot;session_goal&quot;: &quot;Explain a plan downgrade to a customer&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: true}}
+{&quot;id&quot;: &quot;T06&quot;, &quot;tags&quot;: [&quot;positive&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;Customer emailed asking where to find their invoice — draft a helpful support response.&quot;, &quot;artifact_type&quot;: &quot;support_reply&quot;, &quot;session_goal&quot;: &quot;Answer a customer how-to about invoices&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: true}}
+{&quot;id&quot;: &quot;T07&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;How do I rotate the JWT signing key without invalidating active sessions?&quot;, &quot;artifact_type&quot;: &quot;code_answer&quot;, &quot;session_goal&quot;: &quot;Implement secure key rotation&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: false}}
+{&quot;id&quot;: &quot;T08&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;Fix this Python stack trace: KeyError: &#x27;order_id&#x27; in handler.py line 42.&quot;, &quot;artifact_type&quot;: &quot;code_answer&quot;, &quot;session_goal&quot;: &quot;Debug a backend exception&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: false}}
+{&quot;id&quot;: &quot;T09&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;What&#x27;s the right database index strategy for our orders table given these query patterns?&quot;, &quot;artifact_type&quot;: &quot;code_answer&quot;, &quot;session_goal&quot;: &quot;Design a database index strategy&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: false}}
+{&quot;id&quot;: &quot;T10&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;Generate a SQL migration plan for the schema changes in this PR.&quot;, &quot;artifact_type&quot;: &quot;code_answer&quot;, &quot;session_goal&quot;: &quot;Plan a schema migration&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: false}}
+{&quot;id&quot;: &quot;T11&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;Summarize deployment latency metrics for the engineering team.&quot;, &quot;artifact_type&quot;: &quot;report&quot;, &quot;session_goal&quot;: &quot;Report infra metrics to engineers&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: false}}
+{&quot;id&quot;: &quot;T12&quot;, &quot;tags&quot;: [&quot;negative&quot;], &quot;inputs&quot;: {&quot;user_message&quot;: &quot;Write a unit test for the refund-eligibility function in billing.py.&quot;, &quot;artifact_type&quot;: &quot;code_answer&quot;, &quot;session_goal&quot;: &quot;Add test coverage to the billing module&quot;}, &quot;expectations&quot;: {&quot;is_selected&quot;: false}}
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Trigger accuracy</td><td>≥ 0.95 (false-pos + false-neg counted)</td></tr><tr><td>Portable export</td><td>Download ZIP yields a self-contained SKILL.md + agent manifest</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>Selection scoring is <strong>deterministic</strong> (no LLM) — this is the precision check; there is no LLM judge here.</li><li>Skill names are kebab-case and must not start with <code>claude</code>/<code>anthropic</code>.</li><li>Calibrate enqueues a background job; Scenario Sets is scaffolded — drive cases through Trigger Tests + Runs.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-01-intake-classifier.html">← Trustworthy Intake Classifier</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-03-policy-safe-tool.html">Policy-Safe Decision Tool →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

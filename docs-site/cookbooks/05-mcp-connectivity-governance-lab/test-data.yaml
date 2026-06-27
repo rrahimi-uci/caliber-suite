@@ -1,0 +1,15 @@
+golden_cases:
+  - id: M01
+    tool: list_commits
+    input: {repo: "kernel-lab/caliber-suite"}
+    expected: {status: "success"}
+edge_cases:
+  - id: M02
+    tool: run_query
+    input: {sql: "select 1"}
+    expected: {status: "success_or_permission_denied"}
+negative_cases:
+  - id: M03
+    tool: create_issue
+    input: {title: "blocked test", body: "should fail"}
+    expected_error: "policy_blocked_or_approval_required"

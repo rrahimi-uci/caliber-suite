@@ -1,0 +1,17 @@
+{
+  "goal": "Set up a review queue for human labeling of agent replies for safety, citation, and tone.",
+  "autonomy": "ask_each",
+  "expected_steps": [
+    {
+      "capability_key": "review_queue.create",
+      "tier": "mutate",
+      "interaction": "confirm/refine the question schema (review-queues/agent-reply-review.queue.json)"
+    },
+    {
+      "capability_key": "review_queue.add_items",
+      "tier": "mutate",
+      "interaction": "supply flagged trace_ids (enqueue.json) OR deny to skip (queue-first, enqueue-later)"
+    }
+  ],
+  "notes": "Both steps come from the single domain 'review_queue' (the needle 'review queue' in the goal). Under autonomy=ask_each each pauses for one interaction. Denying the add_items interaction marks that step skipped; the queue from review_queue.create still exists."
+}

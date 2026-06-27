@@ -1,0 +1,27 @@
+{
+  "name": "lookup_order",
+  "version": "1",
+  "module_path": "caliber.workflows.demo_tools",
+  "callable_name": "lookup_order",
+  "side_effect_level": "read",
+  "allow_in_preview": true,
+  "input_schema": {
+    "type": "object",
+    "required": ["order_id"],
+    "properties": {
+      "order_id": {
+        "type": "string",
+        "description": "Order identifier to look up, e.g. \"ord_1120\"."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "order_id": {"type": "string"},
+      "items": {"type": "array", "items": {"type": "string"}},
+      "status": {"type": "string"}
+    }
+  },
+  "notes": "Read-only lookup; runs live in the sandbox (allow_in_preview). The shipped callable returns {order_id, items, status} and takes ONLY order_id (scope fixture inputs to {\"order_id\": ...} or it raises a TypeError). Used here purely as the Tools-sandbox demo; it is NOT the source of decide_refund's inputs — the decide_refund python_code node parses order_state/risk_flags/amount/days_since_order from the JSON run input."
+}

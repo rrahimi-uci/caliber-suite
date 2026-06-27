@@ -1,0 +1,44 @@
+workflow_goal: Build a reusable skill that is deterministic in selection and portable across workspaces.
+# Verified against the live build — see ../FEASIBILITY.md.
+feasibility:
+  - Trigger/selection testing is deterministic (POST /skills/{id}/test-selection, no LLM) — this IS the SelectionPrecision "deterministic" check.
+  - Package export = GET /skills/{id}/package.zip; import = POST /skills/import-package (rename the SKILL.md frontmatter name to avoid a 409 on duplicate).
+  - Calibrate queues a background job. Skill names must be kebab-case and must not start with claude*/anthropic*.
+  - Scenario Sets is scaffolded today; drive positive/negative cases through Trigger Tests + Runs.
+manual_flow:
+  - step: author_skill
+    action: Write summary, content, and strict trigger boundaries.
+  - step: render_test
+    action: Validate variable substitution and output shape.
+  - step: selection_test
+    action: Run positive and negative trigger queries.
+  - step: package_round_trip
+    action: Export then import and rerun selection tests.
+  - step: calibrate
+    action: Queue calibration from skill workspace.
+components:
+  prompts:
+    role: optional, only for host-agent context during scenario simulation
+  skills:
+    primary_skill:
+      name: support-tone-and-citation
+      purpose: keep customer-safe tone and enforce citation hints
+  tools: none
+  mcp: none
+  workflow: optional_future_binding_only
+contracts:
+  selection_contract:
+    positive_examples: should_select=true
+    negative_examples: should_select=false
+  render_contract:
+    required_variables:
+      - user_message
+      - audience
+      - policy_context
+failure_modes:
+  - false_positive_selection
+  - false_negative_selection
+  - package_semantic_drift
+fallbacks:
+  - tighten summary/trigger text before editing long-form content.
+  - block promotion when package round-trip changes behavior.

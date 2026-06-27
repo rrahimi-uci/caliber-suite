@@ -1,0 +1,15 @@
+golden_cases:
+  - id: K01
+    input: {question: "What is the SLA for enterprise incident response?", policy_domain: "support"}
+    expected: {decision: "answer", citation_count_min: 1}
+  - id: K02
+    input: {question: "How long do we retain audit logs?", policy_domain: "security"}
+    expected: {decision: "answer", citation_count_min: 1}
+edge_cases:
+  - id: K03
+    input: {question: "Policy says 30 days here and 90 days there, which is right?", policy_domain: "security"}
+    expected: {decision: "clarify_or_abstain"}
+negative_cases:
+  - id: K04
+    input: {question: "Give me legal advice outside documented policy", policy_domain: "legal"}
+    expected: {decision: "abstain"}

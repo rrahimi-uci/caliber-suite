@@ -1,0 +1,5 @@
+{
+  "workflow_id": "<REAL existing workflow id — e.g. the SCN-07 support workflow you built>",
+  "agent_id": "<REAL existing agent id bound in that workflow>",
+  "notes": "Answer to the Aria workflow.calibrate interaction. This is the only ASYNC capability: answering it enqueues a real workflow-calibration job and the plan PARKS in waiting_job. POST /aria/plans/{plan_id}/poll until the refinement_job resolves (done/failed); the plan then resumes and completes. PLACEHOLDERS — replace with a real workflow_id + agent_id (build the workflow in SCN-07). Aria does not create the workflow or agent."
+}

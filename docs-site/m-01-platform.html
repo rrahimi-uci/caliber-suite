@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CALIBER Platform Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Platform Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Platform</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Platform</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Platform · Architecture reference</div>
+          <h1 id="top">CALIBER Platform Architecture</h1>
+          <p class="doc-summary">Boot and dependency graph, same-origin MLflow plugin model, shared runtime state, async workers, and the trust boundary the whole product stands on.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<p>This document is the authoritative overview of the CALIBER platform. It describes how the system is bootstrapped, how its layers fit together, where state lives, and how the cross-cutting subsystems combine into a single control plane. The per-feature documents that accompany it describe how individual bounded contexts plug into the substrate established here; this document is the anchor they refer back to.</p>
+<p>Throughout, all HTTP routes are mounted under the <code>/ajax-api/2.0/mlflow/caliber</code> prefix. To keep the prose readable, endpoint paths are shown relative to that prefix once the convention has been stated.</p>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Where CALIBER stands</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>A system-level control plane shipped as an MLflow <code>mlflow.app</code> plugin — not a gateway in front of MLflow.</td></tr><tr><td><strong>Where it runs</strong></td><td>In the MLflow server process, sharing its lifecycle, origin, and failure domain.</td></tr><tr><td><strong>How users reach it</strong></td><td>A React SPA served under <code>/caliber/</code>; every action flows through the API under <code>/ajax-api/2.0/mlflow/caliber/*</code>.</td></tr><tr><td><strong>Source of truth</strong></td><td>SQLAlchemy relational metadata is authoritative; object storage owns file bytes; MLflow owns prompt versions and traces.</td></tr><tr><td><strong>Work model</strong></td><td>Request-path actions return inline; durable work is queued to background workers (refinement, workflow runs, KB builds, janitor, webhooks).</td></tr><tr><td><strong>Trust model</strong></td><td>Identity arrives via <code>X-CALIBER-User</code> / <code>X-CALIBER-Project</code> headers; <code>auth.py</code> resolves the <code>viewer</code> / <code>operator</code> / <code>approver</code> / <code>admin</code> scopes.</td></tr></tbody></table></div>
+<p>The sections below start from this picture and drill down — scope, boundaries, runtime, state, surfaces, lifecycle, security, operations, and the seams the system is extended along.</p>
+<figure class="diagram diagram-svg" data-diagram-src="assets/platform-overview.svg"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 840" width="100%" role="img" aria-labelledby="platform-overview-title platform-overview-desc">
+  <title id="platform-overview-title">CALIBER platform overview</title>
+  <desc id="platform-overview-desc">A presentation diagram showing browser entry surfaces, the CALIBER control plane inside the MLflow server process, durable state and external integrations, and the background workers that reuse the same shared systems off the request path.</desc>
+  <style>
+    .copy {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      fill: var(--text);
+    }
+
+    .muted {
+      fill: var(--text-muted);
+    }
+
+    .kicker {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .section-title {
+      font-size: 19px;
+      font-weight: 700;
+    }
+
+    .section-copy {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .card-copy {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .pill-copy {
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .panel {
+      fill: var(--diagram-panel);
+      stroke: var(--diagram-panel-border);
+      stroke-width: 1.5;
+    }
+
+    .stage {
+      fill: var(--diagram-stage-fill);
+      stroke: var(--diagram-stage-border);
+      stroke-width: 1.25;
+    }
+
+    .card {
+      stroke-width: 1.8;
+    }
+
+    .user {
+      fill: var(--diagram-user-fill);
+      stroke: var(--diagram-user-stroke);
+    }
+
+    .ui {
+      fill: var(--diagram-ui-fill);
+      stroke: var(--diagram-ui-stroke);
+    }
+
+    .ctrl {
+      fill: var(--diagram-ctrl-fill);
+      stroke: var(--diagram-ctrl-stroke);
+    }
+
+    .store {
+      fill: var(--diagram-store-fill);
+      stroke: var(--diagram-store-stroke);
+    }
+
+    .ext {
+      fill: var(--diagram-ext-fill);
+      stroke: var(--diagram-ext-stroke);
+    }
+
+    .async {
+      fill: var(--diagram-async-fill);
+      stroke: var(--diagram-async-stroke);
+    }
+
+    .note {
+      fill: var(--diagram-note-fill);
+      stroke: var(--diagram-note-border);
+      stroke-width: 1.25;
+    }
+
+    .chip {
+      fill: var(--diagram-chip-bg);
+      stroke: var(--diagram-chip-border);
+      stroke-width: 1;
+    }
+
+    .chip-text {
+      fill: var(--diagram-chip-text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .edge {
+      fill: none;
+      stroke: var(--diagram-line);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      marker-end: url(#arrow);
+    }
+
+    .edge.dashed {
+      stroke-dasharray: 9 9;
+    }
+
+    .legend-pill {
+      fill: var(--diagram-note-fill);
+      stroke: var(--diagram-note-border);
+      stroke-width: 1.1;
+    }
+
+    .halo {
+      fill: var(--accent-glow);
+    }
+  </style>
+
+  <defs>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M 0 1 L 11 7 L 0 13 Z" fill="var(--diagram-line)" />
+    </marker>
+  </defs>
+
+  <circle class="halo" cx="196" cy="72" r="138" />
+  <circle class="halo" cx="1010" cy="748" r="164" />
+
+  <rect class="panel" x="36" y="46" width="236" height="504" rx="28" />
+  <rect class="panel" x="298" y="46" width="408" height="504" rx="28" />
+  <rect class="panel" x="732" y="46" width="392" height="504" rx="28" />
+  <rect class="panel" x="298" y="582" width="826" height="158" rx="28" />
+
+  <text class="copy kicker muted" x="62" y="92">Entry surfaces</text>
+  <text class="copy section-title" x="62" y="122">How users enter</text>
+  <text class="copy section-copy muted" x="62" y="144">Browser users land on a same-origin UI.</text>
+  <text class="copy section-copy muted" x="62" y="162">Every action stays behind one API boundary.</text>
+
+  <text class="copy kicker muted" x="326" y="92">Control plane</text>
+  <text class="copy section-title" x="326" y="122">CALIBER runtime inside MLflow</text>
+  <text class="copy section-copy muted" x="326" y="144">Boot happens once.</text>
+  <text class="copy section-copy muted" x="326" y="162">Feature routes consume shared services.</text>
+
+  <text class="copy kicker muted" x="760" y="92">Durable systems</text>
+  <text class="copy section-title" x="760" y="122">State, artifacts, and integrations</text>
+  <text class="copy section-copy muted" x="760" y="144">Relational state sits at the core.</text>
+  <text class="copy section-copy muted" x="760" y="162">MLflow, storage, and providers surround it.</text>
+
+  <text class="copy kicker muted" x="326" y="626">Async execution</text>
+  <text class="copy section-title" x="326" y="656">Off-request work reuses the substrate</text>
+  <text class="copy section-copy muted" x="326" y="678">Queued work is coordinated durably, not in memory.</text>
+
+  <rect class="card user" x="62" y="176" width="184" height="82" rx="22" />
+  <text class="copy card-title" x="82" y="209">Browser clients</text>
+  <text class="copy card-copy muted" x="82" y="230">Users load <tspan font-family="JetBrains Mono, monospace">/caliber/</tspan></text>
+  <text class="copy card-copy muted" x="82" y="247">and trigger same-origin actions.</text>
+
+  <rect class="card ui" x="62" y="288" width="184" height="116" rx="22" />
+  <text class="copy card-title" x="82" y="321">React SPA</text>
+  <text class="copy card-copy muted" x="82" y="343">Page modules, shared shell,</text>
+  <text class="copy card-copy muted" x="82" y="360">assistant panel, and docs</text>
+  <text class="copy card-copy muted" x="82" y="377">served from the plugin package.</text>
+
+  <rect class="card ctrl" x="62" y="434" width="184" height="86" rx="22" />
+  <text class="copy card-title" x="82" y="468">Static route handler</text>
+  <text class="copy card-copy muted" x="82" y="490">Serves the SPA shell, docs,</text>
+  <text class="copy card-copy muted" x="82" y="507">and packaged UI assets.</text>
+
+  <rect class="stage" x="326" y="176" width="352" height="56" rx="18" />
+  <text class="copy card-title" x="350" y="211">MLflow <tspan font-family="JetBrains Mono, monospace">mlflow.app</tspan> plugin</text>
+  <text class="copy card-copy muted" x="350" y="228">Shared process, shared origin, one failure domain.</text>
+
+  <rect class="card ctrl" x="326" y="260" width="352" height="126" rx="24" />
+  <text class="copy card-title" x="350" y="296">Starlette route modules</text>
+  <text class="copy card-copy muted" x="350" y="318">Single API boundary for prompts, tools, skills, workflows,</text>
+  <text class="copy card-copy muted" x="350" y="335">knowledge bases, evaluation, QA, object store, and Aria.</text>
+  <rect class="chip" x="350" y="354" width="118" height="28" rx="14" />
+  <text class="chip-text pill-copy" x="371" y="372">AJAX namespace</text>
+  <rect class="chip" x="480" y="354" width="104" height="28" rx="14" />
+  <text class="chip-text pill-copy" x="507" y="372">routes/*.py</text>
+  <rect class="chip" x="594" y="354" width="64" height="28" rx="14" />
+  <text class="chip-text pill-copy" x="612" y="372">auth</text>
+
+  <rect class="card ctrl" x="326" y="416" width="166" height="102" rx="22" />
+  <text class="copy card-title" x="348" y="450">Security and policy</text>
+  <text class="copy card-copy muted" x="348" y="472">Identity headers, CSRF,</text>
+  <text class="copy card-copy muted" x="348" y="489">project scoping, rate limits,</text>
+  <text class="copy card-copy muted" x="348" y="506">and audit.</text>
+
+  <rect class="card ctrl" x="512" y="416" width="166" height="102" rx="22" />
+  <text class="copy card-title" x="534" y="450">Shared runtime graph</text>
+  <text class="copy card-copy muted" x="534" y="472">SQLAlchemy sessions,</text>
+  <text class="copy card-copy muted" x="534" y="489">artifact store, providers,</text>
+  <text class="copy card-copy muted" x="534" y="506">services, and workers.</text>
+
+  <rect class="note" x="326" y="534" width="352" height="42" rx="16" />
+  <text class="copy card-copy muted" x="346" y="559">Routes consume the shared dependency graph.</text>
+
+  <rect class="card store" x="760" y="176" width="336" height="82" rx="22" />
+  <text class="copy card-title" x="784" y="210">SQLAlchemy metadata DB</text>
+  <text class="copy card-copy muted" x="784" y="230">Authoritative control-plane state:</text>
+  <text class="copy card-copy muted" x="784" y="247">workflows, assistants, approvals, KBs, evals.</text>
+
+  <rect class="card store" x="760" y="280" width="336" height="82" rx="22" />
+  <text class="copy card-title" x="784" y="314">Object store / S3 / MinIO</text>
+  <text class="copy card-copy muted" x="784" y="334">Owns file bytes, previews, build artifacts,</text>
+  <text class="copy card-copy muted" x="784" y="351">uploads, and run-scoped attachments.</text>
+
+  <rect class="card ext" x="760" y="384" width="336" height="82" rx="22" />
+  <text class="copy card-title" x="784" y="418">MLflow APIs and traces</text>
+  <text class="copy card-copy muted" x="784" y="438">Prompt registry versions, runs, traces,</text>
+  <text class="copy card-copy muted" x="784" y="455">and host services CALIBER builds alongside.</text>
+
+  <rect class="card ext" x="760" y="488" width="336" height="96" rx="22" />
+  <text class="copy card-title" x="784" y="522">Provider adapters</text>
+  <text class="copy card-copy muted" x="784" y="542">LLM, evaluation, promoter, MCP transport,</text>
+  <text class="copy card-copy muted" x="784" y="559">sandbox, and other capability boundaries.</text>
+
+  <rect class="card async" x="326" y="690" width="178" height="84" rx="22" />
+  <text class="copy card-title" x="348" y="724">Event bus</text>
+  <text class="copy card-copy muted" x="348" y="744">Durable dispatch for off-request</text>
+  <text class="copy card-copy muted" x="348" y="761">workflow and background work.</text>
+
+  <rect class="card async" x="534" y="674" width="240" height="116" rx="24" />
+  <text class="copy card-title" x="558" y="709">Background workers</text>
+  <text class="copy card-copy muted" x="558" y="731">Workflow runs, KB builds, refinement,</text>
+  <text class="copy card-copy muted" x="558" y="748">janitor work, and webhooks.</text>
+  <text class="copy card-copy muted" x="558" y="765">The async path mutates the same durable state.</text>
+
+  <rect class="note" x="804" y="690" width="292" height="84" rx="22" />
+  <text class="copy card-copy muted" x="826" y="722">Workers reuse the same stores and adapters</text>
+  <text class="copy card-copy muted" x="826" y="739">as request-path routes. Durable state and</text>
+  <text class="copy card-copy muted" x="826" y="756">timeline events remain the coordination layer.</text>
+
+  <path class="edge" d="M 154 258 C 154 272 154 276 154 288" />
+  <path class="edge" d="M 154 404 C 154 421 154 425 154 434" />
+  <path class="edge" d="M 246 346 C 286 346 288 324 326 324" />
+  <path class="edge" d="M 502 386 C 502 400 466 404 432 416" />
+  <path class="edge" d="M 502 386 C 502 402 548 406 596 416" />
+  <path class="edge" d="M 678 312 C 718 312 720 217 760 217" />
+  <path class="edge" d="M 678 326 C 724 326 722 321 760 321" />
+  <path class="edge" d="M 678 340 C 728 340 728 425 760 425" />
+  <path class="edge" d="M 678 354 C 732 354 730 536 760 536" />
+  <path class="edge" d="M 502 386 C 502 562 414 618 414 690" />
+  <path class="edge" d="M 504 732 C 516 732 522 732 534 732" />
+  <path class="edge dashed" d="M 774 704 C 822 704 806 248 760 248" />
+  <path class="edge dashed" d="M 774 722 C 838 722 824 350 760 350" />
+  <path class="edge dashed" d="M 774 740 C 854 740 840 454 760 454" />
+  <path class="edge dashed" d="M 774 758 C 874 758 850 570 760 570" />
+
+  <rect class="legend-pill" x="36" y="788" width="170" height="34" rx="17" />
+  <rect class="card user" x="52" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="76" y="810">Actors and entry points</text>
+
+  <rect class="legend-pill" x="222" y="788" width="152" height="34" rx="17" />
+  <rect class="card ui" x="238" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="262" y="810">UI and SPA surfaces</text>
+
+  <rect class="legend-pill" x="390" y="788" width="164" height="34" rx="17" />
+  <rect class="card ctrl" x="406" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="430" y="810">CALIBER control plane</text>
+
+  <rect class="legend-pill" x="570" y="788" width="142" height="34" rx="17" />
+  <rect class="card store" x="586" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="610" y="810">Durable storage</text>
+
+  <rect class="legend-pill" x="728" y="788" width="168" height="34" rx="17" />
+  <rect class="card ext" x="744" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="768" y="810">External integrations</text>
+
+  <rect class="legend-pill" x="912" y="788" width="212" height="34" rx="17" />
+  <rect class="card async" x="928" y="798" width="14" height="14" rx="4" />
+  <text class="copy pill-copy muted" x="952" y="810">Off-request async execution</text>
+</svg></figure>
+<p><em>Platform overview — CALIBER lives inside the MLflow server process, exposes one same-origin control plane, and uses durable state plus background workers rather than process-local orchestration.</em></p>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="1-scope-and-responsibilities">1. Scope and responsibilities<a class="anchor" href="#1-scope-and-responsibilities" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The <code>caliber</code> module is the system-level control plane for the product. It is implemented as an MLflow <code>mlflow.app</code> plugin and runs in the same Python process as the MLflow server, which means CALIBER shares MLflow's lifecycle, origin, and runtime rather than sitting in front of it. Its responsibilities are correspondingly broad — wider than those of any single feature module — and span the following concerns:</p>
+<ul><li>It bootstraps the Starlette application and the shared runtime dependencies on which every feature depends.</li><li>It serves the React SPA under <code>/caliber/</code>.</li><li>It exposes the CALIBER API surface under <code>/ajax-api/2.0/mlflow/caliber/*</code>.</li><li>It owns persistence, authorization, CSRF, rate limiting, project scoping, and audit.</li><li>It orchestrates background workers for refinement, workflow runs, knowledge-base builds, janitor work, and webhook dispatch.</li><li>It integrates with MLflow tracing, the MLflow prompt registry, object storage, and optional event-bus backends.</li></ul>
+<p>These responsibilities are realized across a small set of primary code paths, which serve as the entry points for the rest of this document:</p>
+<ul><li><code>caliber/src/caliber/server.py</code></li><li><code>caliber/src/caliber/routes/__init__.py</code></li><li><code>caliber/src/caliber/config.py</code></li><li><code>caliber/src/caliber/db/session.py</code></li><li><code>caliber/src/caliber/auth.py</code></li><li><code>caliber/src/caliber/routes/static.py</code></li><li><code>caliber/caliber-ui/src/components/AppShell.tsx</code></li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="2-module-boundaries">2. Module boundaries<a class="anchor" href="#2-module-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Given that breadth, CALIBER is best understood as a layered application rather than a monolith stitched together from feature-specific entry points. Each layer has a clear responsibility and consumes the layers beneath it through stable interfaces.</p>
+<div class="table-wrap"><table><thead><tr><th>Layer</th><th>Main code paths</th><th>Responsibilities</th></tr></thead><tbody><tr><td>Boot and dependency graph</td><td><code>server.py</code>, <code>config.py</code></td><td>Load configuration, construct providers, wire <code>app.state</code>, and own process lifecycle.</td></tr><tr><td>Transport and routing</td><td><code>routes/__init__.py</code>, <code>routes/*.py</code></td><td>Register HTTP endpoints, apply auth and request parsing, and translate errors to API responses.</td></tr><tr><td>Persistence</td><td><code>db/models.py</code>, <code>db/session.py</code></td><td>Define relational state, session factories, and durable audit/reference entities.</td></tr><tr><td>Feature modules</td><td><code>routes/prompts.py</code>, <code>routes/tools.py</code>, <code>routes/skills.py</code>, <code>routes/mcp_servers.py</code>, <code>routes/workflows*.py</code>, <code>routes/assistant.py</code></td><td>Implement domain-specific API behavior and orchestration.</td></tr><tr><td>Async execution</td><td><code>orchestrator/*.py</code>, <code>workflows/run_launch.py</code></td><td>Run queued refinement and workflow execution off the request path.</td></tr><tr><td>Shared subsystems</td><td><code>auth.py</code>, <code>observability/*</code>, <code>storage/*</code>, <code>events/*</code>, <code>tool_sandbox/*</code></td><td>Provide cross-cutting concerns used by multiple modules.</td></tr><tr><td>Frontend shell</td><td><code>caliber-ui/src/components/AppShell.tsx</code>, <code>TopBar.tsx</code>, <code>Sidebar.tsx</code></td><td>Route users into page-level feature modules and keep shared chrome, state, and assistant panel behavior consistent.</td></tr></tbody></table></div>
+<p>The architectural boundary that matters most is that feature modules do not own application bootstrapping. <code>server.py</code> constructs every long-lived dependency exactly once, stores it on <code>app.state</code>, and leaves the route modules to consume those dependencies rather than create their own. This single-construction discipline is what keeps the layering above honest in practice.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="3-runtime-architecture">3. Runtime architecture<a class="anchor" href="#3-runtime-architecture" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The layers described above resolve, at runtime, into the flow shown below: a browser drives the SPA and static surfaces, requests fan into the route modules, and the route modules and background workers share access to persistence, MLflow, object storage, the event bus, and the provider adapters.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    B[Browser]:::user
+    SPA[React SPA&lt;br/&gt;/caliber/]:::ui
+    ST[Static route handler]:::ctrl
+    API[Starlette route modules]:::ctrl
+    AUTH[Auth, CSRF, rate limit, project scoping]:::ctrl
+    DB[(SQLAlchemy metadata DB)]:::store
+    ML[MLflow APIs and traces]:::ext
+    OBJ[(Object store / S3 / MinIO)]:::store
+    BUS[Event bus]:::async
+    WK[Background workers]:::async
+    EXT[Provider adapters&lt;br/&gt;LLM, eval, promoter, MCP, sandbox]:::ext
+
+    B --&gt; SPA
+    B --&gt; ST
+    SPA --&gt; API
+    ST --&gt; API
+    API --&gt; AUTH
+    AUTH --&gt; DB
+    API --&gt; DB
+    API --&gt; ML
+    API --&gt; OBJ
+    API --&gt; EXT
+    API --&gt; BUS
+    WK --&gt; DB
+    WK --&gt; ML
+    WK --&gt; OBJ
+    WK --&gt; BUS
+    WK --&gt; EXT</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<p>Several structural properties follow from this topology and are worth making explicit, because they shape every design decision downstream:</p>
+<ul><li>CALIBER is not a separate gateway placed in front of MLflow. It is loaded into the MLflow server process as a sibling ASGI application surface, which is why same-origin behavior comes for free and why CALIBER and MLflow share a single failure domain.</li><li>The frontend shell is bundled separately with Vite, but it is served through the plugin package by <code>routes/static.py</code> rather than from a distinct origin.</li><li>Shared dependencies are constructed once in <code>create_app()</code> and injected via <code>app.state</code>. They comprise the SQLAlchemy engine and session factory, the artifact store, the LLM provider, the eval provider, the promoter, the event bus, the assistant service, and the background workers.</li><li>The codebase uses sync SQLAlchemy consistently, even inside Starlette. Sync route handlers execute in Starlette's threadpool; this keeps the ORM model aligned with MLflow's own sync behavior and avoids the impedance mismatch of mixing async ORM access into a host process that is itself synchronous.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="4-data-model-and-state">4. Data model and state<a class="anchor" href="#4-data-model-and-state" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>With the runtime established, the next question is where authoritative state lives. The persistence model is deliberately broad: CALIBER keeps durable product state in SQLAlchemy rows and treats external systems such as MLflow and object storage as integrated subsystems rather than as replacements for relational metadata.</p>
+<p>That state divides into the following domains, each anchored to a representative set of tables:</p>
+<div class="table-wrap"><table><thead><tr><th>Domain</th><th>Representative tables</th><th>Purpose</th></tr></thead><tbody><tr><td>Core governance</td><td>verification items, refinement jobs, approvals, rollback checkpoints</td><td>Human-in-the-loop refinement pipeline and deployment safety.</td></tr><tr><td>Prompts and assistants</td><td>prompt test runs, assistant sessions/messages/drafts/runs/publish events/attachments, Aria goal-plans/steps/interactions</td><td>Prompt authoring, testing, assistant-driven authoring state (Aria context attachments), and Aria's agentic goal-plan orchestration.</td></tr><tr><td>Tools and skills</td><td>tool registry, tool test runs, skill rows, skill test runs</td><td>Reusable runtime capabilities and authoring/test surfaces.</td></tr><tr><td>Workflows</td><td>workflows, workflow versions, deployments, runs, events, checkpoints, session memory, benchmark reports, patches, promotions</td><td>Workflow Studio source-of-truth and runtime lineage.</td></tr><tr><td>MCP</td><td>MCP servers</td><td>External tool endpoints, discovered tools, policies, and calibrations.</td></tr><tr><td>Knowledge bases</td><td>knowledge bases, versions, sources, chunks, entities, relationships, build runs, calibration test runs</td><td>Versioned RAG corpora with chunking/embeddings, graph (Apache AGE) extraction, and retrieval-quality calibration.</td></tr><tr><td>Evaluations / test sets</td><td>eval datasets, eval dataset examples, eval dataset files, eval runs, judges, review queues/items</td><td>Versioned test sets, scorecard evaluation runs, operator-authored LLM judges, and human review queues.</td></tr><tr><td>Files and projects</td><td>projects, workflow files, file events</td><td>Workspace and run-scoped file metadata independent of backing store.</td></tr></tbody></table></div>
+<p>The division of authority across these domains is governed by a small set of ownership rules, and they hold consistently across the platform:</p>
+<ul><li>Relational metadata is the authoritative control plane.</li><li>Object storage is authoritative for file bytes, but not for the file inventory.</li><li>MLflow is authoritative for prompt registry versions and traces, but not for CALIBER-specific workflow, tool, or skill metadata.</li><li>Route handlers and workers are both permitted to mutate the same tables, so the code coordinates through explicit status transitions, audit rows, and durable timeline events rather than through in-memory state. Durability is the synchronization mechanism precisely because the two writers do not share a process-local view.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="5-api-and-interaction-surfaces">5. API and interaction surfaces<a class="anchor" href="#5-api-and-interaction-surfaces" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>State is reached exclusively through the HTTP surface. That surface is centralized in <code>routes/__init__.py</code>, which registers each feature module under the same-origin AJAX namespace. The endpoints below are representative rather than exhaustive:</p>
+<ul><li><code>/prompts</code></li><li><code>/tools</code></li><li><code>/skills</code></li><li><code>/mcp-servers</code></li><li><code>/workflows</code></li><li><code>/workflow-versions/*</code></li><li><code>/workflow-runs/*</code></li><li><code>/assistant/*</code></li><li><code>/aria/plans/*</code> (Aria goal-plan orchestration)</li><li><code>/judges</code>, <code>/review-queues</code>, <code>/eval-datasets</code></li></ul>
+<p>On the client side, the corresponding entry points are organized as page modules, each of which owns a single feature surface:</p>
+<ul><li><code>caliber/caliber-ui/src/pages/Prompts.tsx</code></li><li><code>caliber/caliber-ui/src/pages/ToolRegistry.tsx</code></li><li><code>caliber/caliber-ui/src/pages/Skills.tsx</code></li><li><code>caliber/caliber-ui/src/pages/McpServers.tsx</code></li><li><code>caliber/caliber-ui/src/pages/Workflows.tsx</code></li><li><code>caliber/caliber-ui/src/pages/WorkflowEditor.tsx</code></li><li><code>caliber/caliber-ui/src/pages/Settings.tsx</code></li></ul>
+<p>The frontend shell never talks to databases or providers directly. Every user action routes through the CALIBER HTTP surface, even when the eventual effect is a provider call, an object-store mutation, or a workflow enqueue. Keeping the client behind a single API boundary is what allows authorization, scoping, and audit to be enforced uniformly in one place.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The API surface admits two shapes of work: actions that complete on the request path, and actions that are durably queued for a background worker. The sequence below shows both branches and the point at which they diverge.</p>
+<div class="diagram"><pre class="mermaid">sequenceDiagram
+    participant U as User
+    participant UI as React SPA
+    participant RT as Route handler
+    participant DB as SQLAlchemy DB
+    participant BUS as Event bus
+    participant WK as Background worker
+    participant EXT as External subsystem
+
+    U-&gt;&gt;UI: Interact with CALIBER page
+    UI-&gt;&gt;RT: Same-origin API request
+    RT-&gt;&gt;RT: Auth, scope, CSRF, validation
+    RT-&gt;&gt;DB: Persist or read control-plane state
+    alt Request-path action only
+        RT-&gt;&gt;EXT: Call MLflow, sandbox, storage, or gateway
+        RT--&gt;&gt;UI: Return response
+    else Queued background action
+        RT-&gt;&gt;BUS: Publish event if configured
+        RT--&gt;&gt;UI: Return accepted / queued response
+        WK-&gt;&gt;DB: Claim queued work
+        WK-&gt;&gt;EXT: Execute provider/runtime work
+        WK-&gt;&gt;DB: Persist final state, events, and summaries
+    end</pre></div>
+<p>The same lifecycle plays out at three scales — process startup, individual request handling, and shutdown — and each has well-defined checkpoints:</p>
+<ul><li>At application startup, configuration is loaded and validated, logging and tracing are configured, the engine, providers, storage, and event bus are built, and the workers are started by the Starlette lifespan manager.</li><li>During request handling, the route module validates the headers, body, and query, uses the <code>app.state</code> dependencies together with a DB session, and either returns directly or enqueues durable work.</li><li>At shutdown, the workers stop in a controlled order, the event bus is closed, and the SQLAlchemy engine is disposed. The ordering matters: workers are drained before their shared resources are torn down.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="7-security-and-trust-boundaries">7. Security and trust boundaries<a class="anchor" href="#7-security-and-trust-boundaries" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Because CALIBER runs inside the MLflow process, it inherits authentication from the hosting MLflow server or an upstream proxy and does not implement its own login service. The trust model therefore centers on resolving an explicit request identity and scope rather than on session establishment:</p>
+<ul><li>The <code>X-CALIBER-User</code> header identifies the caller.</li><li>The <code>X-CALIBER-Project</code> header supplies the active project for multi-project scoping.</li><li><code>auth.py</code> resolves the <code>viewer</code>, <code>operator</code>, <code>approver</code>, and <code>admin</code> scopes.</li><li>Route handlers call <code>require_user()</code> or <code>require_scopes()</code> before any mutation.</li></ul>
+<p>Layered over this identity model is a set of controls that protect both the request path and the data it touches:</p>
+<ul><li>CSRF protection guards browser-driven state changes.</li><li>Optional rate-limiting middleware bounds request volume.</li><li>Project and visibility filters are applied at query time.</li><li>Audit logging records durable mutations.</li><li>Secrets are referenced indirectly through <code>*_source</code> fields rather than carried as raw secret material.</li><li>Manifest validation rejects inline secrets in workflow definitions.</li><li>Tool sandbox runs execute in an isolated subprocess.</li></ul>
+<p>The dominant trust boundary runs between control-plane state and code execution. Route handlers may accept user-authored manifests, prompt text, tool metadata, and skill content, but only specific runtime paths are permitted to execute code or make external calls. In particular, tool execution is isolated behind the sandbox/runtime path rather than executed inline in request handlers, so accepting untrusted content never implies running it in the server process.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="8-observability-and-operations">8. Observability and operations<a class="anchor" href="#8-observability-and-operations" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Operating CALIBER depends on an observability spine that is shared across every module rather than reimplemented per feature. Its core pieces are:</p>
+<ul><li>structured JSON logging in <code>observability/logging.py</code>;</li><li>guarded MLflow tracing in <code>observability/mlflow_tracing.py</code>;</li><li>request trace-ID propagation in <code>observability/trace.py</code>;</li><li>Prometheus metrics exposed on the <code>/metrics</code> route;</li><li>workflow-run events and checkpoints, which serve as durable operational timeline state.</li></ul>
+<p>The operational design choices behind these pieces favor graceful degradation, so that observability and serving infrastructure fail soft rather than taking the request path down with them:</p>
+<ul><li>Logging defaults to stderr, with optional mirroring to S3 or the Object Store.</li><li>Tracing is on-but-inert by default and degrades to a no-op when MLflow tracing support is unavailable.</li><li>Event publication is best-effort and must never break the request path.</li><li>Static UI serving degrades gracefully, returning a 503 with an operator-facing message when the bundle is absent.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="9-extension-points-and-current-constraints">9. Extension points and current constraints<a class="anchor" href="#9-extension-points-and-current-constraints" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>CALIBER is built to be extended along its existing seams rather than rewired. The primary extension points follow the layering described earlier:</p>
+<ul><li>A new route module is added and registered in <code>routes/__init__.py</code>.</li><li>A new provider adapter is added and wired through <code>server.py</code>.</li><li>New worker loops are added into the lifespan graph.</li><li>New storage or event-bus backends are added behind the existing abstractions.</li><li>New pages extend the React SPA under <code>caliber-ui/src/pages</code>.</li></ul>
+<p>Set against those seams are the architectural constraints the system currently accepts, stated plainly so that future work can weigh them deliberately:</p>
+<ul><li>CALIBER and MLflow share the same process boundary. This simplifies same-origin behavior but couples their failure domains.</li><li>SQLAlchemy usage is sync throughout the server.</li><li>Many feature modules still perform orchestration directly in the route files rather than through deeper service layers.</li><li>Several domains intentionally use hidden runtime identities (<code>prompt_targets</code>, <code>skill_targets</code>) so that they fit into the shared refinement machinery.</li><li>Workflow execution and assistant logic remain substantially in-process, even though both are structured well enough to be extracted later.</li></ul>
+<p>Taken together, the picture is consistent: CALIBER is a plugin-hosted control plane with feature modules layered on a common runtime substrate. The per-feature documents take it from here, describing how each major bounded context plugs into that substrate.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>
