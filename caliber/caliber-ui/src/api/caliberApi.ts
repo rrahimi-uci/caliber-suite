@@ -182,6 +182,7 @@ import type {
   WorkflowRunResult,
   WorkflowRunTrace,
   WorkflowVersion,
+  GraphDiff,
   ObservabilityExperiment,
   ObservabilityMetrics,
   ObservabilityTrace,
@@ -1899,6 +1900,32 @@ export const caliberApi = {
     return request<WorkflowVersion>(
       `/workflow-versions/${encodeURIComponent(versionId)}/publish`,
       { method: "POST" },
+    );
+  },
+
+  /**
+   * POST /workflow-versions/{id}/restore — clone any prior version into a new
+   * editable draft. Returns the freshly created draft version.
+   */
+  restoreWorkflowVersion(versionId: string): Promise<WorkflowVersion> {
+    return request<WorkflowVersion>(
+      `/workflow-versions/${encodeURIComponent(versionId)}/restore`,
+      { method: "POST" },
+    );
+  },
+
+  /**
+   * GET /workflow-versions/{base}/diff/{other} — structured graph diff oriented
+   * base -> other (older -> newer), so added/removed read naturally.
+   */
+  diffWorkflowVersions(
+    baseVersionId: string,
+    otherVersionId: string,
+    signal?: AbortSignal,
+  ): Promise<GraphDiff> {
+    return request<GraphDiff>(
+      `/workflow-versions/${encodeURIComponent(baseVersionId)}/diff/${encodeURIComponent(otherVersionId)}`,
+      { signal },
     );
   },
 

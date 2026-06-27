@@ -51,11 +51,17 @@ export function GraphDiff({ diff }: GraphDiffProps): JSX.Element {
       {diff.modified_edges.map((e) => (
         <div key={`me-${e.id}`} data-testid="diff-modified-edge" className="flex items-center gap-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-amber-700">
           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> ~ edge {e.id}
+          {e.changes.length > 0 ? `: ${e.changes.map((c) => c.field).join(", ")}` : ""}
         </div>
       ))}
       {diff.artifact_changes.map((c, i) => (
         <div key={`ac-${i}`} data-testid="diff-artifact-change" className="flex items-center gap-2 rounded-md bg-caliber-50 px-2.5 py-1.5 text-caliber-700">
           <span className="h-1.5 w-1.5 rounded-full bg-caliber-500" /> ~ artifact {String((c as Record<string, unknown>).ref ?? (c as Record<string, unknown>).kind ?? "")}
+        </div>
+      ))}
+      {diff.deploy_gate_changes.map((c, i) => (
+        <div key={`dg-${i}`} data-testid="diff-gate-change" className="flex items-center gap-2 rounded-md bg-caliber-50 px-2.5 py-1.5 text-caliber-700">
+          <span className="h-1.5 w-1.5 rounded-full bg-caliber-500" /> ~ deploy gate {String((c as Record<string, unknown>).name ?? "")}
         </div>
       ))}
     </div>

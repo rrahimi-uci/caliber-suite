@@ -245,12 +245,34 @@ describe("WorkflowDetail Service tab", () => {
     const endpoint = await screen.findByTestId("service-endpoint");
     expect(endpoint).toHaveTextContent("/ajax-api/2.0/mlflow/caliber/services/WF-1/invoke");
 
-    const curl = screen.getByTestId("service-curl");
-    expect(curl).toHaveTextContent("curl -X POST");
-    expect(curl).toHaveTextContent('{"input": {}}');
+    // Default snippet language is curl, built from the service input schema.
+    const snippet = screen.getByTestId("service-snippet");
+    expect(snippet).toHaveTextContent("curl -X POST");
+    expect(snippet).toHaveTextContent("/services/WF-1/runs/RUN_ID");
+    expect(snippet.textContent).toContain('"query"');
 
     expect(screen.getByTestId("service-auth-badge")).toHaveTextContent("Open");
     expect(screen.getByTestId("service-unpublish-btn")).toBeInTheDocument();
+  });
+
+  it("switches the client snippet between curl, Python, and JavaScript", async () => {
+    server.use(
+      ...detailHandlers({
+        deployments: [makeDeployment()],
+        serviceResponses: [makeService()],
+      }),
+    );
+    renderDetail();
+
+    await screen.findByTestId("service-tab");
+    const snippet = await screen.findByTestId("service-snippet");
+    expect(snippet).toHaveTextContent("curl -X POST");
+
+    await userEvent.click(screen.getByTestId("service-snippet-lang-python"));
+    expect(screen.getByTestId("service-snippet").textContent).toContain("import requests");
+
+    await userEvent.click(screen.getByTestId("service-snippet-lang-javascript"));
+    expect(screen.getByTestId("service-snippet").textContent).toContain("await fetch(BASE");
   });
 
   it("unpublishes a published service and returns to the publish state", async () => {
