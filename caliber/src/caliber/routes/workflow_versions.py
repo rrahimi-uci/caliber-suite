@@ -106,6 +106,8 @@ RUN_PATH = DETAIL_PATH + "/run"
 PROPOSE_PATCH_PATH = DETAIL_PATH + "/propose-patch"
 COPILOT_EDIT_PATH = DETAIL_PATH + "/copilot-edit"
 PLAN_BUILD_PATH = DETAIL_PATH + "/plan-build"
+RESTORE_PATH = DETAIL_PATH + "/restore"
+DIFF_PATH = DETAIL_PATH + "/diff/{other_version_id}"
 
 _RUN_LIST_DEFAULT_LIMIT = 200
 _RUN_LIST_MAX_LIMIT = 200
@@ -425,6 +427,93 @@ async def create_version(request: Request) -> JSONResponse:
         session.commit()
         data = WorkflowVersionSchema.model_validate(version)
     return envelope_response(data, status_code=201)
+
+
+async def restore_version_route(request: Request) -> JSONResponse:
+    """``POST /workflow-versions/{version_id}/restore`` — clone any prior version
+    into a new editable draft.
+
+    Published versions are immutable and there is no mutable "current draft"
+    singleton — a draft is itself a version row — so restoring means
+    materializing the source manifest into a fresh ``draft`` version. This
+    preserves history (the source version is untouched) and reuses the same
+    parse/secret gate and hashing as :func:`create_version`.
+    """
+    version_id = request.path_params["version_id"]
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        source = _get_version_or_404(session, version_id)
+        manifest = _clone_manifest(source.manifest)
+        _parse_manifest_or_400(manifest)
+        max_number = (
+            session.execute(
+                select(CaliberWorkflowVersion.version_number)
+                .where(CaliberWorkflowVersion.workflow_id == source.workflow_id)
+                .order_by(CaliberWorkflowVersion.version_number.desc())
+            )
+            .scalars()
+            .first()
+        )
+        version = CaliberWorkflowVersion(
+            version_id=new_workflow_version_id(),
+            workflow_id=source.workflow_id,
+            version_number=(max_number or 0) + 1,
+            status="draft",
+            manifest=manifest,
+            manifest_hash=compute_manifest_hash(manifest),
+            created_by=actor,
+        )
+        session.add(version)
+        session.flush()
+        audit_record(
+            session,
+            actor=actor,
+            action="restore_workflow_version",
+            entity_type="workflow_version",
+            entity_id=version.version_id,
+            details={
+                "workflow_id": source.workflow_id,
+                "version_number": version.version_number,
+                "restored_from_version_id": source.version_id,
+                "restored_from_version_number": source.version_number,
+            },
+        )
+        session.commit()
+        data = WorkflowVersionSchema.model_validate(version)
+    return envelope_response(data, status_code=201)
+
+
+async def diff_versions_route(request: Request) -> JSONResponse:
+    """``GET /workflow-versions/{version_id}/diff/{other_version_id}`` — structured,
+    order-independent graph diff between two versions of the same workflow.
+
+    Oriented base -> candidate: ``version_id`` is the base (older/left side) and
+    ``other_version_id`` is the candidate (newer/right side), so added/removed
+    read naturally when comparing v(n-1) -> v(n). Both manifests are parsed
+    (which auto-migrates older drafts) before diffing.
+    """
+    require_user(request)
+    version_id = request.path_params["version_id"]
+    other_version_id = request.path_params["other_version_id"]
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        base = _get_version_or_404(session, version_id)
+        candidate = _get_version_or_404(session, other_version_id)
+        if base.workflow_id != candidate.workflow_id:
+            raise HTTPException(
+                status_code=400,
+                detail="cannot diff versions from different workflows",
+            )
+        try:
+            base_manifest = parse_manifest(base.manifest)
+            candidate_manifest = parse_manifest(candidate.manifest)
+        except (WorkflowManifestError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"invalid manifest: {exc}") from exc
+        diff = compute_graph_diff(base_manifest, candidate_manifest)
+    return envelope_response_dict(diff)
 
 
 async def get_version(request: Request) -> JSONResponse:
@@ -1579,6 +1668,8 @@ def envelope_response_dict(payload: dict[str, Any]) -> JSONResponse:
 def register(app: Starlette) -> None:
     app.routes.append(Route(LIST_PATH, list_versions, methods=["GET"]))
     app.routes.append(Route(LIST_PATH, create_version, methods=["POST"]))
+    app.routes.append(Route(RESTORE_PATH, restore_version_route, methods=["POST"]))
+    app.routes.append(Route(DIFF_PATH, diff_versions_route, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, get_version, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, update_version, methods=["PATCH"]))
     app.routes.append(Route(VALIDATE_PATH, validate_version, methods=["POST"]))
