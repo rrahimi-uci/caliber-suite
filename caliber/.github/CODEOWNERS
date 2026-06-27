@@ -1,21 +1,21 @@
 # GitHub uses this file to auto-request reviews on PRs that touch the
 # matching paths. See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 #
-# Replace @rrahimi2025 with your team's actual GitHub handles once the repo
+# Replace @rrahimi-uci with your team's actual GitHub handles once the repo
 # moves to its OSS home. Until then, the default catch-all assigns the founder.
 
-* @rrahimi2025
+* @rrahimi-uci
 
 # Spec changes require design-owner review (kept in sync with the docs).
-/caliber-suite/caliber-backend.md  @rrahimi2025
-/caliber-suite/caliber-frontend.md @rrahimi2025
-/caliber-suite/development-plan.md @rrahimi2025
-/caliber-suite/demo-story.md       @rrahimi2025
+/caliber-suite/caliber-backend.md  @rrahimi-uci
+/caliber-suite/caliber-frontend.md @rrahimi-uci
+/caliber-suite/development-plan.md @rrahimi-uci
+/caliber-suite/demo-story.md       @rrahimi-uci
 
 # Security policy changes are reviewed by maintainers.
-SECURITY.md @rrahimi2025
+SECURITY.md @rrahimi-uci
 
 # Build / CI / dependency changes.
-pyproject.toml          @rrahimi2025
-.github/workflows/      @rrahimi2025
-.pre-commit-config.yaml @rrahimi2025
+pyproject.toml          @rrahimi-uci
+.github/workflows/      @rrahimi-uci
+.pre-commit-config.yaml @rrahimi-uci
