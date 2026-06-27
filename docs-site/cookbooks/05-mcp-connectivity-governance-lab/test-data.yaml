@@ -1,7 +1,7 @@
 golden_cases:
   - id: M01
     tool: list_commits
-    input: {repo: "kernel-lab/caliber-suite"}
+    input: {repo: "rrahimi-uci/caliber-suite"}
     expected: {status: "success"}
 edge_cases:
   - id: M02
