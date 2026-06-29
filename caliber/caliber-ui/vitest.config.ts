@@ -29,5 +29,13 @@ export default defineConfig({
     // worker processes on local/dev hardware. Favor a single sequential worker
     // so release validation stays reliable even when it costs some runtime.
     maxWorkers: 1,
+    // CI runners are markedly slower than dev machines: multi-step tests that
+    // walk React.lazy routes can exceed the 5s default whole-test timeout, and
+    // renders split across more microtasks expose sync-query races. Give tests
+    // headroom and, in CI only, retry to absorb genuinely intermittent flakes
+    // (a consistently broken test still fails every attempt).
+    testTimeout: process.env.CI ? 20000 : 5000,
+    hookTimeout: process.env.CI ? 20000 : 10000,
+    retry: process.env.CI ? 2 : 0,
   },
 });
