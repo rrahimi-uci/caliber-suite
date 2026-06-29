@@ -26,17 +26,6 @@ const FEATURES: Feature[] = [
   {
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
-    ),
-    title: "Verification & Calibration",
-    desc: "Version prompts, skills, tools, and workflows, run verification and calibration loops, and apply better candidates with rollback-ready controls.",
-    gradient: "from-emerald-500/10 to-emerald-600/5",
-  },
-  {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
         <circle cx="18" cy="5" r="3" />
         <circle cx="6" cy="12" r="3" />
         <circle cx="18" cy="19" r="3" />
@@ -51,25 +40,14 @@ const FEATURES: Feature[] = [
   {
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-        <rect x="3" y="3" width="6" height="6" rx="1.5" />
-        <rect x="15" y="15" width="6" height="6" rx="1.5" />
-        <path d="M9 6h6a3 3 0 013 3v6" />
+        <rect x="2" y="3" width="20" height="6" rx="2" />
+        <rect x="2" y="15" width="20" height="6" rx="2" />
+        <path d="M6 6h.01M6 18h.01M12 9v6" />
       </svg>
     ),
-    title: "Workflow Orchestration",
-    desc: "Design multi-step agent workflows in a visual editor with runtime controls and calibration loops.",
-    gradient: "from-blue-500/10 to-blue-600/5",
-  },
-  {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-        <path d="M3 3v18h18" />
-        <path d="M7 12l4-4 4 4 6-6" />
-      </svg>
-    ),
-    title: "Observability",
-    desc: "Monitor every agent run with MLflow-native traces, metrics, and diagnostics for faster root-cause analysis.",
-    gradient: "from-rose-500/10 to-rose-600/5",
+    title: "MCP Servers",
+    desc: "Connect external systems through MCP and expose governed tools and data to your agents.",
+    gradient: "from-sky-500/10 to-sky-600/5",
   },
   {
     icon: (
@@ -87,14 +65,36 @@ const FEATURES: Feature[] = [
   {
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
-        <rect x="2" y="3" width="20" height="6" rx="2" />
-        <rect x="2" y="15" width="20" height="6" rx="2" />
-        <path d="M6 6h.01M6 18h.01M12 9v6" />
+        <rect x="3" y="3" width="6" height="6" rx="1.5" />
+        <rect x="15" y="15" width="6" height="6" rx="1.5" />
+        <path d="M9 6h6a3 3 0 013 3v6" />
       </svg>
     ),
-    title: "MCP Servers",
-    desc: "Connect external systems through MCP and expose governed tools and data to your agents.",
-    gradient: "from-sky-500/10 to-sky-600/5",
+    title: "Workflow Orchestration",
+    desc: "Design multi-step agent workflows in a visual editor with runtime controls and calibration loops.",
+    gradient: "from-blue-500/10 to-blue-600/5",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+    title: "Verification & Calibration",
+    desc: "Version prompts, skills, tools, and workflows, run verification and calibration loops, and apply better candidates with rollback-ready controls.",
+    gradient: "from-emerald-500/10 to-emerald-600/5",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+        <path d="M3 3v18h18" />
+        <path d="M7 12l4-4 4 4 6-6" />
+      </svg>
+    ),
+    title: "Observability",
+    desc: "Monitor every agent run with MLflow-native traces, metrics, and diagnostics for faster root-cause analysis.",
+    gradient: "from-rose-500/10 to-rose-600/5",
   },
 ];
 
