@@ -88,7 +88,9 @@ describe("BucketSelect workflow helpers", () => {
     render(<BucketSelect value="existing-outside-cache" onChange={onChange} testId="bucket" />);
 
     expect(await screen.findByText(/doesn't exist yet/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Create it" }));
+    // findBy (not getBy): the "Create it" button can render a tick after the
+    // "doesn't exist yet" hint, which races a synchronous query under CI load.
+    await user.click(await screen.findByRole("button", { name: "Create it" }));
 
     await waitFor(() => expect(onChange).not.toHaveBeenCalled());
     expect(screen.queryByText(/Failed to create bucket/i)).not.toBeInTheDocument();

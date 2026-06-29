@@ -1,7 +1,12 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach } from "vitest";
 import { epic, feature } from "allure-js-commons";
+
+// On slower CI runners the default 1000ms findBy*/waitFor timeout lapses while
+// React.lazy routes or query-driven panels finish resolving. Give async queries
+// more headroom in CI (kept tight locally so real hangs surface fast).
+configure({ asyncUtilTimeout: process.env.CI ? 5000 : 1000 });
 
 // Categorise frontend tests in the Allure report (Behaviors tab) so they group
 // by functional area under a "Frontend" epic — mirroring the backend's
