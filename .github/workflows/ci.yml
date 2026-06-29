@@ -303,7 +303,12 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      # fetch-depth: 0 — gitleaks scans the PR commit range (BASE^..HEAD); the
+      # default depth-1 checkout lacks the base commit, so its git log errors
+      # ("stderr is not empty") and the action exits non-zero even with no leaks.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
