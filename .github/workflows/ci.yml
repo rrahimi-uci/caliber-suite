@@ -1,0 +1,298 @@
+name: CI
+
+# Repo-root workflow. GitHub only discovers workflows under <repo-root>/.github/
+# workflows/, so this file — not caliber/.github/workflows/ — is what actually
+# runs in the caliber-suite monorepo. All Python steps run inside ``caliber/``
+# (where pyproject.toml lives); the UI steps run inside ``caliber/caliber-ui/``.
+#
+# Speed model:
+#   * uv replaces pip for every install (cached wheels, ~10-50x faster).
+#   * Allure results are emitted from a SINGLE Python version (3.11) so the
+#     combined report shows each test once, not once per matrix leg.
+#   * Unit tests run under pytest-xdist (``-n auto``); integration tests stay
+#     sequential (they stand up real MLflow/SQLite and are not parallel-safe).
+#
+# Allure model:
+#   * Test jobs only EMIT allure-results/ (no Java needed) and upload them as
+#     artifacts. One ``allure-report`` job merges every result set, renders the
+#     HTML with trend history, and publishes it to GitHub Pages on main.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs on a new push to the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: caliber
+
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: uv pip install --system "ruff>=0.5"
+      - name: ruff check
+        run: ruff check .
+      - name: ruff format --check
+        run: ruff format --check .
+
+  type-check:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package + dev extras
+        run: uv pip install --system -e ".[dev]"
+      - name: mypy
+        run: mypy src
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package + dev extras
+        run: uv pip install --system -e ".[dev]"
+      # 3.11 is the canonical leg: it carries coverage AND emits Allure results.
+      # ``--dist loadscope`` keeps a module's tests on one worker so module-level
+      # fixtures don't race across processes.
+      - name: Run tests (coverage + Allure)
+        if: matrix.python-version == '3.11'
+        run: pytest -n auto --dist loadscope --alluredir=allure-results
+      # Other versions are compatibility-only: parallel, no coverage, no Allure.
+      - name: Run tests
+        if: matrix.python-version != '3.11'
+        run: pytest -n auto --dist loadscope --no-cov
+      - name: Upload coverage (3.11 only)
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          # The repo's coverage plugin rewrites --cov-report=xml to a
+          # process-unique path under .pytest_cache/coverage/ (see
+          # caliber/src/caliber/pytest_coverage_bootstrap.py), so glob it
+          # rather than the default coverage.xml (which is never written).
+          path: caliber/.pytest_cache/coverage/coverage.*.xml
+          if-no-files-found: warn
+      - name: Upload Allure results (backend)
+        if: ${{ matrix.python-version == '3.11' && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-backend
+          path: caliber/allure-results
+          if-no-files-found: warn
+
+  integration:
+    name: Integration (MLflow Prompt Registry + genai.evaluate)
+    runs-on: ubuntu-latest
+    # Integration tests stand the real MLflow integrations up against a
+    # SQLite-backed tracking store — slower and not parallel-safe, so they run
+    # sequentially (no -n) after the fast gates pass.
+    needs: [lint, type-check]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package + dev extras
+        run: uv pip install --system -e ".[dev]"
+      - name: Run integration tests
+        env:
+          CALIBER_INTEGRATION_TESTS: "1"
+        run: pytest -m integration --no-cov --alluredir=allure-results
+      - name: Upload Allure results (integration)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-integration
+          path: caliber/allure-results
+          if-no-files-found: warn
+
+  ui:
+    name: UI (test + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: caliber/caliber-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: caliber/caliber-ui/package-lock.json
+      - name: Install JS dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      # ``npm test`` (vitest) emits Allure results to allure-results/ via the
+      # configured allure-vitest reporter. vitest is pinned to a single worker
+      # in vitest.config.ts, so this is sequential by design.
+      - name: Run unit tests (emits Allure results)
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Upload dist for downstream package job
+        uses: actions/upload-artifact@v4
+        with:
+          name: caliber-ui-dist
+          path: caliber/caliber-ui/dist
+          retention-days: 7
+      - name: Upload Allure results (UI)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results-ui
+          path: caliber/caliber-ui/allure-results
+          if-no-files-found: warn
+
+  allure-report:
+    name: Allure report
+    runs-on: ubuntu-latest
+    needs: [test, integration, ui]
+    # Render even when suites fail — surfacing failures is the whole point of
+    # the report. Only skip if the run was cancelled.
+    if: ${{ !cancelled() }}
+    # gh-pages publish pushes a branch with the default GITHUB_TOKEN.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      # Merge every suite's results into one dir (UUID-named files never collide).
+      - name: Download all Allure results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: allure-results-*
+          path: allure-results
+          merge-multiple: true
+      # Pull prior gh-pages content so Allure can carry trend history forward.
+      - name: Load report history
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: gh-pages
+          path: gh-pages
+      # Renders in a bundled Docker image (Java + Allure CLI) — no local JDK
+      # install needed — and folds the previous report's history into the new one.
+      - name: Build Allure report (with history)
+        uses: simple-elf/allure-report-action@v1.9
+        with:
+          allure_results: caliber/allure-results
+          gh_pages: gh-pages
+          allure_history: allure-history
+          keep_reports: 30
+      - name: Upload rendered report (HTML)
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report-html
+          path: allure-history
+          retention-days: 14
+      # Publish only from main — PRs (incl. forks) can't write and shouldn't
+      # overwrite the canonical published report.
+      - name: Publish to GitHub Pages
+        if: ${{ github.ref == 'refs/heads/main' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-history
+
+  package:
+    name: Wheel build (with bundled SPA)
+    runs-on: ubuntu-latest
+    needs: [lint, type-check, test, ui]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build tooling
+        run: uv pip install --system build
+      - name: Download built SPA
+        uses: actions/download-artifact@v4
+        with:
+          name: caliber-ui-dist
+          path: caliber/caliber-ui/dist
+      - name: Stage SPA into Python package
+        run: |
+          mkdir -p src/caliber/ui
+          cp -R caliber-ui/dist/. src/caliber/ui/
+      - name: Build sdist + wheel
+        run: python -m build
+      - name: Confirm SPA assets in the wheel
+        run: |
+          python -m zipfile -l dist/*.whl | grep -E "caliber/ui/(index\.html|assets/)" | head
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: caliber-dist
+          path: caliber/dist/
+          retention-days: 7
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install pip-audit + package
+        run: |
+          uv pip install --system pip-audit
+          uv pip install --system -e ".[dev]"
+      - name: Audit installed dependencies
+        run: pip-audit --strict
+      - name: gitleaks (secrets in repo)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
