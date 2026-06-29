@@ -56,10 +56,7 @@ def test_namespace_blocks_dunder_subclasses_escape() -> None:
     """Regression (#11): the classic restricted-eval escape — walk
     ``__class__``/``__subclasses__`` back to the real builtins to recover
     ``__import__`` — must be rejected at compile time, not silently allowed."""
-    escape = (
-        "def handler():\n"
-        "    return ().__class__.__bases__[0].__subclasses__()\n"
-    )
+    escape = "def handler():\n    return ().__class__.__bases__[0].__subclasses__()\n"
     with pytest.raises(ValueError, match="private/dunder attribute"):
         _runner._namespace(escape, "handler")
 
@@ -73,11 +70,7 @@ def test_namespace_object_builtin_removed() -> None:
 
 def test_namespace_allows_ordinary_public_attribute_access() -> None:
     """The guard must NOT break normal tool code using public attributes/methods."""
-    src = (
-        "def handler(items):\n"
-        "    items.append(99)\n"
-        "    return math.sqrt(sum(items))\n"
-    )
+    src = "def handler(items):\n    items.append(99)\n    return math.sqrt(sum(items))\n"
     _ns, fn = _runner._namespace(src, "handler")
     assert fn(items=[1, 2]) == _runner._math.sqrt(102)
 

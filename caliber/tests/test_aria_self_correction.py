@@ -53,7 +53,9 @@ def _run(session_factory, score: float) -> tuple[str, dict]:
     plan_id = svc.create_plan(
         session_factory=session_factory, goal="score", owner="@reza", autonomy="approve_plan"
     )["plan"]["plan_id"]
-    svc.set_status(session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza")
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
     detail = PlanExecutor().execute(
         session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id
     )
@@ -82,7 +84,11 @@ def test_gate_accept_completes_with_below_result(score_cap, session_factory) -> 
     iid = ex.list_interactions(session_factory=session_factory, plan_id=plan_id)[0].interaction_id
     # The plan owner can accept their own below-gate result (no SoD on a confirm).
     detail = ex.answer(
-        session_factory=session_factory, config=_CFG, actor="@reza", interaction_id=iid, approved=True
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=iid,
+        approved=True,
     )
     assert detail["plan"]["status"] == "completed"
     assert detail["steps"][0]["status"] == "done"
@@ -94,7 +100,11 @@ def test_gate_reject_skips_step(score_cap, session_factory) -> None:
     ex = PlanExecutor()
     iid = ex.list_interactions(session_factory=session_factory, plan_id=plan_id)[0].interaction_id
     detail = ex.answer(
-        session_factory=session_factory, config=_CFG, actor="@reza", interaction_id=iid, approved=False
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=iid,
+        approved=False,
     )
     assert detail["steps"][0]["status"] == "skipped"
     with session_factory() as db:

@@ -93,7 +93,10 @@ def test_normalize_skill_runtime_mode(raw: object, expected: str) -> None:
         (None, ()),
         ("workflow-review", ("workflow-review",)),
         (["workflow-review", "workflow-review"], ("workflow-review",)),
-        (["workflow-review", " Workflow-Review ", "tool-safety"], ("workflow-review", "tool-safety")),
+        (
+            ["workflow-review", " Workflow-Review ", "tool-safety"],
+            ("workflow-review", "tool-safety"),
+        ),
         (("", " ", "tool-safety"), ("tool-safety",)),
         ((b"bytes",), ("b'bytes'",)),
         (123, ()),
@@ -281,7 +284,9 @@ def test_score_skill_for_query_matches_expected_reason_buckets(
         ("Mixed CASE Safety", ["mixed", "case", "safety"]),
     ],
 )
-def test_words_tokenizer_matches_scoring_terms(user_message: str, expected_words: list[str]) -> None:
+def test_words_tokenizer_matches_scoring_terms(
+    user_message: str, expected_words: list[str]
+) -> None:
     assert _words(user_message) == expected_words
 
 
@@ -305,14 +310,18 @@ def test_resolve_assistant_skills_returns_nothing_when_mode_is_off(db_session: S
     assert result.warnings == ()
 
 
-def test_resolve_assistant_skills_returns_nothing_when_max_skills_is_zero(db_session: Session) -> None:
+def test_resolve_assistant_skills_returns_nothing_when_max_skills_is_zero(
+    db_session: Session,
+) -> None:
     _skill(db_session, "workflow-review")
     result = resolve_assistant_skills(db_session, _request(max_skills=0))
     assert result.skills == ()
     assert result.warnings == ()
 
 
-def test_resolve_assistant_skills_manual_mode_selects_explicit_then_pinned(db_session: Session) -> None:
+def test_resolve_assistant_skills_manual_mode_selects_explicit_then_pinned(
+    db_session: Session,
+) -> None:
     _skill(db_session, "workflow-review")
     _skill(db_session, "tool-safety")
 
@@ -338,7 +347,9 @@ def test_resolve_assistant_skills_warns_for_unknown_explicit_skill(db_session: S
     assert "missing-skill" in result.warnings[0]
 
 
-def test_resolve_assistant_skills_warns_when_explicit_skill_is_disabled(db_session: Session) -> None:
+def test_resolve_assistant_skills_warns_when_explicit_skill_is_disabled(
+    db_session: Session,
+) -> None:
     _skill(db_session, "workflow-review")
     result = resolve_assistant_skills(
         db_session,

@@ -16,7 +16,11 @@ from caliber.eval.scorecard import (
 )
 
 _EXAMPLES = [
-    {"example_id": "EX-1", "input": {"question": "capital of France"}, "expected": {"expected": "Paris"}},
+    {
+        "example_id": "EX-1",
+        "input": {"question": "capital of France"},
+        "expected": {"expected": "Paris"},
+    },
     {"example_id": "EX-2", "input": {"question": "2+2"}, "expected": {"expected": "4"}},
 ]
 

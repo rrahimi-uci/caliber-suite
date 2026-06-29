@@ -3,7 +3,15 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { App } from "@/App";
 import {
@@ -23,13 +31,20 @@ class MockEventSource {
   readonly listeners = new Map<string, Set<(event: MessageEvent) => void>>();
   onerror: ((event: Event) => void) | null = null;
 
-  addEventListener(event: string, handler: (event: MessageEvent) => void): void {
-    const handlers = this.listeners.get(event) ?? new Set<(event: MessageEvent) => void>();
+  addEventListener(
+    event: string,
+    handler: (event: MessageEvent) => void,
+  ): void {
+    const handlers =
+      this.listeners.get(event) ?? new Set<(event: MessageEvent) => void>();
     handlers.add(handler);
     this.listeners.set(event, handlers);
   }
 
-  removeEventListener(event: string, handler: (event: MessageEvent) => void): void {
+  removeEventListener(
+    event: string,
+    handler: (event: MessageEvent) => void,
+  ): void {
     this.listeners.get(event)?.delete(handler);
   }
 
@@ -47,7 +62,10 @@ function renderApp(initialPath: string): ReturnType<typeof render> {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={[initialPath]}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={[initialPath]}
+      >
         <App />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -210,32 +228,88 @@ describe("Sidebar Build routes", () => {
     );
 
     const user = userEvent.setup();
+    // Routes are React.lazy-loaded, so each navigation resolves a dynamic
+    // import() before the heading renders. On slower CI runners the default
+    // 1000ms findByRole timeout can lapse mid-chain (the Settings leg is the
+    // heaviest), so give the lazy-route waits a generous timeout.
     renderApp("/prompts");
-    expect(await screen.findByRole("heading", { name: "Prompts" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Prompts" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "Tools" }));
-    expect(await screen.findByRole("heading", { name: "Tools" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Tools" }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "MCP Servers" }));
-    expect(await screen.findByRole("heading", { name: "MCP Servers" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "MCP Servers" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "Workflows" }));
-    expect(await screen.findByRole("heading", { name: "Workflows" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Workflows" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "Knowledge Base" }));
-    expect(await screen.findByRole("heading", { name: "Knowledge Bases" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Knowledge Bases" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "Object Store" }));
-    expect(await screen.findByRole("heading", { name: "Object Store" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Object Store" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Settings" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
   });
 });

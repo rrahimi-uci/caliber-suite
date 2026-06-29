@@ -30,7 +30,9 @@ class CapturingEngine:
     def __init__(self) -> None:
         self.requests: list[AssistantTurnRequest] = []
 
-    def run_turn(self, request: AssistantTurnRequest, *, toolset: object | None = None) -> AssistantTurnResult:
+    def run_turn(
+        self, request: AssistantTurnRequest, *, toolset: object | None = None
+    ) -> AssistantTurnResult:
         self.requests.append(request)
         from caliber.assistant.models import DraftDelta
 
@@ -81,7 +83,11 @@ class TestAttachmentService:
     ) -> None:
         sid = _new_session(svc, session_factory)
         att = svc.add_text_attachment(
-            sid, name="Notes", text="Refund within 30 days.", session_factory=session_factory, user=USER
+            sid,
+            name="Notes",
+            text="Refund within 30 days.",
+            session_factory=session_factory,
+            user=USER,
         )
         assert att.attachment_id.startswith("AATT-")
         assert att.kind == "text_snippet"
@@ -147,9 +153,7 @@ class TestAttachmentService:
         assert att.truncated is True
         assert len(att.content_text) == ATTACHMENT_TEXT_MAX_CHARS
 
-    def test_attachment_limit_enforced(
-        self, session_factory: sessionmaker[Session]
-    ) -> None:
+    def test_attachment_limit_enforced(self, session_factory: sessionmaker[Session]) -> None:
         from caliber.assistant.fake import FakeAssistantEngine
 
         svc = AssistantService(
@@ -203,9 +207,7 @@ class TestAttachmentService:
 
 
 class TestModeAndContext:
-    def test_attachments_forwarded_to_engine(
-        self, session_factory: sessionmaker[Session]
-    ) -> None:
+    def test_attachments_forwarded_to_engine(self, session_factory: sessionmaker[Session]) -> None:
         engine = CapturingEngine()
         svc = AssistantService(engine=engine)
         sid = _new_session(svc, session_factory)
@@ -223,9 +225,7 @@ class TestModeAndContext:
         assert len(req.attachments) == 1
         assert req.attachments[0]["content_text"] == "grounding text"
 
-    def test_chat_mode_suppresses_drafts(
-        self, session_factory: sessionmaker[Session]
-    ) -> None:
+    def test_chat_mode_suppresses_drafts(self, session_factory: sessionmaker[Session]) -> None:
         engine = CapturingEngine()  # always returns a draft delta
         svc = AssistantService(engine=engine)
         sid = _new_session(svc, session_factory)
@@ -237,9 +237,7 @@ class TestModeAndContext:
         )
         assert turn.draft_updates == []
 
-    def test_plan_mode_suppresses_drafts(
-        self, session_factory: sessionmaker[Session]
-    ) -> None:
+    def test_plan_mode_suppresses_drafts(self, session_factory: sessionmaker[Session]) -> None:
         # Drafts are a build-mode authoring artifact; plan mode must not
         # materialize them (a plan chat shouldn't leak authoring drafts).
         engine = CapturingEngine()
@@ -253,9 +251,7 @@ class TestModeAndContext:
         )
         assert turn.draft_updates == []
 
-    def test_build_mode_materializes_drafts(
-        self, session_factory: sessionmaker[Session]
-    ) -> None:
+    def test_build_mode_materializes_drafts(self, session_factory: sessionmaker[Session]) -> None:
         engine = CapturingEngine()
         svc = AssistantService(engine=engine)
         sid = _new_session(svc, session_factory)

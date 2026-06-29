@@ -450,9 +450,7 @@ async def save_tool_test_cases(request: Request) -> JSONResponse:
             details={"count": len(cases)},
         )
         session.commit()
-    return envelope_response(
-        ToolTestCasesResponse(tool_id=tool_id, test_cases=payload.test_cases)
-    )
+    return envelope_response(ToolTestCasesResponse(tool_id=tool_id, test_cases=payload.test_cases))
 
 
 async def calibrate_tool(request: Request) -> JSONResponse:
@@ -545,7 +543,9 @@ async def tool_usage(request: Request) -> JSONResponse:
                 CaliberWorkflowVersion.version_number,
                 CaliberWorkflowVersion.status,
                 CaliberWorkflowVersion.manifest,
-            ).where(cast(CaliberWorkflowVersion.manifest, String).contains(tool.name, autoescape=True))
+            ).where(
+                cast(CaliberWorkflowVersion.manifest, String).contains(tool.name, autoescape=True)
+            )
         ).all()
         usage: list[dict[str, object]] = []
         for workflow_id, version_id, version_number, status, manifest in rows:
@@ -710,9 +710,7 @@ async def list_tool_test_runs(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         rows = session.execute(stmt).scalars().all()
-        summaries = [
-            ToolTestRunSummary.model_validate(row).model_dump(mode="json") for row in rows
-        ]
+        summaries = [ToolTestRunSummary.model_validate(row).model_dump(mode="json") for row in rows]
 
     return JSONResponse({"data": summaries})
 
@@ -834,9 +832,7 @@ async def set_tool_baseline(request: Request) -> JSONResponse:
         if run.tool_id != tool_id:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"test run {payload.test_run_id!r} does not belong to tool {tool_id!r}"
-                ),
+                detail=(f"test run {payload.test_run_id!r} does not belong to tool {tool_id!r}"),
             )
 
         tool.baseline_run_id = payload.test_run_id

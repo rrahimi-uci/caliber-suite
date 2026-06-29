@@ -252,7 +252,9 @@ async def get_workflow(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = get_visible(session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity)
+        row = get_visible(
+            session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
+        )
         if row is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         data = WorkflowSchema.model_validate(row)
@@ -896,9 +898,7 @@ async def delete_workflow(request: Request) -> JSONResponse:
                     delete(agent_model).where(agent_model.agent_id.in_(fleet_agent_ids))
                 )
             session.execute(
-                delete(CaliberAgentConfig).where(
-                    CaliberAgentConfig.agent_id.in_(fleet_agent_ids)
-                )
+                delete(CaliberAgentConfig).where(CaliberAgentConfig.agent_id.in_(fleet_agent_ids))
             )
 
         audit_record(

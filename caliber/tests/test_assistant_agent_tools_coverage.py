@@ -505,14 +505,12 @@ class TestRunQuickEval:
         out = json.loads(ts.dispatch("run_quick_eval", {"dataset_id": "ED-x", "instructions": ""}))
         assert "error" in out and "instructions are required" in out["error"]
 
-    def test_dataset_not_found(
-        self, svc, session_factory, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_dataset_not_found(self, svc, session_factory, monkeypatch: pytest.MonkeyPatch) -> None:
         # Inject a fake completion fn so we get past the provider gate and reach
         # the dataset lookup branch.
         monkeypatch.setattr(
             "caliber.eval.predict.build_completion_fn",
-            lambda _cfg: (lambda _system, _user: "X"),
+            lambda _cfg: lambda _system, _user: "X",
         )
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
@@ -530,7 +528,7 @@ class TestRunQuickEval:
         # dataset's expected values match so the scorer reports a perfect pass.
         monkeypatch.setattr(
             "caliber.eval.predict.build_completion_fn",
-            lambda _cfg: (lambda _system, user: user.upper()),
+            lambda _cfg: lambda _system, user: user.upper(),
         )
         with session_factory() as db:
             dataset_id = seed_eval_dataset(db, name="quick-eval-cov", inputs=["hello", "world"])
@@ -566,9 +564,7 @@ class TestProposeWorkflowPatchEdges:
         sid = _session(svc, session_factory)
         did = _make_draft(session_factory, sid, "tool", _FAKE_TOOL)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(
-            ts.dispatch("propose_workflow_patch", {"draft_id": did, "evidence": {}})
-        )
+        out = json.loads(ts.dispatch("propose_workflow_patch", {"draft_id": did, "evidence": {}}))
         assert "error" in out and "not a workflow" in out["error"]
 
 

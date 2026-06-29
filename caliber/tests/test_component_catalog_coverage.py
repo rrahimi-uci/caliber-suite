@@ -23,7 +23,7 @@ def test_component_docs_known_node_uses_fallback_description() -> None:
     """Empty (whitespace-only) docstring -> _FALLBACK_DESCRIPTIONS for a known type."""
 
     class WhitespaceDoc(BaseModel):
-        """   """
+        """ """
 
     description, docs = cc._component_docs(node_type="note", model_cls=WhitespaceDoc)
     assert description == cc._FALLBACK_DESCRIPTIONS["note"]
@@ -34,7 +34,7 @@ def test_component_docs_unknown_node_humanizes_type() -> None:
     """No fallback entry -> humanized node type with a trailing period."""
 
     class WhitespaceDoc(BaseModel):
-        """   """
+        """ """
 
     description, _ = cc._component_docs(node_type="my_node_xyz", model_cls=WhitespaceDoc)
     assert description == "My Node Xyz."

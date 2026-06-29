@@ -399,9 +399,7 @@ class Tracer:
         run_id = getattr(info, "run_id", None)
         return run_id if isinstance(run_id, str) and run_id else None
 
-    def annotate_trace(
-        self, *, session_id: str | None = None, user: str | None = None
-    ) -> None:
+    def annotate_trace(self, *, session_id: str | None = None, user: str | None = None) -> None:
         """Stamp the active trace with MLflow-native session/user metadata.
 
         Sets ``mlflow.trace.session`` / ``mlflow.trace.user`` so multi-turn runs

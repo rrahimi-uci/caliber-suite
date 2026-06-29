@@ -162,9 +162,7 @@ def test_fixed_window_non_positive_chunk_size_returns_empty() -> None:
 
 def test_fixed_window_single_pass_breaks_on_end() -> None:
     # whole text fits in one window; loop must break after the first iteration
-    fragments = _fixed_window_chunks(
-        "hello world", chunk_size=100, overlap=0, metadata={"k": "v"}
-    )
+    fragments = _fixed_window_chunks("hello world", chunk_size=100, overlap=0, metadata={"k": "v"})
     assert len(fragments) == 1
     assert fragments[0].content == "hello world"
     assert fragments[0].metadata == {"k": "v"}
@@ -190,9 +188,7 @@ def test_token_window_empty_text_returns_empty() -> None:
 
 
 def test_token_window_single_window_breaks() -> None:
-    fragments = _token_window_chunks(
-        "one two three", chunk_size=50, overlap=0, metadata={"m": 1}
-    )
+    fragments = _token_window_chunks("one two three", chunk_size=50, overlap=0, metadata={"m": 1})
     assert len(fragments) == 1
     assert fragments[0].content == "one two three"
     assert fragments[0].metadata == {"m": 1}

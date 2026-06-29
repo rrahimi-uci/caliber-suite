@@ -87,9 +87,7 @@ _SCORE_SYSTEM_PROMPT = (
 )
 
 
-def _load_example_rows(
-    session: Any, dataset_id: str, version: int | None
-) -> list[dict[str, Any]]:
+def _load_example_rows(session: Any, dataset_id: str, version: int | None) -> list[dict[str, Any]]:
     """Return ``{example_id, input, expected}`` rows for a dataset.
 
     Same version semantics as :func:`caliber.eval.predict.build_db_load_dataset`:
@@ -140,9 +138,7 @@ def load_prompt_template(subject_ref: str) -> str:
 
         load_prompt = getattr(mlflow, "load_prompt", None)
         if load_prompt is None:
-            raise HTTPException(
-                status_code=503, detail="mlflow prompt registry API not available"
-            )
+            raise HTTPException(status_code=503, detail="mlflow prompt registry API not available")
         prompt = load_prompt(ref, allow_missing=True)
     except HTTPException:
         raise
@@ -195,7 +191,9 @@ def _resolve_predict(
     generic-completion behaviour.
     """
     if payload.predict_target == "prompt":
-        return _artifact_predict(complete, load_prompt_template((payload.subject_ref or "").strip()))
+        return _artifact_predict(
+            complete, load_prompt_template((payload.subject_ref or "").strip())
+        )
     if payload.predict_target == "skill":
         return _artifact_predict(complete, skill_content or "")
     if payload.predict_target == "workflow" and workflow_predict is not None:
@@ -229,9 +227,7 @@ def _build_workflow_predict(session: Any, version_id: str, config: Any) -> Predi
         ) from exc
 
     def predict(inputs: Mapping[str, Any]) -> str:
-        result = execute(
-            plan, user_message(dict(inputs)), executor=executor, preview=True
-        )
+        result = execute(plan, user_message(dict(inputs)), executor=executor, preview=True)
         return str(getattr(result, "output", "") or "")
 
     return predict
@@ -240,9 +236,7 @@ def _build_workflow_predict(session: Any, version_id: str, config: Any) -> Predi
 def _make_judge_runner(judge_obj: Any) -> JudgeRunner:
     """Wrap a built judge as a scorecard ``JudgeRunner`` (prediction + context → float)."""
 
-    def runner(
-        prediction: str, inputs: Mapping[str, Any], expected: Mapping[str, Any]
-    ) -> float:
+    def runner(prediction: str, inputs: Mapping[str, Any], expected: Mapping[str, Any]) -> float:
         return score_with_judge(
             judge_obj,
             inputs=dict(inputs),

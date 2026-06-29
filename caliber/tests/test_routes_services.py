@@ -18,9 +18,7 @@ from tests.workflow_helpers import (
 )
 
 
-def _publish_service(
-    client: TestClient, *, auth_required: bool = False
-) -> tuple[str, str]:
+def _publish_service(client: TestClient, *, auth_required: bool = False) -> tuple[str, str]:
     """Create+publish a workflow, deploy it to prod, then publish the service.
 
     Services are OPEN by default (v1); pass ``auth_required=True`` to exercise the

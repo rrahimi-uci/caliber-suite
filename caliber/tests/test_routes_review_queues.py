@@ -87,9 +87,7 @@ def test_submit_writes_answers_back_and_completes_item(
     client: TestClient, db_session: Session
 ) -> None:
     queue_id = _create_queue(client)
-    add = client.post(
-        ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]}
-    )
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]})
     item_id = add.json()["data"][0]["item_id"]
 
     fake = FakeReviewWriteBackClient()
@@ -116,9 +114,7 @@ def test_submit_writes_answers_back_and_completes_item(
 
 def test_submit_missing_required_answer_is_400(client: TestClient) -> None:
     queue_id = _create_queue(client)
-    add = client.post(
-        ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]}
-    )
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]})
     item_id = add.json()["data"][0]["item_id"]
     # 'correct' is required but omitted.
     resp = client.post(
@@ -131,9 +127,7 @@ def test_submit_missing_required_answer_is_400(client: TestClient) -> None:
 
 def test_submit_unknown_answer_key_is_400(client: TestClient) -> None:
     queue_id = _create_queue(client)
-    add = client.post(
-        ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]}
-    )
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]})
     item_id = add.json()["data"][0]["item_id"]
     resp = client.post(
         SUBMIT_PATH.replace("{queue_id}", queue_id).replace("{item_id}", item_id),
@@ -148,9 +142,7 @@ def test_get_queue_404(client: TestClient) -> None:
 
 def test_submit_writes_audit_row(client: TestClient, db_session: Session) -> None:
     queue_id = _create_queue(client)
-    add = client.post(
-        ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]}
-    )
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]})
     item_id = add.json()["data"][0]["item_id"]
     client.app.state.review_writeback_client = FakeReviewWriteBackClient()
     try:
@@ -160,10 +152,7 @@ def test_submit_writes_audit_row(client: TestClient, db_session: Session) -> Non
         )
     finally:
         client.app.state.review_writeback_client = None
-    actions = {
-        row.action
-        for row in db_session.execute(select(CaliberAuditLog)).scalars().all()
-    }
+    actions = {row.action for row in db_session.execute(select(CaliberAuditLog)).scalars().all()}
     assert {"create_review_queue", "add_review_items", "submit_review_item"} <= actions
     # The item carries the recorded answer + completion.
     item = db_session.get(CaliberReviewItem, item_id)

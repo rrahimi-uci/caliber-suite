@@ -227,7 +227,7 @@ def map_trace_to_spans(trace: Any) -> list[dict[str, Any]]:
             }
         )
     # Stable order: parents before children where timestamps agree.
-    spans.sort(key=lambda s: (s["start_time_ms"] if s["start_time_ms"] is not None else 0.0))
+    spans.sort(key=lambda s: s["start_time_ms"] if s["start_time_ms"] is not None else 0.0)
     return spans
 
 
@@ -393,7 +393,9 @@ def _rollup_usage(spans: list[dict[str, Any]]) -> _Usage:
             seen_cost = True
     return _Usage(
         total_tokens=int(totals["caliber.tokens"]) if seen["caliber.tokens"] else None,
-        prompt_tokens=int(totals["caliber.prompt_tokens"]) if seen["caliber.prompt_tokens"] else None,
+        prompt_tokens=int(totals["caliber.prompt_tokens"])
+        if seen["caliber.prompt_tokens"]
+        else None,
         completion_tokens=(
             int(totals["caliber.completion_tokens"]) if seen["caliber.completion_tokens"] else None
         ),
@@ -478,7 +480,8 @@ def fetch_trace_detail(trace_id: str | None) -> TraceDetail:
             execution_time_ms=_int_or_none(getattr(info, "execution_duration", None)),
             # Prefer CALIBER's per-span rollup; fall back to MLflow-native trace
             # metadata so usage shows for any traced run (not just CALIBER's).
-            total_tokens=usage.total_tokens if usage.total_tokens is not None
+            total_tokens=usage.total_tokens
+            if usage.total_tokens is not None
             else trace_metadata_tokens(info),
             prompt_tokens=usage.prompt_tokens,
             completion_tokens=usage.completion_tokens,

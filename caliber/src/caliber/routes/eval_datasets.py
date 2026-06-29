@@ -76,15 +76,11 @@ logger = logging.getLogger(__name__)
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}"
 EXAMPLES_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples"
-FROM_TRACE_PATH = (
-    "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/from-trace"
-)
+FROM_TRACE_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/from-trace"
 SUPERSEDE_PATH = (
     "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/supersede"
 )
-REVISE_PATH = (
-    "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/revise"
-)
+REVISE_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/revise"
 SYNC_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/sync"
 
 # See :data:`caliber.routes.skills._LIST_STATUS_VALUES` — same allowlist
@@ -550,9 +546,7 @@ def _resolve_sync_client(request: Request) -> DatasetSyncClient:
     Honours an ``app.state.dataset_sync_client`` override (tests inject a fake);
     otherwise builds the real ``mlflow.genai.datasets``-backed client.
     """
-    override: DatasetSyncClient | None = getattr(
-        request.app.state, "dataset_sync_client", None
-    )
+    override: DatasetSyncClient | None = getattr(request.app.state, "dataset_sync_client", None)
     if override is not None:
         return override
     return MLflowDatasetSyncClient()
@@ -610,8 +604,7 @@ async def sync_dataset_to_mlflow(request: Request) -> JSONResponse:
             .all()
         )
         records = [
-            DatasetRecord(inputs=dict(row.input), expectations=dict(row.expected))
-            for row in rows
+            DatasetRecord(inputs=dict(row.input), expectations=dict(row.expected)) for row in rows
         ]
         synced_version = dataset.version
         dataset_name = dataset.name

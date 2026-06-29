@@ -150,7 +150,9 @@ class _FakeEntityStore:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any], int]] = []
 
-    def list(self, *, filters: dict[str, Any] | None = None, top_k: int | None = None) -> list[_EntityRow]:
+    def list(
+        self, *, filters: dict[str, Any] | None = None, top_k: int | None = None
+    ) -> list[_EntityRow]:
         self.calls.append(("list", filters or {}, top_k or 0))
         return [
             _EntityRow(

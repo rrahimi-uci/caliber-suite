@@ -418,11 +418,7 @@ def _loader_accepts_version(loader: Callable[..., Any]) -> bool:
         params = list(inspect.signature(loader).parameters.values())
     except (TypeError, ValueError):
         return False
-    positional = [
-        p
-        for p in params
-        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
-    ]
+    positional = [p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
     has_var_positional = any(p.kind is p.VAR_POSITIONAL for p in params)
     has_version_kw = any(p.name == "version" for p in params)
     return len(positional) > 1 or has_var_positional or has_version_kw
