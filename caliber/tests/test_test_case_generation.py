@@ -19,7 +19,9 @@ class _ReplyEngine:
         self._raises = raises
         self.calls: list[AssistantTurnRequest] = []
 
-    def run_turn(self, request: AssistantTurnRequest, *, toolset: object | None = None) -> AssistantTurnResult:
+    def run_turn(
+        self, request: AssistantTurnRequest, *, toolset: object | None = None
+    ) -> AssistantTurnResult:
         self.calls.append(request)
         if self._raises:
             raise RuntimeError("engine down")

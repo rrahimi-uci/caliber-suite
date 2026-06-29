@@ -873,9 +873,7 @@ async def set_skill_baseline(request: Request) -> JSONResponse:
         if run.skill_id != skill_id:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"test run {payload.test_run_id!r} does not belong to skill {skill_id!r}"
-                ),
+                detail=(f"test run {payload.test_run_id!r} does not belong to skill {skill_id!r}"),
             )
 
         target = ensure_skill_target(
@@ -955,9 +953,7 @@ async def bind_skill(request: Request) -> JSONResponse:
         if payload.kind == "agent":
             agent = session.get(CaliberAgentConfig, payload.agent_id)
             if agent is None:
-                raise HTTPException(
-                    status_code=404, detail=f"agent {payload.agent_id!r} not found"
-                )
+                raise HTTPException(status_code=404, detail=f"agent {payload.agent_id!r} not found")
             # Agents reference skills by name under optimizer_config.skills. Add
             # this skill's name (idempotent) so the runtime composes it.
             cfg = agent.optimizer_config if isinstance(agent.optimizer_config, dict) else {}

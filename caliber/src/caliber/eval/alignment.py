@@ -61,9 +61,7 @@ def cohen_kappa(judge_labels: Sequence[Any], human_labels: Sequence[Any]) -> flo
     return (p_o - p_e) / (1.0 - p_e)
 
 
-def confusion_counts(
-    judge_labels: Sequence[Any], human_labels: Sequence[Any]
-) -> dict[str, int]:
+def confusion_counts(judge_labels: Sequence[Any], human_labels: Sequence[Any]) -> dict[str, int]:
     """Binary confusion counts (treating ``True`` as the positive class).
 
     Useful when the aligned labels are booleans (the common pass/fail case): the

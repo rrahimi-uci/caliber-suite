@@ -31,6 +31,14 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # The project's documented dev profile (caliber/Makefile: install-extended)
+  # plus ``memory`` (mem0), which a unit test imports. Installed in every Python
+  # job so tests and mypy can resolve every optional integration. ``knowledge-
+  # local`` pulls torch — the heaviest dep — but it's required for the
+  # embedding/KB suites to pass; uv's cache keeps repeat installs cheap.
+  CALIBER_CI_EXTRAS: dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory
+
 defaults:
   run:
     working-directory: caliber
@@ -49,7 +57,10 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install ruff
-        run: uv pip install --system "ruff>=0.5"
+        # Pinned (not ">=0.5") so the format check is deterministic — ruff's
+        # formatter output shifts between releases, which is what let the repo
+        # drift out of "formatted" while CI was dormant.
+        run: uv pip install --system "ruff==0.15.20"
       - name: ruff check
         run: ruff check .
       - name: ruff format --check
@@ -68,17 +79,16 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install package + dev extras
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
       - name: mypy
         run: mypy src
 
   test:
-    name: Test (Python ${{ matrix.python-version }})
+    name: Test (Python 3.11)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+    # Single canonical version: running the full ~15-min suite once (not across a
+    # 3-version matrix) is the biggest wall-clock win. This leg carries coverage
+    # and emits Allure results.
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -87,21 +97,15 @@ jobs:
           cache-dependency-glob: caliber/pyproject.toml
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
       - name: Install package + dev extras
-        run: uv pip install --system -e ".[dev]"
-      # 3.11 is the canonical leg: it carries coverage AND emits Allure results.
+        run: uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
       # ``--dist loadscope`` keeps a module's tests on one worker so module-level
       # fixtures don't race across processes.
       - name: Run tests (coverage + Allure)
-        if: matrix.python-version == '3.11'
         run: pytest -n auto --dist loadscope --alluredir=allure-results
-      # Other versions are compatibility-only: parallel, no coverage, no Allure.
-      - name: Run tests
-        if: matrix.python-version != '3.11'
-        run: pytest -n auto --dist loadscope --no-cov
-      - name: Upload coverage (3.11 only)
-        if: matrix.python-version == '3.11'
+      - name: Upload coverage
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
@@ -112,7 +116,7 @@ jobs:
           path: caliber/.pytest_cache/coverage/coverage.*.xml
           if-no-files-found: warn
       - name: Upload Allure results (backend)
-        if: ${{ matrix.python-version == '3.11' && !cancelled() }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: allure-results-backend
@@ -136,7 +140,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install package + dev extras
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
       - name: Run integration tests
         env:
           CALIBER_INTEGRATION_TESTS: "1"
@@ -197,6 +201,11 @@ jobs:
     # gh-pages publish pushes a branch with the default GITHUB_TOKEN.
     permissions:
       contents: write
+    # Override the repo-wide ``caliber`` working dir: download-artifact writes
+    # allure-results/ to the workspace root, so the render steps run there too.
+    defaults:
+      run:
+        working-directory: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
       # Merge every suite's results into one dir (UUID-named files never collide).
@@ -206,6 +215,17 @@ jobs:
           pattern: allure-results-*
           path: allure-results
           merge-multiple: true
+      # Render with the official Allure CLI + a real JRE rather than a
+      # third-party Docker action (the popular ones pin removed base images
+      # like openjdk:8-jre-alpine). This reuses the same allure-commandline the
+      # repo already vendors locally.
+      - name: Set up Java (Allure CLI needs a JRE)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install Allure CLI
+        run: npm install -g allure-commandline@2.30.0
       # Pull prior gh-pages content so Allure can carry trend history forward.
       - name: Load report history
         uses: actions/checkout@v4
@@ -213,30 +233,30 @@ jobs:
         with:
           ref: gh-pages
           path: gh-pages
-      # Renders in a bundled Docker image (Java + Allure CLI) — no local JDK
-      # install needed — and folds the previous report's history into the new one.
-      - name: Build Allure report (with history)
-        uses: simple-elf/allure-report-action@v1.9
-        with:
-          allure_results: caliber/allure-results
-          gh_pages: gh-pages
-          allure_history: allure-history
-          keep_reports: 30
+      - name: Carry trend history forward
+        run: |
+          if [ -d gh-pages/history ]; then
+            mkdir -p allure-results/history
+            cp -r gh-pages/history/. allure-results/history/
+          fi
+      - name: Generate report
+        run: allure generate allure-results --clean -o allure-report
       - name: Upload rendered report (HTML)
         uses: actions/upload-artifact@v4
         with:
           name: allure-report-html
-          path: allure-history
+          path: allure-report
           retention-days: 14
       # Publish only from main — PRs (incl. forks) can't write and shouldn't
-      # overwrite the canonical published report.
+      # overwrite the canonical published report. The published report's own
+      # history/ becomes the seed for the next run's trend graphs.
       - name: Publish to GitHub Pages
         if: ${{ github.ref == 'refs/heads/main' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: allure-history
+          publish_dir: allure-report
 
   package:
     name: Wheel build (with bundled SPA)
@@ -289,9 +309,11 @@ jobs:
       - name: Install pip-audit + package
         run: |
           uv pip install --system pip-audit
-          uv pip install --system -e ".[dev]"
+          uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
       - name: Audit installed dependencies
-        run: pip-audit --strict
+        # --skip-editable: the local ``caliber`` editable install isn't on PyPI,
+        # and --strict would otherwise fail because it "could not be audited".
+        run: pip-audit --strict --skip-editable
       - name: gitleaks (secrets in repo)
         uses: gitleaks/gitleaks-action@v2
         env:

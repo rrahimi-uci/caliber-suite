@@ -310,9 +310,7 @@ async def list_projects(request: Request) -> JSONResponse:
         # file counts per project (visible files only) — a single grouped query
         # rather than one per project (avoids an N+1 as the project list grows).
         counts = _project_file_counts(session, [row.project_id for row in rows])
-        items = [
-            _project_to_dict(row, file_count=counts.get(row.project_id, 0)) for row in rows
-        ]
+        items = [_project_to_dict(row, file_count=counts.get(row.project_id, 0)) for row in rows]
     return envelope_response_dict(items)
 
 

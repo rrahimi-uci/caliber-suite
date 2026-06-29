@@ -107,9 +107,7 @@ def test_get_judge_scoped_to_visibility(client: TestClient, db_session: Session)
 
 def test_update_judge_archive_and_audit(client: TestClient, db_session: Session) -> None:
     _seed(db_session, judge_id="JDG-1")
-    response = client.patch(
-        DETAIL_PATH.replace("{judge_id}", "JDG-1"), json={"status": "archived"}
-    )
+    response = client.patch(DETAIL_PATH.replace("{judge_id}", "JDG-1"), json={"status": "archived"})
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "archived"
     actions = [
@@ -168,9 +166,7 @@ def test_test_run_judge_returns_score(
     assert captured["inputs"] == {"q": "hi"}
 
 
-def test_test_run_judge_unknown_404(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_test_run_judge_unknown_404(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     resp = client.post(
         TEST_RUN_PATH.replace("{judge_id}", "JDG-missing"),
         json={"outputs": "x"},
@@ -239,9 +235,7 @@ def test_alignment_unknown_judge_404(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_alignment_requires_examples(
-    client: TestClient, db_session: Session
-) -> None:
+def test_alignment_requires_examples(client: TestClient, db_session: Session) -> None:
     _seed(db_session, judge_id="JDG-align2")
     resp = client.post(
         ALIGNMENT_PATH.replace("{judge_id}", "JDG-align2"),

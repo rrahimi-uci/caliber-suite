@@ -223,14 +223,9 @@ def test_section_override_can_clear_an_element() -> None:
     )
 
     assert preview["overridden_sections"] == ["input"]
-    assert (
-        "Answer the user's question directly" not in preview["compiled_template"]
-    )
+    assert "Answer the user's question directly" not in preview["compiled_template"]
     # The composed snapshot keeps the original element so Reset can restore it.
-    assert (
-        "Answer the user's question directly"
-        in preview["composed_sections"]["input"]
-    )
+    assert "Answer the user's question directly" in preview["composed_sections"]["input"]
 
 
 def test_section_override_ignores_unknown_element_keys() -> None:

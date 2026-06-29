@@ -458,9 +458,7 @@ def _load_trainset(
     if pinned_version is None:
         stmt = stmt.where(CaliberEvalDatasetExample.superseded_at.is_(None))
     else:
-        stmt = stmt.where(
-            CaliberEvalDatasetExample.dataset_version <= pinned_version
-        ).where(
+        stmt = stmt.where(CaliberEvalDatasetExample.dataset_version <= pinned_version).where(
             or_(
                 CaliberEvalDatasetExample.superseded_version.is_(None),
                 CaliberEvalDatasetExample.superseded_version > pinned_version,

@@ -2002,18 +2002,14 @@ def test_delete_knowledge_base_hard_deletes_all_rows_and_artifacts(
 
     s3 = _wire_moto(client)
     target_id = _build_knowledge_base_for_delete(client, s3, "delete-docs", "Doomed Docs")
-    survivor_id = _build_knowledge_base_for_delete(
-        client, s3, "keep-docs", "Surviving Docs"
-    )
+    survivor_id = _build_knowledge_base_for_delete(client, s3, "keep-docs", "Surviving Docs")
 
     # Collect the target's version ids and run ids, and confirm the build really
     # populated every child table (otherwise the cascade assertions are vacuous).
     version_ids = [
         row.knowledge_base_version_id
         for row in db_session.query(knowledge_service.CaliberKnowledgeBaseVersion)
-        .filter(
-            knowledge_service.CaliberKnowledgeBaseVersion.knowledge_base_id == target_id
-        )
+        .filter(knowledge_service.CaliberKnowledgeBaseVersion.knowledge_base_id == target_id)
         .all()
     ]
     run_ids = [
@@ -2040,9 +2036,7 @@ def test_delete_knowledge_base_hard_deletes_all_rows_and_artifacts(
     )
     assert (
         db_session.query(knowledge_service.CaliberKnowledgeBaseChunk)
-        .filter(
-            knowledge_service.CaliberKnowledgeBaseChunk.knowledge_base_version_id == version_id
-        )
+        .filter(knowledge_service.CaliberKnowledgeBaseChunk.knowledge_base_version_id == version_id)
         .count()
         > 0
     )
@@ -2091,9 +2085,9 @@ def test_delete_knowledge_base_hard_deletes_all_rows_and_artifacts(
     # The build wrote artifacts under the version's output prefix; capture it so
     # we can assert the best-effort object-store cleanup emptied it.
     output_bucket = target_kb.source_bucket
-    output_prefix = (
-        db_session.get(knowledge_service.CaliberKnowledgeBaseVersion, version_id).output_prefix
-    )
+    output_prefix = db_session.get(
+        knowledge_service.CaliberKnowledgeBaseVersion, version_id
+    ).output_prefix
     before = s3.list_objects_v2(Bucket=output_bucket, Prefix=f"{output_prefix}/")
     assert before.get("Contents"), "build should have written version artifacts"
 
@@ -2113,9 +2107,7 @@ def test_delete_knowledge_base_hard_deletes_all_rows_and_artifacts(
     # Every child table has zero rows for the deleted KB / its versions / runs.
     assert (
         db_session.query(knowledge_service.CaliberKnowledgeBaseVersion)
-        .filter(
-            knowledge_service.CaliberKnowledgeBaseVersion.knowledge_base_id == target_id
-        )
+        .filter(knowledge_service.CaliberKnowledgeBaseVersion.knowledge_base_id == target_id)
         .count()
         == 0
     )
@@ -2168,9 +2160,7 @@ def test_delete_knowledge_base_hard_deletes_all_rows_and_artifacts(
     survivor_versions = [
         row.knowledge_base_version_id
         for row in db_session.query(knowledge_service.CaliberKnowledgeBaseVersion)
-        .filter(
-            knowledge_service.CaliberKnowledgeBaseVersion.knowledge_base_id == survivor_id
-        )
+        .filter(knowledge_service.CaliberKnowledgeBaseVersion.knowledge_base_id == survivor_id)
         .all()
     ]
     assert survivor_versions
@@ -2207,9 +2197,7 @@ def test_delete_knowledge_base_requires_operator_scope(
     )
     db_session.commit()
 
-    response = client.delete(
-        f"{KB}/KB-rbac-delete", headers={"X-CALIBER-User": "@viewer"}
-    )
+    response = client.delete(f"{KB}/KB-rbac-delete", headers={"X-CALIBER-User": "@viewer"})
     assert response.status_code == 403
 
     db_session.expire_all()

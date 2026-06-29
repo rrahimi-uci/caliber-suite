@@ -24,7 +24,9 @@ def _install_fake_openai(monkeypatch: pytest.MonkeyPatch, capture: dict) -> None
     class _Completions:
         def create(self, **kwargs):  # type: ignore[no-untyped-def]
             capture.update(kwargs)
-            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="0.8"))])
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="0.8"))]
+            )
 
     class _Client:
         def __init__(self, **_kw):  # type: ignore[no-untyped-def]

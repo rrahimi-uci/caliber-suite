@@ -83,9 +83,7 @@ class TestQueueService:
     ) -> None:
         sid = _new_session(svc, session_factory)
         item = svc.enqueue_message(sid, content="x", session_factory=session_factory, user=USER)
-        assert not svc.cancel_queued(
-            item.queue_id, session_factory=session_factory, user="@other"
-        )
+        assert not svc.cancel_queued(item.queue_id, session_factory=session_factory, user="@other")
 
     def test_queue_limit_enforced(self, session_factory: sessionmaker[Session]) -> None:
         svc = AssistantService(

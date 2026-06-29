@@ -178,9 +178,7 @@ def test_trace_agent_resolution_records_mlflow_prompt_and_skills() -> None:
         node_id="researcher",
         node_type=NodeType.AGENT,
         name="Researcher",
-        instructions=PromptRef(
-            kind="mlflow_prompt", registry_name="research_prompt", alias="prod"
-        ),
+        instructions=PromptRef(kind="mlflow_prompt", registry_name="research_prompt", alias="prod"),
         skill_instructions=["# Web Search\nSearch the web.", "## Summarize\nSummarize results."],
     )
 

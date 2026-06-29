@@ -70,9 +70,7 @@ def test_list_agents_excludes_hidden_prompt_targets(
     assert "my-prompt" not in agent_ids
 
 
-def test_list_agents_excludes_hidden_skill_targets(
-    client: TestClient, db_session: Session
-) -> None:
+def test_list_agents_excludes_hidden_skill_targets(client: TestClient, db_session: Session) -> None:
     """Auto-provisioned hidden skill targets are a runtime detail — never agents."""
     _insert_agent(db_session, agent_id="real-agent", experiment_id="exp-real")
     # A hidden skill-target row (source_type marker + skill:: prefix).
@@ -272,9 +270,7 @@ def test_delete_agent_removes_record_and_audits(client: TestClient, db_session: 
     assert client.get(DETAIL_PATH.replace("{agent_id}", "a-1")).status_code == 404
     assert db_session.get(CaliberAgentConfig, "a-1") is None
     assert (
-        db_session.query(CaliberAuditLog)
-        .filter_by(action="delete_agent", entity_id="a-1")
-        .count()
+        db_session.query(CaliberAuditLog).filter_by(action="delete_agent", entity_id="a-1").count()
         == 1
     )
 

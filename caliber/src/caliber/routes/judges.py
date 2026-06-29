@@ -134,9 +134,7 @@ def create_judge_record(
         .first()
     )
     if existing is not None:
-        raise ValueError(
-            f"judge name {payload.name!r} is already in use by {existing.judge_id!r}"
-        )
+        raise ValueError(f"judge name {payload.name!r} is already in use by {existing.judge_id!r}")
     judge = CaliberJudge(
         judge_id=new_judge_id(),
         name=payload.name,
@@ -246,9 +244,7 @@ async def test_run_judge(request: Request) -> JSONResponse:
         model, value_type = judge.model, judge.feedback_value_type
 
     try:
-        judge_obj = build_judge(
-            name, instructions, model=model, feedback_value_type=value_type
-        )
+        judge_obj = build_judge(name, instructions, model=model, feedback_value_type=value_type)
         outcome = score_with_judge(
             judge_obj,
             inputs=payload.inputs,
@@ -259,9 +255,7 @@ async def test_run_judge(request: Request) -> JSONResponse:
         raise HTTPException(status_code=502, detail=f"judge run failed: {exc}") from exc
 
     return envelope_response(
-        JudgeTestRunResult(
-            score=outcome.score, value=outcome.value, rationale=outcome.rationale
-        )
+        JudgeTestRunResult(score=outcome.score, value=outcome.value, rationale=outcome.rationale)
     )
 
 

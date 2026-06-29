@@ -380,11 +380,15 @@ def fake_exit(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
     monkeypatch.setattr(ingestion_tools.os, "_exit", fake_os_exit)
     monkeypatch.setattr(
-        ingestion_tools.sys.stdout, "write", lambda s: captured["out"].append(s)  # type: ignore[union-attr]
+        ingestion_tools.sys.stdout,
+        "write",
+        lambda s: captured["out"].append(s),  # type: ignore[union-attr]
     )
     monkeypatch.setattr(ingestion_tools.sys.stdout, "flush", lambda: None)
     monkeypatch.setattr(
-        ingestion_tools.sys.stderr, "write", lambda s: captured["err"].append(s)  # type: ignore[union-attr]
+        ingestion_tools.sys.stderr,
+        "write",
+        lambda s: captured["err"].append(s),  # type: ignore[union-attr]
     )
     monkeypatch.setattr(ingestion_tools.sys.stderr, "flush", lambda: None)
     return captured

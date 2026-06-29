@@ -40,7 +40,9 @@ def _target() -> str:
 
 
 def _credentials() -> tuple[str, str]:
-    access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("MINIO_ROOT_USER") or "minioadmin"
+    access = (
+        os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("MINIO_ROOT_USER") or "minioadmin"
+    )
     secret = (
         os.environ.get("AWS_SECRET_ACCESS_KEY")
         or os.environ.get("MINIO_ROOT_PASSWORD")

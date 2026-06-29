@@ -101,9 +101,15 @@ def _drafts_summary(drafts: list[dict[str, Any]]) -> str:
         if not isinstance(draft, dict):
             continue
         compact.append(
-            {k: draft[k] for k in ("draft_id", "artifact_type", "status", "title", "name") if k in draft}
+            {
+                k: draft[k]
+                for k in ("draft_id", "artifact_type", "status", "title", "name")
+                if k in draft
+            }
         )
-    suffix = f" (+{len(drafts) - _DRAFTS_SUMMARY_MAX} more)" if len(drafts) > _DRAFTS_SUMMARY_MAX else ""
+    suffix = (
+        f" (+{len(drafts) - _DRAFTS_SUMMARY_MAX} more)" if len(drafts) > _DRAFTS_SUMMARY_MAX else ""
+    )
     return json.dumps(compact, default=str) + suffix
 
 

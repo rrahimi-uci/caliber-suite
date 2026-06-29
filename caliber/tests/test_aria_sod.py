@@ -32,9 +32,7 @@ from caliber.ids import (
 _CFG = CaliberConfig(approver_users="@sarah", operator_users="@reza")
 
 
-def _seed_gated(
-    factory, *, owner: str, judge_name: str
-) -> tuple[str, str]:
+def _seed_gated(factory, *, owner: str, judge_name: str) -> tuple[str, str]:
     """Seed a paused plan + waiting judge.create step + gated interaction."""
     plan_id = new_aria_plan_id()
     step_id = new_aria_plan_step_id()
@@ -76,7 +74,10 @@ def test_owner_cannot_approve_own_gated_step(session_factory) -> None:
     _, iid = _seed_gated(session_factory, owner="@reza", judge_name="sod-owner")
     with pytest.raises(PlanForbiddenError, match="separation of duties"):
         PlanExecutor().answer(
-            session_factory=session_factory, config=_CFG, actor="@reza", interaction_id=iid,
+            session_factory=session_factory,
+            config=_CFG,
+            actor="@reza",
+            interaction_id=iid,
             approved=True,
         )
 
@@ -86,7 +87,10 @@ def test_non_approver_cannot_approve_gated_step(session_factory) -> None:
     # @bob is a distinct identity but lacks approver authority.
     with pytest.raises(PlanForbiddenError, match="approver"):
         PlanExecutor().answer(
-            session_factory=session_factory, config=_CFG, actor="@bob", interaction_id=iid,
+            session_factory=session_factory,
+            config=_CFG,
+            actor="@bob",
+            interaction_id=iid,
             approved=True,
         )
 
@@ -94,7 +98,10 @@ def test_non_approver_cannot_approve_gated_step(session_factory) -> None:
 def test_distinct_approver_can_approve_and_step_runs(session_factory) -> None:
     plan_id, iid = _seed_gated(session_factory, owner="@reza", judge_name="sod-ok")
     detail = PlanExecutor().answer(
-        session_factory=session_factory, config=_CFG, actor="@sarah", interaction_id=iid,
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@sarah",
+        interaction_id=iid,
         approved=True,
     )
     assert detail["plan"]["status"] == "completed"
@@ -109,7 +116,10 @@ def test_owner_may_deny_own_gated_step(session_factory) -> None:
     # Denial is the safe direction — no authority/SoD gate on it.
     plan_id, iid = _seed_gated(session_factory, owner="@reza", judge_name="sod-deny")
     detail = PlanExecutor().answer(
-        session_factory=session_factory, config=_CFG, actor="@reza", interaction_id=iid,
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=iid,
         approved=False,
     )
     assert detail["steps"][0]["status"] == "skipped"
@@ -138,15 +148,25 @@ def _seed_gated_db(db_session: Session, *, owner: str, judge_name: str) -> str:
     )
     db_session.add(
         CaliberAriaPlanStep(
-            step_id=step_id, plan_id=plan_id, seq=0, capability_key="judge.create",
-            title="Create judge", inputs={"name": judge_name, "instructions": "Rate {{ outputs }}."},
-            depends_on=[], status="waiting_input",
+            step_id=step_id,
+            plan_id=plan_id,
+            seq=0,
+            capability_key="judge.create",
+            title="Create judge",
+            inputs={"name": judge_name, "instructions": "Rate {{ outputs }}."},
+            depends_on=[],
+            status="waiting_input",
         )
     )
     db_session.add(
         CaliberAriaInteraction(
-            interaction_id=iid, plan_id=plan_id, step_id=step_id, kind="permission",
-            prompt="Approve?", required_scope="approver", status="pending",
+            interaction_id=iid,
+            plan_id=plan_id,
+            step_id=step_id,
+            kind="permission",
+            prompt="Approve?",
+            required_scope="approver",
+            status="pending",
         )
     )
     db_session.commit()

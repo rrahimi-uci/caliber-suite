@@ -179,9 +179,7 @@ def test_preview_object_rejects_invalid_max_bytes(client: TestClient) -> None:
     assert bad.status_code == 400
 
 
-def _put_bytes(
-    client: TestClient, bucket: str, key: str, data: bytes, content_type: str
-) -> None:
+def _put_bytes(client: TestClient, bucket: str, key: str, data: bytes, content_type: str) -> None:
     client.post(
         f"{OS}/buckets/{bucket}/objects",
         data={"key": key},

@@ -77,9 +77,7 @@ class TestFakeAssistantEngine:
     def test_greeting_then_build_request(self):
         # Greeting first stays conversational; a follow-up build request authors.
         sid = "ASST-flow01"
-        greet = self.engine.run_turn(
-            AssistantTurnRequest(session_id=sid, user_message="hi there")
-        )
+        greet = self.engine.run_turn(AssistantTurnRequest(session_id=sid, user_message="hi there"))
         assert len(greet.questions) == 0 and len(greet.draft_deltas) == 0
         build = self.engine.run_turn(
             AssistantTurnRequest(session_id=sid, user_message="build me a skill")

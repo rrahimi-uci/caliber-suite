@@ -1470,15 +1470,11 @@ def test_list_prompt_test_runs_filter_order_and_limit(
     # Two runs for support-agent, one for billing-agent.
     first = client.post(f"{PREFIX}/test-runs", json=_test_run_body())
     second = client.post(f"{PREFIX}/test-runs", json=_test_run_body())
-    other = client.post(
-        f"{PREFIX}/test-runs", json=_test_run_body(agent_id="billing-agent")
-    )
+    other = client.post(f"{PREFIX}/test-runs", json=_test_run_body(agent_id="billing-agent"))
     assert first.status_code == second.status_code == other.status_code == 201
 
     # Filtered to support-agent → exactly the two support runs, newest first.
-    support = client.get(
-        f"{PREFIX}/test-runs", params={"agent_id": "support-agent"}
-    ).json()["data"]
+    support = client.get(f"{PREFIX}/test-runs", params={"agent_id": "support-agent"}).json()["data"]
     assert [r["test_run_id"] for r in support] == [
         second.json()["data"]["test_run_id"],
         first.json()["data"]["test_run_id"],
@@ -1541,14 +1537,10 @@ def test_create_prompt_auto_provisions_one_hidden_target(
     assert target.experiment_id.startswith("prompt-target-")
 
     # A second create of the same prompt must NOT duplicate the target.
-    again = client.post(
-        PREFIX, json={"name": "checkout-prompt", "template": "Help {{user}} more"}
-    )
+    again = client.post(PREFIX, json={"name": "checkout-prompt", "template": "Help {{user}} more"})
     assert again.status_code == 201
     db_session.expire_all()
-    matches = [
-        t for t in _select_targets(db_session) if t.agent_id == "checkout-prompt"
-    ]
+    matches = [t for t in _select_targets(db_session) if t.agent_id == "checkout-prompt"]
     assert len(matches) == 1
 
 
@@ -1599,8 +1591,7 @@ def test_hidden_target_absent_from_agents_and_prompt_backlog(
     """A hidden target appears neither in GET /agents nor as a needs_prompt row."""
     # Provision a hidden target via a test run.
     assert (
-        client.post(f"{PREFIX}/test-runs", json=_test_run_body(agent_id="ghost")).status_code
-        == 201
+        client.post(f"{PREFIX}/test-runs", json=_test_run_body(agent_id="ghost")).status_code == 201
     )
 
     agents = client.get("/ajax-api/2.0/mlflow/caliber/agents").json()["data"]
@@ -1686,9 +1677,7 @@ def test_prompt_workspace_status_calibrated_when_job_applied(
     # Also record a test run, to prove Calibrated outranks Tested.
     db_session.commit()
     assert (
-        client.post(
-            f"{PREFIX}/test-runs", json=_test_run_body(agent_id="cal-prompt")
-        ).status_code
+        client.post(f"{PREFIX}/test-runs", json=_test_run_body(agent_id="cal-prompt")).status_code
         == 201
     )
 
@@ -1735,9 +1724,7 @@ def test_prompt_bind_rejects_invalid_kind_and_missing_ids(client: TestClient) ->
 
 def test_prompt_bind_unknown_agent_returns_404(client: TestClient) -> None:
     """kind=agent pointing at a non-existent agent is a 404."""
-    response = client.post(
-        f"{PREFIX}/p/bind", json={"kind": "agent", "agent_id": "no-such-agent"}
-    )
+    response = client.post(f"{PREFIX}/p/bind", json={"kind": "agent", "agent_id": "no-such-agent"})
     assert response.status_code == 404
 
 
@@ -1766,9 +1753,7 @@ def test_prompt_set_baseline_reflected_in_workspace(
     assert ws["baseline_run_id"] is None
     assert ws["baseline_run"] is None
 
-    set_baseline = client.post(
-        f"{PREFIX}/bl-prompt/baseline", json={"test_run_id": test_run_id}
-    )
+    set_baseline = client.post(f"{PREFIX}/bl-prompt/baseline", json={"test_run_id": test_run_id})
     assert set_baseline.status_code == 200
     assert set_baseline.json()["data"]["baseline_run_id"] == test_run_id
 
@@ -1799,17 +1784,13 @@ def test_prompt_set_baseline_wrong_prompt_returns_400(
     test_run_id = run.json()["data"]["test_run_id"]
 
     # Try to pin owner-prompt's run as the baseline of a different prompt.
-    response = client.post(
-        f"{PREFIX}/other-prompt/baseline", json={"test_run_id": test_run_id}
-    )
+    response = client.post(f"{PREFIX}/other-prompt/baseline", json={"test_run_id": test_run_id})
     assert response.status_code == 400
 
 
 def test_prompt_set_baseline_missing_run_returns_404(client: TestClient) -> None:
     """An unknown run id → 404."""
-    response = client.post(
-        f"{PREFIX}/p/baseline", json={"test_run_id": "PTR-deadbeef"}
-    )
+    response = client.post(f"{PREFIX}/p/baseline", json={"test_run_id": "PTR-deadbeef"})
     assert response.status_code == 404
 
 

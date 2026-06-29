@@ -37,4 +37,3 @@ class TaskManager:
         if mode == "build":
             return TaskManagerDecision(task_kind="build")
         return TaskManagerDecision(task_kind="answer")
-

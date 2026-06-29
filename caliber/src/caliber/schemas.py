@@ -2321,9 +2321,7 @@ class JudgeCreateRequest(BaseModel):
     @classmethod
     def _known_value_type(cls, value: str | None) -> str | None:
         if value is not None and value not in _JUDGE_VALUE_TYPES:
-            raise ValueError(
-                f"feedback_value_type must be one of {sorted(_JUDGE_VALUE_TYPES)}"
-            )
+            raise ValueError(f"feedback_value_type must be one of {sorted(_JUDGE_VALUE_TYPES)}")
         return value
 
 
@@ -2353,9 +2351,7 @@ class JudgeUpdateRequest(BaseModel):
     @classmethod
     def _known_value_type(cls, value: str | None) -> str | None:
         if value is not None and value not in _JUDGE_VALUE_TYPES:
-            raise ValueError(
-                f"feedback_value_type must be one of {sorted(_JUDGE_VALUE_TYPES)}"
-            )
+            raise ValueError(f"feedback_value_type must be one of {sorted(_JUDGE_VALUE_TYPES)}")
         return value
 
 
@@ -2597,9 +2593,7 @@ class ReviewQueueUpdateRequest(BaseModel):
 
     @field_validator("questions")
     @classmethod
-    def _check_questions(
-        cls, value: list[ReviewQuestion] | None
-    ) -> list[ReviewQuestion] | None:
+    def _check_questions(cls, value: list[ReviewQuestion] | None) -> list[ReviewQuestion] | None:
         return None if value is None else _validate_questions(value)
 
 

@@ -30,6 +30,7 @@ def _endpoint_guardrails(endpoint_id: str) -> str:
 def _guardrail(guardrail_id: str) -> str:
     return f"{GUARDRAILS}/{guardrail_id}"
 
+
 _ENDPOINTS_PAYLOAD = {
     "endpoints": [
         {
@@ -135,9 +136,7 @@ def test_gateway_reports_routing_when_llm_base_url_points_at_it(
     assert data["routing_through_gateway"] is True
 
 
-def test_gateway_unreachable_degrades(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_gateway_unreachable_degrades(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _set_config(client, gateway_uri="http://gw:5002")
     _fake_httpx(monkeypatch, payload={}, error=ConnectionError("connection refused"))
 
@@ -257,9 +256,7 @@ class _FakeStore:
             "action_endpoint_id": action_endpoint_id,
         }
         self.created.append(record)
-        guardrail = _FakeGuardrail(
-            "Gnew", name, record["stage"], record["action"], scorer_id
-        )
+        guardrail = _FakeGuardrail("Gnew", name, record["stage"], record["action"], scorer_id)
         guardrail.action_endpoint_name = action_endpoint_id
         return guardrail
 
@@ -315,12 +312,18 @@ def test_attach_guardrail_calls_store_and_audits(
 ) -> None:
     store = _FakeStore()
     _use_store(monkeypatch, store)
-    resp = client.post(_endpoint_guardrails("E1"), json={"guardrail_id": "G2", "execution_order": 1})
+    resp = client.post(
+        _endpoint_guardrails("E1"), json={"guardrail_id": "G2", "execution_order": 1}
+    )
     assert resp.status_code == 201, resp.text
     assert store.attached == [("E1", "G2", 1)]
-    row = db_session.execute(
-        select(CaliberAuditLog).where(CaliberAuditLog.action == "attach_gateway_guardrail")
-    ).scalars().first()
+    row = (
+        db_session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.action == "attach_gateway_guardrail")
+        )
+        .scalars()
+        .first()
+    )
     assert row is not None and row.entity_id == "E1"
 
 
@@ -599,7 +602,11 @@ def test_usage_payload_by_model_rollup(monkeypatch: pytest.MonkeyPatch) -> None:
             state="OK",
         ),
         data=SimpleNamespace(
-            spans=[_span("gpt-4o", 10, 0.2), _span("gpt-4o", 5, 0.1), _span("claude-sonnet-4", 8, 0.3)]
+            spans=[
+                _span("gpt-4o", 10, 0.2),
+                _span("gpt-4o", 5, 0.1),
+                _span("claude-sonnet-4", 8, 0.3),
+            ]
         ),
     )
     fake_mlflow = SimpleNamespace(

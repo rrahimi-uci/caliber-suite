@@ -126,9 +126,7 @@ def test_run_turn_tool_use_loop(monkeypatch) -> None:
         def __init__(self, *, api_key: str) -> None:
             self.messages = FakeMessages()
 
-    monkeypatch.setitem(
-        sys.modules, "anthropic", types.SimpleNamespace(Anthropic=FakeAnthropic)
-    )
+    monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(Anthropic=FakeAnthropic))
 
     class StubToolset:
         def specs(self):
@@ -146,9 +144,7 @@ def test_run_turn_tool_use_loop(monkeypatch) -> None:
         def dispatch(self, name, arguments):
             return _json.dumps({"ok": True, "data": [{"name": "billing"}]})
 
-    result = AnthropicAssistantEngine(api_key="k").run_turn(
-        turn_request(), toolset=StubToolset()
-    )
+    result = AnthropicAssistantEngine(api_key="k").run_turn(turn_request(), toolset=StubToolset())
 
     assert seen["n"] == 2  # looped: tool turn + final turn
     # Tools were advertised in Anthropic format on the first call.

@@ -100,9 +100,7 @@ def test_plan_build_surfaces_an_authored_workflow(
             LLMUsage(input_tokens=12, output_tokens=6, cost_usd=0.002),
         )
 
-    monkeypatch.setattr(
-        "caliber.routes.workflow_versions.build_provider", _provider_that(_authors)
-    )
+    monkeypatch.setattr("caliber.routes.workflow_versions.build_provider", _provider_that(_authors))
     _wid, vid = _seed_version(client)
     r = _build(client, vid, goal="build a triage workflow")
     assert r.status_code == 200, r.text
@@ -126,9 +124,7 @@ def test_plan_build_passes_goal_to_provider(
         seen.append(ctx)
         return WorkflowEdit(manifest=dict(ctx.manifest), summary="", rationale=""), LLMUsage()
 
-    monkeypatch.setattr(
-        "caliber.routes.workflow_versions.build_provider", _provider_that(_capture)
-    )
+    monkeypatch.setattr("caliber.routes.workflow_versions.build_provider", _provider_that(_capture))
     _wid, vid = _seed_version(client)
     r = _build(client, vid, goal="summarize PDFs then extract entities")
     assert r.status_code == 200, r.text

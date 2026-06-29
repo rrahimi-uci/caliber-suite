@@ -219,17 +219,13 @@ def test_save_mcp_tool_test_cases(client: TestClient, db_session: Session) -> No
     assert server.tool_test_cases["create_table"][0]["name"] == "basic"
 
 
-def test_save_mcp_tool_test_cases_unknown_tool_404(
-    client: TestClient, db_session: Session
-) -> None:
+def test_save_mcp_tool_test_cases_unknown_tool_404(client: TestClient, db_session: Session) -> None:
     _seed(db_session, discovered_tools=[{"name": "create_table"}])
     r = client.put(f"{BASE}/MCP-r1/tools/nope/test-cases", json={"test_cases": []})
     assert r.status_code == 404
 
 
-def test_save_mcp_tool_test_cases_viewer_forbidden(
-    client: TestClient, db_session: Session
-) -> None:
+def test_save_mcp_tool_test_cases_viewer_forbidden(client: TestClient, db_session: Session) -> None:
     _seed(db_session, discovered_tools=[{"name": "create_table"}])
     r = client.put(
         f"{BASE}/MCP-r1/tools/create_table/test-cases",

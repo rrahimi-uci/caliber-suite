@@ -143,4 +143,3 @@ def test_require_scopes_empty_set_is_a_developer_error() -> None:
     request = _stub_request("@admin", _config(admin_users="@admin"))
     with pytest.raises(RuntimeError, match="empty scope set"):
         require_scopes(request, [])
-
