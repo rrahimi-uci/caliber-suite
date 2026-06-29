@@ -297,6 +297,11 @@ jobs:
   security:
     name: Security scan
     runs-on: ubuntu-latest
+    # gitleaks-action lists the PR's commits via the API to scope its scan, which
+    # needs pull-requests:read on top of the workflow's default contents:read.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
