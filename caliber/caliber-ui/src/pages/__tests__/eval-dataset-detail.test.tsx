@@ -68,6 +68,28 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("EvalDatasetDetail", () => {
+  it("restores a selected prior version as a new version", async () => {
+    let restoredBody: unknown = null;
+    server.use(
+      http.get(`${API_BASE}/eval-datasets/ED-1`, () => HttpResponse.json(envelope(dataset()))),
+      http.get(`${API_BASE}/eval-datasets/ED-1/examples`, () =>
+        HttpResponse.json(envelope([example()])),
+      ),
+      http.post(`${API_BASE}/eval-datasets/ED-1/restore`, async ({ request }) => {
+        restoredBody = await request.json();
+        return HttpResponse.json(envelope(dataset({ version: 3 })));
+      }),
+    );
+    renderPage();
+    await screen.findByTestId("eval-dataset-name");
+    // No restore button on the default "All" view.
+    expect(screen.queryByTestId("restore-version")).not.toBeInTheDocument();
+    // Select prior version v1 (current is v2) -> restore affordance appears.
+    await userEvent.selectOptions(screen.getByTestId("version-filter"), "1");
+    await userEvent.click(await screen.findByTestId("restore-version"));
+    await waitFor(() => expect(restoredBody).toEqual({ version: 1 }));
+  });
+
   it("renders the dataset header and its example rows", async () => {
     server.use(
       http.get(`${API_BASE}/eval-datasets/ED-1`, () => HttpResponse.json(envelope(dataset()))),

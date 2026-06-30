@@ -195,8 +195,8 @@ describe("EvalDatasets", () => {
     expect(screen.getByText("Not synced")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Sync to MLflow" }));
 
-    // After the sync + refetch, the badge flips to "Synced".
-    expect(await screen.findByText("Synced")).toBeInTheDocument();
+    // After the sync + refetch, the badge flips to "MLflow: up to date".
+    expect(await screen.findByText("MLflow: up to date")).toBeInTheDocument();
     expect(screen.queryByText("Not synced")).not.toBeInTheDocument();
   });
 
@@ -219,8 +219,8 @@ describe("EvalDatasets", () => {
 
     renderPage();
     expect(await screen.findByText("factual-checks")).toBeInTheDocument();
-    // synced_version (1) < version (3) → stale, and the action offers a re-sync.
-    expect(screen.getByText("Stale")).toBeInTheDocument();
+    // synced_version (1) < version (3) → behind, and the action offers a re-sync.
+    expect(screen.getByText("MLflow: behind")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Re-sync" })).toBeInTheDocument();
   });
 });
