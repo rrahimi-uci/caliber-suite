@@ -242,6 +242,31 @@ def test_update_skill_content_bumps_version(client: TestClient, db_session: Sess
     assert "double-check" in data["content"]
 
 
+def test_skill_version_history_records_and_lists_snapshots(client: TestClient) -> None:
+    """Create records v1; a content edit records v2; the history endpoint lists
+    both newest-first with their exact content."""
+    created = client.post(
+        LIST_PATH,
+        json={"name": "history-skill", "description": "d", "content": "v1 body", "owner": "@a"},
+    )
+    assert created.status_code == 201, created.text
+    skill_id = created.json()["data"]["skill_id"]
+
+    rows = client.get(f"{PREFIX}/{skill_id}/versions").json()["data"]
+    assert [r["version_number"] for r in rows] == [1]
+    assert rows[0]["content"] == "v1 body"
+
+    edited = client.patch(DETAIL_PATH.replace("{skill_id}", skill_id), json={"content": "v2 body"})
+    assert edited.status_code == 200
+    rows2 = client.get(f"{PREFIX}/{skill_id}/versions").json()["data"]
+    assert [r["version_number"] for r in rows2] == [2, 1]  # newest first
+    assert rows2[0]["content"] == "v2 body"
+
+
+def test_skill_version_history_404_for_missing_skill(client: TestClient) -> None:
+    assert client.get(f"{PREFIX}/SK-nope/versions").status_code == 404
+
+
 def test_rollback_skill_restores_prior_content(client: TestClient, db_session: Session) -> None:
     """A content edit can be rolled back to the exact prior text as a new version."""
     _insert_skill(db_session, skill_id="SK-RB", name="reasoning_v1", content="orig text", version=1)

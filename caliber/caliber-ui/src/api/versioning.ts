@@ -56,6 +56,16 @@ export interface PromptRollbackResult {
   rolled_back_from: number;
 }
 
+export interface SkillVersionInfo {
+  skill_version_id: string;
+  skill_id: string;
+  version_number: number;
+  content: string;
+  summary: string;
+  created_by: string | null;
+  created_at: string | null;
+}
+
 export interface VersionCapabilities {
   hasHistory: boolean;
   canPromote: boolean;
@@ -138,6 +148,48 @@ export function promptVersionsToArtifactVersions(
 /** Convenience: the version currently serving the live alias, if any. */
 export function liveVersion(versions: ArtifactVersion[]): ArtifactVersion | undefined {
   return versions.find((v) => v.isLive);
+}
+
+/**
+ * Map skill content-version snapshots onto the normalized model.
+ *
+ * The highest version_number is the live content. Skills aren't "promoted"
+ * (there's no alias), so only rollback is offered — restore an earlier snapshot
+ * as a new version. The live row is the rollback trigger when an earlier
+ * version exists.
+ */
+export function skillVersionsToArtifactVersions(
+  skillId: string,
+  versions: SkillVersionInfo[],
+): ArtifactVersion[] {
+  const maxNumber = versions.reduce((m, v) => Math.max(m, v.version_number), 0);
+  return versions.map((version) => {
+    const isLive = version.version_number === maxNumber;
+    return {
+      artifactType: "skill",
+      artifactId: skillId,
+      artifactName: skillId,
+      versionKey: String(version.version_number),
+      versionLabel: `v${version.version_number}`,
+      ordinal: version.version_number,
+      status: isLive ? "active" : "published",
+      isLive,
+      liveAliases: isLive ? ["current"] : [],
+      author: version.created_by,
+      createdAt: version.created_at,
+      label: version.summary || null,
+      capabilities: {
+        hasHistory: true,
+        canPromote: false, // skills have no alias to promote to
+        canRollback: isLive && versions.length > 1,
+        canDiff: true,
+        canEditDraft: false,
+        canDelete: false,
+        gating: "none",
+      },
+      raw: version,
+    } satisfies ArtifactVersion;
+  });
 }
 
 /**

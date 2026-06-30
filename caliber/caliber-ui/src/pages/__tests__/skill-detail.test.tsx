@@ -84,6 +84,29 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("SkillDetail", () => {
+  it("renders the version history panel on the Versions tab", async () => {
+    server.use(
+      http.get(`${API_BASE}/skills/SK-1`, () => HttpResponse.json(envelope(makeSkill()))),
+      http.get(`${API_BASE}/skills/SK-1/package`, () =>
+        HttpResponse.json(envelope(makeSkillPackage())),
+      ),
+      http.get(`${API_BASE}/skills/SK-1/versions`, () =>
+        HttpResponse.json(
+          envelope([
+            { skill_version_id: "SKV-2", skill_id: "SK-1", version_number: 2, content: "v2", summary: "s", created_by: "@a", created_at: null },
+            { skill_version_id: "SKV-1", skill_id: "SK-1", version_number: 1, content: "v1", summary: "s", created_by: "@a", created_at: null },
+          ]),
+        ),
+      ),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "tool-grounding" });
+    await userEvent.click(screen.getByRole("button", { name: "Versions" }));
+    expect(await screen.findByTestId("version-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("version-row-2")).toBeInTheDocument();
+    expect(screen.getByTestId("version-row-1")).toBeInTheDocument();
+  });
+
   it("shows the skill content and version", async () => {
     server.use(
       http.get(`${API_BASE}/skills/SK-1`, () => HttpResponse.json(envelope(makeSkill()))),
