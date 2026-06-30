@@ -255,19 +255,6 @@ describe("Canvas", () => {
     render(<Canvas manifest={testManifest()} onDropNode={onDropNode} />);
 
     const canvas = screen.getByTestId("wf-canvas");
-    Object.defineProperty(canvas, "getBoundingClientRect", {
-      value: () => ({
-        left: 5,
-        top: 7,
-        right: 305,
-        bottom: 307,
-        width: 300,
-        height: 300,
-        x: 5,
-        y: 7,
-        toJSON: () => ({}),
-      }),
-    });
 
     const dataTransfer = {
       dropEffect: "none",
@@ -283,7 +270,9 @@ describe("Canvas", () => {
     Object.defineProperty(dropEvent, "dataTransfer", { value: dataTransfer });
     fireEvent(canvas, dropEvent);
 
-    expect(onDropNode).toHaveBeenCalledWith("guardrail", { x: 20, y: 32 });
+    // Drop point is converted via screenToFlowPosition (mocked as +1/+2),
+    // so the node lands in flow coordinates rather than raw canvas pixels.
+    expect(onDropNode).toHaveBeenCalledWith("guardrail", { x: 26, y: 41 });
 
     const emptyDropEvent = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(emptyDropEvent, "clientX", { value: 0 });

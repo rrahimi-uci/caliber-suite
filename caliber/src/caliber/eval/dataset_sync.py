@@ -108,9 +108,7 @@ class MLflowDatasetSyncClient:
         if existing is not None:
             if tags:
                 try:
-                    mlflow_datasets.set_dataset_tags(
-                        dataset_id=existing.dataset_id, tags=tags
-                    )
+                    mlflow_datasets.set_dataset_tags(dataset_id=existing.dataset_id, tags=tags)
                 except Exception as exc:
                     logger.debug("set_dataset_tags failed for %s (%s)", name, exc)
             return existing

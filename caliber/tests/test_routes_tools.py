@@ -440,9 +440,7 @@ def test_calibrate_tool_missing_404(client: TestClient) -> None:
 
 def test_calibrate_tool_viewer_forbidden(client: TestClient) -> None:
     tid = _calibratable_tool(client)
-    r = client.post(
-        f"{PREFIX}/tools/{tid}/calibrate", headers={"X-CALIBER-User": "@viewer"}
-    )
+    r = client.post(f"{PREFIX}/tools/{tid}/calibrate", headers={"X-CALIBER-User": "@viewer"})
     assert r.status_code == 403
 
 
@@ -638,18 +636,14 @@ def test_list_tool_test_runs_filter_kind_order_and_limit(client: TestClient) -> 
     assert sandbox_rows[0]["kind"] == "sandbox"
 
     # limit caps the page.
-    limited = client.get(
-        f"{PREFIX}/tools/test-runs", params={"tool_id": tid, "limit": 1}
-    ).json()["data"]
+    limited = client.get(f"{PREFIX}/tools/test-runs", params={"tool_id": tid, "limit": 1}).json()[
+        "data"
+    ]
     assert len(limited) == 1
 
     # Over-cap limit is clamped (no error) and bad limit is a 400.
-    assert (
-        client.get(f"{PREFIX}/tools/test-runs", params={"limit": 9999}).status_code == 200
-    )
-    assert (
-        client.get(f"{PREFIX}/tools/test-runs", params={"limit": "abc"}).status_code == 400
-    )
+    assert client.get(f"{PREFIX}/tools/test-runs", params={"limit": 9999}).status_code == 200
+    assert client.get(f"{PREFIX}/tools/test-runs", params={"limit": "abc"}).status_code == 400
 
 
 # ── Tool workspace + baseline ────────────────────────────────────────────────
@@ -663,7 +657,9 @@ def test_tool_workspace_lifecycle_transitions(
     # A read tool that runs live in preview so calibrate produces a real score.
     tid = client.post(
         f"{PREFIX}/tools",
-        json=make_tool_payload("ws_lifecycle", callable_name="lookup_policy", allow_in_preview=True),
+        json=make_tool_payload(
+            "ws_lifecycle", callable_name="lookup_policy", allow_in_preview=True
+        ),
     ).json()["data"]["tool_id"]
 
     # Draft: fresh registered tool (active, but no runs/fixtures/calibration).
@@ -724,9 +720,7 @@ def test_tool_set_baseline_reflected_in_workspace(
     assert ws["baseline_run_id"] is None
     assert ws["baseline_run"] is None
 
-    set_baseline = client.post(
-        f"{PREFIX}/tools/{tid}/baseline", json={"test_run_id": test_run_id}
-    )
+    set_baseline = client.post(f"{PREFIX}/tools/{tid}/baseline", json={"test_run_id": test_run_id})
     assert set_baseline.status_code == 200
     assert set_baseline.json()["data"]["baseline_run_id"] == test_run_id
 
@@ -750,9 +744,7 @@ def test_tool_set_baseline_wrong_tool_returns_400(client: TestClient) -> None:
     owner = _register_tool(client, "ws_owner")
     other = _register_tool(client, "ws_other")
     run = client.post(f"{PREFIX}/tools/test-runs", json=_tool_run_body(owner)).json()["data"]
-    r = client.post(
-        f"{PREFIX}/tools/{other}/baseline", json={"test_run_id": run["test_run_id"]}
-    )
+    r = client.post(f"{PREFIX}/tools/{other}/baseline", json={"test_run_id": run["test_run_id"]})
     assert r.status_code == 400
 
 

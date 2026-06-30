@@ -1621,13 +1621,19 @@ class KnowledgeBaseService:
                                 retrieved_chunks[: min(4, len(retrieved_chunks))]
                             )
                         ]
-                        mode_span.set_attribute("caliber.rag.retrieved_count", len(retrieved_chunks))
-                        mode_span.set_attribute("caliber.rag.scores", [c.score for c in retrieved_chunks])
+                        mode_span.set_attribute(
+                            "caliber.rag.retrieved_count", len(retrieved_chunks)
+                        )
+                        mode_span.set_attribute(
+                            "caliber.rag.scores", [c.score for c in retrieved_chunks]
+                        )
                         mode_span.set_attribute("caliber.rag.retrieval_ms", round(retrieval_ms, 3))
                         mode_span.set_attribute("caliber.rag.generation_ms", round(answer_ms, 3))
                         if answer_error:
                             mode_span.set_attribute("caliber.rag.answer_error", answer_error)
-                        mode_span.set_attribute("caliber.rag.citations", [c.label for c in citations])
+                        mode_span.set_attribute(
+                            "caliber.rag.citations", [c.label for c in citations]
+                        )
                         version_results.append(
                             KnowledgeQueryVersionResultSchema(
                                 knowledge_base_version_id=version.knowledge_base_version_id,
@@ -4922,9 +4928,7 @@ class KnowledgeBaseService:
                     select(
                         CaliberKnowledgeBaseVersion.output_bucket,
                         CaliberKnowledgeBaseVersion.output_prefix,
-                    ).where(
-                        CaliberKnowledgeBaseVersion.knowledge_base_id == knowledge_base_id
-                    )
+                    ).where(CaliberKnowledgeBaseVersion.knowledge_base_id == knowledge_base_id)
                 ).all()
             )
 
@@ -4957,9 +4961,7 @@ class KnowledgeBaseService:
                 # must go before the entities they point at.
                 session.execute(
                     delete(CaliberKnowledgeBaseRelationship).where(
-                        CaliberKnowledgeBaseRelationship.knowledge_base_version_id.in_(
-                            version_ids
-                        )
+                        CaliberKnowledgeBaseRelationship.knowledge_base_version_id.in_(version_ids)
                     )
                 )
                 session.execute(
@@ -5124,9 +5126,7 @@ class KnowledgeBaseService:
         ranked chunks into a :class:`~caliber.knowledge.calibration.RetrievalOutcome`.
         """
 
-        def run(
-            question: str, top_k: int, retrieval_mode: str
-        ) -> kb_calibration.RetrievalOutcome:
+        def run(question: str, top_k: int, retrieval_mode: str) -> kb_calibration.RetrievalOutcome:
             payload = KnowledgeQueryRequest(
                 version_ids=[version_id],
                 question=question,
@@ -5150,9 +5150,7 @@ class KnowledgeBaseService:
             return kb_calibration.RetrievalOutcome(
                 answer=version_result.answer,
                 retrieved_sources=retrieved_sources,
-                retrieved_chunk_texts=[
-                    chunk.content for chunk in version_result.retrieved_chunks
-                ],
+                retrieved_chunk_texts=[chunk.content for chunk in version_result.retrieved_chunks],
                 retrieved_source_keys=[
                     chunk.source_key or chunk.source_name
                     for chunk in version_result.retrieved_chunks

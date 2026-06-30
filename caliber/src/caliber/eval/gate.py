@@ -81,9 +81,7 @@ def apply_gate(
         # comparison below silently evaluate False for NaN.
         reasons.append(f"overall score is non-finite ({overall}); evaluation failed")
     elif overall < min_overall:
-        reasons.append(
-            f"overall {overall:.3f} below min_aggregate_score {min_overall:.3f}"
-        )
+        reasons.append(f"overall {overall:.3f} below min_aggregate_score {min_overall:.3f}")
 
     if comparison.baseline is not None:
         for dim, delta in sorted(comparison.deltas.items()):

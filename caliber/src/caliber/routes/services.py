@@ -266,9 +266,7 @@ async def delete_service(request: Request) -> JSONResponse:
         # Drop the service and all its tokens.
         for token in (
             session.execute(
-                select(CaliberServiceToken).where(
-                    CaliberServiceToken.workflow_id == workflow_id
-                )
+                select(CaliberServiceToken).where(CaliberServiceToken.workflow_id == workflow_id)
             )
             .scalars()
             .all()
@@ -441,9 +439,7 @@ def _load_enabled_service(request: Request, workflow_id: str) -> CaliberWorkflow
     return service
 
 
-def _validate_service_token(
-    request: Request, workflow_id: str, scope: str = INVOKE_SCOPE
-) -> None:
+def _validate_service_token(request: Request, workflow_id: str, scope: str = INVOKE_SCOPE) -> None:
     """Enforce a Bearer service token for ``workflow_id``/``scope`` (raises 401).
 
     Only invoked when a service has ``auth_required`` set — v1 ships services
@@ -621,9 +617,7 @@ async def service_openapi(request: Request) -> JSONResponse:
     status_path = PREFIX + "/services/" + workflow_id + "/runs/{run_id}"
     input_schema = dict(service.input_schema or {"type": "object"})
     output_schema = dict(service.output_schema or {"type": "object"})
-    security: list[dict[str, list[str]]] = (
-        [{"serviceToken": []}] if service.auth_required else []
-    )
+    security: list[dict[str, list[str]]] = [{"serviceToken": []}] if service.auth_required else []
     spec: dict[str, object] = {
         "openapi": "3.0.3",
         "info": {"title": f"{title} — CALIBER service", "version": "1.0.0"},
@@ -712,9 +706,7 @@ async def service_openapi(request: Request) -> JSONResponse:
     }
     if service.auth_required:
         spec["components"] = {
-            "securitySchemes": {
-                "serviceToken": {"type": "http", "scheme": "bearer"}
-            }
+            "securitySchemes": {"serviceToken": {"type": "http", "scheme": "bearer"}}
         }
     return JSONResponse(spec)
 

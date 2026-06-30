@@ -168,9 +168,7 @@ class AssistantTracer:
             attributes=attributes,
         )
 
-    def annotate_trace(
-        self, *, session_id: str | None = None, user: str | None = None
-    ) -> None:
+    def annotate_trace(self, *, session_id: str | None = None, user: str | None = None) -> None:
         """Stamp the active trace with MLflow-native session/user metadata so
         multi-turn assistant chats group into a session. Guarded; never raises."""
         metadata: dict[str, str] = {}

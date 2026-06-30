@@ -100,8 +100,7 @@ def test_list_queues_filters_by_status(client: TestClient) -> None:
     assert archived_id not in default_ids
 
     archived_ids = {
-        row["queue_id"]
-        for row in client.get(f"{LIST_PATH}?status=archived").json()["data"]
+        row["queue_id"] for row in client.get(f"{LIST_PATH}?status=archived").json()["data"]
     }
     assert archived_ids == {archived_id}
 
@@ -128,9 +127,7 @@ def test_create_queue_duplicate_name_is_409(client: TestClient) -> None:
 
 
 def test_create_queue_viewer_forbidden(client: TestClient) -> None:
-    resp = client.post(
-        LIST_PATH, json=_QUEUE, headers={"X-CALIBER-User": "@viewer"}
-    )
+    resp = client.post(LIST_PATH, json=_QUEUE, headers={"X-CALIBER-User": "@viewer"})
     assert resp.status_code == 403
 
 
@@ -245,9 +242,7 @@ def test_submit_item_missing_item_404(client: TestClient) -> None:
 def test_submit_item_belongs_to_other_queue_404(client: TestClient) -> None:
     queue_a = _create_queue(client, name="queue-a")
     queue_b = _create_queue(client, name="queue-b")
-    add = client.post(
-        ITEMS_PATH.replace("{queue_id}", queue_a), json={"trace_ids": ["tr-1"]}
-    )
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_a), json={"trace_ids": ["tr-1"]})
     item_id = add.json()["data"][0]["item_id"]
     # The item exists, but under queue_a — submitting it under queue_b is a 404.
     resp = client.post(

@@ -185,9 +185,9 @@ def test_route_cross_user_plan_access_is_404(client: TestClient) -> None:
     # @viewer / @intruder are NOT in the test admin list → real visibility scoping.
     owner = {"X-CALIBER-User": "@viewer"}
     intruder = {"X-CALIBER-User": "@intruder"}
-    plan_id = client.post(LIST_PATH, json={"goal": "create a judge"}, headers=owner).json()[
-        "data"
-    ]["plan"]["plan_id"]
+    plan_id = client.post(LIST_PATH, json={"goal": "create a judge"}, headers=owner).json()["data"][
+        "plan"
+    ]["plan_id"]
 
     detail = DETAIL_PATH.replace("{plan_id}", plan_id)
     # Owner can read; intruder cannot.
@@ -195,8 +195,12 @@ def test_route_cross_user_plan_access_is_404(client: TestClient) -> None:
     assert client.get(detail, headers=intruder).status_code == 404
     # Every state-changing action is 404 for the intruder too.
     assert client.patch(detail, json={"autonomy": "ask_each"}, headers=intruder).status_code == 404
-    assert client.post(APPROVE_PATH.replace("{plan_id}", plan_id), headers=intruder).status_code == 404
-    assert client.post(EXECUTE_PATH.replace("{plan_id}", plan_id), headers=intruder).status_code == 404
+    assert (
+        client.post(APPROVE_PATH.replace("{plan_id}", plan_id), headers=intruder).status_code == 404
+    )
+    assert (
+        client.post(EXECUTE_PATH.replace("{plan_id}", plan_id), headers=intruder).status_code == 404
+    )
     assert client.post(POLL_PATH.replace("{plan_id}", plan_id), headers=intruder).status_code == 404
     assert (
         client.get(INTERACTIONS_PATH.replace("{plan_id}", plan_id), headers=intruder).status_code

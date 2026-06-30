@@ -65,9 +65,7 @@ logger = logging.getLogger(__name__)
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}"
 ITEMS_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items"
-SUBMIT_PATH = (
-    "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit"
-)
+SUBMIT_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit"
 
 _LIST_STATUS_VALUES: frozenset[str] = frozenset({"active", "archived", "all"})
 
@@ -126,9 +124,9 @@ async def list_queues(request: Request) -> JSONResponse:
                 select(
                     CaliberReviewItem.queue_id,
                     func.count().label("total"),
-                    func.sum(
-                        case((CaliberReviewItem.status == "pending", 1), else_=0)
-                    ).label("pending"),
+                    func.sum(case((CaliberReviewItem.status == "pending", 1), else_=0)).label(
+                        "pending"
+                    ),
                 )
                 .where(CaliberReviewItem.queue_id.in_(queue_ids))
                 .group_by(CaliberReviewItem.queue_id)
@@ -136,8 +134,7 @@ async def list_queues(request: Request) -> JSONResponse:
             for queue_id, total, pending in session.execute(count_stmt):
                 counts[queue_id] = (int(total or 0), int(pending or 0))
         items = [
-            _queue_schema_with_counts(queue, *counts.get(queue.queue_id, (0, 0)))
-            for queue in rows
+            _queue_schema_with_counts(queue, *counts.get(queue.queue_id, (0, 0))) for queue in rows
         ]
     return envelope_response(items)
 
@@ -408,9 +405,7 @@ async def submit_item(request: Request) -> JSONResponse:
     # Write answers back to the trace (outside the session — guarded MLflow call).
     client = _resolve_writeback_client(request)
     try:
-        assessment_ids = client.write_answers(
-            trace_id=trace_id, answers=writebacks, user=actor
-        )
+        assessment_ids = client.write_answers(trace_id=trace_id, answers=writebacks, user=actor)
     except Exception as exc:  # pragma: no cover - exercised via raising fake
         logger.warning("review write-back failed for trace %s (%s)", trace_id, exc)
         raise HTTPException(

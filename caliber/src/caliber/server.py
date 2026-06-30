@@ -462,7 +462,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         asst_engine = OllamaAssistantEngine(**model_kwargs)
     else:  # "fake" — deterministic test double only
         asst_engine = FakeAssistantEngine()
-    logger.info("CALIBER assistant engine: %s (configured=%s)", engine_name, resolved.assistant_engine)
+    logger.info(
+        "CALIBER assistant engine: %s (configured=%s)", engine_name, resolved.assistant_engine
+    )
     from caliber.assistant.service import (  # noqa: PLC0415
         AssistantRuntimeSettings,
         default_prompt_fetcher,

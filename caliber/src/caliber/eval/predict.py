@@ -106,6 +106,7 @@ def build_default_predict_fn_factory(complete: CompletionFn) -> PredictFnFactory
 # Completion functions (real LLM calls) — mirrors caliber.workflows.judge.
 # ---------------------------------------------------------------------------
 
+
 def _supports_temperature(model: str) -> bool:
     """Whether ``model`` accepts a custom ``temperature`` (shared reasoning-model check)."""
     return supports_temperature(model)
@@ -201,9 +202,7 @@ def build_db_load_dataset(
     when the run was launched.
     """
 
-    def load(
-        eval_dataset_id: str, version: int | None = None
-    ) -> list[dict[str, Any]]:
+    def load(eval_dataset_id: str, version: int | None = None) -> list[dict[str, Any]]:
         from sqlalchemy import or_, select  # noqa: PLC0415
 
         from caliber.db.models import CaliberEvalDatasetExample  # noqa: PLC0415
@@ -216,9 +215,7 @@ def build_db_load_dataset(
         if version is None:
             stmt = stmt.where(CaliberEvalDatasetExample.superseded_at.is_(None))
         else:
-            stmt = stmt.where(
-                CaliberEvalDatasetExample.dataset_version <= version
-            ).where(
+            stmt = stmt.where(CaliberEvalDatasetExample.dataset_version <= version).where(
                 or_(
                     CaliberEvalDatasetExample.superseded_version.is_(None),
                     CaliberEvalDatasetExample.superseded_version > version,
@@ -235,9 +232,7 @@ def build_db_load_dataset(
             data.append(entry)
         if not data:
             suffix = "" if version is None else f" at version {version}"
-            raise ValueError(
-                f"eval dataset {eval_dataset_id!r} has no active examples{suffix}"
-            )
+            raise ValueError(f"eval dataset {eval_dataset_id!r} has no active examples{suffix}")
         return data
 
     return load

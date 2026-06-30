@@ -435,8 +435,7 @@ _CORE_BASE_TEMPLATES: tuple[dict[str, Any], ...] = (
                 "description": "How code should be returned.",
                 "required": False,
                 "default": (
-                    "only the code in a single fenced block with brief inline comments when "
-                    "helpful"
+                    "only the code in a single fenced block with brief inline comments when helpful"
                 ),
             },
         ],
@@ -745,9 +744,7 @@ def preview_prompt_template(
     preview_variables = {str(k): str(v) for k, v in (preview_variables or {}).items()}
     custom_runtime_variables = _normalize_runtime_variables(runtime_variables or [])
     section_overrides = {
-        str(k): str(v)
-        for k, v in (section_overrides or {}).items()
-        if str(k) in _ELEMENT_ORDER
+        str(k): str(v) for k, v in (section_overrides or {}).items() if str(k) in _ELEMENT_ORDER
     }
 
     base = _lookup_base_template(base_template_id)
@@ -884,16 +881,21 @@ def _build_library_template(item: dict[str, Any]) -> dict[str, Any] | None:
     variable_names = [
         str(spec.get("name")).strip()
         for spec in variable_specs
-        if isinstance(spec, dict) and _VARIABLE_NAME_RE.fullmatch(str(spec.get("name") or "").strip())
+        if isinstance(spec, dict)
+        and _VARIABLE_NAME_RE.fullmatch(str(spec.get("name") or "").strip())
     ]
     sections = {
         "instruction": _normalize_library_section(item.get("instruction"), variable_names),
         "context": _normalize_library_section(item.get("context"), variable_names),
         "examples": _normalize_library_section(item.get("examples"), variable_names),
         "input": _normalize_library_section(item.get("input"), variable_names),
-        "output_indicator": _normalize_library_section(item.get("output_indicator"), variable_names),
+        "output_indicator": _normalize_library_section(
+            item.get("output_indicator"), variable_names
+        ),
     }
-    composable_with = [str(value) for value in item.get("composable_with", []) if str(value).strip()]
+    composable_with = [
+        str(value) for value in item.get("composable_with", []) if str(value).strip()
+    ]
     return {
         "id": template_id,
         "kind": "base",
@@ -911,7 +913,9 @@ def _build_library_template(item: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "name": str(spec["name"]),
                 "label": str(spec["name"]),
-                "description": str(spec.get("description") or "Runtime value supplied when the prompt runs."),
+                "description": str(
+                    spec.get("description") or "Runtime value supplied when the prompt runs."
+                ),
                 "required": bool(spec.get("required")),
             }
             for spec in variable_specs
@@ -938,7 +942,9 @@ def raw_library_version() -> str:
     return str(raw.get("library_version") or "1.0.0")
 
 
-def _build_starter_recipes(library_templates: tuple[dict[str, Any], ...]) -> tuple[dict[str, Any], ...]:
+def _build_starter_recipes(
+    library_templates: tuple[dict[str, Any], ...],
+) -> tuple[dict[str, Any], ...]:
     recipes: list[dict[str, Any]] = []
     for template in library_templates:
         runtime_names = [spec["name"] for spec in template.get("runtime_variables", [])]
@@ -1131,9 +1137,7 @@ def _compile_generated_template(
     # Snapshot the composed (post-modifier, pre-override) elements so the
     # element editor can show what each element resolves to and "Reset" can
     # restore it. Placeholders are left intact; substitution happens below.
-    composed_sections = {
-        element: (sections.get(element) or "") for element in _ELEMENT_ORDER
-    }
+    composed_sections = {element: (sections.get(element) or "") for element in _ELEMENT_ORDER}
 
     # Apply per-element overrides wholesale. An override (even to an empty
     # string, which clears the element) counts as a deliberate edit.
@@ -1188,9 +1192,7 @@ def _lookup_base_template(template_id: str) -> dict[str, Any] | None:
     return _lookup_template((*get_library_templates(), *_CORE_BASE_TEMPLATES), template_id)
 
 
-def _lookup_template(
-    items: tuple[dict[str, Any], ...], template_id: str
-) -> dict[str, Any] | None:
+def _lookup_template(items: tuple[dict[str, Any], ...], template_id: str) -> dict[str, Any] | None:
     for item in items:
         if item["id"] == template_id:
             return item

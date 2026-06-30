@@ -150,9 +150,7 @@ def test_per_run_file_count_quota(session: Session, tmp_path: Path) -> None:
         )
 
 
-def test_per_run_file_count_quota_enforced_for_playground(
-    session: Session, tmp_path: Path
-) -> None:
+def test_per_run_file_count_quota_enforced_for_playground(session: Session, tmp_path: Path) -> None:
     """Regression (#10): playground files are recorded under playground_run_id,
     not workflow_run_id, so the quota query must scope to that column. It used
     to query workflow_run_id only → count 0 → the quota never tripped."""

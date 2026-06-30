@@ -627,12 +627,8 @@ def _load_prompt_info(agent_id: str, alias: str = "prod") -> dict[str, Any] | No
 # registry call stalls the entire page (the 6-7 min "stuck pending" symptom).
 # The three knobs below bound that: a short cross-request cache, a worker pool
 # for concurrency, and an overall deadline so the route always returns quickly.
-_PROMPT_INFO_CACHE_TTL_SECONDS = float(
-    os.getenv("CALIBER_PROMPT_INFO_TTL_SECONDS", "10") or "10"
-)
-_PROMPT_LOOKUP_WORKERS = max(
-    1, int(os.getenv("CALIBER_PROMPT_LOOKUP_WORKERS", "8") or "8")
-)
+_PROMPT_INFO_CACHE_TTL_SECONDS = float(os.getenv("CALIBER_PROMPT_INFO_TTL_SECONDS", "10") or "10")
+_PROMPT_LOOKUP_WORKERS = max(1, int(os.getenv("CALIBER_PROMPT_LOOKUP_WORKERS", "8") or "8"))
 _PROMPT_LOOKUP_TIMEOUT_SECONDS = float(
     os.getenv("CALIBER_PROMPT_LOOKUP_TIMEOUT_SECONDS", "8") or "8"
 )
@@ -1049,11 +1045,7 @@ async def list_prompts(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0
         # have an ``applied`` (terminal-success) refinement job. One query each,
         # not N+1 per row.
         tested_agent_ids: set[str] = set(
-            session.execute(
-                select(CaliberPromptTestRun.agent_id).distinct()
-            )
-            .scalars()
-            .all()
+            session.execute(select(CaliberPromptTestRun.agent_id).distinct()).scalars().all()
         )
         calibrated_agent_ids: set[str] = set(
             session.execute(
@@ -1099,9 +1091,7 @@ async def list_prompts(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0
 
     # Resolve every prompt's live registry record in ONE bounded, concurrent
     # batch instead of 3 sequential MLflow calls per row inside the loops below.
-    candidate_names: list[str] = [
-        str(mp["name"]) for mp in mlflow_prompts if mp.get("name")
-    ]
+    candidate_names: list[str] = [str(mp["name"]) for mp in mlflow_prompts if mp.get("name")]
     candidate_names.extend(agent_map.keys())
     candidate_names.extend(workflow_prompt_map.keys())
     infos_by_name = _load_prompt_infos_for_names(candidate_names)
@@ -2009,9 +1999,7 @@ async def bind_prompt(request: Request) -> JSONResponse:
         if payload.kind == "agent":
             agent = session.get(CaliberAgentConfig, payload.agent_id)
             if agent is None:
-                raise HTTPException(
-                    status_code=404, detail=f"agent {payload.agent_id!r} not found"
-                )
+                raise HTTPException(status_code=404, detail=f"agent {payload.agent_id!r} not found")
             # Point the real agent at this prompt: record the prompt link on the
             # agent's optimizer_config so the runtime resolves this prompt name.
             if isinstance(agent.optimizer_config, dict):
@@ -2036,9 +2024,7 @@ async def bind_prompt(request: Request) -> JSONResponse:
         )
         session.commit()
 
-    return JSONResponse(
-        {"data": {"bound_to": bound_to, "status": "Bound"}}, status_code=200
-    )
+    return JSONResponse({"data": {"bound_to": bound_to, "status": "Bound"}}, status_code=200)
 
 
 async def set_prompt_baseline(request: Request) -> JSONResponse:
@@ -2067,9 +2053,7 @@ async def set_prompt_baseline(request: Request) -> JSONResponse:
         if run.agent_id != name:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"test run {payload.test_run_id!r} does not belong to prompt {name!r}"
-                ),
+                detail=(f"test run {payload.test_run_id!r} does not belong to prompt {name!r}"),
             )
 
         target = ensure_prompt_target(

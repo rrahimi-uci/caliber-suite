@@ -65,9 +65,7 @@ class FakeLLMProvider:
 
     gen_response: WorkflowEdit | None = None
     gen_usage: LLMUsage | None = None
-    gen_callable: (
-        Callable[[WorkflowGenerationContext], tuple[WorkflowEdit, LLMUsage]] | None
-    ) = None
+    gen_callable: Callable[[WorkflowGenerationContext], tuple[WorkflowEdit, LLMUsage]] | None = None
 
     triage_response: TriageClassification | None = None
     triage_usage: LLMUsage | None = None

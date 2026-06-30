@@ -240,8 +240,8 @@ async def list_traces(request: Request) -> JSONResponse:
         names = _experiment_name_map(mlflow)
         # An explicit experiment_id scopes the search; otherwise honour the
         # configured CALIBER_TRACING_EXPERIMENT, else search every experiment.
-        experiment_ids = [experiment_filter] if experiment_filter else _experiment_ids(
-            mlflow, configured
+        experiment_ids = (
+            [experiment_filter] if experiment_filter else _experiment_ids(mlflow, configured)
         )
         if not experiment_ids:
             return JSONResponse({"data": {"traces": []}})
@@ -341,9 +341,7 @@ async def post_feedback(request: Request) -> JSONResponse:
     name = (str(data.get("name") or "feedback").strip()) or "feedback"
     value = data.get("value")
     if value is None or not isinstance(value, (bool, int, float, str)):
-        raise HTTPException(
-            status_code=400, detail="'value' is required (bool, number, or string)"
-        )
+        raise HTTPException(status_code=400, detail="'value' is required (bool, number, or string)")
     rationale_raw = data.get("rationale")
     rationale = str(rationale_raw).strip() if rationale_raw else None
     try:
@@ -410,9 +408,7 @@ def _bucketize(summaries: list[dict[str, Any]], since_ms: int | None) -> dict[st
                 "p50_ms": _percentile(durations, 0.50),
                 "p95_ms": _percentile(durations, 0.95),
                 "tokens": sum(int(r["total_tokens"]) for r in rows if r.get("total_tokens")),
-                "cost_usd": round(
-                    sum(float(r["cost_usd"]) for r in rows if r.get("cost_usd")), 6
-                ),
+                "cost_usd": round(sum(float(r["cost_usd"]) for r in rows if r.get("cost_usd")), 6),
             }
         )
     return {"buckets": series, "bucket_ms": bucket_ms, "totals": _totals(summaries)}

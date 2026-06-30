@@ -520,9 +520,7 @@ def test_list_skill_test_runs_kind_filter_order_and_limit(client: TestClient) ->
     assert len(selection_rows) == 1
     assert selection_rows[0]["kind"] == "selection"
 
-    limited = client.get(f"{PREFIX}/test-runs", params={"skill_id": sid, "limit": 1}).json()[
-        "data"
-    ]
+    limited = client.get(f"{PREFIX}/test-runs", params={"skill_id": sid, "limit": 1}).json()["data"]
     assert len(limited) == 1
 
     assert client.get(f"{PREFIX}/test-runs", params={"limit": 9999}).status_code == 200
@@ -591,9 +589,7 @@ def test_calibrate_skill_reuses_hidden_target_on_second_call(
     # Two distinct jobs both reference the single shared target.
     jobs = (
         db_session.execute(
-            select(CaliberRefinementJob).where(
-                CaliberRefinementJob.agent_id == target_agent_id
-            )
+            select(CaliberRefinementJob).where(CaliberRefinementJob.agent_id == target_agent_id)
         )
         .scalars()
         .all()
@@ -721,24 +717,20 @@ def test_skill_baseline_run_belongs_to_other_skill_400(client: TestClient) -> No
     owner = _make_skill(client, "baseline-owner-skill")
     other = _make_skill(client, "baseline-other-skill")
     run = client.post(f"{PREFIX}/test-runs", json=_skill_run_body(owner)).json()["data"]
-    resp = client.post(
-        f"{PREFIX}/{other}/baseline", json={"test_run_id": run["test_run_id"]}
-    )
+    resp = client.post(f"{PREFIX}/{other}/baseline", json={"test_run_id": run["test_run_id"]})
     assert resp.status_code == 400
 
 
 def test_skill_baseline_missing_run_404(client: TestClient) -> None:
     sid = _make_skill(client, "baseline-missing-skill")
     assert (
-        client.post(f"{PREFIX}/{sid}/baseline", json={"test_run_id": "SKR-nope"}).status_code
-        == 404
+        client.post(f"{PREFIX}/{sid}/baseline", json={"test_run_id": "SKR-nope"}).status_code == 404
     )
 
 
 def test_skill_baseline_unknown_skill_404(client: TestClient) -> None:
     assert (
-        client.post(f"{PREFIX}/SK-nope/baseline", json={"test_run_id": "SKR-x"}).status_code
-        == 404
+        client.post(f"{PREFIX}/SK-nope/baseline", json={"test_run_id": "SKR-x"}).status_code == 404
     )
 
 
@@ -790,24 +782,18 @@ def test_skill_bind_rejects_invalid_kind_and_missing_ids(client: TestClient) -> 
 
 def test_skill_bind_unknown_agent_404(client: TestClient) -> None:
     sid = _make_skill(client, "bind-unknown-agent-skill")
-    resp = client.post(
-        f"{PREFIX}/{sid}/bind", json={"kind": "agent", "agent_id": "no-such-agent"}
-    )
+    resp = client.post(f"{PREFIX}/{sid}/bind", json={"kind": "agent", "agent_id": "no-such-agent"})
     assert resp.status_code == 404
 
 
 def test_skill_bind_unknown_skill_404(client: TestClient) -> None:
-    assert (
-        client.post(f"{PREFIX}/SK-nope/bind", json={"kind": "standalone"}).status_code == 404
-    )
+    assert client.post(f"{PREFIX}/SK-nope/bind", json={"kind": "standalone"}).status_code == 404
 
 
 def test_test_selection_and_test_render_still_reachable(client: TestClient) -> None:
     """The existing read-only test surfaces remain reachable as-is (S1 unchanged)."""
     sid = _make_skill(client, "reachable-skill")
-    selection = client.post(
-        f"{PREFIX}/{sid}/test-selection", json={"user_message": "do the thing"}
-    )
+    selection = client.post(f"{PREFIX}/{sid}/test-selection", json={"user_message": "do the thing"})
     assert selection.status_code == 200
     assert "is_selected" in selection.json()["data"]
     assert "selection_score" in selection.json()["data"]

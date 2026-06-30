@@ -1327,9 +1327,7 @@ async def update_llm_setup(request: Request) -> JSONResponse:
         if not isinstance(gateway_url, str):
             raise HTTPException(status_code=400, detail="'gateway_url' must be a string")
         # Empty string is a valid clear (route LLM traffic directly to OpenAI).
-        request.app.state.config = config.model_copy(
-            update={"llm_base_url": gateway_url.strip()}
-        )
+        request.app.state.config = config.model_copy(update={"llm_base_url": gateway_url.strip()})
         config = request.app.state.config
 
     return envelope_response_dict(_llm_setup_status(config))

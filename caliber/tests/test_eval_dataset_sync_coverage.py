@@ -96,9 +96,7 @@ def test_sync_dataset_creates_new_and_merges_records(
         return None
 
     def create_dataset(*, name: str, experiment_id: str | None, tags: Any) -> Any:
-        create_calls.append(
-            {"name": name, "experiment_id": experiment_id, "tags": tags}
-        )
+        create_calls.append({"name": name, "experiment_id": experiment_id, "tags": tags})
         return created
 
     ns = types.SimpleNamespace(get_dataset=get_dataset, create_dataset=create_dataset)
@@ -116,9 +114,7 @@ def test_sync_dataset_creates_new_and_merges_records(
     )
 
     # Created (not found by name) with experiment + tags threaded through.
-    assert create_calls == [
-        {"name": "golden", "experiment_id": "exp-7", "tags": {"team": "qa"}}
-    ]
+    assert create_calls == [{"name": "golden", "experiment_id": "exp-7", "tags": {"team": "qa"}}]
     # merge_records was called on the created handle with the mapped shape.
     assert created.merged == [
         [

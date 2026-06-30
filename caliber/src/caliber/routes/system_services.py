@@ -220,9 +220,7 @@ async def get_services(request: Request) -> JSONResponse:
                     "url": None,
                     "target": f"{nats_host}:{nats_port}" if nats_host else nats_raw,
                 },
-                _probe_tcp(nats_host, nats_port)
-                if nats_host and nats_port
-                else None,
+                _probe_tcp(nats_host, nats_port) if nats_host and nats_port else None,
             ),
         ]
         if age_url:

@@ -128,9 +128,7 @@ def test_render_text_template_empty_mode_blanks_missing_token() -> None:
 
 def test_render_text_template_error_mode_raises_on_missing() -> None:
     with pytest.raises(ToolExecutionError, match="missing variable"):
-        _render_text_template(
-            "{{missing}}", context={}, missing_variable_mode="error"
-        )
+        _render_text_template("{{missing}}", context={}, missing_variable_mode="error")
 
 
 def test_template_json_inside_string_detects_open_quote() -> None:
@@ -140,9 +138,7 @@ def test_template_json_inside_string_detects_open_quote() -> None:
 
 def test_resolve_json_template_tokens_handles_nested_containers() -> None:
     token_values = {"TOK": ("value", False), "STOK": ("s", True)}
-    resolved = _resolve_json_template_tokens(
-        {"k": "TOK", "l": ["STOK", "plain"]}, token_values
-    )
+    resolved = _resolve_json_template_tokens({"k": "TOK", "l": ["STOK", "plain"]}, token_values)
     assert resolved == {"k": "value", "l": ["s", "plain"]}
 
 
@@ -334,9 +330,7 @@ def test_resolve_wait_for_event_correlation_value_from_inputs() -> None:
 
 def test_resolve_wait_for_event_correlation_value_blank_key_returns_none() -> None:
     assert (
-        _resolve_wait_for_event_correlation_value(
-            inputs={}, run_input="", correlation_key="   "
-        )
+        _resolve_wait_for_event_correlation_value(inputs={}, run_input="", correlation_key="   ")
         is None
     )
 
@@ -365,9 +359,7 @@ def test_resolve_wait_for_event_correlation_value_blank_value_returns_none() -> 
 
 
 def test_loop_next_state_unwraps_nested_result_envelope() -> None:
-    assert (
-        _loop_next_state(_step(), {"result": {"result": "inner", "text": "t"}}) == "inner"
-    )
+    assert _loop_next_state(_step(), {"result": {"result": "inner", "text": "t"}}) == "inner"
 
 
 def test_loop_next_state_returns_plain_result_value() -> None:
@@ -461,10 +453,7 @@ def test_wait_until_deadline_handles_now_and_blank_and_invalid() -> None:
 
 
 def test_wait_until_deadline_applies_named_timezone_to_naive() -> None:
-    assert (
-        _wait_until_deadline("2030-01-01T00:00:00", timezone_name="America/New_York")
-        is not None
-    )
+    assert _wait_until_deadline("2030-01-01T00:00:00", timezone_name="America/New_York") is not None
 
 
 def test_wait_until_deadline_rejects_unknown_timezone() -> None:
@@ -489,17 +478,13 @@ def test_condition_matches_combines_all_any_not() -> None:
         {"input": "cat"},
     )
     assert _condition_matches({"any": []}, {"input": "x"}) is False
-    assert _condition_matches(
-        {"not": {"op": "contains", "value": "z"}}, {"input": "cat"}
-    )
+    assert _condition_matches({"not": {"op": "contains", "value": "z"}}, {"input": "cat"})
 
 
 def test_condition_matches_exists_and_numeric_operators() -> None:
     assert _condition_matches({"op": "exists"}, {"input": "x"})
     assert _condition_matches({"op": "gt", "value": 5, "field": "n"}, {"n": 10})
-    assert (
-        _condition_matches({"op": "gt", "value": "x", "field": "n"}, {"n": "y"}) is False
-    )
+    assert _condition_matches({"op": "gt", "value": "x", "field": "n"}, {"n": "y"}) is False
 
 
 def test_condition_matches_in_operator_for_list_and_string() -> None:

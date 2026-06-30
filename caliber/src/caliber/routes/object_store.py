@@ -591,9 +591,7 @@ def _extract_xlsx_sheets(data: bytes) -> tuple[list[dict[str, Any]], bool]:
                     break
                 if len(row) > _EXTRACT_MAX_SHEET_COLS:
                     truncated = True
-                rows.append(
-                    ["" if c is None else str(c) for c in row[:_EXTRACT_MAX_SHEET_COLS]]
-                )
+                rows.append(["" if c is None else str(c) for c in row[:_EXTRACT_MAX_SHEET_COLS]])
             sheets.append({"name": ws.title, "rows": rows})
     finally:
         wb.close()
@@ -649,17 +647,19 @@ async def extract_object(request: Request) -> JSONResponse:
         if ext in _EXTRACT_SHEET_EXTS:
             sheets, truncated = _extract_xlsx_sheets(data)
             return JSONResponse(
-                {"data": {**base, "kind": "sheet", "sheets": sheets,
-                          "truncated": truncated, "error": None}}
+                {
+                    "data": {
+                        **base,
+                        "kind": "sheet",
+                        "sheets": sheets,
+                        "truncated": truncated,
+                        "error": None,
+                    }
+                }
             )
-        text = (
-            _extract_pptx_text(data)
-            if ext in _EXTRACT_PPT_EXTS
-            else _extract_docx_text(data)
-        )
+        text = _extract_pptx_text(data) if ext in _EXTRACT_PPT_EXTS else _extract_docx_text(data)
         return JSONResponse(
-            {"data": {**base, "kind": "document", "text": text,
-                      "truncated": False, "error": None}}
+            {"data": {**base, "kind": "document", "text": text, "truncated": False, "error": None}}
         )
     except _ExtractUnavailableError as exc:
         return unsupported(str(exc))

@@ -565,7 +565,9 @@ class CaliberLlmModelPricing(Base):
         String(16), nullable=False, default="project", server_default="project"
     )
     # One pricing row per (provider, model) — the natural key operators reason about.
-    __table_args__ = (UniqueConstraint("provider", "model_id", name="uq_llm_pricing_provider_model"),)
+    __table_args__ = (
+        UniqueConstraint("provider", "model_id", name="uq_llm_pricing_provider_model"),
+    )
 
     pricing_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     provider: Mapped[str] = mapped_column(String(64))

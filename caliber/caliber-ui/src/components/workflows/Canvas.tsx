@@ -207,11 +207,12 @@ function CanvasInner({
       e.preventDefault();
       const type = e.dataTransfer.getData("application/caliber-node-type");
       if (!type || !onDropNode) return;
-      // Place at approximate canvas position (the editor can refine later).
-      const bounds = e.currentTarget.getBoundingClientRect();
-      onDropNode(type, { x: e.clientX - bounds.left, y: e.clientY - bounds.top });
+      // Convert the drop point to flow coordinates so the node lands under the
+      // cursor regardless of the current canvas pan/zoom.
+      const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      onDropNode(type, position);
     },
-    [onDropNode],
+    [onDropNode, screenToFlowPosition],
   );
 
   return (

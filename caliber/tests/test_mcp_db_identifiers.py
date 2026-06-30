@@ -158,7 +158,7 @@ def test_assert_read_only_rejects_write_smuggling(sql: str) -> None:
     [
         "SELECT 1;",  # a single trailing semicolon is fine
         "SELECT * FROM t WHERE note = 'a; delete from x'",  # ';'/keyword inside a string literal
-        "SELECT * FROM \"delete_audit\"",  # write word only inside a quoted identifier
+        'SELECT * FROM "delete_audit"',  # write word only inside a quoted identifier
         "WITH x AS (SELECT 1) SELECT * FROM x",  # benign CTE
     ],
 )

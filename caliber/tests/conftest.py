@@ -174,6 +174,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     except OSError:
         pass  # report categorisation is best-effort, never fail the run
 
+
 # The default user identity tests run as. Granted ``caliber.admin`` in
 # the default ``app_config`` so existing tests keep passing once scope
 # checks land on every write endpoint. Tests that exercise the
