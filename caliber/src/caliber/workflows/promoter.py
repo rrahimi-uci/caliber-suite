@@ -436,10 +436,16 @@ def build_knowledge_runtime_runners(  # noqa: PLR0915 - wires several runtime he
                 "graph_overrides": raw.get("graph_overrides"),
             }
         )
-        return knowledge_service.query(
+        result = knowledge_service.query(
             request,
             identity=identity,
         ).model_dump(mode="json")
+        # Pin the resolved corpus version(s) so a run that followed the KB's
+        # active pointer is reproducible after that pointer moves.
+        result["resolved_version_ids"] = version_ids
+        if knowledge_base_id:
+            result["resolved_knowledge_base_id"] = knowledge_base_id
+        return result
 
     def _run_knowledge_build(payload: dict[str, Any]) -> dict[str, Any]:
         raw = dict(payload)

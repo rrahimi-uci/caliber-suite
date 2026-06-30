@@ -227,7 +227,10 @@ def test_query_resolves_active_version_from_knowledge_base_id(
 
     result = query({"knowledge_base_id": "kb-1", "question": "what?"})
 
-    assert result == {"answer": "ok"}
+    assert result["answer"] == "ok"
+    # The resolved active version is pinned into the node output for reproducibility.
+    assert result["resolved_version_ids"] == ["kbv-1"]
+    assert result["resolved_knowledge_base_id"] == "kb-1"
     assert fake.last_request("query").version_ids == ["kbv-1"]
 
 

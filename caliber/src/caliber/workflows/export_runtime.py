@@ -284,10 +284,17 @@ def _default_knowledge_query_runner(
                 "graph_overrides": raw.get("graph_overrides"),
             }
         )
-        return knowledge_service.query(
+        result = knowledge_service.query(
             request,
             identity=identity,
         ).model_dump(mode="json")
+        # Pin the corpus version(s) that actually answered into the node output,
+        # so a run that resolved the KB's *active* version stays reproducible
+        # after the active pointer moves (rollback/new build).
+        result["resolved_version_ids"] = version_ids
+        if knowledge_base_id:
+            result["resolved_knowledge_base_id"] = knowledge_base_id
+        return result
 
     return _run_knowledge_query
 
