@@ -21,6 +21,7 @@ from starlette.routing import Route
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes
 from caliber.config import CaliberConfig
+from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
 from caliber.routes._deps import envelope_response_dict, parse_json_object
 from caliber.runtime_advisories import (
     RuntimeDependencyAdvisory,
@@ -1229,7 +1230,52 @@ def _runtime_groups(config: CaliberConfig) -> list[dict[str, Any]]:
                 ),
             ],
         ),
+        _group(
+            group_id="versioning",
+            title="Versioning & Releases",
+            description=(
+                "The advisory eval-gate defaults that govern promotion. The Releases page "
+                "shows what's live and the promotion/rollback timeline; the gate is advisory "
+                "and never blocks an alias rotation. Workflow-run retention is configured "
+                "under Operations (CALIBER_WORKFLOW_RUN_RETENTION_DAYS)."
+            ),
+            settings=[
+                _versioning_default_item(
+                    key="gate_min_aggregate_score_default",
+                    label="Eval gate: min aggregate score (default)",
+                    description=("Advisory promotion-gate floor on a candidate's overall score."),
+                    value=DEFAULT_MIN_AGGREGATE_SCORE,
+                ),
+                _versioning_default_item(
+                    key="gate_max_regression_delta_default",
+                    label="Eval gate: max regression delta (default)",
+                    description=(
+                        "Advisory promotion-gate ceiling on per-dimension regression "
+                        "versus the baseline."
+                    ),
+                    value=DEFAULT_MAX_REGRESSION_DELTA,
+                ),
+            ],
+        ),
     ]
+
+
+def _versioning_default_item(
+    *, key: str, label: str, description: str, value: float
+) -> dict[str, Any]:
+    """A read-only informational setting for a code-level default (not a config var)."""
+    return {
+        "key": key,
+        "env_var": f"runtime://versioning/{key}",
+        "label": label,
+        "description": description,
+        "display_value": str(value),
+        "value_type": "number",
+        "source": "default",
+        "control": "environment",
+        "restart_required": False,
+        "sensitive": False,
+    }
 
 
 async def get_runtime_settings(request: Request) -> JSONResponse:

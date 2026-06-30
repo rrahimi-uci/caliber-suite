@@ -207,6 +207,47 @@ describe("Settings page", () => {
     expect(rows[1]?.textContent).toContain("connection refused");
   });
 
+  it("shows the versioning policy (advisory gate defaults) on the Versioning tab", async () => {
+    server.use(
+      http.get(`${API_BASE}/settings/runtime`, () =>
+        HttpResponse.json(
+          envelope({
+            groups: [
+              {
+                id: "versioning",
+                title: "Versioning & Releases",
+                description: "The advisory eval-gate defaults that govern promotion.",
+                configured_count: 0,
+                live_editable_count: 0,
+                settings: [
+                  {
+                    key: "gate_min_aggregate_score_default",
+                    env_var: "runtime://versioning/gate_min_aggregate_score_default",
+                    label: "Eval gate: min aggregate score (default)",
+                    description: "Advisory promotion-gate floor.",
+                    display_value: "0.85",
+                    value_type: "number",
+                    source: "default",
+                    control: "environment",
+                    restart_required: false,
+                    sensitive: false,
+                  },
+                ],
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Versioning" }));
+    expect(await screen.findByTestId("versioning-settings-tab")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("versioning-setting-gate_min_aggregate_score_default"),
+    ).toHaveTextContent("0.85");
+  });
+
   it("defaults the Allure link to the in-app served report", async () => {
     renderPage();
 
