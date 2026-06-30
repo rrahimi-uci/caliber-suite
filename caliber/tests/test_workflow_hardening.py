@@ -278,3 +278,34 @@ def test_prune_workflow_runs(db_session) -> None:
     assert deleted == 1
     remaining = db_session.query(CaliberWorkflowRun).count()
     assert remaining == 1
+
+
+def test_prune_workflow_runs_prunes_null_started_at_rows(db_session) -> None:
+    """Queued runs leave ``started_at`` NULL; they previously evaded retention
+    forever. They must now be pruned by their ``queued_at`` age instead."""
+    now = datetime(2026, 6, 1, tzinfo=timezone.utc)
+    # Old queued run (never started) -> must be pruned via queued_at.
+    db_session.add(
+        CaliberWorkflowRun(
+            workflow_run_id=new_workflow_run_id(),
+            workflow_id="wf",
+            status="queued",
+            started_at=None,
+            queued_at=now - timedelta(days=30),
+        )
+    )
+    # Recent queued run -> kept.
+    db_session.add(
+        CaliberWorkflowRun(
+            workflow_run_id=new_workflow_run_id(),
+            workflow_id="wf",
+            status="queued",
+            started_at=None,
+            queued_at=now - timedelta(days=1),
+        )
+    )
+    db_session.commit()
+    deleted = prune_workflow_runs(db_session, retention_days=7, now=now)
+    db_session.commit()
+    assert deleted == 1  # before the fix this was 0 (NULL started_at never matched)
+    assert db_session.query(CaliberWorkflowRun).count() == 1
