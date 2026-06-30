@@ -242,9 +242,7 @@ def test_update_skill_content_bumps_version(client: TestClient, db_session: Sess
     assert "double-check" in data["content"]
 
 
-def test_rollback_skill_restores_prior_content(
-    client: TestClient, db_session: Session
-) -> None:
+def test_rollback_skill_restores_prior_content(client: TestClient, db_session: Session) -> None:
     """A content edit can be rolled back to the exact prior text as a new version."""
     _insert_skill(db_session, skill_id="SK-RB", name="reasoning_v1", content="orig text", version=1)
     edited = client.patch(
@@ -261,9 +259,7 @@ def test_rollback_skill_restores_prior_content(
     assert data["version"] == 3  # forward-only counter keeps climbing
 
 
-def test_rollback_skill_409_without_prior_edit(
-    client: TestClient, db_session: Session
-) -> None:
+def test_rollback_skill_409_without_prior_edit(client: TestClient, db_session: Session) -> None:
     """A skill that was never content-edited has nothing to roll back to."""
     _insert_skill(db_session, skill_id="SK-RB2", name="guardrails_v1", content="only", version=1)
     resp = client.post(f"{PREFIX}/SK-RB2/rollback")

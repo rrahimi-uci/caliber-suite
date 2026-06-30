@@ -78,9 +78,7 @@ def test_create_version_returns_409_not_500_on_persistent_collision(
     surfaces as a clean 409 after bounded retries, never an unhandled 500."""
     # Force every generated version_id to collide so the insert's commit always
     # raises IntegrityError — exercising the retry budget → 409 contract.
-    monkeypatch.setattr(
-        workflow_versions_routes, "new_workflow_version_id", lambda: "WFV-collide"
-    )
+    monkeypatch.setattr(workflow_versions_routes, "new_workflow_version_id", lambda: "WFV-collide")
     wid = create_workflow(client)
     first = client.post(f"{PREFIX}/workflows/{wid}/versions", json={"manifest": make_manifest(wid)})
     assert first.status_code == 201
