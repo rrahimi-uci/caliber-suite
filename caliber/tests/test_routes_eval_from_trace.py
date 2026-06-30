@@ -125,8 +125,6 @@ def test_from_trace_empty_capture_with_input_override_succeeds(
 def test_from_trace_unknown_dataset_404(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        eval_datasets_route, "fetch_trace_detail", _fake_detail("q", "a")
-    )
+    monkeypatch.setattr(eval_datasets_route, "fetch_trace_detail", _fake_detail("q", "a"))
     resp = client.post(FROM_TRACE.format(dataset_id="ED-missing"), json={"trace_id": "tr-1"})
     assert resp.status_code == 404

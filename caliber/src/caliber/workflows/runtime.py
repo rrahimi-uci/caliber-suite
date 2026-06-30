@@ -129,6 +129,7 @@ def _node_span_type(node: IRNode) -> str:
     """MLflow span_type for a non-agent node (defaults to ``CHAIN``)."""
     return _NODE_SPAN_TYPES.get(node.node_type, "CHAIN")
 
+
 # ---------------------------------------------------------------------------
 # Run context + tags
 # ---------------------------------------------------------------------------
@@ -5272,8 +5273,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             result = sender(request)
         except Exception as exc:
             raise ToolExecutionError(
-                f"webhook node {nid!r} failed for {node.method} {url}: "
-                f"{type(exc).__name__}: {exc}"
+                f"webhook node {nid!r} failed for {node.method} {url}: {type(exc).__name__}: {exc}"
             ) from exc
         result_dict = result if isinstance(result, dict) else {"response": result}
         status_code = result_dict.get("status_code")
@@ -5363,8 +5363,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             ntype,
             "ok",
             output=api_text,
-            detail=f"{method} {req_url}"
-            + (f" -> {api_status}" if api_status is not None else ""),
+            detail=f"{method} {req_url}" + (f" -> {api_status}" if api_status is not None else ""),
         )
 
     if isinstance(node, IRKnowledgeQuery):

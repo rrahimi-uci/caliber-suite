@@ -50,9 +50,9 @@ class OllamaAssistantEngine:
                 role = "user"
             messages.append({"role": role, "content": str(msg.get("content", ""))})
 
-        body = json.dumps(
-            {"model": self._model, "stream": False, "messages": messages}
-        ).encode("utf-8")
+        body = json.dumps({"model": self._model, "stream": False, "messages": messages}).encode(
+            "utf-8"
+        )
         req = urllib.request.Request(  # noqa: S310 - fixed http(s) Ollama base_url from config, not user input
             f"{self._base_url}/api/chat",
             data=body,

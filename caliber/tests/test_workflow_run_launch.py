@@ -249,12 +249,24 @@ def test_enqueue_idempotency_conflict_uses_savepoint_preserving_prior_runs(
 
     # Two runs staged earlier in the same transaction (the "sibling" work).
     run1, c1 = enqueue_workflow_run(
-        db_session, workflow=workflow, version=version, alias="prod", source="cron",
-        actor="@sched", input_text="one", idempotency_key="cron:K1",
+        db_session,
+        workflow=workflow,
+        version=version,
+        alias="prod",
+        source="cron",
+        actor="@sched",
+        input_text="one",
+        idempotency_key="cron:K1",
     )
     run2, c2 = enqueue_workflow_run(
-        db_session, workflow=workflow, version=version, alias="prod", source="cron",
-        actor="@sched", input_text="two", idempotency_key="cron:K2",
+        db_session,
+        workflow=workflow,
+        version=version,
+        alias="prod",
+        source="cron",
+        actor="@sched",
+        input_text="two",
+        idempotency_key="cron:K2",
     )
     assert c1 is True and c2 is True
 
@@ -264,8 +276,14 @@ def test_enqueue_idempotency_conflict_uses_savepoint_preserving_prior_runs(
     monkeypatch.setattr(run_launch, "_find_idempotent", lambda *a, **k: None)
     with pytest.raises(IntegrityError):
         enqueue_workflow_run(
-            db_session, workflow=workflow, version=version, alias="prod", source="cron",
-            actor="@sched", input_text="dup", idempotency_key="cron:K2",
+            db_session,
+            workflow=workflow,
+            version=version,
+            alias="prod",
+            source="cron",
+            actor="@sched",
+            input_text="dup",
+            idempotency_key="cron:K2",
         )
 
     # The SAVEPOINT rolled back ONLY the failed insert — both prior runs survive.

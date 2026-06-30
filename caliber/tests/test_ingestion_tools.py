@@ -190,7 +190,9 @@ def test_text_pdf_does_not_ocr(tmp_path: Path) -> None:
     assert out["ocr_used"] is False
 
 
-def test_ocr_worker_subprocess_returns_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ocr_worker_subprocess_returns_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pdf = tmp_path / "scan.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
     monkeypatch.setattr(ingestion_tools, "_ensure_ocr_dependency", lambda module: None)

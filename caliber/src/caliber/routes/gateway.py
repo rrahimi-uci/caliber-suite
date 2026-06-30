@@ -66,9 +66,7 @@ STATUS_PATH = "/ajax-api/2.0/mlflow/caliber/gateway"
 GUARDRAILS_PATH = "/ajax-api/2.0/mlflow/caliber/gateway/guardrails"
 GUARDRAILS_CATALOG_PATH = "/ajax-api/2.0/mlflow/caliber/gateway/guardrails/catalog"
 GUARDRAIL_PATH = "/ajax-api/2.0/mlflow/caliber/gateway/guardrails/{guardrail_id}"
-ENDPOINT_GUARDRAILS_PATH = (
-    "/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails"
-)
+ENDPOINT_GUARDRAILS_PATH = "/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails"
 ENDPOINT_GUARDRAIL_PATH = (
     "/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}"
 )
@@ -315,7 +313,9 @@ def _collect_guardrails(store: Any) -> dict[str, Any]:
     name_by_id = {g["guardrail_id"]: g["name"] for g in guardrails}
     coverage: list[dict[str, Any]] = []
     for endpoint in store.list_gateway_endpoints():
-        endpoint_id = str(getattr(endpoint, "endpoint_id", None) or getattr(endpoint, "id", "") or "")
+        endpoint_id = str(
+            getattr(endpoint, "endpoint_id", None) or getattr(endpoint, "id", "") or ""
+        )
         endpoint_name = str(getattr(endpoint, "name", None) or endpoint_id)
         try:
             configs = list(store.list_endpoint_guardrail_configs(endpoint_id=endpoint_id))
@@ -460,7 +460,9 @@ def _collect_scorers(store: Any, config: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _create_guardrail(store: Any, config: Any, payload: GatewayGuardrailCreateRequest) -> dict[str, Any]:
+def _create_guardrail(
+    store: Any, config: Any, payload: GatewayGuardrailCreateRequest
+) -> dict[str, Any]:
     """Register the scorer (if a template) and create the gateway guardrail (blocking)."""
     from mlflow.entities.gateway_guardrail import (  # noqa: PLC0415
         GuardrailAction,
@@ -755,9 +757,7 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(GUARDRAILS_PATH, create_gateway_guardrail, methods=["POST"]))
     app.routes.append(Route(GUARDRAIL_PATH, delete_gateway_guardrail, methods=["DELETE"]))
     app.routes.append(Route(ENDPOINT_GUARDRAILS_PATH, attach_gateway_guardrail, methods=["POST"]))
-    app.routes.append(
-        Route(ENDPOINT_GUARDRAIL_PATH, detach_gateway_guardrail, methods=["DELETE"])
-    )
+    app.routes.append(Route(ENDPOINT_GUARDRAIL_PATH, detach_gateway_guardrail, methods=["DELETE"]))
     app.routes.append(
         Route(ENDPOINT_GUARDRAIL_PATH, update_gateway_guardrail_config, methods=["PATCH"])
     )

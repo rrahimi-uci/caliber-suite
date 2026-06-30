@@ -81,9 +81,7 @@ def _install_fake_mlflow(monkeypatch: pytest.MonkeyPatch, evaluate_fn: Any | Non
     monkeypatch.setitem(sys.modules, "mlflow.genai", mlflow_genai_stub)
 
 
-def _install_fake_mlflow_with_judge(
-    monkeypatch: pytest.MonkeyPatch, make_judge_fn: Any
-) -> None:
+def _install_fake_mlflow_with_judge(monkeypatch: pytest.MonkeyPatch, make_judge_fn: Any) -> None:
     """Install an ``mlflow.genai`` shape carrying both ``scorers`` (empty) and a
     fake ``make_judge`` so the custom-judge resolution path can be exercised."""
     mlflow_stub = types.ModuleType("mlflow")

@@ -33,6 +33,7 @@ class _FakeS3:
         body, content_type = self._files[Key]
         return {"Body": io.BytesIO(body), "ContentType": content_type}
 
+
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 OBS = PREFIX + "/observability"
 
@@ -480,9 +481,7 @@ def test_allure_report_s3_blocks_traversal(client: TestClient) -> None:
     assert resp.status_code in (403, 404)
 
 
-def test_metrics_buckets_and_totals(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_metrics_buckets_and_totals(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     import mlflow
 
     traces = [

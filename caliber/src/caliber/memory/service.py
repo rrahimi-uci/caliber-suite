@@ -124,8 +124,10 @@ def _normalize_entity_rows(rows: Any) -> list[dict[str, Any]]:
             linked = []
 
         entity_value = payload.get("data")
-        entity = entity_value if isinstance(entity_value, str) else (
-            str(entity_value) if entity_value is not None else ""
+        entity = (
+            entity_value
+            if isinstance(entity_value, str)
+            else (str(entity_value) if entity_value is not None else "")
         )
         item: dict[str, Any] = {
             "id": str(row_id) if row_id is not None else "",

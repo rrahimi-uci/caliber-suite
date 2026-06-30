@@ -206,9 +206,7 @@ class PlanExecutor:
         from sqlalchemy import select  # noqa: PLC0415
 
         with session_factory() as session:
-            stmt = select(CaliberAriaInteraction).where(
-                CaliberAriaInteraction.plan_id == plan_id
-            )
+            stmt = select(CaliberAriaInteraction).where(CaliberAriaInteraction.plan_id == plan_id)
             if pending_only:
                 stmt = stmt.where(CaliberAriaInteraction.status == "pending")
             stmt = stmt.order_by(CaliberAriaInteraction.created_at)
@@ -311,20 +309,30 @@ class PlanExecutor:
             status = resolver.resolve(kind=kind, job_id=job_id, session_factory=session_factory)
             if status.state == "done":
                 self._complete_or_escalate(
-                    session_factory, plan_id, step_id,
-                    result=status.result or {"job_id": job_id}, evidence=status.evidence,
+                    session_factory,
+                    plan_id,
+                    step_id,
+                    result=status.result or {"job_id": job_id},
+                    evidence=status.evidence,
                 )
                 advanced = True
             elif status.state == "failed":
                 self._finish_step(
-                    session_factory, plan_id, step_id, status="failed",
-                    error=status.error or "async job failed", plan_status="failed",
+                    session_factory,
+                    plan_id,
+                    step_id,
+                    status="failed",
+                    error=status.error or "async job failed",
+                    plan_status="failed",
                 )
                 failed = True
         if advanced and not failed:
             return self.execute(
-                session_factory=session_factory, config=config, actor=actor,
-                plan_id=plan_id, project_id=project_id,
+                session_factory=session_factory,
+                config=config,
+                actor=actor,
+                plan_id=plan_id,
+                project_id=project_id,
             )
         return self._plans.get_plan(session_factory=session_factory, plan_id=plan_id)
 
@@ -437,9 +445,7 @@ class PlanExecutor:
             )
         scopes = scopes_for_user(config, actor) if config is not None else frozenset()
         if needed not in scopes:
-            raise PlanForbiddenError(
-                f"approving this step requires {required_scope!r} authority"
-            )
+            raise PlanForbiddenError(f"approving this step requires {required_scope!r} authority")
 
     @staticmethod
     def _step_budget(session_factory: Any, plan_id: str) -> int:
@@ -573,7 +579,10 @@ class PlanExecutor:
             missing = [s for s in cap.required_scopes if f"caliber.{s}" not in have]
             if missing:
                 self._finish_step(
-                    session_factory, plan_id, step_id, status="failed",
+                    session_factory,
+                    plan_id,
+                    step_id,
+                    status="failed",
                     error=f"plan owner lacks required scope(s): {', '.join(sorted(missing))}",
                     plan_status="failed",
                 )
@@ -585,8 +594,12 @@ class PlanExecutor:
             result = cap.handler(ctx, inputs) if cap is not None else None
         except Exception as exc:  # capability failed — surface on the step + plan
             self._finish_step(
-                session_factory, plan_id, step_id, status="failed",
-                error=f"{type(exc).__name__}: {exc}", plan_status="failed",
+                session_factory,
+                plan_id,
+                step_id,
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+                plan_status="failed",
             )
             return
         if isinstance(result, AsyncJobHandle):
@@ -599,9 +612,7 @@ class PlanExecutor:
         )
 
     @staticmethod
-    def _mark_waiting_job(
-        session_factory: Any, step_id: str, handle: AsyncJobHandle
-    ) -> None:
+    def _mark_waiting_job(session_factory: Any, step_id: str, handle: AsyncJobHandle) -> None:
         with session_factory() as session:
             step = session.get(CaliberAriaPlanStep, step_id)
             if step is not None:

@@ -240,9 +240,7 @@ def test_run_by_trace_404(client: TestClient) -> None:
     assert client.get(f"{PREFIX}/workflow-runs/by-trace/missing").status_code == 404
 
 
-def _seed_run(
-    client: TestClient, db_session: Session, *, trace_id: str | None
-) -> str:
+def _seed_run(client: TestClient, db_session: Session, *, trace_id: str | None) -> str:
     wid, vid = _support_version(client)
     run_id = new_workflow_run_id()
     db_session.add(

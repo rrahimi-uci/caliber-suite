@@ -1146,9 +1146,7 @@ def test_delete_workflow_cascades_run_children(
     )
 
 
-def _synced_fleet_agents(
-    db_session: Session, workflow_id: str
-) -> list[CaliberAgentConfig]:
+def _synced_fleet_agents(db_session: Session, workflow_id: str) -> list[CaliberAgentConfig]:
     return [
         agent
         for agent in db_session.query(CaliberAgentConfig).all()

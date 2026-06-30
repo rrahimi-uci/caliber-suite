@@ -440,9 +440,7 @@ class OpenAIAgentsLLMProvider:
         try:
             manifest = json.loads(draft.manifest_json)
         except (json.JSONDecodeError, TypeError) as exc:
-            raise LLMProviderError(
-                f"workflow_gen agent returned non-JSON manifest: {exc}"
-            ) from exc
+            raise LLMProviderError(f"workflow_gen agent returned non-JSON manifest: {exc}") from exc
         if not isinstance(manifest, dict):
             raise LLMProviderError(
                 "workflow_gen agent returned a manifest that is not a JSON object"

@@ -71,7 +71,9 @@ def _approved_plan(session_factory, *, autonomy: str, judge_name: str) -> str:
         session_factory=session_factory, goal="make a judge", owner="@reza", autonomy=autonomy
     )
     plan_id = detail["plan"]["plan_id"]
-    svc.set_status(session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza")
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
     return plan_id
 
 
@@ -92,7 +94,9 @@ def test_execute_runs_mutate_step_under_approve_plan(session_factory) -> None:
 def test_execute_pauses_for_interaction_under_ask_each(session_factory) -> None:
     plan_id = _approved_plan(session_factory, autonomy="ask_each", judge_name="ask-aj")
     ex = PlanExecutor()
-    detail = ex.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
+    detail = ex.execute(
+        session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id
+    )
     assert detail["plan"]["status"] == "paused"
     assert detail["steps"][0]["status"] == "waiting_input"
     pending = ex.list_interactions(session_factory=session_factory, plan_id=plan_id)
@@ -114,8 +118,11 @@ def test_answer_approve_resumes_and_runs_step(session_factory) -> None:
     # A non-gated ask_each permission is the plan owner's to answer (a distinct
     # approver is only for gated steps — see test_aria_sod).
     detail = ex.answer(
-        session_factory=session_factory, config=_CFG, actor="@reza",
-        interaction_id=iid, approved=True,
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=iid,
+        approved=True,
     )
     assert detail["plan"]["status"] == "completed"
     assert detail["steps"][0]["status"] == "done"
@@ -137,7 +144,11 @@ def test_answer_deny_skips_step(session_factory) -> None:
     iid = ex.list_interactions(session_factory=session_factory, plan_id=plan_id)[0].interaction_id
 
     detail = ex.answer(
-        session_factory=session_factory, config=_CFG, actor="@reza", interaction_id=iid, approved=False
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=iid,
+        approved=False,
     )
     assert detail["plan"]["status"] == "completed"  # nothing left pending
     assert detail["steps"][0]["status"] == "skipped"
@@ -155,10 +166,20 @@ def test_answer_already_answered_raises(session_factory) -> None:
     ex = PlanExecutor()
     ex.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
     iid = ex.list_interactions(session_factory=session_factory, plan_id=plan_id)[0].interaction_id
-    ex.answer(session_factory=session_factory, config=_CFG, actor="@reza", interaction_id=iid, approved=True)
+    ex.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=iid,
+        approved=True,
+    )
     with pytest.raises(PlanExecutionError):
         ex.answer(
-            session_factory=session_factory, config=_CFG, actor="@reza", interaction_id=iid, approved=True
+            session_factory=session_factory,
+            config=_CFG,
+            actor="@reza",
+            interaction_id=iid,
+            approved=True,
         )
 
 
@@ -172,8 +193,11 @@ def test_third_party_cannot_answer_non_scoped_ask(session_factory) -> None:
     iid = ex.list_interactions(session_factory=session_factory, plan_id=plan_id)[0].interaction_id
     with pytest.raises(PlanForbiddenError, match="owner"):
         ex.answer(
-            session_factory=session_factory, config=_CFG, actor="@stranger",
-            interaction_id=iid, approved=True,
+            session_factory=session_factory,
+            config=_CFG,
+            actor="@stranger",
+            interaction_id=iid,
+            approved=True,
         )
 
 
@@ -189,7 +213,9 @@ def test_execute_fails_on_unknown_capability(session_factory) -> None:
     plan_id = svc.create_plan(
         session_factory=session_factory, goal="x", owner="@reza", autonomy="auto_guarded"
     )["plan"]["plan_id"]
-    svc.set_status(session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza")
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
     detail = PlanExecutor().execute(
         session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id
     )
@@ -203,9 +229,14 @@ def test_execute_blocks_step_when_owner_lacks_capability_scope(session_factory) 
     auto_guarded — the step (and plan) fail instead of silently running."""
     svc = PlanService()
     plan_id = svc.create_plan(
-        session_factory=session_factory, goal="make a judge", owner="@nobody", autonomy="auto_guarded"
+        session_factory=session_factory,
+        goal="make a judge",
+        owner="@nobody",
+        autonomy="auto_guarded",
     )["plan"]["plan_id"]
-    svc.set_status(session_factory=session_factory, plan_id=plan_id, status="approved", actor="@nobody")
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@nobody"
+    )
     detail = PlanExecutor().execute(
         session_factory=session_factory, config=_CFG, actor="@nobody", plan_id=plan_id
     )
@@ -227,9 +258,7 @@ def _seed_plan_with_judge_step(
 ) -> str:
     plan_id = new_aria_plan_id()
     db_session.add(
-        CaliberAriaPlan(
-            plan_id=plan_id, goal="g", status=status, autonomy=autonomy, owner="@test"
-        )
+        CaliberAriaPlan(plan_id=plan_id, goal="g", status=status, autonomy=autonomy, owner="@test")
     )
     db_session.add(
         CaliberAriaPlanStep(

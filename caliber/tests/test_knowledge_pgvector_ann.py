@@ -32,7 +32,9 @@ class _Result:
 
 
 class _FakeSession:
-    def __init__(self, *, name: str = "postgresql", rows: list[tuple[Any, ...]] | None = None) -> None:
+    def __init__(
+        self, *, name: str = "postgresql", rows: list[tuple[Any, ...]] | None = None
+    ) -> None:
         self._name = name
         self._rows = rows or []
         self.calls: list[tuple[str, Any]] = []

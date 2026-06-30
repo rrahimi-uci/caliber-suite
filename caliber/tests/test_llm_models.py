@@ -9,7 +9,17 @@ from caliber.llm.models import is_reasoning_model, supports_temperature
 
 @pytest.mark.parametrize(
     "model",
-    ["o1", "o1-mini", "o3", "o4-mini", "O3-PRO", "gpt-5", "gpt-5.2", "gpt-5-mini", "openai:/gpt-5.2"],
+    [
+        "o1",
+        "o1-mini",
+        "o3",
+        "o4-mini",
+        "O3-PRO",
+        "gpt-5",
+        "gpt-5.2",
+        "gpt-5-mini",
+        "openai:/gpt-5.2",
+    ],
 )
 def test_reasoning_models_detected(model: str) -> None:
     assert is_reasoning_model(model) is True

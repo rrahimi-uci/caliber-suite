@@ -207,9 +207,7 @@ def test_api_request_curl_mode_runs() -> None:
         captured.update(request)
         return {"status_code": 200, "text": "ok", "json": None, "headers": {}}
 
-    curl = _curl_node(
-        "curl -X PATCH 'https://api.test/curl' -H 'X-A: 1' -d '{\"k\": 2}'"
-    )
+    curl = _curl_node("curl -X PATCH 'https://api.test/curl' -H 'X-A: 1' -d '{\"k\": 2}'")
     result = _run(curl, sender)
     assert result.status == "completed"
     assert captured["method"] == "PATCH"

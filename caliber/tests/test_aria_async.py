@@ -54,7 +54,9 @@ def _approved_async_plan(session_factory) -> str:
         session_factory=session_factory, goal="run async", owner="@reza", autonomy="approve_plan"
     )
     plan_id = detail["plan"]["plan_id"]
-    svc.set_status(session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza")
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
     return plan_id
 
 
@@ -74,7 +76,9 @@ def test_poll_pending_leaves_waiting(async_cap, session_factory) -> None:
     ex = PlanExecutor()
     ex.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
     detail = ex.poll(
-        session_factory=session_factory, config=_CFG, plan_id=plan_id,
+        session_factory=session_factory,
+        config=_CFG,
+        plan_id=plan_id,
         resolver=FakeJobStatusResolver(),  # job pending
     )
     assert detail["plan"]["status"] == "running"
@@ -85,10 +89,10 @@ def test_poll_done_completes_plan_with_evidence(async_cap, session_factory) -> N
     plan_id = _approved_async_plan(session_factory)
     ex = PlanExecutor()
     ex.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
-    resolver = FakeJobStatusResolver(
-        {_JOB_ID: JobStatus(state="done", evidence={"score": 0.9})}
+    resolver = FakeJobStatusResolver({_JOB_ID: JobStatus(state="done", evidence={"score": 0.9})})
+    detail = ex.poll(
+        session_factory=session_factory, config=_CFG, plan_id=plan_id, resolver=resolver
     )
-    detail = ex.poll(session_factory=session_factory, config=_CFG, plan_id=plan_id, resolver=resolver)
     assert detail["plan"]["status"] == "completed"
     assert detail["steps"][0]["status"] == "done"
     assert detail["steps"][0]["evidence"] == {"score": 0.9}
@@ -99,7 +103,9 @@ def test_poll_failed_fails_plan(async_cap, session_factory) -> None:
     ex = PlanExecutor()
     ex.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
     resolver = FakeJobStatusResolver({_JOB_ID: JobStatus(state="failed", error="boom")})
-    detail = ex.poll(session_factory=session_factory, config=_CFG, plan_id=plan_id, resolver=resolver)
+    detail = ex.poll(
+        session_factory=session_factory, config=_CFG, plan_id=plan_id, resolver=resolver
+    )
     assert detail["plan"]["status"] == "failed"
     assert detail["steps"][0]["status"] == "failed"
     assert "boom" in (detail["steps"][0]["error"] or "")
@@ -141,13 +147,22 @@ def test_route_poll_missing_job_fails_step(client: TestClient, db_session: Sessi
     # Seed a plan parked on a refinement job that doesn't exist → poll fails it.
     plan_id = new_aria_plan_id()
     db_session.add(
-        CaliberAriaPlan(plan_id=plan_id, goal="g", status="running", autonomy="approve_plan", owner="@test")
+        CaliberAriaPlan(
+            plan_id=plan_id, goal="g", status="running", autonomy="approve_plan", owner="@test"
+        )
     )
     db_session.add(
         CaliberAriaPlanStep(
-            step_id=new_aria_plan_step_id(), plan_id=plan_id, seq=0,
-            capability_key="test.async_job", title="Async", inputs={}, depends_on=[],
-            status="waiting_job", job_id="RFN-nope", result={"__job_kind__": "refinement_job"},
+            step_id=new_aria_plan_step_id(),
+            plan_id=plan_id,
+            seq=0,
+            capability_key="test.async_job",
+            title="Async",
+            inputs={},
+            depends_on=[],
+            status="waiting_job",
+            job_id="RFN-nope",
+            result={"__job_kind__": "refinement_job"},
         )
     )
     db_session.commit()
@@ -167,9 +182,7 @@ def test_plan_worker_tick_resumes_done_jobs(async_cap, session_factory) -> None:
         session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id
     )
     resolver = FakeJobStatusResolver({_JOB_ID: JobStatus(state="done")})
-    worker = AriaPlanWorker(
-        session_factory, config=_CFG, interval_seconds=0.01, resolver=resolver
-    )
+    worker = AriaPlanWorker(session_factory, config=_CFG, interval_seconds=0.01, resolver=resolver)
     polled = worker.tick()  # one synchronous poll pass
     assert plan_id in polled
     with session_factory() as db:
@@ -220,7 +233,9 @@ def test_real_calibrate_capability_parks_then_resumes(session_factory, monkeypat
 
     # Resolve the job as completed → the plan resumes to completion.
     detail2 = ex.poll(
-        session_factory=session_factory, config=_CFG, plan_id=plan_id,
+        session_factory=session_factory,
+        config=_CFG,
+        plan_id=plan_id,
         resolver=FakeJobStatusResolver({"RFN-fake": JobStatus(state="done")}),
     )
     assert detail2["plan"]["status"] == "completed"

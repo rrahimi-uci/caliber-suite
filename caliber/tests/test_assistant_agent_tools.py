@@ -55,7 +55,9 @@ def _session(svc: AssistantService, factory: sessionmaker[Session]) -> str:
     ).session_id
 
 
-def _toolset(svc: AssistantService, factory: sessionmaker[Session], sid: str, *, mode: str, approval: str):
+def _toolset(
+    svc: AssistantService, factory: sessionmaker[Session], sid: str, *, mode: str, approval: str
+):
     return svc._build_agent_toolset(
         session_factory=factory, user=USER, session_id=sid, mode=mode, approval_mode=approval
     )
@@ -65,14 +67,22 @@ def _names(toolset) -> set[str]:
     return {s["function"]["name"] for s in toolset.specs()}
 
 
-def _make_draft(factory: sessionmaker[Session], sid: str, artifact_type: str, artifact: dict) -> str:
+def _make_draft(
+    factory: sessionmaker[Session], sid: str, artifact_type: str, artifact: dict
+) -> str:
     did = new_assistant_draft_id()
     with factory() as db:
         db.add(
             CaliberAssistantDraft(
-                draft_id=did, session_id=sid, artifact_type=artifact_type,
-                title="t", summary="s", spec={}, artifact=artifact,
-                created_by=USER, updated_by=USER,
+                draft_id=did,
+                session_id=sid,
+                artifact_type=artifact_type,
+                title="t",
+                summary="s",
+                spec={},
+                artifact=artifact,
+                created_by=USER,
+                updated_by=USER,
             )
         )
         db.commit()
@@ -95,8 +105,13 @@ class TestGating:
     def test_auto_safe_adds_safe_tools(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         names = _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_safe"))
-        assert {"validate_draft", "test_draft", "preview_workflow_draft", "run_quick_eval",
-                "propose_workflow_patch"} <= names
+        assert {
+            "validate_draft",
+            "test_draft",
+            "preview_workflow_draft",
+            "run_quick_eval",
+            "propose_workflow_patch",
+        } <= names
         assert "run_workflow" not in names and "publish_draft" not in names
 
     def test_auto_all_adds_mutate_tools(self, svc, session_factory) -> None:
@@ -125,8 +140,16 @@ class TestGating:
 class TestReadHandlers:
     def test_list_skills(self, svc, session_factory) -> None:
         with session_factory() as db:
-            db.add(CaliberSkill(skill_id="SK-a", name="billing", summary="b",
-                                content="c", owner=USER, category="custom"))
+            db.add(
+                CaliberSkill(
+                    skill_id="SK-a",
+                    name="billing",
+                    summary="b",
+                    content="c",
+                    owner=USER,
+                    category="custom",
+                )
+            )
             db.commit()
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
@@ -141,8 +164,11 @@ class TestReadHandlers:
 
     def test_get_workflow_run_trace_empty(self, svc, session_factory) -> None:
         with session_factory() as db:
-            db.add(CaliberWorkflowRun(workflow_run_id="WR-1", workflow_id="WF-1",
-                                      status="completed", trace_id=None))
+            db.add(
+                CaliberWorkflowRun(
+                    workflow_run_id="WR-1", workflow_id="WF-1", status="completed", trace_id=None
+                )
+            )
             db.commit()
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
@@ -169,7 +195,9 @@ class TestExecuteHandlers:
         sid = _session(svc, session_factory)
         did = _make_draft(session_factory, sid, "workflow", make_manifest("wf_preview"))
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("preview_workflow_draft", {"draft_id": did, "input_text": "hi"}))
+        out = json.loads(
+            ts.dispatch("preview_workflow_draft", {"draft_id": did, "input_text": "hi"})
+        )
         assert out["ok"]
         assert out["data"]["status"] is not None
         assert isinstance(out["data"]["steps"], list)
@@ -178,15 +206,25 @@ class TestExecuteHandlers:
         sid = _session(svc, session_factory)
         did = _make_draft(session_factory, sid, "tool", _FAKE_TOOL)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("preview_workflow_draft", {"draft_id": did, "input_text": "hi"}))
+        out = json.loads(
+            ts.dispatch("preview_workflow_draft", {"draft_id": did, "input_text": "hi"})
+        )
         assert "error" in out and "not a workflow" in out["error"]
 
     def test_run_workflow_enqueues(self, svc, session_factory) -> None:
         with session_factory() as db:
             db.add(CaliberWorkflow(workflow_id="WF-r", name="R", owner=USER, status="active"))
-            db.add(CaliberWorkflowVersion(version_id="WFV-r", workflow_id="WF-r", version_number=1,
-                                          status="published", manifest=make_manifest("WF-r"),
-                                          manifest_hash="h", created_by=USER))
+            db.add(
+                CaliberWorkflowVersion(
+                    version_id="WFV-r",
+                    workflow_id="WF-r",
+                    version_number=1,
+                    status="published",
+                    manifest=make_manifest("WF-r"),
+                    manifest_hash="h",
+                    created_by=USER,
+                )
+            )
             db.commit()
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
@@ -199,11 +237,20 @@ class TestExecuteHandlers:
         sid = _session(svc, session_factory)
         did = _make_draft(session_factory, sid, "workflow", make_manifest("wf_patch"))
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("propose_workflow_patch", {
-            "draft_id": did,
-            "evidence": {"category": "tool_use", "tool_called": False,
-                         "required_tools": ["lookup_policy"], "node_id": "agent"},
-        }))
+        out = json.loads(
+            ts.dispatch(
+                "propose_workflow_patch",
+                {
+                    "draft_id": did,
+                    "evidence": {
+                        "category": "tool_use",
+                        "tool_called": False,
+                        "required_tools": ["lookup_policy"],
+                        "node_id": "agent",
+                    },
+                },
+            )
+        )
         assert out["ok"]
         assert "ops" in out["data"] and "patched_manifest" in out["data"]
 
@@ -211,7 +258,9 @@ class TestExecuteHandlers:
         # Default config provider is fake → build_completion_fn returns None.
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("run_quick_eval", {"dataset_id": "ED-x", "instructions": "Be terse."}))
+        out = json.loads(
+            ts.dispatch("run_quick_eval", {"dataset_id": "ED-x", "instructions": "Be terse."})
+        )
         assert "error" in out and "real LLM provider" in out["error"]
 
 
@@ -225,8 +274,12 @@ def _seed_kb(factory: sessionmaker[Session], *, active_version_id: str | None = 
     with factory() as db:
         db.add(
             CaliberKnowledgeBase(
-                knowledge_base_id=kb_id, name="Policies", owner=USER, status="active",
-                visibility="public", source_bucket="kb-bucket",
+                knowledge_base_id=kb_id,
+                name="Policies",
+                owner=USER,
+                status="active",
+                visibility="public",
+                source_bucket="kb-bucket",
                 active_version_id=active_version_id,
             )
         )
@@ -238,8 +291,12 @@ class TestKnowledgeAndSandboxGating:
     def test_kb_reads_available_in_all_modes(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         names = _names(_toolset(svc, session_factory, sid, mode="chat", approval="manual"))
-        assert {"list_knowledge_bases", "get_knowledge_base",
-                "get_knowledge_base_calibration", "preview_skill_selection"} <= names
+        assert {
+            "list_knowledge_bases",
+            "get_knowledge_base",
+            "get_knowledge_base_calibration",
+            "preview_skill_selection",
+        } <= names
 
     def test_kb_query_and_sandbox_are_safe(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
@@ -261,20 +318,31 @@ class TestKnowledgeHandlers:
         _seed_kb(session_factory, active_version_id=None)
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("query_knowledge_base", {"knowledge_base_id": "KB-a1", "question": "refunds?"}))
+        out = json.loads(
+            ts.dispatch(
+                "query_knowledge_base", {"knowledge_base_id": "KB-a1", "question": "refunds?"}
+            )
+        )
         assert "error" in out and "active version" in out["error"]
 
     def test_get_calibration_returns_metrics(self, svc, session_factory) -> None:
         _seed_kb(session_factory)
         with session_factory() as db:
-            db.add(CaliberKnowledgeBaseTestRun(
-                test_run_id="KBTR-1", knowledge_base_id="KB-a1", knowledge_base_version_id="KBV-1",
-                retrieval_mode="dense", metrics={"recall_at_k": 0.8, "ndcg_at_k": 0.7},
-            ))
+            db.add(
+                CaliberKnowledgeBaseTestRun(
+                    test_run_id="KBTR-1",
+                    knowledge_base_id="KB-a1",
+                    knowledge_base_version_id="KBV-1",
+                    retrieval_mode="dense",
+                    metrics={"recall_at_k": 0.8, "ndcg_at_k": 0.7},
+                )
+            )
             db.commit()
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
-        out = json.loads(ts.dispatch("get_knowledge_base_calibration", {"knowledge_base_id": "KB-a1"}))
+        out = json.loads(
+            ts.dispatch("get_knowledge_base_calibration", {"knowledge_base_id": "KB-a1"})
+        )
         assert out["ok"] and out["data"][0]["metrics"]["recall_at_k"] == 0.8
 
 
@@ -297,9 +365,16 @@ class TestToolSandboxAndSkillTools:
 
     def test_preview_skill_selection(self, svc, session_factory) -> None:
         with session_factory() as db:
-            db.add(CaliberSkill(skill_id="SK-sel", name="refund-policy",
-                                summary="Handles refund questions", content="Cite the refund policy.",
-                                owner=USER, category="custom"))
+            db.add(
+                CaliberSkill(
+                    skill_id="SK-sel",
+                    name="refund-policy",
+                    summary="Handles refund questions",
+                    content="Cite the refund policy.",
+                    owner=USER,
+                    category="custom",
+                )
+            )
             db.commit()
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
@@ -310,11 +385,21 @@ class TestToolSandboxAndSkillTools:
 
 def _seed_dataset(factory: sessionmaker[Session], dataset_id: str, examples) -> None:
     with factory() as db:
-        db.add(CaliberEvalDataset(dataset_id=dataset_id, name=dataset_id, owner=USER,
-                                  status="active", version=1))
+        db.add(
+            CaliberEvalDataset(
+                dataset_id=dataset_id, name=dataset_id, owner=USER, status="active", version=1
+            )
+        )
         for inp, exp in examples:
-            db.add(CaliberEvalDatasetExample(example_id=new_eval_example_id(), dataset_id=dataset_id,
-                                             dataset_version=1, input=inp, expected=exp))
+            db.add(
+                CaliberEvalDatasetExample(
+                    example_id=new_eval_example_id(),
+                    dataset_id=dataset_id,
+                    dataset_version=1,
+                    input=inp,
+                    expected=exp,
+                )
+            )
         db.commit()
 
 
@@ -323,8 +408,12 @@ class TestDatasetAndEvalGating:
         sid = _session(svc, session_factory)
         manual = _names(_toolset(svc, session_factory, sid, mode="build", approval="manual"))
         safe = _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_safe"))
-        tools = {"create_eval_dataset", "evaluate_tool_draft", "evaluate_workflow_draft",
-                 "evaluate_skill_selection"}
+        tools = {
+            "create_eval_dataset",
+            "evaluate_tool_draft",
+            "evaluate_workflow_draft",
+            "evaluate_skill_selection",
+        }
         assert not (tools & manual)
         assert tools <= safe
 
@@ -333,27 +422,47 @@ class TestDatasetAndEvalTools:
     def test_create_eval_dataset_persists(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("create_eval_dataset", {
-            "name": "refund-cases",
-            "examples": [{"input": {"x": "hi"}, "expected": {"expected": "HI"}},
-                         {"input": "yo", "expected": "YO"}],
-        }))
+        out = json.loads(
+            ts.dispatch(
+                "create_eval_dataset",
+                {
+                    "name": "refund-cases",
+                    "examples": [
+                        {"input": {"x": "hi"}, "expected": {"expected": "HI"}},
+                        {"input": "yo", "expected": "YO"},
+                    ],
+                },
+            )
+        )
         assert out["ok"] and out["data"]["examples"] == 2
         with session_factory() as db:
-            ds = db.query(CaliberEvalDataset).filter(CaliberEvalDataset.name == "refund-cases").first()
+            ds = (
+                db.query(CaliberEvalDataset)
+                .filter(CaliberEvalDataset.name == "refund-cases")
+                .first()
+            )
             assert ds is not None
         # Duplicate name is rejected.
-        dup = json.loads(ts.dispatch("create_eval_dataset", {"name": "refund-cases",
-                                                             "examples": [{"input": "a", "expected": "b"}]}))
+        dup = json.loads(
+            ts.dispatch(
+                "create_eval_dataset",
+                {"name": "refund-cases", "examples": [{"input": "a", "expected": "b"}]},
+            )
+        )
         assert "error" in dup and "already exists" in dup["error"]
 
     def test_evaluate_tool_draft_scores(self, svc, session_factory) -> None:
-        _seed_dataset(session_factory, "ED-tool",
-                      [({"x": "hi"}, {"expected": "HI"}), ({"x": "yo"}, {"expected": "YO"})])
+        _seed_dataset(
+            session_factory,
+            "ED-tool",
+            [({"x": "hi"}, {"expected": "HI"}), ({"x": "yo"}, {"expected": "YO"})],
+        )
         sid = _session(svc, session_factory)
         did = _make_draft(session_factory, sid, "tool", _FAKE_TOOL)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("evaluate_tool_draft", {"draft_id": did, "dataset_id": "ED-tool"}))
+        out = json.loads(
+            ts.dispatch("evaluate_tool_draft", {"draft_id": did, "dataset_id": "ED-tool"})
+        )
         assert out["ok"]
         assert out["data"]["n_examples"] == 2
         # `upper` returns the uppercased input → exact match with expected.
@@ -364,18 +473,29 @@ class TestDatasetAndEvalTools:
         sid = _session(svc, session_factory)
         did = _make_draft(session_factory, sid, "workflow", make_manifest("wf_eval"))
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
-        out = json.loads(ts.dispatch("evaluate_workflow_draft", {"draft_id": did, "dataset_id": "ED-wf"}))
+        out = json.loads(
+            ts.dispatch("evaluate_workflow_draft", {"draft_id": did, "dataset_id": "ED-wf"})
+        )
         assert out["ok"]
         assert out["data"]["n_examples"] == 1
         assert "completion_rate" in out["data"]["scores"]
 
     def test_evaluate_skill_selection(self, svc, session_factory) -> None:
         with session_factory() as db:
-            db.add(CaliberSkill(skill_id="SK-bill", name="billing", summary="Handles refunds",
-                                content="Cite the refund policy.", owner=USER, category="custom"))
+            db.add(
+                CaliberSkill(
+                    skill_id="SK-bill",
+                    name="billing",
+                    summary="Handles refunds",
+                    content="Cite the refund policy.",
+                    owner=USER,
+                    category="custom",
+                )
+            )
             db.commit()
-        _seed_dataset(session_factory, "ED-skill",
-                      [({"input": "how do refunds work?"}, {"skill": "billing"})])
+        _seed_dataset(
+            session_factory, "ED-skill", [({"input": "how do refunds work?"}, {"skill": "billing"})]
+        )
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
         out = json.loads(ts.dispatch("evaluate_skill_selection", {"dataset_id": "ED-skill"}))

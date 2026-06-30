@@ -194,7 +194,9 @@ def test_send_message_falls_back_to_defaults_for_invalid_persisted_mode_and_appr
     sid = _create_session(svc, session_factory)
     updated = svc.update_session(
         sid,
-        SessionUpdateRequest(metadata_={"assistant_mode": "review", "assistant_approval_mode": "always"}),
+        SessionUpdateRequest(
+            metadata_={"assistant_mode": "review", "assistant_approval_mode": "always"}
+        ),
         session_factory=session_factory,
         user=USER,
     )

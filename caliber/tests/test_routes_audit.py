@@ -78,9 +78,9 @@ def test_filter_by_actor(client: TestClient, db_session: Session) -> None:
 
 def test_filter_by_action_and_entity_type(client: TestClient, db_session: Session) -> None:
     _seed(db_session)
-    data = client.get(
-        LIST_PATH, params={"action": "approve", "entity_type": "workflow"}
-    ).json()["data"]
+    data = client.get(LIST_PATH, params={"action": "approve", "entity_type": "workflow"}).json()[
+        "data"
+    ]
     assert data["total"] == 1
     assert data["entries"][0]["entity_id"] == "WF-1"
 

@@ -130,10 +130,22 @@ def test_bind_read_remaining_break_stops_after_cap(env) -> None:
     """The remaining<=0 guard stops reading once the cap is exhausted (lines 221-222)."""
     svc, session, ctx = env
     svc.register_upload(
-        session, ctx, kind="input", filename="a.in", data=b"AAAA", media_type="text/plain", actor="@me"
+        session,
+        ctx,
+        kind="input",
+        filename="a.in",
+        data=b"AAAA",
+        media_type="text/plain",
+        actor="@me",
     )
     svc.register_upload(
-        session, ctx, kind="input", filename="b.in", data=b"BBBB", media_type="text/plain", actor="@me"
+        session,
+        ctx,
+        kind="input",
+        filename="b.in",
+        data=b"BBBB",
+        media_type="text/plain",
+        actor="@me",
     )
     session.flush()
     # read_cap=4 -> first file consumes the whole budget; second file is skipped.

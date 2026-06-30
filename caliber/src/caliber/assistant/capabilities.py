@@ -129,7 +129,9 @@ def _judge_list(ctx: CapabilityContext, _args: dict[str, Any]) -> Any:
     with ctx.session_factory() as session:
         rows = (
             session.execute(
-                select(CaliberJudge).where(CaliberJudge.status == "active").order_by(CaliberJudge.name)
+                select(CaliberJudge)
+                .where(CaliberJudge.status == "active")
+                .order_by(CaliberJudge.name)
             )
             .scalars()
             .all()

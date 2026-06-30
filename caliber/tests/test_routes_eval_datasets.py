@@ -362,19 +362,13 @@ class _RaisingSyncClient:
         raise RuntimeError("mlflow unreachable")
 
 
-def test_sync_dataset_pushes_current_examples(
-    client: TestClient, db_session: Session
-) -> None:
+def test_sync_dataset_pushes_current_examples(client: TestClient, db_session: Session) -> None:
     _seed_dataset(db_session, dataset_id="ED-1")
     # One live example + one superseded (the superseded one must NOT be pushed).
     client.post(EXAMPLES_PATH.replace("{dataset_id}", "ED-1"), json={"input": {"q": 1}})
-    created = client.post(
-        EXAMPLES_PATH.replace("{dataset_id}", "ED-1"), json={"input": {"q": 2}}
-    )
+    created = client.post(EXAMPLES_PATH.replace("{dataset_id}", "ED-1"), json={"input": {"q": 2}})
     example_id = created.json()["data"]["example_id"]
-    client.post(
-        SUPERSEDE_PATH.replace("{dataset_id}", "ED-1").replace("{example_id}", example_id)
-    )
+    client.post(SUPERSEDE_PATH.replace("{dataset_id}", "ED-1").replace("{example_id}", example_id))
 
     fake = FakeDatasetSyncClient(dataset_id="d-123", digest="abc")
     client.app.state.dataset_sync_client = fake
@@ -419,9 +413,7 @@ def test_sync_dataset_404_for_unknown_dataset(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_sync_dataset_502_on_mlflow_failure(
-    client: TestClient, db_session: Session
-) -> None:
+def test_sync_dataset_502_on_mlflow_failure(client: TestClient, db_session: Session) -> None:
     _seed_dataset(db_session, dataset_id="ED-1")
     client.app.state.dataset_sync_client = _RaisingSyncClient()
     try:

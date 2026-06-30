@@ -132,9 +132,7 @@ def test_apply_mints_born_approved_anchor_and_checkpoint(
     assert checkpoint.agent_id == "support-agent"
 
 
-def test_apply_writes_apply_and_promote_audit_rows(
-    client: TestClient, db_session: Session
-) -> None:
+def test_apply_writes_apply_and_promote_audit_rows(client: TestClient, db_session: Session) -> None:
     _seed_candidate_ready_job(db_session)
     client.post(APPLY_PATH.format(job_id="RFN-A"))
 

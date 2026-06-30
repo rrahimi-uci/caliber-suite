@@ -29,9 +29,7 @@ def _patch_probes(monkeypatch: pytest.MonkeyPatch, *, http: svc._Probe, tcp: svc
     monkeypatch.setattr(svc, "_probe_tcp", _tcp)
 
 
-def test_lists_services_with_health(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_lists_services_with_health(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _set_config(
         client,
         gateway_uri="http://gw:5002",
@@ -50,9 +48,14 @@ def test_lists_services_with_health(
     by_key = {s["key"]: s for s in data["services"]}
 
     # Core services always present; graph console appears because age_url is set.
-    assert {"mlflow", "mlflow_gateway", "object_store", "database", "event_bus", "graph_console"} <= set(
-        by_key
-    )
+    assert {
+        "mlflow",
+        "mlflow_gateway",
+        "object_store",
+        "database",
+        "event_bus",
+        "graph_console",
+    } <= set(by_key)
     assert by_key["mlflow"]["healthy"] is True
     assert by_key["mlflow"]["url"].endswith(":5000")
     assert by_key["event_bus"]["healthy"] is True

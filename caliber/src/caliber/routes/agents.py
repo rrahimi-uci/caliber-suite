@@ -116,7 +116,9 @@ async def get_agent(request: Request) -> JSONResponse:
     agent_id = request.path_params["agent_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = get_visible(session, CaliberAgentConfig, CaliberAgentConfig.agent_id, agent_id, identity)
+        row = get_visible(
+            session, CaliberAgentConfig, CaliberAgentConfig.agent_id, agent_id, identity
+        )
     if row is None:
         raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
     return envelope_response(AgentConfigSchema.model_validate(row))
