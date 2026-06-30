@@ -1,0 +1,1 @@
+WARNING  caliber.llm.openai_agents:openai_agents.py:578 DSPyBootstrapFewShot unavailable for job=RFN-1: DSPy optimizer dependencies are not installed. Install with `pip install caliber[dspy]` to enable DSPy refinement paths.

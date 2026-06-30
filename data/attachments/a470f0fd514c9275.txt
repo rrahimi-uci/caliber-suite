@@ -1,0 +1,1 @@
+INFO     caliber.orchestrator.candidate:candidate.py:265 candidate complete: job=RFN-GEPA optimizer=MetaPrompt cost_usd=0.0040

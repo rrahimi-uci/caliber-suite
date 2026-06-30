@@ -1,0 +1,1 @@
+{"t":"2026-06-30T02:51:10.553Z","severity":"WARNING","logger":"caliber.orchestrator.janitor","message":"reaped stale job=RFN-AUDIT agent=agent stage=evidence heartbeat=2026-06-30T00:51:10.543016","trace_id":"9842fa8e47a0ec2a"}

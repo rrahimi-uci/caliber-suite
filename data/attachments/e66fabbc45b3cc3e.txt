@@ -1,0 +1,1 @@
+{"t":"2026-06-30T02:52:07.183Z","severity":"INFO","logger":"caliber.orchestrator.diagnosis","message":"diagnosis complete: job=RFN-DIAG confidence=0.87 cost_usd=0.0015"}

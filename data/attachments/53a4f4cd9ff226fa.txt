@@ -1,0 +1,1 @@
+WARNING  caliber.csrf:csrf.py:289 csrf is enabled but the secret source 'MISSING_SECRET' resolved to empty; CSRF protection will not engage. Set the source named by config.csrf_signing_secret_env.

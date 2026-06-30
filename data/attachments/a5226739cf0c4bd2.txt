@@ -1,0 +1,3 @@
+INFO     caliber.events.webhooks:webhooks.py:127 webhook dispatcher started (urls=2, events=*)
+WARNING  caliber.events.webhooks:webhooks.py:194 webhook POST failed: url=https://broken.example/hook event='approval.promoted' err=simulated failure
+INFO     caliber.events.webhooks:webhooks.py:143 webhook dispatcher stopped

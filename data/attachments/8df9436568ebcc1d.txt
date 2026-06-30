@@ -1,0 +1,13 @@
+{"t":"2026-06-30T02:54:28.833Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-06-30T02:54:31.349Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-06-30T02:54:33.683Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-06-30T02:54:39.330Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-06-30T02:54:42.333Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T02:54:44.761Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T02:54:49.119Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T02:54:51.522Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T02:54:55.870Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T02:54:59.673Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects/delete \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T02:55:02.784Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects/delete \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T02:55:07.707Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects?recursive=true \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T02:55:12.943Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bdx/objects/delete \"HTTP/1.1 200 OK\""}

@@ -1,0 +1,9 @@
+WARNING  caliber.orchestrator.candidate:candidate.py:391 failed to register candidate draft prompt for job=RFN-C
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/orchestrator/candidate.py", line 380, in _register_candidate_prompt_draft
+    version = register_prompt(
+              ^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_orchestrator_candidate.py", line 298, in _register_prompt
+    raise RuntimeError("registry offline")
+RuntimeError: registry offline
+INFO     caliber.orchestrator.candidate:candidate.py:265 candidate complete: job=RFN-C optimizer=MetaPrompt cost_usd=0.0040

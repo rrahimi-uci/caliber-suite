@@ -1,0 +1,5 @@
+{"t":"2026-06-30T02:46:24.242Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-06-30T02:46:24.263Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-06-30T02:46:24.266Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-06-30T02:46:24.303Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PUT http://testserver/ajax-api/2.0/mlflow/caliber/mcp-servers/MCP-r1/tools/create_table/test-cases \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T02:46:24.312Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/mcp-servers/MCP-r1/tools/create_table/calibrate \"HTTP/1.1 200 OK\""}

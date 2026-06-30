@@ -1,0 +1,1 @@
+WARNING  caliber.secrets:secrets.py:146 secret source 'test': file is empty

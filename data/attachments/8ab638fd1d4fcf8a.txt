@@ -1,0 +1,1 @@
+WARNING  caliber.llm.openai_agents:openai_agents.py:469 gepa library not installed; falling back to MetaPrompt for job=RFN-G-FALLBACK

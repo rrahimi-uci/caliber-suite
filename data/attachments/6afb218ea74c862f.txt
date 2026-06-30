@@ -1,0 +1,2 @@
+INFO     caliber.orchestrator.optimizer_select:optimizer_select.py:143 GEPA selected for job=RFN-GEPA (diagnosis meets GEPA criteria)
+INFO     caliber.orchestrator.candidate:candidate.py:265 candidate complete: job=RFN-GEPA optimizer=GEPA cost_usd=0.0040

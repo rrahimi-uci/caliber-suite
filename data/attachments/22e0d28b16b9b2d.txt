@@ -1,0 +1,1 @@
+{"t":"2026-06-30T02:48:37.140Z","severity":"INFO","logger":"caliber.orchestrator.workflow_stages","message":"workflow candidate complete: job=RFN-WF patch=WP-c83967e5 kind=workflow_manifest"}
