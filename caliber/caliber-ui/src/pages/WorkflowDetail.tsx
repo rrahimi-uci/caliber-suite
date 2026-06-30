@@ -31,6 +31,8 @@ import type {
   GraphDiff as GraphDiffData,
 } from "@/api/workflowTypes";
 import { SearchInput } from "@/components/SearchInput";
+import { VersionPanel } from "@/components/versioning/VersionPanel";
+import { makeWorkflowVersionAdapter } from "@/components/versioning/adapters";
 import { Canvas } from "@/components/workflows/Canvas";
 import { GraphDiff } from "@/components/workflows/GraphDiff";
 import { NodeDetailPanel } from "@/components/workflows/NodeDetailPanel";
@@ -1304,6 +1306,12 @@ export function WorkflowDetail(): JSX.Element {
   }, [agentsQuery.data, calibrationAgentId]);
 
   const versions = useMemo(() => versionsQuery.data ?? [], [versionsQuery.data]);
+  // Memoized so the panel's load effect (which depends on adapter identity) does
+  // not reload-loop — see the VersionPanel contract.
+  const workflowVersionAdapter = useMemo(
+    () => makeWorkflowVersionAdapter(workflowId!),
+    [workflowId],
+  );
   const latest: WorkflowVersion | undefined =
     versions.find((v) => v.status === "published") ?? versions[0];
   const draft = versions.find((v) => v.status === "draft");
@@ -3120,6 +3128,7 @@ export function WorkflowDetail(): JSX.Element {
       {/* ── Versions tab ── */}
       {tab === "versions" && (
         <div className="space-y-4">
+          <VersionPanel adapter={workflowVersionAdapter} />
           <div className="rounded-2xl border border-slate-200/60 bg-white shadow-card overflow-hidden">
             {versions.length > 0 ? (
               <table className="w-full text-sm" data-testid="versions-table">

@@ -94,7 +94,7 @@ Open the local UI at `http://127.0.0.1:5001/caliber/login`. For a full container
 ```bash
 cd caliber
 ruff check src tests && mypy src
-pytest
+pytest -n auto -m "not integration"   # xdist parallel; the opt-in integration tests need external servers
 
 cd caliber-ui
 npm run lint

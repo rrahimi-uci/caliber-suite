@@ -8,10 +8,16 @@ unknown-tool and policy-blocked invokes, and tool-policy updates.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberMcpServer
+from caliber.db.models import (
+    CaliberAuditLog,
+    CaliberMcpServer,
+    CaliberWorkflowDeployment,
+    CaliberWorkflowVersion,
+)
 from caliber.mcp_gateway import McpGatewayTransportError
 from caliber.routes import mcp_servers as mcp_routes
 
@@ -35,6 +41,61 @@ def _seed(db: Session, **kw: object) -> CaliberMcpServer:
 
 def _raise_gateway(*_a: object, **_k: object) -> object:
     raise McpGatewayTransportError("boom: cannot connect")
+
+
+def test_delete_mcp_server_snapshots_full_definition(
+    client: TestClient, db_session: Session
+) -> None:
+    """A hard delete records the FULL server definition in the audit row so it
+    can be recreated — not just the name as before."""
+    _seed(db_session, server_id="MCP-del", name="Relational")
+    resp = client.delete(f"{BASE}/MCP-del")
+    assert resp.status_code == 204
+
+    rows = (
+        db_session.execute(select(CaliberAuditLog).where(CaliberAuditLog.entity_id == "MCP-del"))
+        .scalars()
+        .all()
+    )
+    delete_rows = [r for r in rows if r.action == "delete_mcp_server"]
+    assert len(delete_rows) == 1
+    snapshot = (delete_rows[0].details or {}).get("snapshot")
+    assert snapshot is not None
+    assert snapshot["name"] == "Relational"
+    assert snapshot["server_id"] == "MCP-del"
+    assert snapshot["transport"] == "stdio"
+
+
+def test_delete_mcp_server_blocked_when_referenced_by_active_deployment(
+    client: TestClient, db_session: Session
+) -> None:
+    """Deleting a server bound by a live deployment is a 409, not a silent orphan."""
+    _seed(db_session, server_id="MCP-ref")
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WFV-ref",
+            workflow_id="WF-ref",
+            version_number=1,
+            status="published",
+            manifest={"tools": {"db": {"server_id": "MCP-ref", "tool_name": "query"}}},
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="DEP-ref",
+            workflow_id="WF-ref",
+            alias="prod",
+            version_id="WFV-ref",
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    resp = client.delete(f"{BASE}/MCP-ref")
+    assert resp.status_code == 409
+    assert "referenced" in resp.json()["detail"]
+    # The server must still exist (delete was refused).
+    assert db_session.get(CaliberMcpServer, "MCP-ref") is not None
 
 
 # ── test-connection ───────────────────────────────────────────────────────

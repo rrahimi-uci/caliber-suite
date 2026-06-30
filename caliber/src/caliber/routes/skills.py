@@ -41,6 +41,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -59,6 +60,7 @@ from caliber.auth import (
 from caliber.builtin_skills import register_builtin_skills
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberAuditLog,
     CaliberRefinementJob,
     CaliberSkill,
     CaliberSkillTestRun,
@@ -126,6 +128,7 @@ WORKSPACE_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/workspace"
 BASELINE_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/baseline"
 BIND_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/bind"
 CALIBRATE_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/calibrate"
+ROLLBACK_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/rollback"
 
 # History listing defaults/cap for ``GET /skills/test-runs``.
 _TEST_RUNS_DEFAULT_LIMIT = 20
@@ -476,6 +479,90 @@ async def update_skill(request: Request) -> JSONResponse:
             details={
                 "changes": diff,
                 "version_bumped": version_changed,
+            },
+        )
+        session.commit()
+        data = SkillSchema.model_validate(skill)
+
+    return envelope_response(data)
+
+
+def _previous_skill_content(session: Session, skill_id: str, current_content: str) -> str | None:
+    """The skill content that was live immediately before ``current_content``.
+
+    Read from the audit trail: every content-changing edit records
+    ``details.changes.content = {"from": <old>, "to": <new>}``. We find the most
+    recent edit/rollback whose ``to`` is the content currently live and return
+    its ``from`` — the exact prior content. Walking the trail this way lets
+    repeated rollbacks step backwards through real edit history.
+    """
+    rows = (
+        session.execute(
+            select(CaliberAuditLog)
+            .where(CaliberAuditLog.entity_type == "skill")
+            .where(CaliberAuditLog.entity_id == skill_id)
+            .where(CaliberAuditLog.action.in_(("update_skill", "rollback_skill")))
+            .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
+            .limit(100)
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        content_change = ((row.details or {}).get("changes") or {}).get("content")
+        if not isinstance(content_change, dict):
+            continue
+        if content_change.get("to") == current_content:
+            prior = content_change.get("from")
+            return prior if isinstance(prior, str) else None
+    return None
+
+
+async def rollback_skill(request: Request) -> JSONResponse:
+    """``POST /caliber/skills/{skill_id}/rollback`` — restore the prior content.
+
+    Skills are a single mutable row, so a content edit overwrites the previous
+    text. This rolls the content back to the exact value recorded before the
+    most recent edit (read from the audit trail) as a *new* version — keeping
+    the forward-only version counter monotonic. Returns 409 when there is no
+    recorded prior content to restore.
+    """
+    skill_id = request.path_params["skill_id"]
+    actor = require_scopes(request, [SCOPE_ADMIN])
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        skill = session.get(CaliberSkill, skill_id)
+        if skill is None:
+            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+
+        target_content = _previous_skill_content(session, skill_id, skill.content)
+        if target_content is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"no recorded prior content for skill {skill_id!r}; "
+                    "rollback needs an audited content edit to restore"
+                ),
+            )
+
+        current_content = skill.content
+        old_version = skill.version
+        skill.content = target_content
+        skill.version = old_version + 1
+
+        audit_record(
+            session,
+            actor=actor,
+            action="rollback_skill",
+            entity_type="skill",
+            entity_id=skill.skill_id,
+            details={
+                "changes": {
+                    "content": {"from": current_content, "to": target_content},
+                    "version": {"from": old_version, "to": skill.version},
+                },
+                "version_bumped": True,
             },
         )
         session.commit()
@@ -1115,5 +1202,6 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(BASELINE_PATH, set_skill_baseline, methods=["POST"]))
     app.routes.append(Route(BIND_PATH, bind_skill, methods=["POST"]))
     app.routes.append(Route(CALIBRATE_PATH, calibrate_skill, methods=["POST"]))
+    app.routes.append(Route(ROLLBACK_PATH, rollback_skill, methods=["POST"]))
     app.routes.append(Route(DETAIL_PATH, get_skill, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, update_skill, methods=["PATCH"]))

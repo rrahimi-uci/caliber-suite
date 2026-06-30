@@ -13,6 +13,7 @@ from time import perf_counter
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -22,7 +23,11 @@ from starlette.routing import Route
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user
 from caliber.calibration import aggregate, evaluate_assertion
-from caliber.db.models import CaliberMcpServer
+from caliber.db.models import (
+    CaliberMcpServer,
+    CaliberWorkflowDeployment,
+    CaliberWorkflowVersion,
+)
 from caliber.ids import new_mcp_server_id
 from caliber.mcp_gateway import (
     McpGatewayError,
@@ -218,6 +223,31 @@ async def update_mcp_server(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
+def _deployments_referencing_server(session: Session, server_id: str) -> list[str]:
+    """``{alias}@{workflow_id}`` for every *active* deployment whose version
+    manifest binds a tool on ``server_id`` — used to block a destructive delete
+    that would silently orphan a live workflow's MCP binding."""
+    deployments = (
+        session.execute(
+            select(CaliberWorkflowDeployment).where(CaliberWorkflowDeployment.status == "active")
+        )
+        .scalars()
+        .all()
+    )
+    blocking: list[str] = []
+    for deployment in deployments:
+        version = session.get(CaliberWorkflowVersion, deployment.version_id)
+        if version is None:
+            continue
+        tools = (version.manifest or {}).get("tools", {})
+        if any(
+            isinstance(binding, dict) and binding.get("server_id") == server_id
+            for binding in tools.values()
+        ):
+            blocking.append(f"{deployment.alias}@{deployment.workflow_id}")
+    return blocking
+
+
 async def delete_mcp_server(request: Request) -> JSONResponse:
     server_id = request.path_params["server_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
@@ -226,13 +256,27 @@ async def delete_mcp_server(request: Request) -> JSONResponse:
         server = session.get(CaliberMcpServer, server_id)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
+        # Block deletion that would orphan a live workflow's MCP binding, rather
+        # than silently breaking the next run (the console used to delete blind).
+        referencing = _deployments_referencing_server(session, server_id)
+        if referencing:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"MCP server {server_id!r} is referenced by active deployment(s): "
+                    f"{', '.join(referencing)}; undeploy those workflows first"
+                ),
+            )
+        # Snapshot the FULL definition (not just the name) into the audit row so
+        # the delete is recoverable / recreatable from history.
+        snapshot = McpServerSchema.model_validate(server).model_dump(mode="json")
         audit_record(
             session,
             actor=actor,
             action="delete_mcp_server",
             entity_type="mcp_server",
             entity_id=server.server_id,
-            details={"name": server.name},
+            details={"name": server.name, "snapshot": snapshot},
         )
         session.delete(server)
         session.commit()

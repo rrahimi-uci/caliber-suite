@@ -245,6 +245,15 @@ fall below the negative regression ceiling. Cold-start evaluations, which have n
 baseline, skip the regression rule entirely. The decision carries its reasons and
 the thresholds it used.
 
+This verdict is also surfaced **advisorily** per artifact version. A single row
+per `(artifact_type, version_key)` lives in `caliber_gate_verdicts` (migration
+`0062`) and is read and upserted through `GET`/`POST /gate-verdicts/{artifact_type}/{version_key}`
+(`gate_verdicts.py`); the prompt promote path stamps it from the supplied gate
+fields so the version surface shows `pass`/`fail`/`none` before a promotion. The
+verdict is strictly advisory — it never blocks an alias rotation — and `state` is
+authoritative over both gate rules, with the numeric columns kept only as display
+detail.
+
 The trust boundary is that scores must be earned: creating a scorecard run requires
 the `operator` scope, evaluation requires a real configured LLM provider, and
 version pinning makes a run reproducible against the exact example set it scored.
@@ -294,7 +303,10 @@ and a feedback value type (`bool` / `int` / `float` / `str`). They are managed o
 the **Judges** page and stored in `caliber_judges` (migration `0053`), scoped and
 archived like the other CALIBER assets. A schema validator enforces that the
 instructions reference at least one evaluation variable so a judge always has
-something to score.
+something to score. Updating a judge records the full from/to value diff in the
+audit row (not just the changed field names), so a judge's prior instructions and
+model stay recoverable after an edit — historical eval runs cite a judge by token
+only, so this is what keeps their verdicts interpretable.
 
 CALIBER is the source of truth for the definition; the judge is rebuilt
 deterministically on every run rather than persisted in MLflow. Every judge in

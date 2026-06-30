@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberAuditLog,
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
     CaliberPromptTestRun,
@@ -449,6 +450,69 @@ def test_create_prompt_version_success_and_503_when_api_missing(
     assert unavailable.status_code == 503
 
 
+def test_create_prompt_version_defaults_to_promoting_live(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    """Backward compatibility: omitting ``promote`` rotates the live ``prod`` alias."""
+    calls = _install_mlflow(monkeypatch)
+    ok = client.post(f"{PREFIX}/support-agent/versions", json={"template": "v2"})
+    assert ok.status_code == 201
+    data = ok.json()["data"]
+    assert data["active_alias"] == "prod"
+    assert data["alias_changed"] is True
+    assert calls["alias_calls"] == [("support-agent", "prod", 7)]
+
+
+def test_create_prompt_version_draft_does_not_rotate_alias(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    """``promote: false`` registers the version but leaves the live alias untouched."""
+    calls = _install_mlflow(monkeypatch)
+    ok = client.post(
+        f"{PREFIX}/support-agent/versions",
+        json={"template": "candidate draft", "promote": False},
+    )
+    assert ok.status_code == 201
+    data = ok.json()["data"]
+    # The version is registered…
+    assert data["version"] == 7
+    assert len(calls["register_calls"]) == 1
+    # …but no alias is rotated, so a developer can evaluate before going live.
+    assert data["alias_changed"] is False
+    assert data["active_alias"] == ""
+    assert calls["alias_calls"] == []
+
+
+def test_create_prompt_version_draft_ignores_target_alias(
+    client: TestClient,
+    monkeypatch,
+    multi_alias: None,
+) -> None:
+    """When not promoting, a supplied ``target_alias`` must not trigger a rotation."""
+    calls = _install_mlflow(monkeypatch)
+    ok = client.post(
+        f"{PREFIX}/support-agent/versions",
+        json={"template": "v9", "promote": False, "target_alias": "staging"},
+    )
+    assert ok.status_code == 201
+    assert ok.json()["data"]["active_alias"] == ""
+    assert calls["alias_calls"] == []
+
+
+def test_create_prompt_version_rejects_non_boolean_promote(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    _install_mlflow(monkeypatch)
+    bad = client.post(
+        f"{PREFIX}/support-agent/versions",
+        json={"template": "v2", "promote": "yes"},
+    )
+    assert bad.status_code == 400
+
+
 def test_list_prompt_versions_reads_aliases_from_mlflow_client(
     client: TestClient,
     monkeypatch,
@@ -630,6 +694,153 @@ def test_set_alias_and_version_errors(client: TestClient, monkeypatch) -> None:
     ok = client.post(f"{PREFIX}/support-agent/aliases/prod", json={"version": "3"})
     assert ok.status_code == 200
     assert called["alias_calls"] == [("support-agent", "prod", 3)]
+
+
+def _audit_rows(
+    session_factory: sessionmaker[Session], entity_id: str
+) -> list[CaliberAuditLog]:
+    with session_factory() as session:
+        return list(
+            session.execute(
+                select(CaliberAuditLog)
+                .where(CaliberAuditLog.entity_type == "prompt")
+                .where(CaliberAuditLog.entity_id == entity_id)
+                .order_by(CaliberAuditLog.log_id.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+
+def test_promote_records_audit_with_exact_previous_live_and_gate(
+    client: TestClient,
+    monkeypatch,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Promoting an alias writes an auditable ``promote_prompt`` row that captures
+    the exact outgoing version and the advisory-gate override."""
+    calls = _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": SimpleNamespace(
+                name="support-agent", version=4, template="live v4"
+            )
+        },
+    )
+    resp = client.post(
+        f"{PREFIX}/support-agent/aliases/prod",
+        json={
+            "version": 5,
+            "gate_state": "fail",
+            "gate_score": 0.71,
+            "overridden": True,
+            "override_reason": "urgent hotfix",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["version"] == 5
+    assert data["previous_live_version"] == 4
+    assert ("support-agent", "prod", 5) in calls["alias_calls"]
+
+    rows = _audit_rows(session_factory, "support-agent")
+    promote = [r for r in rows if r.action == "promote_prompt"]
+    assert len(promote) == 1
+    details = promote[0].details or {}
+    assert details["from_version"] == 4
+    assert details["to_version"] == 5
+    assert details["gate_state"] == "fail"
+    assert details["gate_score"] == 0.71
+    assert details["overridden"] is True
+    assert details["override_reason"] == "urgent hotfix"
+
+    # The advisory verdict is persisted keyed by the now-live version so the
+    # Version panel can read it back.
+    verdict = client.get(
+        "/ajax-api/2.0/mlflow/caliber/gate-verdicts/prompt/5"
+    )
+    assert verdict.status_code == 200
+    verdict_data = verdict.json()["data"]
+    assert verdict_data["state"] == "fail"
+    assert verdict_data["score"] == 0.71
+
+
+def test_promote_rejects_bad_gate_fields(client: TestClient, monkeypatch) -> None:
+    _install_mlflow(monkeypatch)
+    bad = client.post(
+        f"{PREFIX}/support-agent/aliases/prod",
+        json={"version": 2, "overridden": "yes"},
+    )
+    assert bad.status_code == 400
+
+
+def test_rollback_prompt_restores_exact_previous_live(
+    client: TestClient,
+    monkeypatch,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Rollback rotates the alias back to the exact version recorded as live
+    before the current one, and writes a ``rollback_prompt`` audit row."""
+    # Current live is v5; an audited promotion recorded v4 -> v5.
+    calls = _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": SimpleNamespace(
+                name="support-agent", version=5, template="live v5"
+            )
+        },
+    )
+    with session_factory() as session:
+        session.add(
+            CaliberAuditLog(
+                actor="@op",
+                action="promote_prompt",
+                entity_type="prompt",
+                entity_id="support-agent",
+                details={"alias": "prod", "from_version": 4, "to_version": 5},
+            )
+        )
+        session.commit()
+
+    resp = client.post(f"{PREFIX}/support-agent/rollback", json={})
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["version"] == 4
+    assert data["rolled_back_from"] == 5
+    assert ("support-agent", "prod", 4) in calls["alias_calls"]
+
+    rows = _audit_rows(session_factory, "support-agent")
+    rollback = [r for r in rows if r.action == "rollback_prompt"]
+    assert len(rollback) == 1
+    assert (rollback[0].details or {})["to_version"] == 4
+
+
+def test_rollback_prompt_409_when_no_prior_promotion(
+    client: TestClient,
+    monkeypatch,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """A live version with no recorded prior promotion cannot be rolled back."""
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": SimpleNamespace(
+                name="support-agent", version=5, template="live v5"
+            )
+        },
+    )
+    resp = client.post(f"{PREFIX}/support-agent/rollback", json={})
+    assert resp.status_code == 409
+
+
+def test_rollback_prompt_409_when_no_live_version(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    """No live version on the alias -> nothing to roll back."""
+    _install_mlflow(monkeypatch)  # load_prompt returns None for every ref
+    resp = client.post(f"{PREFIX}/support-agent/rollback", json={})
+    assert resp.status_code == 409
 
 
 def test_test_render_prompt_uses_loaded_template_and_fallback(

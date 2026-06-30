@@ -20,6 +20,8 @@ import { SearchInput } from "@/components/SearchInput";
 import { FilterSelect } from "@/components/FilterSelect";
 import { ViewToggle } from "@/components/ViewToggle";
 import { CalibrationStep, StepConnector } from "@/components/CalibrationStep";
+import { VersionPanel } from "@/components/versioning/VersionPanel";
+import { makePromptVersionAdapter } from "@/components/versioning/adapters";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { useViewMode } from "@/hooks/useViewMode";
 import type {
@@ -1519,7 +1521,17 @@ function PromptAuthorStage({
     };
   }, [promptName, initialAlias]);
 
-  const save = async () => {
+  // Memoize the adapter so <VersionPanel> doesn't reload-loop on every render
+  // (its load effect keys off the adapter identity).
+  const versionAdapter = useMemo(
+    () => makePromptVersionAdapter(promptName),
+    [promptName],
+  );
+
+  // `promote` threads the developer-draft flow: false registers a version
+  // without rotating the live alias; true (default) keeps the existing
+  // save-and-go-live behavior.
+  const save = async (promote: boolean) => {
     if (!template.trim()) {
       setError("Template is required.");
       return;
@@ -1532,10 +1544,13 @@ function PromptAuthorStage({
         template,
         commit_message: commitMessage.trim() || undefined,
         target_alias: targetAlias,
+        promote,
       });
       setInitialTemplate(template);
       setCommitMessage("");
-      setSavedNote("Saved a new version.");
+      setSavedNote(
+        promote ? "Saved & promoted a new version." : "Saved a draft version.",
+      );
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save prompt");
@@ -1611,17 +1626,35 @@ function PromptAuthorStage({
           </div>
         )}
 
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-end gap-2">
           <button
             type="button"
-            onClick={() => void save()}
+            onClick={() => void save(false)}
+            disabled={
+              loadingTemplate || saving || template === initialTemplate || !template.trim()
+            }
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save draft"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void save(true)}
             disabled={
               loadingTemplate || saving || template === initialTemplate || !template.trim()
             }
             className="rounded-md bg-caliber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-caliber-700 disabled:opacity-60"
           >
-            {saving ? "Saving…" : "Save as New Version"}
+            {saving ? "Saving…" : "Save & promote"}
           </button>
+        </div>
+      </div>
+
+      {/* Version history for the open prompt — promote/roll back live here. */}
+      <div className="mt-6 border-t border-slate-200/70 pt-4">
+        <h3 className="text-sm font-semibold text-slate-900">Version history</h3>
+        <div className="mt-3">
+          <VersionPanel adapter={versionAdapter} />
         </div>
       </div>
     </div>

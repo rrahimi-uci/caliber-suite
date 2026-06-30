@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
 import yaml
 from pydantic import ValidationError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -385,6 +387,87 @@ async def list_versions(request: Request) -> JSONResponse:
     return envelope_response(items)
 
 
+# How many times to re-allocate ``version_number`` when a concurrent create
+# wins the race to the same number. ``version_number`` is computed as
+# ``MAX + 1`` and guarded by ``UniqueConstraint(workflow_id, version_number)``;
+# without this retry a concurrent insert surfaces as an unhandled 500.
+_MAX_VERSION_ALLOC_ATTEMPTS = 5
+
+
+def _insert_version_with_retry(
+    factory: Callable[[], Session],
+    *,
+    workflow_id: str,
+    manifest: dict[str, Any],
+    actor: str,
+    audit_action: str,
+    extra_audit_details: dict[str, Any] | None = None,
+    precheck: Callable[[Session], None] | None = None,
+) -> WorkflowVersionSchema:
+    """Allocate ``MAX(version_number) + 1`` and insert a draft version, retrying
+    on the unique-constraint race instead of leaking an ``IntegrityError`` 500.
+
+    Each attempt uses a fresh session because a failed commit leaves the prior
+    session unusable. Non-conflict errors (e.g. a 404 from ``precheck``)
+    propagate immediately; only the ``version_number`` collision is retried.
+    """
+    manifest_hash = compute_manifest_hash(manifest)
+    for attempt in range(_MAX_VERSION_ALLOC_ATTEMPTS):
+        try:
+            with factory() as session:
+                if precheck is not None:
+                    precheck(session)
+                max_number = (
+                    session.execute(
+                        select(CaliberWorkflowVersion.version_number)
+                        .where(CaliberWorkflowVersion.workflow_id == workflow_id)
+                        .order_by(CaliberWorkflowVersion.version_number.desc())
+                    )
+                    .scalars()
+                    .first()
+                )
+                version = CaliberWorkflowVersion(
+                    version_id=new_workflow_version_id(),
+                    workflow_id=workflow_id,
+                    version_number=(max_number or 0) + 1,
+                    status="draft",
+                    manifest=manifest,
+                    manifest_hash=manifest_hash,
+                    created_by=actor,
+                )
+                session.add(version)
+                session.flush()
+                audit_record(
+                    session,
+                    actor=actor,
+                    action=audit_action,
+                    entity_type="workflow_version",
+                    entity_id=version.version_id,
+                    details={
+                        "workflow_id": workflow_id,
+                        "version_number": version.version_number,
+                        **(extra_audit_details or {}),
+                    },
+                )
+                session.commit()
+                return WorkflowVersionSchema.model_validate(version)
+        except IntegrityError:
+            logger.info(
+                "version_number race on workflow %s (attempt %d/%d); retrying",
+                workflow_id,
+                attempt + 1,
+                _MAX_VERSION_ALLOC_ATTEMPTS,
+            )
+            continue
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"could not allocate a unique version number for workflow {workflow_id!r} "
+            "under concurrent creation; please retry"
+        ),
+    )
+
+
 async def create_version(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     body = await parse_json_object(request)
@@ -392,40 +475,18 @@ async def create_version(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     _parse_manifest_or_400(payload.manifest)
 
-    factory = get_session_factory(request)
-    with factory() as session:
+    def _require_workflow(session: Session) -> None:
         if session.get(CaliberWorkflow, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
-        max_number = (
-            session.execute(
-                select(CaliberWorkflowVersion.version_number)
-                .where(CaliberWorkflowVersion.workflow_id == workflow_id)
-                .order_by(CaliberWorkflowVersion.version_number.desc())
-            )
-            .scalars()
-            .first()
-        )
-        version = CaliberWorkflowVersion(
-            version_id=new_workflow_version_id(),
-            workflow_id=workflow_id,
-            version_number=(max_number or 0) + 1,
-            status="draft",
-            manifest=payload.manifest,
-            manifest_hash=compute_manifest_hash(payload.manifest),
-            created_by=actor,
-        )
-        session.add(version)
-        session.flush()
-        audit_record(
-            session,
-            actor=actor,
-            action="create_workflow_version",
-            entity_type="workflow_version",
-            entity_id=version.version_id,
-            details={"workflow_id": workflow_id, "version_number": version.version_number},
-        )
-        session.commit()
-        data = WorkflowVersionSchema.model_validate(version)
+
+    data = _insert_version_with_retry(
+        get_session_factory(request),
+        workflow_id=workflow_id,
+        manifest=payload.manifest,
+        actor=actor,
+        audit_action="create_workflow_version",
+        precheck=_require_workflow,
+    )
     return envelope_response(data, status_code=201)
 
 
@@ -443,45 +504,27 @@ async def restore_version_route(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
 
     factory = get_session_factory(request)
+    # Resolve + clone the source once (it's immutable), then allocate the new
+    # draft's version_number with the shared race-safe insert.
     with factory() as session:
         source = _get_version_or_404(session, version_id)
+        source_workflow_id = source.workflow_id
+        source_version_id = source.version_id
+        source_version_number = source.version_number
         manifest = _clone_manifest(source.manifest)
-        _parse_manifest_or_400(manifest)
-        max_number = (
-            session.execute(
-                select(CaliberWorkflowVersion.version_number)
-                .where(CaliberWorkflowVersion.workflow_id == source.workflow_id)
-                .order_by(CaliberWorkflowVersion.version_number.desc())
-            )
-            .scalars()
-            .first()
-        )
-        version = CaliberWorkflowVersion(
-            version_id=new_workflow_version_id(),
-            workflow_id=source.workflow_id,
-            version_number=(max_number or 0) + 1,
-            status="draft",
-            manifest=manifest,
-            manifest_hash=compute_manifest_hash(manifest),
-            created_by=actor,
-        )
-        session.add(version)
-        session.flush()
-        audit_record(
-            session,
-            actor=actor,
-            action="restore_workflow_version",
-            entity_type="workflow_version",
-            entity_id=version.version_id,
-            details={
-                "workflow_id": source.workflow_id,
-                "version_number": version.version_number,
-                "restored_from_version_id": source.version_id,
-                "restored_from_version_number": source.version_number,
-            },
-        )
-        session.commit()
-        data = WorkflowVersionSchema.model_validate(version)
+    _parse_manifest_or_400(manifest)
+
+    data = _insert_version_with_retry(
+        factory,
+        workflow_id=source_workflow_id,
+        manifest=manifest,
+        actor=actor,
+        audit_action="restore_workflow_version",
+        extra_audit_details={
+            "restored_from_version_id": source_version_id,
+            "restored_from_version_number": source_version_number,
+        },
+    )
     return envelope_response(data, status_code=201)
 
 

@@ -130,6 +130,77 @@ def test_mlflow_promoter_deletes_orphan_version_on_alias_failure(
     assert delete_calls == [{"name": "support-agent", "version": 7}]
 
 
+def test_mlflow_promoter_captures_exact_previous_live_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The promoter records the version that was actually live on the alias
+    before rotating — NOT ``version_after - 1``. Here the alias points at v2
+    while the new version is v6 (intermediate versions never rotated), so the
+    exact previous-live is 2, and 5 would be wrong."""
+    stub = types.ModuleType("mlflow")
+
+    def load_prompt(ref: str) -> object:
+        assert ref == "prompts:/support-agent@prod"
+        return types.SimpleNamespace(version=2)
+
+    def register_prompt(**kwargs: object) -> object:
+        return types.SimpleNamespace(version=6, uri="prompts:/support-agent/6")
+
+    alias_calls: list[dict[str, object]] = []
+
+    def set_prompt_alias(**kwargs: object) -> None:
+        alias_calls.append(kwargs)
+
+    genai = types.ModuleType("mlflow.genai")
+    genai.load_prompt = load_prompt  # type: ignore[attr-defined]
+    genai.register_prompt = register_prompt  # type: ignore[attr-defined]
+    genai.set_prompt_alias = set_prompt_alias  # type: ignore[attr-defined]
+    stub.genai = genai  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlflow", stub)
+    monkeypatch.setitem(sys.modules, "mlflow.genai", genai)
+
+    result = MLflowPromoter().promote(_request())
+    assert result.details["version"] == 6
+    assert result.details["version_before"] == 2  # exact, not 6 - 1 = 5
+    assert alias_calls == [{"name": "support-agent", "alias": "prod", "version": 6}]
+
+
+def test_build_checkpoint_prefers_exact_version_before_over_subtraction() -> None:
+    """``apply._build_checkpoint`` uses the promoter-reported ``version_before``
+    when present, falling back to ``version_after - 1`` only when it's absent."""
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from caliber.apply import _build_checkpoint
+
+    approval = SimpleNamespace(approval_id="AP-9", agent_id="support-agent")
+    candidate = {"artifact_type": "prompt"}
+
+    exact = _build_checkpoint(
+        approval,  # type: ignore[arg-type]
+        candidate,
+        PromotionResult(
+            artifact_ref="prompts:/support-agent/6",
+            rotated_at=datetime.now(timezone.utc),
+            details={"version": 6, "version_before": 2},
+        ),
+    )
+    assert exact.version_before == 2  # exact, not 5
+    assert exact.artifact_ref_before == "prompts:/support-agent/2"
+
+    # Backward-compat: a promoter that doesn't report version_before falls back.
+    fallback = _build_checkpoint(
+        approval,  # type: ignore[arg-type]
+        candidate,
+        PromotionResult(
+            artifact_ref="prompts:/support-agent/6",
+            rotated_at=datetime.now(timezone.utc),
+            details={"version": 6},
+        ),
+    )
+    assert fallback.version_before == 5
+
+
 def test_mlflow_promoter_alias_failure_message_includes_cleanup_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
