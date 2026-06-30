@@ -1,8 +1,0 @@
-{"t":"2026-06-30T02:50:51.265Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-06-30T02:50:51.277Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-06-30T02:50:51.279Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-06-30T02:50:51.297Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects \"HTTP/1.1 201 Created\""}
-{"t":"2026-06-30T02:50:51.302Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects \"HTTP/1.1 201 Created\""}
-{"t":"2026-06-30T02:50:51.314Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-0999ced9/files \"HTTP/1.1 201 Created\""}
-{"t":"2026-06-30T02:50:51.319Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-fdea94f6/files/FILE-8e5a0808/content \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-06-30T02:50:51.325Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-fdea94f6/files \"HTTP/1.1 200 OK\""}

@@ -1,0 +1,12 @@
+{"t":"2026-06-30T21:40:44.469Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-06-30T21:40:48.337Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-06-30T21:40:50.575Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-06-30T21:40:53.656Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-06-30T21:40:56.257Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T21:40:59.961Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld/folders \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T21:41:02.398Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld/objects \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T21:41:05.619Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld/folders \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T21:41:07.729Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T21:41:10.770Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T21:41:14.858Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld/objects?prefix=docs%2F \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T21:41:18.342Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld/objects?recursive=true \"HTTP/1.1 200 OK\""}

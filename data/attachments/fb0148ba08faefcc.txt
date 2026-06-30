@@ -1,0 +1,5 @@
+{"t":"2026-06-30T21:44:30.785Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-06-30T21:44:30.799Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-06-30T21:44:30.801Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-06-30T21:44:30.811Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus connected (channel=caliber.events)"}
+{"t":"2026-06-30T21:44:30.815Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus disconnected"}

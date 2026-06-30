@@ -1,9 +1,0 @@
-{"t":"2026-06-30T02:51:18.343Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-06-30T02:51:22.921Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-06-30T02:51:25.350Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-06-30T02:51:29.336Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
-{"t":"2026-06-30T02:51:32.097Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 201 Created\""}
-{"t":"2026-06-30T02:51:33.633Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/pvw/objects \"HTTP/1.1 201 Created\""}
-{"t":"2026-06-30T02:51:37.791Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/pvw/object/preview?key=service%2F2026%2Flog.jsonl&max_bytes=8 \"HTTP/1.1 200 OK\""}
-{"t":"2026-06-30T02:51:39.075Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/pvw/objects \"HTTP/1.1 201 Created\""}
-{"t":"2026-06-30T02:51:40.011Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/pvw/object/preview?key=service%2F2026%2Fblob.bin \"HTTP/1.1 200 OK\""}

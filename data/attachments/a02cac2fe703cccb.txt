@@ -1,1 +1,0 @@
-{"t":"2026-06-30T02:44:59.850Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-D optimizer=DSPyBootstrapFewShot cost_usd=0.0040"}

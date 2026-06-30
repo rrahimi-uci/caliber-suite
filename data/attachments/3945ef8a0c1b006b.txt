@@ -1,0 +1,23 @@
+ERROR    caliber.promoter:promoter.py:179 set_prompt_alias failed for support-agent
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/promoter.py", line 169, in promote
+    set_prompt_alias(name=prompt_name, alias=self._alias, version=version_number)
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_promoter.py", line 220, in set_prompt_alias
+    raise RuntimeError("alias boom")
+RuntimeError: alias boom
+ERROR    caliber.promoter:promoter.py:293 cleanup delete_prompt_version failed for support-agent v3
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/promoter.py", line 169, in promote
+    set_prompt_alias(name=prompt_name, alias=self._alias, version=version_number)
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_promoter.py", line 220, in set_prompt_alias
+    raise RuntimeError("alias boom")
+RuntimeError: alias boom
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/promoter.py", line 290, in _try_delete_prompt_version
+    delete_fn(name=name, version=version)
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_promoter.py", line 223, in delete_prompt_version
+    raise RuntimeError("delete boom")
+RuntimeError: delete boom

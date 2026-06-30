@@ -1,0 +1,1 @@
+{"t":"2026-06-30T21:41:59.002Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"skipping _mark_failed for job=RFN-W: status=candidate_ready (not running)"}
