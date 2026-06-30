@@ -1387,6 +1387,14 @@ export const caliberApi = {
     );
   },
 
+  /** POST /eval-datasets/{id}/restore — restore a prior version's example set as a new head. */
+  restoreEvalDataset(datasetId: string, version: number): Promise<EvalDataset> {
+    return request<EvalDataset>(
+      `/eval-datasets/${encodeURIComponent(datasetId)}/restore`,
+      { method: "POST", body: { version } },
+    );
+  },
+
   /** GET /eval-datasets/{id}/examples */
   listEvalExamples(
     datasetId: string,
