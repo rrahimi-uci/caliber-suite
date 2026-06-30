@@ -2123,3 +2123,37 @@ class CaliberServiceToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaliberGateVerdict(Base):
+    """The latest advisory eval-gate verdict for one artifact version.
+
+    The gate is *advisory* in v1 (no rotation-boundary enforcement), so this
+    row is the version-addressable record the Version panel reads to show
+    PASS/FAIL/none before a promotion, and that the audited promote stamps from
+    the operator-supplied verdict. ``state`` is authoritative (computed from BOTH
+    the aggregate floor and the per-dimension regression rule); the numeric
+    columns are display detail. One row per ``(artifact_type, version_key)`` —
+    upserted, so it always reflects the most recent evaluation of that version.
+    """
+
+    __tablename__ = "caliber_gate_verdicts"
+    __table_args__ = (
+        UniqueConstraint("artifact_type", "version_key", name="uq_gate_verdict_artifact_version"),
+    )
+
+    gate_verdict_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artifact_type: Mapped[str] = mapped_column(String(32))
+    version_key: Mapped[str] = mapped_column(String(128))
+    state: Mapped[str] = mapped_column(String(16))
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    baseline_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    min_aggregate_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    worst_regression: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_regression_delta: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eval_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

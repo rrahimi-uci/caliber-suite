@@ -9,7 +9,8 @@ rollback-checkpoint stack.
 
 RBAC (plan §18.3): promoting a gated alias requires ``caliber.admin``; promoting
 a non-gated alias requires ``caliber.operator``; approving/rejecting a pending
-promotion requires ``caliber.approver``; rollback requires ``caliber.admin``.
+promotion requires ``caliber.approver``; rollback requires ``caliber.operator``
+(matched to promote so whoever can move the live alias forward can also undo it).
 """
 
 from __future__ import annotations
@@ -270,7 +271,11 @@ async def reject_promotion_route(request: Request) -> JSONResponse:
 async def rollback_deployment(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     alias = request.path_params["alias"]
-    actor = require_scopes(request, [SCOPE_ADMIN])
+    # Rollback is scoped to operator to match promote (workflow promote is
+    # operator-scoped while GATED_ALIASES is empty): whoever can move the live
+    # alias forward can also undo it. Re-raise to SCOPE_ADMIN here if a future
+    # build wants prod rollbacks gated to admins.
+    actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
         if session.get(CaliberWorkflow, workflow_id) is None:

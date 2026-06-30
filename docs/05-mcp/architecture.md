@@ -138,7 +138,9 @@ server records:
 - `POST /mcp-servers`
 - `GET /mcp-servers/{server_id}`
 - `PATCH /mcp-servers/{server_id}`
-- `DELETE /mcp-servers/{server_id}`
+- `DELETE /mcp-servers/{server_id}` — guarded: returns 409 when the server is
+  still referenced by an active deployment, and snapshots the full server
+  definition into the delete audit row so it can be recreated.
 
 Transport validation and discovery exercise the real connection: testing it,
 refreshing the cached tool inventory, and reading that inventory back:
@@ -225,6 +227,9 @@ boundary. The following controls apply:
 - Only the saved test cases and calibration endpoints are `operator`-scoped.
 - Policy overlays can explicitly block a remote tool even when the remote server
   still advertises it.
+- Deletion is not an unguarded hard delete: it is refused with 409 while an
+  active deployment still references the server, and the full server definition
+  is snapshotted into the delete audit row so the record is recoverable.
 - Tool invocation runs under bounded timeouts.
 - Connection configuration is validated against transport-specific minimums
   before use.

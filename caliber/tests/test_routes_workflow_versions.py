@@ -60,6 +60,37 @@ def test_create_draft(client: TestClient) -> None:
     assert data["manifest_hash"]
 
 
+def test_create_draft_allocates_sequential_version_numbers(client: TestClient) -> None:
+    """The race-safe allocator still hands out 1, 2, 3 in order."""
+    wid = create_workflow(client)
+    numbers = []
+    for _ in range(3):
+        r = client.post(f"{PREFIX}/workflows/{wid}/versions", json={"manifest": make_manifest(wid)})
+        assert r.status_code == 201, r.text
+        numbers.append(r.json()["data"]["version_number"])
+    assert numbers == [1, 2, 3]
+
+
+def test_create_version_returns_409_not_500_on_persistent_collision(
+    client: TestClient, monkeypatch
+) -> None:
+    """A persistent unique/PK collision (the stand-in for a lost MAX+1 race)
+    surfaces as a clean 409 after bounded retries, never an unhandled 500."""
+    # Force every generated version_id to collide so the insert's commit always
+    # raises IntegrityError — exercising the retry budget → 409 contract.
+    monkeypatch.setattr(
+        workflow_versions_routes, "new_workflow_version_id", lambda: "WFV-collide"
+    )
+    wid = create_workflow(client)
+    first = client.post(f"{PREFIX}/workflows/{wid}/versions", json={"manifest": make_manifest(wid)})
+    assert first.status_code == 201
+    second = client.post(
+        f"{PREFIX}/workflows/{wid}/versions", json={"manifest": make_manifest(wid)}
+    )
+    assert second.status_code == 409
+    assert "version number" in second.json()["detail"]
+
+
 def test_create_draft_invalid_manifest_400(client: TestClient) -> None:
     wid = create_workflow(client)
     bad = make_manifest(wid)

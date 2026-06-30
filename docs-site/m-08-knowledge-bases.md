@@ -209,6 +209,7 @@ Versioning and run-inspection routes create builds and follow their progress:
 - `GET /knowledge-bases/{knowledge_base_id}/versions`
 - `POST /knowledge-bases/{knowledge_base_id}/versions`
 - `POST /knowledge-bases/{knowledge_base_id}/versions/{version_id}/activate`
+- `POST /knowledge-bases/{knowledge_base_id}/rollback`
 - `GET /knowledge-bases/{knowledge_base_id}/runs`
 - `GET /knowledge-runs/{run_id}/events`
 
@@ -291,14 +292,20 @@ selects a mode appropriate to the question and the available artifacts:
 - Answer generation calls OpenAI or Anthropic directly when configured, and
   falls back to a deterministic context summary when it is not.
 
+Activation is audited and reversible. `activate_version(...)` records the
+outgoing `previous_active_version_id` in its audit row, so `POST
+/knowledge-bases/{id}/rollback` re-activates the exact prior active version by
+reading that trail (rather than guessing an ordinal); it returns 409 when no
+recorded prior active version exists or that version is no longer completed.
+
 ## 7. Security and trust boundaries
 
 Authorization is intentionally narrow, granting reads broadly while reserving
 every mutating operation for operators. The access rules are:
 
 - Reads require an authenticated user.
-- Create, update, delete, build, activate, sync, calibrate, and baseline routes
-  require `SCOPE_OPERATOR`.
+- Create, update, delete, build, activate, rollback, sync, calibrate, and
+  baseline routes require `SCOPE_OPERATOR`.
 - List and detail paths re-check visibility through `apply_visibility_filter`
   and the `_require_visible_*` helpers.
 

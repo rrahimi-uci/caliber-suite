@@ -23,6 +23,7 @@ from caliber.routes import (
     evaluations,
     events_stream,
     files,
+    gate_verdicts,
     gateway,
     health,
     jobs,
@@ -72,6 +73,7 @@ def register_routes(app: Starlette) -> None:
     eval_datasets.register(app)
     evaluations.register(app)
     judges.register(app)
+    gate_verdicts.register(app)
     llm_pricing.register(app)
     review_queues.register(app)
     aria_plans.register(app)

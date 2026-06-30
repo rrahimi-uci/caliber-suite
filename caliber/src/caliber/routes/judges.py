@@ -209,13 +209,17 @@ async def update_judge(request: Request) -> JSONResponse:
         if not diff:
             return envelope_response(JudgeSchema.model_validate(judge))
 
+        # Record the full from/to diff (not just field names) so a judge's
+        # prior instructions/model stay recoverable after an edit — historical
+        # eval runs cite the judge by token only, so this is the audit trail
+        # that keeps their verdicts interpretable.
         audit_record(
             session,
             actor=actor,
             action="update_judge",
             entity_type="judge",
             entity_id=judge_id,
-            details={"changed": sorted(diff)},
+            details={"changed": sorted(diff), "changes": diff},
         )
         session.commit()
         data = JudgeSchema.model_validate(judge)

@@ -179,6 +179,15 @@ describe("WorkflowDetail Versions tab", () => {
     expect(screen.getByTestId("diff-gate-change")).toHaveTextContent("quality");
   });
 
+  it("mounts the shared VersionPanel with Promote/Roll back controls", async () => {
+    server.use(...versionsHandlers());
+    renderDetail();
+
+    await screen.findByTestId("versions-table");
+    const panel = await screen.findByTestId("version-panel");
+    expect(panel).toBeInTheDocument();
+  });
+
   it("restores a prior version as a new draft", async () => {
     const onRestore = vi.fn();
     server.use(...versionsHandlers({ onRestore }));
