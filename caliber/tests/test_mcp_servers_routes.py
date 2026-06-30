@@ -43,6 +43,26 @@ def _raise_gateway(*_a: object, **_k: object) -> object:
     raise McpGatewayTransportError("boom: cannot connect")
 
 
+def test_mcp_server_history_survives_deletion_and_includes_snapshot(
+    client: TestClient, db_session: Session
+) -> None:
+    """The edit-history (audit trail) is returned even after the server is
+    deleted, and the delete row carries the full snapshot for recovery."""
+    _seed(db_session, server_id="MCP-h", name="Relational")
+    # An edit, then a delete.
+    client.patch(f"{BASE}/MCP-h", json={"uri": "stdio://new"})
+    assert client.delete(f"{BASE}/MCP-h").status_code == 204
+
+    resp = client.get(f"{BASE}/MCP-h/history")
+    assert resp.status_code == 200
+    rows = resp.json()["data"]
+    actions = [r["action"] for r in rows]
+    assert "update_mcp_server" in actions
+    assert "delete_mcp_server" in actions  # history outlives the row
+    delete_row = next(r for r in rows if r["action"] == "delete_mcp_server")
+    assert delete_row["details"]["snapshot"]["name"] == "Relational"
+
+
 def test_delete_mcp_server_snapshots_full_definition(
     client: TestClient, db_session: Session
 ) -> None:
