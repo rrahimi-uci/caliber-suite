@@ -11,7 +11,13 @@
  * directly — that's how envelope handling drifts.
  */
 
-import type { GateVerdict, PromptRollbackResult, SkillVersionInfo } from "./versioning";
+import type {
+  GateVerdict,
+  PromptRollbackResult,
+  ReleaseLiveEntry,
+  ReleaseTimelineEvent,
+  SkillVersionInfo,
+} from "./versioning";
 import type {
   AgentConfig,
   AgentRegisterPayload,
@@ -984,6 +990,23 @@ export const caliberApi = {
   /** GET /skills/{skillId}/versions — content version history, newest first. */
   listSkillVersions(skillId: string): Promise<SkillVersionInfo[]> {
     return request<SkillVersionInfo[]>(`/skills/${encodeURIComponent(skillId)}/versions`);
+  },
+
+  /** GET /releases/timeline — cross-artifact promotion/rollback events, newest first. */
+  listReleasesTimeline(
+    opts: { limit?: number; entityType?: string } = {},
+  ): Promise<ReleaseTimelineEvent[]> {
+    return request<ReleaseTimelineEvent[]>(
+      `/releases/timeline${buildQuery({
+        limit: opts.limit != null ? String(opts.limit) : undefined,
+        entity_type: opts.entityType,
+      })}`,
+    );
+  },
+
+  /** GET /releases/live — what is currently live across artifacts. */
+  listReleasesLive(): Promise<ReleaseLiveEntry[]> {
+    return request<ReleaseLiveEntry[]>(`/releases/live`);
   },
 
   /** POST /knowledge-bases/{id}/rollback — re-activate the prior active version. */
