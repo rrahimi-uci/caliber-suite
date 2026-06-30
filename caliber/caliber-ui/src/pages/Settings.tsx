@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, ExternalLink, KeyRound, RefreshCw, Server } from "lucide-react";
+import { Link } from "react-router-dom";
+import { BarChart3, ExternalLink, KeyRound, RefreshCw, Rocket, Server } from "lucide-react";
 
 import { caliberApi } from "@/api/caliberApi";
 import type { AssistantConfig, SkillRuntimeMode } from "@/api/assistantTypes";
@@ -21,6 +22,7 @@ const TABS: PageTab[] = [
   { key: "assistant", label: "Aria" },
   { key: "providers", label: "Providers", icon: <KeyRound className="h-4 w-4" /> },
   { key: "services", label: "Services", icon: <Server className="h-4 w-4" /> },
+  { key: "versioning", label: "Versioning", icon: <Rocket className="h-4 w-4" /> },
   { key: "allure", label: "Allure Report", icon: <BarChart3 className="h-4 w-4" /> },
 ];
 
@@ -155,6 +157,7 @@ export function Settings(): JSX.Element {
         />
       )}
       {activeTab === "services" && <ServicesTab />}
+      {activeTab === "versioning" && <VersioningSettingsTab />}
       {activeTab === "allure" && <AllureReportTab />}
     </div>
   );
@@ -185,6 +188,53 @@ function HealthDot({ healthy }: { healthy: boolean | null }): JSX.Element {
     </span>
   );
 }
+
+function VersioningSettingsTab(): JSX.Element {
+  const query = useApiQuery(["runtime-settings"], (s) => caliberApi.getRuntimeConfiguration(s));
+  const group = query.data?.groups.find((g) => g.id === "versioning");
+
+  return (
+    <div className={`${TAB_WIDTH} space-y-4`} data-testid="versioning-settings-tab">
+      <div className="rounded-lg border border-surface-200 bg-white p-4">
+        <h2 className="text-base font-semibold text-gray-900">Versioning &amp; Releases</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Policy that governs promotion across artifacts. See the{" "}
+          <Link to="/releases" className="text-caliber-purple hover:underline">
+            Releases page
+          </Link>{" "}
+          for what&apos;s live and the promotion/rollback timeline.
+        </p>
+      </div>
+
+      {query.isLoading && <div className="text-sm text-gray-400">Loading…</div>}
+      {group && (
+        <div className="rounded-lg border border-surface-200 bg-white p-4">
+          <p className="mb-3 text-sm text-gray-500">{group.description}</p>
+          <div className="space-y-3">
+            {group.settings.map((setting) => (
+              <div
+                key={setting.key}
+                data-testid={`versioning-setting-${setting.key}`}
+                className="flex items-baseline justify-between gap-4 border-b border-surface-100 pb-2 last:border-0"
+              >
+                <div>
+                  <div className="text-sm font-medium text-gray-800">{setting.label}</div>
+                  <div className="text-xs text-gray-500">{setting.description}</div>
+                </div>
+                <span className="font-mono text-sm text-gray-900">{setting.display_value}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-gray-400">
+            Workflow-run retention is configured under the Operations group
+            (<span className="font-mono">CALIBER_WORKFLOW_RUN_RETENTION_DAYS</span>).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function ServicesTab(): JSX.Element {
   const query = useApiQuery(["system", "services"], (signal) =>

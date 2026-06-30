@@ -105,9 +105,13 @@ def test_runtime_settings_lists_grouped_config_surface(client: TestClient) -> No
         "runtime-advisories",
         "operations",
         "tool-sandbox",
+        "versioning",
     ]
 
     settings = _settings_by_key(data)
+    # Versioning & Releases group surfaces the advisory eval-gate defaults.
+    assert settings["gate_min_aggregate_score_default"]["display_value"] == "0.85"
+    assert settings["gate_max_regression_delta_default"]["display_value"] == "0.02"
     assert settings["assistant_model"]["control"] == "live"
     assert settings["assistant_model"]["restart_required"] is False
     assert settings["openai_workflow_api"]["env_var"] == "CALIBER_OPENAI_WORKFLOW_API"
