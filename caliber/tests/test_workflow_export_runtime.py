@@ -584,6 +584,9 @@ def test_execute_exported_workflow_autowires_default_knowledge_query_runner(
     assert identity.user_id == "@exported-workflow"
     assert identity.active_project_id == "PRJ-9"
     assert payload["question"] == "What is the refund policy?"
+    # The resolved active version is pinned into the node output for reproducibility.
+    assert payload["resolved_version_ids"] == ["KBV-7"]
+    assert payload["resolved_knowledge_base_id"] == "KB-1"
 
 
 def test_default_knowledge_query_runner_requires_active_version_or_version_ids(

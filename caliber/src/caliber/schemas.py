@@ -1959,6 +1959,10 @@ class PromoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version_id: str = Field(min_length=1, max_length=64)
+    # Optimistic-concurrency guard: the version_id the caller believes the alias
+    # currently serves. When provided and stale, the promote is refused (409).
+    # ``None`` (explicit) asserts the alias is not yet deployed.
+    expected_version_id: str | None = Field(default=None, max_length=64)
 
 
 class WorkflowPromotionSchema(BaseModel):
