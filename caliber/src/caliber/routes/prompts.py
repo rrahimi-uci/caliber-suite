@@ -1600,6 +1600,27 @@ async def set_prompt_alias(request: Request) -> JSONResponse:
     previous_info = _load_prompt_info(name, alias)
     previous_version = previous_info.get("version") if previous_info else None
 
+    # Optimistic-concurrency guard: if the caller passed the version it believed
+    # was live and the alias has since moved, refuse rather than clobber a
+    # concurrent promotion. ``expected_version=null`` asserts a cold-start alias.
+    if "expected_version" in body:
+        expected = body.get("expected_version")
+        if expected is not None and (not isinstance(expected, int) or isinstance(expected, bool)):
+            raise HTTPException(
+                status_code=400, detail="'expected_version' must be an integer or null"
+            )
+        if previous_version != expected:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"alias {alias!r} now points at "
+                    f"{'v' + str(previous_version) if previous_version is not None else 'no version'}"
+                    f", not the expected "
+                    f"{'v' + str(expected) if expected is not None else 'no version'}; "
+                    "reload and retry"
+                ),
+            )
+
     result = set_prompt_alias_version(name=name, alias=alias, version=raw_version)
     to_version = result["version"]
 
