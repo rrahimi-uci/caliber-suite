@@ -544,6 +544,19 @@ Dark mode applies consistently across linked tools.
         == version_one["knowledge_base_version_id"]
     )
 
+    # The dedicated rollback endpoint re-activates the version that was live
+    # immediately before the current one (here v2, which was active before we
+    # re-activated v1 above), reading the recorded previous-active from the audit
+    # trail — the caller doesn't name a target.
+    dedicated_rollback = client.post(
+        f"{KB}/{knowledge_base['knowledge_base_id']}/rollback", json={}
+    )
+    assert dedicated_rollback.status_code == 200, dedicated_rollback.text
+    assert (
+        dedicated_rollback.json()["data"]["active_version_id"]
+        == version_two["knowledge_base_version_id"]
+    )
+
 
 @mock_aws
 def test_knowledge_base_queue_worker_processes_queued_runs(

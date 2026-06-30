@@ -26,6 +26,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.db.models import (
+    CaliberAuditLog,
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
     CaliberKnowledgeBase,
@@ -1177,6 +1178,9 @@ class KnowledgeBaseService:
                 raise HTTPException(
                     status_code=409, detail="only completed versions can be activated"
                 )
+            # Capture the outgoing active version BEFORE overwriting so a future
+            # rollback can restore the EXACT prior active (not an ordinal guess).
+            previous_active_version_id = knowledge_base.active_version_id
             knowledge_base.active_version_id = version_id
             knowledge_base.source_manifest = list(version.source_manifest or [])
             knowledge_base.source_fingerprint = version.source_fingerprint
@@ -1186,11 +1190,113 @@ class KnowledgeBaseService:
                 action="activate_knowledge_base_version",
                 entity_type="knowledge_base",
                 entity_id=knowledge_base_id,
-                details={"version_id": version_id, "version_number": version.version_number},
+                details={
+                    "version_id": version_id,
+                    "version_number": version.version_number,
+                    "previous_active_version_id": previous_active_version_id,
+                },
             )
             session.commit()
             session.refresh(knowledge_base)
             return self._serialize_knowledge_base(knowledge_base, version=version)
+
+    def rollback_version(
+        self,
+        knowledge_base_id: str,
+        *,
+        identity: CaliberIdentity,
+        actor: str,
+    ) -> KnowledgeBaseSchema:
+        """Re-activate the version that was active immediately before the current one.
+
+        The prior active version id is read from the activation audit trail (the
+        ``previous_active_version_id`` recorded by :meth:`activate_version`), so
+        the restore is exact. Returns 409 when there is no recorded prior active
+        version, or when that version is no longer completed/available.
+        """
+        with self._session_factory() as session:
+            knowledge_base = self._require_visible_knowledge_base(
+                session, knowledge_base_id, identity
+            )
+            current_active = knowledge_base.active_version_id
+            if current_active is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"knowledge base {knowledge_base_id!r} has no active version to roll back",
+                )
+            target_version_id = self._previous_active_version_id(
+                session, knowledge_base_id, current_active
+            )
+            if target_version_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"no recorded prior active version for {knowledge_base_id!r}; "
+                        "rollback needs an audited activation to restore"
+                    ),
+                )
+            version = session.get(CaliberKnowledgeBaseVersion, target_version_id)
+            if version is None or version.knowledge_base_id != knowledge_base_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"prior active version {target_version_id!r} no longer exists",
+                )
+            if version.status != "completed":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"prior active version {target_version_id!r} is not in a completed state",
+                )
+            knowledge_base.active_version_id = target_version_id
+            knowledge_base.source_manifest = list(version.source_manifest or [])
+            knowledge_base.source_fingerprint = version.source_fingerprint
+            audit_record(
+                session,
+                actor=actor,
+                action="rollback_knowledge_base_version",
+                entity_type="knowledge_base",
+                entity_id=knowledge_base_id,
+                details={
+                    "version_id": target_version_id,
+                    "version_number": version.version_number,
+                    "previous_active_version_id": current_active,
+                },
+            )
+            session.commit()
+            session.refresh(knowledge_base)
+            return self._serialize_knowledge_base(knowledge_base, version=version)
+
+    @staticmethod
+    def _previous_active_version_id(
+        session: Session, knowledge_base_id: str, current_active: str
+    ) -> str | None:
+        """The version active immediately before ``current_active``.
+
+        Walks the activation/rollback audit trail newest-first and returns the
+        ``previous_active_version_id`` of the most recent row whose
+        ``version_id`` is the version currently active.
+        """
+        rows = (
+            session.execute(
+                select(CaliberAuditLog)
+                .where(CaliberAuditLog.entity_type == "knowledge_base")
+                .where(CaliberAuditLog.entity_id == knowledge_base_id)
+                .where(
+                    CaliberAuditLog.action.in_(
+                        ("activate_knowledge_base_version", "rollback_knowledge_base_version")
+                    )
+                )
+                .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
+                .limit(100)
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            details = row.details or {}
+            if details.get("version_id") == current_active:
+                prior = details.get("previous_active_version_id")
+                return prior if isinstance(prior, str) else None
+        return None
 
     def sync_version_to_age(
         self,

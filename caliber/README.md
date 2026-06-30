@@ -18,7 +18,7 @@ When someone flags a production AI agent's response as wrong (via an MLflow Asse
 3. **Generates a fix** — using one of nine optimizers (MetaPrompt, TextGrad, GEPA, PromptDistill, MemAlign, MultiAgentCoord, DSPy MIPRO, DSPy BootstrapFewShot, SkillMetaPrompt), selected automatically by artifact type, diagnosis shape, and optimization landscape.
 4. **Evaluates** — `mlflow.genai.evaluate()` scores the candidate against a held-out dataset with per-dimension regression gates.
 5. **Asks for approval** — a human reviews the diff, eval comparison, and root-cause summary, then approves or rejects.
-6. **Promotes atomically** — approved artifacts are deployed via MLflow Prompt Registry alias rotation. Instant rollback path preserved.
+6. **Promotes atomically** — approved artifacts are deployed via MLflow Prompt Registry alias rotation; each rotation is audited (with an advisory gate verdict), and an explicit rollback restores the exact previously-live version. Prompts can also register a draft version without rotating the live alias (`promote: false`).
 
 Time from feedback to deployed fix: typically **under 30 minutes** with **two human decisions**.
 
@@ -165,8 +165,8 @@ uv pip install -e ".[dspy,knowledge-local]"
 # Install pre-commit hooks (runs ruff + mypy on every commit).
 pre-commit install
 
-# Run the test suite.
-pytest
+# Run the test suite (xdist parallel; the opt-in integration tests need external servers).
+pytest -n auto -m "not integration"
 
 # Lint + format.
 ruff check src tests && ruff format src tests

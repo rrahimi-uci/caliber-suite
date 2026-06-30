@@ -121,6 +121,11 @@ loaded only once the skill is actually selected. The `allowed_tools` and
 soft-delete oriented, taking the values `active` or `archived` rather than
 hard-deleting by default.
 
+Although a skill is a single mutable row, content edits are recoverable: every
+content-changing edit records the prior text in its audit diff, and
+`POST /skills/{skill_id}/rollback` restores the exact prior content as a new
+version (409 when there is no recorded prior content to restore).
+
 ## 5. API and interaction surfaces
 
 All HTTP routes in this module are mounted under
@@ -134,6 +139,7 @@ The first area covers registry and lifecycle operations on the canonical row:
 - `POST /skills`
 - `GET /skills/{skill_id}`
 - `PATCH /skills/{skill_id}`
+- `POST /skills/{skill_id}/rollback`
 
 The second area handles packaging in the OpenAI-compatible format:
 

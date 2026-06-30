@@ -38,7 +38,13 @@ if os.environ.get("CALIBER_INTEGRATION_TESTS") != "1":
     import tempfile as _tempfile
     from pathlib import Path as _Path
 
-    _mlflow_store = f"sqlite:///{_Path(_tempfile.gettempdir()) / 'caliber-test-mlflow.db'}"
+    # Isolate the MLflow store per xdist worker so parallel runs (`pytest -n auto`)
+    # don't lock-contend on one shared SQLite file. ``PYTEST_XDIST_WORKER`` is
+    # ``gw0``/``gw1``/... under xdist and unset for a serial run (→ ``main``).
+    _worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    _mlflow_store = (
+        f"sqlite:///{_Path(_tempfile.gettempdir()) / f'caliber-test-mlflow-{_worker}.db'}"
+    )
     os.environ["MLFLOW_TRACKING_URI"] = _mlflow_store
     os.environ["MLFLOW_REGISTRY_URI"] = _mlflow_store
 

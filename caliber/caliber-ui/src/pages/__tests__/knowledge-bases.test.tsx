@@ -3414,6 +3414,19 @@ describe("Knowledge Bases asset workspace (R1 IA)", () => {
     );
   });
 
+  it("mounts the shared version-management panel on the Use stage", async () => {
+    server.use(...workspaceHandlers([knowledgeBase()], [version()]));
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+
+    await openTo(user, "use");
+    // The bespoke version history table still renders alongside the panel.
+    expect(await screen.findByText("Version History")).toBeInTheDocument();
+    // The shared <VersionPanel> renders its populated list (KBV-1 loaded).
+    expect(await screen.findByTestId("version-panel")).toBeInTheDocument();
+  });
+
   it("activates an earlier version from the Use stage table", async () => {
     let activated: string | null = null;
     const v1 = version();

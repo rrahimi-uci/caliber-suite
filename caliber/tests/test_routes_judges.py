@@ -121,6 +121,32 @@ def test_update_judge_archive_and_audit(client: TestClient, db_session: Session)
     assert "update_judge" in actions
 
 
+def test_update_judge_audit_captures_old_and_new_instructions(
+    client: TestClient, db_session: Session
+) -> None:
+    """A judge edit records the prior instruction text so historical eval-run
+    verdicts (which cite the judge by token only) stay interpretable."""
+    _seed(db_session, judge_id="JDG-2", instructions="Pass if {{ outputs }} cites a source.")
+    response = client.patch(
+        DETAIL_PATH.replace("{judge_id}", "JDG-2"),
+        json={"instructions": "Pass if {{ outputs }} is polite."},
+    )
+    assert response.status_code == 200
+    update_rows = [
+        row
+        for row in db_session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.entity_id == "JDG-2")
+        )
+        .scalars()
+        .all()
+        if row.action == "update_judge"
+    ]
+    assert update_rows
+    changes = (update_rows[-1].details or {}).get("changes") or {}
+    assert changes["instructions"]["from"] == "Pass if {{ outputs }} cites a source."
+    assert changes["instructions"]["to"] == "Pass if {{ outputs }} is polite."
+
+
 def test_update_judge_rejects_bad_instructions(client: TestClient, db_session: Session) -> None:
     _seed(db_session, judge_id="JDG-1")
     response = client.patch(

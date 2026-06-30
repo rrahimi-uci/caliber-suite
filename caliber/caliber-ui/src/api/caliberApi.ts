@@ -11,6 +11,7 @@
  * directly — that's how envelope handling drifts.
  */
 
+import type { GateVerdict, PromptRollbackResult } from "./versioning";
 import type {
   AgentConfig,
   AgentRegisterPayload,
@@ -913,6 +914,9 @@ export const caliberApi = {
       commit_message?: string;
       tags?: Record<string, string>;
       target_alias?: string;
+      // When false, registers the version WITHOUT rotating the live alias
+      // (a draft the developer can evaluate before promoting). Defaults true.
+      promote?: boolean;
     },
   ): Promise<PromptCreateResult> {
     return request<PromptCreateResult>(
@@ -921,6 +925,67 @@ export const caliberApi = {
         method: "POST",
         body: payload,
       },
+    );
+  },
+
+  /** POST /prompts/{name}/aliases/{alias} — audited promote carrying the gate verdict/override. */
+  promotePrompt(
+    name: string,
+    version: number,
+    opts: {
+      alias?: string;
+      gate_state?: string;
+      gate_score?: number;
+      overridden?: boolean;
+      override_reason?: string;
+    } = {},
+  ): Promise<PromptAliasResult> {
+    const { alias = "prod", ...gate } = opts;
+    return request<PromptAliasResult>(
+      `/prompts/${encodeURIComponent(name)}/aliases/${encodeURIComponent(alias)}`,
+      { method: "POST", body: { version, ...gate } },
+    );
+  },
+
+  /** POST /prompts/{name}/rollback — roll the live alias back to the exact prior version. */
+  rollbackPrompt(name: string, alias = "prod"): Promise<PromptRollbackResult> {
+    return request<PromptRollbackResult>(
+      `/prompts/${encodeURIComponent(name)}/rollback`,
+      { method: "POST", body: { alias } },
+    );
+  },
+
+  /** GET /gate-verdicts/{artifactType}/{versionKey} */
+  getGateVerdict(artifactType: string, versionKey: string): Promise<GateVerdict> {
+    return request<GateVerdict>(
+      `/gate-verdicts/${encodeURIComponent(artifactType)}/${encodeURIComponent(versionKey)}`,
+    );
+  },
+
+  /** POST /gate-verdicts/{artifactType}/{versionKey} */
+  recordGateVerdict(
+    artifactType: string,
+    versionKey: string,
+    payload: Partial<GateVerdict> & { state: string },
+  ): Promise<GateVerdict> {
+    return request<GateVerdict>(
+      `/gate-verdicts/${encodeURIComponent(artifactType)}/${encodeURIComponent(versionKey)}`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** POST /skills/{skillId}/rollback — restore the prior content as a new version. */
+  rollbackSkill(skillId: string): Promise<Skill> {
+    return request<Skill>(`/skills/${encodeURIComponent(skillId)}/rollback`, {
+      method: "POST",
+    });
+  },
+
+  /** POST /knowledge-bases/{id}/rollback — re-activate the prior active version. */
+  rollbackKnowledgeBase(knowledgeBaseId: string): Promise<KnowledgeBase> {
+    return request<KnowledgeBase>(
+      `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/rollback`,
+      { method: "POST" },
     );
   },
 
