@@ -3580,4 +3580,22 @@ describe("Prompts — Workspace", () => {
     await user.type(within(bar).getByRole("searchbox", { name: "Search prompts" }), "agent");
     expect(within(bar).getByRole("button", { name: "Clear filters" })).toBeInTheDocument();
   });
+
+  it("mounts the shared VersionPanel and the draft/promote actions on the Author stage", async () => {
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await openWorkspaceStage(user, "Author");
+
+    // The shared version-history panel renders (versions are served by MSW), and
+    // the developer-draft flow surfaces both save actions.
+    expect(await screen.findByTestId("version-panel")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save draft" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save & promote" }),
+    ).toBeInTheDocument();
+  });
 });

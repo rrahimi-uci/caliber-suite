@@ -196,6 +196,18 @@ def test_promote_viewer_forbidden(client: TestClient) -> None:
     assert r.status_code == 403
 
 
+def test_rollback_viewer_forbidden(client: TestClient) -> None:
+    """Rollback is operator-scoped (lowered from admin so promoters can undo);
+    a viewer with no operator scope is still rejected before any state change."""
+    wid, vid = create_and_publish(client)
+    client.post(f"{PREFIX}/workflows/{wid}/deployments/dev/promote", json={"version_id": vid})
+    r = client.post(
+        f"{PREFIX}/workflows/{wid}/deployments/dev/rollback",
+        headers={"X-CALIBER-User": "@viewer"},
+    )
+    assert r.status_code == 403
+
+
 def test_list_deployments_missing_workflow_404(client: TestClient) -> None:
     r = client.get(f"{PREFIX}/workflows/WF-nonexistent/deployments")
     assert r.status_code == 404

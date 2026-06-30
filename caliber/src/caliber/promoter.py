@@ -138,6 +138,12 @@ class MLflowPromoter:
 
         prompt_name = request.agent_id
 
+        # Capture the version currently live on the alias BEFORE we rotate it, so
+        # the rollback checkpoint records the EXACT prior target. Deriving it as
+        # ``version_after - 1`` is wrong whenever intermediate versions were
+        # registered without rotating the alias.
+        version_before = _current_alias_version(mlflow, prompt_name, self._alias)
+
         # 1. Register the new version under the agent's prompt name.
         try:
             version = register_prompt(
@@ -190,6 +196,7 @@ class MLflowPromoter:
             details={
                 "name": prompt_name,
                 "version": version_number,
+                "version_before": version_before,
                 "alias": self._alias,
             },
         )
@@ -311,6 +318,30 @@ def _resolve_prompt_api(mlflow_mod: object, name: str) -> Any:
             "top-level namespace; upgrade mlflow to 3.12 or later."
         )
     return fn
+
+
+def _current_alias_version(mlflow_mod: object, name: str, alias: str) -> int | None:
+    """Version currently live on ``name@alias``, or ``None`` on cold start.
+
+    Best-effort: returns ``None`` when the load API is unavailable, the alias
+    doesn't resolve yet, or the version can't be coerced to an int — callers
+    fall back to the legacy ``version_after - 1`` derivation in that case.
+    """
+    try:
+        load_prompt = _resolve_prompt_api(mlflow_mod, "load_prompt")
+    except PromoterError:
+        return None
+    try:
+        prompt = load_prompt(f"prompts:/{name}@{alias}")
+    except Exception:
+        return None
+    if prompt is None:
+        return None
+    raw = getattr(prompt, "version", None)
+    try:
+        return int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------

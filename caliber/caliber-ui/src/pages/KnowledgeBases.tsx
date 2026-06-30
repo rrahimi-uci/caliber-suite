@@ -88,6 +88,8 @@ import {
   type KnowledgeBuildLaunchPreset,
 } from "@/lib/knowledgeBuildLaunch";
 import { KnowledgeCalibrateTab } from "@/pages/knowledge/KnowledgeCalibrateTab";
+import { VersionPanel } from "@/components/versioning/VersionPanel";
+import { makeKnowledgeBaseVersionAdapter } from "@/components/versioning/adapters";
 
 type KnowledgeTab =
   | "library"
@@ -1058,6 +1060,12 @@ export function KnowledgeBases(): JSX.Element {
     [knowledgeBases, selectedKnowledgeBaseId],
   );
   const versions = versionsQuery.data ?? EMPTY_VERSIONS;
+  // Memoize the adapter so the shared <VersionPanel> only reloads when the
+  // active KB id changes (its internal effect depends on adapter identity).
+  const knowledgeBaseVersionAdapter = useMemo(
+    () => makeKnowledgeBaseVersionAdapter(selectedKnowledgeBaseId ?? ""),
+    [selectedKnowledgeBaseId],
+  );
   const runs = runsQuery.data ?? EMPTY_RUNS;
   const selectedRun = useMemo(
     () =>
@@ -4643,6 +4651,17 @@ export function KnowledgeBases(): JSX.Element {
                     })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            {/* Shared version-management panel: Promote (activate) + Roll back
+                (re-activate the prior version) with the advisory gate. */}
+            <div className="card p-5" data-testid="kb-version-management">
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                Promote &amp; Roll back
+              </div>
+              <div className="mt-3">
+                <VersionPanel adapter={knowledgeBaseVersionAdapter} />
               </div>
             </div>
 

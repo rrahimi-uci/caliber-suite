@@ -94,7 +94,19 @@ def _build_checkpoint(
         version_after = int(version_after_raw)
     else:
         version_after = None
-    version_before = version_after - 1 if version_after is not None and version_after > 1 else None
+    # Prefer the exact outgoing live version captured by the promoter; fall back
+    # to ``version_after - 1`` only for promoters that don't report it (e.g.
+    # FakePromoter), which is wrong when intermediate versions didn't rotate.
+    version_before_raw = details.get("version_before") if isinstance(details, dict) else None
+    version_before: int | None
+    if isinstance(version_before_raw, int):
+        version_before = version_before_raw
+    elif isinstance(version_before_raw, str) and version_before_raw.isdigit():
+        version_before = int(version_before_raw)
+    else:
+        version_before = (
+            version_after - 1 if version_after is not None and version_after > 1 else None
+        )
     artifact_type = _as_str(candidate.get("artifact_type"), "prompt")
     artifact_ref_before = (
         f"prompts:/{approval.agent_id}/{version_before}" if version_before is not None else None
@@ -145,7 +157,19 @@ def _build_bundle_checkpoint(
         version_after = int(version_after_raw)
     else:
         version_after = None
-    version_before = version_after - 1 if version_after is not None and version_after > 1 else None
+    # Prefer the exact outgoing live version captured by the promoter; fall back
+    # to ``version_after - 1`` only for promoters that don't report it (e.g.
+    # FakePromoter), which is wrong when intermediate versions didn't rotate.
+    version_before_raw = details.get("version_before") if isinstance(details, dict) else None
+    version_before: int | None
+    if isinstance(version_before_raw, int):
+        version_before = version_before_raw
+    elif isinstance(version_before_raw, str) and version_before_raw.isdigit():
+        version_before = int(version_before_raw)
+    else:
+        version_before = (
+            version_after - 1 if version_after is not None and version_after > 1 else None
+        )
     artifact_ref_before = (
         f"prompts:/{target.agent_id}/{version_before}" if version_before is not None else None
     )

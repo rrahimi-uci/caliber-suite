@@ -84,6 +84,7 @@ ASSISTANT_RUN_PREFIX = "ARN-"
 ASSISTANT_PUBLISH_PREFIX = "APUB-"
 ASSISTANT_ATTACHMENT_PREFIX = "AATT-"
 ASSISTANT_QUEUED_MESSAGE_PREFIX = "QMSG-"
+GATE_VERDICT_PREFIX = "GV-"
 
 _ID_SUFFIX_LEN = 8
 
@@ -235,6 +236,11 @@ def new_service_id() -> str:
 def new_service_token_id() -> str:
     """Return a fresh service-token ID, e.g. ``svt9b1d4e0a``."""
     return f"{SERVICE_TOKEN_PREFIX}{_suffix()}"
+
+
+def new_gate_verdict_id() -> str:
+    """Return a fresh gate-verdict ID, e.g. ``GV-9b1d4e0a``."""
+    return f"{GATE_VERDICT_PREFIX}{_suffix()}"
 
 
 def new_knowledge_base_id() -> str:

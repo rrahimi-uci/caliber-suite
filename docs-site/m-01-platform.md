@@ -170,7 +170,7 @@ set of tables:
 | Workflows | workflows, workflow versions, deployments, runs, events, checkpoints, session memory, benchmark reports, patches, promotions | Workflow Studio source-of-truth and runtime lineage. |
 | MCP | MCP servers | External tool endpoints, discovered tools, policies, and calibrations. |
 | Knowledge bases | knowledge bases, versions, sources, chunks, entities, relationships, build runs, calibration test runs | Versioned RAG corpora with chunking/embeddings, graph (Apache AGE) extraction, and retrieval-quality calibration. |
-| Evaluations / test sets | eval datasets, eval dataset examples, eval dataset files, eval runs, judges, review queues/items | Versioned test sets, scorecard evaluation runs, operator-authored LLM judges, and human review queues. |
+| Evaluations / test sets | eval datasets, eval dataset examples, eval dataset files, eval runs, judges, review queues/items, gate verdicts | Versioned test sets, scorecard evaluation runs, operator-authored LLM judges, human review queues, and advisory per-version gate verdicts. |
 | Files and projects | projects, workflow files, file events | Workspace and run-scoped file metadata independent of backing store. |
 
 The division of authority across these domains is governed by a small set of
@@ -203,7 +203,7 @@ than exhaustive:
 - `/workflow-runs/*`
 - `/assistant/*`
 - `/aria/plans/*` (Aria goal-plan orchestration)
-- `/judges`, `/review-queues`, `/eval-datasets`
+- `/judges`, `/review-queues`, `/eval-datasets`, `/gate-verdicts/*`
 
 On the client side, the corresponding entry points are organized as page
 modules, each of which owns a single feature surface:

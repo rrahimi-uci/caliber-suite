@@ -147,7 +147,10 @@ Calibration state is carried by the refinement job and a few asset-specific stor
 The promotion gate's thresholds — `min_aggregate_score` (default `0.85`) and
 `max_regression_delta` (default `0.02`) — are read from the agent's
 `eval_thresholds`, so promotion policy travels with the artifact rather than living
-in one global setting.
+in one global setting. Both rules together produce a single per-version verdict,
+which is surfaced **advisorily** (it never blocks an alias rotation): the prompt
+promote path stamps a `pass`/`fail`/`none` row into `caliber_gate_verdicts`
+(migration `0062`) that the version surface reads before a promotion.
 
 ## 5. API and interaction surfaces
 

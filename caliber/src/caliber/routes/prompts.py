@@ -40,6 +40,7 @@ from caliber.auth import (
 )
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberAuditLog,
     CaliberEvalDataset,
     CaliberPromptTestRun,
     CaliberRefinementJob,
@@ -49,6 +50,7 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import apply_visibility_filter
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
+from caliber.gate_verdicts import GATE_STATES, record_gate_verdict
 from caliber.ids import new_item_id, new_job_id, new_prompt_test_run_id
 from caliber.prompt_targets import (
     ensure_prompt_target,
@@ -86,6 +88,7 @@ VERSION_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions"
 VERSIONS_LIST_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions"
 VERSION_DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions/{version}"
 ALIAS_SET_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/{name}/aliases/{alias}"
+ROLLBACK_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/{name}/rollback"
 TEST_RENDER_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/{agent_id}/test-render"
 TEMPLATE_LIBRARY_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/template-library"
 TEMPLATE_PREVIEW_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/template-library/preview"
@@ -1361,7 +1364,19 @@ async def create_prompt_version(request: Request) -> JSONResponse:
 
     template = (body.get("template") or "").strip()
     commit_message = body.get("commit_message", "new version via CALIBER")
-    target_alias = str(body.get("target_alias") or "prod")
+
+    # ``promote`` decouples authoring from going live. When false, the version is
+    # registered but NO alias is rotated, so a developer can iterate / evaluate a
+    # candidate before it serves the live alias. Defaults to true for backward
+    # compatibility (the historical behavior always promoted to ``prod``).
+    promote = body.get("promote", True)
+    if not isinstance(promote, bool):
+        raise HTTPException(status_code=400, detail="'promote' must be a boolean")
+    raw_target_alias = body.get("target_alias")
+    target_alias: str | None = None
+    if promote:
+        target_alias = str(raw_target_alias) if raw_target_alias else "prod"
+
     raw_tags = body.get("tags")
     if raw_tags is None:
         tags: dict[str, Any] = {}
@@ -1377,6 +1392,7 @@ async def create_prompt_version(request: Request) -> JSONResponse:
         tags=tags,
         source="caliber-ui",
         target_alias=target_alias,
+        set_prod_alias=promote,
     )
 
     return JSONResponse({"data": result}, status_code=201)
@@ -1525,9 +1541,50 @@ def set_prompt_alias_version(*, name: str, alias: str, version: int | str) -> di
     return {"name": name, "alias": alias, "version": version_num}
 
 
+def _extract_gate_details(body: dict[str, Any]) -> dict[str, Any]:
+    """Pull the optional advisory-gate / override fields off a promote body.
+
+    The eval gate is *advisory* in v1 — there is no rotation-boundary
+    enforcement — so these fields are recorded on the audit row purely so an
+    operator override is attributable (who promoted past a FAIL, and why).
+    """
+    details: dict[str, Any] = {}
+    gate_state = body.get("gate_state")
+    if gate_state is not None:
+        if not isinstance(gate_state, str) or gate_state not in GATE_STATES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'gate_state' must be one of {sorted(GATE_STATES)}",
+            )
+        details["gate_state"] = gate_state
+    gate_score = body.get("gate_score")
+    if gate_score is not None:
+        if isinstance(gate_score, bool) or not isinstance(gate_score, (int, float)):
+            raise HTTPException(status_code=400, detail="'gate_score' must be a number")
+        details["gate_score"] = float(gate_score)
+    overridden = body.get("overridden", False)
+    if not isinstance(overridden, bool):
+        raise HTTPException(status_code=400, detail="'overridden' must be a boolean")
+    details["overridden"] = overridden
+    override_reason = body.get("override_reason")
+    if override_reason is not None:
+        if not isinstance(override_reason, str):
+            raise HTTPException(status_code=400, detail="'override_reason' must be a string")
+        details["override_reason"] = override_reason
+    return details
+
+
 async def set_prompt_alias(request: Request) -> JSONResponse:
-    """``POST /caliber/prompts/{name}/aliases/{alias}`` — point alias at version."""
-    require_scopes(request, [SCOPE_OPERATOR])
+    """``POST /caliber/prompts/{name}/aliases/{alias}`` — audited promote.
+
+    Captures the alias's current (outgoing) version *before* rotating so the
+    exact previously-live target is recorded, rotates the MLflow alias, then
+    writes an auditable ``promote_prompt`` row carrying the advisory-gate
+    verdict and any operator override. That audit row is the data source for
+    the Releases timeline and for the per-version ``wasLiveUntil`` pointer that
+    :func:`rollback_prompt` reads — replacing the prior path that wrote nothing.
+    """
+    actor = require_scopes(request, [SCOPE_OPERATOR])
     name = request.path_params["name"]
     alias = request.path_params["alias"]
     body = await parse_json_object(request)
@@ -1536,8 +1593,135 @@ async def set_prompt_alias(request: Request) -> JSONResponse:
     if not isinstance(raw_version, (int, str)):
         raise HTTPException(status_code=400, detail="'version' must be an integer")
 
+    gate_details = _extract_gate_details(body)
+
+    # Read the currently-live version BEFORE rotating so rollback is exact
+    # (not derived from ``version_after - 1``). ``None`` on cold start.
+    previous_info = _load_prompt_info(name, alias)
+    previous_version = previous_info.get("version") if previous_info else None
+
+    result = set_prompt_alias_version(name=name, alias=alias, version=raw_version)
+    to_version = result["version"]
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        audit_record(
+            session,
+            actor=actor,
+            action="promote_prompt",
+            entity_type="prompt",
+            entity_id=name,
+            details={
+                "alias": alias,
+                "from_version": previous_version,
+                "to_version": to_version,
+                **gate_details,
+            },
+        )
+        # Persist the operator-supplied verdict keyed by the now-live version so
+        # the Version panel can read it back (advisory gate; never blocks).
+        gate_state = gate_details.get("gate_state")
+        if isinstance(gate_state, str):
+            record_gate_verdict(
+                session,
+                artifact_type="prompt",
+                version_key=str(to_version),
+                state=gate_state,
+                score=gate_details.get("gate_score"),
+            )
+        session.commit()
+
+    result["previous_live_version"] = previous_version
+    return JSONResponse({"data": result})
+
+
+def _previous_live_version(session: Session, name: str, alias: str, current: int) -> int | None:
+    """The version that was live on ``alias`` immediately before ``current``.
+
+    Read from the audit trail: the most recent promote/rollback row for this
+    prompt+alias whose recorded ``to_version`` equals the version currently
+    live. Its ``from_version`` is the exact target to roll back to. Walking the
+    trail this way makes repeated rollbacks hop backwards through real promotion
+    history rather than guessing ``current - 1``.
+    """
+    rows = (
+        session.execute(
+            select(CaliberAuditLog)
+            .where(CaliberAuditLog.entity_type == "prompt")
+            .where(CaliberAuditLog.entity_id == name)
+            .where(CaliberAuditLog.action.in_(("promote_prompt", "rollback_prompt")))
+            .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
+            .limit(100)
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        details = row.details or {}
+        if details.get("alias") != alias:
+            continue
+        if details.get("to_version") == current:
+            target = details.get("from_version")
+            return int(target) if isinstance(target, int) else None
+    return None
+
+
+async def rollback_prompt(request: Request) -> JSONResponse:
+    """``POST /caliber/prompts/{name}/rollback`` — roll the live alias back.
+
+    Rotates the alias back to the exact version that was live before the
+    current one (read from the ``promote_prompt`` audit trail) and records a
+    ``rollback_prompt`` row. Returns 409 when there is no recorded prior live
+    version to restore. Body (optional): ``{"alias": "prod"}``.
+    """
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    name = request.path_params["name"]
+    body = await parse_json_object(request, allow_empty=True)
+
+    raw_alias = body.get("alias")
+    alias = raw_alias.strip() if isinstance(raw_alias, str) and raw_alias.strip() else "prod"
+    if not re.match(r"^[a-zA-Z0-9_-]+$", alias):
+        raise HTTPException(status_code=400, detail="invalid alias")
+
+    current_info = _load_prompt_info(name, alias)
+    current = current_info.get("version") if current_info else None
+    if current is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"prompt {name!r} has no live version on alias {alias!r} to roll back",
+        )
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        target = _previous_live_version(session, name, alias, int(current))
+        if target is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"no recorded prior live version for {name!r}@{alias!r}; "
+                    "rollback needs an audited promotion to restore"
+                ),
+            )
+        set_prompt_alias_version(name=name, alias=alias, version=target)
+        audit_record(
+            session,
+            actor=actor,
+            action="rollback_prompt",
+            entity_type="prompt",
+            entity_id=name,
+            details={"alias": alias, "from_version": int(current), "to_version": target},
+        )
+        session.commit()
+
     return JSONResponse(
-        {"data": set_prompt_alias_version(name=name, alias=alias, version=raw_version)}
+        {
+            "data": {
+                "name": name,
+                "alias": alias,
+                "version": target,
+                "rolled_back_from": int(current),
+            }
+        }
     )
 
 
@@ -2113,4 +2297,5 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(VERSIONS_LIST_PATH, list_prompt_versions, methods=["GET"]))
     app.routes.append(Route(VERSION_DETAIL_PATH, get_prompt_version, methods=["GET"]))
     app.routes.append(Route(ALIAS_SET_PATH, set_prompt_alias, methods=["POST"]))
+    app.routes.append(Route(ROLLBACK_PATH, rollback_prompt, methods=["POST"]))
     app.routes.append(Route(TEST_RENDER_PATH, test_render_prompt, methods=["POST"]))

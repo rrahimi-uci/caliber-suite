@@ -35,6 +35,7 @@ LIST_PATH = PREFIX + "/knowledge-bases"
 DETAIL_PATH = PREFIX + "/knowledge-bases/{knowledge_base_id}"
 VERSIONS_PATH = PREFIX + "/knowledge-bases/{knowledge_base_id}/versions"
 ACTIVATE_PATH = PREFIX + "/knowledge-bases/{knowledge_base_id}/versions/{version_id}/activate"
+ROLLBACK_PATH = PREFIX + "/knowledge-bases/{knowledge_base_id}/rollback"
 RUNS_PATH = PREFIX + "/knowledge-bases/{knowledge_base_id}/runs"
 VERSION_DETAIL_PATH = PREFIX + "/knowledge-base-versions/{version_id}"
 VERSION_SOURCES_PATH = PREFIX + "/knowledge-base-versions/{version_id}/sources"
@@ -185,6 +186,19 @@ async def activate_version(request: Request) -> JSONResponse:
     row = _service(request).activate_version(
         knowledge_base_id,
         version_id,
+        identity=identity,
+        actor=actor,
+    )
+    return envelope_response(row)
+
+
+async def rollback_version(request: Request) -> JSONResponse:
+    """``POST /knowledge-bases/{id}/rollback`` — re-activate the prior active version."""
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    knowledge_base_id = request.path_params["knowledge_base_id"]
+    row = _service(request).rollback_version(
+        knowledge_base_id,
         identity=identity,
         actor=actor,
     )
@@ -392,6 +406,7 @@ def register(app: Starlette) -> None:
             Route(VERSIONS_PATH, list_versions, methods=["GET"]),
             Route(VERSIONS_PATH, create_version, methods=["POST"]),
             Route(ACTIVATE_PATH, activate_version, methods=["POST"]),
+            Route(ROLLBACK_PATH, rollback_version, methods=["POST"]),
             Route(RUNS_PATH, list_runs, methods=["GET"]),
             Route(VERSION_DETAIL_PATH, get_version, methods=["GET"]),
             Route(VERSION_AGE_SYNC_PATH, sync_version_to_age, methods=["POST"]),
