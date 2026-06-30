@@ -1,1 +1,0 @@
-{"t":"2026-06-30T21:36:31.047Z","severity":"WARNING","logger":"caliber.csrf","message":"csrf is enabled but the secret source 'MISSING_SECRET' resolved to empty; CSRF protection will not engage. Set the source named by config.csrf_signing_secret_env."}

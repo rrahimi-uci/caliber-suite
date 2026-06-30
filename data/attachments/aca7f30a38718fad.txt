@@ -1,0 +1,1 @@
+{"t":"2026-06-30T23:36:38.252Z","severity":"INFO","logger":"caliber.orchestrator.workflow_stages","message":"workflow eval passed: job=RFN-WF status=candidate_ready"}

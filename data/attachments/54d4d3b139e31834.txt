@@ -1,3 +1,0 @@
-{"t":"2026-06-30T21:42:06.466Z","severity":"INFO","logger":"caliber.events.nats_bus","message":"NATS event bus connected (servers=['nats://example:4222'] subject=caliber.test)"}
-{"t":"2026-06-30T21:42:06.467Z","severity":"INFO","logger":"caliber.events.nats_bus","message":"NATS event bus disconnected"}
-{"t":"2026-06-30T21:42:06.468Z","severity":"INFO","logger":"caliber.events.nats_bus","message":"NATS event bus disconnected"}

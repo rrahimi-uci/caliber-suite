@@ -1,0 +1,6 @@
+{"t":"2026-06-30T23:35:08.543Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-06-30T23:35:08.555Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-06-30T23:35:08.557Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-06-30T23:35:08.571Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/observability/allure-report/ \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T23:35:08.575Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/observability/allure-report/app.js \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T23:35:08.577Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/observability/allure-report/nope.js \"HTTP/1.1 404 Not Found\""}

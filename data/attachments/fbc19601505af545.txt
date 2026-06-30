@@ -1,0 +1,1 @@
+{"t":"2026-06-30T23:40:32.351Z","severity":"WARNING","logger":"caliber.events.redis_bus","message":"failed to publish event to Redis: redis down"}

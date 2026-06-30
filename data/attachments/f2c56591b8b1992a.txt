@@ -1,7 +1,0 @@
-2026/06/30 21:31:36 INFO mlflow.store.db.utils: Creating initial MLflow database tables...
-2026/06/30 21:31:36 INFO mlflow.store.db.utils: Updating database tables
-2026/06/30 21:31:39 INFO mlflow.models.evaluation.utils.trace: Auto tracing is temporarily enabled during the model evaluation for computing some metrics and debugging. To disable tracing, call `mlflow.autolog(disable=True)`.
-2026/06/30 21:31:39 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
-Evaluating:   0%|          | 0/2 [Elapsed: 00:00, Remaining: ?]Evaluating:  50%|█████     | 1/2 [Elapsed: 00:01, Remaining: 00:01]Evaluating: 100%|██████████| 2/2 [Elapsed: 00:01, Remaining: 00:00] [predict_fn: 86%, scorers: 14%]Evaluating: 100%|██████████| 2/2 [Elapsed: 00:01, Remaining: 00:00] [predict_fn: 86%, scorers: 14%]
-2026/06/30 21:31:41 INFO mlflow.genai.utils.data_validation: Testing model prediction with the first sample in the dataset. To disable this check, set the MLFLOW_GENAI_EVAL_SKIP_TRACE_VALIDATION environment variable to True.
-Evaluating:   0%|          | 0/2 [Elapsed: 00:00, Remaining: ?]Evaluating: 100%|██████████| 2/2 [Elapsed: 00:00, Remaining: 00:00] [predict_fn: 96%, scorers: 4%]Evaluating: 100%|██████████| 2/2 [Elapsed: 00:00, Remaining: 00:00] [predict_fn: 96%, scorers: 4%]

@@ -1,0 +1,54 @@
+INFO     caliber:server.py:257 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:465 CALIBER assistant engine: fake (configured=fake)
+INFO     caliber.orchestrator.worker:worker.py:159 refinement worker started (interval=5.0s)
+INFO     caliber.orchestrator.workflow_run_worker:workflow_run_worker.py:444 workflow-run worker started (interval=2.0s lease=60.0s worker=workflow-run-worker-7f3cdb1d4f90)
+INFO     caliber.assistant.plan_worker:plan_worker.py:62 aria-plan worker started (interval=10.0s)
+INFO     caliber.knowledge.worker:worker.py:55 knowledge-base worker started (interval=2.0s lease=120.0s worker=knowledge-build-worker-7f3cdb1d69d0)
+INFO     caliber.orchestrator.scheduler:scheduler.py:63 workflow scheduler started (interval=60.0s)
+INFO     caliber.orchestrator.janitor:janitor.py:80 janitor started (interval=60.0s, stale_threshold=300s)
+INFO     caliber.events.webhooks:webhooks.py:116 webhook dispatcher disabled (no URLs configured)
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/agents "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-84d91cd4/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-eb695281/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-84d91cd4/deployments/dev/promote "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     caliber.orchestrator.worker:worker.py:454 job=RFN-accc3547 skipping mlflow run binding: experiment 'exp-support-wf' is not resolvable
+INFO     caliber.orchestrator.triage:triage.py:136 triage complete: job=RFN-accc3547 class={'cluster': 'tool_use', 'artifact_type': 'prompt', 'confidence': 0.6, 'rationale': '[fake] tool-use failure', 'source': 'llm'}
+INFO     caliber.orchestrator.evidence:evidence.py:110 evidence complete: job=RFN-accc3547 summary={'trace_id': None, 'experiment_id': None, 'session_id': None, 'has_trace_link': False, 'has_session_link': False, 'free_text_preview': 'Agent answered the refund policy without calling lookup_policy.'}
+INFO     caliber.orchestrator.workflow_stages:workflow_stages.py:262 workflow diagnosis complete: job=RFN-accc3547 components=['tool_contract']
+INFO     caliber.orchestrator.workflow_stages:workflow_stages.py:345 workflow candidate complete: job=RFN-accc3547 patch=WP-2afc657b kind=workflow_manifest
+INFO     caliber.orchestrator.workflow_stages:workflow_stages.py:653 workflow eval passed: job=RFN-accc3547 status=candidate_ready
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-84d91cd4/patches "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547/apply "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-84d91cd4/versions "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-84d91cd4/deployments "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-1c90f1cc "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-accc3547 "HTTP/1.1 200 OK"
+INFO     caliber.orchestrator.scheduler:scheduler.py:73 workflow scheduler stopped
+INFO     caliber.knowledge.worker:worker.py:77 knowledge-base worker stopped
+INFO     caliber.assistant.plan_worker:plan_worker.py:75 aria-plan worker stopped
+INFO     caliber.orchestrator.workflow_run_worker:workflow_run_worker.py:466 workflow-run worker stopped
+INFO     caliber.orchestrator.worker:worker.py:192 refinement worker stopped
+INFO     caliber.orchestrator.janitor:janitor.py:100 janitor stopped

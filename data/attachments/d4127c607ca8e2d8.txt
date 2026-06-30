@@ -1,1 +1,0 @@
-{"t":"2026-06-30T21:42:06.499Z","severity":"WARNING","logger":"caliber.events.nats_bus","message":"failed to publish event to NATS: nats down"}

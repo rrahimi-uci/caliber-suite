@@ -1,1 +1,0 @@
-{"t":"2026-06-30T21:44:13.375Z","severity":"WARNING","logger":"caliber.llm.openai_agents","message":"gepa library not installed; falling back to MetaPrompt for job=RFN-G-FALLBACK"}

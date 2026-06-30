@@ -1,0 +1,14 @@
+{"t":"2026-06-30T23:36:49.212Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-06-30T23:36:54.867Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-06-30T23:36:59.425Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-06-30T23:37:04.506Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-06-30T23:37:08.377Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/status \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T23:37:11.842Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T23:37:15.454Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T23:37:21.343Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/reports/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-06-30T23:37:24.097Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/reports/objects \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T23:37:28.551Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/reports/objects?prefix=2026%2F \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T23:37:31.562Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/reports/object?key=2026%2Fkg.json \"HTTP/1.1 200 OK\""}
+{"t":"2026-06-30T23:37:36.656Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/reports/object?key=2026%2Fkg.json \"HTTP/1.1 204 No Content\""}
+{"t":"2026-06-30T23:37:37.831Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/reports \"HTTP/1.1 204 No Content\""}
+{"t":"2026-06-30T23:37:42.158Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 200 OK\""}
