@@ -3,10 +3,12 @@
  * referencing workflows (usage), and deprecate/archive actions (admin).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
+import { makeToolVersionAdapter } from "@/components/versioning/adapters";
+import { VersionPanel } from "@/components/versioning/VersionPanel";
 import type {
   CalibrationCase,
   CalibrationResult,
@@ -106,6 +108,12 @@ export function ToolDetail(): JSX.Element {
   const testRunMut = useApiMutation((input: Record<string, unknown>) => caliberApi.testRunTool(toolId!, input));
 
   const tool = toolQuery.data;
+
+  // Memoized so the VersionPanel's load effect doesn't re-fire each render.
+  const toolVersionAdapter = useMemo(
+    () => makeToolVersionAdapter(toolId ?? "", tool?.name ?? ""),
+    [toolId, tool?.name],
+  );
 
   useEffect(() => {
     if (tool) setEdit(editStateFromTool(tool));
@@ -469,6 +477,11 @@ export function ToolDetail(): JSX.Element {
           {JSON.stringify(agentBinding, null, 2)}
         </pre>
       </div>
+
+      <section className="mt-4 border-t border-gray-200 pt-3" data-testid="tool-versions">
+        <div className="mb-2 text-xs font-semibold text-gray-500">Version history</div>
+        <VersionPanel adapter={toolVersionAdapter} />
+      </section>
 
       <div className="mt-3">
         <div className="text-xs font-semibold text-gray-500">Used by</div>

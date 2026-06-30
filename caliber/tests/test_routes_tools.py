@@ -62,6 +62,26 @@ def test_get_tool(client: TestClient) -> None:
     assert r.json()["data"]["name"] == "gettable"
 
 
+def test_list_tool_versions_returns_family_newest_first(client: TestClient) -> None:
+    """All versions sharing a tool's name, newest version first."""
+    tid1 = client.post(f"{PREFIX}/tools", json=make_tool_payload("fam", version="1.0")).json()[
+        "data"
+    ]["tool_id"]
+    client.post(f"{PREFIX}/tools", json=make_tool_payload("fam", version="2.0"))
+    # An unrelated family must not leak in.
+    client.post(f"{PREFIX}/tools", json=make_tool_payload("other", version="1.0"))
+
+    r = client.get(f"{PREFIX}/tools/{tid1}/versions")
+    assert r.status_code == 200
+    rows = r.json()["data"]
+    assert [row["version"] for row in rows] == ["2.0", "1.0"]
+    assert {row["name"] for row in rows} == {"fam"}
+
+
+def test_list_tool_versions_404_for_missing_tool(client: TestClient) -> None:
+    assert client.get(f"{PREFIX}/tools/TOOL-nope/versions").status_code == 404
+
+
 def test_get_tool_source_available(client: TestClient) -> None:
     # lookup_policy is a real callable in caliber.workflows.demo_tools.
     tid = client.post(f"{PREFIX}/tools", json=make_tool_payload("lookup_policy")).json()["data"][
