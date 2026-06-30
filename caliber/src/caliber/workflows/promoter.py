@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import get_redactor
@@ -1047,11 +1047,16 @@ def prune_workflow_runs(
     if retention_days <= 0:
         return 0
     cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=retention_days)
-    rows = (
-        session.execute(select(CaliberWorkflowRun).where(CaliberWorkflowRun.started_at < cutoff))
-        .scalars()
-        .all()
+    # Age by the first available timestamp: started runs use ``started_at``,
+    # but queued/preview runs leave it NULL — they previously evaded pruning
+    # entirely (unbounded index growth), so fall back to ``queued_at`` then
+    # ``completed_at``.
+    age_ts = func.coalesce(
+        CaliberWorkflowRun.started_at,
+        CaliberWorkflowRun.queued_at,
+        CaliberWorkflowRun.completed_at,
     )
+    rows = session.execute(select(CaliberWorkflowRun).where(age_ts < cutoff)).scalars().all()
     for row in rows:
         session.delete(row)
     if rows:
