@@ -13,7 +13,7 @@
  */
 import type { PromptVersionInfo } from "./types";
 import type { KnowledgeBaseVersion } from "./knowledgeTypes";
-import type { WorkflowDeployment, WorkflowVersion } from "./workflowTypes";
+import type { ToolDefinition, WorkflowDeployment, WorkflowVersion } from "./workflowTypes";
 
 export type VersionedArtifactType =
   | "prompt"
@@ -148,6 +148,45 @@ export function promptVersionsToArtifactVersions(
 /** Convenience: the version currently serving the live alias, if any. */
 export function liveVersion(versions: ArtifactVersion[]): ArtifactVersion | undefined {
   return versions.find((v) => v.isLive);
+}
+
+/**
+ * Map a tool family's `(name, version)` rows onto the normalized model.
+ *
+ * Tools have no live alias — there's nothing to promote or roll back — so this
+ * is read-only version history (status badges only). The version string is
+ * free-form; `ordinal` parses a leading integer for ordering, else null.
+ */
+export function toolVersionsToArtifactVersions(
+  toolName: string,
+  tools: ToolDefinition[],
+): ArtifactVersion[] {
+  return tools.map((tool) => {
+    const leading = Number.parseInt(tool.version, 10);
+    return {
+      artifactType: "tool",
+      artifactId: tool.tool_id,
+      artifactName: toolName,
+      versionKey: tool.tool_id,
+      versionLabel: `v${tool.version}`,
+      ordinal: Number.isNaN(leading) ? null : leading,
+      status: tool.status, // "active" | "deprecated" | "archived" — all valid VersionStatus
+      isLive: false, // no live pointer for tools
+      liveAliases: [],
+      author: tool.owner,
+      label: tool.description || null,
+      capabilities: {
+        hasHistory: true,
+        canPromote: false,
+        canRollback: false,
+        canDiff: false,
+        canEditDraft: false,
+        canDelete: false,
+        gating: "none",
+      },
+      raw: tool,
+    } satisfies ArtifactVersion;
+  });
 }
 
 /**

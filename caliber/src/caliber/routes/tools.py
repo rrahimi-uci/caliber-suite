@@ -79,6 +79,7 @@ CALIBRATE_PATH = DETAIL_PATH + "/calibrate"
 SOURCE_PATH = DETAIL_PATH + "/source"
 WORKSPACE_PATH = DETAIL_PATH + "/workspace"
 BASELINE_PATH = DETAIL_PATH + "/baseline"
+VERSIONS_PATH = DETAIL_PATH + "/versions"
 
 _LIST_STATUS_VALUES = frozenset({"active", "deprecated", "archived", "all"})
 
@@ -177,6 +178,34 @@ def _resolve_tool_source(module_path: str, callable_name: str) -> dict[str, Any]
     except (OSError, TypeError) as exc:
         result["error"] = f"source unavailable: {exc}"
     return result
+
+
+async def list_tool_versions(request: Request) -> JSONResponse:
+    """``GET /caliber/tools/{tool_id}/versions`` — all versions in this tool's
+    family (same ``name``), newest version first.
+
+    Tools have no live alias to promote/roll back; this is the version-history
+    inventory the registry was missing (the detail page previously only listed
+    *workflow* versions that reference the tool, not the tool's own versions).
+    """
+    require_user(request)
+    tool_id = request.path_params["tool_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        tool = session.get(CaliberToolRegistry, tool_id)
+        if tool is None:
+            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        rows = (
+            session.execute(
+                select(CaliberToolRegistry)
+                .where(CaliberToolRegistry.name == tool.name)
+                .order_by(CaliberToolRegistry.version.desc())
+            )
+            .scalars()
+            .all()
+        )
+        items = [ToolSchema.model_validate(r) for r in rows]
+    return envelope_response(items)
 
 
 async def get_tool_source(request: Request) -> JSONResponse:
@@ -866,4 +895,5 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(CALIBRATE_PATH, calibrate_tool, methods=["POST"]))
     app.routes.append(Route(WORKSPACE_PATH, get_tool_workspace, methods=["GET"]))
     app.routes.append(Route(BASELINE_PATH, set_tool_baseline, methods=["POST"]))
+    app.routes.append(Route(VERSIONS_PATH, list_tool_versions, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH + "/usage", tool_usage, methods=["GET"]))
