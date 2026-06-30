@@ -20,6 +20,7 @@ from caliber.routes.eval_datasets import (
     DETAIL_PATH,
     EXAMPLES_PATH,
     LIST_PATH,
+    RESTORE_PATH,
     REVISE_PATH,
     SUPERSEDE_PATH,
     SYNC_PATH,
@@ -424,3 +425,59 @@ def test_sync_dataset_502_on_mlflow_failure(client: TestClient, db_session: Sess
     # CALIBER state stays clean — nothing recorded as synced.
     detail = client.get(DETAIL_PATH.replace("{dataset_id}", "ED-1")).json()["data"]
     assert detail["mlflow_dataset_id"] is None
+
+
+def test_restore_dataset_version_re_adds_retired_examples(
+    client: TestClient, db_session: Session
+) -> None:
+    """Restoring a prior version re-adds examples retired since then, as a new
+    head version, leaving the still-active examples in place."""
+    _seed_dataset(db_session, dataset_id="ED-R", version=1)
+    a = client.post(EXAMPLES_PATH.replace("{dataset_id}", "ED-R"), json={"input": {"q": "A"}})
+    client.post(EXAMPLES_PATH.replace("{dataset_id}", "ED-R"), json={"input": {"q": "B"}})
+    ex_a = a.json()["data"]["example_id"]
+    target_version = client.get(DETAIL_PATH.replace("{dataset_id}", "ED-R")).json()["data"][
+        "version"
+    ]
+    # target_version is 3 here: active set = {A, B}.
+
+    # Retire A -> head becomes {B}.
+    client.post(SUPERSEDE_PATH.replace("{dataset_id}", "ED-R").replace("{example_id}", ex_a))
+
+    restored = client.post(
+        RESTORE_PATH.replace("{dataset_id}", "ED-R"), json={"version": target_version}
+    )
+    assert restored.status_code == 200, restored.text
+    # Version advanced past the supersede (4) to the restore head.
+    assert restored.json()["data"]["version"] == 5
+
+    active = client.get(EXAMPLES_PATH.replace("{dataset_id}", "ED-R")).json()["data"]
+    assert sorted(e["input"]["q"] for e in active) == ["A", "B"]  # A re-added, B kept
+
+
+def test_restore_dataset_version_rejects_current_or_future(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_dataset(db_session, dataset_id="ED-R2", version=3)
+    bad = client.post(RESTORE_PATH.replace("{dataset_id}", "ED-R2"), json={"version": 3})
+    assert bad.status_code == 400
+    future = client.post(RESTORE_PATH.replace("{dataset_id}", "ED-R2"), json={"version": 9})
+    assert future.status_code == 400
+
+
+def test_restore_dataset_version_409_when_set_unchanged(
+    client: TestClient, db_session: Session
+) -> None:
+    """Restoring a prior version whose active set already equals the current
+    active set is a no-op -> 409."""
+    _seed_dataset(db_session, dataset_id="ED-R3", version=1)
+    client.post(EXAMPLES_PATH.replace("{dataset_id}", "ED-R3"), json={"input": {"q": "A"}})  # v2
+    b = client.post(
+        EXAMPLES_PATH.replace("{dataset_id}", "ED-R3"), json={"input": {"q": "B"}}
+    )  # v3
+    ex_b = b.json()["data"]["example_id"]
+    # Retire B (v4) -> active set is {A}, identical to the set as-of v2.
+    client.post(SUPERSEDE_PATH.replace("{dataset_id}", "ED-R3").replace("{example_id}", ex_b))
+
+    same = client.post(RESTORE_PATH.replace("{dataset_id}", "ED-R3"), json={"version": 2})
+    assert same.status_code == 409

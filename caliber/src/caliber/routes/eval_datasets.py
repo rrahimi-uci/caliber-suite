@@ -30,7 +30,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -82,6 +82,7 @@ SUPERSEDE_PATH = (
 )
 REVISE_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/revise"
 SYNC_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/sync"
+RESTORE_PATH = "/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/restore"
 
 # See :data:`caliber.routes.skills._LIST_STATUS_VALUES` — same allowlist
 # applies (deep-review consistency note #1).
@@ -652,6 +653,118 @@ async def sync_dataset_to_mlflow(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
+async def restore_dataset_version(request: Request) -> JSONResponse:
+    """``POST /eval-datasets/{dataset_id}/restore`` — restore a prior version's
+    example set as a *new* head version (forward-only; history is preserved).
+
+    Body: ``{"version": N}``. Reconstructs the exact example set that was active
+    "as of version N", then makes it the head: examples added after N are
+    superseded, and examples that were active at N but later retired are
+    re-added as fresh copies. Unchanged examples are left in place to avoid
+    churn. Returns 409 when there is nothing to restore to.
+    """
+    dataset_id = request.path_params["dataset_id"]
+    body = await parse_json_object(request)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+
+    raw_version = body.get("version")
+    if not isinstance(raw_version, int) or isinstance(raw_version, bool) or raw_version < 1:
+        raise HTTPException(status_code=400, detail="'version' must be a positive integer")
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        dataset = session.get(CaliberEvalDataset, dataset_id)
+        if dataset is None:
+            raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        if raw_version >= dataset.version:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"version {raw_version} is not a prior version "
+                    f"(current is {dataset.version}); nothing to restore"
+                ),
+            )
+
+        # Example set active "as of version N" (same predicate the eval loaders use).
+        as_of_rows = (
+            session.execute(
+                select(CaliberEvalDatasetExample)
+                .where(CaliberEvalDatasetExample.dataset_id == dataset_id)
+                .where(CaliberEvalDatasetExample.dataset_version <= raw_version)
+                .where(
+                    or_(
+                        CaliberEvalDatasetExample.superseded_version.is_(None),
+                        CaliberEvalDatasetExample.superseded_version > raw_version,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        current_rows = (
+            session.execute(
+                select(CaliberEvalDatasetExample)
+                .where(CaliberEvalDatasetExample.dataset_id == dataset_id)
+                .where(CaliberEvalDatasetExample.superseded_at.is_(None))
+            )
+            .scalars()
+            .all()
+        )
+
+        as_of_ids = {row.example_id for row in as_of_rows}
+        current_ids = {row.example_id for row in current_rows}
+        # No-op only if the current active set already equals the as-of-N set.
+        if as_of_ids == current_ids:
+            raise HTTPException(
+                status_code=409,
+                detail=f"current example set already matches version {raw_version}",
+            )
+
+        new_version = dataset.version + 1
+        dataset.version = new_version
+        now = datetime.now(timezone.utc)
+        restored = 0
+        retired = 0
+        # Supersede examples added after N (not part of the target set).
+        for row in current_rows:
+            if row.example_id not in as_of_ids:
+                row.superseded_at = now
+                row.superseded_version = new_version
+                retired += 1
+        # Re-add copies of target examples that are no longer active.
+        for row in as_of_rows:
+            if row.example_id not in current_ids:
+                session.add(
+                    CaliberEvalDatasetExample(
+                        example_id=new_eval_example_id(),
+                        dataset_id=dataset_id,
+                        dataset_version=new_version,
+                        input=dict(row.input),
+                        expected=dict(row.expected),
+                        weight=row.weight,
+                        tags=list(row.tags),
+                    )
+                )
+                restored += 1
+
+        audit_record(
+            session,
+            actor=actor,
+            action="restore_eval_dataset_version",
+            entity_type="eval_dataset",
+            entity_id=dataset_id,
+            details={
+                "restored_from_version": raw_version,
+                "new_version": new_version,
+                "examples_re_added": restored,
+                "examples_retired": retired,
+            },
+        )
+        session.commit()
+        data = EvalDatasetSchema.model_validate(dataset)
+    return envelope_response(data)
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(LIST_PATH, list_datasets, methods=["GET"]))
     app.routes.append(Route(LIST_PATH, create_dataset, methods=["POST"]))
@@ -663,3 +776,4 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(SUPERSEDE_PATH, supersede_example, methods=["POST"]))
     app.routes.append(Route(REVISE_PATH, revise_example, methods=["POST"]))
     app.routes.append(Route(SYNC_PATH, sync_dataset_to_mlflow, methods=["POST"]))
+    app.routes.append(Route(RESTORE_PATH, restore_dataset_version, methods=["POST"]))
