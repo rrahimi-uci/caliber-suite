@@ -56,6 +56,26 @@ export interface PromptRollbackResult {
   rolled_back_from: number;
 }
 
+export interface ReleaseTimelineEvent {
+  log_id: number;
+  timestamp: string | null;
+  actor: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  details: Record<string, unknown>;
+}
+
+export interface ReleaseLiveEntry {
+  artifact_type: string;
+  artifact_id: string;
+  artifact_name?: string;
+  alias: string;
+  version_id: string;
+  since: string | null;
+  by: string | null;
+}
+
 export interface SkillVersionInfo {
   skill_version_id: string;
   skill_id: string;
