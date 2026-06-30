@@ -24,6 +24,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user
 from caliber.calibration import aggregate, evaluate_assertion
 from caliber.db.models import (
+    CaliberAuditLog,
     CaliberMcpServer,
     CaliberWorkflowDeployment,
     CaliberWorkflowVersion,
@@ -41,6 +42,7 @@ from caliber.mcp_gateway import (
 )
 from caliber.routes._deps import (
     envelope_response,
+    envelope_response_dict,
     get_session_factory,
     list_limit,
     parse_json_object,
@@ -66,6 +68,7 @@ DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}"
 TEST_PATH = DETAIL_PATH + "/test-connection"
 DISCOVER_PATH = DETAIL_PATH + "/discover-tools"
 TOOLS_PATH = DETAIL_PATH + "/tools"
+HISTORY_PATH = DETAIL_PATH + "/history"
 TOOL_POLICY_PATH = DETAIL_PATH + "/tools/{tool_name}/policy"
 TOOL_TEST_CASES_PATH = DETAIL_PATH + "/tools/{tool_name}/test-cases"
 TOOL_CALIBRATE_PATH = DETAIL_PATH + "/tools/{tool_name}/calibrate"
@@ -134,6 +137,43 @@ async def get_mcp_server(request: Request) -> JSONResponse:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         data = McpServerSchema.model_validate(row)
     return envelope_response(data)
+
+
+async def mcp_server_history(request: Request) -> JSONResponse:
+    """``GET /mcp-servers/{server_id}/history`` — the create/update/delete audit
+    trail for a server, newest first.
+
+    MCP servers aren't versioned, so this is their edit-history surface: each
+    edit records its field diff and a delete records the full server snapshot
+    (so a deleted server is recreatable). Returned even after deletion — the
+    audit rows outlive the row — so the history isn't lost on delete.
+    """
+    require_user(request)
+    server_id = request.path_params["server_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        rows = (
+            session.execute(
+                select(CaliberAuditLog)
+                .where(CaliberAuditLog.entity_type == "mcp_server")
+                .where(CaliberAuditLog.entity_id == server_id)
+                .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
+                .limit(100)
+            )
+            .scalars()
+            .all()
+        )
+        data = [
+            {
+                "log_id": row.log_id,
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                "actor": row.actor,
+                "action": row.action,
+                "details": row.details or {},
+            }
+            for row in rows
+        ]
+    return envelope_response_dict(data)
 
 
 async def create_mcp_server(request: Request) -> JSONResponse:
@@ -679,6 +719,7 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(LIST_PATH, list_mcp_servers, methods=["GET"]))
     app.routes.append(Route(LIST_PATH, create_mcp_server, methods=["POST"]))
     app.routes.append(Route(DETAIL_PATH, get_mcp_server, methods=["GET"]))
+    app.routes.append(Route(HISTORY_PATH, mcp_server_history, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, update_mcp_server, methods=["PATCH"]))
     app.routes.append(Route(DETAIL_PATH, delete_mcp_server, methods=["DELETE"]))
     app.routes.append(Route(TEST_PATH, test_connection, methods=["POST"]))

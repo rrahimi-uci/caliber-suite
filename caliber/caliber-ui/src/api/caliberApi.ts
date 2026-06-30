@@ -3125,6 +3125,22 @@ export const caliberApi = {
     );
   },
 
+  /** GET /mcp-servers/{id}/history — create/update/delete audit trail (survives deletion). */
+  listMcpServerHistory(
+    serverId: string,
+    signal?: AbortSignal,
+  ): Promise<
+    Array<{
+      log_id: number;
+      timestamp: string | null;
+      actor: string;
+      action: string;
+      details: Record<string, unknown>;
+    }>
+  > {
+    return request(`/mcp-servers/${encodeURIComponent(serverId)}/history`, { signal });
+  },
+
   /** POST /mcp-servers — register a new MCP server (admin) */
   createMcpServer(
     payload: McpServerCreatePayload,
