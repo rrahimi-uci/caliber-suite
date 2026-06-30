@@ -6,6 +6,7 @@ import { caliberApi } from "@/api/caliberApi";
 import {
   knowledgeBaseVersionsToArtifactVersions,
   promptVersionsToArtifactVersions,
+  skillVersionsToArtifactVersions,
   workflowVersionsToArtifactVersions,
 } from "@/api/versioning";
 
@@ -91,6 +92,25 @@ export function makeKnowledgeBaseVersionAdapter(knowledgeBaseId: string): Versio
     },
     rollback: async () => {
       await caliberApi.rollbackKnowledgeBase(knowledgeBaseId);
+    },
+  };
+}
+
+/**
+ * Adapter for skill content versions. History is the snapshot list; skills have
+ * no alias, so there is no promote — only rollback (restore the prior snapshot
+ * as a new version). `canPromote` is false on every row, so `promote` is never
+ * invoked by the panel.
+ */
+export function makeSkillVersionAdapter(skillId: string): VersionAdapter {
+  return {
+    loadVersions: async () =>
+      skillVersionsToArtifactVersions(skillId, await caliberApi.listSkillVersions(skillId)),
+    promote: async () => {
+      throw new Error("skills are not promoted; use rollback to restore a prior version");
+    },
+    rollback: async () => {
+      await caliberApi.rollbackSkill(skillId);
     },
   };
 }

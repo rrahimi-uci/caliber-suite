@@ -60,14 +60,20 @@ from caliber.auth import (
 from caliber.builtin_skills import register_builtin_skills
 from caliber.db.models import (
     CaliberAgentConfig,
-    CaliberAuditLog,
     CaliberRefinementJob,
     CaliberSkill,
     CaliberSkillTestRun,
+    CaliberSkillVersion,
     CaliberVerificationItem,
 )
 from caliber.db.scoping import apply_visibility_filter
-from caliber.ids import new_item_id, new_job_id, new_skill_id, new_skill_test_run_id
+from caliber.ids import (
+    new_item_id,
+    new_job_id,
+    new_skill_id,
+    new_skill_test_run_id,
+    new_skill_version_id,
+)
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -129,6 +135,7 @@ BASELINE_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/baseline"
 BIND_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/bind"
 CALIBRATE_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/calibrate"
 ROLLBACK_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/rollback"
+VERSIONS_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/versions"
 
 # History listing defaults/cap for ``GET /skills/test-runs``.
 _TEST_RUNS_DEFAULT_LIMIT = 20
@@ -387,6 +394,7 @@ async def create_skill(request: Request) -> JSONResponse:
         )
         session.add(skill)
         session.flush()
+        _record_skill_version(session, skill, created_by=actor)
 
         audit_record(
             session,
@@ -447,6 +455,12 @@ async def update_skill(request: Request) -> JSONResponse:
         if skill is None:
             raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
 
+        # Capture pre-edit state so a content change can backfill the prior
+        # version's snapshot before mutating (the diff loop edits in place).
+        pre_content = skill.content
+        pre_summary = skill.summary
+        pre_version = skill.version
+
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
             if field not in changes:
@@ -465,10 +479,16 @@ async def update_skill(request: Request) -> JSONResponse:
         # cached references.
         version_changed = False
         if "content" in diff:
-            old_version = skill.version
-            skill.version = old_version + 1
-            diff["version"] = {"from": old_version, "to": skill.version}
+            # Backfill the pre-edit content as the prior version's snapshot
+            # (no-op when create_skill already recorded it), so rollback always
+            # has an exact target, then record the new content as a new version.
+            _ensure_skill_version_snapshot(
+                session, skill.skill_id, pre_version, pre_content, pre_summary, created_by=actor
+            )
+            skill.version = pre_version + 1
+            diff["version"] = {"from": pre_version, "to": skill.version}
             version_changed = True
+            _record_skill_version(session, skill, created_by=actor)
 
         audit_record(
             session,
@@ -487,45 +507,90 @@ async def update_skill(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
-def _previous_skill_content(session: Session, skill_id: str, current_content: str) -> str | None:
-    """The skill content that was live immediately before ``current_content``.
+def _record_skill_version(session: Session, skill: CaliberSkill, *, created_by: str) -> None:
+    """Snapshot the skill's current content/summary at its current version number.
 
-    Read from the audit trail: every content-changing edit records
-    ``details.changes.content = {"from": <old>, "to": <new>}``. We find the most
-    recent edit/rollback whose ``to`` is the content currently live and return
-    its ``from`` — the exact prior content. Walking the trail this way lets
-    repeated rollbacks step backwards through real edit history.
+    Called whenever ``skill.version`` is (re)assigned — on create, on a
+    content-changing edit, and on rollback — so the version table is the
+    authoritative history the panel lists, diffs, and rolls back against.
     """
-    rows = (
+    session.add(
+        CaliberSkillVersion(
+            skill_version_id=new_skill_version_id(),
+            skill_id=skill.skill_id,
+            version_number=skill.version,
+            content=skill.content,
+            summary=skill.summary or "",
+            created_by=created_by,
+        )
+    )
+
+
+def _ensure_skill_version_snapshot(
+    session: Session,
+    skill_id: str,
+    version_number: int,
+    content: str,
+    summary: str,
+    *,
+    created_by: str,
+) -> None:
+    """Record a snapshot for ``(skill_id, version_number)`` if one doesn't exist.
+
+    Backfills the pre-edit content for skills that predate the version table (or
+    were inserted without going through ``create_skill``), so the first edit
+    leaves a real rollback target rather than orphaning the prior content.
+    """
+    exists = (
         session.execute(
-            select(CaliberAuditLog)
-            .where(CaliberAuditLog.entity_type == "skill")
-            .where(CaliberAuditLog.entity_id == skill_id)
-            .where(CaliberAuditLog.action.in_(("update_skill", "rollback_skill")))
-            .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
-            .limit(100)
+            select(CaliberSkillVersion.skill_version_id)
+            .where(CaliberSkillVersion.skill_id == skill_id)
+            .where(CaliberSkillVersion.version_number == version_number)
+            .limit(1)
         )
         .scalars()
-        .all()
+        .first()
     )
-    for row in rows:
-        content_change = ((row.details or {}).get("changes") or {}).get("content")
-        if not isinstance(content_change, dict):
-            continue
-        if content_change.get("to") == current_content:
-            prior = content_change.get("from")
-            return prior if isinstance(prior, str) else None
-    return None
+    if exists is None:
+        session.add(
+            CaliberSkillVersion(
+                skill_version_id=new_skill_version_id(),
+                skill_id=skill_id,
+                version_number=version_number,
+                content=content,
+                summary=summary or "",
+                created_by=created_by,
+            )
+        )
+
+
+def _previous_skill_version(session: Session, skill: CaliberSkill) -> CaliberSkillVersion | None:
+    """The snapshot with the largest version_number strictly below the current.
+
+    This is the exact content that was live immediately before the current
+    version, so rolling back to it (as a new version) restores prior state
+    precisely. ``None`` when the skill has no earlier version.
+    """
+    return (
+        session.execute(
+            select(CaliberSkillVersion)
+            .where(CaliberSkillVersion.skill_id == skill.skill_id)
+            .where(CaliberSkillVersion.version_number < skill.version)
+            .order_by(CaliberSkillVersion.version_number.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
 
 
 async def rollback_skill(request: Request) -> JSONResponse:
     """``POST /caliber/skills/{skill_id}/rollback`` — restore the prior content.
 
     Skills are a single mutable row, so a content edit overwrites the previous
-    text. This rolls the content back to the exact value recorded before the
-    most recent edit (read from the audit trail) as a *new* version — keeping
-    the forward-only version counter monotonic. Returns 409 when there is no
-    recorded prior content to restore.
+    text. This restores the exact content of the immediately-prior version
+    snapshot (from ``caliber_skill_versions``) as a *new* version — keeping the
+    forward-only counter monotonic. Returns 409 when there is no earlier version.
     """
     skill_id = request.path_params["skill_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
@@ -536,20 +601,22 @@ async def rollback_skill(request: Request) -> JSONResponse:
         if skill is None:
             raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
 
-        target_content = _previous_skill_content(session, skill_id, skill.content)
-        if target_content is None:
+        prior = _previous_skill_version(session, skill)
+        if prior is None:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"no recorded prior content for skill {skill_id!r}; "
-                    "rollback needs an audited content edit to restore"
+                    f"no earlier version for skill {skill_id!r}; "
+                    "rollback needs a prior content version to restore"
                 ),
             )
 
         current_content = skill.content
         old_version = skill.version
-        skill.content = target_content
+        skill.content = prior.content
+        skill.summary = prior.summary
         skill.version = old_version + 1
+        _record_skill_version(session, skill, created_by=actor)
 
         audit_record(
             session,
@@ -559,9 +626,10 @@ async def rollback_skill(request: Request) -> JSONResponse:
             entity_id=skill.skill_id,
             details={
                 "changes": {
-                    "content": {"from": current_content, "to": target_content},
+                    "content": {"from": current_content, "to": prior.content},
                     "version": {"from": old_version, "to": skill.version},
                 },
+                "restored_from_version": prior.version_number,
                 "version_bumped": True,
             },
         )
@@ -569,6 +637,38 @@ async def rollback_skill(request: Request) -> JSONResponse:
         data = SkillSchema.model_validate(skill)
 
     return envelope_response(data)
+
+
+async def list_skill_versions(request: Request) -> JSONResponse:
+    """``GET /caliber/skills/{skill_id}/versions`` — content version history, newest first."""
+    require_user(request)
+    skill_id = request.path_params["skill_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        if session.get(CaliberSkill, skill_id) is None:
+            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        rows = (
+            session.execute(
+                select(CaliberSkillVersion)
+                .where(CaliberSkillVersion.skill_id == skill_id)
+                .order_by(CaliberSkillVersion.version_number.desc())
+            )
+            .scalars()
+            .all()
+        )
+        data = [
+            {
+                "skill_version_id": row.skill_version_id,
+                "skill_id": row.skill_id,
+                "version_number": row.version_number,
+                "content": row.content,
+                "summary": row.summary,
+                "created_by": row.created_by,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ]
+    return envelope_response_dict(data)
 
 
 async def get_skill_package(request: Request) -> JSONResponse:
@@ -666,6 +766,7 @@ async def import_skill_package(request: Request) -> JSONResponse:
         )
         session.add(skill)
         session.flush()
+        _record_skill_version(session, skill, created_by=actor)
 
         audit_record(
             session,
@@ -1203,5 +1304,6 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(BIND_PATH, bind_skill, methods=["POST"]))
     app.routes.append(Route(CALIBRATE_PATH, calibrate_skill, methods=["POST"]))
     app.routes.append(Route(ROLLBACK_PATH, rollback_skill, methods=["POST"]))
+    app.routes.append(Route(VERSIONS_PATH, list_skill_versions, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, get_skill, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, update_skill, methods=["PATCH"]))

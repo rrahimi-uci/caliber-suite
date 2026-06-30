@@ -12,10 +12,12 @@
  * by the Skill / SkillPackage payloads.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
+import { makeSkillVersionAdapter } from "@/components/versioning/adapters";
+import { VersionPanel } from "@/components/versioning/VersionPanel";
 import type {
   ResourceStatus,
   Skill,
@@ -53,7 +55,7 @@ function humanizeCategory(category: string): string {
   return category.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-type DetailTab = "overview" | "content";
+type DetailTab = "overview" | "content" | "versions";
 
 interface EditState {
   owner: string;
@@ -113,6 +115,8 @@ export function SkillDetail(): JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
+  // Memoized so the VersionPanel's load effect doesn't re-fire each render.
+  const versionAdapter = useMemo(() => makeSkillVersionAdapter(skillId ?? ""), [skillId]);
 
   // Seed the form whenever we enter edit mode with fresh data.
   useEffect(() => {
@@ -333,6 +337,7 @@ export function SkillDetail(): JSX.Element {
             <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200/70">
               <TabButton active={tab === "overview"} onClick={() => setTab("overview")}>Overview</TabButton>
               <TabButton active={tab === "content"} onClick={() => setTab("content")}>Content</TabButton>
+              <TabButton active={tab === "versions"} onClick={() => setTab("versions")}>Versions</TabButton>
             </nav>
 
             {tab === "overview" ? (
@@ -349,8 +354,12 @@ export function SkillDetail(): JSX.Element {
                   importMut.mutate({ owner: meQuery.data?.user_id ?? "", files })
                 }
               />
-            ) : (
+            ) : tab === "content" ? (
               <ContentTab skill={skill} onEdit={isAdmin ? () => setEditing(true) : undefined} />
+            ) : (
+              <div className="pt-4">
+                <VersionPanel adapter={versionAdapter} />
+              </div>
             )}
           </div>
 
@@ -854,8 +863,8 @@ function RightRail({
             A promotion is blocked unless a passing regression replay exists for that exact candidate.
           </LifecycleRow>
           <LifecycleRow color="text-blue-500">
-            A checkpoint captures <span className="font-mono text-slate-600">content_before</span> at
-            promotion, so any version is one-click rollback-restorable.
+            Every content version is snapshotted in the history, so any prior version is
+            one-click rollback-restorable from the <span className="font-semibold text-slate-600">Versions</span> tab.
           </LifecycleRow>
           <LifecycleRow color="text-amber-500">
             There is no hard delete — <span className="font-mono text-slate-600">archive</span> is the
