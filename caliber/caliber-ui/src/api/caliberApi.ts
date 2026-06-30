@@ -11,7 +11,7 @@
  * directly — that's how envelope handling drifts.
  */
 
-import type { GateVerdict, PromptRollbackResult } from "./versioning";
+import type { GateVerdict, PromptRollbackResult, SkillVersionInfo } from "./versioning";
 import type {
   AgentConfig,
   AgentRegisterPayload,
@@ -979,6 +979,11 @@ export const caliberApi = {
     return request<Skill>(`/skills/${encodeURIComponent(skillId)}/rollback`, {
       method: "POST",
     });
+  },
+
+  /** GET /skills/{skillId}/versions — content version history, newest first. */
+  listSkillVersions(skillId: string): Promise<SkillVersionInfo[]> {
+    return request<SkillVersionInfo[]>(`/skills/${encodeURIComponent(skillId)}/versions`);
   },
 
   /** POST /knowledge-bases/{id}/rollback — re-activate the prior active version. */

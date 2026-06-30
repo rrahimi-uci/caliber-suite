@@ -2157,3 +2157,28 @@ class CaliberGateVerdict(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class CaliberSkillVersion(Base):
+    """An immutable snapshot of a skill's content at one version number.
+
+    Skills are a single mutable ``CaliberSkill`` row, so by themselves they keep
+    no history — an edit overwrites the prior text. This table records the
+    content (and summary) at each ``version`` so the platform has real version
+    history: a per-version list/diff and an exact rollback (restore a prior
+    snapshot as a new version). One row per ``(skill_id, version_number)``.
+    """
+
+    __tablename__ = "caliber_skill_versions"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "version_number", name="uq_skill_version_number"),
+        Index("ix_skill_versions_skill", "skill_id", "version_number"),
+    )
+
+    skill_version_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_skills.skill_id"))
+    version_number: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

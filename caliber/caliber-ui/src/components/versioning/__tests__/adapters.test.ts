@@ -5,6 +5,7 @@ import type { ArtifactVersion } from "@/api/versioning";
 import {
   makeKnowledgeBaseVersionAdapter,
   makePromptVersionAdapter,
+  makeSkillVersionAdapter,
   makeWorkflowVersionAdapter,
 } from "@/components/versioning/adapters";
 
@@ -21,6 +22,8 @@ vi.mock("@/api/caliberApi", () => ({
     getKnowledgeBase: vi.fn(),
     activateKnowledgeBaseVersion: vi.fn(),
     rollbackKnowledgeBase: vi.fn(),
+    listSkillVersions: vi.fn(),
+    rollbackSkill: vi.fn(),
   },
 }));
 
@@ -165,5 +168,25 @@ describe("makeKnowledgeBaseVersionAdapter", () => {
     expect(api.activateKnowledgeBaseVersion).toHaveBeenCalledWith("KB-1", "KBV-9");
     await adapter.rollback();
     expect(api.rollbackKnowledgeBase).toHaveBeenCalledWith("KB-1");
+  });
+});
+
+describe("makeSkillVersionAdapter", () => {
+  it("marks the highest version live + rollbackable; older versions are not promotable", async () => {
+    api.listSkillVersions.mockResolvedValue([
+      { skill_version_id: "SKV-2", skill_id: "SK-1", version_number: 2, content: "v2", summary: "s", created_by: "@a", created_at: null },
+      { skill_version_id: "SKV-1", skill_id: "SK-1", version_number: 1, content: "v1", summary: "s", created_by: "@a", created_at: null },
+    ]);
+    const versions = await makeSkillVersionAdapter("SK-1").loadVersions();
+    const live = versions.find((v) => v.versionKey === "2");
+    expect(live).toMatchObject({ isLive: true, status: "active" });
+    expect(live?.capabilities.canRollback).toBe(true);
+    expect(live?.capabilities.canPromote).toBe(false);
+    expect(versions.find((v) => v.versionKey === "1")?.capabilities.canRollback).toBe(false);
+  });
+
+  it("rolls back via the skill rollback endpoint", async () => {
+    await makeSkillVersionAdapter("SK-1").rollback();
+    expect(api.rollbackSkill).toHaveBeenCalledWith("SK-1");
   });
 });
