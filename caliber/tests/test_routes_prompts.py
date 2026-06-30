@@ -696,9 +696,7 @@ def test_set_alias_and_version_errors(client: TestClient, monkeypatch) -> None:
     assert called["alias_calls"] == [("support-agent", "prod", 3)]
 
 
-def _audit_rows(
-    session_factory: sessionmaker[Session], entity_id: str
-) -> list[CaliberAuditLog]:
+def _audit_rows(session_factory: sessionmaker[Session], entity_id: str) -> list[CaliberAuditLog]:
     with session_factory() as session:
         return list(
             session.execute(
@@ -756,9 +754,7 @@ def test_promote_records_audit_with_exact_previous_live_and_gate(
 
     # The advisory verdict is persisted keyed by the now-live version so the
     # Version panel can read it back.
-    verdict = client.get(
-        "/ajax-api/2.0/mlflow/caliber/gate-verdicts/prompt/5"
-    )
+    verdict = client.get("/ajax-api/2.0/mlflow/caliber/gate-verdicts/prompt/5")
     assert verdict.status_code == 200
     verdict_data = verdict.json()["data"]
     assert verdict_data["state"] == "fail"
