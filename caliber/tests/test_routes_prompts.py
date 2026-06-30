@@ -761,6 +761,32 @@ def test_promote_records_audit_with_exact_previous_live_and_gate(
     assert verdict_data["score"] == 0.71
 
 
+def test_promote_expected_version_guard(client: TestClient, monkeypatch) -> None:
+    """A stale ``expected_version`` blocks the rotation with 409; a matching one
+    lets it through."""
+    calls = _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": SimpleNamespace(
+                name="support-agent", version=4, template="live v4"
+            )
+        },
+    )
+    stale = client.post(
+        f"{PREFIX}/support-agent/aliases/prod",
+        json={"version": 5, "expected_version": 2},
+    )
+    assert stale.status_code == 409
+    assert calls["alias_calls"] == []  # no rotation happened
+
+    ok = client.post(
+        f"{PREFIX}/support-agent/aliases/prod",
+        json={"version": 5, "expected_version": 4},
+    )
+    assert ok.status_code == 200
+    assert ("support-agent", "prod", 5) in calls["alias_calls"]
+
+
 def test_promote_rejects_bad_gate_fields(client: TestClient, monkeypatch) -> None:
     _install_mlflow(monkeypatch)
     bad = client.post(

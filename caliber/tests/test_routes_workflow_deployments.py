@@ -186,6 +186,30 @@ def test_rollback_no_checkpoint_404(client: TestClient) -> None:
     assert r.status_code == 404
 
 
+def test_promote_expected_version_id_guard(client: TestClient) -> None:
+    """A stale ``expected_version_id`` blocks the promotion (409); a matching one
+    lets it through — optimistic concurrency for the live alias."""
+    wid, vid1 = create_and_publish(client)
+    client.post(f"{PREFIX}/workflows/{wid}/deployments/dev/promote", json={"version_id": vid1})
+    vid2, _ = create_draft(client, wid, make_support_manifest(wid, name="Support v2"))
+    client.post(f"{PREFIX}/workflow-versions/{vid2}/publish")
+
+    # dev currently serves vid1; caller expects a different version -> conflict.
+    stale = client.post(
+        f"{PREFIX}/workflows/{wid}/deployments/dev/promote",
+        json={"version_id": vid2, "expected_version_id": "WFV-stale"},
+    )
+    assert stale.status_code == 409
+
+    # Caller's expectation matches the live version -> proceeds.
+    ok = client.post(
+        f"{PREFIX}/workflows/{wid}/deployments/dev/promote",
+        json={"version_id": vid2, "expected_version_id": vid1},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["data"]["rotated"] is True
+
+
 def test_promote_viewer_forbidden(client: TestClient) -> None:
     wid, vid = create_and_publish(client)
     r = client.post(

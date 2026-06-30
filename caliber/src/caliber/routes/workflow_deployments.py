@@ -109,6 +109,33 @@ async def promote_deployment(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"version {payload.version_id!r} not found for workflow {workflow_id!r}",
             )
+        # Optimistic-concurrency guard: refuse if the alias has moved since the
+        # caller last saw it (avoids clobbering a concurrent promotion).
+        # ``expected_version_id=null`` asserts the alias is not yet deployed.
+        if "expected_version_id" in body:
+            expected_version_id = body.get("expected_version_id")
+            if expected_version_id is not None and not isinstance(expected_version_id, str):
+                raise HTTPException(
+                    status_code=400, detail="'expected_version_id' must be a string or null"
+                )
+            current_dep = (
+                session.execute(
+                    select(CaliberWorkflowDeployment)
+                    .where(CaliberWorkflowDeployment.workflow_id == workflow_id)
+                    .where(CaliberWorkflowDeployment.alias == alias)
+                )
+                .scalars()
+                .first()
+            )
+            current_vid = current_dep.version_id if current_dep is not None else None
+            if current_vid != expected_version_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"alias {alias!r} now serves {current_vid or 'no version'}, "
+                        f"not the expected {expected_version_id or 'no version'}; reload and retry"
+                    ),
+                )
         try:
             result = promote(session, workflow_id, alias, version, actor=actor)
         except DeployError as exc:
