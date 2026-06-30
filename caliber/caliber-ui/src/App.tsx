@@ -49,6 +49,7 @@ const ObjectStore = lazy(() => import("@/pages/ObjectStore").then((m) => ({ defa
 const Observability = lazy(() => import("@/pages/Observability").then((m) => ({ default: m.Observability })));
 const Dashboard = lazy(() => import("@/pages/Overview").then((m) => ({ default: m.Dashboard })));
 const Prompts = lazy(() => import("@/pages/Prompts").then((m) => ({ default: m.Prompts })));
+const Releases = lazy(() => import("@/pages/Releases").then((m) => ({ default: m.Releases })));
 const Settings = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.Settings })));
 const Skills = lazy(() => import("@/pages/Skills").then((m) => ({ default: m.Skills })));
 const SkillDetail = lazy(() => import("@/pages/SkillDetail").then((m) => ({ default: m.SkillDetail })));
@@ -149,6 +150,7 @@ function AuthenticatedApp({
               <Route path="/evaluations/:runId" element={<EvaluationDetail />} />
               <Route path="/gateway" element={<Gateway />} />
               <Route path="/audit-log" element={<AuditLog />} />
+              <Route path="/releases" element={<Releases />} />
               <Route path="*" element={<Placeholder title="Not found" />} />
             </Routes>
           </Suspense>
