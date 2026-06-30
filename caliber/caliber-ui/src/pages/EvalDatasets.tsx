@@ -347,10 +347,12 @@ function isStale(dataset: EvalDataset): boolean {
 }
 
 /**
- * MLflow GenAI dataset sync state, shown as a small pill:
+ * MLflow GenAI dataset sync state, shown as a small pill. This is registry
+ * PARITY, not which dataset version is active — labelled accordingly so it is
+ * not mistaken for version liveness (Q2):
  *  • never synced  → neutral "Not synced"
- *  • synced + current → emerald "Synced · vN"
- *  • synced but examples changed since → amber "Stale · vN"
+ *  • synced + current → "MLflow: up to date · vN"
+ *  • synced but examples changed since → amber "MLflow: behind · vN"
  */
 function MLflowSyncBadge({ dataset }: { dataset: EvalDataset }): JSX.Element {
   if (dataset.mlflow_dataset_id == null) {
@@ -376,7 +378,9 @@ function MLflowSyncBadge({ dataset }: { dataset: EvalDataset }): JSX.Element {
       }`}
     >
       <Dot className={stale ? "bg-amber-500" : "bg-mlflow-blue"} />
-      {stale ? "Stale" : "Synced"}
+      {/* "MLflow sync" parity, NOT version liveness — relabeled so it isn't read
+          as which dataset version is active (Q2). */}
+      {stale ? "MLflow: behind" : "MLflow: up to date"}
       {dataset.mlflow_synced_version != null && (
         <span className="font-mono normal-case opacity-80">
           v{dataset.mlflow_synced_version}

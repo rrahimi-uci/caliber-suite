@@ -214,6 +214,20 @@ export function EvalDatasetDetail(): JSX.Element {
             />
             Show retired
           </label>
+          {typeof versionFilter === "number" && dataset && versionFilter < dataset.version && (
+            <button
+              type="button"
+              data-testid="restore-version"
+              className="text-sm font-medium text-caliber-purple border border-caliber-purple/30 px-2.5 py-1 rounded-md hover:bg-caliber-purple/5"
+              onClick={async () => {
+                await caliberApi.restoreEvalDataset(datasetId, versionFilter);
+                setVersionFilter("");
+                refreshAll();
+              }}
+            >
+              Restore v{versionFilter} as new version
+            </button>
+          )}
         </div>
       </div>
 
