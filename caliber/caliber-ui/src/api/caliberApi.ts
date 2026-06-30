@@ -2569,6 +2569,11 @@ export const caliberApi = {
     return request<ToolDefinition[]>(`/tools${buildQuery({ status })}`, { signal });
   },
 
+  /** GET /tools/{toolId}/versions — all versions in this tool's family, newest first. */
+  listToolVersions(toolId: string): Promise<ToolDefinition[]> {
+    return request<ToolDefinition[]>(`/tools/${encodeURIComponent(toolId)}/versions`);
+  },
+
   /** POST /tools */
   registerTool(payload: {
     name: string;

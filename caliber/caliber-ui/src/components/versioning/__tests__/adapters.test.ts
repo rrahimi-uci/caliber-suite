@@ -6,6 +6,7 @@ import {
   makeKnowledgeBaseVersionAdapter,
   makePromptVersionAdapter,
   makeSkillVersionAdapter,
+  makeToolVersionAdapter,
   makeWorkflowVersionAdapter,
 } from "@/components/versioning/adapters";
 
@@ -24,6 +25,7 @@ vi.mock("@/api/caliberApi", () => ({
     rollbackKnowledgeBase: vi.fn(),
     listSkillVersions: vi.fn(),
     rollbackSkill: vi.fn(),
+    listToolVersions: vi.fn(),
   },
 }));
 
@@ -188,5 +190,21 @@ describe("makeSkillVersionAdapter", () => {
   it("rolls back via the skill rollback endpoint", async () => {
     await makeSkillVersionAdapter("SK-1").rollback();
     expect(api.rollbackSkill).toHaveBeenCalledWith("SK-1");
+  });
+});
+
+describe("makeToolVersionAdapter", () => {
+  it("lists the family as read-only history (no promote/rollback)", async () => {
+    api.listToolVersions.mockResolvedValue([
+      { tool_id: "TL-2", name: "fam", version: "2.0", description: "d", owner: "@a", status: "active" },
+      { tool_id: "TL-1", name: "fam", version: "1.0", description: "d", owner: "@a", status: "deprecated" },
+    ]);
+    const versions = await makeToolVersionAdapter("TL-2", "fam").loadVersions();
+    expect(api.listToolVersions).toHaveBeenCalledWith("TL-2");
+    expect(versions.map((v) => v.versionLabel)).toEqual(["v2.0", "v1.0"]);
+    expect(versions.every((v) => !v.isLive)).toBe(true);
+    expect(versions[0].capabilities.canPromote).toBe(false);
+    expect(versions[0].capabilities.canRollback).toBe(false);
+    expect(versions[1].status).toBe("deprecated");
   });
 });
