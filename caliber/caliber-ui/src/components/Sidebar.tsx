@@ -19,6 +19,7 @@ import {
   Scale,
   PlugZap,
   Puzzle,
+  Rocket,
   ScrollText,
   Settings2,
   Workflow,
@@ -274,6 +275,12 @@ export function Sidebar({
           to="/review-queues"
           icon={<ClipboardCheck className={NAV_ICON_CLASS} strokeWidth={1.85} />}
           label="Review Queues"
+          onNavigate={onNavigate}
+        />
+        <NavItem
+          to="/releases"
+          icon={<Rocket className={NAV_ICON_CLASS} strokeWidth={1.85} />}
+          label="Releases"
           onNavigate={onNavigate}
         />
         <NavItem

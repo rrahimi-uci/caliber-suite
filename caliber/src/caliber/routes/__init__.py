@@ -38,6 +38,7 @@ from caliber.routes import (
     observability,
     projects,
     prompts,
+    releases,
     review_queues,
     rollback,
     services,
@@ -79,6 +80,7 @@ def register_routes(app: Starlette) -> None:
     aria_plans.register(app)
     jobs.register(app)
     rollback.register(app)
+    releases.register(app)
     dashboard.register(app)
     prompts.register(app)
     knowledge_bases.register(app)
