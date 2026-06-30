@@ -7,6 +7,7 @@ import {
   knowledgeBaseVersionsToArtifactVersions,
   promptVersionsToArtifactVersions,
   skillVersionsToArtifactVersions,
+  toolVersionsToArtifactVersions,
   workflowVersionsToArtifactVersions,
 } from "@/api/versioning";
 
@@ -111,6 +112,24 @@ export function makeSkillVersionAdapter(skillId: string): VersionAdapter {
     },
     rollback: async () => {
       await caliberApi.rollbackSkill(skillId);
+    },
+  };
+}
+
+/**
+ * Adapter for a tool family's versions. Read-only history — tools have no live
+ * alias, so neither promote nor rollback apply (`canPromote`/`canRollback` are
+ * false on every row, so the mutators are never invoked).
+ */
+export function makeToolVersionAdapter(toolId: string, toolName: string): VersionAdapter {
+  return {
+    loadVersions: async () =>
+      toolVersionsToArtifactVersions(toolName, await caliberApi.listToolVersions(toolId)),
+    promote: async () => {
+      throw new Error("tools are not promoted");
+    },
+    rollback: async () => {
+      throw new Error("tools are not rolled back");
     },
   };
 }
