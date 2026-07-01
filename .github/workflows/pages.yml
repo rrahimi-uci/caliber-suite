@@ -1,0 +1,51 @@
+name: Pages
+
+# Publish the CALIBER documentation site (docs-site/) to GitHub Pages.
+# The site is regenerated from the docs/**/*.md sources by the dependency-free
+# builder so a markdown edit flows through to the published pages on every push.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "docs-site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# Allow one concurrent deployment; a newer push supersedes an in-flight run.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Regenerate docs from markdown sources
+        run: node docs-site/build-docs.mjs
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
