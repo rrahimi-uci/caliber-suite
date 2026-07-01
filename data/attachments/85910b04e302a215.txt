@@ -1,0 +1,1 @@
+{"t":"2026-07-01T14:57:38.557Z","severity":"WARNING","logger":"caliber.workflows.memory_tools","message":"list_entities failed for agent=wf-1: entity store down"}

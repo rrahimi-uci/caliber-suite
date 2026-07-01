@@ -1,7 +1,0 @@
-{"t":"2026-07-01T03:41:21.017Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-01T03:41:21.039Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-01T03:41:21.042Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-01T03:41:21.075Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-01T03:41:21.078Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-33bc8ec1/bind \"HTTP/1.1 400 Bad Request\""}
-{"t":"2026-07-01T03:41:21.081Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-33bc8ec1/bind \"HTTP/1.1 400 Bad Request\""}
-{"t":"2026-07-01T03:41:21.085Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-33bc8ec1/bind \"HTTP/1.1 400 Bad Request\""}

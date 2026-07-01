@@ -1,0 +1,11 @@
+{"t":"2026-07-01T14:49:04.069Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-01T14:49:04.090Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-01T14:49:04.093Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-01T14:49:04.124Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T14:49:04.137Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-f5ec92ed/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T14:49:04.145Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-f5ec92ed (attempt 1/5); retrying","trace_id":"ed2746ba0c7d45c1"}
+{"t":"2026-07-01T14:49:04.149Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-f5ec92ed (attempt 2/5); retrying","trace_id":"ed2746ba0c7d45c1"}
+{"t":"2026-07-01T14:49:04.152Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-f5ec92ed (attempt 3/5); retrying","trace_id":"ed2746ba0c7d45c1"}
+{"t":"2026-07-01T14:49:04.156Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-f5ec92ed (attempt 4/5); retrying","trace_id":"ed2746ba0c7d45c1"}
+{"t":"2026-07-01T14:49:04.159Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-f5ec92ed (attempt 5/5); retrying","trace_id":"ed2746ba0c7d45c1"}
+{"t":"2026-07-01T14:49:04.162Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-f5ec92ed/versions \"HTTP/1.1 409 Conflict\""}

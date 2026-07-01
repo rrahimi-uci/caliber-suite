@@ -1,5 +1,0 @@
-{"t":"2026-07-01T03:43:32.950Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-01T03:43:32.970Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-01T03:43:32.973Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-01T03:43:33.024Z","severity":"INFO","logger":"caliber.orchestrator.scheduler","message":"scheduled run for workflow cron_wf alias prod (cron='* * * * *')"}
-{"t":"2026-07-01T03:43:33.040Z","severity":"INFO","logger":"caliber.orchestrator.scheduler","message":"scheduled run for workflow cron_wf alias prod (cron='* * * * *')"}
