@@ -22,8 +22,10 @@ from caliber.db.models import (
     CaliberRefinementJob,
     CaliberSkill,
     CaliberSkillTestRun,
+    CaliberSkillVersion,
     CaliberVerificationItem,
 )
+from caliber.ids import new_skill_version_id
 from caliber.routes.skills import DETAIL_PATH, LIST_PATH
 from caliber.skill_targets import skill_target_agent_id
 
@@ -263,6 +265,46 @@ def test_skill_version_history_records_and_lists_snapshots(client: TestClient) -
     assert rows2[0]["content"] == "v2 body"
 
 
+def test_summary_only_edit_is_versioned_and_recoverable(client: TestClient) -> None:
+    """A summary-only edit bumps the version and is snapshotted, so it isn't
+    silently dropped from history (and a later rollback restores it correctly)."""
+    created = client.post(
+        LIST_PATH,
+        json={
+            "name": "summary-skill",
+            "description": "d",
+            "summary": "s1",
+            "content": "body",
+            "owner": "@a",
+        },
+    )
+    assert created.status_code == 201, created.text
+    skill_id = created.json()["data"]["skill_id"]
+
+    edited = client.patch(DETAIL_PATH.replace("{skill_id}", skill_id), json={"summary": "s2"})
+    assert edited.status_code == 200
+    assert edited.json()["data"]["version"] == 2  # summary-only edit now bumps
+
+    rows = client.get(f"{PREFIX}/{skill_id}/versions").json()["data"]
+    assert [r["version_number"] for r in rows] == [2, 1]
+    assert rows[0]["summary"] == "s2"  # the summary change is recorded in history
+    assert rows[0]["content"] == "body"
+
+
+def test_tags_only_edit_does_not_bump_version(client: TestClient) -> None:
+    """A tags/owner edit is not part of the version snapshot, so it must not bump."""
+    created = client.post(
+        LIST_PATH,
+        json={"name": "tag-skill", "description": "d", "content": "body", "owner": "@a"},
+    )
+    skill_id = created.json()["data"]["skill_id"]
+    edited = client.patch(
+        DETAIL_PATH.replace("{skill_id}", skill_id), json={"tags": ["x"], "owner": "@b"}
+    )
+    assert edited.status_code == 200
+    assert edited.json()["data"]["version"] == 1
+
+
 def test_skill_version_history_404_for_missing_skill(client: TestClient) -> None:
     assert client.get(f"{PREFIX}/SK-nope/versions").status_code == 404
 
@@ -289,6 +331,42 @@ def test_rollback_skill_409_without_prior_edit(client: TestClient, db_session: S
     _insert_skill(db_session, skill_id="SK-RB2", name="guardrails_v1", content="only", version=1)
     resp = client.post(f"{PREFIX}/SK-RB2/rollback")
     assert resp.status_code == 409
+
+
+def test_update_skill_concurrent_version_bump_returns_409(
+    client: TestClient, db_session: Session
+) -> None:
+    """Two concurrent content edits both bump to the same version number.
+
+    The loser's snapshot insert hits ``uq_skill_version_number``; that must map
+    to a retryable 409 (the panel's If-Match flow reloads and retries), not an
+    unhandled IntegrityError surfacing as a 500.
+    """
+    _insert_skill(db_session, skill_id="SK-CC", name="concurrent_v1", content="orig", version=1)
+    # Simulate a concurrent editor that already committed version 2 for this skill.
+    db_session.add(
+        CaliberSkillVersion(
+            skill_version_id=new_skill_version_id(),
+            skill_id="SK-CC",
+            version_number=2,
+            content="rival edit",
+            summary="",
+            created_by="@rival",
+        )
+    )
+    db_session.commit()
+
+    resp = client.patch(
+        DETAIL_PATH.replace("{skill_id}", "SK-CC"),
+        json={"content": "my edit"},
+    )
+    assert resp.status_code == 409, resp.text
+
+    # The failed edit rolled back cleanly: the skill still reads version 1 with
+    # its original content, and no partial state leaked.
+    detail = client.get(DETAIL_PATH.replace("{skill_id}", "SK-CC")).json()["data"]
+    assert detail["version"] == 1
+    assert detail["content"] == "orig"
 
 
 def test_update_skill_non_content_does_not_bump_version(

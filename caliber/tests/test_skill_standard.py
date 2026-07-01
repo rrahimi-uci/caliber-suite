@@ -326,13 +326,21 @@ class TestUpdateNewFields:
 
 
 class TestVersionBumpWithNewFields:
-    def test_summary_change_does_not_bump_version(self, client: TestClient) -> None:
+    def test_summary_change_bumps_and_is_versioned(self, client: TestClient) -> None:
+        # ``summary`` is snapshotted per version alongside ``content`` (see
+        # ``_record_skill_version``), so a summary-only edit MUST bump/snapshot —
+        # otherwise the change is dropped from history and a later rollback would
+        # restore the wrong summary.
         resp = client.post(LIST_PATH, json=_base_payload(name="ver-summary"))
         sid = resp.json()["data"]["skill_id"]
         assert resp.json()["data"]["version"] == 1
 
         resp = client.patch(_skill_url(sid), json={"summary": "New summary"})
-        assert resp.json()["data"]["version"] == 1
+        assert resp.json()["data"]["version"] == 2
+
+        versions = client.get(f"{_skill_url(sid)}/versions").json()["data"]
+        assert [v["version_number"] for v in versions] == [2, 1]
+        assert versions[0]["summary"] == "New summary"
 
     def test_content_change_still_bumps_version(self, client: TestClient) -> None:
         resp = client.post(LIST_PATH, json=_base_payload(name="ver-content"))

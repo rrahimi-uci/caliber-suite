@@ -474,14 +474,16 @@ async def update_skill(request: Request) -> JSONResponse:
         if not diff:
             return envelope_response(SkillSchema.model_validate(skill))
 
-        # Bump the version only when the content actually changed —
-        # a tag tweak or owner reassignment shouldn't invalidate
-        # cached references.
+        # Bump the version when the versioned payload changed. Both ``content``
+        # and ``summary`` are snapshotted per version (see ``_record_skill_version``),
+        # so a summary-only edit must also bump — otherwise the change is dropped
+        # from history and a later rollback would restore the wrong summary. A
+        # tag/owner/description tweak does NOT bump (not part of the snapshot).
         version_changed = False
-        if "content" in diff:
-            # Backfill the pre-edit content as the prior version's snapshot
-            # (no-op when create_skill already recorded it), so rollback always
-            # has an exact target, then record the new content as a new version.
+        if "content" in diff or "summary" in diff:
+            # Backfill the pre-edit snapshot for the prior version (no-op when
+            # create_skill already recorded it), so rollback always has an exact
+            # target, then record the new content+summary as a new version.
             _ensure_skill_version_snapshot(
                 session, skill.skill_id, pre_version, pre_content, pre_summary, created_by=actor
             )
@@ -490,18 +492,33 @@ async def update_skill(request: Request) -> JSONResponse:
             version_changed = True
             _record_skill_version(session, skill, created_by=actor)
 
-        audit_record(
-            session,
-            actor=actor,
-            action="update_skill",
-            entity_type="skill",
-            entity_id=skill.skill_id,
-            details={
-                "changes": diff,
-                "version_bumped": version_changed,
-            },
-        )
-        session.commit()
+        try:
+            # audit_record flushes, so a concurrent edit that already claimed
+            # this version number (uq_skill_version_number) trips the constraint
+            # here rather than at commit — keep both inside the guard.
+            audit_record(
+                session,
+                actor=actor,
+                action="update_skill",
+                entity_type="skill",
+                entity_id=skill.skill_id,
+                details={
+                    "changes": diff,
+                    "version_bumped": version_changed,
+                },
+            )
+            session.commit()
+        except IntegrityError as exc:
+            # Surface a retryable conflict rather than a 500 — the panel's
+            # If-Match flow reloads the current version and retries.
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"skill {skill.skill_id!r} was modified concurrently; "
+                    "reload the current version and retry"
+                ),
+            ) from exc
         data = SkillSchema.model_validate(skill)
 
     return envelope_response(data)
@@ -618,22 +635,36 @@ async def rollback_skill(request: Request) -> JSONResponse:
         skill.version = old_version + 1
         _record_skill_version(session, skill, created_by=actor)
 
-        audit_record(
-            session,
-            actor=actor,
-            action="rollback_skill",
-            entity_type="skill",
-            entity_id=skill.skill_id,
-            details={
-                "changes": {
-                    "content": {"from": current_content, "to": prior.content},
-                    "version": {"from": old_version, "to": skill.version},
+        try:
+            # audit_record flushes, so a concurrent rollback/edit that already
+            # claimed this version number trips uq_skill_version_number here
+            # rather than at commit — keep both inside the guard.
+            audit_record(
+                session,
+                actor=actor,
+                action="rollback_skill",
+                entity_type="skill",
+                entity_id=skill.skill_id,
+                details={
+                    "changes": {
+                        "content": {"from": current_content, "to": prior.content},
+                        "version": {"from": old_version, "to": skill.version},
+                    },
+                    "restored_from_version": prior.version_number,
+                    "version_bumped": True,
                 },
-                "restored_from_version": prior.version_number,
-                "version_bumped": True,
-            },
-        )
-        session.commit()
+            )
+            session.commit()
+        except IntegrityError as exc:
+            # Concurrent rollback/edit claimed the same version number first.
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"skill {skill.skill_id!r} was modified concurrently; "
+                    "reload the current version and retry"
+                ),
+            ) from exc
         data = SkillSchema.model_validate(skill)
 
     return envelope_response(data)

@@ -21,6 +21,12 @@ export interface VersionAdapter {
 
 export interface VersionPanelProps {
   adapter: VersionAdapter;
+  /**
+   * Bump this (e.g. after saving a new version elsewhere on the page) to force
+   * the panel to reload. Without it the list goes stale after an out-of-band
+   * create until the component remounts.
+   */
+  refreshKey?: number;
 }
 
 function GateLine({ gate }: { gate: GateVerdict }): JSX.Element | null {
@@ -39,10 +45,14 @@ function GateLine({ gate }: { gate: GateVerdict }): JSX.Element | null {
         : gate.state === "pending"
           ? "eval in progress"
           : "stale";
+  // A score only means something for a settled verdict. For pending/stale the
+  // number is a leftover from a prior run — showing it reads as a fresh result.
+  const showScore =
+    (gate.state === "pass" || gate.state === "fail") && typeof gate.score === "number";
   return (
     <span className={`text-xs ${tone}`} data-testid="version-gate">
       gate: {label}
-      {typeof gate.score === "number" ? ` · ${gate.score.toFixed(2)}` : ""}
+      {showScore ? ` · ${gate.score!.toFixed(2)}` : ""}
     </span>
   );
 }
@@ -52,10 +62,14 @@ type DialogState =
   | { kind: "rollback" }
   | null;
 
-export function VersionPanel({ adapter }: VersionPanelProps): JSX.Element {
+export function VersionPanel({ adapter, refreshKey }: VersionPanelProps): JSX.Element {
   const [versions, setVersions] = useState<ArtifactVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // A failed promote/rollback is kept separate from the load error: it must NOT
+  // tear down the whole panel (which would hide the very list the operator needs
+  // to retry). It renders as an inline banner while the list stays put.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [busy, setBusy] = useState(false);
 
@@ -73,19 +87,30 @@ export function VersionPanel({ adapter }: VersionPanelProps): JSX.Element {
 
   useEffect(() => {
     void reload();
-  }, [reload]);
+    // refreshKey is an intentional reload trigger: when the parent bumps it
+    // (e.g. after saving a new version), re-fetch so the list isn't stale.
+  }, [reload, refreshKey]);
 
   const live = versions.find((v) => v.isLive);
+
+  const openDialog = useCallback((next: DialogState) => {
+    setActionError(null);
+    setDialog(next);
+  }, []);
 
   const runAction = useCallback(
     async (action: () => Promise<void>) => {
       setBusy(true);
+      setActionError(null);
       try {
         await action();
         setDialog(null);
         await reload();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Action failed");
+        // Keep the list intact; surface the failure inline and close the dialog
+        // so the operator can read it and retry from the still-visible list.
+        setActionError(err instanceof Error ? err.message : "Action failed");
+        setDialog(null);
       } finally {
         setBusy(false);
       }
@@ -127,6 +152,14 @@ export function VersionPanel({ adapter }: VersionPanelProps): JSX.Element {
 
   return (
     <div data-testid="version-panel">
+      {actionError ? (
+        <div
+          data-testid="version-panel-action-error"
+          className="mb-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-sm text-red-700"
+        >
+          {actionError}
+        </div>
+      ) : null}
       <ul data-testid="version-list" className="divide-y divide-surface-100">
         {versions.map((version) => (
           <li
@@ -150,7 +183,7 @@ export function VersionPanel({ adapter }: VersionPanelProps): JSX.Element {
                   variant="outline"
                   size="sm"
                   data-testid={`version-promote-${version.versionKey}`}
-                  onClick={() => setDialog({ kind: "promote", version })}
+                  onClick={() => openDialog({ kind: "promote", version })}
                 >
                   Promote
                 </Button>
@@ -160,7 +193,7 @@ export function VersionPanel({ adapter }: VersionPanelProps): JSX.Element {
                   variant="outline"
                   size="sm"
                   data-testid="version-rollback"
-                  onClick={() => setDialog({ kind: "rollback" })}
+                  onClick={() => openDialog({ kind: "rollback" })}
                 >
                   Roll back
                 </Button>

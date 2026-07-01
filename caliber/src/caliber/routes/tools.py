@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import inspect
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -180,6 +181,26 @@ def _resolve_tool_source(module_path: str, callable_name: str) -> dict[str, Any]
     return result
 
 
+def _tool_version_sort_key(version: str) -> tuple[tuple[int, int, str], ...]:
+    """Natural-order sort key for a tool ``version`` string.
+
+    ``version`` is a free-form ``String`` column, so a SQL ``ORDER BY version``
+    sorts lexically — ``"10" < "9"`` and ``"1.10" < "1.9"`` — which lists a
+    tool's history in the wrong order once it hits a two-digit component. This
+    compares each dot/dash/plus/underscore-separated component numerically when
+    it is an integer and lexically otherwise, so ``9 < 10`` and ``1.9 < 1.10``.
+    """
+    components: list[tuple[int, int, str]] = []
+    for token in re.split(r"[.\-+_]", version.strip()):
+        if token.isdigit():
+            components.append((1, int(token), ""))
+        else:
+            # Non-numeric tokens (e.g. "beta") sort before numeric ones at the
+            # same position and compare lexically among themselves.
+            components.append((0, 0, token))
+    return tuple(components)
+
+
 async def list_tool_versions(request: Request) -> JSONResponse:
     """``GET /caliber/tools/{tool_id}/versions`` — all versions in this tool's
     family (same ``name``), newest version first.
@@ -187,23 +208,27 @@ async def list_tool_versions(request: Request) -> JSONResponse:
     Tools have no live alias to promote/roll back; this is the version-history
     inventory the registry was missing (the detail page previously only listed
     *workflow* versions that reference the tool, not the tool's own versions).
+    Scoped by visibility so it never leaks another project's tool versions, and
+    sorted with a version-aware key so 2-digit components order correctly.
     """
     require_user(request)
+    identity = resolve_identity(request)
     tool_id = request.path_params["tool_id"]
     factory = get_session_factory(request)
     with factory() as session:
         tool = session.get(CaliberToolRegistry, tool_id)
         if tool is None:
             raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
-        rows = (
-            session.execute(
-                select(CaliberToolRegistry)
-                .where(CaliberToolRegistry.name == tool.name)
-                .order_by(CaliberToolRegistry.version.desc())
-            )
-            .scalars()
-            .all()
+        stmt = select(CaliberToolRegistry).where(CaliberToolRegistry.name == tool.name)
+        stmt = apply_visibility_filter(
+            stmt,
+            CaliberToolRegistry,
+            identity,
+            identity.active_project_id,
+            only=visibility_param(request),
         )
+        rows = session.execute(stmt).scalars().all()
+        rows = sorted(rows, key=lambda r: _tool_version_sort_key(r.version), reverse=True)
         items = [ToolSchema.model_validate(r) for r in rows]
     return envelope_response(items)
 

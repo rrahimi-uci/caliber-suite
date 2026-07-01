@@ -53,6 +53,31 @@ _TIMELINE_DEFAULT_LIMIT = 50
 _TIMELINE_MAX_LIMIT = 200
 
 
+def _kb_live_entry(
+    kb: CaliberKnowledgeBase, activation: CaliberAuditLog | None
+) -> dict[str, object | None]:
+    """One ``/releases/live`` row for a knowledge base.
+
+    ``since``/``by`` come from the activation audit row that put the currently
+    live version in place; they fall back to ``updated_at``/``owner`` only when
+    that activation was never audited (e.g. the build-time activation of a KB's
+    first version).
+    """
+    return {
+        "artifact_type": "knowledge_base",
+        "artifact_id": kb.knowledge_base_id,
+        "artifact_name": kb.name,
+        "alias": "active",
+        "version_id": kb.active_version_id,
+        "since": (
+            activation.timestamp.isoformat()
+            if activation and activation.timestamp
+            else (kb.updated_at.isoformat() if kb.updated_at else None)
+        ),
+        "by": activation.actor if activation else kb.owner,
+    }
+
+
 async def timeline(request: Request) -> JSONResponse:
     """Recent promotion/rollback/activation events, newest first.
 
@@ -126,6 +151,39 @@ async def live(request: Request) -> JSONResponse:
             .scalars()
             .all()
         )
+        # "since"/"by" for a KB must reflect when its *active version* went live
+        # and who did it — NOT ``updated_at`` (bumped on any edit, e.g. a rename)
+        # or ``owner`` (the KB's owner, not the activator). Derive them from the
+        # newest activate/rollback audit row that names the currently-live
+        # version, falling back to updated_at/owner when there is no audited
+        # activation (e.g. the build-time activation of a KB's first version).
+        active_version_by_kb = {kb.knowledge_base_id: kb.active_version_id for kb in kbs}
+        activation_by_kb: dict[str, CaliberAuditLog] = {}
+        if active_version_by_kb:
+            audit_rows = (
+                session.execute(
+                    select(CaliberAuditLog)
+                    .where(CaliberAuditLog.entity_type == "knowledge_base")
+                    .where(CaliberAuditLog.entity_id.in_(active_version_by_kb))
+                    .where(
+                        CaliberAuditLog.action.in_(
+                            (
+                                "activate_knowledge_base_version",
+                                "rollback_knowledge_base_version",
+                            )
+                        )
+                    )
+                    .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
+                )
+                .scalars()
+                .all()
+            )
+            for row in audit_rows:
+                kb_id = row.entity_id
+                if kb_id in activation_by_kb:
+                    continue  # keep only the newest matching row per KB
+                if (row.details or {}).get("version_id") == active_version_by_kb.get(kb_id):
+                    activation_by_kb[kb_id] = row
         data = [
             {
                 "artifact_type": "workflow",
@@ -136,18 +194,7 @@ async def live(request: Request) -> JSONResponse:
                 "by": dep.deployed_by,
             }
             for dep in deployments
-        ] + [
-            {
-                "artifact_type": "knowledge_base",
-                "artifact_id": kb.knowledge_base_id,
-                "artifact_name": kb.name,
-                "alias": "active",
-                "version_id": kb.active_version_id,
-                "since": kb.updated_at.isoformat() if kb.updated_at else None,
-                "by": kb.owner,
-            }
-            for kb in kbs
-        ]
+        ] + [_kb_live_entry(kb, activation_by_kb.get(kb.knowledge_base_id)) for kb in kbs]
     return envelope_response_dict(data)
 
 

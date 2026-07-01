@@ -813,10 +813,19 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
                 "graph_overrides": raw.get("graph_overrides"),
             }
         )
-        return knowledge_service.query(
+        result = knowledge_service.query(
             request,
             identity=workflow_identity,
         ).model_dump(mode="json")
+        # Pin the resolved corpus version(s) into the node output so a run that
+        # followed the KB's *active* pointer stays reproducible after that
+        # pointer moves. This is the PRIMARY live path (orchestrator, run/preview,
+        # evals, subworkflows, assistant), so the pin must be here too — not only
+        # on the deploy-gate runner.
+        result["resolved_version_ids"] = version_ids
+        if knowledge_base_id:
+            result["resolved_knowledge_base_id"] = knowledge_base_id
+        return result
 
     def _run_knowledge_build(payload: dict[str, Any]) -> dict[str, Any]:
         raw = dict(payload)
