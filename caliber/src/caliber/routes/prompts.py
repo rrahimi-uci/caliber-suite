@@ -1659,18 +1659,23 @@ async def set_prompt_alias(request: Request) -> JSONResponse:
 def _previous_live_version(session: Session, name: str, alias: str, current: int) -> int | None:
     """The version that was live on ``alias`` immediately before ``current``.
 
-    Read from the audit trail: the most recent promote/rollback row for this
-    prompt+alias whose recorded ``to_version`` equals the version currently
-    live. Its ``from_version`` is the exact target to roll back to. Walking the
-    trail this way makes repeated rollbacks hop backwards through real promotion
-    history rather than guessing ``current - 1``.
+    Read from the *promotion* audit trail: the most recent ``promote_prompt`` row
+    for this prompt+alias whose recorded ``to_version`` equals the version
+    currently live. Its ``from_version`` is the exact target to roll back to.
+
+    Only ``promote_prompt`` rows are walked — never ``rollback_prompt`` rows. A
+    rollback writes ``{from_version: <current>, to_version: <target>}``, so
+    including rollback rows would let the row a rollback just wrote shadow the
+    real promote chain and make a *second* consecutive rollback hop forward to
+    the version it just left (v3→v2 then v2→v3). Restricting to promotions makes
+    repeated rollbacks walk strictly backward through real promotion history.
     """
     rows = (
         session.execute(
             select(CaliberAuditLog)
             .where(CaliberAuditLog.entity_type == "prompt")
             .where(CaliberAuditLog.entity_id == name)
-            .where(CaliberAuditLog.action.in_(("promote_prompt", "rollback_prompt")))
+            .where(CaliberAuditLog.action == "promote_prompt")
             .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
             .limit(100)
         )

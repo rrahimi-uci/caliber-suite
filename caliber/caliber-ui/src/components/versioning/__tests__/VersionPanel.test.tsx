@@ -118,4 +118,59 @@ describe("VersionPanel", () => {
     render(<VersionPanel adapter={adapter} />);
     expect(await screen.findByTestId("version-panel-error")).toHaveTextContent("boom");
   });
+
+  it("reloads when refreshKey changes", async () => {
+    const adapter = makeAdapter([LIVE, PRIOR]);
+    const { rerender } = render(<VersionPanel adapter={adapter} refreshKey={0} />);
+    await screen.findByTestId("version-panel");
+    expect(adapter.loadVersions).toHaveBeenCalledTimes(1);
+
+    // A bump from the parent (e.g. after saving a new version) forces a refetch.
+    rerender(<VersionPanel adapter={adapter} refreshKey={1} />);
+    await waitFor(() => expect(adapter.loadVersions).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps the list intact and shows an inline error when an action fails", async () => {
+    const adapter = makeAdapter([LIVE, PRIOR]);
+    adapter.promote = vi.fn().mockRejectedValue(new Error("alias moved; reload and retry"));
+    render(<VersionPanel adapter={adapter} />);
+    await screen.findByTestId("version-panel");
+
+    await userEvent.click(screen.getByTestId("version-promote-1"));
+    await userEvent.click(screen.getByTestId("confirm-dialog-confirm"));
+
+    // The failure surfaces inline...
+    expect(await screen.findByTestId("version-panel-action-error")).toHaveTextContent(
+      "alias moved; reload and retry",
+    );
+    // ...without tearing down the panel: the list and its controls are still
+    // there so the operator can retry.
+    expect(screen.getByTestId("version-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("version-list")).toBeInTheDocument();
+    expect(screen.getByTestId("version-promote-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("version-panel-error")).not.toBeInTheDocument();
+  });
+
+  it("shows the gate score only for settled verdicts, not pending/stale", async () => {
+    const pending = v({
+      versionKey: "1",
+      versionLabel: "v1",
+      gate: { state: "pending", score: 0.83 },
+    });
+    const { unmount } = render(<VersionPanel adapter={makeAdapter([pending])} />);
+    await screen.findByTestId("version-panel");
+    const pendingGate = screen.getByTestId("version-gate");
+    expect(pendingGate).toHaveTextContent("eval in progress");
+    expect(pendingGate).not.toHaveTextContent("0.83"); // leftover score is hidden
+    unmount();
+
+    const passing = v({
+      versionKey: "1",
+      versionLabel: "v1",
+      gate: { state: "pass", score: 0.92 },
+    });
+    render(<VersionPanel adapter={makeAdapter([passing])} />);
+    await screen.findByTestId("version-panel");
+    expect(screen.getByTestId("version-gate")).toHaveTextContent("0.92");
+  });
 });

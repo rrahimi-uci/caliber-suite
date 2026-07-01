@@ -557,6 +557,47 @@ Dark mode applies consistently across linked tools.
         == version_two["knowledge_base_version_id"]
     )
 
+    # Build an explicit activation chain v1 -> v2 so the audit trail records a
+    # genuine "v2 activated, previous was v1" row to roll back from.
+    for target in (version_one, version_two):
+        activated = client.post(
+            f"{KB}/{knowledge_base['knowledge_base_id']}"
+            f"/versions/{target['knowledge_base_version_id']}/activate",
+            json={},
+        )
+        assert activated.status_code == 200, activated.text
+    assert (
+        client.get(f"{KB}/{knowledge_base['knowledge_base_id']}").json()["data"][
+            "active_version_id"
+        ]
+        == version_two["knowledge_base_version_id"]
+    )
+
+    # Re-activating the version that is already active is a no-op: it must NOT
+    # write a self-referential audit row (version_id == previous_active). Such a
+    # row would shadow the real activation chain and make the next rollback a
+    # silent no-op that returns 200 as if it had rolled back.
+    reactivate_same = client.post(
+        f"{KB}/{knowledge_base['knowledge_base_id']}"
+        f"/versions/{version_two['knowledge_base_version_id']}/activate",
+        json={},
+    )
+    assert reactivate_same.status_code == 200, reactivate_same.text
+    assert (
+        reactivate_same.json()["data"]["active_version_id"]
+        == version_two["knowledge_base_version_id"]
+    )
+
+    # Rollback now walks the *activation* trail backward and restores the
+    # genuine prior — v1 — rather than treating the no-op re-activation as the
+    # "previous" version and silently doing nothing.
+    second_rollback = client.post(f"{KB}/{knowledge_base['knowledge_base_id']}/rollback", json={})
+    assert second_rollback.status_code == 200, second_rollback.text
+    assert (
+        second_rollback.json()["data"]["active_version_id"]
+        == version_one["knowledge_base_version_id"]
+    )
+
 
 @mock_aws
 def test_knowledge_base_queue_worker_processes_queued_runs(

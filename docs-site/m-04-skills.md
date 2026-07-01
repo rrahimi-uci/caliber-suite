@@ -121,10 +121,18 @@ loaded only once the skill is actually selected. The `allowed_tools` and
 soft-delete oriented, taking the values `active` or `archived` rather than
 hard-deleting by default.
 
-Although a skill is a single mutable row, content edits are recoverable: every
-content-changing edit records the prior text in its audit diff, and
-`POST /skills/{skill_id}/rollback` restores the exact prior content as a new
-version (409 when there is no recorded prior content to restore).
+Although the canonical skill is a single mutable row, its history is real: every
+version-bumping edit snapshots the skill into `CaliberSkillVersion` — one
+immutable row per `(skill_id, version_number)` — which is what the version panel
+lists, diffs, and rolls back against. Both the `content` and the level-1
+`summary` are part of that snapshot, so an edit to either bumps the version and
+is recoverable (a summary-only edit is versioned, not silently dropped from
+history), while a tags/owner/description tweak — not part of the snapshot — does
+not bump. `GET /skills/{skill_id}/versions` lists the history and
+`POST /skills/{skill_id}/rollback` restores an earlier snapshot as a new version
+(the version counter is forward-only; 409 when there is no prior version to
+restore). Two edits that race the same version number resolve to a retryable
+`409` rather than a `500`, so the version table never grows a duplicate.
 
 ## 5. API and interaction surfaces
 
@@ -139,6 +147,7 @@ The first area covers registry and lifecycle operations on the canonical row:
 - `POST /skills`
 - `GET /skills/{skill_id}`
 - `PATCH /skills/{skill_id}`
+- `GET /skills/{skill_id}/versions`
 - `POST /skills/{skill_id}/rollback`
 
 The second area handles packaging in the OpenAI-compatible format:

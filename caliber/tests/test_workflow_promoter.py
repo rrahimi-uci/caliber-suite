@@ -243,6 +243,10 @@ def test_build_plan_resolves_empty_knowledge_query_modes_from_kb_default(
     assert request.version_ids == ["KBV-7"]
     assert request.retrieval_modes == [expected_mode]
     assert payload["question"] == "What is the refund policy?"
+    # The primary (build_plan) runner pins the resolved active version into the
+    # node output so the run stays reproducible after the KB active pointer moves.
+    assert payload["resolved_version_ids"] == ["KBV-7"]
+    assert payload["resolved_knowledge_base_id"] == "KB-1"
 
 
 def test_build_plan_knowledge_build_runner_can_wait_and_activate(

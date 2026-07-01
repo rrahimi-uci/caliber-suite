@@ -80,7 +80,7 @@ COOKBOOKS = [
   P --> CAL[Calibration: queued job]""",
         "steps": [
             {"where": "Library › Prompts › New prompt", "do": "Create <code>intake-classifier</code> and paste the system template that demands JSON-only output with the five required keys.", "asset": "prompt: intake-classifier"},
-            {"where": "Prompts › intake-classifier › Author", "do": "Click <code>Save as New Version</code> (v1) with a commit message. Versions resolve under the <code>prod</code> alias."},
+            {"where": "Prompts › intake-classifier › Author", "do": "Click <code>Save &amp; promote</code> (v1) with a commit message to make it live, or <code>Save draft</code> to register it without rotating the alias. Versions resolve under the <code>prod</code> alias."},
             {"where": "Prompts › Playground", "do": "Render the prompt with a sample ticket and confirm the JSON layout. (This is a render check — there is no score here.)"},
             {"where": "Evaluate › Test Sets › New dataset", "do": "Create an empty dataset <code>intake-classifier-golden</code>."},
             {"where": "Prompts › Playground / Runs", "do": "Run the golden, edge, and negative tickets so each produces a trace."},
@@ -107,7 +107,7 @@ COOKBOOKS = [
                  "active_tab": "Author",
                  "fields": [("Template", "You classify support input and must return JSON only…"),
                             ("Commit message", "v1 strict-JSON intake classifier")],
-                 "buttons": ["Save as New Version", "Open Playground"],
+                 "buttons": ["Save draft", "Save & promote", "Open Playground"],
                  "caption": "Prompts workspace → Author stage"},
         "notes": [
             "The Playground is a live chat — it <strong>calls</strong> the model; scored regression runs are on the prompt's Runs stage (not Evaluations, which scores datasets).",

@@ -217,7 +217,7 @@
 <canvas id="particles"></canvas>
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
 <div class="watermark">CALIBER · MLflow plugin</div>
-<div class="scene-counter" id="counter">scene 1 / 12</div>
+<div class="scene-counter" id="counter">scene 1 / 16</div>
 
 <!-- SCENE 1 — TITLE -->
 <section class="scene" data-scene="1">
@@ -275,8 +275,74 @@
   </div>
 </section>
 
-<!-- SCENE 3 — INTRODUCING CALIBER -->
+<!-- SCENE 3 - THE MARKET GAP -->
 <section class="scene" data-scene="3">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">The market</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">The trust gap is real — and it's the size of the market.</div></div>
+    <div class="stat-grid reveal" style="--d:1.2s">
+      <div style="flex:1 1 440px; max-width:540px;" class="stat-card cyan">
+        <div class="stat-value" style="color:var(--cyan)">~$50B</div>
+        <div class="stat-label">Market by 2030</div>
+        <div class="stat-desc">AI-agents market, growing ~46%/yr — two firms agree (MarketsandMarkets &amp; Grand View, 2025)</div>
+      </div>
+      <div style="flex:1 1 440px; max-width:540px;" class="stat-card purple">
+        <div class="stat-value" style="color:var(--accent-light)">33%</div>
+        <div class="stat-label">Of enterprise software</div>
+        <div class="stat-desc">will include agentic AI by 2028, up from &lt;1% in 2024 (Gartner, 2025)</div>
+      </div>
+      <div style="flex:1 1 440px; max-width:540px;" class="stat-card red">
+        <div class="stat-value" style="color:var(--red)">40%+</div>
+        <div class="stat-label">Projects canceled</div>
+        <div class="stat-desc">of agentic-AI projects by end of 2027 — cost, unclear value, weak controls (Gartner, 2025)</div>
+      </div>
+      <div style="flex:1 1 440px; max-width:540px;" class="stat-card amber">
+        <div class="stat-value" style="color:var(--amber)">~80%</div>
+        <div class="stat-label">Lack mature governance</div>
+        <div class="stat-desc">for agentic AI; only 21% are mature (Deloitte, 2026)</div>
+      </div>
+      <div style="flex:1 1 440px; max-width:540px;" class="stat-card red">
+        <div class="stat-value" style="color:var(--red)">28%</div>
+        <div class="stat-label">Can trace to a human</div>
+        <div class="stat-desc">of orgs across all environments; ~72% cannot (Cloud Security Alliance, 2025)</div>
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.2s"><div style="color:var(--text3); font-size:14px; margin-top:14px; letter-spacing:.04em;">A large, fast-growing market — held back by a governance and trust gap.</div></div>
+  </div>
+</section>
+
+<!-- SCENE 4 - A PATCHWORK STACK -->
+<section class="scene" data-scene="4">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag" style="color:#fcd34d; border-color:rgba(245,158,11,.32)">Why projects stall</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">A patchwork stack measures — it never closes the loop.</div></div>
+    <div class="reveal" style="--d:.9s"><div class="section-subtitle">Teams stitch the lifecycle together from point tools — and the deepest gap is what none of them do.</div></div>
+    <div class="diagram-row reveal" style="--d:1.5s">
+      <div class="diagram-box">
+        <h4>Point tools</h4>
+        <ul>
+          <li>Orchestrate in one tool, trace in another, evaluate in a third, manage prompts in a fourth</li>
+          <li>Most cover only 1–2 lifecycle stages</li>
+          <li>Lineage scatters across chat threads and notebooks</li>
+          <li>Leaders are SaaS-first, self-hosting paywalled; open options are observability-led, not full-lifecycle</li>
+        </ul>
+      </div>
+      <div class="diagram-box">
+        <h4>The cost</h4>
+        <ul>
+          <li>76% of enterprise AI use cases are bought, not built — more vendors to integrate (Menlo Ventures, 2025)</li>
+          <li>They <strong>measure</strong> — surface scores and dashboards, then stop</li>
+          <li>No widely-available tool ships an automated, gated optimize → re-evaluate → promote loop</li>
+          <li>They do not close the loop</li>
+        </ul>
+      </div>
+    </div>
+    <div class="reveal" style="--d:2.3s"><div style="color:var(--text3); font-size:14px; margin-top:18px; letter-spacing:.04em;">Most tools measure quality. None of them close the loop on it.</div></div>
+  </div>
+</section>
+
+<!-- SCENE 5 — INTRODUCING CALIBER -->
+<section class="scene" data-scene="5">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Introducing</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">One <span class="glow-text">same-origin</span> control plane for agentic workflows.</div></div>
@@ -312,8 +378,8 @@
   </div>
 </section>
 
-<!-- SCENE 4 — ONE PLATFORM, MANY ASSETS -->
-<section class="scene" data-scene="4">
+<!-- SCENE 6 — ONE PLATFORM, MANY ASSETS -->
+<section class="scene" data-scene="6">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">The platform</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Build composes. The Library supplies.</div></div>
@@ -331,8 +397,8 @@
   </div>
 </section>
 
-<!-- SCENE 5 — BUILD · WORKFLOWS / STUDIO -->
-<section class="scene" data-scene="5">
+<!-- SCENE 7 — BUILD · WORKFLOWS / STUDIO -->
+<section class="scene" data-scene="7">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Build</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Compose agentic workflows in Studio</div></div>
@@ -372,8 +438,8 @@
   </div>
 </section>
 
-<!-- SCENE 6 — DATA & KNOWLEDGE -->
-<section class="scene" data-scene="6">
+<!-- SCENE 8 — DATA & KNOWLEDGE -->
+<section class="scene" data-scene="8">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Data &amp; knowledge</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">The data plane behind every workflow</div></div>
@@ -409,8 +475,8 @@
   </div>
 </section>
 
-<!-- SCENE 7 — EVALUATE & CALIBRATE -->
-<section class="scene" data-scene="7">
+<!-- SCENE 9 — EVALUATE & CALIBRATE -->
+<section class="scene" data-scene="9">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Measure</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Evaluate, then calibrate — with receipts</div></div>
@@ -456,8 +522,8 @@
   </div>
 </section>
 
-<!-- SCENE 8 — OBSERVE -->
-<section class="scene" data-scene="8">
+<!-- SCENE 10 — OBSERVE -->
+<section class="scene" data-scene="10">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Observe</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Every run is a trace you can open</div></div>
@@ -493,8 +559,8 @@
   </div>
 </section>
 
-<!-- SCENE 9 — ARIA · THE AGENTIC COPILOT -->
-<section class="scene" data-scene="9">
+<!-- SCENE 11 — ARIA · THE AGENTIC COPILOT -->
+<section class="scene" data-scene="11">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Aria</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">An embedded copilot that <span class="glow-text">runs, observes, and fixes</span></div></div>
@@ -530,8 +596,8 @@
   </div>
 </section>
 
-<!-- SCENE 10 — ARIA · A SINGLE TURN -->
-<section class="scene" data-scene="10">
+<!-- SCENE 12 — ARIA · A SINGLE TURN -->
+<section class="scene" data-scene="12">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Aria · run, observe, fix</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Build and test an artifact in one turn</div></div>
@@ -549,8 +615,8 @@
   </div>
 </section>
 
-<!-- SCENE 11 — GOVERNANCE -->
-<section class="scene" data-scene="11">
+<!-- SCENE 13 — GOVERNANCE -->
+<section class="scene" data-scene="13">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Govern</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">One gate for every change, human or Aria</div></div>
@@ -590,8 +656,45 @@
   </div>
 </section>
 
-<!-- SCENE 12 — VISION -->
-<section class="scene" data-scene="12">
+<!-- SCENE 14 - WHY DIFFERENT: UNIFIED & CLOSED-LOOP -->
+<section class="scene" data-scene="14">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Why different</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Unified, and <span class="glow-text">closed-loop</span>.</div></div>
+    <div class="reveal" style="--d:.9s"><div class="section-subtitle">CALIBER collapses the patchwork into one same-origin control plane on MLflow — one identity, one store, one trace backend — then does what measure-only tools don't: it closes the loop.</div></div>
+    <div class="pipeline-flow reveal" style="--d:1.4s">
+      <div class="pipe-step glow"><div class="pn">step 1</div><div class="pt">Evaluate</div><div class="pd">Held-out test set through scorers — real scores, no fabricated numbers</div></div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step"><div class="pn">step 2</div><div class="pt">Search</div><div class="pd">Optimizers (Meta-Prompt, GEPA, DSPy) find a better asset version</div></div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step"><div class="pn">step 3</div><div class="pt">Gate</div><div class="pd">Promotion blocked unless the held-out score clears</div></div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step"><div class="pn">step 4</div><div class="pt">Candidate-ready</div><div class="pd">Clears the gate but stays offline — never auto-promoted</div></div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step glow"><div class="pn">step 5</div><div class="pt">Apply</div><div class="pd">Goes live only via an explicit operator step</div></div>
+    </div>
+    <div class="reveal" style="--d:2.4s"><div style="color:var(--text2); font-size:15px; margin-top:30px; max-width:1300px; margin-left:auto; margin-right:auto;">Same-origin on MLflow. A loop that closes, not measure-only. Self-hostable — your data stays home.</div></div>
+  </div>
+</section>
+
+<!-- SCENE 15 - WHY DIFFERENT: OPEN & GOVERNED -->
+<section class="scene" data-scene="15">
+  <div class="scene-inner">
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Why different</span></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Open, and <span class="glow-text">governed</span>.</div></div>
+    <div class="reveal" style="--d:.9s"><div class="section-subtitle">One gate governs every change — and it binds humans and the Aria copilot equally.</div></div>
+    <div class="vision-grid reveal" style="--d:1.4s; grid-template-columns:repeat(2,1fr); max-width:1280px;">
+      <div class="vision-card"><h4>One gate, no bypass</h4><p>Validate → test → approve → publish governs every change. Humans and the Aria copilot pass through the same gate — there is no copilot bypass. RBAC scopes who advances each step; the audit trail records actor, action, and entity.</p></div>
+      <div class="vision-card"><h4>Traceable to a human</h4><p>Only 28% of organizations can trace an agent's actions back to a human across all environments — ~72% cannot (Cloud Security Alliance, 2025). CALIBER ties every change to an actor in one audit trail.</p></div>
+      <div class="vision-card"><h4>Human in the loop</h4><p>61% of executives require a human in the loop, up from 45% the prior quarter (KPMG, Q3 2025). Workflow runtime approvals govern live execution separately from offline promotion.</p></div>
+      <div class="vision-card"><h4>Open, ahead of the clock</h4><p>EU AI Act fines reach €35M or 7% of global annual turnover; high-risk obligations land Aug 2, 2026 (Article 99). Apache 2.0 and self-hostable — no lock-in, data and lineage stay in your own environment.</p></div>
+    </div>
+    <div class="reveal" style="--d:2.4s"><div style="color:var(--text3); font-size:14px; margin-top:18px; letter-spacing:.04em;">Governance binds humans and the copilot equally. Open source, no lock-in.</div></div>
+  </div>
+</section>
+
+<!-- SCENE 16 — VISION -->
+<section class="scene" data-scene="16">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">The vision</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Agentic workflows you can <span class="glow-text">measure, refine, govern, and trust.</span></div></div>
@@ -707,9 +810,9 @@
   }
 
   /* Scene manager */
-  // 12 scenes. The pipeline patches this array at render time from
+  // 16 scenes. The pipeline patches this array at render time from
   // measured TTS lengths, so these are upper-bound placeholders only.
-  var SCENE_TIMINGS = [26, 26, 25, 26, 23, 28, 41, 27, 31, 23, 30, 40];
+  var SCENE_TIMINGS = [26, 26, 37, 36, 25, 26, 22, 28, 41, 27, 31, 23, 29, 42, 44, 39];
   var scenes = Array.from(document.querySelectorAll('.scene'));
   var progressFill = document.getElementById('progress');
   var counterEl = document.getElementById('counter');

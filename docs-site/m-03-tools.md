@@ -128,6 +128,14 @@ status and historical evidence rather than stored as one column, and it advances
 through the stages `Draft`, `Has fixtures`, `Tested`, `Hardened`, and
 `Published`.
 
+A tool family is the set of registry rows sharing a `name`, each a distinct
+`version` (the pair is unique). Tools have no live alias to promote or roll back,
+so the family's history is a read-only inventory: `GET /tools/{tool_id}/versions`
+returns every version in the family, scoped by visibility so it never leaks
+another project's versions, and ordered newest-first with a version-aware sort
+(so `9` precedes `10` and `1.9` precedes `1.10`, not the lexical order a raw
+string column would give).
+
 ## 5. API and interaction surfaces
 
 All HTTP routes in this module are mounted under
@@ -144,6 +152,7 @@ lifecycle and usage analysis:
 - `POST /tools/{tool_id}/archive`
 - `GET /tools/{tool_id}/source`
 - `GET /tools/{tool_id}/usage`
+- `GET /tools/{tool_id}/versions`
 
 The second area covers testing and calibration against the sandbox and fixtures:
 
