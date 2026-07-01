@@ -59,6 +59,7 @@ const GROUPS = [
   { id: "quality", title: "Quality & trust" },
   { id: "operations", title: "Operations" },
   { id: "aria", title: "Aria assistant" },
+  { id: "strategy", title: "Strategy & roadmap" },
 ];
 
 const MODULES = [
@@ -81,6 +82,8 @@ const MODULES = [
   // The Aria orchestration / execution-plan / microservice-proposal docs are
   // design specs kept as source under docs/12-assistant/ but intentionally not
   // published in the doc-site; the published Aria docs are the overview only.
+  { md: "competitive-analysis.md", out: "m-17-competitive-analysis.html", group: "strategy", label: "Competitive analysis", blurb: "How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources." },
+  { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];
 
 // Fast lookup: normalized "<dir>/<file>.md" (relative to docs/) -> output html.
@@ -652,9 +655,12 @@ function renderModule(mod) {
   const group = GROUPS.find((g) => g.id === mod.group);
   const groupTitle = group ? group.title : "Architecture";
   const blurb = typeof mod.blurb === "string" ? mod.blurb.trim() : "";
+  // Most modules are architecture references; the strategy group (roadmap /
+  // competitive analysis) is not, so don't mislabel it.
+  const eyebrow = mod.group === "strategy" ? groupTitle : `${groupTitle} · Architecture reference`;
 
   const header = `<header class="doc-header">
-          <div class="doc-eyebrow">${escapeHtml(groupTitle)} · Architecture reference</div>
+          <div class="doc-eyebrow">${escapeHtml(eyebrow)}</div>
           <h1 id="top">${escapeHtml(title)}</h1>
           ${blurb ? `<p class="doc-summary">${escapeHtml(blurb)}</p>` : ""}
           <div class="doc-actions">

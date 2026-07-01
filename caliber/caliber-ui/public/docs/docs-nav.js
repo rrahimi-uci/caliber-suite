@@ -104,6 +104,19 @@ window.DOCS_NAV = [
     ]
   },
   {
+    "section": "Strategy & roadmap",
+    "links": [
+      {
+        "href": "m-17-competitive-analysis.html",
+        "label": "Competitive analysis"
+      },
+      {
+        "href": "m-18-roadmap.html",
+        "label": "Roadmap"
+      }
+    ]
+  },
+  {
     "section": "Cookbooks",
     "links": [
       {
