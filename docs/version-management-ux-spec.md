@@ -247,13 +247,15 @@ interface VersionPanelProps {
 - **Promote** rotates the live pointer via the audited endpoint *and* records the exact
   outgoing version as the new previous-live (§7.1).
 - **Roll back** → `ConfirmDialog` → mutator → toast with **Undo** (re-promote).
-- **Concurrency (until Phase-1 409s):** `PromoteControl`/`RollbackControl` **refetch-and-confirm
-  the current live pointer immediately before mutating**, and the Undo toast **re-resolves the
-  current live target at click time** — *no blind optimistic badge move, no captured re-promote*.
-  None of the mutate endpoints take an expected-version/etag guard today (`setPromptAlias` takes
-  only `{version}`, `promoteWorkflow` only `{version_id}`, `rollbackWorkflow` unconditionally
-  pops the server stack, `promoter.py:1714`), so previous-live tracking alone does **not** make
-  optimistic Undo safe — hence refetch-before-mutate until the 409 guard (§7.x / Phase 1) lands.
+- **Concurrency (shipped):** the Phase-1 guard has landed for the alias-rotation paths — prompt
+  promote takes `expected_version` and workflow-deployment promote takes `expected_version_id`,
+  each returning **409** when the live pointer moved under a stale caller. KB activation instead
+  makes re-activating the already-active version a no-op and derives rollback from the activation
+  audit trail, so it needs no separate expected-version guard. On a 409 (or any action failure)
+  the `VersionPanel` surfaces the error **inline and keeps the list intact** (it does not tear the
+  panel down), then reloads so the operator retries against current state; the panel also reloads
+  after an out-of-band save via a `refreshKey` bump. This supersedes the interim
+  *refetch-before-mutate* workaround described in earlier drafts.
 - **Restore-as-draft** (workflows) is a separate, clearly-labeled "Clone to new draft" button —
   never conflated with rollback.
 

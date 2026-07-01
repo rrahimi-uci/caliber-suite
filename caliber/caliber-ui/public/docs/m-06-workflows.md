@@ -321,6 +321,11 @@ On the access-control side, the following controls apply:
   force an illegal status change.
 - Idempotency keys prevent duplicate queued runs originating from external or
   event-driven sources.
+- Concurrent version creation is race-safe: `version_number` allocation retries
+  on the unique-constraint collision and returns a clean `409` instead of an
+  unhandled `500`.
+- Deployment rollback is `operator`-scoped to match promote, so whoever can move
+  the live alias forward can also roll it back.
 - File metadata is DB-owned even when the underlying bytes live in S3 or MinIO.
 
 Those controls rest on a clear set of trust boundaries. User-authored manifests

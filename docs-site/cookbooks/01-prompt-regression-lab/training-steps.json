@@ -22,8 +22,8 @@
         ["Template", "the body of <a href=\"../cookbooks/01-prompt-regression-lab/assets/prompts/intake-classifier.md\">intake-classifier.md</a> (below the YAML frontmatter)"],
         ["Commit message (optional)", "<code>v1 strict-JSON intake classifier</code>"]
       ],
-      "click": "Save as New Version",
-      "see": "A success note (\"Saved a new version.\") and the active version is the strong template. The Save button stays disabled until the text actually changes, so re-saving identical text is a no-op.",
+      "click": "Save & promote",
+      "see": "A success note (\"Saved & promoted a new version.\") and the active version is the strong template. (Use <strong>Save draft</strong> instead to register a version without rotating the live alias.) Both save buttons stay disabled until the text actually changes, so re-saving identical text is a no-op.",
       "asset": "prompt version: intake-classifier v1 (strong)",
       "assetlink": [
         {"href": "../cookbooks/01-prompt-regression-lab/assets/prompts/intake-classifier.md", "label": "intake-classifier.md"}
@@ -91,8 +91,8 @@
         ["Template", "the strong template with the JSON-only rules deleted"],
         ["Commit message (optional)", "<code>v2 weak variant — dropped JSON-only rule (intentional regression)</code>"]
       ],
-      "click": "Save as New Version",
-      "see": "A \"Saved a new version.\" note; the weakened template is now the active version.",
+      "click": "Save & promote",
+      "see": "A \"Saved & promoted a new version.\" note; the weakened template is now the active version.",
       "asset": "prompt version: intake-classifier v2 (weak)"
     },
     {

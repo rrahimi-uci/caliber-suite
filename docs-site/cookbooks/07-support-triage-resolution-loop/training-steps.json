@@ -37,8 +37,8 @@
         ["Template", "paste the full body of <a href=\"../cookbooks/07-support-triage-resolution-loop/assets/prompts/ticket-intake.md\">ticket-intake.md</a> (everything after the frontmatter <code>---</code>)"],
         ["Commit message (optional)", "<code>v1 support triage classifier (intent + severity + routing decision)</code>"]
       ],
-      "click": "Save as New Version",
-      "see": "The prompt saves as <strong>v1</strong> and resolves under the <code>prod</code> alias. The header shows the version and status.",
+      "click": "Create",
+      "see": "The prompt is created as <strong>v1</strong> and resolves under the <code>prod</code> alias. The header shows the version and status.",
       "asset": "prompt: ticket-intake",
       "assetlink": [{ "href": "../cookbooks/07-support-triage-resolution-loop/assets/prompts/ticket-intake.md", "label": "ticket-intake.md" }]
     },
@@ -50,8 +50,8 @@
         ["Template", "paste the full body of <a href=\"../cookbooks/07-support-triage-resolution-loop/assets/prompts/support-reply.md\">support-reply.md</a> (it reads <code>{{ ticket_text }}</code>, <code>{{ account_state }}</code>, <code>{{ incidents }}</code>, <code>{{ kb_chunks }}</code>)"],
         ["Commit message (optional)", "<code>v1 grounded support reply + machine decision (cite-or-clarify, approval-aware)</code>"]
       ],
-      "click": "Save as New Version",
-      "see": "<code>support-reply</code> saves as v1. You now have both agent prompts.",
+      "click": "Create",
+      "see": "<code>support-reply</code> is created as v1. You now have both agent prompts.",
       "asset": "prompt: support-reply",
       "assetlink": [{ "href": "../cookbooks/07-support-triage-resolution-loop/assets/prompts/support-reply.md", "label": "support-reply.md" }]
     },

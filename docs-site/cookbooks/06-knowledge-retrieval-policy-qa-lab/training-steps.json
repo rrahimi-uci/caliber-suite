@@ -71,8 +71,8 @@
         ["Commit message", "<code>v1 grounded policy-QA answerer (cite-or-abstain, conflict-aware)</code>"],
         ["Template body (paste)", "Paste the body of <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/prompts/kb-answer.md\">kb-answer.md</a> — variables <code>{{ question }}</code>, <code>{{ policy_domain }}</code>, <code>{{ retrieved_chunks }}</code>"]
       ],
-      "click": "Save as New Version",
-      "see": "<code>kb-answer</code> v1 saved under the <code>prod</code> alias.",
+      "click": "Create",
+      "see": "<code>kb-answer</code> v1 created under the <code>prod</code> alias.",
       "asset": "prompt: kb-answer",
       "assetlink": [{"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/prompts/kb-answer.md", "label": "kb-answer.md"}]
     },

@@ -170,7 +170,7 @@ set of tables:
 | Workflows | workflows, workflow versions, deployments, runs, events, checkpoints, session memory, benchmark reports, patches, promotions | Workflow Studio source-of-truth and runtime lineage. |
 | MCP | MCP servers | External tool endpoints, discovered tools, policies, and calibrations. |
 | Knowledge bases | knowledge bases, versions, sources, chunks, entities, relationships, build runs, calibration test runs | Versioned RAG corpora with chunking/embeddings, graph (Apache AGE) extraction, and retrieval-quality calibration. |
-| Evaluations / test sets | eval datasets, eval dataset examples, eval dataset files, eval runs, judges, review queues/items | Versioned test sets, scorecard evaluation runs, operator-authored LLM judges, and human review queues. |
+| Evaluations / test sets | eval datasets, eval dataset examples, eval dataset files, eval runs, judges, review queues/items, gate verdicts | Versioned test sets, scorecard evaluation runs, operator-authored LLM judges, human review queues, and advisory per-version gate verdicts. |
 | Files and projects | projects, workflow files, file events | Workspace and run-scoped file metadata independent of backing store. |
 
 The division of authority across these domains is governed by a small set of
@@ -186,6 +186,22 @@ ownership rules, and they hold consistently across the platform:
   durable timeline events rather than through in-memory state. Durability is
   the synchronization mechanism precisely because the two writers do not share a
   process-local view.
+
+Versioning is a cross-artifact concern with one shared model. Prompts (registry
+versions behind a `@prod` alias), workflows (immutable versions behind a
+deployment alias), knowledge bases (build versions behind an `active_version_id`
+pointer), skills (per-version snapshots), test sets (copy-on-write), and tools
+(a `(name, version)` family) each keep real history, and each promotion,
+rollback, or activation writes an audit row. Rollback is derived from that audit
+trail rather than an ordinal guess: the walk reads only the *promotion/activation*
+rows (never the rollback rows a rollback itself writes), so repeated rollbacks
+step strictly backward through real history instead of oscillating. An advisory
+eval-gate verdict is attached per version and shown before a promotion but never
+blocks the rotation. The frontend renders all of this through one shared
+`VersionPanel` component (per-artifact adapters, no type branching), and the
+read-only `/releases/timeline` and `/releases/live` surfaces answer "what changed"
+and "what is live" across artifact types in one place — the live view attributing
+each entry to the actor and moment of its activation from the audit trail.
 
 ## 5. API and interaction surfaces
 
@@ -203,7 +219,8 @@ than exhaustive:
 - `/workflow-runs/*`
 - `/assistant/*`
 - `/aria/plans/*` (Aria goal-plan orchestration)
-- `/judges`, `/review-queues`, `/eval-datasets`
+- `/judges`, `/review-queues`, `/eval-datasets`, `/gate-verdicts/*`
+- `/releases/timeline`, `/releases/live` (cross-artifact releases & rollback)
 
 On the client side, the corresponding entry points are organized as page
 modules, each of which owns a single feature surface:

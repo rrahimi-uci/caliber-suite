@@ -297,6 +297,11 @@ outgoing `previous_active_version_id` in its audit row, so `POST
 /knowledge-bases/{id}/rollback` re-activates the exact prior active version by
 reading that trail (rather than guessing an ordinal); it returns 409 when no
 recorded prior active version exists or that version is no longer completed.
+Re-activating the version that is already active is a no-op — it writes no
+self-referential audit row — and the rollback walk reads only
+`activate_knowledge_base_version` rows (never the `rollback` rows it writes), so
+repeated rollbacks step strictly backward through activation history instead of
+no-op'ing or oscillating.
 
 ## 7. Security and trust boundaries
 
