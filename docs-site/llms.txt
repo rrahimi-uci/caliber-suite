@@ -37,3 +37,8 @@ The pages below are the architecture reference, one per module. Each link is the
 ## Aria assistant
 
 - [Overview](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
+
+## Strategy & roadmap
+
+- [Competitive analysis](m-17-competitive-analysis.md): How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources.
+- [Roadmap](m-18-roadmap.md): The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review.
