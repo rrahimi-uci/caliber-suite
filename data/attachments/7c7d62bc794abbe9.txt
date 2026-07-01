@@ -1,0 +1,12 @@
+{"t":"2026-07-01T03:47:34.915Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-01T03:47:34.927Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-01T03:47:34.928Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-01T03:47:34.948Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T03:47:34.955Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b \"HTTP/1.1 200 OK\""}
+{"t":"2026-07-01T03:47:34.958Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-07-01T03:47:34.961Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-07-01T03:47:34.965Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b/approve \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-07-01T03:47:34.968Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b/execute \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-07-01T03:47:34.971Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b/poll \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-07-01T03:47:34.974Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b/interactions \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-07-01T03:47:34.978Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-015dde1b \"HTTP/1.1 200 OK\""}

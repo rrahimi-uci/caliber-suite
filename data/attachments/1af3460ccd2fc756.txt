@@ -1,2 +1,0 @@
-{"t":"2026-06-30T23:39:03.646Z","severity":"INFO","logger":"caliber.orchestrator.janitor","message":"janitor started (interval=60.0s, stale_threshold=300s)"}
-{"t":"2026-06-30T23:39:03.647Z","severity":"INFO","logger":"caliber.orchestrator.janitor","message":"janitor stopped"}

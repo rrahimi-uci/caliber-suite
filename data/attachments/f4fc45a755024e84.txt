@@ -1,0 +1,5 @@
+{"t":"2026-07-01T03:48:45.410Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-01T03:48:45.422Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-01T03:48:45.423Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-01T03:48:45.443Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/llm-pricing \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T03:48:45.445Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/llm-pricing/LPRC-31bf9fd4 \"HTTP/1.1 403 Forbidden\""}
