@@ -1,0 +1,1 @@
+{"t":"2026-07-01T20:48:52.635Z","severity":"INFO","logger":"caliber.orchestrator.eval_stage","message":"eval gate failed; retrying candidate: job=RFN-E iteration=1/2 overall=0.500"}

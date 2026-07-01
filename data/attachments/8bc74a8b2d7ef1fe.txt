@@ -1,0 +1,15 @@
+INFO     botocore.credentials:credentials.py:1252 Found credentials in environment variables.
+INFO     caliber:server.py:257 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:465 CALIBER assistant engine: fake (configured=fake)
+INFO     caliber.orchestrator.worker:worker.py:159 refinement worker started (interval=5.0s)
+INFO     caliber.assistant.plan_worker:plan_worker.py:62 aria-plan worker started (interval=10.0s)
+INFO     caliber.orchestrator.janitor:janitor.py:80 janitor started (interval=60.0s, stale_threshold=300s)
+INFO     caliber.events.webhooks:webhooks.py:116 webhook dispatcher disabled (no URLs configured)
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-cd9586d5/versions "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-cd9586d5/runs "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-runs/KBR-eb4561bd/events "HTTP/1.1 200 OK"
+INFO     caliber.assistant.plan_worker:plan_worker.py:75 aria-plan worker stopped
+INFO     caliber.orchestrator.worker:worker.py:192 refinement worker stopped
+INFO     caliber.orchestrator.janitor:janitor.py:100 janitor stopped

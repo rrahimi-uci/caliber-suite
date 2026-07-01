@@ -1,0 +1,9 @@
+INFO     caliber:server.py:257 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:465 CALIBER assistant engine: fake (configured=fake)
+INFO     botocore.credentials:credentials.py:1252 Found credentials in environment variables.
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-d41ff3a1/versions "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-d41ff3a1/calibrate "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-d41ff3a1/test-runs "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge/test-runs/KBTR-60eb0be1 "HTTP/1.1 200 OK"

@@ -1,0 +1,2 @@
+{"t":"2026-07-01T20:56:11.200Z","severity":"WARNING","logger":"caliber.orchestrator.triage","message":"LLM triage failed for item FB-SKILL (model down); using heuristic"}
+{"t":"2026-07-01T20:56:11.204Z","severity":"INFO","logger":"caliber.orchestrator.triage","message":"triage complete: job=RFN-SKILL class={'cluster': 'hallucination', 'artifact_type': 'prompt', 'confidence': 0.6}"}

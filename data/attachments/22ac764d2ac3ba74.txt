@@ -1,1 +1,0 @@
-{"t":"2026-07-01T20:08:03.891Z","severity":"INFO","logger":"caliber.orchestrator.eval_stage","message":"eval rejected: job=RFN-E reasons=[\"dimension 'tone' regressed by -0.090 (max allowed -0.020)\"] overall=0.900"}
