@@ -15,6 +15,10 @@ window.DOCS_NAV = [
       {
         "href": "m-01-platform.html",
         "label": "Platform"
+      },
+      {
+        "href": "m-00-refinement-loop.html",
+        "label": "The refinement loop"
       }
     ]
   },
@@ -74,10 +78,6 @@ window.DOCS_NAV = [
       {
         "href": "m-15-calibration.html",
         "label": "Calibration"
-      },
-      {
-        "href": "m-13-qa-plan.html",
-        "label": "QA plan"
       }
     ]
   },
@@ -91,6 +91,10 @@ window.DOCS_NAV = [
       {
         "href": "m-10-gateways.html",
         "label": "Gateways"
+      },
+      {
+        "href": "m-13-qa-plan.html",
+        "label": "QA plan"
       }
     ]
   },
