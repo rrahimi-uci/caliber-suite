@@ -187,6 +187,22 @@ ownership rules, and they hold consistently across the platform:
   the synchronization mechanism precisely because the two writers do not share a
   process-local view.
 
+Versioning is a cross-artifact concern with one shared model. Prompts (registry
+versions behind a `@prod` alias), workflows (immutable versions behind a
+deployment alias), knowledge bases (build versions behind an `active_version_id`
+pointer), skills (per-version snapshots), test sets (copy-on-write), and tools
+(a `(name, version)` family) each keep real history, and each promotion,
+rollback, or activation writes an audit row. Rollback is derived from that audit
+trail rather than an ordinal guess: the walk reads only the *promotion/activation*
+rows (never the rollback rows a rollback itself writes), so repeated rollbacks
+step strictly backward through real history instead of oscillating. An advisory
+eval-gate verdict is attached per version and shown before a promotion but never
+blocks the rotation. The frontend renders all of this through one shared
+`VersionPanel` component (per-artifact adapters, no type branching), and the
+read-only `/releases/timeline` and `/releases/live` surfaces answer "what changed"
+and "what is live" across artifact types in one place — the live view attributing
+each entry to the actor and moment of its activation from the audit trail.
+
 ## 5. API and interaction surfaces
 
 State is reached exclusively through the HTTP surface. That surface is
@@ -204,6 +220,7 @@ than exhaustive:
 - `/assistant/*`
 - `/aria/plans/*` (Aria goal-plan orchestration)
 - `/judges`, `/review-queues`, `/eval-datasets`, `/gate-verdicts/*`
+- `/releases/timeline`, `/releases/live` (cross-artifact releases & rollback)
 
 On the client side, the corresponding entry points are organized as page
 modules, each of which owns a single feature surface:

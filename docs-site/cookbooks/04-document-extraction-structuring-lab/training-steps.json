@@ -68,8 +68,8 @@
         ["Commit message", "<code>v1 verifiable-facts document structurer</code>"],
         ["Template body (paste)", "Paste the body of <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/prompts/doc-structurer.md\">doc-structurer.md</a> — it declares variables <code>{{ document_text }}</code>, <code>{{ document_type }}</code>, <code>{{ target_schema }}</code> and demands JSON-only output"]
       ],
-      "click": "Save as New Version",
-      "see": "<code>doc-structurer</code> v1 is saved and resolvable under the <code>prod</code> alias.",
+      "click": "Create",
+      "see": "<code>doc-structurer</code> v1 is created and resolvable under the <code>prod</code> alias.",
       "asset": "prompt: doc-structurer",
       "assetlink": [{"href": "../cookbooks/04-document-extraction-structuring-lab/assets/prompts/doc-structurer.md", "label": "doc-structurer.md"}]
     },
