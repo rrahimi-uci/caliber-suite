@@ -82,6 +82,48 @@ def test_list_tool_versions_404_for_missing_tool(client: TestClient) -> None:
     assert client.get(f"{PREFIX}/tools/TOOL-nope/versions").status_code == 404
 
 
+def test_list_tool_versions_sorts_naturally_not_lexically(client: TestClient) -> None:
+    """Versions order by numeric value, not string order.
+
+    ``version`` is a free-form string column, so a plain ``ORDER BY version``
+    puts ``"9"`` ahead of ``"10"`` and ``"1.10"`` ahead of ``"1.9"``. The
+    version-aware key must sort newest-first as an operator expects.
+    """
+    tid = client.post(f"{PREFIX}/tools", json=make_tool_payload("nat", version="9")).json()["data"][
+        "tool_id"
+    ]
+    for version in ("10", "1.9", "1.10", "2.0"):
+        assert (
+            client.post(
+                f"{PREFIX}/tools", json=make_tool_payload("nat", version=version)
+            ).status_code
+            == 201
+        )
+
+    rows = client.get(f"{PREFIX}/tools/{tid}/versions").json()["data"]
+    # Natural order, newest first (lexicographic desc would wrongly lead with "9").
+    assert [row["version"] for row in rows] == ["10", "9", "2.0", "1.10", "1.9"]
+
+
+def test_list_tool_versions_does_not_leak_other_scopes(client: TestClient) -> None:
+    """A project-scoped tool family must not leak its versions to outside identities."""
+    tid = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("scoped", version="1.0"),
+        headers={"X-CALIBER-Project": "PRJ-1"},
+    ).json()["data"]["tool_id"]
+    client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("scoped", version="2.0"),
+        headers={"X-CALIBER-Project": "PRJ-1"},
+    )
+
+    # A non-admin viewer with no active project can't see project-scoped versions.
+    resp = client.get(f"{PREFIX}/tools/{tid}/versions", headers={"X-CALIBER-User": "@viewer"})
+    assert resp.status_code == 200
+    assert resp.json()["data"] == []
+
+
 def test_get_tool_source_available(client: TestClient) -> None:
     # lookup_policy is a real callable in caliber.workflows.demo_tools.
     tid = client.post(f"{PREFIX}/tools", json=make_tool_payload("lookup_policy")).json()["data"][

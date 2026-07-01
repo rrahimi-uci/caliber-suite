@@ -8,8 +8,8 @@
         ["Template", "paste the full body of <a href=\"../cookbooks/08-incident-response-commander/assets/prompts/incident-commander.md\">incident-commander.md</a> (it reads <code>{{ alert_text }}</code>, <code>{{ service }}</code>, <code>{{ environment }}</code>, <code>{{ deployments }}</code>, <code>{{ health }}</code>)"],
         ["Commit message (optional)", "<code>v1 evidence-separating incident commander with approval flag</code>"]
       ],
-      "click": "Save as New Version",
-      "see": "<code>incident-commander</code> saves as <strong>v1</strong> and resolves under the <code>prod</code> alias.",
+      "click": "Create",
+      "see": "<code>incident-commander</code> is created as <strong>v1</strong> and resolves under the <code>prod</code> alias.",
       "asset": "prompt: incident-commander",
       "assetlink": [{ "href": "../cookbooks/08-incident-response-commander/assets/prompts/incident-commander.md", "label": "incident-commander.md" }]
     },

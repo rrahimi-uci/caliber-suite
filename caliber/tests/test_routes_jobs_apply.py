@@ -207,3 +207,68 @@ def test_apply_prompt_alias_proposal_rotates_existing_version(
     checkpoint = db_session.query(CaliberRollbackCheckpoint).one()
     assert checkpoint.snapshot_payload is not None
     assert checkpoint.snapshot_payload["promotion_type"] == "prompt_alias"
+
+
+def test_apply_prompt_alias_is_visible_to_prompt_rollback(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An alias rotation applied through the assistant path must be undoable.
+
+    ``rollback_prompt`` walks the ``promote_prompt`` / ``entity_type=prompt``
+    audit trail to find the version that was live before the current one. If the
+    assistant Apply path only records a ``promote`` / ``entity_type=refinement_job``
+    row (as it used to), that rotation is invisible to rollback and the operator
+    can't undo it. Assert the promotion is recorded on the prompt entity with an
+    exact ``from_version`` captured before the rotation.
+    """
+    from caliber.routes.prompts import _previous_live_version
+
+    _seed_candidate_ready_job(
+        db_session,
+        candidate={
+            "artifact_type": "prompt",
+            "promotion_type": "prompt_alias",
+            "source_version": 7,
+            "target_alias": "prod",
+            "content": "rewritten prompt body",
+        },
+    )
+
+    # The alias was live on v5 before this rotation; capture-before-rotate must
+    # record that as ``from_version`` so rollback lands exactly there.
+    monkeypatch.setattr(
+        "caliber.routes.prompts._load_prompt_info",
+        lambda agent_id, alias="prod": {"version": 5, "alias": alias, "agent_id": agent_id},
+    )
+    monkeypatch.setattr(
+        "caliber.routes.prompts.set_prompt_alias_version",
+        lambda **kwargs: {"name": "support-agent", "alias": "prod", "version": 7},
+    )
+
+    response = client.post(APPLY_PATH.format(job_id="RFN-A"))
+    assert response.status_code == 200, response.text
+
+    promote_prompt_rows = (
+        db_session.query(CaliberAuditLog)
+        .filter(
+            CaliberAuditLog.action == "promote_prompt",
+            CaliberAuditLog.entity_type == "prompt",
+            CaliberAuditLog.entity_id == "support-agent",
+        )
+        .all()
+    )
+    assert len(promote_prompt_rows) == 1
+    details = promote_prompt_rows[0].details
+    assert details["alias"] == "prod"
+    assert details["from_version"] == 5
+    assert details["to_version"] == 7
+
+    # The rollback walk resolves the exact prior version from that audit row.
+    assert _previous_live_version(db_session, "support-agent", "prod", current=7) == 5
+
+    # The checkpoint also records the pre-rotation version (not None).
+    checkpoint = db_session.query(CaliberRollbackCheckpoint).one()
+    assert checkpoint.version_before == 5
+    assert checkpoint.version_after == 7

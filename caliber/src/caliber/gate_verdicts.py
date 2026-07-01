@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberGateVerdict
@@ -83,7 +84,20 @@ def record_gate_verdict(
             version_key=version_key,
             state=state,
         )
-        session.add(row)
+        try:
+            # Isolate the insert in a savepoint: two concurrent evaluations of
+            # the same version both read ``None`` above and race to insert,
+            # violating ``uq_gate_verdict_artifact_version``. Rather than fail
+            # the caller's whole transaction (e.g. a prompt promote) on an
+            # advisory verdict, fall back to updating the row the winner
+            # committed. The savepoint keeps the caller's prior work intact.
+            with session.begin_nested():
+                session.add(row)
+                session.flush()
+        except IntegrityError:
+            row = get_gate_verdict(session, artifact_type, version_key)
+            if row is None:  # pragma: no cover - constraint fired without a visible row
+                raise
     row.state = state
     row.score = score
     row.baseline_score = baseline_score

@@ -160,7 +160,12 @@ outgoing live version, rotates the alias, and writes a `promote_prompt` audit
 row carrying the advisory-gate verdict and any operator override. `POST
 /prompts/{name}/rollback` reads that audit trail to restore the exact
 previously-live version, writing a `rollback_prompt` row and returning `409`
-when no prior live version is recorded.
+when no prior live version is recorded. The rollback walk reads only
+`promote_prompt` rows — never the `rollback_prompt` rows a rollback itself
+writes — so repeated rollbacks step strictly backward through real promotion
+history (v3→v2→v1) instead of oscillating back to the version just left. An
+alias rotation applied through the assistant/apply path records the same
+`promote_prompt` row, so it is equally visible to rollback.
 
 The second area serves the builder and preview experience, transforming
 templates without executing them:

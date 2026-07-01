@@ -83,3 +83,66 @@ def test_live_lists_active_workflow_deployments_and_kb_active_versions(
     by_type = {r["artifact_type"]: r for r in rows}
     assert by_type["workflow"]["version_id"] == "WFV-L"
     assert by_type["knowledge_base"]["version_id"] == "KBV-L"
+
+
+def test_live_kb_since_and_by_come_from_activation_audit(
+    client: TestClient, db_session: Session
+) -> None:
+    """A KB's live ``since``/``by`` reflect when/who activated the live version.
+
+    ``updated_at`` is bumped on any edit (a rename, a re-index) and ``owner`` is
+    the KB's owner — neither answers "when did this version go live, and who put
+    it there". Those must come from the activation audit row for the live version.
+    """
+    db_session.add(
+        CaliberKnowledgeBase(
+            knowledge_base_id="KB-ACT",
+            name="corpus",
+            source_bucket="b",
+            owner="@owner",
+            active_version_id="KBV-2",
+        )
+    )
+    # A KB whose active version was never audited (build-time activation of the
+    # first version) falls back to owner.
+    db_session.add(
+        CaliberKnowledgeBase(
+            knowledge_base_id="KB-FALLBACK",
+            name="legacy",
+            source_bucket="b",
+            owner="@legacy-owner",
+            active_version_id="KBV-legacy",
+        )
+    )
+    # An older activation (of KBV-1) and the current one (of KBV-2). Only the
+    # row naming the *live* version (KBV-2) should drive since/by.
+    db_session.add(
+        CaliberAuditLog(
+            actor="@someone-else",
+            action="activate_knowledge_base_version",
+            entity_type="knowledge_base",
+            entity_id="KB-ACT",
+            details={"version_id": "KBV-1", "previous_active_version_id": None},
+        )
+    )
+    db_session.add(
+        CaliberAuditLog(
+            actor="@activator",
+            action="activate_knowledge_base_version",
+            entity_type="knowledge_base",
+            entity_id="KB-ACT",
+            details={"version_id": "KBV-2", "previous_active_version_id": "KBV-1"},
+        )
+    )
+    db_session.commit()
+
+    rows = client.get(LIVE).json()["data"]
+    by_id = {r["artifact_id"]: r for r in rows}
+
+    # Audited activation drives by/since — the activator, not @owner, and not the
+    # actor of the stale KBV-1 activation.
+    assert by_id["KB-ACT"]["by"] == "@activator"
+    assert by_id["KB-ACT"]["since"] is not None
+
+    # No audited activation -> fall back to the KB owner.
+    assert by_id["KB-FALLBACK"]["by"] == "@legacy-owner"

@@ -149,6 +149,23 @@ The first area covers core inventory and versioning, backed by the registry:
 - `GET /prompts/{name}/versions`
 - `GET /prompts/{name}/versions/{version}`
 - `POST /prompts/{name}/aliases/{alias}`
+- `POST /prompts/{name}/rollback`
+
+Within this area, authoring is decoupled from going live. `POST
+/prompts/{name}/versions` honors a `promote` flag (default `true`); `promote:
+false` registers a new version as a *draft* without rotating any alias, so a
+developer can evaluate a candidate before it serves live. `POST
+/prompts/{name}/aliases/{alias}` is the audited promote: it captures the
+outgoing live version, rotates the alias, and writes a `promote_prompt` audit
+row carrying the advisory-gate verdict and any operator override. `POST
+/prompts/{name}/rollback` reads that audit trail to restore the exact
+previously-live version, writing a `rollback_prompt` row and returning `409`
+when no prior live version is recorded. The rollback walk reads only
+`promote_prompt` rows — never the `rollback_prompt` rows a rollback itself
+writes — so repeated rollbacks step strictly backward through real promotion
+history (v3→v2→v1) instead of oscillating back to the version just left. An
+alias rotation applied through the assistant/apply path records the same
+`promote_prompt` row, so it is equally visible to rollback.
 
 The second area serves the builder and preview experience, transforming
 templates without executing them:
@@ -214,9 +231,12 @@ sequenceDiagram
 A few lifecycle rules govern how these flows behave. The module in
 `prompt_targets.py` auto-provisions a hidden runtime identity keyed on the prompt
 name, so a prompt can be tested and calibrated without the operator ever managing
-an explicit agent row. Test-run history is durable and CALIBER-owned, but replay
-is effectively a frontend re-run that inserts a fresh row rather than a
-server-side replay API. Bind and baseline are workspace metadata operations on
+an explicit agent row. Saving a version and promoting it are separate steps: a
+`promote: false` save registers a draft, and rotating the live alias is an
+audited, advisory-gated step that records the gate verdict and outgoing version
+so a `rollback` can later restore the exact previously-live version. Test-run
+history is durable and CALIBER-owned, but replay is effectively a frontend
+re-run that inserts a fresh row rather than a server-side replay API. Bind and baseline are workspace metadata operations on
 the hidden prompt target, not registry mutations. And workflow-node binding is
 currently best-effort metadata only: the route records the intent to bind but
 does not yet fully rewrite workflow manifests in place.

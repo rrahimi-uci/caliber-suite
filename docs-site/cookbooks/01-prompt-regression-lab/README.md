@@ -41,8 +41,11 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md) first. For this scenario:
    [`build.yaml`](build.yaml) and append the output contract:
    `Return ONLY JSON with keys intent, priority, confidence, needs_review, reason.`
    - API: `POST /prompts {name, template, commit_message}`.
-2. **Author.** Open the workspace → `Author`; `Save as New Version` with a
-   message. Versions resolve under alias `prod`.
+2. **Author.** Open the workspace → `Author`; edit the template and either
+   `Save draft` (registers a new version without touching the live alias) or
+   `Save & promote` (also rotates the alias live). Add a commit message.
+   Versions resolve under alias `prod`; the Version history panel below lists
+   them, with promote/roll back per version.
 3. **Playground (live sanity check).** Pick a model, send a representative
    ticket; confirm the prompt emits one strict-JSON record. *(A real chat call,
    not a scored run — expected.)*

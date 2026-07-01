@@ -837,6 +837,55 @@ def test_rollback_prompt_restores_exact_previous_live(
     assert (rollback[0].details or {})["to_version"] == 4
 
 
+def test_rollback_prompt_twice_walks_backward_not_oscillating(
+    client: TestClient,
+    monkeypatch,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Two consecutive rollbacks step strictly backward through the promote
+    chain (v3->v2 then v2->v1), never oscillating v3<->v2. Regression for the
+    rollback rows shadowing the promote chain."""
+    # Promote history: 1->2 then 2->3, live is v3.
+    with session_factory() as session:
+        for frm, to in ((1, 2), (2, 3)):
+            session.add(
+                CaliberAuditLog(
+                    actor="@op",
+                    action="promote_prompt",
+                    entity_type="prompt",
+                    entity_id="support-agent",
+                    details={"alias": "prod", "from_version": frm, "to_version": to},
+                )
+            )
+        session.commit()
+
+    # Rollback #1: live v3 -> v2.
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": SimpleNamespace(
+                name="support-agent", version=3, template="v3"
+            )
+        },
+    )
+    first = client.post(f"{PREFIX}/support-agent/rollback", json={})
+    assert first.status_code == 200
+    assert first.json()["data"]["version"] == 2
+
+    # Rollback #2: live is now v2 -> must go to v1 (NOT back to v3).
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": SimpleNamespace(
+                name="support-agent", version=2, template="v2"
+            )
+        },
+    )
+    second = client.post(f"{PREFIX}/support-agent/rollback", json={})
+    assert second.status_code == 200
+    assert second.json()["data"]["version"] == 1  # walked back, not oscillated to 3
+
+
 def test_rollback_prompt_409_when_no_prior_promotion(
     client: TestClient,
     monkeypatch,
