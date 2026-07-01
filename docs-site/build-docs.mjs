@@ -64,6 +64,7 @@ const GROUPS = [
 
 const MODULES = [
   { md: "01-caliber/architecture.md", out: "m-01-platform.html", group: "platform", label: "Platform", blurb: "Boot and dependency graph, same-origin MLflow plugin model, shared runtime state, async workers, and the trust boundary the whole product stands on." },
+  { md: "refinement-loop.md", out: "m-00-refinement-loop.html", group: "platform", label: "The refinement loop", blurb: "The closed, eval-gated loop that ties the platform together — verify, diagnose, optimize, evaluate, approve, promote — with humans at exactly two gates, and a map of how every other topic serves it. Read this first." },
   { md: "02-prompts/architecture.md", out: "m-02-prompts.html", group: "authoring", label: "Prompts", blurb: "MLflow Prompt Registry authoring, render/test history, hidden runtime targets, and queued optimizer-backed calibration." },
   { md: "03-tools/architecture.md", out: "m-03-tools.html", group: "authoring", label: "Tools", blurb: "Versioned callable registry, sandboxed test runs, fixture suites and baselines, and deterministic replay calibration." },
   { md: "04-skills/architecture.md", out: "m-04-skills.html", group: "authoring", label: "Skills", blurb: "Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration." },
@@ -75,9 +76,9 @@ const MODULES = [
   { md: "11-test-sets/architecture.md", out: "m-11-test-sets.html", group: "quality", label: "Test sets", blurb: "Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring." },
   { md: "14-evaluation/architecture.md", out: "m-14-evaluation.html", group: "quality", label: "Evaluation", blurb: "Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation." },
   { md: "15-calibration/architecture.md", out: "m-15-calibration.html", group: "quality", label: "Calibration", blurb: "Optimizer-driven calibration for prompts, skills, and workflows on one unified make_judge scoring path, plus deterministic inline tool calibration from saved fixtures." },
-  { md: "13-qa-plan/architecture.md", out: "m-13-qa-plan.html", group: "quality", label: "QA plan", blurb: "Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model." },
   { md: "09-observability/architecture.md", out: "m-09-observability.html", group: "operations", label: "Observability", blurb: "MLflow traces with multimodal attachments, feedback, Prometheus metrics, SSE live events, service visibility, and trace retention." },
   { md: "10-gateways/architecture.md", out: "m-10-gateways.html", group: "operations", label: "Gateways", blurb: "Read-only discovery of an external MLflow AI Gateway and a clear account of whether CALIBER routes outbound traffic through it." },
+  { md: "13-qa-plan/architecture.md", out: "m-13-qa-plan.html", group: "operations", label: "QA plan", blurb: "Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model." },
   { md: "12-assistant/architecture.md", out: "m-12-assistant.html", group: "aria", label: "Overview", blurb: "Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution." },
   // The Aria orchestration / execution-plan / microservice-proposal docs are
   // design specs kept as source under docs/12-assistant/ but intentionally not
