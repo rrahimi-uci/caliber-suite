@@ -1,0 +1,20 @@
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: [94msedate-flea-164[0m
+  Run ID: [94mfd179abd09d44e52a06a57c48b2b7b04[0m
+
+To view the detailed evaluation results with sample-wise scores,
+open the [93m[1mTraces[0m tab in the Run page in the MLflow UI.
+
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: [94mcarefree-bug-386[0m
+  Run ID: [94m947580cbd06846f7aa8a0823333617f1[0m
+
+To view the detailed evaluation results with sample-wise scores,
+open the [93m[1mTraces[0m tab in the Run page in the MLflow UI.
+

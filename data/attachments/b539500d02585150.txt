@@ -1,0 +1,7 @@
+{"t":"2026-07-01T20:09:50.044Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-01T20:09:50.057Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-01T20:09:50.061Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-01T20:09:50.081Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T20:09:50.090Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-bbf59131/items \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T20:09:50.099Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-bbf59131/items/RVI-8d32f45b/submit \"HTTP/1.1 200 OK\""}
+{"t":"2026-07-01T20:09:50.108Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-bbf59131 \"HTTP/1.1 200 OK\""}

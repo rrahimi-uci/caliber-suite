@@ -1,6 +1,0 @@
-{"t":"2026-07-01T14:51:47.529Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-01T14:51:47.550Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-01T14:51:47.553Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-01T14:51:47.573Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/prompts/support-agent \"HTTP/1.1 502 Bad Gateway\""}
-{"t":"2026-07-01T14:51:47.576Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/prompts/support-agent/versions/9 \"HTTP/1.1 502 Bad Gateway\""}
-{"t":"2026-07-01T14:51:47.580Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/prompts/unknown/versions \"HTTP/1.1 404 Not Found\""}

@@ -1,5 +1,0 @@
-{"t":"2026-07-01T14:57:35.844Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-01T14:57:35.857Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-01T14:57:35.859Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-01T14:57:35.881Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-01T14:57:35.887Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-5293bd87/items/RVI-missing/submit \"HTTP/1.1 404 Not Found\""}

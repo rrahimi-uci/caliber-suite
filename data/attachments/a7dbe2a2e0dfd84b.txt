@@ -1,0 +1,1 @@
+{"t":"2026-07-01T20:10:36.808Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-C optimizer=GEPA cost_usd=0.0040"}

@@ -1,0 +1,9 @@
+{"t":"2026-07-01T20:16:01.194Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-01T20:16:05.713Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-01T20:16:08.182Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-01T20:16:13.140Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-07-01T20:16:16.880Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T20:16:20.934Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld2/folders \"HTTP/1.1 400 Bad Request\""}
+{"t":"2026-07-01T20:16:25.897Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld2/folders \"HTTP/1.1 400 Bad Request\""}
+{"t":"2026-07-01T20:16:29.919Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld2/folders \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T20:16:32.626Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/fld2/folders \"HTTP/1.1 409 Conflict\""}

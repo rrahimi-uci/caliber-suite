@@ -1,0 +1,9 @@
+{"t":"2026-07-01T20:11:43.390Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-01T20:11:43.402Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-01T20:11:43.404Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-01T20:11:43.442Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-07-01T20:11:43.640Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T20:11:43.726Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-01T20:11:43.796Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-71cbe981 \"HTTP/1.1 200 OK\""}
+{"t":"2026-07-01T20:11:43.804Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-71cbe981 \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-07-01T20:11:43.850Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-8ba5a81d \"HTTP/1.1 200 OK\""}
