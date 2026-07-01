@@ -1497,6 +1497,9 @@ function PromptAuthorStage({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
+  // Bumped after each successful save so the embedded <VersionPanel> re-fetches
+  // and shows the version just created (instead of a stale list).
+  const [versionRefresh, setVersionRefresh] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1551,6 +1554,7 @@ function PromptAuthorStage({
       setSavedNote(
         promote ? "Saved & promoted a new version." : "Saved a draft version.",
       );
+      setVersionRefresh((n) => n + 1);
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save prompt");
@@ -1654,7 +1658,7 @@ function PromptAuthorStage({
       <div className="mt-6 border-t border-slate-200/70 pt-4">
         <h3 className="text-sm font-semibold text-slate-900">Version history</h3>
         <div className="mt-3">
-          <VersionPanel adapter={versionAdapter} />
+          <VersionPanel adapter={versionAdapter} refreshKey={versionRefresh} />
         </div>
       </div>
     </div>

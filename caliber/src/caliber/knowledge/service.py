@@ -1178,6 +1178,13 @@ class KnowledgeBaseService:
                 raise HTTPException(
                     status_code=409, detail="only completed versions can be activated"
                 )
+            # Re-activating the already-active version is a no-op: return without
+            # writing a self-referential audit row ({version_id: X, previous: X}),
+            # which would otherwise corrupt the rollback walk into a no-op that
+            # can never restore the genuine prior active version.
+            if knowledge_base.active_version_id == version_id:
+                session.refresh(knowledge_base)
+                return self._serialize_knowledge_base(knowledge_base, version=version)
             # Capture the outgoing active version BEFORE overwriting so a future
             # rollback can restore the EXACT prior active (not an ordinal guess).
             previous_active_version_id = knowledge_base.active_version_id
@@ -1227,7 +1234,7 @@ class KnowledgeBaseService:
             target_version_id = self._previous_active_version_id(
                 session, knowledge_base_id, current_active
             )
-            if target_version_id is None:
+            if target_version_id is None or target_version_id == current_active:
                 raise HTTPException(
                     status_code=409,
                     detail=(
@@ -1271,20 +1278,23 @@ class KnowledgeBaseService:
     ) -> str | None:
         """The version active immediately before ``current_active``.
 
-        Walks the activation/rollback audit trail newest-first and returns the
-        ``previous_active_version_id`` of the most recent row whose
+        Walks the *activation* audit trail newest-first and returns the
+        ``previous_active_version_id`` of the most recent activation whose
         ``version_id`` is the version currently active.
+
+        Only ``activate_knowledge_base_version`` rows are walked — never
+        ``rollback_knowledge_base_version`` rows. A rollback writes
+        ``{version_id: <target>, previous_active_version_id: <current>}``, so
+        including rollback rows would let the row a rollback just wrote shadow
+        the real activation chain and make a second consecutive rollback hop
+        forward. Self-referential rows (prior == current) are skipped defensively.
         """
         rows = (
             session.execute(
                 select(CaliberAuditLog)
                 .where(CaliberAuditLog.entity_type == "knowledge_base")
                 .where(CaliberAuditLog.entity_id == knowledge_base_id)
-                .where(
-                    CaliberAuditLog.action.in_(
-                        ("activate_knowledge_base_version", "rollback_knowledge_base_version")
-                    )
-                )
+                .where(CaliberAuditLog.action == "activate_knowledge_base_version")
                 .order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
                 .limit(100)
             )
@@ -1295,7 +1305,9 @@ class KnowledgeBaseService:
             details = row.details or {}
             if details.get("version_id") == current_active:
                 prior = details.get("previous_active_version_id")
-                return prior if isinstance(prior, str) else None
+                if not isinstance(prior, str) or prior == current_active:
+                    continue
+                return prior
         return None
 
     def sync_version_to_age(

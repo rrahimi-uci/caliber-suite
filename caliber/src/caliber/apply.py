@@ -460,6 +460,12 @@ def _apply_prompt_alias(
 
     from caliber.routes import prompts as prompt_routes  # noqa: PLC0415
 
+    # Read the version live on the alias BEFORE rotating so both the rollback
+    # checkpoint and the ``promote_prompt`` audit row below record an exact
+    # ``from_version`` (``None`` on a cold-start alias).
+    previous_info = prompt_routes._load_prompt_info(approval.agent_id, target_alias)
+    previous_version = previous_info.get("version") if previous_info else None
+
     try:
         alias_result = prompt_routes.set_prompt_alias_version(
             name=approval.agent_id,
@@ -481,9 +487,13 @@ def _apply_prompt_alias(
         agent_id=approval.agent_id,
         artifact_type="prompt",
         artifact_name=approval.agent_id,
-        artifact_ref_before=None,
+        artifact_ref_before=(
+            f"prompts:/{approval.agent_id}@{target_alias}#{previous_version}"
+            if previous_version is not None
+            else None
+        ),
         artifact_ref_after=artifact_ref,
-        version_before=None,
+        version_before=previous_version,
         version_after=source_version,
         snapshot_payload={
             "promotion_type": "prompt_alias",
@@ -531,6 +541,25 @@ def _apply_prompt_alias(
             "target_alias": target_alias,
             **assistant_context,
             **(extra_audit or {}),
+        },
+    )
+    # Also record the promotion on the *prompt* entity so it shows up in the
+    # same ``promote_prompt`` audit trail that ``rollback_prompt`` walks. Without
+    # this, an alias rotation applied through the assistant path is invisible to
+    # prompt rollback and the operator can't undo it via the Version panel.
+    audit_record(
+        session,
+        actor=actor,
+        action="promote_prompt",
+        entity_type="prompt",
+        entity_id=approval.agent_id,
+        details={
+            "alias": target_alias,
+            "from_version": previous_version,
+            "to_version": source_version,
+            "promotion_type": "prompt_alias",
+            "approval_id": approval.approval_id,
+            **assistant_context,
         },
     )
     return ApplyOutcome(promotion=promotion_payload, checkpoint_ids=[checkpoint.checkpoint_id])
