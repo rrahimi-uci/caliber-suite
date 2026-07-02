@@ -1,0 +1,10 @@
+INFO     caliber:server.py:257 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:465 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-c892d7c2/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-00129da5/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-c892d7c2/deployments/prod/promote "HTTP/1.1 403 Forbidden"

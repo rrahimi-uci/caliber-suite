@@ -1,8 +1,0 @@
-{"t":"2026-07-02T18:15:10.611Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-02T18:15:10.626Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-02T18:15:10.629Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-02T18:15:10.650Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/prompts \"HTTP/1.1 503 Service Unavailable\""}
-{"t":"2026-07-02T18:15:10.654Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/prompts/x \"HTTP/1.1 503 Service Unavailable\""}
-{"t":"2026-07-02T18:15:10.657Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/prompts/x/versions \"HTTP/1.1 503 Service Unavailable\""}
-{"t":"2026-07-02T18:15:10.660Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/prompts/x/versions/1 \"HTTP/1.1 503 Service Unavailable\""}
-{"t":"2026-07-02T18:15:10.664Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/prompts/x/aliases/prod \"HTTP/1.1 503 Service Unavailable\""}

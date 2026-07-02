@@ -1,6 +1,0 @@
-{"t":"2026-07-02T18:28:29.305Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-02T18:28:29.317Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-02T18:28:29.319Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-02T18:28:29.352Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-T1/files \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-02T18:28:29.361Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-T2/files/FILE-b9b1f845 \"HTTP/1.1 404 Not Found\""}
-{"t":"2026-07-02T18:28:29.365Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-T2/files/FILE-b9b1f845/content \"HTTP/1.1 404 Not Found\""}

@@ -1,3 +1,0 @@
-{"t":"2026-07-02T18:23:19.641Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=1, events=*)"}
-{"t":"2026-07-02T18:23:19.653Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook receiver returned non-2xx: url=https://broken.example/hook status=500","trace_id":"92094750cfbf8ac8"}
-{"t":"2026-07-02T18:23:19.664Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}

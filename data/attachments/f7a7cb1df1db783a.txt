@@ -1,0 +1,13 @@
+{"t":"2026-07-02T23:02:25.406Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-02T23:02:25.421Z","severity":"WARNING","logger":"caliber","message":"Installed dependency diskcache 5.6.3 is flagged (CVE-2025-69872). diskcache 5.6.3 is flagged and is pulled in by the optional DSPy optimizer stack. Avoid enabling DSPy-backed refinement flows in sensitive deployments until upstream publishes a fixed release."}
+{"t":"2026-07-02T23:02:29.570Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-02T23:02:29.575Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-02T23:02:29.867Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-02T23:02:29.877Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-02T23:02:29.887Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-02T23:02:29.903Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-02T23:02:29.921Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-4489f2cf/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-07-02T23:02:29.947Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-f9138d9a/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-07-02T23:02:29.969Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs \"HTTP/1.1 202 Accepted\""}
+2026/07/02 23:02:30 INFO mlflow.store.db.utils: Creating initial MLflow database tables...
+2026/07/02 23:02:30 INFO mlflow.store.db.utils: Updating database tables

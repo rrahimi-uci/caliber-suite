@@ -1,7 +1,0 @@
-{"t":"2026-07-02T18:17:31.095Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-02T18:17:31.108Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-02T18:17:31.110Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-02T18:17:31.133Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/eval-datasets/ED-R3/examples \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-02T18:17:31.140Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/eval-datasets/ED-R3/examples \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-02T18:17:31.148Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/eval-datasets/ED-R3/examples/EX-d6c254f5/supersede \"HTTP/1.1 200 OK\""}
-{"t":"2026-07-02T18:17:31.155Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/eval-datasets/ED-R3/restore \"HTTP/1.1 409 Conflict\""}
