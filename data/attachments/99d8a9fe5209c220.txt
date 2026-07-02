@@ -1,0 +1,1 @@
+WARNING  caliber.secrets:secrets.py:146 secret source 'file:///tmp/pytest-of-runner/pytest-0/popen-gw1/test_file_scheme_empty_file_re0/secret': file is empty

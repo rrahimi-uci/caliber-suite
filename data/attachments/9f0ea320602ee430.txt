@@ -1,1 +1,0 @@
-{"t":"2026-07-01T20:48:51.047Z","severity":"INFO","logger":"caliber.orchestrator.eval_stage","message":"eval rejected: job=RFN-E reasons=['overall 0.500 below min_aggregate_score 0.850'] overall=0.500"}

@@ -1,0 +1,2 @@
+DEBUG    caliber.orchestrator.candidate:candidate.py:372 skipping candidate draft prompt registration for job=RFN-C: mlflow unavailable
+INFO     caliber.orchestrator.candidate:candidate.py:265 candidate complete: job=RFN-C optimizer=MetaPrompt cost_usd=0.0040

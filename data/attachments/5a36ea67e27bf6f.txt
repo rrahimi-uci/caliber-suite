@@ -1,0 +1,5 @@
+{"t":"2026-07-02T18:22:14.624Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-07-02T18:22:14.636Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-07-02T18:22:14.638Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-07-02T18:22:14.662Z","severity":"WARNING","logger":"caliber.routes.observability","message":"trace search failed (Parameter 'experiment_ids' is deprecated. Please use 'locations' instead.); returning empty list","trace_id":"5912e28e80e59759"}
+{"t":"2026-07-02T18:22:14.664Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/observability/traces \"HTTP/1.1 200 OK\""}

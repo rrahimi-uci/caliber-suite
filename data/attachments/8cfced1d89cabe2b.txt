@@ -1,0 +1,2 @@
+INFO     botocore.credentials:credentials.py:1252 Found credentials in environment variables.
+WARNING  caliber.knowledge.service:service.py:2751 knowledge-base build failed (version=KBV-EM): The selected files did not produce any chunks. Check the source types or extraction settings.

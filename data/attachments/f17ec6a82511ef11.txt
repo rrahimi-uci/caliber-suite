@@ -1,0 +1,1 @@
+WARNING  caliber.secrets:secrets.py:136 secret source 'file:///tmp/pytest-of-runner/pytest-0/popen-gw1/test_file_scheme_missing_file_0/nope': file does not exist

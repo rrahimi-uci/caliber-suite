@@ -1,0 +1,16 @@
+INFO     caliber:server.py:257 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+WARNING  caliber:server.py:133 Installed dependency diskcache 5.6.3 is flagged (CVE-2025-69872). diskcache 5.6.3 is flagged and is pulled in by the optional DSPy optimizer stack. Avoid enabling DSPy-backed refinement flows in sensitive deployments until upstream publishes a fixed release.
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:465 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-bfac7b0d/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-ea6db7a8/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+INFO     mlflow.store.db.utils:utils.py:87 Creating initial MLflow database tables...
+INFO     mlflow.store.db.utils:utils.py:296 Updating database tables
+WARNING  mlflow.types.type_hints:type_hints.py:237 Union type hint with multiple non-None types is inferred as AnyType, and MLflow doesn't validate the data against its element types.
+WARNING  mlflow.types.type_hints:type_hints.py:244 Union type hint is inferred as AnyType, and MLflow doesn't validate the data against its element types.
+WARNING  mlflow.types.type_hints:type_hints.py:237 Union type hint with multiple non-None types is inferred as AnyType, and MLflow doesn't validate the data against its element types.
