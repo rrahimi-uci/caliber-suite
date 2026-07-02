@@ -11,3 +11,7 @@ allure-report/
 # Vitest / Istanbul coverage output (generated)
 coverage/
 *.lcov
+
+# Playwright E2E output (generated report + per-test results/traces)
+playwright-report/
+test-results/
