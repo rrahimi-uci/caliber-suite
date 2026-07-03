@@ -1,7 +1,0 @@
-{"t":"2026-07-02T23:08:08.798Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-02T23:08:08.819Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-02T23:08:08.822Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-02T23:08:08.849Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-02T23:08:08.905Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions/ASST-e50c1bac/messages \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-02T23:08:08.954Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions/ASST-e50c1bac/messages \"HTTP/1.1 201 Created\""}
-{"t":"2026-07-02T23:08:08.964Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/assistant/drafts/ADRF-bb7217a8 \"HTTP/1.1 409 Conflict\""}

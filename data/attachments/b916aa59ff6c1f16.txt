@@ -1,6 +1,0 @@
-{"t":"2026-07-02T23:14:33.897Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-02T23:14:33.911Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-02T23:14:33.913Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-02T23:14:33.943Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-e9db1a9e/execute \"HTTP/1.1 200 OK\""}
-{"t":"2026-07-02T23:14:33.949Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-e9db1a9e/interactions \"HTTP/1.1 200 OK\""}
-{"t":"2026-07-02T23:14:33.974Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/interactions/ASK-71b42a6e/answer \"HTTP/1.1 200 OK\""}

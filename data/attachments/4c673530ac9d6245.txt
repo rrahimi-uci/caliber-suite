@@ -1,1 +1,0 @@
-{"t":"2026-07-02T23:16:04.399Z","severity":"INFO","logger":"caliber.orchestrator.workflow_stages","message":"workflow diagnosis complete: job=RFN-WF components=['tool_contract']"}

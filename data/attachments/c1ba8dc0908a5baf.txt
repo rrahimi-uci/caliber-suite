@@ -1,1 +1,0 @@
-{"t":"2026-07-02T23:22:31.220Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-SKILL optimizer=MetaPrompt cost_usd=0.0040"}

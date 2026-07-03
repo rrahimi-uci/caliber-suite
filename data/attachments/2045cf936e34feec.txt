@@ -1,3 +1,0 @@
-WARNING  caliber.orchestrator.janitor:janitor.py:251 reaped stale job=RFN-0 agent=agent stage=evidence heartbeat=2026-07-02T22:18:55.993202
-WARNING  caliber.orchestrator.janitor:janitor.py:251 reaped stale job=RFN-1 agent=agent stage=evidence heartbeat=2026-07-02T22:18:55.996114
-WARNING  caliber.orchestrator.janitor:janitor.py:251 reaped stale job=RFN-2 agent=agent stage=evidence heartbeat=2026-07-02T22:18:55.997822
