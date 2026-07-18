@@ -1,10 +1,13 @@
 # CALIBER Cookbooks
 
-Sixteen build-along recipes that teach the CALIBER platform end-to-end — each one
-**fully implementable in the product UI**, with no code changes or backend access.
-Built for public demos, product training, and developer onboarding.
+Sixteen build-along recipes that teach the CALIBER platform end-to-end. Most are
+**fully implementable in the product UI** with no code changes or backend access;
+a few (04, 05, 11) still need an out-of-band or platform step — each such step is
+labelled in its recipe. See [`FEASIBILITY.md`](FEASIBILITY.md) for the honest
+per-capability matrix. Built for public demos, product training, and developer
+onboarding.
 
-> **🎓 Training guide:** open [`training/index.html`](training/index.html) — a
+> **🎓 Training guide:** open [`../m-16-cookbooks.html`](../m-16-cookbooks.html) — a
 > polished, self-contained HTML guide with refreshed names, step-by-step UI
 > walkthroughs, Mermaid flow diagrams, UI mockups, asset tables, and quality
 > gates for all 16 cookbooks. (Regenerate with `python3 training/build.py`.)
@@ -73,7 +76,10 @@ Every `cookbooks/<scenario>/` folder contains:
 
 ## Current UI notes (verified — see FEASIBILITY.md for the full matrix)
 
-- **Prompt Playground renders only; scored runs go through `Evaluations`.**
+- **Prompt Playground is a live model chat** (it calls the model, not just a
+  render); *persisted, scored* regression runs go through the prompt's `Runs`
+  stage or `Evaluations`. `Evaluations` can score a **prompt**, **skill**, or
+  **workflow** version directly (pick it under *What to score*).
 - **"Deterministic judge" is not a type** — use deterministic *scorers*
   (`exact_match`, `token_f1`, `contains_expected`, `non_empty`) or tool/skill
   assertions; reserve `Judges` for LLM-graded criteria.
@@ -83,8 +89,11 @@ Every `cookbooks/<scenario>/` folder contains:
   `file_tools`.
 - **Prompt/skill Calibration is queued** (background job); **KB and tool/MCP
   calibration run inline**.
-- `Test Sets` rows link to `/eval-datasets/:id`, but only the list `/eval-datasets`
-  is wired; manage dataset rows via API or the `Evaluations` flow.
-- Skill package: export in UI (`Download ZIP`); import via `POST /skills/import-package`.
+- `Test Sets` rows link to `/eval-datasets/:id`; the detail route is wired
+  (`EvalDatasetDetail.tsx` — a full row editor: add/revise/retire examples and
+  add-from-trace). The API (`POST …/examples`, `…/from-trace`) still works too.
+- Skill package: export in UI (`Download ZIP`) and import in UI (`Import package`
+  on the skill detail page, which uploads the unpacked folder) — or via
+  `POST /skills/import-package`.
 - `monitoring.traces` names in `verification.yaml` are evidence labels, not
   literal MLflow span names (spans are named by workflow node id).

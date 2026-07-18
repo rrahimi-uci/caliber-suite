@@ -17,15 +17,19 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md) first. For this scenario:
 - ✅ Regression is scored **on the prompt workspace**: generate cases on
   **Test Sets** and *Run Tests & Judge*, then on **Runs** pin a strong
   **baseline** and re-run a weakened version to read the **Vs. baseline** diff.
-  The standalone **Evaluations** page is *not* used here — it can't score a
-  prompt. That Runs diff is the real, demoable regression surface.
+  The standalone **Evaluations** page *can* score a prompt now (set
+  *What to score* = **Prompt version**, which renders the prompt as the system
+  instruction), but this lab uses the prompt workspace's **Runs** baseline-diff
+  as the demoable regression surface.
 - ⚠️ **Calibration** queues a background optimizer job; show the queued job id,
   don't wait for an inline score (FEASIBILITY §2.4).
 - The `InstructionCompliance` judge (`custom_judge`) is a real LLM judge you can
   author on the Judges page and select in Evaluations under **Custom LLM judges**
-  (it runs as a `Judge.<id>` scorer); note the Evaluations page scores the model's
-  direct answer to dataset inputs, not a prompt, so the prompt's own Test Sets /
-  Runs judge produces the per-case pass / partial / fail verdicts for this lab.
+  (it runs as a `Judge.<id>` scorer); with the default *What to score* =
+  **Model completion**, Evaluations scores the model's direct answer to dataset
+  inputs (choose **Prompt version** to score the prompt itself), while this lab
+  uses the prompt's own Test Sets / Runs judge for the per-case pass / partial /
+  fail verdicts.
   The `rule_checks` (`valid_json`, `allowed_intent_values`) map to deterministic
   **scorers**, not a "deterministic judge" (which doesn't exist).
 
@@ -60,7 +64,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md) first. For this scenario:
    `{{ outputs }}`, return true only if outputs is valid JSON with the required
    keys and `intent` is allowed; else false."* `feedback_value_type = bool`.
    (Authored here for reference; the prompt's own Test Sets / Runs judge does the
-   scoring — the Evaluations page can't score a prompt.)
+   scoring for this lab.)
 6. **Run the baseline.** `Prompts → intake-classifier → Runs` → **Run tests**:
    the Runs stage scores the cases from your latest Test Sets run with a built-in
    pass / partial / fail judge into a scorecard. **This is your baseline** — click

@@ -1,6 +1,6 @@
 # Verified — see ../FEASIBILITY.md.
 feasibility:
-  - InstructionCompliance is a real LLM judge (authored on Judges; selectable in an Evaluations run under "Custom LLM judges", where it runs as a Judge.<id> scorer). The rule_checks map to the deterministic scorer contains_expected, run on the prompt's Test Sets / Runs stage; note the standalone Evaluations page scores the model's direct answer to dataset inputs, not the prompt asset itself, so use the Runs stage for a prompt-grounded check.
+  - InstructionCompliance is a real LLM judge (authored on Judges; selectable in an Evaluations run under "Custom LLM judges", where it runs as a Judge.<id> scorer). The rule_checks map to the deterministic scorer contains_expected, run on the prompt's Test Sets / Runs stage; with the default target the standalone Evaluations page scores the model's direct answer to dataset inputs (choose "Prompt version" to score the prompt asset itself), while this lab uses the Runs stage for its prompt-grounded regression check.
   - monitoring.traces below are evidence labels to look for in the MLflow trace tree, not literal span names (spans are named by node/operation).
 evaluation:
   judges:

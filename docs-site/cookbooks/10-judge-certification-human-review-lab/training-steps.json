@@ -187,24 +187,24 @@
       "asset": "Completed, trace-linked reviewer answers"
     },
     {
-      "where": "(outside the app) Alignment worksheet",
-      "do": "Tally alignment <strong>by hand</strong> — the judge runs as a scorer and gives you per-row verdicts automatically, but CALIBER does not auto-compute the judge-vs-human alignment cross-tab, so you tally it yourself. Open <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/alignment/alignment-worksheet.md\">alignment-worksheet.md</a>. For each sampled trace, put the FaithfulnessJudge verdict (read from its scorer column on the candidate run) next to the reviewer's <code>faithful</code> answer (read from the trace / the Review Queue item), mark agree/disagree, then compute <code>alignment = agreements / total</code>. The expected shape: the five clear rows all agree; <code>J03</code> and <code>J07</code> are the deliberate disagreements (judge fail, human pass).",
+      "where": "Evaluate › Judges › FaithfulnessJudge › Human alignment",
+      "do": "Compute alignment <strong>in the product</strong>. Open the FaithfulnessJudge and switch to <strong>Human alignment</strong>: for each sampled trace enter the judge's output and the reviewer's <code>faithful</code> pass/fail label, then run it — CALIBER reports <strong>agreement rate</strong>, <strong>Cohen's κ</strong>, and <strong>FP/FN</strong> for you. One honest gap: it does <strong>not</strong> auto-pull the labels from the Review Queue, so you still transcribe each reviewer's Pass/Fail (read from the trace / the queue item) by hand. Expected shape: the five clear rows agree; <code>J03</code> and <code>J07</code> are the deliberate disagreements (judge fail, human pass). The offline <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/alignment/alignment-worksheet.md\">alignment-worksheet.md</a> is an optional paper fallback.",
       "fill": [
         [
-          "judge_verdict (per row)",
-          "pass/fail from the FaithfulnessJudge scorer column on the candidate run"
+          "Judge output (per row)",
+          "the FaithfulnessJudge output/verdict for that sampled trace"
         ],
         [
-          "human_verdict (per row)",
+          "Human label (per row)",
           "pass/fail read from each trace's faithful answer (the reviewer's Pass/Fail)"
         ],
         [
-          "agree?",
-          "yes when both match, no when they differ; alignment = agree-yes count / total"
+          "Computed by CALIBER",
+          "agreement rate, Cohen's κ, and FP/FN — you no longer tally the cross-tab by hand"
         ]
       ],
-      "see": "A filled table and an alignment number. Gate: <code>alignment ≥ 0.80</code> over <code>≥ 3</code> reviewed traces, and <code>overall_eval_score ≥ 0.85</code> on the deterministic scorecard.",
-      "asset": "Manual alignment tally (judge vs human)",
+      "see": "The Human-alignment panel shows Agreement %, Cohen's κ, and FP/FN. Gate: <code>agreement ≥ 0.80</code> over <code>≥ 3</code> reviewed traces, and <code>overall_eval_score ≥ 0.85</code> on the deterministic scorecard.",
+      "asset": "Judge-vs-human alignment (agreement, Cohen's κ, FP/FN)",
       "assetlink": [
         {
           "href": "../cookbooks/10-judge-certification-human-review-lab/assets/alignment/alignment-worksheet.md",
@@ -214,7 +214,7 @@
     },
     {
       "where": "Observe › Observability  +  Evaluate › Evaluations",
-      "do": "Close the loop on every disagreement. For each <code>agree? = no</code> row, harvest that reviewed trace back into the dataset: in <strong>Observability</strong> open the trace, find the <strong>Add to test set</strong> panel, choose <code>judge-certification-set</code> under <strong>Choose test set</strong>, and click <strong>Add example</strong> so the hard case becomes a permanent certification row. Then reword either the judge Instructions (in Judges) or the <code>faithful</code> question (in the Review Queue) so both express the same clarified criterion, re-run the Evaluations scorecard (with FaithfulnessJudge ticked) over the grown set for fresh per-row verdicts, and re-tally alignment on the worksheet until it clears the gate.",
+      "do": "Close the loop on every disagreement. For each <code>agree? = no</code> row, harvest that reviewed trace back into the dataset: in <strong>Observability</strong> open the trace, find the <strong>Add to test set</strong> panel, choose <code>judge-certification-set</code> under <strong>Choose test set</strong>, and click <strong>Add example</strong> so the hard case becomes a permanent certification row. Then reword either the judge Instructions (in Judges) or the <code>faithful</code> question (in the Review Queue) so both express the same clarified criterion, re-run the Evaluations scorecard (with FaithfulnessJudge ticked) over the grown set for fresh per-row verdicts, and re-check alignment in the Judges Human-alignment view until it clears the gate.",
       "fill": [
         [
           "Choose test set (in Observability)",

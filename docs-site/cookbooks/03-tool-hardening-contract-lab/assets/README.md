@@ -5,7 +5,7 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
 | # | Artifact | File | Create via UI + API |
 | --- | --- | --- | --- |
 | 1 | Tool `lookup_order` (read) | [`tools/lookup-order.tool.json`](tools/lookup-order.tool.json) | `Library → Tools → New tool` (Spec stage), paste the fields. API: `POST /tools` with the file body |
-| 2 | Tool `initiate_refund` (write) | [`tools/initiate-refund.tool.json`](tools/initiate-refund.tool.json) | `Library → Tools → New tool` (Spec stage). API: `POST /tools` with the file body. `side_effect=write` → mocked in sandbox, approval-gated in the workflow |
+| 2 | Tool `initiate_refund` (write) | [`tools/initiate-refund.tool.json`](tools/initiate-refund.tool.json) | `Library → Tools → New tool` (Spec stage). API: `POST /tools` with the file body. `side_effect_level=write` → mocked in sandbox, approval-gated in the workflow |
 | 3 | Decision node `decide_refund` | [`tools/decide_refund.py`](tools/decide_refund.py) | **Not a registered tool.** `Compose → Workflows` → drag a **Python Code** node, paste the file body. Versions with the workflow |
 | 4 | Eval dataset `refund-fixtures` | [`dataset/refund-fixtures.jsonl`](dataset/refund-fixtures.jsonl) | `Evaluate → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. Also reusable as tool fixtures (`PUT /tools/{id}/test-cases`) |
 | 5 | Prompt `refund-explanation` | [`prompts/refund-explanation.md`](prompts/refund-explanation.md) | `Library → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}` |
@@ -47,7 +47,7 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
 ## Conventions used across the pack
 
 - **Tool files** (`tools/*.tool.json`): the `POST /tools` body — `module_path` +
-  `callable_name` must be importable; `side_effect` ∈ `read`|`write`|`external_action`
+  `callable_name` must be importable; `side_effect_level` ∈ `read`|`write`|`external_action`
   (`write`/`external_action` are mocked in the sandbox and approval-gated in a
   workflow). `tools/*.py` holds inline `python_code` node bodies (stdlib only,
   no registration).

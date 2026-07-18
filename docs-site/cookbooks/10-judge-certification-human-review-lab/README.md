@@ -15,10 +15,11 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
   run **Evaluations** (candidate vs baseline), enqueue traces to a **Review
   Queue**, and write reviewer answers back onto the trace — all real and
   trace-linked.
-- ⚠️ **Disagreement/alignment is not auto-computed** — compare the judge
-  scorecard against the reviewer answers by hand (or with a small spreadsheet).
-  This is the one place the scenario's `disagreement_rate`/`alignment_score` are
-  manual (FEASIBILITY §1, Evaluations).
+- ✅ **Alignment is computed in-product** — the Judges page **Human alignment**
+  mode returns agreement rate, Cohen's κ, and FP/FN from the judge outputs + the
+  reviewer pass/fail labels. ⚠️ You still transcribe the labels: it does **not**
+  auto-ingest completed Review Queue items, so `disagreement_rate`/`alignment_score`
+  come from labels you enter by hand (FEASIBILITY §1, Judges → Human alignment).
 - ✅ The **Test Sets detail page** (`/eval-datasets/:id`) is wired
   (`EvalDatasetDetail`) — author/edit dataset rows with **+ Add example**
   (revise / supersede / from-trace), or use the API.
@@ -50,17 +51,20 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    faithfulness question(s). Enqueue the **trace ids** of the flagged examples
    (`POST /review-queues/{id}/items {trace_ids}`); have reviewers answer. Answers
    write back to each trace.
-6. **Compare alignment (manual).** Lay the judge verdicts next to the reviewer
-   answers for the sampled traces; compute agreement. Treat each disagreement as
-   a calibration input — add the hard case to the dataset and/or reword the
-   rubric, then re-run step 3.
+6. **Compute alignment.** `Evaluate → Judges → FaithfulnessJudge → Human
+   alignment`: enter each sampled trace's judge output + the reviewer's pass/fail
+   label; CALIBER returns agreement rate, Cohen's κ, and FP/FN (`POST
+   /judges/{id}/alignment`). You transcribe the labels by hand (no auto-pull from
+   the Review Queue yet). Treat each disagreement as a calibration input — add the
+   hard case to the dataset and/or reword the rubric, then re-run step 3.
 
 ## Demo evidence to capture
 
 - Judge id + its template-variable instructions.
 - Baseline and candidate evaluation run ids.
 - A review queue with completed, trace-linked reviewer answers.
-- The manual alignment tally (judge vs human) over the sampled traces.
+- The Judges Human-alignment result (agreement, Cohen's κ, FP/FN) over the
+  sampled traces.
 
 ## Done when / gate
 

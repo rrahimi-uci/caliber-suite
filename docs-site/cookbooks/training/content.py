@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Training content for the CALIBER Cookbooks HTML guide (data only).
 
-Every step is achievable through the CALIBER **UI** — no code edits, no backend
-changes, no manual config outside the platform. Verified against the shipped
-build (see ../FEASIBILITY.md, ../ARIA-AUTONOMY.md, ../CRITIQUE-REPORT.md).
+Most steps are achievable through the CALIBER **UI** — no code or backend
+changes. A few labs (04, 05, 11) still need a clearly-labelled out-of-band step.
+Verified against the shipped build (see ../FEASIBILITY.md, ../ARIA-AUTONOMY.md,
+../CRITIQUE-REPORT.md).
 """
 
 TRACKS = ["Foundations", "Build", "Operate", "Govern", "Aria — Autonomous"]
@@ -13,13 +14,13 @@ INTRO = {
     "title": "CALIBER Cookbooks",
     "tagline": (
         "Sixteen practical, build-along recipes that teach the CALIBER platform "
-        "end-to-end — each one fully implementable in the product UI, with no code "
-        "changes or backend access."
+        "end-to-end — most fully implementable in the product UI with no code or "
+        "backend changes; a few labs flag a clearly-labelled out-of-band step."
     ),
-    "meta": ["16 cookbooks", "5 tracks", "UI-only", "Training-ready", "Mermaid flows + UI mockups"],
+    "meta": ["16 cookbooks", "5 tracks", "UI-first", "Training-ready", "Mermaid flows + UI mockups"],
     "footer": (
         "CALIBER Cookbooks · generated training guide · every recipe verified "
-        "UI-implementable against the shipped platform. Pair each section with its "
+        "against the shipped platform (out-of-band steps are labelled). Pair each section with its "
         "folder under <code>cookbooks/&lt;nn&gt;-…/</code> (scenario.yaml, build.yaml, "
         "test-data.yaml, verification.yaml, and copy-paste <code>assets/</code>)."
     ),
@@ -37,7 +38,7 @@ INTRO = {
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-only promise.</strong> Everything here is done in the product — no code, no backend.
+        <strong>The UI-first promise.</strong> Almost everything is done in the product — no code, no backend; the few out-of-band steps (e.g. cookbook 11's <code>make allure-report</code>) are labelled where they occur.
         <ul>
           <li><strong>Datasets</strong> fill from real runs: <code>Observability → open a trace → Add to test set</code>.</li>
           <li><strong>Custom logic</strong> is a workflow <code>Python Code</code> node typed into the editor.</li>

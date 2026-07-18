@@ -4,9 +4,11 @@ A correctness/implementability review of all 15 scenarios against the **shipped
 code** (`caliber/caliber-ui/src`, `caliber/src/caliber`). Method: a self-review
 plus an independent adversarial agent, every load-bearing claim checked against
 the source (capabilities/planner/executor, runtime, schemas, routes, sandbox,
-template catalog, eval/scorecard). **All findings below were fixed**; the pack
-re-validates clean (60 YAML / 34 JSON / 12 JSONL / 5 Python parse; the 3 fixed
-`python_code` bodies execute and return the expected dicts).
+template catalog, eval/scorecard). **All findings enumerated below were fixed**;
+the pack re-validated clean at review time (60 YAML / 34 JSON / 12 JSONL / 5
+Python parse; the 3 fixed `python_code` bodies execute and return the expected
+dicts). Platform limitations discovered *after* this review — not among the
+findings below — are tracked in [§ Open gaps](#open-gaps-platform-limitations).
 
 ## Findings (all resolved)
 
@@ -22,11 +24,31 @@ Minor doc imprecisions noted by the reviewer and left as-is (non-blocking): the
 prompt test-render path param is `{agent_id}` not `{name}`; the register model is
 `ToolRegisterRequest`; judges also accept `{{ conversation }}`/`{{ trace }}` vars.
 
+## Open gaps (platform limitations)
+
+Found *after* this review by the `ui-complete-report.md` UI-completeness audit.
+These are **product** gaps, not recipe defects, so they are not among the fixed
+findings above:
+
+- **Document workflow needs a host-local path.** `extract_document(ref)` requires
+  `Path(ref).is_file()` (`workflows/ingestion_tools.py`); Object Store upload and
+  the input-bucket node hand back decoded text / object keys, not a local file the
+  extractor can open. Cookbook 04 lands the file on the host (`mc cp`) as a
+  workaround.
+- **The GitHub MCP catalog tile needs `npx`.** It seeds `npx -y
+  @modelcontextprotocol/server-github`, but the shipped `deploy/caliber/Dockerfile`
+  runtime is `python:3.12-slim` with no Node/npm/npx (Node lives only in the UI
+  build stage). Remote MCP URLs and first-party Python servers still work.
+- **Aria plan execution is deterministic-only.** The default `HeuristicPlanner`
+  emits steps with empty `inputs`, so auto-approving a planned mutation fails
+  validation; the LLM-planner Protocol slot is not wired. Cookbooks 12–15 create
+  each artifact via its own route (see finding #1).
+
 ## Per-scenario verdict
 
 | # | Scenario | Implementable today | Key caveat (in its Feasibility note) |
 | --- | --- | --- | --- |
-| 01 | Prompt classifier | ✅ | provider required; Playground renders only → score via Evaluations; calibration queued |
+| 01 | Prompt classifier | ✅ | provider required; Playground is a live chat, scored runs via the prompt Runs stage / Evaluations (which can now score a Prompt version); calibration queued |
 | 02 | Skill triggering | ✅ | selection is deterministic (no LLM judge); package round-trip real |
 | 03 | Tool hardening | ✅ (fixed) | tool reg needs `side_effect_level`+`allow_in_preview`; `decide_refund` is a `python_code` node; approval gate at workflow time |
 | 04 | Doc → JSON | ✅ (fixed) | extract supports docx/pptx/xlsx; unsupported error comes from the Object Store **endpoint**, not the tool |
@@ -35,7 +57,7 @@ prompt test-render path param is `{agent_id}` not `{name}`; the register model i
 | 07 | Support triage | ✅ (fixed) | reuses 01/02/03/05/06; read tools need `allow_in_preview`; external write approval-gated in the workflow |
 | 08 | Incident commander | ✅ (fixed) | evidence tools are `python_code` fixtures (now return correctly) |
 | 09 | Workflow debugger | ✅ | patch is manual (no `propose_workflow_patch`); Aria narration-only |
-| 10 | Judge governance | ✅ | alignment tally is manual; `/eval-datasets/:id` detail page + row editor now shipped (`EvalDatasetDetail.tsx`); LLM judges run as `Judge.<id>` scorers in Evaluations |
+| 10 | Judge governance | ✅ | alignment computed in the Judges **Human alignment** mode (agreement/κ/FP/FN) — labels entered by hand (no auto-pull from Review Queue); `/eval-datasets/:id` detail page + row editor shipped (`EvalDatasetDetail.tsx`); LLM judges run as `Judge.<id>` scorers in Evaluations |
 | 11 | Release signoff | ✅ | no release-scoring engine (operator rubric); Allure generated externally |
 | 12 | **Aria** eval harness | ⚠️→✅* | *Aria **plans** from intent; create artifacts via routes. Full autonomy needs the LLM planner (not wired) — see ARIA-AUTONOMY §Execution status |
 | 13 | **Aria** review queue | ⚠️→✅* | same Aria caveat |
