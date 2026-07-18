@@ -33,11 +33,12 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 
 1. **Register the lookup tools.** `Library → Tools → New tool` (Spec stage):
    - `lookup_order` → `module_path=caliber.workflows.demo_tools`,
-     `callable_name=lookup_order`, `side_effect=read`,
+     `callable_name=lookup_order`, `side_effect_level=read`,
      input `{order_id:string}`.
    - `initiate_refund` → same module, `callable_name=initiate_refund`,
-     `side_effect=write` (it will be **mocked** in sandbox + gated in workflow).
-   - API: `POST /tools {name, version, module_path, callable_name, input_schema, output_schema, side_effect}`.
+     `side_effect_level=write` (it will be **mocked** in sandbox + gated in workflow).
+   - API: `POST /tools {name, version, module_path, callable_name, input_schema, output_schema, side_effect_level}`
+     (the request model is `extra="forbid"`, so the legacy `side_effect` key is rejected).
 2. **Sandbox.** `Tools → <lookup_order> → Sandbox → Test Run` with
    `{order_id:"O-1001"}`; confirm live read output. Run `initiate_refund` and
    confirm the response is **mocked** (`mocked:true`).
