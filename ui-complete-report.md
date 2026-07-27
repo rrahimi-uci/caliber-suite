@@ -1,11 +1,12 @@
 # CALIBER repository-wide product and architecture review
 
-**Review date:** 2026-07-26
+**Review date:** 2026-07-27
 
-**Reviewed state:** commit `b9d8e786e46bc11a81e7a08956926768484afd64`
-plus the current uncommitted remediation worktree (22 modified tracked files and
-6 untracked files when this re-review began). The commit hash alone does **not**
-reproduce the reviewed state.
+**Reviewed state:** clean implementation tree at
+`9357b3d71b349fe388495b748755923e60cc3be2`. That formatting-only test commit sits
+on remediation merge `d90d914e3`, which contains implementation commit `761c45431`
+and regenerated cookbook output `200936323`. The reviewed implementation is
+reproducible from HEAD; the only uncommitted workspace change is this report update.
 
 **Product target used for scoring:** a self-hosted, single-organization platform
 for trusted developers and technical operators. Enterprise-suite requirements are
@@ -14,11 +15,12 @@ isolation, compliance certification/evidence, segregation of duties, enterprise
 collaboration, and multi-region/high-availability guarantees. Their absence is
 documented only as a scope boundary and does **not** reduce the maturity score.
 
-This exclusion does not remove baseline production requirements. Any network-
-reachable deployment still needs real authentication, safe secrets, protection
-from command execution and SSRF, effect-safe preview/evaluation, reliable retries,
-trustworthy release evidence, authenticated published APIs, rollback, and
-actionable monitoring.
+This exclusion does not remove baseline production requirements. Any
+network-reachable deployment still needs real authentication, safe secrets, protection
+from command execution and SSRF, effect-safe Preview and workflow-target evaluation,
+reliable retries, trustworthy release evidence, authenticated published APIs,
+rollback, constrained filesystem/object-storage capabilities, and actionable
+monitoring.
 
 **Scope:** React frontend, Starlette APIs, database model, workflow compiler/runtime,
 background workers, evaluation and refinement systems, storage, observability,
@@ -34,8 +36,8 @@ their generated training material.
 **No for production-grade end-to-end operation—even with enterprise readiness
 removed from scope. Yes for predominantly low-code composition, local execution,
 and inspection/debugging of deliberately isolated test runs.** CALIBER is an
-unusually capable **low-code
-workflow development and debugging environment**, but it is not yet a secure,
+unusually capable **low-code workflow development and debugging environment**, but
+it is not yet a secure,
 governed, production-operable no-code agent platform. It can visually compose and
 run sophisticated workflows; it cannot yet carry a developer/operator reliably from
 idea to production without Python packaging, deployment configuration, external
@@ -62,8 +64,8 @@ missing polish:
    session/token or enforced trusted-proxy boundary. Built-in enterprise SSO is
    not required for the scoped target.
 2. **Integration secrets can leave the server.** MCP credentials can be
-   persisted, serialized, and audited as ordinary JSON. The current worktree
-   does fix plaintext provider-key readback, but it does not provide a durable,
+   persisted, serialized, and audited as ordinary JSON. Current HEAD fixes
+   plaintext provider-key readback, but it does not provide a durable,
    restart-safe, write-only resolver or a clear/rotate/revoke, reference-based MCP
    secret lifecycle.
 3. **Resource scoping is inconsistent.** Multiple detail and mutation routes use
@@ -75,9 +77,13 @@ missing polish:
    measures only completion, and replays the workflow without preview mode or
    runtime approvals. Gate evaluation can therefore repeat real external mutations
    while still saying nothing about output quality, cost, or latency.
-5. **Preview and evaluation are not safe dry runs.** Dedicated MCP, webhook, API,
-   and external-app nodes can call live integrations even when execution is marked
-   `preview=True`. Webhook/API URLs are unrestricted server-side egress, with no
+5. **Preview and workflow-target evaluation are not safe dry runs.** Dedicated MCP,
+   webhook, API, and external-app nodes can call live integrations even when
+   execution is marked `preview=True`. File/folder nodes can read or write paths
+   accessible to the CALIBER process without an application-level allowed-root
+   policy. S3/MinIO nodes can select a bucket while reusing process-wide storage
+   credentials, subject to their IAM permissions; shipped Compose uses shared MinIO
+   root credentials. Webhook/API URLs are unrestricted server-side egress, with no
    private-network/metadata protection or central outbound policy.
 6. **Human-approval behavior is internally inconsistent.** The scoped product does
    not require enterprise role/quorum/segregation-of-duties workflows, but the UI
@@ -104,7 +110,7 @@ missing polish:
    ledger or platform idempotency key, so a crash can duplicate external side
    effects.
 
-The latest worktree makes concrete progress: it removes plaintext provider-key
+The merged remediation makes concrete progress: it removes plaintext provider-key
 readback, repairs workflow trace-ID persistence, fixes the non-admin evaluation-list
 crash, rejects future dataset versions, propagates weights/tags into server-side
 scorecards, makes error-bearing rows fail, replaces the misleading wildcard page,
@@ -132,18 +138,18 @@ coverage, and the overall score is risk-adjusted rather than an arithmetic mean.
 | --- | ---: | --- |
 | Visual workflow composition | **4.0/5** | Broad typed primitives, templates, validation, and a strong graph editor. Some advanced fields still require JSON or code-like expressions. |
 | Prompt, skill, tool, and knowledge engineering | **3.2/5** | Prompts, skills, and KBs are deep; reusable custom tools still require an importable Python implementation; standalone agents lack a lifecycle workspace. |
-| Developer debugging and run inspection | **4.0/5** | Best part of the product: run graph, events, checkpoints, retries, tool calls, memory, outputs, artifacts, and trace views. Trace-ID persistence is repaired in the worktree; deterministic replay remains incomplete. |
-| Testing and evaluation | **2.7/5** | Real datasets, judges, weighted scorecards, baselines, calibration, and some regression gates; no durable large async eval, immutable run bundle, continuous eval, CI quality gate, or cost/latency gate. Several records accept client-supplied results, and preview execution is not reliably side-effect-free. |
+| Developer debugging and run inspection | **4.0/5** | Best part of the product: run graph, events, checkpoints, retries, tool calls, memory, outputs, artifacts, and trace views. Trace-ID persistence is repaired at current HEAD; deterministic replay remains incomplete. |
+| Testing and evaluation | **2.7/5** | Real datasets, judges, weighted scorecards, baselines, calibration, and some regression gates; no durable large async eval, immutable run bundle, continuous eval, CI quality gate, or cost/latency gate. Several records accept client-supplied results, and workflow-target preview execution is not reliably side-effect-free. |
 | Deployment and release management | **1.8/5** | Workflow versions, aliases, rollback, and API publishing exist. A single environment is acceptable for this target, but fake/side-effecting deploy gates, open services, weak release evidence, and absent deployment-scoped configuration/secret controls still prevent production trust. |
 | Operations and monitoring | **2.6/5** | Useful trace/metric exploration, token/cost/latency summaries, SSE, health, audit, system services, and coarse fleet/success ratios. Multi-region HA is excluded, but actionable alerts, trustworthy health, queue/worker operations, drift, and failure recovery remain incomplete. |
 | Platform UX | **3.2/5** | Cohesive visual language and broad discoverability. Enterprise administration is excluded; fragmented artifact idioms, missing agent/secret/alert pages, raw IDs, giant workspaces, and misleading surfaces remain material UX debt. |
-| Production safety and access control | **1.0/5** | Enterprise IAM/compliance is excluded, but the default identity is spoofable, MCP secrets are serialized, published APIs default open, preview permits SSRF/live effects, and stdio MCP composes into host command execution. |
-| Architecture and operability | **2.6/5** | Typed domain/runtime, durable SQL state, storage/event abstractions, and extensive tests are strengths. Unrestricted egress, arbitrary command execution, at-least-once effects, in-process extensions, hard-coded mode switches, and scoping defects remain material without any enterprise assumptions. |
+| Production safety and access control | **1.0/5** | Enterprise IAM/compliance is excluded, but the default identity is spoofable, MCP secrets are serialized, published APIs default open, Preview permits application-unscoped process-filesystem/shared-credential storage effects and unrestricted egress, and stdio MCP composes into host command execution. |
+| Architecture and operability | **2.5/5** | Typed domain/runtime, durable SQL state, storage/event abstractions, and extensive tests are strengths. Application-unscoped process-filesystem paths, shared-credential storage namespace selection, unbrokered egress, arbitrary command execution, at-least-once effects, in-process extensions, hard-coded mode switches, and scoping defects remain material. |
 | End-to-end low-code/no-code lifecycle | **2.3/5** | A user can build, test, and debug predominantly in the UI. Production deployment and operation still require manual security, packaging, evidence, and operational engineering. |
 
 **Risk-adjusted overall: 2.6/5, advanced alpha / self-hosted technical preview.**
 Enterprise readiness is not scored; baseline production safety is. The ten
-dimension scores have an arithmetic mean of 2.74, but the 1.0/5 production-safety
+dimension scores have an arithmetic mean of 2.73, but the 1.0/5 production-safety
 dimension caps the overall judgment: command execution, unsafe effects/egress,
 open services, and false deploy evidence are production blockers even though the
 workflow IDE itself scores highly.
@@ -163,9 +169,9 @@ This review distinguishes five states:
 
 The audit inspected:
 
-- the 26 product route patterns backed by 26 lazy components in
-  `caliber/caliber-ui/src/App.tsx` (25 page workspaces plus one workflow-run
-  redirect), as well as login/wildcard handling, the workflow canvas/inspector/
+- the 26 lazy product routes/components in `caliber/caliber-ui/src/App.tsx`
+  (25 page workspaces plus one workflow-run redirect), plus login redirects and
+  wildcard handling, the workflow canvas/inspector/
   debugger, assistant shell, API client, and workspace state;
 - the centralized backend registry of 40 route modules and 313 literal
   `Route(...)` declarations under `caliber/src/caliber/routes/`;
@@ -184,38 +190,43 @@ load test, accessibility assessment, or real-provider benchmark. Passing unit
 tests are evidence that implemented contracts behave as encoded; they are not
 evidence that the encoded contract is product-complete or secure.
 
-### Current re-verification (2026-07-26)
+### Current re-verification (2026-07-27)
 
 The report and every changed path in scope were re-read against the current
-worktree, not inferred from the earlier audit. Inventory was recounted directly:
-40 registered route modules, 313 literal `Route(...)` declarations, 60 top-level
-models, 26 authenticated route patterns / 26 lazy components, 29 registered
+HEAD, not inferred from the earlier audit. Inventory was recounted directly: 40
+registered route modules, 313 literal `Route(...)` declarations, 60 top-level
+models, 26 lazy product routes/components plus redirect/wildcard routes, 29 registered
 workflow component kinds, 13 workflow templates, 13 router operators, 262 backend
 test files, 109 frontend unit/spec files, and 8 Playwright specs.
 
-Fresh verification performed:
+Functional verification was performed on behavior-equivalent parent `d90d914e3`:
 
 - `npm run typecheck` — **passed**;
 - full Vitest — **109 files, 1,466 tests passed**;
-- changed backend paths — **40 passed**;
-- authentication/service/deployment/promoter/sandbox paths — **90 passed**;
-- scheduler/runtime-approval paths — **24 passed**; and
-- changed frontend paths — **21 passed**.
+- six remediation backend regression modules with `--no-cov` — **40 passed**;
+- changed frontend paths — **21 passed**;
+- `ruff check`, `ruff format --check`, and focused `mypy` — **passed**; and
+- ESLint on the changed frontend files — **passed**.
+
+Current HEAD differs only by Ruff line wrapping in
+`tests/test_cookbook_doc_contract.py`. On `9357b3d71`, that module is **13 passed**
+and both `ruff check` and `ruff format --check` pass. No product code changed between
+the suite runs and reviewed HEAD.
 
 The full Vitest run emitted non-fatal existing warnings for unmatched MSW requests,
 zero-size Recharts containers, a React `act(...)` boundary, and jsdom navigation.
-Backend collection found **5,025 tests**; the PostgreSQL MCP module was skipped
-because the configured database was unreachable. The full run was interrupted after
-82m20s with **1,312 passed, 2 failed, 1 skipped, and 1 error**. Both failures were
-sandbox `PermissionError`s while binding `127.0.0.1`; the error was an unclosed
-SQLite connection reported as a `PytestUnraisableExceptionWarning`. Teardown also
-reported unclosed sockets, and the run used unsupported Python 3.14. These results
-are not a full-backend pass, but the environment-dependent failures are also not
-treated here as confirmed CALIBER product regressions.
-Focused subsets overlap and must not be summed. Playwright, real-provider/live-
-integration scenarios, load testing, browser accessibility, and a penetration test were
-not run. The repository and CI inventory below must not be mistaken for freshly
-verified production behavior.
+The full backend suite passes on CI under the supported Python 3.11: **5,016 passed,
+12 skipped, 0 failed in 24m24s**, coverage **94.43%** against an 80% gate (Actions
+run `30282561793`). Local attempts on the review machine used unsupported Python
+3.14 and are not used for conclusions: one serial attempt was interrupted at 82m20s
+(**1,312 passed, 2 failed** — both sandbox `PermissionError`s binding `127.0.0.1` —
+1 skipped, and an unclosed-SQLite `PytestUnraisableExceptionWarning`), and an xdist
+attempt reached 98% after about 3h20m before wedging while MLflow trace-export
+threads remained live. The verification appendix records that harness finding.
+Focused subsets overlap and must not be summed. Playwright,
+real-provider/live-integration scenarios, load testing, browser accessibility, and
+a penetration test were not run. The repository and CI inventory below must not be
+mistaken for freshly verified production behavior.
 
 ## Screens, pages, and components reviewed
 
@@ -227,7 +238,7 @@ verified production behavior.
 | Skills | Inventory/workspace, wizard, render/trigger tests, packages, calibration, versions, bindings | Strong authoring path; routed and in-place experiences diverge. |
 | Tools | Registry, wizard, detail, schema builder, sandbox, calibration, versions | Good registry UX around an implementation that must already exist in Python. |
 | MCP | Catalog, connection setup, discovery, playground, policies, tests, calibration | Rich surface; catalog is not deploy-image aware and secret treatment is unsafe. |
-| Files/storage | Object Store, project files API, workflow file/folder/bucket nodes | Multiple storage concepts do not yet compose into one safe file-reference contract. |
+| Files/storage | Object Store, project files API, workflow file/folder/bucket nodes | Multiple storage concepts do not compose into one safe file-reference contract; workflow nodes lack application-level allowed-root/bucket capabilities and run live in Preview/workflow-target evaluation. OS/container and storage-IAM permissions remain the outer boundary. |
 | Knowledge/RAG | KB inventory/editor, sources, builds, chunks, query playground, GraphRAG/AGE, calibration, versions | One of the strongest artifact workspaces; provider/storage readiness remains operator-managed. |
 | Workflow Studio | Inventory/templates, React Flow editor, inspector, code view, versions, detail graph | Strong low-code composition environment. |
 | Workflow runtime | Preview, queued runs, events, approvals, checkpoints, retry/resume, memory, artifacts, trace/debug panels | Deep runtime UX and repaired trace linkage; preview safety, approval policy, deterministic replay, and duplicate-side-effect risks remain serious. |
@@ -252,8 +263,8 @@ organization/team/role-administration pages are excluded from this assessment.
 | Lifecycle stage | What works | What prevents a predominantly no-code production path |
 | --- | --- | --- |
 | Idea and design | Aria chat/plans, prompt builder, workflow templates, component guidance | Aria heuristic plans can omit typed inputs; no guided solution/cookbook installer; no standalone agent workspace. |
-| Build | Visual workflows, prompts, skills, KBs, schemas, MCP/API/webhook nodes | Reusable tool implementation needs Python packaging; file/object references are fragmented; several advanced fields are raw JSON/expressions. |
-| Test | Preview, sandboxes, component test runs, datasets, judges, workflow eval | Preview can execute live MCP/network/external-app effects; there is no workflow unit/assertion suite, server-authoritative component result record, full-dataset async runner, or reusable test-suite policy. |
+| Build | Visual workflows, prompts, skills, KBs, schemas, MCP/API/webhook nodes | Reusable tool implementation needs Python packaging; file/object references are fragmented and not capability-scoped; several advanced fields are raw JSON/expressions. |
+| Test | Preview, sandboxes, component test runs, datasets, judges, workflow eval | Preview and workflow-target evaluation can execute live MCP/network/external-app effects and process-filesystem/object-store I/O; there is no workflow unit/assertion suite, server-authoritative component result record, full-dataset async runner, or reusable test-suite policy. |
 | Evaluate | Weighted row scorecards, custom judges, baselines, alignment, review queues, prompt and workflow refinement gates | Synchronous caps, incomplete scorer semantics, no immutable run bundle or slice UI, no cost/latency, no scheduled/continuous eval, no CI product-quality gate, and mutable judges. |
 | Deploy | Publish versions, alias deployments, rollback, workflow HTTP service | A single environment is acceptable, but the fake/side-effecting deploy gate, empty-set pass, weak evidence, and authentication-free default service publish are not. Formal multi-party approval is excluded. |
 | Operate | SSE updates, trace detail/compare, tokens/cost/latency, logs/events, audit, health, coarse fleet/success ratios | Trace linkage is repaired; actionable alerts, trustworthy health, queue/worker visibility, effect idempotency, recovery evidence, and incident diagnosis remain incomplete. Multi-region HA is excluded. |
@@ -288,21 +299,20 @@ clients to self-assert the header nor enable this fallback.
 
 #### C2 — MCP integration secrets can leave the server
 
-- **[Remediated]** `_llm_setup_status()` resolved and returned full OpenAI and
-  Anthropic keys at `routes/settings.py:1318-1333`; `GET /settings/llm` exposed
-  them to any operator at `:1341-1347`, despite saying “Never returns secret
-  values.” `Settings.tsx:630-705` read those values into browser password
-  fields, and `tests/test_settings_routes.py:30-49` intentionally asserted the
-  plaintext response. The route now returns presence plus a masked
-  `••••<last 4>` fingerprint, the Settings fields are write-only, and the tests
-  assert the secret is absent from the response body.
-- Provider updates still mutate the running process environment. They are not a
-  durable, restart-safe secret resolver and expose no clear, rotate, revoke, or
-  deployment-binding workflow.
+- **[Remediated from baseline `b9d8e786e`]** The baseline implementation resolved
+  and returned full OpenAI and Anthropic keys and populated browser password fields.
+  Current HEAD instead returns only presence and a masked fingerprint
+  (`routes/settings.py:1321-1370`); the browser fields are write-only and cleared
+  after a successful save (`Settings.tsx:621-766`), and regression tests assert
+  that secret values are absent from the response.
+- Provider updates still mutate only the running process environment
+  (`routes/settings.py:1373-1393`). They are not a durable, restart-safe secret
+  resolver and expose no clear, rotate, revoke, or deployment-binding workflow.
 - MCP `env`, `headers`, and `auth_config` are ordinary JSON fields
-  (`db/models.py:2024-2057`) and are serialized by list/detail routes for any
+  (`db/models.py:2024-2044`) and are serialized by list/detail routes for any
   authenticated user (`routes/mcp_servers.py:108-139`). The API permits literal
-  tokens/passwords; update/delete audit details can include full configuration.
+  tokens/passwords; update and delete audit details can include full configuration
+  (`routes/mcp_servers.py:228-263,291-320`).
 - `secrets.py:1-39,52-148` supports environment and file sources only. Manifest
   `secret_refs` are metadata, not a complete per-run injection/rotation system.
 
@@ -344,32 +354,27 @@ Examples verified in this review:
   lookup (`routes/judges.py:229-338`).
 
 Multi-tenancy is excluded from the product target, so these routes are not scored
-as tenant-isolation failures. They remain serious resource-integrity and access-
-control defects for a single organization with multiple developers, and can mutate
+as tenant-isolation failures. They remain serious resource-integrity and
+access-control defects for a single organization with multiple developers, and can mutate
 or expose the wrong workflow/project when an ID is known or associated incorrectly.
 
 #### C4 — non-admin evaluation visibility is inconsistent — **[Partly remediated]**
 
-`apply_visibility_filter()` required `visibility`, `owner`, and `project_id`
-(`db/scoping.py:63-67,92-103`). `CaliberEvalRun` has `created_by`, not `owner`
-(`db/models.py:758-814`). `list_evaluations()` passed that model to the helper
-(`routes/evaluations.py:285-305`), so a non-admin list request deterministically
-raised `AttributeError` before SQL execution — a hard 500 rather than a filtered
-list. The detail path avoided the generic helper but granted access only to
-admins, public rows, or rows in the active project
-(`routes/evaluations.py:310-329`). It omitted a `created_by == identity.user_id`
-branch, so the creator could not retrieve their own user-scoped run when it had
-no project. Existing list tests use the default admin fixture and did not
-exercise the crashing branch.
+At baseline `b9d8e786e`, `apply_visibility_filter()` assumed an `owner` column even
+though `CaliberEvalRun` uses `created_by`. The non-admin list path therefore raised
+`AttributeError` before SQL execution, while detail omitted a creator branch for a
+project-less user-scoped run. Existing list tests used the default admin fixture
+and did not exercise that branch.
 
 The crash and creator-readback defects were reproduced and fixed: the scoping
 helper now resolves the ownership column (`owner`, else `created_by`, else a loud
-`TypeError`), and detail adds a creator branch. The fix is narrower than its
-comments claim, however. A non-admin project list requires both the active project
+`TypeError`) (`db/scoping.py:30-50,78-135`), and detail adds a creator branch. The
+fix is narrower than its comments claim, however. A non-admin project list requires
+both the active project
 and `created_by == identity.user_id` (`db/scoping.py:123-129`), while detail permits
 *any* row whose `project_id` equals the client-supplied active project, and also
 permits the creator regardless of the row's visibility or project
-(`routes/evaluations.py:315-336`). The client-supplied
+(`routes/evaluations.py:290-338`). The client-supplied
 `X-CALIBER-Project` is not a reliable resource-scoping boundary. The new tests cover
 the original crash and project-less creator
 case, not same-project/different-owner or creator-in-another-project semantics.
@@ -399,7 +404,8 @@ rather than exercising this actual create → list → detail path.
 - The gate calls `execute(plan, ...)` without `preview=True` or runtime approvals
   (`workflows/promoter.py:1322-1333`). Execution defaults both controls off
   (`workflows/runtime.py:2730-2743`), so approval-requiring tools do not pause and
-  live MCP, webhook, API, or external-app mutations can run once per gate example.
+  live MCP, webhook, API, external-app, process-filesystem, or object-storage effects
+  can run once per gate example.
 
 This cannot safely be treated even as a dry-run smoke check. It must be rebuilt as
 a side-effect-contained evidence gate; in its current form it must not authorize
@@ -478,27 +484,61 @@ subprocess is useful containment for the two integrated paths, but the mixed
 execution model is incompatible with untrusted workflow authors/extension code and is
 not a production-grade sandbox boundary.
 
-#### C9 — preview/evaluation can perform live unrestricted network effects
+#### C9 — Preview and workflow-target evaluation can perform live filesystem, storage, and network effects
 
 `preview=True` does not establish a universal effect boundary:
 
 - dedicated MCP nodes call the live gateway (`workflows/runtime.py:5199-5214`);
 - webhook and API-request nodes call the real sender (`:5253-5274,5303-5335`);
 - external-app entrypoints execute in-process and merely receive preview metadata
-  (`:2666-2714`); and
+  (`:2666-2714`);
+- `file_input` and `folder_input` accept configured or mapped local paths, expand
+  `~`, and read paths accessible to the CALIBER process without an application-level
+  allowed-root policy. Reads are size/count bounded and remain subject to OS/container
+  permissions (`workflows/manifest.py:265-299`;
+  `workflows/runtime.py:4460-4503,6210-6298`);
+- `output_folder` creates and writes beneath any process-accessible configured base
+  path. Artifact names are sanitized against traversal, but the base itself is not
+  application-scoped (`workflows/manifest.py:350-367`;
+  `workflows/runtime.py:4553-4559,6452-6484`);
+- for S3/MinIO, `input_bucket` and `output_bucket` accept author-selected bucket
+  names and reuse process-wide configured credentials, limited by those credentials'
+  IAM permissions. The local backend instead namespaces bucket names beneath its
+  configured root. Shipped Compose gives CALIBER shared MinIO root credentials
+  (`workflows/manifest.py:302-347`; `workflows/runtime.py:6306-6324,6333-6449`); and
 - only selected registered-tool side effects are mocked, while knowledge builds
   have their own skip behavior.
 
-Generic workflow evaluation uses preview execution, so an evaluation dataset can
-repeat those live calls. The user-facing Preview action has the same exposure.
-Worse, webhook/API manifests accept arbitrary URLs and headers
+Generic workflow-target evaluation uses preview execution, so an evaluation dataset can
+repeat those live reads, writes, and calls. The user-facing Preview action has the
+same exposure: `run_preview()` labels tools sandboxed but simply invokes the shared
+runtime with `preview=True` (`workflows/promoter.py:963-988`), and the file/storage
+branches do not inspect that flag. Existing runtime tests cover normal-mode live
+file, folder, and bucket I/O. Preview exposure follows from those unconditional
+shared branches; no Preview-refusal test was found
+(`tests/test_workflow_runtime.py:545-575,610-644`;
+`tests/test_workflow_bucket_nodes.py:93-113,138-183`).
+
+The open-by-default published-service path accepts a caller-controlled JSON object
+and enqueues a real workflow run (`schemas.py:3486-3492`;
+`routes/services.py:475-517`). Invocation serializes the whole object into one string
+and seeds that same string into every Start port (`routes/services.py:536-546`;
+`workflows/runtime.py:2856-2863`), so a direct Start-to-`file_input.path` mapping does
+**not** receive an individual `path` field. A workflow can nevertheless parse a
+field—for example in `python_code`—map it into `file_input.path`, and return the
+result through the unauthenticated run-status endpoint
+(`routes/services.py:549-598`). This is a composable workflow capability risk, not
+a verified direct endpoint local-file-inclusion exploit.
+
+Webhook/API manifests also accept arbitrary URLs and headers
 (`workflows/manifest.py:744-792`), and the default sender passes them to
 `httpx.Client.request` with no scheme/host/IP allowlist, private/loopback/link-local
 or cloud-metadata block, DNS-rebinding defense, or centralized egress policy
 (`workflows/runtime.py:2445-2472`). This is both a correctness problem and an SSRF/
 internal-network access primitive for anyone allowed to author or preview a
-workflow. Preview must default to deterministic mocks, and all real outbound calls
-need a central policy and network-level containment.
+workflow. Preview must default to deterministic mocks, local paths/buckets must be
+capability-scoped, and all real outbound calls need a central policy and
+network-level containment.
 
 #### C10 — arbitrary stdio MCP registration composes with demo auth into command execution
 
@@ -531,9 +571,10 @@ allowlisted packages and an isolated, least-privilege execution worker.
 | Skill creation/engineering | **Strong** | Wizard, content, trigger/render tests, scenarios, packages, calibration, bindings, and skill versions are present. |
 | Reusable tool creation | **Partial/code-required** | The wizard requires a Python dotted module and callable already importable by the runtime (`ToolWizard.tsx:254-296`). Schemas and tests are low-code; implementation and packaging are not. |
 | Tool sandboxing | **Partial/unsafe for extensions** | `python_code` nodes and Aria source-tool drafts use a constrained local subprocess. Registered tools, their tests, and external-app entrypoints still execute imported Python in-process; the local sandbox is not container/VM/kernel isolation. |
-| MCP integration | **Partial** | Registration, discovery, invocation, policy, generated tests, and calibration exist. The GitHub catalog entry launches `npx`, while the final `python:3.12-slim` image contains no Node runtime (`McpServers.tsx:833-841`; `deploy/caliber/Dockerfile:9-18`). |
+| MCP integration | **Partial** | Registration, discovery, invocation, policy, generated tests, and calibration exist, but none of the eight quick-connect templates has a viable default preflight in the shipped container: `npx`/Docker are absent, PostgreSQL-family connection env is not injected, and Hugging Face uses invalid `pip run`. The dialog exposes an env-variable name, not a general value/secret binding. |
+| File/folder/object-storage nodes | **Shipped but unsafe** | Local and bucket input/output nodes execute real I/O and provide useful composition, but they are not application-scoped to approved roots/buckets or suppressed in Preview/workflow-target evaluation. S3 bucket selection reuses process-wide credentials within their IAM permissions; the local backend remains beneath its configured root. |
 | Knowledge/RAG | **Strong** | Ingestion, chunking, embeddings, dense/hybrid retrieval, GraphRAG, Apache AGE, query playground, builds, calibration, versions, and workflow nodes ship. |
-| Structured outputs | **Shipped, developer-oriented** | Agent/workflow output schemas and JSON validation exist, but agent output-schema authoring remains a raw JSON textarea. Tool input/output schemas have a visual builder. Published services do not validate runtime output against their advertised schema. |
+| Structured outputs | **Shipped, developer-oriented** | Agent/workflow output schemas and JSON validation exist, but agent output-schema authoring remains a raw JSON textarea. Tool input/output schemas have a visual builder. Published services collapse the validated input object into one string copied to every Start port and do not validate runtime output against their advertised schema. |
 | Multi-agent orchestration | **Shipped** | Handoffs, parallel fan-out/join, session-scoped per-agent-node memory, handoff context, subworkflows, and multi-agent templates are real. This is not an arbitrary shared multi-agent state store. |
 | Conditional logic | **Shipped** | Ordered router branches and fallback behavior execute in the runtime. The visual IF field/operator/value builder has 13 operators; it lacks typed field/value pickers and nested AND/OR groups. |
 | Parallel execution | **Shipped** | Parallel, join-all/join-any, and bounded `for_each` concurrency are implemented. |
@@ -560,9 +601,15 @@ and run-state overlays make this credible for developer use.
 1. A custom reusable Tool is a registry reference to shipped Python, not an artifact
    a user can fully implement and package in the UI; executing it is also not
    isolated from the API/workflow process.
-2. MCP catalog entries are not preflighted against the actual runtime image.
+2. MCP catalog entries are not preflighted against the actual runtime image. The
+   eight definitions are at `McpServers.tsx:831-1001`; the final image is Python-only
+   (`deploy/caliber/Dockerfile:9-18`), shipped Compose omits `POSTGRES_URL`, and the
+   gateway resolves a missing `${VAR}` to an empty string
+   (`mcp_gateway.py:438-454`). The dialog retains template env maps but exposes no
+   general env-value editor (`McpServers.tsx:255-383,498-522`).
 3. Object Store, project files, run files, and local-path ingestion do not share one
-   first-class file-reference protocol. Cookbook 04 still needs a host path.
+   first-class file-reference protocol. Cookbook 04 still needs a host path, and
+   workflow file/folder/bucket nodes have no per-workflow root/bucket capability.
 4. The async run request advertises `input_files`, but the queued create/worker path
    does not materialize them; the synchronous preview path has separate file binding.
 5. The default Aria planner emits matching mutation steps with empty inputs, and
@@ -590,23 +637,19 @@ and run-state overlays make this credible for developer use.
 | Reuse components | **Partial** | Prompts, skills, tools, KBs, and subworkflows are reusable. No governed component bundle/custom node marketplace exists. |
 | Import/export | **Partial** | An unadvertised, manually deep-linkable workflow-version page exports YAML and Python. Editor Code View exposes manifest JSON/generated Python but no download control. Manifest import is API-client-only; no portable dependency-bundle/mapping round trip exists. Skill export/import is not a clean ZIP round trip. |
 | Publish an API | **Partial and unsafe by default** | Service/OpenAPI/status endpoints exist; auth configuration and tokens are absent from the UI, so the default has no backend authentication wherever CALIBER is reachable. |
-| Preview safely | **Unsafe** | The preview flag mocks only selected paths. MCP, webhook, API-request, and external-app nodes can perform live effects, so Preview and workflow evaluation are not reliable dry runs. |
+| Preview safely | **Unsafe** | The preview flag mocks only selected paths. MCP, webhook, API-request, external-app, process-file/folder, and object-storage nodes can perform live effects, so Preview and workflow-target evaluation are not reliable dry runs. |
 
 ### Trace-link correctness defect — **[Remediated]**
 
-`WorkflowRunResult` carries both `mlflow_run_id` and `mlflow_trace_id`, and runtime
-execution populates both (`workflows/runtime.py:2101-2121,2816-2819`). The async
-worker and synchronous route persisted only the MLflow run ID
-(`orchestrator/workflow_run_worker.py:1700-1704`;
-`routes/workflow_versions.py:945-957`). No code path in `caliber/src/caliber/`
-ever assigned `CaliberWorkflowRun.trace_id` for a workflow run, yet two shipped
-endpoints read it: the in-app span viewer
-(`routes/workflow_runs.py:951-972`) and trace→run localization
-(`routes/workflow_versions.py`, `RUN_BY_TRACE_PATH`). The integrated trace panel
-was therefore always empty and by-trace lookup could never resolve a workflow
-run, despite a real trace having been produced.
+At baseline `b9d8e786e`, `WorkflowRunResult` carried and populated both
+`mlflow_run_id` and `mlflow_trace_id`, but the async worker and synchronous route
+persisted only the run ID. The in-app span viewer and trace-to-run lookup read
+`CaliberWorkflowRun.trace_id`, so the integrated trace panel stayed empty and
+by-trace lookup could not resolve a workflow run despite a real trace.
 
-Both persistence sites now assign `result.mlflow_trace_id`. Four new tests cover
+Current HEAD assigns `result.mlflow_trace_id` in both the queued worker
+(`orchestrator/workflow_run_worker.py:1700-1709`) and synchronous route
+(`routes/workflow_versions.py:945-955`). Four new tests cover
 the queued and synchronous paths and both dependent endpoints; all four fail
 against the pre-fix code.
 
@@ -690,6 +733,8 @@ strength. However:
   fields remain exposed;
 - deploy-gate tests encode empty-dataset/completion-only behavior rather than
   rejecting it;
+- file/folder/bucket runtime tests affirm live host/storage reads and writes, but no
+  contract test requires Preview, evaluation, or a release gate to refuse them;
 - unequal dataset weights are now covered, but zero-weight and partial-scorer
   completeness contracts remain under-specified;
 - Playwright files and scripts exist but are not run by the checked CI workflow;
@@ -721,12 +766,13 @@ Coverage-oriented success must not be used as product-claim validation.
    `?tab=promotions`, so this is a cosmetic frontend restriction rather than an
    authorization boundary. `GATED_ALIASES` is empty
    (`workflows/promoter.py:91-108`), and the deep-linked deployment panel still
-   contains stale copy implying that production requires approval. Single-
-   environment operation is acceptable for the scoped target; the gap is the
+   contains stale copy implying that production requires approval.
+   Single-environment operation is acceptable for the scoped target; the gap is the
    misleading hidden/deep-linkable UX and immediate rotation around an unsafe gate,
    not the absence of multi-environment promotion itself.
 2. The deploy gate has the fake-executor/empty-pass/completion-only defects described
-   above and can execute live external effects while replaying its evidence set.
+   above and can execute live process-filesystem, object-storage, and integration
+   effects while replaying its evidence set.
 3. The Releases page and API explicitly describe themselves as read-only. Formal
    enterprise signoff/waivers are excluded, but there is still no simple release
    checklist tying immutable evidence, gate outcome, operator confirmation,
@@ -747,9 +793,12 @@ Coverage-oriented success must not be used as product-claim validation.
 8. `CaliberWorkflowDeployment.environment` exists, but promote requests cannot set
    it and alias rotation does not populate it. This is a dormant/inconsistent field
    and schema/API UX debt, not evidence that a multi-environment product is needed.
-9. Published services validate input schema but not the runtime output against the
-   advertised output schema; they provide polling only and no request quotas or
-   bounded execution policy. Callbacks and traffic splitting are optional.
+9. Published services validate the input object against the advertised schema, then
+   JSON-serialize the whole object and seed the same string into every Start port;
+   per-port runtime semantics therefore do not honor the schema. They also do not
+   validate runtime output against the advertised output schema and provide polling
+   only, with no request quotas or bounded execution policy. Callbacks and traffic
+   splitting are optional.
 10. Crash recovery is at-least-once for side effects. An expired running lease is
     reset to queued, and a run without a wait/approval checkpoint restarts from the
     beginning. There is no platform effect ledger or per-node idempotency key, so a
@@ -772,8 +821,8 @@ safe no-code release experience.
 - Aggregate trace volume/error, latency percentile, token, and cost charts.
 - Workflow run events, current node, checkpoints, retry lineage, artifacts, and
   memory.
-- Prometheus metrics, a database liveness endpoint, a `/readiness` configuration-
-  status response, system-service status, runtime configuration inventory, audit
+- Prometheus metrics, a database liveness endpoint, a `/readiness`
+  configuration-status response, system-service status, runtime configuration inventory, audit
   log, and Allure report integration. `/readiness` always returns 200 and reports
   provider selector/feature flags rather than dependency connectivity
   (`routes/health.py:55-89`).
@@ -869,7 +918,7 @@ network-reachable self-hosted product:
 | Resource authorization | **Serious gap** | Four global scopes exist, but advertised project/visibility boundaries are applied inconsistently. No enterprise RBAC console is required; list/detail/mutation operations still must target the correct authorized resource. |
 | Secrets | **Critical gap** | Provider keys are no longer readable in the browser, but MCP accepts literal credential JSON and serializes it. A durable write-only resolver with rotation/revocation is required; an enterprise vault marketplace is not. |
 | Published API authentication | **Critical gap** | UI-published workflow services default to no backend authentication, and the UI does not expose the existing token lifecycle. |
-| Effect isolation and egress | **Critical gap** | Preview/evaluation can execute live MCP/webhook/API/external-app effects; webhook/API nodes permit SSRF-capable unrestricted egress. |
+| Effect isolation and egress | **Critical gap** | Preview and workflow-target evaluation can execute live MCP/webhook/API/external-app effects, read/write process-accessible paths without an application allowed-root policy, and select S3/MinIO buckets using process-wide credentials within their IAM permissions; webhook/API nodes permit SSRF-capable unrestricted egress. |
 | Extension/MCP execution | **Critical gap** | Registered/external-app Python runs in-process, while arbitrary stdio MCP configuration composes with default admin auth into host command execution. |
 | HITL/review correctness | **Misleading** | A single authorized reviewer is sufficient for this target. The product must remove unsupported role/quorum/SoD controls or implement them, enforce timeout/path consistency, and prevent invalid or repeated review-state overwrites. |
 | Audit correctness | **Partial** | Transaction-coupled rows, filtering, redaction, and export are useful. WORM/SIEM/compliance evidence is excluded, but actor attribution and secret redaction must still be correct. |
@@ -884,11 +933,11 @@ unsafe release evidence acceptable.
 ### Architectural strengths
 
 1. **Typed workflow core.** Pydantic manifests, compiler validation, an explicit IR,
-   and a deterministic graph interpreter provide a stronger base than a frontend-
-   only canvas.
+   and a deterministic graph interpreter provide a stronger base than a
+   frontend-only canvas.
 2. **Durable execution state.** SQL-backed runs, events, checkpoints, approvals,
-   leases, retry lineage, memory, artifacts, and audit rows are appropriate control-
-   plane primitives.
+   leases, retry lineage, memory, artifacts, and audit rows are appropriate
+   control-plane primitives.
 3. **Modular integration seams.** Tool resolver, sandbox, storage backends, event
    buses, tracing, provider interfaces, knowledge runners, and service contracts are
    separable and testable.
@@ -938,6 +987,13 @@ autoscaling and HA are excluded from the target.
   MCP, webhooks, API requests, and external apps have no effect ledger or platform
   idempotency key. The heartbeat reduces overlap but cannot prevent a post-effect,
   pre-commit crash from duplicating an external mutation.
+- Local file/folder nodes accept process-accessible paths without an application
+  allowed-root policy, and S3/MinIO bucket nodes select namespaces while reusing
+  process-wide credentials within their IAM permissions. These execute in the same
+  interpreter path for normal, Preview, and workflow-target evaluation runs; there
+  is no per-workflow capability object or worker-level filesystem/object-store
+  boundary. OS/container permissions and the local storage backend's configured root
+  remain outer containment boundaries.
 - Cron scheduling scans active deployments and uses an idempotency key to prevent
   same-minute duplicates across processes. It has no catch-up/backfill or
   per-workflow overlap/concurrency policy and silently falls back to UTC for an
@@ -1026,11 +1082,45 @@ The current repository is strongest as the first and incomplete as the second.
 - Workflow editor unmount autosave hides errors.
 - Generated cookbook footers still claim every recipe is implementable through the
   UI, while `docs-site/cookbooks/FEASIBILITY.md` retains false HITL role/quorum/
-  timeout and prompt-playground claims. `cookbooks/training/content.py` still says
-  evaluations cannot score workflows, the cookbook README's ladder omits cookbook
-  16, and cookbook 10's verification/assets still describe alignment as a manual
-  by-hand step. Generated pages and source assets therefore disagree even where the
-  current worktree improved cookbook 03/08/10 prose.
+  timeout and prompt-playground claims.
+  `docs-site/cookbooks/training/content.py` still says evaluations cannot score
+  workflows, the cookbook README's ladder omits cookbook 16, and cookbook 10's
+  verification/assets still describe alignment as a manual by-hand step.
+- Cookbook 05's README, scenario, verification, and generated training step say MCP
+  invocation emits no MLflow spans, but `mcp_gateway.py:134-186` wraps every allowed
+  gateway invocation in a `TOOL` span. Its observability instructions are therefore
+  the inverse of the current implementation for calls that reach the gateway;
+  policy-blocked calls return before tracing. The training also says to supply a
+  GitHub token in the dialog, while the UI accepts only an environment-variable name
+  and never a value.
+- Cookbook 02 source/training says package import is API-only or absent, while
+  `SkillDetail.tsx:599-624` exposes an **Import package** folder picker. The real gap
+  is the ZIP-export/folder-import round trip, not absence of an import UI.
+- Cookbook 10 labels two generic evaluation runs “baseline” and “candidate” but
+  never selects **What to score** or a subject, so both default to generic `llm`
+  rather than distinct artifacts (`Evaluations.tsx:241,256-260,311-335`). It then
+  says trace IDs are available in candidate per-example detail, but that scorecard
+  renders input, expected, prediction, scores, and verdict only
+  (`EvaluationDetail.tsx:198-265`). Moving failures into Review Queues therefore
+  requires manual recovery of source trace IDs through the original dataset or
+  Observability. Cookbook 07's evaluation step has the same missing target/subject.
+- Cookbook 16 violates the root cookbook folder contract: it has a README, generated
+  training steps, and two assets, but no `scenario.yaml`, `build.yaml`,
+  `test-data.yaml`, or `verification.yaml`. Its training step 65 also says the queue
+  item shows trace input/output, while `ReviewQueues.tsx:575-603` shows only the
+  trace ID and configured questions; reviewers must inspect Observability separately.
+  Its evaluation step selects only the dataset and scorer, so the UI defaults to a
+  generic model completion rather than the repaired workflow version
+  (`Evaluations.tsx:241,256-260,311-335`). The text acknowledges that captured error
+  output becomes the expected value, but never makes correction plus workflow-target
+  selection a required precondition for its claimed “re-run after fix” proof.
+  `docs-site/cookbooks/training/content.py:593` additionally claims Observability can
+  create the set and set expected output, while the UI only chooses an existing set
+  and submits a trace ID (`Observability.tsx:756-810`).
+- The asset READMEs for cookbooks 04 and 09 link `../FEASIBILITY.md`, which resolves
+  inside each cookbook and does not exist; the shared file is two levels above.
+  Generated pages and source assets therefore disagree even where the merged
+  remediation improved cookbook 03/08/10 prose.
 
 ## 11. Missing end-to-end workflows
 
@@ -1041,8 +1131,9 @@ These are not individual buttons; each is a product path that currently breaks.
 2. **No-code custom integration:** choose connector/API → bind write-only secret →
    test in deployment-equivalent sandbox → version → approve → reuse.
 3. **Uploaded document to workflow:** upload binary → select first-class file ref in
-   run form → parse in queued worker → preserve checksum/media/lineage → inspect
-   output without a host path.
+   run form → bind only approved root/bucket capabilities → parse in queued worker →
+   preserve checksum/media/lineage → inspect output without a raw host path or
+   process-wide storage credential.
 4. **Trustworthy release:** select immutable candidate + target deployment → run full
    quality/cost/latency/regression suite with the real executor → review evidence →
    explicitly confirm → publish → record outcome → rollback.
@@ -1063,7 +1154,7 @@ These are not individual buttons; each is a product path that currently breaks.
 
 ### Critical — block production claims and external rollout
 
-#### C0. Establish production authentication and resource scoping
+#### P0. Establish production authentication and resource scoping
 
 - Replace local auth in production with a server-validated session/token or a
   strictly configured trusted proxy that strips and injects identity headers.
@@ -1079,9 +1170,9 @@ These are not individual buttons; each is a product path that currently breaks.
 **Exit criterion:** an unauthenticated client cannot become an administrator, and
 an operator cannot read or mutate a resource through an unrelated parent/project ID.
 
-#### C1. Remove secret exfiltration and secure published services
+#### P1. Remove secret exfiltration and secure published services
 
-- Preserve the current worktree's provider-key fix: reads return only
+- Preserve the merged provider-key fix: reads return only
   presence/fingerprint and browser inputs remain write-only. Replace its
   process-local update mechanism with durable secret references and explicit
   clear/rotate/revoke semantics.
@@ -1098,14 +1189,18 @@ an operator cannot read or mutate a resource through an unrelated parent/project
 resolved provider/MCP/service secrets; a UI-published service rejects anonymous
 invocation by default.
 
-#### C2. Make preview/evaluation side-effect-safe and control outbound egress
+#### P2. Make Preview and workflow-target evaluation side-effect-safe and control outbound egress
 
-- Define one runtime-wide effect contract for preview, test, evaluation, deploy
-  gates, retry, and replay. Default every integration to deterministic mock/recorded
-  behavior unless the operator explicitly chooses an isolated live test.
-- Route MCP, webhook, API, external-app, registered-tool, and knowledge effects
-  through a common broker with capability policy, audit, timeout, budget, and
-  idempotency keys.
+- Define one runtime-wide effect contract for Preview, workflow-target evaluation,
+  deploy gates, test, retry, and replay. Default every integration to deterministic
+  mock/recorded behavior unless the operator explicitly chooses an isolated live test.
+- Route local file/folder I/O, object storage, MCP, webhook, API, external-app,
+  registered-tool, and knowledge effects through a common broker with capability
+  policy, audit, timeout, budget, and idempotency keys.
+- Replace raw host paths and arbitrary bucket names with immutable references plus
+  explicit per-workflow/per-deployment allowed roots, buckets, operations, and
+  credential bindings. Published-service input must never become an unchecked host
+  path or storage namespace.
 - Disable arbitrary stdio MCP command registration in production. Permit only
   signed/allowlisted server packages and launch them in an isolated least-privilege
   worker, never the API/control-plane process.
@@ -1115,12 +1210,15 @@ invocation by default.
 - Add an effect ledger so lease recovery and retries can resume or deduplicate
   mutations instead of blindly restarting them.
 
-**Exit criterion:** ordinary Preview, evaluation, and release-gate runs cannot reach
-the network or mutate external systems; authorized live tests cannot reach internal
-metadata/private services and remain idempotent across worker failure. API clients
-cannot select or launch arbitrary host executables.
+**Exit criterion:** ordinary Preview, workflow-target evaluation, and release-gate
+runs cannot read process files outside explicit application-approved roots, mutate
+unapproved process/object storage, reach the network, or change external systems;
+authorized live tests remain constrained by OS/container and storage-IAM policy,
+cannot reach unapproved roots/buckets or internal metadata/private services, and
+remain idempotent across worker failure. API clients cannot select or launch
+arbitrary host executables.
 
-#### C3. Rebuild workflow release gates as real evidence gates
+#### P3. Rebuild workflow release gates as real evidence gates
 
 - Pass the live deployment configuration/executor into promotion.
 - Fail closed for missing/empty datasets and pin dataset, example IDs/content digest,
@@ -1129,23 +1227,23 @@ cannot select or launch arbitrary host executables.
   server-side weight/tag propagation in the release gate, and snapshot the actual
   resolved inputs.
 - Evaluate expected outputs/custom judges and baseline regression—not completion.
-- Add minimum sample size, failure budget, cost/token/latency thresholds, partial-
-  error policy, and stored per-example evidence.
+- Add minimum sample size, failure budget, cost/token/latency thresholds,
+  partial-error policy, and stored per-example evidence.
 - Make the gate asynchronous and persist an immutable verdict linked to the
   candidate and target deployment.
 
 **Exit criterion:** intentionally wrong output from a successfully completed real
 agent fails promotion; empty or truncated evidence cannot pass silently.
 
-#### C4. Make HITL and review-state behavior truthful
+#### P4. Make HITL and review-state behavior truthful
 
 - Persist the HITL policy snapshot from the node.
 - Support one authorized reviewer consistently across synchronous/queued paths,
   enforce deadline/timeout behavior, and queue approval-required agent tool calls.
 - Remove role, quorum, assignment, SoD, and escalation controls from UI/docs unless
   the server actually implements them; they are not required by the scoped target.
-- Enforce review queue active/pending/completed state, answer schema, and replay-
-  safe submission. Advanced reviewer assignment/SLAs are optional.
+- Enforce review queue active/pending/completed state, answer schema, and
+  replay-safe submission. Advanced reviewer assignment/SLAs are optional.
 - Provide a simple release checklist that links evidence, operator confirmation,
   deployed version, and rollback lineage; formal signoff/waivers are excluded.
 
@@ -1153,7 +1251,7 @@ agent fails promotion; empty or truncated evidence cannot pass silently.
 meaning on every execution path; one valid decision is durable and cannot be
 silently duplicated or overwritten.
 
-#### C5. Ship a fail-closed production deployment profile
+#### P5. Ship a fail-closed production deployment profile
 
 - Reconcile plugin and standalone architectures in documentation and threat models.
 - Support separate web, workflow worker, eval worker, scheduler, and janitor roles
@@ -1174,18 +1272,23 @@ silently duplicated or overwritten.
 web/worker restart without duplicate schedules, lost runs, or orphaned approvals;
 malicious tool code cannot read control-plane memory/files/secrets or block the API.
 
-#### C6. Close the advertised no-code composition blockers
+#### P6. Close the advertised no-code composition blockers
 
 - Introduce a first-class immutable file reference across Object Store, project
   files, run forms, queued workers, tools, KBs, and attachments.
 - Make the MCP catalog deployment-aware and provide a runnable GitHub integration
-  in the exact shipped image/sidecar model.
+  in the exact shipped image/sidecar model. Preflight the built container for the
+  configured executable, required environment variables, credential references,
+  discovery, and a safe real invocation; today GitHub/Ollama/Playwright require
+  absent `npx`, MinIO requires absent Docker, Hugging Face invokes the nonexistent
+  `pip run` subcommand, and the PostgreSQL-family templates receive an empty
+  `POSTGRES_URL` in shipped Compose.
 - Give Aria typed capability forms, editable step inputs, output references,
   preflight, and dependency-aware execution.
 
-**Exit criterion:** cookbooks 04, 05, and 12–15 complete on the shipped stack without
-host paths, shell/package installation, failed or skipped mutation steps, or manual
-artifact recreation.
+**Exit criterion:** cookbooks 04, 05, 07, and 12–15 complete on the shipped stack
+without host paths, shell/package installation, failed or skipped mutation steps,
+or manual artifact recreation.
 
 ### High — complete the product lifecycle
 
@@ -1211,6 +1314,9 @@ artifact recreation.
    queue state/answers, and display the complete trace context.
 9. **Cookbook runner:** install/version sample bundles, check prerequisites, capture
     evidence, and keep documentation executable in CI.
+10. **Reliable full-suite harness:** isolate tracking and artifact roots per worker,
+    disable or synchronously drain async trace exporters in tests, clean generated
+    artifacts, and prove the complete backend suite under supported Python 3.12.
 
 ### Medium — improve scale, analysis, and usability
 
@@ -1252,8 +1358,9 @@ builds on untrustworthy evidence and authorization:
 
 1. **Security containment:** retain write-only provider-key reads, switch service
    publish to auth-on, remove literal MCP credential storage, disable local auth in
-   production, contain preview/evaluation egress, and patch known project/run/eval/
-   queue/judge authorization paths.
+   production, contain filesystem/storage/network effects during Preview and
+   workflow-target evaluation, and patch known project/run/eval/queue/judge
+   authorization paths.
 2. **Access/resource-scoping architecture:** centralize authenticated resource
    repositories; add a generated route-permission inventory and negative parent/
    project-association contract suite. Organization/membership models are excluded.
@@ -1278,19 +1385,19 @@ builds on untrustworthy evidence and authorization:
 
 ## 14. Cookbook continuity appendix
 
-The earlier cookbook-specific audit was rechecked against the current worktree and
-remains useful evidence of end-to-end composition. The prose corrections for
+The earlier cookbook-specific audit was rechecked against current HEAD and remains
+useful evidence of end-to-end composition. The prose corrections for
 cookbooks 03, 08, and 10 improve the generated pages but do not change which product
 paths actually execute.
 
 | Result | Cookbooks | Current meaning |
 | --- | --- | --- |
-| Core result UI-complete on the standard stack | 01, 03, 06, 07, 08, 09, 10, 16 | The central author/run/inspect result can be reached, subject to the platform-wide security and production caveats in this report. |
-| Mostly UI-complete | 02 | Skill engineering works, but package export/import is not a clean ZIP round trip. |
+| Core result UI-complete on the standard stack | 01, 03, 06, 08, 09, 16 | The central author/run/inspect result can be reached, subject to the platform-wide security and production caveats in this report. Cookbook 16's source package and advertised regression-proof steps remain incomplete. |
+| Mostly UI-complete | 02, 07, 10 | Skill engineering works in 02, but package export/import is not a clean ZIP round trip. Cookbook 07's required approved GitHub write inherits cookbook 05's shipped-image blocker. Cookbook 10 has the primitives, but its baseline/candidate and eval-to-review instructions do not connect the claimed artifacts and traces. |
 | Intended Aria workflow only partial | 12, 13, 14, 15 | Final artifacts can be built manually elsewhere in the UI, but Aria's empty-input mutations fail when approved and are skipped only when denied. |
-| Not UI-complete | 04, 05, 11 | Host-local document input blocks 04; the missing Node/`npx` runtime for the GitHub MCP tile blocks 05; and 11 still requires manual evidence aggregation, rubric evaluation, go/no-go recording, and rollback lineage. Formal waivers and multi-party signoff are excluded. |
+| Not UI-complete | 04, 05, 11 | Host-local document input blocks 04; catalog executables/environment are not viable in the shipped container for 05; and 11 still requires manual evidence aggregation, rubric evaluation, go/no-go recording, and rollback lineage. Formal waivers and multi-party signoff are excluded. |
 
-The scope-adjusted totals are **8 core UI-complete, 1 mostly complete, 4 partial,
+The scope-adjusted totals are **6 core UI-complete, 3 mostly complete, 4 partial,
 and 3 blocked**.
 
 The individual evidence boundary is:
@@ -1301,29 +1408,32 @@ The individual evidence boundary is:
 | 02 | Precision Skills | **Mostly UI-complete** | Authoring, render/trigger tests, calibration, binding, package preview/download, and import exist. Export produces a ZIP while import selects an unpacked folder/files, so the round trip leaves the app and needs conflict handling. |
 | 03 | Policy-Safe Decision Tool | **Core UI-complete on shipped Compose** | Tool wizard/tests/calibration plus workflow `python_code` and HITL paths exist. New reusable registry implementations still require importable Python, and registered-tool execution is in-process. |
 | 04 | Document-to-JSON Pipeline | **Blocked** | Object Store upload and document extraction exist separately, but `extract_document` requires a CALIBER-host filesystem path while `input_bucket` decodes object bytes as text. The UI cannot pass an uploaded binary as the required file reference. |
-| 05 | Governed Tool Connectivity | **Blocked in shipped image** | MCP catalog/setup/discovery/playground/policy/calibration exist, but the GitHub tile launches `npx`; Node/npm/npx is present only in the UI build stage, not the final Python runtime image. |
+| 05 | Governed Tool Connectivity | **Blocked in shipped image** | MCP catalog/setup/discovery/playground/policy/calibration exist, but none of the eight quick-connect defaults preflights successfully as shipped: GitHub/Ollama/Playwright launch absent `npx`, MinIO launches absent Docker, Hugging Face uses invalid `pip run`, and PostgreSQL/pgvector/AGE resolve `${POSTGRES_URL}` to empty because Compose does not inject it. The dialog has no general environment-value/secret editor. Cookbook claims that MCP emits no MLflow spans also contradict the current gateway tracer. |
 | 06 | Grounded Knowledge Assistant | **Core UI-complete** | KB create/build/explore/query/graph/calibration and workflow/review paths exist, subject to normal provider, storage, and AGE readiness. |
-| 07 | Support Triage Copilot | **Core UI-complete on shipped Compose** | Prompt/skill/tool/KB, router/HITL, run, evaluation, and review primitives compose. It remains a large manual build and must use a connector actually runnable in the deployed image. |
-| 08 | Incident Response Copilot | **Core UI-complete** | Prompt/skills, Python fixture nodes, router/HITL, workflow-target evaluation, and review queue exist. The generated page now reflects shipped workflow evaluation. |
+| 07 | Support Triage Copilot | **Mostly UI-complete** | Prompt/skill/tool/KB, router/HITL, run, evaluation, and review primitives compose, but the documented required `escalate_bug → human_approval → GitHub create_issue` branch reuses cookbook 05's `npx` integration and cannot run in the shipped image. Its evaluation step also leaves the target at generic LLM instead of the workflow. The non-GitHub build/run branches remain composable. |
+| 08 | Incident Response Copilot | **Core UI-complete** | Prompt/skills, Python fixture nodes, router/HITL, workflow-target evaluation, and review queue exist. The generated page now reflects shipped workflow-target evaluation. |
 | 09 | Self-Healing Workflows | **Core UI-complete as operator recovery** | Run monitor, checkpoints, debugger, retry/resume, approval, manifest editing, preview, and publish exist. The patch is human-authored; the product does not yet make this autonomous self-healing. |
-| 10 | Trustworthy Evaluation | **Core UI-complete** | Test Sets, judges, evaluations, review queues, and manual human-alignment metrics ship. Completed queue labels are not automatically ingested into alignment, and source verification/assets still describe parts of alignment as manual. |
+| 10 | Trustworthy Evaluation | **Mostly UI-complete** | Test Sets, judges, evaluations, review queues, and manual human-alignment metrics ship. The advertised baseline/candidate runs never select distinct artifacts, and evaluation rows expose no trace IDs for the claimed direct enqueue step. Completed queue labels are not automatically ingested into alignment, so the evaluation-to-review/alignment loop requires manual bridges. |
 | 11 | Release Signoff Factory | **Blocked for the scoped release path** | Evidence sources exist, but the deterministic rubric, evidence aggregation, go/no-go decision record, and rollback lineage remain manual/outside CALIBER; Releases is observational. Formal waivers, segregation of duties, and multi-party signoff are excluded. |
 | 12 | Aria Evaluation Harness | **Partial; advertised Aria path fails** | Judges and Test Sets can be built manually. Aria emits empty-input `judge.create`/dataset steps; approval fails validation and denial merely skips them. |
 | 13 | Aria Review Governance Queue | **Partial; advertised Aria path fails** | Review Queues can be operated manually, but Aria cannot provide the queue schema/trace IDs through typed step inputs. |
 | 14 | Aria Governance Starter Kit | **Partial; advertised Aria path fails** | Judges, Test Sets, and Review Queues exist as manual pages; the “one sentence to whole kit” mutations do not execute successfully. |
 | 15 | Aria Triage & Recalibrate Loop | **Partial; advertised Aria path fails** | Queue and workflow calibration can be driven manually. Aria does not successfully create/enqueue/start them, so the claimed job wait/poll/resume chain is not demonstrated. |
-| 16 | Production Observability & Triage | **Core UI-complete for an existing runtime** | Trace filtering/detail, Test Set capture, queue enqueue/review, and evaluation rerun exist; needing prior runs is inherent to the operations scenario. |
+| 16 | Production Observability & Triage | **Core UI capability; advertised regression loop/source package incomplete** | Trace filtering/detail, Test Set capture, queue enqueue/review, and workflow-target evaluation exist; needing prior runs is inherent. The recipe's eval step leaves the target at generic LLM rather than the repaired workflow and does not require corrected gold, so its “re-run after fix” proof is not executable as written. The folder also omits all four promised YAML contracts, and queue-review copy overstates displayed trace context. |
 
-These counts assess cookbook completion, not production readiness. A cookbook that
-runs under the local-admin single-environment stack is not proof of authentication,
+These counts assess whether each cookbook's **central product path** is reachable,
+not whether every generated/source instruction or asset contract is correct. Those
+recipe/package defects are explicit qualifications, especially for cookbook 16; a
+“core” result does not mean its documentation bundle is clean. Nor is a cookbook
+that runs under the local-admin single-environment stack proof of authentication,
 effect isolation, safe release evidence, failure recovery, or operational
 completeness.
 
-## Current worktree changes and their actual closure
+## Applied remediation at current HEAD and its actual closure
 
-The uncommitted worktree contains targeted remediation. This table records what is
-now true **and** the remaining contract boundary; it should not be read as a list of
-fully closed product areas.
+Merge `d90d914e3` contains targeted remediation. This table records what is now true
+**and** the remaining contract boundary; it should not be read as a list of fully
+closed product areas.
 
 | Area | Verified current behavior | Residual limit | Evidence / regression coverage |
 | --- | --- | --- | --- |
@@ -1335,42 +1445,54 @@ fully closed product areas.
 | Provider-key readback | `GET /settings/llm` returns presence plus a masked fingerprint; browser key inputs are write-only and cleared after save | Updates are process-local/non-durable; MCP credential serialization and the broader secret lifecycle remain open | `tests/test_settings_routes.py`, `src/pages/__tests__/settings.test.tsx` |
 | Shell health | Sidebar and TopBar derive status from `useHealthStatus`; sidebar shows unreachable on request failure | Two independent polls run, and `/health` proves only backend/database liveness rather than platform health | `src/components/__tests__/sidebar-health-footer.test.tsx` |
 | Unknown route UX | The wildcard renders a real Not Found view with a dashboard link | It is a client-rendered route boundary, not evidence of server HTTP-404 behavior | `src/pages/__tests__/app-shell-e2e.test.tsx` |
-| Cookbook prose | Generated 03/08/10 material better reflects shipped side-effect, workflow-evaluation, and alignment paths | Source/generated documentation still conflicts in the places catalogued in §10 | Generated artifact diff plus existing documentation checks |
+| Cookbook prose | Generated 03/08/10 material better reflects shipped side-effect, workflow-target evaluation, and alignment paths | Source/generated documentation still conflicts in the places catalogued in §10 | Generated artifact diff plus existing documentation checks |
 
 Large product decisions remain open: identity, MCP/reference secrets, systematic
-resource authorization, arbitrary stdio command execution, safe preview/egress,
-evidence-grade release gates, truthful HITL/review state, auth-on service
-publishing, isolated extensions, idempotent side effects, production topology, and
-operations.
+resource authorization, arbitrary stdio command execution, safe filesystem,
+storage, and network effects in Preview and workflow-target evaluation,
+evidence-grade release gates, truthful HITL/review state, auth-on service publishing,
+isolated extensions, idempotent side effects, production topology, and operations.
 
-### Verification of the current worktree
+### Verification of current HEAD
+
+The main suite results below were produced on behavior-equivalent parent
+`d90d914e3`; current HEAD changes only Ruff wrapping in one test file.
 
 - `npm run typecheck` — **passed**.
 - Full Vitest suite — **109 files, 1,466 tests passed**.
-- Focused changed backend paths — **40 passed**.
-- Focused authentication/service/deployment/promoter/sandbox paths — **90 passed**.
-- Focused scheduler/runtime-approval paths — **24 passed**.
+- Six remediation backend regression modules with `--no-cov` — **40 passed**.
 - Focused changed frontend paths — **21 passed**.
-- A consolidated run over the 19 backend modules that the worktree changes touch or
-  feed into (evaluations, scorecard, scoping, settings, readiness, workflow
-  runs/versions, eval datasets/gate) — **320 passed, 0 failed** in 47s. This is the
-  broadest green signal for the changed paths; it is not a full-suite pass.
-- `ruff check`, `ruff format --check`, and `mypy` are clean on every changed module;
-  `npm run eslint` is clean on the changed frontend files; `npm run build` succeeds.
-- Backend collection found **5,025 tests** with the unreachable PostgreSQL MCP
-  module skipped. The run was interrupted after 82m20s at **1,312 passed, 2 failed,
-  1 skipped, and 1 error**. The failures were sandbox-denied localhost binds; the
-  error was an unclosed SQLite connection warning. The unsupported Python 3.14 run
-  also reported unclosed sockets during teardown, so no full-backend pass is
-  claimed and these environment-dependent failures are not classified as confirmed
-  product regressions.
-- The existing external-app preview test also passed; it confirms that preview
-  invokes the entrypoint, which is evidence for the unsafe effect-boundary finding,
-  not evidence that preview is isolated.
+- `ruff check` and `ruff format --check` on the remediation backend paths, `mypy` on
+  six changed source files, and ESLint on changed frontend files — **passed**.
+- On current `9357b3d71`, `tests/test_cookbook_doc_contract.py` — **13 passed**;
+  `ruff check` and `ruff format --check` on that file — **passed**.
+- Results recorded on the remediation-equivalent tree, but not rerun in this final
+  pass, include **90** authentication/service/deployment/promoter/sandbox tests,
+  **24** scheduler/runtime-approval tests, **320** tests across 19 affected backend
+  modules, and a successful frontend production build. They are supporting history,
+  not independent fresh verification.
+- **Full backend suite, green on CI: 5,016 passed, 12 skipped, 0 failed in 24m24s**,
+  with the repository coverage gate satisfied at **94.43%** against its 80%
+  threshold. GitHub Actions run `30282561793`, commit `9357b3d71`, Python 3.11 (the
+  supported version). This is the authoritative full-suite result for the merged
+  changes and supersedes the local attempts below.
+  - The CI job is nevertheless *reported* as failed, because its Allure upload step
+    hit `Failed to CreateArtifact: Artifact storage quota has been hit`. The same
+    quota failure marks the UI job (109/109 test files passed) and the Integration
+    job (6 passed, 3 skipped) as failed despite zero failing tests. The quota is
+    masking real signal — a genuinely broken build currently looks identical — and
+    should be cleared.
+- Local attempts on this machine ran under an unsupported Python 3.14 and are not
+  used for any conclusion. One serial attempt was interrupted after 82m20s at
+  **1,312 passed, 2 failed, 1 skipped, 1 error** (sandbox-denied localhost binds and
+  an unclosed-SQLite-connection warning); one xdist attempt reached 98% after about
+  3h20m and wedged during teardown for the reason described below.
+- A previously recorded external-app preview test confirms that Preview invokes the
+  entrypoint; that is evidence for the unsafe effect boundary, not isolation.
 - These focused subsets overlap and are not summed. They verify encoded behavior,
   including several unsafe defaults; they do not validate real providers, external
-  integrations, browser E2E behavior, load, accessibility, or security. Multi-
-  replica HA is outside the revised target.
+  integrations, Playwright/browser E2E behavior, load, accessibility, or security.
+  Multi-replica HA is outside the revised target.
 
 #### Test-harness defect found while attempting the full backend run
 
@@ -1380,20 +1502,25 @@ xdist workers showed their main threads blocked in
 `MLflowTraceLoggingWorker` threads, i.e. stuck flushing MLflow's async trace-export
 queue rather than executing tests.
 
-The cause is an incomplete isolation in `caliber/tests/conftest.py:38-49`. It points
+The verified harness defect is incomplete isolation in
+`caliber/tests/conftest.py:38-49`. It points
 `MLFLOW_TRACKING_URI`/`MLFLOW_REGISTRY_URI` at a per-xdist-worker temp SQLite file
 (verified: `caliber-test-mlflow-gw*.db` are created under the system temp dir), but
 it does **not** isolate the MLflow *artifact* root. With a SQLite tracking store the
 artifact root defaults to `./mlruns` relative to the working directory, so every run
-appends trace artifacts to `caliber/mlruns/0/traces/`. That directory had accumulated
-**8,575** trace directories, 425 of them from this session alone.
+appends trace artifacts to `caliber/mlruns/0/traces/`. During the earlier xdist
+attempt that directory was observed at **8,575** trace directories, 425 created in
+that session. A 2026-07-27 recheck found **8,150** ignored trace directories using
+**35 MiB**. These counts describe mutable local test state, not commit contents.
 
 This matters twice over: it is silent repo/storage pollution, and the end-of-run
-flush appears to degrade as the store grows, which is the most likely explanation for
-the teardown wedge. Fixing it means isolating the artifact location as well as the
-tracking URI. It is a harness change affecting all ~5,000 tests, so it is recorded
-here rather than bundled into this remediation. CI is unaffected because it starts
-from a clean checkout.
+flush may degrade as the store grows. Its causal role in the wedge is an inference
+from the blocked worker stacks, live exporter threads, and artifact growth—not a
+proved root cause. Fixing it means isolating the artifact location as well as the
+tracking URI and synchronously draining or disabling async export in tests. It is a
+harness change affecting all ~5,000 tests, so it is recorded here rather than
+bundled into the remediation. Clean CI is less exposed to cross-run accumulation,
+but the audit did not prove CI immune to per-run artifact or exporter-thread leakage.
 
 ## Final assessment
 
@@ -1413,8 +1540,8 @@ With enterprise capabilities excluded, the score rises modestly from **2.5/5 to
 
 Today the realistic positioning is:
 
-> **A self-hosted, developer-oriented agent workflow studio and lifecycle control-
-> plane preview—not yet a production-grade agent platform.**
+> **A self-hosted, developer-oriented agent workflow studio and lifecycle
+> control-plane preview—not yet a production-grade agent platform.**
 
 The shortest credible path to the revised vision is not more canvas nodes or an
 enterprise administration suite. It is to make authentication, resource scoping,
