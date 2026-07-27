@@ -88,7 +88,7 @@ _SCORE_SYSTEM_PROMPT = (
 
 
 def _load_example_rows(session: Any, dataset_id: str, version: int | None) -> list[dict[str, Any]]:
-    """Return ``{example_id, input, expected}`` rows for a dataset.
+    """Return ``{example_id, input, expected, weight, tags}`` rows for a dataset.
 
     Same version semantics as :func:`caliber.eval.predict.build_db_load_dataset`:
     ``None`` returns the current active set; a pinned ``version`` reconstructs
@@ -114,6 +114,11 @@ def _load_example_rows(session: Any, dataset_id: str, version: int | None) -> li
             "example_id": row.example_id,
             "input": dict(row.input or {}),
             "expected": dict(row.expected or {}),
+            # Curation metadata the loader used to drop on the floor: without
+            # it the scorecard aggregated unweighted means over a weighted
+            # dataset and could not slice results by tag.
+            "weight": row.weight if row.weight is not None else 1.0,
+            "tags": list(row.tags or []),
         }
         for row in rows
     ]
@@ -316,11 +321,15 @@ async def get_evaluation(request: Request) -> JSONResponse:
         row = session.get(CaliberEvalRun, run_id)
         # Scope the detail read the same way list_evaluations scopes its list —
         # a bare get() leaked another project's run (and its full per-example
-        # results) by id. CaliberEvalRun has no `owner` column, so scope on
-        # project + visibility directly (admins see everything).
+        # results) by id. CaliberEvalRun records its actor as `created_by`
+        # rather than `owner`, so mirror the three list tiers explicitly:
+        # public, my own row, or a row in my active project (admins see all).
+        # The `created_by` branch matters because a user-scoped run carries no
+        # project_id — without it the run's own author could not read it back.
         visible = row is not None and (
             identity.has_scope(SCOPE_ADMIN)
             or row.visibility == "public"
+            or (bool(row.created_by) and row.created_by == identity.user_id)
             or (row.project_id is not None and row.project_id == identity.active_project_id)
         )
         if not visible:
@@ -344,6 +353,19 @@ async def create_evaluation(request: Request) -> JSONResponse:
         if dataset is None:
             raise HTTPException(
                 status_code=404, detail=f"eval dataset {payload.dataset_id!r} not found"
+            )
+        # The schema only checks ``dataset_version >= 1``. Without an existence
+        # check a caller could pin version 99 of a 3-version dataset: the "as of
+        # N" load silently returns the *current* set while the run record claims
+        # a version that never existed — evidence that reads reproducible but
+        # isn't. Fail closed instead (the report's dataset-reproducibility gap).
+        if payload.dataset_version is not None and payload.dataset_version > dataset.version:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"eval dataset {payload.dataset_id!r} has no version "
+                    f"{payload.dataset_version} (current version is {dataset.version})"
+                ),
             )
         dataset_version = (
             payload.dataset_version if payload.dataset_version is not None else dataset.version

@@ -1701,6 +1701,12 @@ class WorkflowRunWorker:
             # the terminal-state branches so every outcome persists it.
             if result.mlflow_run_id:
                 row.mlflow_run_id = result.mlflow_run_id
+            # ``GET /workflow-runs/{id}/trace`` resolves the span tree from
+            # ``trace_id``, not ``mlflow_run_id``. Persisting only the latter
+            # left the integrated trace panel empty even when the runtime had
+            # produced a real trace.
+            if result.mlflow_trace_id:
+                row.trace_id = result.mlflow_trace_id
             if self._is_waiting_approval(result):
                 approval_checkpoint = _waiting_approval_checkpoint_payload(result)
                 if approval_checkpoint is None:

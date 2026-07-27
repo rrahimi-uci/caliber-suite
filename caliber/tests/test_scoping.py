@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_VIEWER, CaliberIdentity
-from caliber.db.models import CaliberSkill
-from caliber.db.scoping import apply_visibility_filter
+from caliber.db.models import CaliberEvalRun, CaliberSkill
+from caliber.db.scoping import apply_visibility_filter, owner_column
 
 
 def _skill(
@@ -98,3 +99,75 @@ def test_admin_with_only_filter_returns_tier_across_all_owners(db_session: Sessi
         "a_p1",
         "b_p1",
     }
+
+
+# --- ownership-column resolution (ui-complete-report.md §C4) -----------------
+#
+# The helper used to hard-code ``model.owner``. Run-style tables record their
+# actor as ``created_by``, so passing one raised ``AttributeError`` before SQL
+# ran — turning every non-admin list request into a 500.
+
+
+def test_owner_column_prefers_owner(db_session: Session) -> None:
+    assert owner_column(CaliberSkill) is CaliberSkill.owner
+
+
+def test_owner_column_falls_back_to_created_by() -> None:
+    assert owner_column(CaliberEvalRun) is CaliberEvalRun.created_by
+
+
+def test_owner_column_rejects_a_model_with_neither() -> None:
+    """Fail loudly rather than silently returning unfiltered rows."""
+
+    class Unscopeable:
+        visibility = None
+        project_id = None
+
+    with pytest.raises(TypeError, match="cannot be scoped"):
+        owner_column(Unscopeable)
+
+
+def test_non_admin_filter_works_on_a_created_by_model(db_session: Session) -> None:
+    """The regression itself: a non-admin filter over ``CaliberEvalRun``."""
+    db_session.add_all(
+        [
+            CaliberEvalRun(
+                run_id="ER-mine",
+                dataset_id="ED-x",
+                dataset_version=1,
+                created_by="@alice",
+                visibility="user",
+            ),
+            CaliberEvalRun(
+                run_id="ER-theirs",
+                dataset_id="ED-x",
+                dataset_version=1,
+                created_by="@bob",
+                visibility="user",
+            ),
+            CaliberEvalRun(
+                run_id="ER-public",
+                dataset_id="ED-x",
+                dataset_version=1,
+                created_by="@bob",
+                visibility="public",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    stmt = apply_visibility_filter(select(CaliberEvalRun), CaliberEvalRun, _ident("@alice"), None)
+    got = {row.run_id for row in db_session.execute(stmt).scalars().all()}
+
+    assert got == {"ER-mine", "ER-public"}
+
+
+def test_public_only_tier_does_not_need_an_ownership_column() -> None:
+    """``only="public"`` never dereferences the owner column."""
+
+    class PublicOnly:
+        visibility = CaliberSkill.visibility
+        project_id = CaliberSkill.project_id
+
+    # No raise: the public tier is built without touching ownership.
+    apply_visibility_filter(select(CaliberSkill), PublicOnly, _ident("@alice"), None, only="public")

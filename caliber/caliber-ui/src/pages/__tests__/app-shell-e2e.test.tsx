@@ -796,4 +796,20 @@ describe("App shell end-to-end journeys", () => {
       expect(main).toHaveAttribute("data-assistant-width", "480");
     });
   });
+
+  it("renders an unrecognised URL as a 404, not an unbuilt-page stub", async () => {
+    // Regression for ui-complete-report.md §10: the wildcard route rendered
+    // "This page lands in a follow-up milestone", so a mistyped link read as a
+    // missing CALIBER feature rather than a wrong address.
+    renderApp("/definitely-not-a-caliber-page");
+
+    const notFound = await screen.findByTestId("route-not-found");
+    expect(notFound).toHaveTextContent("Page not found");
+    expect(notFound).toHaveTextContent(/doesn.t match any CALIBER page/);
+    expect(notFound).not.toHaveTextContent(/follow-up milestone/);
+    expect(screen.getByRole("link", { name: "Go to the dashboard" })).toHaveAttribute(
+      "href",
+      "/",
+    );
+  });
 });
