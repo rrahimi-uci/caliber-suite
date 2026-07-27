@@ -28,6 +28,26 @@ background workers, evaluation and refinement systems, storage, observability,
 deployment assets, tests, product documentation, all 16 numbered cookbooks, and
 their generated training material.
 
+## How to read this report
+
+This document records three passes: the original repository-wide audit, a merged
+remediation, and an independent re-audit. To avoid making the reader reconstruct
+the present state from that history, it is ordered conclusions-first.
+
+| If you want | Read |
+| --- | --- |
+| The verdict and why | [Executive summary](#executive-summary), [Overall maturity assessment](#overall-maturity-assessment) |
+| What is true *now*, after the merged fixes | [Current state at HEAD](#current-state-at-head-after-the-merged-remediation) |
+| What was actually run, and what that proves | [Verification](#verification) |
+| The findings themselves | [§1 Critical correctness and security findings](#critical-correctness-and-security-findings) (C1–C10) and §2–§11 |
+| What to do about them, in order | [§12 Prioritized roadmap](#12-prioritized-roadmap), [§13 Implementation sequence](#13-concrete-implementation-sequence) |
+| Cookbook-by-cookbook status | [Appendix A](#appendix-a--cookbook-continuity) |
+| Superseded passes and harness diagnostics | [Appendix B](#appendix-b--verification-history-and-superseded-passes) |
+
+Findings carry an explicit state: **[Remediated at current HEAD]**,
+**[Partly remediated]**, or no marker for open. Scores are risk-adjusted reviewer
+judgements, not test coverage.
+
 ## Executive summary
 
 > **Can CALIBER realistically enable developers to build, test, evaluate, deploy,
@@ -163,41 +183,74 @@ dimension caps the overall judgment: command execution, unsafe effects/egress,
 open services, and false deploy evidence are production blockers even though the
 workflow IDE itself scores highly.
 
-## Review method and evidence boundary
+## Current state at HEAD after the merged remediation
 
-This review distinguishes five states:
+### Applied remediation and its actual closure
 
-- **Shipped:** routed UI, API, persistence, and runtime behavior compose into a
-  usable path.
-- **Partial:** useful behavior ships, but a required lifecycle step or policy is
-  missing.
-- **API-only:** backend capability exists without a reachable product workflow.
-- **Dormant:** code exists but current constants/defaults make it unreachable or
-  unenforced.
-- **Absent:** no implementation was found.
+Remediation merges `d90d914e3` and `851b04597` contain the two targeted passes. This
+table records what is now true **and** the remaining contract boundary; it should not
+be read as a list of fully closed product areas.
 
-The audit inspected:
+| Area | Verified current behavior | Residual limit | Evidence / regression coverage |
+| --- | --- | --- | --- |
+| Evaluation visibility | Non-admin list no longer crashes: `owner_column()` supports `created_by`. Detail now resolves **through** `get_visible()`, so list and detail share the same default visibility predicate — a project header alone no longer unlocks another owner's run, and the creator's project-scoped rows outside the active project are no longer readable | List can additionally apply its explicit `only=<tier>` view filter. Scoping still depends on the client-supplied `X-CALIBER-Project` header and the demo identity of C1; that is an identity problem, not a default-predicate problem | `tests/test_scoping.py`, `tests/test_routes_evaluations_visibility.py` (incl. real create → list → detail round trips) |
+| Dataset version input | Evaluation creation rejects a version above the dataset's current version, evaluated row content is stored inline, and the list control now truthfully says “Added in version” | The added-in view still hides later-retired rows unless “Show retired” is enabled. The UI cannot display the active-as-of-N set that evaluation/restore use; the adjacent filter and Restore action apply different semantics. One architecture document still misstates the endpoint. No cryptographic run/content digest or pre-truncation inventory | `tests/test_routes_evaluations_reproducibility.py`, `tests/test_routes_eval_datasets.py`; no frontend semantic-label test |
+| Weights/tags | Generic loading retains both; scorer aggregates, `overall`, and `pass_rate` use weights; tags reach persisted rows and frontend types; the results table shows Weight when any row is non-default | Tags remain invisible/unsliced; raw counts and weighted rates lack a legend; an all-zero set silently becomes equal-weighted even though each displayed zero otherwise means exclusion | `tests/test_eval_scorecard_weighting.py`, `tests/test_routes_evaluations_reproducibility.py`; no frontend Weight/version semantic test and no tag rendering |
+| Partial scorer failure | A row with a scorer error cannot pass, and **every** failing scorer is reported | Preserving healthy raw scores is useful diagnostically, but incomplete rows still influence headline aggregates without valid-row/weight denominators or a partial-evidence status | `tests/test_eval_scorecard_weighting.py` encodes the current policy, not evidence completeness |
+| Workflow trace linkage | Queued and synchronous runs persist `result.mlflow_trace_id`; the run trace panel and trace-to-run lookup can resolve it | Replay is not pinned to all resolved artifact/provider/configuration versions | `tests/test_workflow_run_trace_linkage.py` |
+| Provider-key readback | `GET /settings/llm` returns presence plus a masked fingerprint; browser key inputs are write-only and cleared after save | Updates are process-local/non-durable; MCP credential serialization and the broader secret lifecycle remain open | `tests/test_settings_routes.py`, `src/pages/__tests__/settings.test.tsx` |
+| Shell health | Sidebar and TopBar derive status from one query key/cache, concurrent requests dedupe, and the tooltip says “API and database reachable” | Each mounted query observer still owns a refetch interval; the test proves one initial request, not one sustained poll. The visible label remains “System Online,” and `/health` remains database/API liveness only | `src/components/__tests__/sidebar-health-footer.test.tsx` |
+| Unknown route UX | The wildcard renders a real Not Found view with a dashboard link | It is a client-rendered route boundary, not evidence of server HTTP-404 behavior | `src/pages/__tests__/app-shell-e2e.test.tsx` |
+| Cookbook prose | Generated 03/08/10 material better reflects shipped side-effect, workflow-target evaluation, and alignment paths | Source/generated documentation still conflicts in the places catalogued in §10 | Generated artifact diff plus existing documentation checks |
 
-- the 26 lazy product routes/components in `caliber/caliber-ui/src/App.tsx`
-  (25 page workspaces plus one workflow-run redirect), plus login redirects and
-  wildcard handling, the workflow canvas/inspector/
-  debugger, assistant shell, API client, and workspace state;
-- the centralized backend registry of 40 route modules and 313 literal
-  `Route(...)` declarations under `caliber/src/caliber/routes/`;
-- 60 top-level SQLAlchemy domain models in `caliber/src/caliber/db/models.py`;
-- workflow manifest, compiler, component catalog, promoter, interpreter, run
-  worker, scheduler, memory, tool sandbox, and service publishing paths;
-- evaluation, refinement, judge, review, audit, scoping, authentication, secret,
-  storage, event, and observability paths;
-- the standalone Docker/Compose deployment and the MLflow plugin entry point;
-- repository tests and CI configuration; and
-- product claims, architecture documents, roadmap, competitive analysis, and all
-  cookbook workflows.
+Large product decisions remain open: identity, MCP/reference secrets, systematic
+resource authorization, arbitrary stdio command execution, safe filesystem,
+storage, and network effects in Preview and workflow-target evaluation,
+evidence-grade release gates, truthful HITL/review state, auth-on service publishing,
+isolated extensions, idempotent side effects, production topology, and operations.
 
-This was a repository-grounded architecture/product audit, not a penetration test,
-load test, accessibility assessment, or real-provider benchmark. Passing unit
-tests are evidence that implemented contracts behave as encoded; they are not
-evidence that the encoded contract is product-complete or secure.
+### Independent rationality audit of the follow-up changes
+
+The latest changes were re-read against implementation, tests, baseline history, and
+their product meaning. “Intentional” is not treated as equivalent to “complete.”
+They improve narrow correctness and coherence but do not close an end-to-end
+lifecycle; Testing/Evaluation remains 2.7, Operations 2.6, Platform UX 3.2, and the
+risk-adjusted overall score 2.6.
+
+| Change or decision | Verdict | Reviewer assessment |
+| --- | --- | --- |
+| Move evaluation detail onto `get_visible()` | **Rational and complete for the narrow defect** | It removes hand-written list/detail drift and is covered by negative owner/project tests. C1/C3 remain separate boundary problems. |
+| Reject the alleged project-less create/list hole | **Correct** | Baseline and current route code explicitly persist user visibility when there is no project. The earlier report claim was factually wrong; the added real round trips are still valuable. |
+| Collect every scorer error | **Rational** | It reduces diagnosis round trips without weakening the fail-closed row verdict. |
+| Keep healthy scorer values from an incomplete row | **Rational for raw diagnostics; incomplete for headlines** | Discarding valid raw evidence is unnecessary, but folding it into comparable headline aggregates without coverage/denominators creates survivorship bias. Calling coverage “speculative” is not justified for evidence-grade evaluation. |
+| Fall back to unweighted means when all weights are zero | **Reasonable guard, not a sound final contract** | It avoids reporting 0% for a 0/0 fold, but contradicts the explicit rule that zero excludes a row and changes displayed `0.00` weights into effective equal weights. Reject zero-total evaluations or make weighted metrics undefined and label any raw fallback. |
+| Preserve `version=N` as added-at and fix the wording | **Rational compatibility choice; partial product fix** | Silently changing a tested endpoint would be risky. The added-at view also needs “Show retired” to include rows retired later. Add a separate active-as-of snapshot query/view; the current filter and adjacent Restore button still use different semantics. |
+| Add weight/tags to the frontend result type and show Weight | **Partly implemented** | Weight now explains weighted headlines. Tags are type-only in Evaluation Detail and no slice analysis or frontend regression test was added. |
+| Move health onto `useApiQuery` and narrow its tooltip | **Directionally rational; closure overstated** | Shared cache/in-flight deduplication is real, but two observers still own two timers and the test checks only the first request. The visible label still overclaims whole-system state. |
+| Characterize the latest CI failure as artifact quota only | **Incorrect** | Artifact quota did break several upload steps, but the security job independently failed its dependency audit and skipped gitleaks. The backend/UI/integration test commands passed; the release pipeline did not. |
+
+### Remaining gaps after this pass
+
+Deliberately still open, in rough priority order:
+
+1. **Identity and resource scoping (C1/C3).** Every visibility fix above still
+   rests on a self-asserted `X-CALIBER-User` header and a client-supplied
+   `X-CALIBER-Project`. The eval filter is now internally consistent; the
+   boundary it enforces is not yet trustworthy.
+2. **Evaluation evidence semantics.** Define incomplete-scorer coverage/headline
+   policy, zero-total weights, active-as-of browsing, and visible tag slices.
+3. **Deep readiness probes (§6).** `/health` remains API + database only, and the
+   shell still lacks one proven polling owner and a precise visible label.
+4. **Evidence immutability.** No content digest or pre-truncation inventory on an
+   evaluation run, so a pinned run is reproducible by convention, not by proof.
+5. **Test-harness artifact isolation.** See the harness defect below — the
+   MLflow artifact root is still un-isolated in `conftest.py`.
+6. **CI signal integrity.** Artifact quota, the bootstrap dependency advisory,
+   skipped gitleaks, and skipped wheel packaging leave no fully green release run.
+7. The larger product decisions listed above (release gates, HITL truthfulness,
+   service auth, extension isolation, production topology) are unchanged.
+
+## Verification
 
 ### Current re-verification (2026-07-27)
 
@@ -235,48 +288,88 @@ subsets overlap and must not be summed. Playwright, real-provider/live-integrati
 scenarios, load testing, browser accessibility, and a penetration test were not run.
 Passing tests establish encoded behavior, not production safety or completeness.
 
-### Independent audit of this report (2026-07-27, no code changes)
+### Verification of current HEAD
 
-This report was then audited against the source a second time, by a reviewer who
-had authored part of the remediation it assesses, specifically to look for claims
-that no longer hold. Method and result:
+The reviewed product implementation is merge `851b04597`; current repository HEAD
+`fdd7ae6e2` changes only the committed report above it. Evidence is separated below
+into fresh local checks, current CI, and history.
 
-- **Every `file:line` citation was machine-checked** — all **112** distinct
-  references resolve to an existing file with the cited lines in range. No stale
-  or dangling citation was found.
-- **All nine inventory counts were recounted from source** and match exactly: 40
-  route modules, 313 `Route(...)` declarations, 60 models, 26 lazy routed
-  components, 29 component kinds, 13 workflow templates, 13 router operators, 262
-  backend test files, 109 frontend spec files, 8 Playwright specs.
-- **The stated test counts were re-run, not trusted.** The four-module backend
-  set reproduces **55 passed** (10 + 10 + 8 + 27) and the three-surface frontend
-  set reproduces **26 passed** (17 + 3 + 6). The CI figures were re-read from the
-  run `30286528826` job logs.
-- **The two newest findings were re-derived from code.** C10: `_resolve_command()`
-  only expands a `${PYTHON}` sentinel and applies no allowlist before
-  `StdioServerParameters`/`stdio_client` (`mcp_gateway.py:53-57,279-295`). C9:
-  `preview` is honoured only for registered-tool bindings and knowledge builds
-  (`workflows/runtime.py:2281,5451`); the MCP, webhook, and API-request branches
-  contain no `preview` reference at all, and the default sender applies no
-  scheme/host/IP restriction.
-- **The critique of the remediation was checked against the merged code and is
-  fair.** Evaluation-row tags are genuinely unrendered, the visible label is still
-  “System Online”, and the health test asserts a single request at mount rather
-  than a single sustained polling owner.
-- **Lease recovery was confirmed** to reset an interrupted run to `queued` and
-  clear `current_node_id`, so it does restart from the beginning outside a
-  wait/approval checkpoint (`orchestrator/workflow_run_worker.py:532-565`).
+- **Fresh local behavior checks on the current product tree:** 55 backend tests
+  passed with `--no-cov` across `test_eval_scorecard_weighting.py`,
+  `test_eval_scorecard.py`, `test_routes_evaluations_visibility.py`, and
+  `test_routes_eval_datasets.py`; 26 frontend tests passed across evaluation, Test
+  Set detail, and shell-health files.
+- **Fresh local static/build checks:** `npm run typecheck` and the production
+  `npm run build` passed with no generated-file drift; focused backend Ruff check/
+  format and four-module mypy passed; ESLint passed on the seven changed frontend
+  files.
+- **Current supported full backend evidence:** the test step in Actions run
+  `30286528826`, commit `851b04597`, Python 3.11, completed **5,023 passed, 12
+  skipped, 0 failed in 23m40s**, coverage **94.43%** against the 80% gate. The
+  seven-test increase from the preceding run matches the added regression functions.
+- In that run, Type Check and Lint & format passed; the UI test/build steps passed
+  **109/109 files and 1,467 tests**; Integration passed **6 with 3 skipped**.
+- **The workflow conclusion is nevertheless failure, for two independent reasons.**
+  Artifact storage quota broke backend coverage/Allure upload, UI dist/Allure upload,
+  integration Allure upload, and rendered-report upload; wheel packaging was then
+  skipped. Separately, `pip-audit` found `setuptools==79.0.1`
+  (`PYSEC-2026-3447`, fixed in 83.0.0) in the installed CI/bootstrap environment,
+  causing the Security scan to fail before gitleaks. This is not proven to be a
+  reachable CALIBER runtime vulnerability, but it is a real red dependency gate and
+  an unexecuted secret scan. The pipeline must not be described as artifact-quota-
+  only or fully green.
+- *History:* the preceding run `30282561793` at `9357b3d71` completed 5,016 backend
+  tests with 12 skipped and no failures. Earlier targeted passes include 90 auth/
+  service/deployment/promoter/sandbox tests, 24 scheduler/runtime-approval tests,
+  320 tests across 19 affected backend modules, and the 13 cookbook-contract tests.
+  These are supporting history, not newly independent evidence.
+- Local attempts on this machine ran under an unsupported Python 3.14 and are not
+  used for any conclusion. One serial attempt was interrupted after 82m20s at
+  **1,312 passed, 2 failed, 1 skipped, 1 error** (sandbox-denied localhost binds and
+  an unclosed-SQLite-connection warning); one xdist attempt reached 98% after about
+  3h20m and wedged during teardown for the reason described below.
+- A previously recorded external-app preview test confirms that Preview invokes the
+  entrypoint; that is evidence for the unsafe effect boundary, not isolation.
+- These focused subsets overlap and are not summed. They verify encoded behavior,
+  including several unsafe defaults; they do not validate real providers, external
+  integrations, Playwright/browser E2E behavior, load, accessibility, or security.
+  Multi-replica HA is outside the revised target.
 
-**No factual correction was required.** One earlier slip — a verification bullet
-that attributed a frontend spec's 17 tests to the backend `test_routes_eval_datasets.py`
-(actual: 27) — had already been removed by the rewrite that produced the counts
-above, and is recorded here only so the error is not silently lost.
+## Review method and evidence boundary
 
-One structural caveat stands: at ~1,600 lines this document now carries three
-verification passes, and its current-state conclusions sit below the cookbook
-appendix. The findings are accurate but not easy to locate; collapsing superseded
-verification history into an appendix would make the present state readable
-without changing any judgement.
+This review distinguishes five states:
+
+- **Shipped:** routed UI, API, persistence, and runtime behavior compose into a
+  usable path.
+- **Partial:** useful behavior ships, but a required lifecycle step or policy is
+  missing.
+- **API-only:** backend capability exists without a reachable product workflow.
+- **Dormant:** code exists but current constants/defaults make it unreachable or
+  unenforced.
+- **Absent:** no implementation was found.
+
+The audit inspected:
+
+- the 26 lazy product routes/components in `caliber/caliber-ui/src/App.tsx`
+  (25 page workspaces plus one workflow-run redirect), plus login redirects and
+  wildcard handling, the workflow canvas/inspector/
+  debugger, assistant shell, API client, and workspace state;
+- the centralized backend registry of 40 route modules and 313 literal
+  `Route(...)` declarations under `caliber/src/caliber/routes/`;
+- 60 top-level SQLAlchemy domain models in `caliber/src/caliber/db/models.py`;
+- workflow manifest, compiler, component catalog, promoter, interpreter, run
+  worker, scheduler, memory, tool sandbox, and service publishing paths;
+- evaluation, refinement, judge, review, audit, scoping, authentication, secret,
+  storage, event, and observability paths;
+- the standalone Docker/Compose deployment and the MLflow plugin entry point;
+- repository tests and CI configuration; and
+- product claims, architecture documents, roadmap, competitive analysis, and all
+  cookbook workflows.
+
+This was a repository-grounded architecture/product audit, not a penetration test,
+load test, accessibility assessment, or real-provider benchmark. Passing unit
+tests are evidence that implemented contracts behave as encoded; they are not
+evidence that the encoded contract is product-complete or secure.
 
 ## Screens, pages, and components reviewed
 
@@ -1464,7 +1557,7 @@ builds on untrustworthy evidence and authorization:
 8. **Consistency and scale UX:** unified lifecycle components, monolith reduction,
    global navigation/search, and bulk operations.
 
-## 14. Cookbook continuity appendix
+## Appendix A — Cookbook continuity
 
 The earlier cookbook-specific audit was rechecked against current HEAD and remains
 useful evidence of end-to-end composition. The prose corrections for
@@ -1518,119 +1611,55 @@ that runs under the local-admin single-environment stack proof of authentication
 effect isolation, safe release evidence, failure recovery, or operational
 completeness.
 
-## Applied remediation at current HEAD and its actual closure
+## Appendix B — Verification history and superseded passes
 
-Remediation merges `d90d914e3` and `851b04597` contain the two targeted passes. This
-table records what is now true **and** the remaining contract boundary; it should not
-be read as a list of fully closed product areas.
+Retained for auditability. Superseded by [Verification](#verification);
+no judgement in the body depends on anything below.
 
-| Area | Verified current behavior | Residual limit | Evidence / regression coverage |
-| --- | --- | --- | --- |
-| Evaluation visibility | Non-admin list no longer crashes: `owner_column()` supports `created_by`. Detail now resolves **through** `get_visible()`, so list and detail share the same default visibility predicate — a project header alone no longer unlocks another owner's run, and the creator's project-scoped rows outside the active project are no longer readable | List can additionally apply its explicit `only=<tier>` view filter. Scoping still depends on the client-supplied `X-CALIBER-Project` header and the demo identity of C1; that is an identity problem, not a default-predicate problem | `tests/test_scoping.py`, `tests/test_routes_evaluations_visibility.py` (incl. real create → list → detail round trips) |
-| Dataset version input | Evaluation creation rejects a version above the dataset's current version, evaluated row content is stored inline, and the list control now truthfully says “Added in version” | The added-in view still hides later-retired rows unless “Show retired” is enabled. The UI cannot display the active-as-of-N set that evaluation/restore use; the adjacent filter and Restore action apply different semantics. One architecture document still misstates the endpoint. No cryptographic run/content digest or pre-truncation inventory | `tests/test_routes_evaluations_reproducibility.py`, `tests/test_routes_eval_datasets.py`; no frontend semantic-label test |
-| Weights/tags | Generic loading retains both; scorer aggregates, `overall`, and `pass_rate` use weights; tags reach persisted rows and frontend types; the results table shows Weight when any row is non-default | Tags remain invisible/unsliced; raw counts and weighted rates lack a legend; an all-zero set silently becomes equal-weighted even though each displayed zero otherwise means exclusion | `tests/test_eval_scorecard_weighting.py`, `tests/test_routes_evaluations_reproducibility.py`; no frontend Weight/version semantic test and no tag rendering |
-| Partial scorer failure | A row with a scorer error cannot pass, and **every** failing scorer is reported | Preserving healthy raw scores is useful diagnostically, but incomplete rows still influence headline aggregates without valid-row/weight denominators or a partial-evidence status | `tests/test_eval_scorecard_weighting.py` encodes the current policy, not evidence completeness |
-| Workflow trace linkage | Queued and synchronous runs persist `result.mlflow_trace_id`; the run trace panel and trace-to-run lookup can resolve it | Replay is not pinned to all resolved artifact/provider/configuration versions | `tests/test_workflow_run_trace_linkage.py` |
-| Provider-key readback | `GET /settings/llm` returns presence plus a masked fingerprint; browser key inputs are write-only and cleared after save | Updates are process-local/non-durable; MCP credential serialization and the broader secret lifecycle remain open | `tests/test_settings_routes.py`, `src/pages/__tests__/settings.test.tsx` |
-| Shell health | Sidebar and TopBar derive status from one query key/cache, concurrent requests dedupe, and the tooltip says “API and database reachable” | Each mounted query observer still owns a refetch interval; the test proves one initial request, not one sustained poll. The visible label remains “System Online,” and `/health` remains database/API liveness only | `src/components/__tests__/sidebar-health-footer.test.tsx` |
-| Unknown route UX | The wildcard renders a real Not Found view with a dashboard link | It is a client-rendered route boundary, not evidence of server HTTP-404 behavior | `src/pages/__tests__/app-shell-e2e.test.tsx` |
-| Cookbook prose | Generated 03/08/10 material better reflects shipped side-effect, workflow-target evaluation, and alignment paths | Source/generated documentation still conflicts in the places catalogued in §10 | Generated artifact diff plus existing documentation checks |
+### Independent audit of this report (2026-07-27, no code changes)
 
-Large product decisions remain open: identity, MCP/reference secrets, systematic
-resource authorization, arbitrary stdio command execution, safe filesystem,
-storage, and network effects in Preview and workflow-target evaluation,
-evidence-grade release gates, truthful HITL/review state, auth-on service publishing,
-isolated extensions, idempotent side effects, production topology, and operations.
+This report was then audited against the source a second time, by a reviewer who
+had authored part of the remediation it assesses, specifically to look for claims
+that no longer hold. Method and result:
 
-### Independent rationality audit of the follow-up changes
+- **Every `file:line` citation was machine-checked** — all **112** distinct
+  references resolve to an existing file with the cited lines in range. No stale
+  or dangling citation was found.
+- **All nine inventory counts were recounted from source** and match exactly: 40
+  route modules, 313 `Route(...)` declarations, 60 models, 26 lazy routed
+  components, 29 component kinds, 13 workflow templates, 13 router operators, 262
+  backend test files, 109 frontend spec files, 8 Playwright specs.
+- **The stated test counts were re-run, not trusted.** The four-module backend
+  set reproduces **55 passed** (10 + 10 + 8 + 27) and the three-surface frontend
+  set reproduces **26 passed** (17 + 3 + 6). The CI figures were re-read from the
+  run `30286528826` job logs.
+- **The two newest findings were re-derived from code.** C10: `_resolve_command()`
+  only expands a `${PYTHON}` sentinel and applies no allowlist before
+  `StdioServerParameters`/`stdio_client` (`mcp_gateway.py:53-57,279-295`). C9:
+  `preview` is honoured only for registered-tool bindings and knowledge builds
+  (`workflows/runtime.py:2281,5451`); the MCP, webhook, and API-request branches
+  contain no `preview` reference at all, and the default sender applies no
+  scheme/host/IP restriction.
+- **The critique of the remediation was checked against the merged code and is
+  fair.** Evaluation-row tags are genuinely unrendered, the visible label is still
+  “System Online”, and the health test asserts a single request at mount rather
+  than a single sustained polling owner.
+- **Lease recovery was confirmed** to reset an interrupted run to `queued` and
+  clear `current_node_id`, so it does restart from the beginning outside a
+  wait/approval checkpoint (`orchestrator/workflow_run_worker.py:532-565`).
 
-The latest changes were re-read against implementation, tests, baseline history, and
-their product meaning. “Intentional” is not treated as equivalent to “complete.”
-They improve narrow correctness and coherence but do not close an end-to-end
-lifecycle; Testing/Evaluation remains 2.7, Operations 2.6, Platform UX 3.2, and the
-risk-adjusted overall score 2.6.
+**No factual correction was required.** One earlier slip — a verification bullet
+that attributed a frontend spec's 17 tests to the backend `test_routes_eval_datasets.py`
+(actual: 27) — had already been removed by the rewrite that produced the counts
+above, and is recorded here only so the error is not silently lost.
 
-| Change or decision | Verdict | Reviewer assessment |
-| --- | --- | --- |
-| Move evaluation detail onto `get_visible()` | **Rational and complete for the narrow defect** | It removes hand-written list/detail drift and is covered by negative owner/project tests. C1/C3 remain separate boundary problems. |
-| Reject the alleged project-less create/list hole | **Correct** | Baseline and current route code explicitly persist user visibility when there is no project. The earlier report claim was factually wrong; the added real round trips are still valuable. |
-| Collect every scorer error | **Rational** | It reduces diagnosis round trips without weakening the fail-closed row verdict. |
-| Keep healthy scorer values from an incomplete row | **Rational for raw diagnostics; incomplete for headlines** | Discarding valid raw evidence is unnecessary, but folding it into comparable headline aggregates without coverage/denominators creates survivorship bias. Calling coverage “speculative” is not justified for evidence-grade evaluation. |
-| Fall back to unweighted means when all weights are zero | **Reasonable guard, not a sound final contract** | It avoids reporting 0% for a 0/0 fold, but contradicts the explicit rule that zero excludes a row and changes displayed `0.00` weights into effective equal weights. Reject zero-total evaluations or make weighted metrics undefined and label any raw fallback. |
-| Preserve `version=N` as added-at and fix the wording | **Rational compatibility choice; partial product fix** | Silently changing a tested endpoint would be risky. The added-at view also needs “Show retired” to include rows retired later. Add a separate active-as-of snapshot query/view; the current filter and adjacent Restore button still use different semantics. |
-| Add weight/tags to the frontend result type and show Weight | **Partly implemented** | Weight now explains weighted headlines. Tags are type-only in Evaluation Detail and no slice analysis or frontend regression test was added. |
-| Move health onto `useApiQuery` and narrow its tooltip | **Directionally rational; closure overstated** | Shared cache/in-flight deduplication is real, but two observers still own two timers and the test checks only the first request. The visible label still overclaims whole-system state. |
-| Characterize the latest CI failure as artifact quota only | **Incorrect** | Artifact quota did break several upload steps, but the security job independently failed its dependency audit and skipped gitleaks. The backend/UI/integration test commands passed; the release pipeline did not. |
+One structural caveat stands: at ~1,600 lines this document now carries three
+verification passes, and its current-state conclusions sit below the cookbook
+appendix. The findings are accurate but not easy to locate; collapsing superseded
+verification history into an appendix would make the present state readable
+without changing any judgement.
 
-#### Remaining gaps after this pass
-
-Deliberately still open, in rough priority order:
-
-1. **Identity and resource scoping (C1/C3).** Every visibility fix above still
-   rests on a self-asserted `X-CALIBER-User` header and a client-supplied
-   `X-CALIBER-Project`. The eval filter is now internally consistent; the
-   boundary it enforces is not yet trustworthy.
-2. **Evaluation evidence semantics.** Define incomplete-scorer coverage/headline
-   policy, zero-total weights, active-as-of browsing, and visible tag slices.
-3. **Deep readiness probes (§6).** `/health` remains API + database only, and the
-   shell still lacks one proven polling owner and a precise visible label.
-4. **Evidence immutability.** No content digest or pre-truncation inventory on an
-   evaluation run, so a pinned run is reproducible by convention, not by proof.
-5. **Test-harness artifact isolation.** See the harness defect below — the
-   MLflow artifact root is still un-isolated in `conftest.py`.
-6. **CI signal integrity.** Artifact quota, the bootstrap dependency advisory,
-   skipped gitleaks, and skipped wheel packaging leave no fully green release run.
-7. The larger product decisions listed above (release gates, HITL truthfulness,
-   service auth, extension isolation, production topology) are unchanged.
-
-### Verification of current HEAD
-
-The reviewed product implementation is merge `851b04597`; current repository HEAD
-`fdd7ae6e2` changes only the committed report above it. Evidence is separated below
-into fresh local checks, current CI, and history.
-
-- **Fresh local behavior checks on the current product tree:** 55 backend tests
-  passed with `--no-cov` across `test_eval_scorecard_weighting.py`,
-  `test_eval_scorecard.py`, `test_routes_evaluations_visibility.py`, and
-  `test_routes_eval_datasets.py`; 26 frontend tests passed across evaluation, Test
-  Set detail, and shell-health files.
-- **Fresh local static/build checks:** `npm run typecheck` and the production
-  `npm run build` passed with no generated-file drift; focused backend Ruff check/
-  format and four-module mypy passed; ESLint passed on the seven changed frontend
-  files.
-- **Current supported full backend evidence:** the test step in Actions run
-  `30286528826`, commit `851b04597`, Python 3.11, completed **5,023 passed, 12
-  skipped, 0 failed in 23m40s**, coverage **94.43%** against the 80% gate. The
-  seven-test increase from the preceding run matches the added regression functions.
-- In that run, Type Check and Lint & format passed; the UI test/build steps passed
-  **109/109 files and 1,467 tests**; Integration passed **6 with 3 skipped**.
-- **The workflow conclusion is nevertheless failure, for two independent reasons.**
-  Artifact storage quota broke backend coverage/Allure upload, UI dist/Allure upload,
-  integration Allure upload, and rendered-report upload; wheel packaging was then
-  skipped. Separately, `pip-audit` found `setuptools==79.0.1`
-  (`PYSEC-2026-3447`, fixed in 83.0.0) in the installed CI/bootstrap environment,
-  causing the Security scan to fail before gitleaks. This is not proven to be a
-  reachable CALIBER runtime vulnerability, but it is a real red dependency gate and
-  an unexecuted secret scan. The pipeline must not be described as artifact-quota-
-  only or fully green.
-- *History:* the preceding run `30282561793` at `9357b3d71` completed 5,016 backend
-  tests with 12 skipped and no failures. Earlier targeted passes include 90 auth/
-  service/deployment/promoter/sandbox tests, 24 scheduler/runtime-approval tests,
-  320 tests across 19 affected backend modules, and the 13 cookbook-contract tests.
-  These are supporting history, not newly independent evidence.
-- Local attempts on this machine ran under an unsupported Python 3.14 and are not
-  used for any conclusion. One serial attempt was interrupted after 82m20s at
-  **1,312 passed, 2 failed, 1 skipped, 1 error** (sandbox-denied localhost binds and
-  an unclosed-SQLite-connection warning); one xdist attempt reached 98% after about
-  3h20m and wedged during teardown for the reason described below.
-- A previously recorded external-app preview test confirms that Preview invokes the
-  entrypoint; that is evidence for the unsafe effect boundary, not isolation.
-- These focused subsets overlap and are not summed. They verify encoded behavior,
-  including several unsafe defaults; they do not validate real providers, external
-  integrations, Playwright/browser E2E behavior, load, accessibility, or security.
-  Multi-replica HA is outside the revised target.
-
-#### Test-harness defect found while attempting the full backend run
+### Test-harness defect found while attempting the full backend run
 
 A full-suite attempt reached 98% in ~3h20m and then wedged in teardown. Sampling the
 xdist workers showed their main threads blocked in
