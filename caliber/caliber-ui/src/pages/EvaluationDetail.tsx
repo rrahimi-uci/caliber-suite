@@ -90,6 +90,15 @@ export function EvaluationDetail(): JSX.Element {
 
   const scorerKeys = useMemo(() => run?.scorers ?? [], [run]);
 
+  // Aggregate / overall / pass-rate are weighted means over the dataset's
+  // example weights. Surface the column only when the dataset actually uses
+  // non-default weights, so the headline numbers stay explicable without
+  // adding noise to the common unweighted case.
+  const isWeighted = useMemo(
+    () => (run?.results ?? []).some((row) => (row.weight ?? 1) !== 1),
+    [run],
+  );
+
   if (loading && !run) {
     return <div className="px-2 py-12 text-center text-sm text-slate-400">Loading run…</div>;
   }
@@ -208,6 +217,14 @@ export function EvaluationDetail(): JSX.Element {
                   {scorerLabel(key)}
                 </th>
               ))}
+              {isWeighted && (
+                <th
+                  className="px-3 py-3 text-left font-medium"
+                  title="Relative weight of this example in the run's aggregate scores"
+                >
+                  Weight
+                </th>
+              )}
               <th className="px-4 py-3 text-left font-medium">Result</th>
             </tr>
           </thead>
@@ -215,7 +232,7 @@ export function EvaluationDetail(): JSX.Element {
             {run.results.length === 0 && (
               <tr>
                 <td
-                  colSpan={4 + scorerKeys.length}
+                  colSpan={4 + scorerKeys.length + (isWeighted ? 1 : 0)}
                   className="px-4 py-10 text-center text-sm text-slate-500"
                 >
                   No example results.
@@ -248,6 +265,11 @@ export function EvaluationDetail(): JSX.Element {
                     {row.scores[key] === undefined ? "—" : fmtPct(row.scores[key])}
                   </td>
                 ))}
+                {isWeighted && (
+                  <td className="px-3 py-3 tabular-nums text-xs text-slate-600">
+                    {(row.weight ?? 1).toFixed(2)}
+                  </td>
+                )}
                 <td className="px-4 py-3">
                   {row.passed ? (
                     <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">
