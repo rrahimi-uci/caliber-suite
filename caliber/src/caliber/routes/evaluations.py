@@ -51,7 +51,13 @@ from caliber.eval.predict import (
     build_default_predict_fn_factory,
     user_message,
 )
-from caliber.eval.scorecard import JUDGE_SCORER_PREFIX, JudgeRunner, PredictFn, run_scorecard
+from caliber.eval.scorecard import (
+    JUDGE_SCORER_PREFIX,
+    JudgeRunner,
+    PredictFn,
+    ScorecardInputError,
+    run_scorecard,
+)
 from caliber.ids import new_eval_run_id
 from caliber.routes._deps import (
     envelope_response,
@@ -419,13 +425,16 @@ async def create_evaluation(request: Request) -> JSONResponse:
     model = getattr(config, "llm_diagnosis_model", None)
     predict = _resolve_predict(payload, complete, skill_content, workflow_predict)
 
-    result = run_scorecard(
-        rows,
-        predict,
-        payload.scorers,
-        pass_threshold=payload.pass_threshold,
-        judge_runners=judge_runners,
-    )
+    try:
+        result = run_scorecard(
+            rows,
+            predict,
+            payload.scorers,
+            pass_threshold=payload.pass_threshold,
+            judge_runners=judge_runners,
+        )
+    except ScorecardInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return _persist_eval_run(
         factory,

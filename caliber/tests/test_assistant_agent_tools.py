@@ -468,6 +468,37 @@ class TestDatasetAndEvalTools:
         # `upper` returns the uppercased input → exact match with expected.
         assert out["data"]["pass_rate"] == 1.0
 
+    def test_evaluate_tool_draft_rejects_all_zero_dataset_weights(
+        self, svc, session_factory
+    ) -> None:
+        _seed_dataset(
+            session_factory,
+            "ED-zero-tool",
+            [({"x": "hi"}, {"expected": "HI"})],
+        )
+        with session_factory() as db:
+            row = (
+                db.query(CaliberEvalDatasetExample)
+                .filter(CaliberEvalDatasetExample.dataset_id == "ED-zero-tool")
+                .one()
+            )
+            row.weight = 0.0
+            row.tags = ["excluded"]
+            db.commit()
+
+        sid = _session(svc, session_factory)
+        did = _make_draft(session_factory, sid, "tool", _FAKE_TOOL)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
+        out = json.loads(
+            ts.dispatch(
+                "evaluate_tool_draft",
+                {"draft_id": did, "dataset_id": "ED-zero-tool"},
+            )
+        )
+
+        assert "error" in out
+        assert "at least one value greater than zero" in out["error"]
+
     def test_evaluate_workflow_draft_scores(self, svc, session_factory) -> None:
         _seed_dataset(session_factory, "ED-wf", [({"input": "hello"}, {})])
         sid = _session(svc, session_factory)

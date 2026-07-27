@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { http, HttpResponse } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { EvalDatasetDetail } from "@/pages/EvalDatasetDetail";
 import { server } from "@/test/server";
@@ -64,18 +64,23 @@ function renderPage(): void {
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  vi.restoreAllMocks();
+  server.resetHandlers();
+});
 afterAll(() => server.close());
 
 describe("EvalDatasetDetail", () => {
   it("restores a selected prior version as a new version", async () => {
     let restoredBody: unknown = null;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.get(`${API_BASE}/eval-datasets/ED-1`, () => HttpResponse.json(envelope(dataset()))),
       http.get(`${API_BASE}/eval-datasets/ED-1/examples`, () =>
         HttpResponse.json(envelope([example()])),
       ),
       http.post(`${API_BASE}/eval-datasets/ED-1/restore`, async ({ request }) => {
+        await delay(50);
         restoredBody = await request.json();
         return HttpResponse.json(envelope(dataset({ version: 3 })));
       }),
@@ -84,9 +89,14 @@ describe("EvalDatasetDetail", () => {
     await screen.findByTestId("eval-dataset-name");
     // No restore button on the default "All" view.
     expect(screen.queryByTestId("restore-version")).not.toBeInTheDocument();
-    // Select prior version v1 (current is v2) -> restore affordance appears.
+    // Restore belongs to the active-snapshot view, never the added-in event view.
+    await userEvent.selectOptions(screen.getByTestId("version-view"), "asOf");
     await userEvent.selectOptions(screen.getByTestId("version-filter"), "1");
-    await userEvent.click(await screen.findByTestId("restore-version"));
+    const restore = await screen.findByTestId("restore-version");
+    await userEvent.click(restore);
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("active as of v1"));
+    expect(restore).toBeDisabled();
+    expect(restore).toHaveTextContent("Restoring…");
     await waitFor(() => expect(restoredBody).toEqual({ version: 1 }));
   });
 
@@ -228,6 +238,66 @@ describe("EvalDatasetDetail", () => {
     expect(lastIncludeSuperseded).toBeNull();
     await userEvent.click(screen.getByTestId("show-retired-toggle"));
     await waitFor(() => expect(lastIncludeSuperseded).toBe("true"));
+  });
+
+  it("previews the active-as-of snapshot with a distinct query contract", async () => {
+    let lastVersion: string | null = null;
+    let lastAsOfVersion: string | null = null;
+    let lastIncludeSuperseded: string | null = null;
+    server.use(
+      http.get(`${API_BASE}/eval-datasets/ED-1`, () => HttpResponse.json(envelope(dataset()))),
+      http.get(`${API_BASE}/eval-datasets/ED-1/examples`, ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        lastVersion = params.get("version");
+        lastAsOfVersion = params.get("as_of_version");
+        lastIncludeSuperseded = params.get("include_superseded");
+        return HttpResponse.json(
+          envelope([
+            example({
+              dataset_version: 1,
+              superseded_at: NOW,
+              superseded_version: 2,
+            }),
+          ]),
+        );
+      }),
+    );
+    renderPage();
+    await screen.findAllByTestId("example-row");
+
+    await userEvent.selectOptions(screen.getByTestId("version-view"), "asOf");
+    await userEvent.selectOptions(screen.getByTestId("version-filter"), "1");
+    await waitFor(() => expect(lastAsOfVersion).toBe("1"));
+    expect(lastVersion).toBeNull();
+    expect(lastIncludeSuperseded).toBeNull();
+    expect(screen.getByText("Active as of version")).toBeInTheDocument();
+    expect(screen.queryByTestId("show-retired-toggle")).not.toBeInTheDocument();
+    const snapshotRow = screen.getByTestId("example-row");
+    expect(snapshotRow).not.toHaveClass("opacity-55");
+    expect(snapshotRow).toHaveTextContent("retired later v2");
+    expect(snapshotRow).toHaveTextContent("Read-only");
+    expect(within(snapshotRow).queryByTestId("example-edit")).toBeNull();
+  });
+
+  it("surfaces restore failures and re-enables the action", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.get(`${API_BASE}/eval-datasets/ED-1`, () => HttpResponse.json(envelope(dataset()))),
+      http.get(`${API_BASE}/eval-datasets/ED-1/examples`, () =>
+        HttpResponse.json(envelope([example()])),
+      ),
+      http.post(`${API_BASE}/eval-datasets/ED-1/restore`, () =>
+        HttpResponse.json({ detail: "snapshot already matches current head" }, { status: 409 }),
+      ),
+    );
+    renderPage();
+    await screen.findAllByTestId("example-row");
+    await userEvent.selectOptions(screen.getByTestId("version-view"), "asOf");
+    await userEvent.selectOptions(screen.getByTestId("version-filter"), "1");
+    await userEvent.click(await screen.findByTestId("restore-version"));
+
+    expect(await screen.findByText("snapshot already matches current head")).toBeInTheDocument();
+    expect(screen.getByTestId("restore-version")).toBeEnabled();
   });
 });
 

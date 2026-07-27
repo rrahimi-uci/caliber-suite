@@ -6,6 +6,8 @@ supersede flow that retires examples without deleting them.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
@@ -152,6 +154,108 @@ def test_list_examples_filter_by_version(client: TestClient, db_session: Session
     items = response.json()["data"]
     assert len(items) == 1
     assert items[0]["input"]["v"] == 2
+
+
+def test_list_examples_as_of_version_reconstructs_active_set(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_dataset(db_session, dataset_id="ED-history", version=5)
+    retired_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            CaliberEvalDatasetExample(
+                example_id="EX-retired-later",
+                dataset_id="ED-history",
+                dataset_version=1,
+                input={"name": "retired-later"},
+                expected={},
+                weight=1.0,
+                tags=[],
+                superseded_at=retired_at,
+                superseded_version=4,
+            ),
+            CaliberEvalDatasetExample(
+                example_id="EX-still-active",
+                dataset_id="ED-history",
+                dataset_version=2,
+                input={"name": "still-active"},
+                expected={},
+                weight=1.0,
+                tags=[],
+            ),
+            CaliberEvalDatasetExample(
+                example_id="EX-retired-at-three",
+                dataset_id="ED-history",
+                dataset_version=3,
+                input={"name": "retired-at-three"},
+                expected={},
+                weight=1.0,
+                tags=[],
+                superseded_at=retired_at,
+                superseded_version=3,
+            ),
+            CaliberEvalDatasetExample(
+                example_id="EX-added-later",
+                dataset_id="ED-history",
+                dataset_version=4,
+                input={"name": "added-later"},
+                expected={},
+                weight=1.0,
+                tags=[],
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(
+        EXAMPLES_PATH.replace("{dataset_id}", "ED-history"),
+        params={"as_of_version": "3"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert {item["example_id"] for item in response.json()["data"]} == {
+        "EX-retired-later",
+        "EX-still-active",
+    }
+
+
+def test_list_examples_as_of_version_rejects_ambiguous_and_invalid_queries(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_dataset(db_session, dataset_id="ED-history", version=3)
+    path = EXAMPLES_PATH.replace("{dataset_id}", "ED-history")
+
+    cases = [
+        ({"version": "2", "as_of_version": "2"}, "mutually exclusive"),
+        (
+            {"as_of_version": "2", "include_superseded": "true"},
+            "cannot be combined",
+        ),
+        ({"as_of_version": "0"}, "must be between"),
+        ({"as_of_version": "not-an-int"}, "must be an integer"),
+        ({"as_of_version": "4"}, "has no version 4"),
+    ]
+    for params, detail in cases:
+        response = client.get(path, params=params)
+        assert response.status_code == 400, (params, response.text)
+        assert detail in response.json()["detail"]
+
+
+def test_list_examples_scopes_the_parent_dataset(client: TestClient, db_session: Session) -> None:
+    _seed_dataset(
+        db_session,
+        dataset_id="ED-private",
+        owner="@owner",
+        visibility="user",
+        project_id=None,
+    )
+
+    response = client.get(
+        EXAMPLES_PATH.replace("{dataset_id}", "ED-private"),
+        headers={"X-CALIBER-User": "@viewer"},
+    )
+
+    assert response.status_code == 404
 
 
 def test_list_examples_rejects_out_of_range_version(

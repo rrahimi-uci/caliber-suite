@@ -232,6 +232,7 @@ select = [
 ignore = [
     "E501",   # line-length handled by formatter
     "PLR0913",  # too many arguments — common in route handlers
+    "PLR0917",  # too many positional arguments — same policy; stable in Ruff 0.16
     "S101",   # assert allowed (we use it in tests)
 ]
 

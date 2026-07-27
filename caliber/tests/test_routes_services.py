@@ -18,15 +18,16 @@ from tests.workflow_helpers import (
 )
 
 
-def _publish_service(client: TestClient, *, auth_required: bool = False) -> tuple[str, str]:
+def _publish_service(client: TestClient, *, auth_required: bool | None = None) -> tuple[str, str]:
     """Create+publish a workflow, deploy it to prod, then publish the service.
 
-    Services are OPEN by default (v1); pass ``auth_required=True`` to exercise the
-    dormant Bearer-token path. Returns ``(workflow_id, version_id)``.
+    New services require a token by default. Pass ``auth_required=False`` only
+    for tests that deliberately exercise the explicit public-service escape
+    hatch. Returns ``(workflow_id, version_id)``.
     """
     wid, vid = create_and_publish(client)
     deploy_prod(client, wid, vid)
-    body = {"auth_required": True} if auth_required else {}
+    body = {} if auth_required is None else {"auth_required": auth_required}
     r = client.post(f"{PREFIX}/workflows/{wid}/service", json=body)
     assert r.status_code == 200, r.text
     return wid, vid
@@ -59,7 +60,7 @@ def test_publish_requires_live_deployment(client: TestClient) -> None:
     data = r.json()["data"]
     assert data["alias"] == "prod"
     assert data["enabled"] is True
-    assert data["auth_required"] is False  # v1: services are open by default
+    assert data["auth_required"] is True
     assert data["input_schema"]["type"] == "object"
     assert data["input_schema"]["properties"]  # non-empty (start outputs)
     assert data["output_schema"]["properties"]  # non-empty (output inputs)
@@ -81,6 +82,51 @@ def test_get_service_404_when_unpublished(client: TestClient) -> None:
     deploy_prod(client, wid, vid)
     r = client.get(f"{PREFIX}/workflows/{wid}/service")
     assert r.status_code == 404
+
+
+def test_internal_service_routes_hide_an_out_of_scope_workflow(client: TestClient) -> None:
+    """Operator scope alone must not unlock another owner's nested service."""
+    wid, _ = _publish_service(client)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test", "operator_users": "@operator"}
+    )
+    headers = {"X-CALIBER-User": "@operator"}
+
+    assert client.get(f"{PREFIX}/workflows/{wid}/service", headers=headers).status_code == 404
+    assert (
+        client.post(
+            f"{PREFIX}/workflows/{wid}/service",
+            json={"auth_required": True},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert client.delete(f"{PREFIX}/workflows/{wid}/service", headers=headers).status_code == 404
+    assert (
+        client.post(
+            f"{PREFIX}/workflows/{wid}/service/tokens",
+            json={"name": "hidden"},
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(f"{PREFIX}/workflows/{wid}/service/tokens", headers=headers).status_code == 404
+    )
+    assert (
+        client.get(
+            f"{PREFIX}/workflows/{wid}/service/openapi.json",
+            headers=headers,
+        ).status_code
+        == 404
+    )
+    assert (
+        client.delete(
+            f"{PREFIX}/workflows/{wid}/service/tokens/not-mine",
+            headers=headers,
+        ).status_code
+        == 404
+    )
 
 
 def test_mint_token_returns_plaintext_once_and_list_is_masked(client: TestClient) -> None:
@@ -107,8 +153,8 @@ def test_mint_token_returns_plaintext_once_and_list_is_masked(client: TestClient
 
 
 def test_invoke_open_without_token_returns_202(client: TestClient) -> None:
-    # v1: services are open — no token needed to invoke.
-    wid, _ = _publish_service(client)
+    # Public access remains possible only when the publisher explicitly opts out.
+    wid, _ = _publish_service(client, auth_required=False)
     r = client.post(f"{PREFIX}/services/{wid}/invoke", json={"input": {"user_message": "hi"}})
     assert r.status_code == 202, r.text
     data = r.json()["data"]
@@ -117,7 +163,7 @@ def test_invoke_open_without_token_returns_202(client: TestClient) -> None:
 
 
 def test_invoke_writes_audit_row(client: TestClient, db_session: Session) -> None:
-    wid, _ = _publish_service(client)
+    wid, _ = _publish_service(client, auth_required=False)
     invoke = client.post(f"{PREFIX}/services/{wid}/invoke", json={"input": {"user_message": "hi"}})
     assert invoke.status_code == 202, invoke.text
     run_id = invoke.json()["data"]["run_id"]
@@ -132,12 +178,13 @@ def test_invoke_writes_audit_row(client: TestClient, db_session: Session) -> Non
     )
     assert len(rows) == 1
     assert rows[0].details["run_id"] == run_id
+    assert rows[0].actor == f"anonymous_service:{wid}"
 
 
 def test_invoke_with_invalid_input_is_400(client: TestClient) -> None:
     # Input is validated regardless of auth. user_message is a typed string in the
     # manifest, so a number fails validation.
-    wid, _ = _publish_service(client)
+    wid, _ = _publish_service(client, auth_required=False)
     r = client.post(
         f"{PREFIX}/services/{wid}/invoke",
         json={"input": {"user_message": 123}},
@@ -146,7 +193,7 @@ def test_invoke_with_invalid_input_is_400(client: TestClient) -> None:
 
 
 def test_get_run_status_open(client: TestClient) -> None:
-    wid, _ = _publish_service(client)
+    wid, _ = _publish_service(client, auth_required=False)
     invoke = client.post(
         f"{PREFIX}/services/{wid}/invoke",
         json={"input": {"user_message": "hi"}},
@@ -161,9 +208,9 @@ def test_get_run_status_open(client: TestClient) -> None:
     assert data["status"] == "queued"
 
 
-def test_auth_required_enforces_bearer_token(client: TestClient) -> None:
-    # Opting a service into auth re-activates the dormant Bearer-token path.
-    wid, _ = _publish_service(client, auth_required=True)
+def test_auth_required_enforces_bearer_token(client: TestClient, db_session: Session) -> None:
+    # The default publish path is protected without an opt-in flag.
+    wid, _ = _publish_service(client)
 
     # No token -> 401.
     r = client.post(f"{PREFIX}/services/{wid}/invoke", json={"input": {"user_message": "hi"}})
@@ -178,6 +225,17 @@ def test_auth_required_enforces_bearer_token(client: TestClient) -> None:
     )
     assert r.status_code == 202, r.text
     assert r.json()["data"]["run_id"]
+    invoke_audit = (
+        db_session.execute(
+            select(CaliberAuditLog)
+            .where(CaliberAuditLog.entity_id == wid)
+            .where(CaliberAuditLog.action == "invoke_workflow_service")
+        )
+        .scalars()
+        .one()
+    )
+    assert invoke_audit.actor.startswith("service_token:")
+    assert wid not in invoke_audit.actor
 
     # Revoked token -> 401.
     create_resp = client.post(f"{PREFIX}/workflows/{wid}/service/tokens", json={"name": "tmp"})
@@ -197,7 +255,7 @@ def test_auth_required_enforces_bearer_token(client: TestClient) -> None:
 
 
 def test_service_openapi_spec(client: TestClient) -> None:
-    wid, _ = _publish_service(client)
+    wid, _ = _publish_service(client, auth_required=False)
     r = client.get(f"{PREFIX}/services/{wid}/openapi.json")
     assert r.status_code == 200, r.text
     spec = r.json()  # raw OpenAPI (not enveloped)
@@ -210,6 +268,35 @@ def test_service_openapi_spec(client: TestClient) -> None:
     assert body_schema["properties"]["input"]["type"] == "object"
     # Open service -> no security requirement.
     assert post.get("security") in (None, [])
+
+
+def test_internal_openapi_uses_workflow_auth_without_weakening_external_auth(
+    client: TestClient,
+) -> None:
+    wid, _ = _publish_service(client)
+
+    # Studio can download the raw document through normal CALIBER auth even
+    # though the published service itself is token protected.
+    internal = client.get(f"{PREFIX}/workflows/{wid}/service/openapi.json")
+    assert internal.status_code == 200, internal.text
+    internal_spec = internal.json()
+    assert "data" not in internal_spec
+    assert internal_spec["components"]["securitySchemes"]["serviceToken"] == {
+        "type": "http",
+        "scheme": "bearer",
+    }
+
+    # The public-facing document keeps the same Bearer requirement and is
+    # generated from the same canonical builder.
+    external_path = f"{PREFIX}/services/{wid}/openapi.json"
+    assert client.get(external_path).status_code == 401
+    token = _mint_token(client, wid)
+    external = client.get(
+        external_path,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert external.status_code == 200, external.text
+    assert external.json() == internal_spec
 
 
 def test_delete_service_unpublishes(client: TestClient) -> None:

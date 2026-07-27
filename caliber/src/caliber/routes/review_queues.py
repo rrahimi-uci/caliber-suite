@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, update
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -298,6 +298,8 @@ def add_review_items_records(
     queue = session.get(CaliberReviewQueue, queue_id)
     if queue is None:
         raise ValueError(f"review queue {queue_id!r} not found")
+    if queue.status != "active":
+        raise ValueError(f"review queue {queue_id!r} is not active")
     existing_traces = {
         row.trace_id
         for row in session.execute(
@@ -340,9 +342,15 @@ async def add_items(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = ReviewItemsAddRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
+        queue = get_visible(
+            session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
+        )
+        if queue is None:
+            raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
         try:
             created = add_review_items_records(
                 session,
@@ -353,7 +361,8 @@ async def add_items(request: Request) -> JSONResponse:
                 actor=actor,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            status_code = 409 if "is not active" in str(exc) else 404
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
         schemas = [ReviewItemSchema.model_validate(item) for item in created]
         session.commit()
     return envelope_response(schemas, status_code=201)
@@ -374,10 +383,27 @@ def _build_writebacks(
             if question.get("required", True):
                 raise HTTPException(status_code=400, detail=f"missing required answer {key!r}")
             continue
+        value = answers[key]
+        question_type = str(question.get("type", "pass_fail"))
+        if question_type == "pass_fail" and not isinstance(value, bool):
+            raise HTTPException(status_code=400, detail=f"answer {key!r} must be a boolean")
+        if question_type == "categorical" and (
+            not isinstance(value, str) or value not in question.get("options", [])
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"answer {key!r} must be one of {question.get('options', [])}",
+            )
+        if question_type == "numeric" and (
+            isinstance(value, bool) or not isinstance(value, (int, float))
+        ):
+            raise HTTPException(status_code=400, detail=f"answer {key!r} must be numeric")
+        if question_type == "text" and not isinstance(value, str):
+            raise HTTPException(status_code=400, detail=f"answer {key!r} must be text")
         writebacks.append(
             AnswerWriteBack(
                 name=key,
-                value=answers[key],
+                value=value,
                 target=str(question.get("target", "feedback")),
             )
         )
@@ -390,17 +416,41 @@ async def submit_item(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = ReviewItemSubmitRequest.model_validate(body)
     actor = require_user(request)
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        queue = session.get(CaliberReviewQueue, queue_id)
+        queue = get_visible(
+            session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
+        )
         if queue is None:
             raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
+        if queue.status != "active":
+            raise HTTPException(status_code=409, detail=f"review queue {queue_id!r} is not active")
         item = session.get(CaliberReviewItem, item_id)
         if item is None or item.queue_id != queue_id:
             raise HTTPException(status_code=404, detail=f"review item {item_id!r} not found")
+        if item.status != "pending":
+            raise HTTPException(
+                status_code=409,
+                detail=f"review item {item_id!r} is already {item.status}",
+            )
         writebacks = _build_writebacks(list(queue.questions), dict(payload.answers))
         trace_id = item.trace_id
+        # Claim the item before the external write-back. The conditional update
+        # prevents two concurrent requests from both recording answers.
+        claimed = session.execute(
+            update(CaliberReviewItem)
+            .where(CaliberReviewItem.item_id == item_id)
+            .where(CaliberReviewItem.status == "pending")
+            .values(status="submitting")
+        )
+        if cast(Any, claimed).rowcount != 1:
+            session.rollback()
+            raise HTTPException(
+                status_code=409, detail=f"review item {item_id!r} is being submitted"
+            )
+        session.commit()
 
     # Write answers back to the trace (outside the session — guarded MLflow call).
     client = _resolve_writeback_client(request)
@@ -408,6 +458,16 @@ async def submit_item(request: Request) -> JSONResponse:
         assessment_ids = client.write_answers(trace_id=trace_id, answers=writebacks, user=actor)
     except Exception as exc:  # pragma: no cover - exercised via raising fake
         logger.warning("review write-back failed for trace %s (%s)", trace_id, exc)
+        # A failed external call is retryable. Only release the claim if this
+        # request still owns the transient state.
+        with factory() as session:
+            session.execute(
+                update(CaliberReviewItem)
+                .where(CaliberReviewItem.item_id == item_id)
+                .where(CaliberReviewItem.status == "submitting")
+                .values(status="pending")
+            )
+            session.commit()
         raise HTTPException(
             status_code=502, detail=f"failed writing review answers to trace: {exc}"
         ) from exc
@@ -416,6 +476,11 @@ async def submit_item(request: Request) -> JSONResponse:
         item = session.get(CaliberReviewItem, item_id)
         if item is None:  # pragma: no cover - deleted mid-submit
             raise HTTPException(status_code=404, detail=f"review item {item_id!r} not found")
+        if item.status != "submitting":
+            raise HTTPException(
+                status_code=409,
+                detail=f"review item {item_id!r} is no longer awaiting completion",
+            )
         item.answers = dict(payload.answers)
         item.assessment_ids = list(assessment_ids)
         item.status = "completed"

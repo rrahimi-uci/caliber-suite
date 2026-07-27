@@ -1262,7 +1262,14 @@ def evaluate_deploy_gates(
     executor: WorkflowExecutor,
     sample_size: int = DEPLOY_GATE_SAMPLE_SIZE,
 ) -> GateResult:
-    """Run the deploy gates relevant to ``alias`` against the eval datasets."""
+    """Run the deploy gates relevant to ``alias`` against the eval datasets.
+
+    The current gate measures successful workflow completion, not output
+    quality.  Replays therefore use preview mode to avoid turning a promotion
+    check into an unannounced production-side-effect path.  A missing dataset
+    or a dataset with no active examples fails closed: neither condition is
+    evidence that a version is safe to promote.
+    """
     gates = [g for g in manifest.deploy_gates.values() if alias in g.required_for_aliases]
     if not gates:
         return GateResult(has_gate=False, passed=True)
@@ -1289,35 +1296,41 @@ def evaluate_deploy_gates(
             .first()
         )
         examples: list[CaliberEvalDatasetExample] = []
-        if dataset is not None:
-            examples = list(
-                session.execute(
-                    select(CaliberEvalDatasetExample).where(
-                        CaliberEvalDatasetExample.dataset_id == dataset.dataset_id,
-                        CaliberEvalDatasetExample.superseded_at.is_(None),
-                    )
+        if dataset is not None and dataset.status == "active":
+            examples_query = (
+                select(CaliberEvalDatasetExample)
+                .where(
+                    CaliberEvalDatasetExample.dataset_id == dataset.dataset_id,
+                    CaliberEvalDatasetExample.superseded_at.is_(None),
                 )
-                .scalars()
-                .all()
+                .order_by(
+                    CaliberEvalDatasetExample.created_at.asc(),
+                    CaliberEvalDatasetExample.example_id.asc(),
+                )
             )
+            if sample_size and sample_size > 0:
+                examples_query = examples_query.limit(sample_size)
+            examples = list(session.execute(examples_query).scalars().all())
 
         if not examples:
+            all_passed = False
+            if dataset is None:
+                detail = "dataset not found; gate failed closed"
+            elif dataset.status != "active":
+                detail = "dataset is archived; gate failed closed"
+            else:
+                detail = "dataset has no active examples; gate failed closed"
             runs.append(
                 GateRun(
                     name=_gate_name(manifest, gate),
                     dataset_ref=gate.dataset_ref,
-                    passed=True,
-                    pass_rate=1.0,
+                    passed=False,
+                    pass_rate=0.0,
                     n_examples=0,
-                    detail="no examples; gate treated as pass",
+                    detail=detail,
                 )
             )
             continue
-
-        # Sample a bounded slice so a large dataset doesn't time out the
-        # synchronous promote request (ext D3 / plan §26.4).
-        sampled = examples[:sample_size] if sample_size and sample_size > 0 else examples
-        examples = sampled
 
         plan = RuntimePlan(
             ir=compiled.ir,
@@ -1327,7 +1340,7 @@ def evaluate_deploy_gates(
         )
         completed = 0
         for example in examples:
-            run = execute(plan, _example_input(example), executor=executor)
+            run = execute(plan, _example_input(example), executor=executor, preview=True)
             if run.status == "completed":
                 completed += 1
         pass_rate = completed / len(examples)

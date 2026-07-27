@@ -82,7 +82,7 @@ function makeService(overrides: Record<string, unknown> = {}) {
     input_schema: { type: "object", properties: { query: { type: "string" } } },
     output_schema: { type: "object", properties: { answer: { type: "string" } } },
     enabled: true,
-    auth_required: false,
+    auth_required: true,
     endpoint: "/ajax-api/2.0/mlflow/caliber/services/WF-1/invoke",
     created_by: "@test",
     created_at: NOW,
@@ -102,8 +102,12 @@ function detailHandlers(
   overrides: {
     deployments?: Array<Record<string, unknown>>;
     serviceResponses?: Array<Record<string, unknown> | null>;
-    onPublish?: () => void;
+    onPublish?: (body: unknown) => void;
     onUnpublish?: () => void;
+    onCreateToken?: (body: unknown) => void;
+    onDownloadOpenApi?: (request: Request) => void;
+    onRevokeToken?: (tokenId: string) => void;
+    tokens?: Array<Record<string, unknown>>;
   } = {},
 ) {
   const deployments = overrides.deployments ?? [];
@@ -113,8 +117,8 @@ function detailHandlers(
   let serviceCallIndex = 0;
 
   return [
-    http.post(`${API_BASE}/workflows/WF-1/service`, () => {
-      overrides.onPublish?.();
+    http.post(`${API_BASE}/workflows/WF-1/service`, async ({ request }) => {
+      overrides.onPublish?.(await request.json());
       return HttpResponse.json(envelope(makeService()));
     }),
     http.delete(`${API_BASE}/workflows/WF-1/service`, () => {
@@ -129,6 +133,39 @@ function detailHandlers(
         return HttpResponse.json({ detail: "service not published" }, { status: 404 });
       }
       return HttpResponse.json(envelope(body));
+    }),
+    http.get(`${API_BASE}/workflows/WF-1/service/openapi.json`, ({ request }) => {
+      overrides.onDownloadOpenApi?.(request);
+      return HttpResponse.json({
+        openapi: "3.0.3",
+        info: { title: "Support Workflow — CALIBER service", version: "1.0.0" },
+        paths: { [`${API_BASE}/services/WF-1/invoke`]: { post: {} } },
+      });
+    }),
+    http.get(`${API_BASE}/workflows/WF-1/service/tokens`, () =>
+      HttpResponse.json(envelope(overrides.tokens ?? [])),
+    ),
+    http.post(`${API_BASE}/workflows/WF-1/service/tokens`, async ({ request }) => {
+      const body = await request.json();
+      overrides.onCreateToken?.(body);
+      return HttpResponse.json(
+        envelope({
+          token_id: "SVT-1",
+          name: "production-client",
+          prefix: "cal_svc_example",
+          scopes: ["invoke"],
+          created_by: "@test",
+          created_at: NOW,
+          expires_at: null,
+          revoked_at: null,
+          token: "cal_svc_example_secret",
+        }),
+        { status: 201 },
+      );
+    }),
+    http.delete(`${API_BASE}/workflows/WF-1/service/tokens/:tokenId`, ({ params }) => {
+      overrides.onRevokeToken?.(String(params.tokenId));
+      return HttpResponse.json(envelope({ status: "revoked" }));
     }),
     http.get(`${API_BASE}/capabilities`, () =>
       HttpResponse.json(
@@ -204,6 +241,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: "bypass" }));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   server.resetHandlers();
 });
 afterAll(() => server.close());
@@ -241,6 +279,7 @@ describe("WorkflowDetail Service tab", () => {
     await userEvent.click(publishBtn);
 
     await waitFor(() => expect(onPublish).toHaveBeenCalledTimes(1));
+    expect(onPublish).toHaveBeenCalledWith({ auth_required: true });
 
     const endpoint = await screen.findByTestId("service-endpoint");
     expect(endpoint).toHaveTextContent("/ajax-api/2.0/mlflow/caliber/services/WF-1/invoke");
@@ -251,8 +290,139 @@ describe("WorkflowDetail Service tab", () => {
     expect(snippet).toHaveTextContent("/services/WF-1/runs/RUN_ID");
     expect(snippet.textContent).toContain('"query"');
 
-    expect(screen.getByTestId("service-auth-badge")).toHaveTextContent("Open");
+    expect(screen.getByTestId("service-auth-badge")).toHaveTextContent("Token required");
+    expect(screen.getByTestId("service-token-panel")).toBeInTheDocument();
     expect(screen.getByTestId("service-unpublish-btn")).toBeInTheDocument();
+  });
+
+  it("creates an access token and displays its secret exactly once", async () => {
+    const onCreateToken = vi.fn();
+    server.use(
+      ...detailHandlers({
+        deployments: [makeDeployment()],
+        serviceResponses: [makeService()],
+        onCreateToken,
+      }),
+    );
+    renderDetail();
+
+    await screen.findByTestId("service-token-panel");
+    await userEvent.clear(screen.getByTestId("service-token-name"));
+    await userEvent.type(screen.getByTestId("service-token-name"), "production-client");
+    await userEvent.click(screen.getByTestId("service-token-create-btn"));
+
+    await waitFor(() =>
+      expect(onCreateToken).toHaveBeenCalledWith({
+        name: "production-client",
+        scopes: ["invoke"],
+      }),
+    );
+    expect(await screen.findByTestId("service-new-token")).toHaveTextContent(
+      "cal_svc_example_secret",
+    );
+    expect(screen.getByText(/will not show it again/i)).toBeInTheDocument();
+  });
+
+  it("downloads protected-service OpenAPI through the internal workflow route", async () => {
+    const onDownloadOpenApi = vi.fn();
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:openapi");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    let downloadedFilename: string | null = null;
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        downloadedFilename = this.download;
+      });
+    server.use(
+      ...detailHandlers({
+        deployments: [makeDeployment()],
+        serviceResponses: [makeService()],
+        onDownloadOpenApi,
+      }),
+    );
+    renderDetail();
+
+    const downloadButton = await screen.findByTestId("service-openapi-download-btn");
+    expect(downloadButton.tagName).toBe("BUTTON");
+    await userEvent.click(downloadButton);
+
+    await waitFor(() => expect(onDownloadOpenApi).toHaveBeenCalledTimes(1));
+    const request = onDownloadOpenApi.mock.calls[0][0] as Request;
+    expect(new URL(request.url).pathname).toBe(
+      `${API_BASE}/workflows/WF-1/service/openapi.json`,
+    );
+    expect(request.headers.get("authorization")).toBeNull();
+    expect(createObjectUrl).toHaveBeenCalledTimes(1);
+    const downloadedBlob = createObjectUrl.mock.calls[0][0];
+    expect(downloadedBlob.type).toBe("application/json");
+    await expect(downloadedBlob.text()).resolves.toContain('"openapi":"3.0.3"');
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrl).toHaveBeenCalledWith("blob:openapi");
+    expect(downloadedFilename).toBe("caliber-WF-1-openapi.json");
+    expect(await screen.findByTestId("service-message")).toHaveTextContent(
+      "OpenAPI specification downloaded",
+    );
+  });
+
+  it("lists masked service tokens and revokes an active token", async () => {
+    const onRevokeToken = vi.fn();
+    server.use(
+      ...detailHandlers({
+        deployments: [makeDeployment()],
+        serviceResponses: [makeService({ token_count: 2 })],
+        tokens: [
+          {
+            token_id: "SVT-active",
+            name: "production-client",
+            prefix: "cal_svc_active",
+            scopes: ["invoke"],
+            created_by: "@test",
+            created_at: NOW,
+            expires_at: null,
+            revoked_at: null,
+          },
+          {
+            token_id: "SVT-revoked",
+            name: "old-client",
+            prefix: "cal_svc_old",
+            scopes: ["invoke"],
+            created_by: "@test",
+            created_at: NOW,
+            expires_at: null,
+            revoked_at: NOW,
+          },
+        ],
+        onRevokeToken,
+      }),
+    );
+    renderDetail();
+
+    const list = await screen.findByTestId("service-token-list");
+    expect(list).toHaveTextContent("production-client");
+    expect(list).toHaveTextContent("cal_svc_active…");
+    expect(list).toHaveTextContent("old-client");
+    expect(list).toHaveTextContent("revoked");
+    expect(screen.queryByTestId("service-token-revoke-SVT-revoked")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("service-token-revoke-SVT-active"));
+    await waitFor(() => expect(onRevokeToken).toHaveBeenCalledWith("SVT-active"));
+    expect(await screen.findByTestId("service-message")).toHaveTextContent(
+      "Access token revoked",
+    );
+  });
+
+  it("clearly labels an explicitly public legacy service", async () => {
+    server.use(
+      ...detailHandlers({
+        deployments: [makeDeployment()],
+        serviceResponses: [makeService({ auth_required: false })],
+      }),
+    );
+    renderDetail();
+
+    expect(await screen.findByTestId("service-auth-badge")).toHaveTextContent("Open");
+    expect(screen.getByText(/explicitly public endpoint/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("service-token-panel")).not.toBeInTheDocument();
   });
 
   it("switches the client snippet between curl, Python, and JavaScript", async () => {

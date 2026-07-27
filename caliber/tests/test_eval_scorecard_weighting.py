@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from caliber.eval.scorecard import run_scorecard
+import pytest
+
+from caliber.eval.scorecard import ScorecardInputError, run_scorecard
 
 
 def _fixed_predict(answer: str):
@@ -131,39 +133,37 @@ def test_row_with_a_failed_scorer_cannot_pass() -> None:
     assert row.scores["exact_match"] == 1.0
     assert row.error is not None
     assert "Judge.J-1" in row.error
+    assert row.score == 0.0
     assert row.passed is False
     assert result.pass_rate == 0.0
     assert result.failed_count == 1
-    # The surviving scorer still contributes its value to the aggregate — one
-    # broken judge shouldn't erase the evidence the other scorers produced.
-    assert result.aggregate["exact_match"] == 1.0
+    # The surviving scorer remains available as raw diagnostic evidence, but
+    # an incomplete row cannot enter a comparable headline aggregate.
+    assert "exact_match" not in result.aggregate
     assert "Judge.J-1" not in result.aggregate
 
 
-def test_all_zero_weights_fall_back_to_unweighted_means() -> None:
-    """Degenerate weighting must not report a 0% pass rate for passing rows.
-
-    A follow-up review caught this: with every weight at 0 the weighted means
-    are 0/0. Reporting 0.0 made a scorecard claim "0% passed" while displaying
-    two passing rows and ``passed_count=2``. Treat "no weights" as "equal
-    weights" instead, which is the only defensible reading.
-    """
+def test_all_zero_weights_are_rejected_before_prediction() -> None:
+    """Explicit exclusion cannot silently become equal weighting."""
     examples = [
         _example("EX-1", "Paris", weight=0.0),
         _example("EX-2", "Berlin", weight=0.0),
     ]
+    prediction_calls = 0
 
-    result = run_scorecard(examples, _fixed_predict("Paris"), ["exact_match"])
+    def predict(_inputs: Any) -> str:
+        nonlocal prediction_calls
+        prediction_calls += 1
+        return "Paris"
 
-    assert result.passed_count == 1
-    assert result.failed_count == 1
-    assert result.overall == 0.5
-    assert result.pass_rate == 0.5
-    assert result.aggregate["exact_match"] == 0.5
+    with pytest.raises(ScorecardInputError, match="at least one value greater than zero"):
+        run_scorecard(examples, predict, ["exact_match"])
+
+    assert prediction_calls == 0
 
 
 def test_single_zero_weight_row_still_uses_the_weighted_path() -> None:
-    """Only the all-zero case falls back; a partially zero-weighted set does not."""
+    """A zero-weight row is valid when another row supplies aggregate weight."""
     examples = [
         _example("EX-hit", "Paris", weight=1.0),
         _example("EX-ignored", "Berlin", weight=0.0),
@@ -200,6 +200,32 @@ def test_every_failing_scorer_is_reported_not_just_the_first() -> None:
     assert result.rows[0].passed is False
     # The healthy scorer's evidence survives.
     assert result.rows[0].scores["exact_match"] == 1.0
+    assert result.rows[0].score == 0.0
+
+
+def test_incomplete_row_is_excluded_from_aggregate_but_penalizes_overall() -> None:
+    """Only complete rows define scorer means; incomplete rows score zero overall."""
+
+    def selective_judge(_prediction: str, inputs: Any, _expected: Any) -> float:
+        if inputs["q"] == "EX-incomplete":
+            raise RuntimeError("judge unavailable")
+        return 0.5
+
+    result = run_scorecard(
+        [
+            _example("EX-complete", "Paris"),
+            _example("EX-incomplete", "Paris"),
+        ],
+        _fixed_predict("Paris"),
+        ["exact_match", "Judge.J-1"],
+        judge_runners={"Judge.J-1": selective_judge},
+    )
+
+    assert result.aggregate == {"exact_match": 1.0, "Judge.J-1": 0.5}
+    assert result.rows[1].scores == {"exact_match": 1.0}
+    assert result.rows[1].score == 0.0
+    # Complete row score is (1.0 + 0.5) / 2; incomplete row is fail-closed zero.
+    assert result.overall == 0.375
 
 
 def test_row_with_all_scorers_healthy_still_passes() -> None:

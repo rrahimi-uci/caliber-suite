@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberMcpServer
+from caliber.db.models import CaliberAuditLog, CaliberMcpServer
+from caliber.mcp_secrets import MCP_WRITE_ONLY_SENTINEL
 from caliber.routes import mcp_servers as mcp_routes
 
 BASE = "/ajax-api/2.0/mlflow/caliber/mcp-servers"
@@ -223,14 +225,27 @@ class TestCreateMcpServer:
         )
         assert r.status_code == 403
 
-    def test_auth_fields_persisted(self, client: TestClient) -> None:
+    def test_connection_secrets_are_persisted_but_never_serialized(
+        self, client: TestClient, db_session: Session
+    ) -> None:
         payload = {
             "name": "AuthServer",
             "transport": "stdio",
             "command": "npx srv",
             "auth_type": "token",
-            "auth_config": {"token_env_var": "MY_TOKEN"},
-            "env": {"MY_TOKEN": "secret"},
+            "auth_config": {
+                "token_env_var": "MY_TOKEN",
+                "token": "literal-auth-secret",
+                "nested": {"password": "literal-password"},
+            },
+            "env": {
+                "MY_TOKEN": "literal-env-secret",
+                "POSTGRES_URL": "${POSTGRES_URL}",
+            },
+            "headers": {
+                "Authorization": "Bearer literal-header-secret",
+                "X-Reference": "${HEADER_TOKEN}",
+            },
             "icon": "github",
         }
         r = client.post(BASE, json=payload)
@@ -238,8 +253,55 @@ class TestCreateMcpServer:
         data = r.json()["data"]
         assert data["auth_type"] == "token"
         assert data["auth_config"]["token_env_var"] == "MY_TOKEN"
-        assert data["env"]["MY_TOKEN"] == "secret"
+        assert data["auth_config"]["token"] == MCP_WRITE_ONLY_SENTINEL
+        assert data["auth_config"]["nested"]["password"] == MCP_WRITE_ONLY_SENTINEL
+        assert data["env"] == {
+            "MY_TOKEN": MCP_WRITE_ONLY_SENTINEL,
+            "POSTGRES_URL": "${POSTGRES_URL}",
+        }
+        assert data["headers"] == {
+            "Authorization": MCP_WRITE_ONLY_SENTINEL,
+            "X-Reference": "${HEADER_TOKEN}",
+        }
         assert data["icon"] == "github"
+
+        serialized = json.dumps(data)
+        for secret in (
+            "literal-auth-secret",
+            "literal-password",
+            "literal-env-secret",
+            "literal-header-secret",
+        ):
+            assert secret not in serialized
+
+        # Containment is at the API boundary: the gateway still receives the
+        # stored values until MCP credentials migrate to first-class refs.
+        db_session.expire_all()
+        stored = db_session.query(CaliberMcpServer).filter_by(name="AuthServer").one()
+        assert stored.env["MY_TOKEN"] == "literal-env-secret"
+        assert stored.headers["Authorization"] == "Bearer literal-header-secret"
+        assert stored.auth_config["token"] == "literal-auth-secret"
+        assert stored.auth_config["nested"]["password"] == "literal-password"
+
+        for response in (client.get(BASE), client.get(f"{BASE}/{stored.server_id}")):
+            assert response.status_code == 200
+            response_text = response.text
+            assert "literal-env-secret" not in response_text
+            assert "literal-header-secret" not in response_text
+            assert "literal-auth-secret" not in response_text
+
+    def test_create_rejects_write_only_sentinel(self, client: TestClient) -> None:
+        r = client.post(
+            BASE,
+            json={
+                "name": "InvalidSentinel",
+                "transport": "stdio",
+                "command": "npx srv",
+                "env": {"TOKEN": MCP_WRITE_ONLY_SENTINEL},
+            },
+        )
+        assert r.status_code == 400
+        assert "sentinel can only preserve an existing" in r.json()["detail"]
 
 
 # ── UPDATE ──────────────────────────────────────────────────────────────
@@ -280,6 +342,94 @@ class TestUpdateMcpServer:
             headers=VIEWER_HEADERS,
         )
         assert r.status_code == 403
+
+    def test_write_only_round_trip_preserves_stored_secrets(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _seed_server(
+            db_session,
+            env={"TOKEN": "stored-env-secret", "REFERENCE": "${REFERENCE}"},
+            headers={"Authorization": "Bearer stored-header-secret"},
+            auth_type="token",
+            auth_config={
+                "token_env_var": "TOKEN",
+                "token": "stored-auth-secret",
+                "nested": {"password": "stored-password"},
+            },
+        )
+        public = client.get(f"{BASE}/MCP-test1").json()["data"]
+
+        r = client.patch(
+            f"{BASE}/MCP-test1",
+            json={
+                "description": "Safe edit",
+                "env": public["env"],
+                "headers": public["headers"],
+                "auth_config": public["auth_config"],
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["data"]["env"]["TOKEN"] == MCP_WRITE_ONLY_SENTINEL
+
+        db_session.expire_all()
+        stored = db_session.get(CaliberMcpServer, "MCP-test1")
+        assert stored is not None
+        assert stored.env == {"TOKEN": "stored-env-secret", "REFERENCE": "${REFERENCE}"}
+        assert stored.headers == {"Authorization": "Bearer stored-header-secret"}
+        assert stored.auth_config["token"] == "stored-auth-secret"
+        assert stored.auth_config["nested"]["password"] == "stored-password"
+
+        audit = (
+            db_session.query(CaliberAuditLog)
+            .filter_by(action="update_mcp_server", entity_id="MCP-test1")
+            .one()
+        )
+        audit_text = json.dumps(audit.details)
+        for secret in (
+            "stored-env-secret",
+            "stored-header-secret",
+            "stored-auth-secret",
+            "stored-password",
+        ):
+            assert secret not in audit_text
+
+    def test_literal_secret_replacement_is_write_only_in_response_and_audit(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _seed_server(db_session, env={"TOKEN": "old-env-secret"})
+        r = client.patch(
+            f"{BASE}/MCP-test1",
+            json={"env": {"TOKEN": "new-env-secret"}},
+        )
+        assert r.status_code == 200
+        assert r.json()["data"]["env"]["TOKEN"] == MCP_WRITE_ONLY_SENTINEL
+        assert "new-env-secret" not in r.text
+        assert "old-env-secret" not in r.text
+
+        db_session.expire_all()
+        stored = db_session.get(CaliberMcpServer, "MCP-test1")
+        assert stored is not None
+        assert stored.env == {"TOKEN": "new-env-secret"}
+        audit = (
+            db_session.query(CaliberAuditLog)
+            .filter_by(action="update_mcp_server", entity_id="MCP-test1")
+            .one()
+        )
+        audit_text = json.dumps(audit.details)
+        assert "old-env-secret" not in audit_text
+        assert "new-env-secret" not in audit_text
+        assert MCP_WRITE_ONLY_SENTINEL in audit_text
+
+    def test_write_only_sentinel_cannot_create_an_unknown_secret_leaf(
+        self, client: TestClient, db_session: Session
+    ) -> None:
+        _seed_server(db_session, env={"EXISTING": "stored"})
+        r = client.patch(
+            f"{BASE}/MCP-test1",
+            json={"env": {"UNKNOWN": MCP_WRITE_ONLY_SENTINEL}},
+        )
+        assert r.status_code == 400
+        assert "sentinel can only preserve an existing" in r.json()["detail"]
 
 
 # ── DELETE ──────────────────────────────────────────────────────────────

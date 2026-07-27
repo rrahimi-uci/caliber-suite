@@ -767,9 +767,9 @@ class CaliberEvalRun(Base):
     history listing — the same shape as :class:`CaliberPromptTestRun`.
 
     ``dataset_version`` pins the exact example set scored so a run stays
-    reproducible after the dataset grows. ``predict_target`` records how
-    predictions were produced (``llm`` = the configured model; ``reference`` =
-    a labelled diagnostic that echoes the expected answer).
+    reproducible after the dataset grows. ``predict_target`` records whether
+    predictions came from the configured model or a registered prompt, skill,
+    or workflow version.
     """
 
     __tablename__ = "caliber_eval_runs"
@@ -2083,10 +2083,10 @@ class CaliberWorkflowService(Base):
     input_schema: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     output_schema: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    # v1 ships services OPEN (no token needed to invoke). Flip this per-service to
-    # require a Bearer service token; the token machinery is built but dormant
-    # until then.
-    auth_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    # New services are token-protected by default. An explicitly public service
+    # can still opt out, but an omitted API field must never publish an open
+    # endpoint by accident.
+    auth_required: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[str] = mapped_column(String(256), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

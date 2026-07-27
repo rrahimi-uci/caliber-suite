@@ -10,18 +10,20 @@ import { BrandAcronym, BRAND_ACRONYM_TEXT } from "@/components/BrandAcronym";
 import {
   HEALTH_DOT,
   HEALTH_TITLE,
-  useHealthStatus,
+  type HealthStatus,
 } from "@/components/useHealthStatus";
 
 import { useTheme } from "./useTheme";
 
 interface TopBarProps {
+  health: HealthStatus;
   onToggleSidebar?: () => void;
   currentUser?: string;
   onLogout?: () => void;
 }
 
 export function TopBar({
+  health,
   onToggleSidebar,
   currentUser,
   onLogout,
@@ -31,8 +33,6 @@ export function TopBar({
   const staticPrefix =
     (typeof window !== "undefined" && window.__CALIBER_STATIC_PREFIX__) || "";
   const logoSrc = `${staticPrefix}/caliber/caliber-icon.png`;
-
-  const health = useHealthStatus();
 
   return (
     <header className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center border-b border-slate-200/60 bg-white/80 px-5 shadow-topbar backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/90">
@@ -84,8 +84,12 @@ export function TopBar({
         <span
           className="flex items-center gap-1.5 text-[11px] text-slate-400 mr-1"
           title={HEALTH_TITLE[health]}
+          aria-label={HEALTH_TITLE[health]}
         >
-          <span className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`} />
+          <span
+            className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`}
+            aria-hidden="true"
+          />
         </span>
 
         <button

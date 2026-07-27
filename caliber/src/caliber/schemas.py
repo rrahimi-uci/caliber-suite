@@ -2758,12 +2758,13 @@ class EvalRunCreateRequest(BaseModel):
     * ``llm`` (default) — a generic completion from the configured model, the
       legacy behaviour; ``subject_ref`` is ignored.
     * ``prompt`` — a registered prompt version (``subject_ref`` = ``"<name>@<version>"``
-      or ``"<name>"`` for the latest); its template renders as the system
+      or ``"<name>"`` for version 1); its template renders as the system
       instruction so the *prompt itself* is the thing under test.
     * ``skill`` — a skill (``subject_ref`` = skill id); its content renders as the
       system instruction.
-    * ``workflow`` — scored through the workflow run/benchmark surface, not this
-      synchronous scorecard (the route returns a redirecting 400).
+    * ``workflow`` — a workflow version id; the route compiles it once and runs
+      it in preview mode for at most 20 examples. Preview is an execution mode,
+      not a guarantee that every integration is side-effect-free.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -2778,7 +2779,8 @@ class EvalRunCreateRequest(BaseModel):
     # Cap on examples scored (the run is synchronous; large sets risk timeouts).
     max_examples: int | None = Field(default=None, ge=1, le=500)
     predict_target: EvalPredictTarget = "llm"
-    # The artifact under test for non-``llm`` targets (prompt ref / skill id).
+    # The artifact under test for non-``llm`` targets (prompt ref / skill id /
+    # workflow version id).
     subject_ref: str | None = Field(default=None, max_length=256)
 
     @model_validator(mode="after")
@@ -3460,7 +3462,8 @@ class WorkflowServicePublishRequest(BaseModel):
     input_schema: dict[str, Any] | None = None
     output_schema: dict[str, Any] | None = None
     enabled: bool | None = None
-    # v1 default is open (no token). Set true to require a Bearer service token.
+    # New services default to Bearer-token auth. Set false only for an
+    # intentionally public endpoint.
     auth_required: bool | None = None
 
 
@@ -3475,7 +3478,7 @@ class WorkflowServiceSchema(BaseModel):
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
     enabled: bool
-    auth_required: bool = False
+    auth_required: bool = True
     endpoint: str
     created_by: str = ""
     created_at: datetime

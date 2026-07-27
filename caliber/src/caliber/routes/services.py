@@ -18,6 +18,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
+from typing import cast
 
 import jsonschema
 from sqlalchemy import func, select
@@ -29,7 +30,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
     CaliberServiceToken,
     CaliberWorkflow,
@@ -38,6 +39,7 @@ from caliber.db.models import (
     CaliberWorkflowService,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import get_visible
 from caliber.ids import new_service_id, new_service_token_id
 from caliber.routes._deps import (
     envelope_response,
@@ -67,6 +69,7 @@ PREFIX = "/ajax-api/2.0/mlflow/caliber"
 SERVICE_PATH = PREFIX + "/workflows/{workflow_id}/service"
 SERVICE_TOKENS_PATH = SERVICE_PATH + "/tokens"
 SERVICE_TOKEN_DETAIL_PATH = SERVICE_TOKENS_PATH + "/{token_id}"
+INTERNAL_OPENAPI_PATH = SERVICE_PATH + "/openapi.json"
 INVOKE_PATH = PREFIX + "/services/{workflow_id}/invoke"
 RUN_STATUS_PATH = PREFIX + "/services/{workflow_id}/runs/{run_id}"
 OPENAPI_PATH = PREFIX + "/services/{workflow_id}/openapi.json"
@@ -136,6 +139,29 @@ def _service_schema(service: CaliberWorkflowService, token_count: int) -> Workfl
     )
 
 
+def _get_authorized_workflow(
+    session: Session, request: Request, workflow_id: str
+) -> CaliberWorkflow:
+    """Resolve the parent workflow through the same visibility contract as Studio.
+
+    Service configuration and token routes are nested below a workflow, so scope
+    checks on the caller are not enough: an operator must also be able to see the
+    workflow named by the URL. Returning 404 for an out-of-scope parent keeps the
+    list/detail/mutation boundary consistent without disclosing that it exists.
+    """
+    identity = resolve_identity(request)
+    workflow = get_visible(
+        session,
+        CaliberWorkflow,
+        CaliberWorkflow.workflow_id,
+        workflow_id,
+        identity,
+    )
+    if workflow is None:
+        raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
+    return cast(CaliberWorkflow, workflow)
+
+
 # ---------------------------------------------------------------------------
 # Internal routes (operator/admin, user-header auth).
 # ---------------------------------------------------------------------------
@@ -149,8 +175,7 @@ async def publish_service(request: Request) -> JSONResponse:
     alias = payload.alias or DEFAULT_ALIAS
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
-            raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
+        _get_authorized_workflow(session, request, workflow_id)
         deployment = _active_deployment(session, workflow_id, alias)
         if deployment is None:
             raise HTTPException(
@@ -191,7 +216,7 @@ async def publish_service(request: Request) -> JSONResponse:
                 output_schema=output_schema,
                 enabled=payload.enabled if payload.enabled is not None else True,
                 auth_required=(
-                    payload.auth_required if payload.auth_required is not None else False
+                    payload.auth_required if payload.auth_required is not None else True
                 ),
                 created_by=actor,
             )
@@ -226,6 +251,7 @@ async def get_service(request: Request) -> JSONResponse:
     require_user(request)
     factory = get_session_factory(request)
     with factory() as session:
+        _get_authorized_workflow(session, request, workflow_id)
         service = (
             session.execute(
                 select(CaliberWorkflowService).where(
@@ -244,11 +270,47 @@ async def get_service(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
+async def get_service_openapi(request: Request) -> JSONResponse:
+    """Return a workflow service's raw OpenAPI spec through CALIBER auth.
+
+    The external ``/services/{workflow_id}/openapi.json`` route intentionally
+    follows the service's Bearer-token contract. Studio cannot attach that
+    token to a plain browser navigation, so this parent-scoped read route uses
+    the same user/project visibility contract as ``get_service`` and renders
+    the exact same spec without weakening the external endpoint.
+    """
+    workflow_id = request.path_params["workflow_id"]
+    require_user(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        workflow = _get_authorized_workflow(session, request, workflow_id)
+        service = (
+            session.execute(
+                select(CaliberWorkflowService).where(
+                    CaliberWorkflowService.workflow_id == workflow_id
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if service is None:
+            raise HTTPException(
+                status_code=404, detail=f"no service published for workflow {workflow_id!r}"
+            )
+        spec = _build_service_openapi_spec(
+            workflow_id=workflow_id,
+            title=workflow.name,
+            service=service,
+        )
+    return JSONResponse(spec)
+
+
 async def delete_service(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
+        _get_authorized_workflow(session, request, workflow_id)
         service = (
             session.execute(
                 select(CaliberWorkflowService).where(
@@ -287,11 +349,12 @@ async def delete_service(request: Request) -> JSONResponse:
 
 async def create_service_token(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
-    actor = require_scopes(request, [SCOPE_ADMIN])
+    actor = require_scopes(request, [SCOPE_OPERATOR])
     body = await parse_json_object(request)
     payload = ServiceTokenCreateRequest.model_validate(body)
     factory = get_session_factory(request)
     with factory() as session:
+        _get_authorized_workflow(session, request, workflow_id)
         service = (
             session.execute(
                 select(CaliberWorkflowService).where(
@@ -344,9 +407,10 @@ async def create_service_token(request: Request) -> JSONResponse:
 
 async def list_service_tokens(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
-    require_scopes(request, [SCOPE_ADMIN])
+    require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
+        _get_authorized_workflow(session, request, workflow_id)
         rows = (
             session.execute(
                 select(CaliberServiceToken)
@@ -375,9 +439,10 @@ async def list_service_tokens(request: Request) -> JSONResponse:
 async def revoke_service_token(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     token_id = request.path_params["token_id"]
-    actor = require_scopes(request, [SCOPE_ADMIN])
+    actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
+        _get_authorized_workflow(session, request, workflow_id)
         token = session.get(CaliberServiceToken, token_id)
         if token is None or token.workflow_id != workflow_id:
             raise HTTPException(
@@ -414,9 +479,10 @@ def _bearer_token(request: Request) -> str:
 def _load_enabled_service(request: Request, workflow_id: str) -> CaliberWorkflowService:
     """Load the published service for ``workflow_id`` (404 if none, 403 if disabled).
 
-    Auth is NOT enforced here — v1 ships services open. Callers gate the Bearer
-    check on :attr:`CaliberWorkflowService.auth_required` via
-    :func:`_validate_service_token`.
+    Auth is not enforced here. Callers gate the Bearer check on
+    :attr:`CaliberWorkflowService.auth_required` via
+    :func:`_validate_service_token`; new services set that bit by default while
+    legacy or explicitly public services may leave it disabled.
     """
     factory = get_session_factory(request)
     with factory() as session:
@@ -439,11 +505,11 @@ def _load_enabled_service(request: Request, workflow_id: str) -> CaliberWorkflow
     return service
 
 
-def _validate_service_token(request: Request, workflow_id: str, scope: str = INVOKE_SCOPE) -> None:
+def _validate_service_token(request: Request, workflow_id: str, scope: str = INVOKE_SCOPE) -> str:
     """Enforce a Bearer service token for ``workflow_id``/``scope`` (raises 401).
 
-    Only invoked when a service has ``auth_required`` set — v1 ships services
-    open, so this path is dormant until a service opts into token auth.
+    Returns a stable audit actor derived from the matched token id. The
+    plaintext token and its hash never enter the audit trail.
     """
     plaintext = _bearer_token(request)
     factory = get_session_factory(request)
@@ -466,6 +532,7 @@ def _validate_service_token(request: Request, workflow_id: str, scope: str = INV
             raise HTTPException(status_code=401, detail="service token expired")
         if scope not in (token.scopes or []):
             raise HTTPException(status_code=401, detail=f"service token missing scope {scope!r}")
+        return f"service_token:{token.token_id}"
 
 
 def _as_aware(value: datetime) -> datetime:
@@ -475,9 +542,11 @@ def _as_aware(value: datetime) -> datetime:
 async def invoke_service(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     service = _load_enabled_service(request, workflow_id)
-    # v1: services are open. Token auth only when the service opted in.
-    if service.auth_required:
+    actor = (
         _validate_service_token(request, workflow_id, INVOKE_SCOPE)
+        if service.auth_required
+        else f"anonymous_service:{workflow_id}"
+    )
     body = await parse_json_object(request, allow_empty=True)
     payload = ServiceInvokeRequest.model_validate(body)
     try:
@@ -512,7 +581,7 @@ async def invoke_service(request: Request) -> JSONResponse:
             version=version,
             alias=alias,
             source="service",
-            actor=f"service_token:{workflow_id}",
+            actor=actor,
             input_text=_input_to_text(payload.input),
             idempotency_key=payload.idempotency_key,
             publish=lambda evt: _emit_queue_event(request, evt),
@@ -522,7 +591,7 @@ async def invoke_service(request: Request) -> JSONResponse:
         # other service state changes (publish/update/token) so there's a trail.
         audit_record(
             session,
-            actor=f"service_token:{workflow_id}",
+            actor=actor,
             action="invoke_workflow_service",
             entity_type="workflow",
             entity_id=workflow_id,
@@ -598,21 +667,13 @@ def _run_output(run: CaliberWorkflowRun) -> dict[str, object]:
     return {"output": value}
 
 
-async def service_openapi(request: Request) -> JSONResponse:
-    """``GET /services/{workflow_id}/openapi.json`` — OpenAPI 3.0 spec for the service.
-
-    Auto-generated from the service's stored input/output JSON Schema so the
-    endpoint is self-documenting and importable into Swagger UI / Postman. Open
-    unless the service opted into token auth. Returns the raw spec (not enveloped).
-    """
-    workflow_id = request.path_params["workflow_id"]
-    service = _load_enabled_service(request, workflow_id)
-    if service.auth_required:
-        _validate_service_token(request, workflow_id, INVOKE_SCOPE)
-    factory = get_session_factory(request)
-    with factory() as session:
-        workflow = session.get(CaliberWorkflow, workflow_id)
-        title = workflow.name if workflow is not None else workflow_id
+def _build_service_openapi_spec(
+    *,
+    workflow_id: str,
+    title: str,
+    service: CaliberWorkflowService,
+) -> dict[str, object]:
+    """Build the canonical OpenAPI document used by both read surfaces."""
     invoke_path = INVOKE_PATH.format(workflow_id=workflow_id)
     status_path = PREFIX + "/services/" + workflow_id + "/runs/{run_id}"
     input_schema = dict(service.input_schema or {"type": "object"})
@@ -708,7 +769,32 @@ async def service_openapi(request: Request) -> JSONResponse:
         spec["components"] = {
             "securitySchemes": {"serviceToken": {"type": "http", "scheme": "bearer"}}
         }
-    return JSONResponse(spec)
+    return spec
+
+
+async def service_openapi(request: Request) -> JSONResponse:
+    """``GET /services/{workflow_id}/openapi.json`` — OpenAPI 3.0 spec for the service.
+
+    Auto-generated from the service's stored input/output JSON Schema so the
+    endpoint is self-documenting and importable into Swagger UI / Postman.
+    Token-protected unless the service was explicitly published as public.
+    Returns the raw spec (not enveloped).
+    """
+    workflow_id = request.path_params["workflow_id"]
+    service = _load_enabled_service(request, workflow_id)
+    if service.auth_required:
+        _validate_service_token(request, workflow_id, INVOKE_SCOPE)
+    factory = get_session_factory(request)
+    with factory() as session:
+        workflow = session.get(CaliberWorkflow, workflow_id)
+        title = workflow.name if workflow is not None else workflow_id
+    return JSONResponse(
+        _build_service_openapi_spec(
+            workflow_id=workflow_id,
+            title=title,
+            service=service,
+        )
+    )
 
 
 def register(app: Starlette) -> None:
@@ -718,6 +804,7 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(SERVICE_TOKENS_PATH, create_service_token, methods=["POST"]))
     app.routes.append(Route(SERVICE_TOKENS_PATH, list_service_tokens, methods=["GET"]))
     app.routes.append(Route(SERVICE_TOKEN_DETAIL_PATH, revoke_service_token, methods=["DELETE"]))
+    app.routes.append(Route(INTERNAL_OPENAPI_PATH, get_service_openapi, methods=["GET"]))
     app.routes.append(Route(OPENAPI_PATH, service_openapi, methods=["GET"]))
     app.routes.append(Route(INVOKE_PATH, invoke_service, methods=["POST"]))
     app.routes.append(Route(RUN_STATUS_PATH, get_service_run_status, methods=["GET"]))

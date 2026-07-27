@@ -9,6 +9,7 @@ import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
 const NOW = "2026-06-07T18:00:00Z";
+const WRITE_ONLY = "__CALIBER_WRITE_ONLY__";
 
 function envelope<T>(data: T): { data: T } {
   return { data };
@@ -702,13 +703,20 @@ describe("McpServers", () => {
     expect(await screen.findByText("policy denied")).toBeInTheDocument();
   });
 
-  it("lets an admin edit a server and PATCHes the changes (name immutable)", async () => {
+  it("keeps MCP credentials write-only during an unrelated admin edit", async () => {
     let patchBody: Record<string, unknown> | null = null;
+    const credentialServer = {
+      ...baseServer(),
+      env: { TOKEN: WRITE_ONLY, SAFE_REFERENCE: "${SAFE_REFERENCE}" },
+      headers: { Authorization: WRITE_ONLY },
+      auth_type: "token" as const,
+      auth_config: { token_env_var: "TOKEN", token: WRITE_ONLY },
+    };
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([baseServer()]))),
+      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([credentialServer]))),
       http.patch(`${API_BASE}/mcp-servers/MCP-1`, async ({ request }) => {
         patchBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(envelope({ ...baseServer(), description: "Updated docs" }));
+        return HttpResponse.json(envelope({ ...credentialServer, description: "Updated docs" }));
       }),
     );
 
@@ -723,6 +731,10 @@ describe("McpServers", () => {
     expect(nameInput).toHaveValue("Docs");
     expect(nameInput).toBeDisabled();
     expect(within(dialog).getByTestId("server-command-input")).toHaveValue("npx");
+    expect(within(dialog).getByTestId("mcp-write-only-notice")).toHaveTextContent(
+      "Credentials are write-only",
+    );
+    expect(within(dialog).queryByDisplayValue(WRITE_ONLY)).not.toBeInTheDocument();
 
     const description = within(dialog).getByPlaceholderText("What does this server provide?");
     await user.clear(description);
@@ -732,7 +744,95 @@ describe("McpServers", () => {
     await waitFor(() => expect(patchBody).toMatchObject({ description: "Updated docs", command: "npx" }));
     // ``name`` is immutable on the backend, so it is intentionally not sent.
     expect(patchBody && "name" in patchBody).toBe(false);
+    // Unchanged sensitive maps are omitted, so a sanitized GET can never
+    // overwrite the stored values during an unrelated edit.
+    expect(patchBody && "env" in patchBody).toBe(false);
+    expect(patchBody && "headers" in patchBody).toBe(false);
+    expect(patchBody && "auth_config" in patchBody).toBe(false);
     await waitFor(() => expect(screen.queryByTestId("edit-server-dialog")).not.toBeInTheDocument());
+  });
+
+  it("round-trips write-only leaves only when changing the token reference", async () => {
+    let patchBody: Record<string, unknown> | null = null;
+    const credentialServer = {
+      ...baseServer(),
+      env: {
+        TOKEN: WRITE_ONLY,
+        KEEP_SECRET: WRITE_ONLY,
+        SAFE_REFERENCE: "${SAFE_REFERENCE}",
+      },
+      headers: { Authorization: WRITE_ONLY },
+      auth_type: "token" as const,
+      auth_config: { token_env_var: "TOKEN", token: WRITE_ONLY },
+    };
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([credentialServer]))),
+      http.patch(`${API_BASE}/mcp-servers/MCP-1`, async ({ request }) => {
+        patchBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(envelope(credentialServer));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("mcp-row-MCP-1");
+    await user.click(screen.getByTestId("edit-btn-MCP-1"));
+    const dialog = await screen.findByTestId("edit-server-dialog");
+    const tokenInput = within(dialog).getByTestId("server-token-env-input");
+    expect(tokenInput).toHaveValue("TOKEN");
+    await user.clear(tokenInput);
+    await user.type(tokenInput, "NEW_TOKEN");
+    await user.click(within(dialog).getByTestId("server-submit-btn"));
+
+    await waitFor(() => expect(patchBody).not.toBeNull());
+    expect(patchBody).toMatchObject({
+      auth_type: "token",
+      auth_config: { token_env_var: "NEW_TOKEN", token: WRITE_ONLY },
+      env: {
+        KEEP_SECRET: WRITE_ONLY,
+        SAFE_REFERENCE: "${SAFE_REFERENCE}",
+        NEW_TOKEN: "${NEW_TOKEN}",
+      },
+    });
+    const env = (patchBody as { env: Record<string, string> }).env;
+    expect(env).not.toHaveProperty("TOKEN");
+    expect(patchBody && "headers" in patchBody).toBe(false);
+  });
+
+  it("removes the obsolete token environment mapping when authentication is disabled", async () => {
+    let patchBody: Record<string, unknown> | null = null;
+    const credentialServer = {
+      ...baseServer(),
+      env: { TOKEN: WRITE_ONLY, KEEP_SECRET: WRITE_ONLY },
+      auth_type: "token" as const,
+      auth_config: { token_env_var: "TOKEN", token: WRITE_ONLY },
+    };
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([credentialServer]))),
+      http.patch(`${API_BASE}/mcp-servers/MCP-1`, async ({ request }) => {
+        patchBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(envelope({ ...credentialServer, auth_type: "none" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("mcp-row-MCP-1");
+    await user.click(screen.getByTestId("edit-btn-MCP-1"));
+    const dialog = await screen.findByTestId("edit-server-dialog");
+    await user.selectOptions(
+      within(dialog).getByRole("combobox", { name: "Authentication type" }),
+      "none",
+    );
+    await user.click(within(dialog).getByTestId("server-submit-btn"));
+
+    await waitFor(() => expect(patchBody).not.toBeNull());
+    expect(patchBody).toMatchObject({
+      auth_type: "none",
+      auth_config: {},
+      env: { KEEP_SECRET: WRITE_ONLY },
+    });
+    expect((patchBody as { env: Record<string, string> }).env).not.toHaveProperty("TOKEN");
   });
 
   it("lets an admin delete a server after an inline confirmation", async () => {

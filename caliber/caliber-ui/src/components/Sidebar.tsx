@@ -32,7 +32,7 @@ import {
   HEALTH_DOT,
   HEALTH_TITLE,
   HEALTH_LABEL,
-  useHealthStatus,
+  type HealthStatus,
 } from "@/components/useHealthStatus";
 import { useApiQuery } from "@/hooks/useApiQuery";
 
@@ -143,6 +143,7 @@ function NavItem({
 }
 
 interface SidebarProps {
+  health: HealthStatus;
   mobileOpen?: boolean;
   onNavigate?: () => void;
   /** Desktop: collapse the sidebar to an icon rail (the toggle lives in AppShell). */
@@ -150,6 +151,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
+  health,
   mobileOpen = false,
   onNavigate,
   collapsed = false,
@@ -168,7 +170,6 @@ export function Sidebar({
     { refetchInterval: 30_000, staleTime: 15_000, retry: false },
   );
   const pausedCount = (plansNav.data ?? []).filter((p) => p.status === "paused").length;
-  const health = useHealthStatus();
   return (
     <CollapsedContext.Provider value={collapsed}>
     <aside
@@ -329,7 +330,10 @@ export function Sidebar({
               data-testid="sidebar-health"
               title={HEALTH_TITLE[health]}
             >
-              <div className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`} />
+              <div
+                className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`}
+                aria-hidden="true"
+              />
               <span className="text-[10px] font-medium text-slate-400">
                 {HEALTH_LABEL[health]}
               </span>

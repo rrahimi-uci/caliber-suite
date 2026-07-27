@@ -27,6 +27,7 @@ from starlette.routing import Route
 
 from caliber.auth import SCOPE_ADMIN, require_scopes
 from caliber.db.models import CaliberAuditLog
+from caliber.mcp_secrets import sanitize_mcp_audit_details
 from caliber.routes._deps import envelope_response, get_session_factory
 from caliber.schemas import AuditLogEntrySchema, AuditLogPageSchema
 
@@ -97,6 +98,15 @@ def _newest_first(stmt: Select[Any]) -> Select[Any]:
     return stmt.order_by(CaliberAuditLog.timestamp.desc(), CaliberAuditLog.log_id.desc())
 
 
+def _public_entry(row: CaliberAuditLog) -> AuditLogEntrySchema:
+    """Serialize an audit row while containing legacy MCP credentials."""
+
+    entry = AuditLogEntrySchema.model_validate(row)
+    if entry.entity_type == "mcp_server" and entry.details is not None:
+        entry = entry.model_copy(update={"details": sanitize_mcp_audit_details(entry.details)})
+    return entry
+
+
 async def list_audit_log(request: Request) -> JSONResponse:
     """Return a filtered, paginated page of audit entries (admin-only)."""
     require_scopes(request, [SCOPE_ADMIN])
@@ -119,7 +129,7 @@ async def list_audit_log(request: Request) -> JSONResponse:
     with session_factory() as session:
         total = int(session.execute(count_stmt).scalar_one())
         rows = session.execute(page_stmt.limit(limit).offset(offset)).scalars().all()
-        entries = [AuditLogEntrySchema.model_validate(row) for row in rows]
+        entries = [_public_entry(row) for row in rows]
 
     page = AuditLogPageSchema(entries=entries, total=total, limit=limit, offset=offset)
     return envelope_response(page)
@@ -136,7 +146,7 @@ async def export_audit_log(request: Request) -> Response:
     session_factory = get_session_factory(request)
     with session_factory() as session:
         rows = session.execute(page_stmt.limit(_EXPORT_CAP)).scalars().all()
-        entries = [AuditLogEntrySchema.model_validate(row) for row in rows]
+        entries = [_public_entry(row) for row in rows]
 
     if fmt == "json":
         body = [entry.model_dump(mode="json") for entry in entries]

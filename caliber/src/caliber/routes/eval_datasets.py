@@ -245,10 +245,27 @@ async def update_dataset(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
+def _parse_example_version(value: str, parameter: str) -> int:
+    """Parse one 1-indexed dataset-version query parameter."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{parameter} must be an integer, got {value!r}",
+        ) from exc
+    if parsed < 1 or parsed >= 2**31:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{parameter} must be between 1 and {2**31 - 1}, got {parsed}",
+        )
+    return parsed
+
+
 async def list_examples(request: Request) -> JSONResponse:
     """List examples in a dataset.
 
-    Two query-string knobs:
+    Three query-string controls:
 
     * ``version=<N>`` returns only examples whose ``dataset_version``
       equals N — the "what was **added** in version N?" view. This is
@@ -259,44 +276,69 @@ async def list_examples(request: Request) -> JSONResponse:
       :func:`caliber.routes.evaluations._load_example_rows` and dataset
       restore both use. Callers previewing what a pinned evaluation will
       score must not use this filter for that purpose.
+    * ``as_of_version=<N>`` returns the set active at N, matching pinned
+      evaluation and restore semantics. It is mutually exclusive with both
+      ``version`` and ``include_superseded=true``.
     * ``include_superseded=true`` opts into showing retired examples
       (default hides them; the operator usually wants the current set).
     """
     require_user(request)
+    identity = resolve_identity(request)
     dataset_id = request.path_params["dataset_id"]
     factory = get_session_factory(request)
     version_filter = request.query_params.get("version")
+    as_of_filter = request.query_params.get("as_of_version")
     include_superseded = request.query_params.get("include_superseded") == "true"
+    if version_filter is not None and as_of_filter is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="version and as_of_version are mutually exclusive",
+        )
+    if as_of_filter is not None and include_superseded:
+        raise HTTPException(
+            status_code=400,
+            detail="include_superseded cannot be combined with as_of_version",
+        )
     limit, offset = list_limit(request)
     with factory() as session:
-        if session.get(CaliberEvalDataset, dataset_id) is None:
+        dataset = get_visible(
+            session,
+            CaliberEvalDataset,
+            CaliberEvalDataset.dataset_id,
+            dataset_id,
+            identity,
+        )
+        if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
         stmt = (
             select(CaliberEvalDatasetExample)
             .where(CaliberEvalDatasetExample.dataset_id == dataset_id)
-            .order_by(CaliberEvalDatasetExample.created_at)
+            .order_by(
+                CaliberEvalDatasetExample.created_at,
+                CaliberEvalDatasetExample.example_id,
+            )
         )
         if version_filter is not None:
-            try:
-                parsed_version = int(version_filter)
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"version must be an integer, got {version_filter!r}",
-                ) from exc
-            # Cap the parsed integer to a sane range. ``int()`` accepts
-            # arbitrarily large values; without this guard a request
-            # like ``?version=99999999999999999999`` runs the SQL
-            # comparison and silently returns no rows. Versions
-            # monotonically increase from 1 and the DB column is a
-            # 32-bit int, so 2**31 is the natural ceiling.
-            if parsed_version < 1 or parsed_version >= 2**31:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(f"version must be between 1 and {2**31 - 1}, got {parsed_version}"),
-                )
+            parsed_version = _parse_example_version(version_filter, "version")
             stmt = stmt.where(CaliberEvalDatasetExample.dataset_version == parsed_version)
-        if not include_superseded:
+        elif as_of_filter is not None:
+            parsed_version = _parse_example_version(as_of_filter, "as_of_version")
+            if parsed_version > dataset.version:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"eval dataset {dataset_id!r} has no version {parsed_version} "
+                        f"(current version is {dataset.version})"
+                    ),
+                )
+            stmt = stmt.where(
+                CaliberEvalDatasetExample.dataset_version <= parsed_version,
+                or_(
+                    CaliberEvalDatasetExample.superseded_version.is_(None),
+                    CaliberEvalDatasetExample.superseded_version > parsed_version,
+                ),
+            )
+        if as_of_filter is None and not include_superseded:
             stmt = stmt.where(CaliberEvalDatasetExample.superseded_at.is_(None))
         rows = session.execute(stmt.limit(limit).offset(offset)).scalars().all()
     items = [EvalExampleSchema.model_validate(row) for row in rows]

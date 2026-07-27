@@ -17,6 +17,8 @@ const EXPECTED_NAV_ORDER = [
   "Evaluations",
   "Observability",
   "Review Queues",
+  "Releases",
+  "Audit Log",
   "LLM Gateway",
   "Settings",
   "Docs",
@@ -39,6 +41,8 @@ const SIDEBAR_ROUTES = [
   { label: "Evaluations", path: "/caliber/evaluations", heading: "Evaluations" },
   { label: "Observability", path: "/caliber/observability", heading: "Observability" },
   { label: "Review Queues", path: "/caliber/review-queues", heading: "Review Queues" },
+  { label: "Releases", path: "/caliber/releases", heading: "Releases" },
+  { label: "Audit Log", path: "/caliber/audit-log", heading: "Audit Log" },
   { label: "LLM Gateway", path: "/caliber/gateway", heading: "LLM Gateway" },
   { label: "Settings", path: "/caliber/settings", heading: "Settings" },
 ] as const;

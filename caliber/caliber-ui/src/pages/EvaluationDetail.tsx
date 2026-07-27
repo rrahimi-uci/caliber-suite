@@ -6,7 +6,7 @@
  * (input → prediction vs. expected, with per-grader scores and pass/fail).
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 
@@ -33,6 +33,21 @@ function previewValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function sameScorerSuite(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function fmtWeight(value: number): string {
+  return value.toFixed(2);
+}
+
+function comparisonValue(value: string | null | undefined): string {
+  return value?.trim() || "(none)";
 }
 
 // Renders a score delta vs. the baseline run as percentage points (pp). `delta`
@@ -90,6 +105,32 @@ export function EvaluationDetail(): JSX.Element {
 
   const scorerKeys = useMemo(() => run?.scorers ?? [], [run]);
 
+  // A displayed delta is only controlled when both runs use the same dataset
+  // snapshot and scorer suite. Subject/model/target changes are allowed because
+  // they are often the variable under test, but are disclosed after selection.
+  const compatibleBaselines = useMemo(
+    () =>
+      (otherRuns ?? []).filter(
+        (candidate) =>
+          candidate.run_id !== run?.run_id &&
+          candidate.dataset_version === run?.dataset_version &&
+          candidate.status === "completed" &&
+          candidate.overall_score !== null &&
+          sameScorerSuite(candidate.scorers, run?.scorers ?? []),
+      ),
+    [otherRuns, run],
+  );
+  const selectedBaselineSummary = useMemo(
+    () => compatibleBaselines.find((candidate) => candidate.run_id === baselineId) ?? null,
+    [baselineId, compatibleBaselines],
+  );
+
+  useEffect(() => {
+    if (baselineId && !compatibleBaselines.some((candidate) => candidate.run_id === baselineId)) {
+      setBaselineId("");
+    }
+  }, [baselineId, compatibleBaselines]);
+
   // Aggregate / overall / pass-rate are weighted means over the dataset's
   // example weights. Surface the column only when the dataset actually uses
   // non-default weights, so the headline numbers stay explicable without
@@ -97,6 +138,39 @@ export function EvaluationDetail(): JSX.Element {
   const isWeighted = useMemo(
     () => (run?.results ?? []).some((row) => (row.weight ?? 1) !== 1),
     [run],
+  );
+  const totalWeight = useMemo(
+    () => (run?.results ?? []).reduce((sum, row) => sum + (row.weight ?? 1), 0),
+    [run],
+  );
+  const passedWeight = useMemo(
+    () =>
+      (run?.results ?? []).reduce(
+        (sum, row) => sum + (row.passed ? (row.weight ?? 1) : 0),
+        0,
+      ),
+    [run],
+  );
+  const allZeroWeightFallback = Boolean(run?.results.length) && totalWeight === 0;
+  const usesWeightedMetrics = isWeighted && !allZeroWeightFallback;
+  const hasIncompleteRows = (run?.results ?? []).some((row) => Boolean(row.error));
+  const scorerCoverage = useMemo(
+    () =>
+      Object.fromEntries(
+        scorerKeys.map((key) => {
+          const coveredRows = (run?.results ?? []).filter(
+            (row) => !row.error && row.scores[key] !== undefined,
+          );
+          return [
+            key,
+            {
+              rows: coveredRows.length,
+              weight: coveredRows.reduce((sum, row) => sum + (row.weight ?? 1), 0),
+            },
+          ];
+        }),
+      ) as Record<string, { rows: number; weight: number }>,
+    [run, scorerKeys],
   );
 
   if (loading && !run) {
@@ -156,6 +230,28 @@ export function EvaluationDetail(): JSX.Element {
         </div>
       )}
 
+      {hasIncompleteRows && (
+        <div
+          data-testid="eval-incomplete-warning"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          Some rows have incomplete scorer evidence. Surviving raw scorer values remain visible
+          for diagnosis but do not enter per-scorer aggregates; overall and pass-rate metrics
+          conservatively count each error-bearing row as zero, and the row cannot pass.
+        </div>
+      )}
+
+      {allZeroWeightFallback && (
+        <div
+          data-testid="eval-zero-weight-warning"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+        >
+          Every stored row weight is 0.00. This legacy run predates zero-total validation and used
+          an equal-row fallback for its displayed metrics, so the zero weights did not exclude
+          these rows.
+        </div>
+      )}
+
       {/* Compare-to */}
       <div className="flex items-center gap-2">
         <label htmlFor="eval-baseline" className="text-xs font-semibold text-slate-500">
@@ -169,15 +265,32 @@ export function EvaluationDetail(): JSX.Element {
           className="rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs text-slate-900 outline-none focus:border-caliber-400 focus:ring-2 focus:ring-caliber-400/20"
         >
           <option value="">No baseline</option>
-          {(otherRuns ?? [])
-            .filter((r) => r.run_id !== run.run_id)
-            .map((r) => (
-              <option key={r.run_id} value={r.run_id}>
-                {r.label || r.run_id} ({fmtPct(r.overall_score)})
-              </option>
-            ))}
+          {compatibleBaselines.map((r) => (
+            <option key={r.run_id} value={r.run_id}>
+              {r.label || r.run_id} ({fmtPct(r.overall_score)}) · {r.predict_target}
+              {r.subject_ref ? `: ${r.subject_ref}` : ""} · {r.model || "default model"}
+            </option>
+          ))}
         </select>
       </div>
+
+      {selectedBaselineSummary && (
+        <div
+          data-testid="baseline-comparison-context"
+          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"
+        >
+          <span className="font-semibold text-slate-700">
+            Dataset/scorer-compatible comparison:
+          </span>{" "}
+          dataset v{run.dataset_version} and grader suite match; target, subject, and model are
+          disclosed rather than matched. Current: target{" "}
+          {comparisonValue(run.predict_target)}, subject {comparisonValue(run.subject_ref)}, model{" "}
+          {comparisonValue(run.model)}. Baseline: target{" "}
+          {comparisonValue(selectedBaselineSummary.predict_target)}, subject{" "}
+          {comparisonValue(selectedBaselineSummary.subject_ref)}, model{" "}
+          {comparisonValue(selectedBaselineSummary.model)}.
+        </div>
+      )}
 
       {/* Aggregate cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="eval-aggregate">
@@ -186,12 +299,23 @@ export function EvaluationDetail(): JSX.Element {
           value={fmtPct(run.overall_score)}
           valueTone={tone(run.overall_score)}
           delta={delta("overall", run.overall_score)}
+          hint={
+            usesWeightedMetrics
+              ? `Weighted mean · ${fmtWeight(totalWeight)} total weight`
+              : allZeroWeightFallback
+                ? "Equal-row fallback · stored total weight 0.00"
+                : "Unweighted row mean"
+          }
         />
         <ScoreCard
-          label="Pass rate"
+          label={usesWeightedMetrics ? "Weighted pass rate" : "Pass rate"}
           value={fmtPct(run.pass_rate)}
           valueTone={tone(run.pass_rate)}
-          hint={`${run.passed_count}/${run.n_examples} passed`}
+          hint={
+            usesWeightedMetrics
+              ? `${run.passed_count}/${run.n_examples} raw rows · ${fmtWeight(passedWeight)}/${fmtWeight(totalWeight)} passing weight`
+              : `${run.passed_count}/${run.n_examples} rows passed${allZeroWeightFallback ? " · equal-row fallback" : ""}`
+          }
         />
         {scorerKeys.map((key) => (
           <ScoreCard
@@ -200,6 +324,7 @@ export function EvaluationDetail(): JSX.Element {
             value={fmtPct(run.aggregate[key])}
             valueTone={tone(run.aggregate[key])}
             delta={delta(key, run.aggregate[key])}
+            hint={`valid ${scorerCoverage[key]?.rows ?? 0}/${run.n_examples} rows · ${fmtWeight(scorerCoverage[key]?.weight ?? 0)}/${fmtWeight(totalWeight)} weight`}
           />
         ))}
       </div>
@@ -214,7 +339,7 @@ export function EvaluationDetail(): JSX.Element {
               <th className="px-4 py-3 text-left font-medium">Prediction</th>
               {scorerKeys.map((key) => (
                 <th key={key} className="px-3 py-3 text-left font-medium">
-                  {scorerLabel(key)}
+                  {scorerLabel(key, judgeNames)}
                 </th>
               ))}
               {isWeighted && (
@@ -245,6 +370,19 @@ export function EvaluationDetail(): JSX.Element {
                   <div className="line-clamp-3 whitespace-pre-wrap break-words">
                     {previewValue(row.input.input ?? row.input)}
                   </div>
+                  {(row.tags ?? []).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(row.tags ?? []).map((tag, index) => (
+                        <span
+                          key={`${tag}-${index}`}
+                          data-testid="eval-result-tag"
+                          className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </td>
                 <td className="max-w-[12rem] px-4 py-3 text-xs text-slate-600">
                   <div className="line-clamp-3 whitespace-pre-wrap break-words">
@@ -252,11 +390,15 @@ export function EvaluationDetail(): JSX.Element {
                   </div>
                 </td>
                 <td className="max-w-[16rem] px-4 py-3 text-xs text-slate-700">
-                  {row.error ? (
-                    <span className="text-red-600">error: {row.error}</span>
-                  ) : (
-                    <div className="line-clamp-3 whitespace-pre-wrap break-words">
-                      {row.prediction}
+                  <div className="line-clamp-3 whitespace-pre-wrap break-words">
+                    {row.prediction || "—"}
+                  </div>
+                  {row.error && (
+                    <div
+                      data-testid="eval-row-error"
+                      className="mt-2 whitespace-pre-wrap break-words text-red-600"
+                    >
+                      Incomplete: {row.error}
                     </div>
                   )}
                 </td>
@@ -271,7 +413,11 @@ export function EvaluationDetail(): JSX.Element {
                   </td>
                 )}
                 <td className="px-4 py-3">
-                  {row.passed ? (
+                  {row.error ? (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+                      Incomplete
+                    </span>
+                  ) : row.passed ? (
                     <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">
                       Pass
                     </span>

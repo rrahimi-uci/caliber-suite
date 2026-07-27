@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberEvalDataset,
+    CaliberEvalDatasetExample,
     CaliberSkill,
     CaliberToolRegistry,
     CaliberWorkflow,
@@ -393,7 +396,7 @@ def test_build_plan_resolves_agent_skills_from_stored_skill_rows(
     assert agent.skill_instructions == ["Be concise.", "Refuse harmful asks."]
 
 
-def test_evaluate_deploy_gate_with_missing_dataset_treats_as_pass(
+def test_evaluate_deploy_gate_with_missing_dataset_fails_closed(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -423,8 +426,189 @@ def test_evaluate_deploy_gate_with_missing_dataset_treats_as_pass(
     )
 
     assert result.has_gate is True
+    assert result.passed is False
+    assert result.runs[0].passed is False
+    assert result.runs[0].pass_rate == 0.0
+    assert result.runs[0].n_examples == 0
+    assert result.runs[0].detail == "dataset not found; gate failed closed"
+
+
+def test_evaluate_deploy_gate_with_empty_dataset_fails_closed(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        promoter, "compile_workflow", lambda *args, **kwargs: SimpleNamespace(ir=None)
+    )
+    db_session.add(
+        CaliberEvalDataset(
+            dataset_id="eval-empty",
+            name="empty",
+            owner="@test",
+            status="active",
+            version=1,
+        )
+    )
+    db_session.commit()
+    manifest = parse_manifest(
+        make_manifest(
+            "wf",
+            deploy_gates={
+                "empty_eval": {
+                    "type": "deploy_gate",
+                    "dataset_ref": "empty",
+                    "required_for_aliases": ["prod"],
+                }
+            },
+        )
+    )
+
+    result = evaluate_deploy_gates(
+        db_session,
+        manifest,
+        "prod",
+        resolver=fake_resolver(),
+        executor=promoter.build_executor(None),
+    )
+
+    assert result.passed is False
+    assert result.runs[0].passed is False
+    assert result.runs[0].pass_rate == 0.0
+    assert result.runs[0].n_examples == 0
+    assert result.runs[0].detail == "dataset has no active examples; gate failed closed"
+
+
+def test_evaluate_deploy_gate_with_archived_dataset_fails_closed(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        promoter, "compile_workflow", lambda *args, **kwargs: SimpleNamespace(ir=None)
+    )
+    dataset = CaliberEvalDataset(
+        dataset_id="eval-archived",
+        name="archived",
+        owner="@test",
+        status="archived",
+        version=1,
+    )
+    db_session.add(dataset)
+    db_session.add(
+        CaliberEvalDatasetExample(
+            example_id="archived-example",
+            dataset_id=dataset.dataset_id,
+            dataset_version=1,
+            input={"input": "must not run"},
+            expected={},
+        )
+    )
+    db_session.commit()
+    manifest = parse_manifest(
+        make_manifest(
+            "wf",
+            deploy_gates={
+                "archived_eval": {
+                    "type": "deploy_gate",
+                    "dataset_ref": "archived",
+                    "required_for_aliases": ["prod"],
+                }
+            },
+        )
+    )
+
+    result = evaluate_deploy_gates(
+        db_session,
+        manifest,
+        "prod",
+        resolver=fake_resolver(),
+        executor=promoter.build_executor(None),
+    )
+
+    assert result.passed is False
+    assert result.runs[0].passed is False
+    assert result.runs[0].pass_rate == 0.0
+    assert result.runs[0].n_examples == 0
+    assert result.runs[0].detail == "dataset is archived; gate failed closed"
+
+
+def test_evaluate_deploy_gate_orders_bounded_sample_and_uses_preview(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        promoter, "compile_workflow", lambda *args, **kwargs: SimpleNamespace(ir=None)
+    )
+    dataset = CaliberEvalDataset(
+        dataset_id="eval-ordered",
+        name="ordered",
+        owner="@test",
+        status="active",
+        version=1,
+    )
+    db_session.add(dataset)
+    db_session.add_all(
+        [
+            CaliberEvalDatasetExample(
+                example_id="example-c",
+                dataset_id=dataset.dataset_id,
+                dataset_version=1,
+                input={"input": "late"},
+                expected={},
+                created_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+            ),
+            CaliberEvalDatasetExample(
+                example_id="example-b",
+                dataset_id=dataset.dataset_id,
+                dataset_version=1,
+                input={"input": "second"},
+                expected={},
+                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ),
+            CaliberEvalDatasetExample(
+                example_id="example-a",
+                dataset_id=dataset.dataset_id,
+                dataset_version=1,
+                input={"input": "first"},
+                expected={},
+                created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+    calls: list[tuple[str, bool]] = []
+
+    def _execute(plan, input_text, *, executor, preview=False):
+        del plan, executor
+        calls.append((input_text, preview))
+        return SimpleNamespace(status="completed")
+
+    monkeypatch.setattr(promoter, "execute", _execute)
+    manifest = parse_manifest(
+        make_manifest(
+            "wf",
+            deploy_gates={
+                "ordered_eval": {
+                    "type": "deploy_gate",
+                    "dataset_ref": "ordered",
+                    "required_for_aliases": ["prod"],
+                    "thresholds": {"min_pass_rate": 1.0},
+                }
+            },
+        )
+    )
+
+    result = evaluate_deploy_gates(
+        db_session,
+        manifest,
+        "prod",
+        resolver=fake_resolver(),
+        executor=promoter.build_executor(None),
+        sample_size=2,
+    )
+
+    assert calls == [("first", True), ("second", True)]
     assert result.passed is True
-    assert result.runs[0].detail == "no examples; gate treated as pass"
+    assert result.runs[0].n_examples == 2
 
 
 def test_promote_prod_supersedes_pending_requests(

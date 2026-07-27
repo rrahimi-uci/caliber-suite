@@ -142,7 +142,7 @@ install_security_stack() {
   fi
 
   PIP_DISABLE_PIP_VERSION_CHECK=1 "${SECURITY_VENV_DIR}/bin/python" -m pip install -q --upgrade \
-    pip 'setuptools<82' wheel pip-audit
+    pip 'setuptools>=83' wheel pip-audit
   PIP_DISABLE_PIP_VERSION_CHECK=1 "${SECURITY_VENV_DIR}/bin/python" -m pip install -q -e "${install_target}"
 }
 

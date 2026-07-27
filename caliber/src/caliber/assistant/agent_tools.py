@@ -838,7 +838,7 @@ class AssistantAgentToolset:
     def _t_run_quick_eval(self, a: dict[str, Any]) -> str:
         from caliber.db.models import CaliberEvalDataset, CaliberEvalDatasetExample  # noqa: PLC0415
         from caliber.eval.predict import build_completion_fn, user_message  # noqa: PLC0415
-        from caliber.eval.scorecard import run_scorecard  # noqa: PLC0415
+        from caliber.eval.scorecard import ScorecardInputError, run_scorecard  # noqa: PLC0415
 
         dataset_id = str(a.get("dataset_id", ""))
         instructions = str(a.get("instructions", ""))
@@ -871,6 +871,8 @@ class AssistantAgentToolset:
                     "example_id": r.example_id,
                     "input": dict(r.input or {}),
                     "expected": dict(r.expected or {}),
+                    "weight": r.weight if r.weight is not None else 1.0,
+                    "tags": list(r.tags or []),
                 }
                 for r in rows
             ]
@@ -880,7 +882,10 @@ class AssistantAgentToolset:
         def predict(inputs: Mapping[str, Any]) -> str:
             return complete(instructions, user_message(dict(inputs)))
 
-        result = run_scorecard(examples, predict, scorers, pass_threshold=0.5)
+        try:
+            result = run_scorecard(examples, predict, scorers, pass_threshold=0.5)
+        except ScorecardInputError as exc:
+            return _err(str(exc))
         return _ok(
             {
                 "n_examples": len(result.rows),
@@ -1011,6 +1016,8 @@ class AssistantAgentToolset:
                 "example_id": r.example_id,
                 "input": dict(r.input or {}),
                 "expected": dict(r.expected or {}),
+                "weight": r.weight if r.weight is not None else 1.0,
+                "tags": list(r.tags or []),
             }
             for r in rows
         ]
@@ -1067,7 +1074,7 @@ class AssistantAgentToolset:
             return _ok({"dataset_id": dataset.dataset_id, "name": name, "examples": count})
 
     def _t_evaluate_tool_draft(self, a: dict[str, Any]) -> str:
-        from caliber.eval.scorecard import run_scorecard  # noqa: PLC0415
+        from caliber.eval.scorecard import ScorecardInputError, run_scorecard  # noqa: PLC0415
         from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
         from caliber.tool_sandbox.service import LocalSubprocessToolSandbox  # noqa: PLC0415
 
@@ -1102,7 +1109,15 @@ class AssistantAgentToolset:
             out = run.output
             return out if isinstance(out, str) else json.dumps(out, default=str, sort_keys=True)
 
-        result = run_scorecard(examples, predict, a.get("scorers") or None, pass_threshold=0.5)
+        try:
+            result = run_scorecard(
+                examples,
+                predict,
+                a.get("scorers") or None,
+                pass_threshold=0.5,
+            )
+        except ScorecardInputError as exc:
+            return _err(str(exc))
         return _ok(
             {
                 "n_examples": len(result.rows),
@@ -1152,8 +1167,8 @@ class AssistantAgentToolset:
                 example = WorkflowCalibrationExample(
                     input_text=user_message(row["input"]),
                     expected=row["expected"],
-                    weight=1.0,
-                    tags=[],
+                    weight=float(row.get("weight", 1.0)),
+                    tags=[str(tag) for tag in row.get("tags", [])],
                     example_id=row["example_id"],
                 )
                 run = execute(

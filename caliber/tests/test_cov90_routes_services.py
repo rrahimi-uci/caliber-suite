@@ -137,7 +137,7 @@ def test_publish_service_updates_existing_service_and_audits(
 
     first = _publish(client, wid)
     assert first["enabled"] is True
-    assert first["auth_required"] is False
+    assert first["auth_required"] is True
 
     second = _publish(client, wid, enabled=False, auth_required=True)
     assert second["service_id"] == first["service_id"]
@@ -164,7 +164,7 @@ def test_publish_service_updates_existing_service_and_audits(
 def test_invoke_swallows_event_bus_publish_failure(client: TestClient, caplog: object) -> None:
     wid, vid = create_and_publish(client)
     deploy_prod(client, wid, vid)
-    _publish(client, wid)
+    _publish(client, wid, auth_required=False)
 
     class _FailingBus:
         def publish(self, payload: dict[str, object]) -> None:
@@ -185,13 +185,15 @@ def test_invoke_swallows_event_bus_publish_failure(client: TestClient, caplog: o
 
 
 def test_delete_service_returns_404_when_not_published(client: TestClient) -> None:
-    r = client.delete(f"{PREFIX}/workflows/does-not-exist/service")
+    workflow_id, _ = create_and_publish(client)
+    r = client.delete(f"{PREFIX}/workflows/{workflow_id}/service")
     assert r.status_code == 404
     assert "no service published" in r.json()["detail"].lower()
 
 
 def test_create_service_token_returns_409_when_not_published(client: TestClient) -> None:
-    r = client.post(f"{PREFIX}/workflows/does-not-exist/service/tokens", json={"name": "ci"})
+    workflow_id, _ = create_and_publish(client)
+    r = client.post(f"{PREFIX}/workflows/{workflow_id}/service/tokens", json={"name": "ci"})
     assert r.status_code == 409
     assert "publish it first" in r.json()["detail"].lower()
 

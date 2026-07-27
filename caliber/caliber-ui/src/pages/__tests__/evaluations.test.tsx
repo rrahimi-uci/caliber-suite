@@ -248,4 +248,163 @@ describe("EvaluationDetail page", () => {
       expect(screen.getAllByText("+25pp").length).toBeGreaterThan(0);
     });
   });
+
+  it("explains weighted coverage and preserves prediction evidence when a scorer fails", async () => {
+    useHandlers();
+    const evidenceRun = {
+      ...RUN_A,
+      scorers: ["exact_match", "Judge.JDG-tone"],
+      aggregate: { exact_match: 2 / 3, "Judge.JDG-tone": 1 },
+      overall_score: 5 / 6,
+      pass_rate: 2 / 3,
+      results: [
+        {
+          example_id: "EX-weighted",
+          input: { input: "capital of France" },
+          expected: { expected: "Paris" },
+          prediction: "Paris",
+          scores: { exact_match: 1, "Judge.JDG-tone": 1 },
+          score: 1,
+          passed: true,
+          error: null,
+          weight: 2,
+          tags: ["golden", "geography"],
+        },
+        {
+          example_id: "EX-incomplete",
+          input: { input: "spell four" },
+          expected: { expected: "four" },
+          prediction: "Four",
+          scores: { exact_match: 0 },
+          score: 0,
+          passed: false,
+          error: "Judge.JDG-tone: provider unavailable",
+          weight: 1,
+          tags: ["edge"],
+        },
+      ],
+    };
+    server.use(
+      http.get(`${API_BASE}/evaluations/:runId`, () =>
+        HttpResponse.json(envelope(evidenceRun)),
+      ),
+    );
+    renderDetail();
+
+    const aggregate = await screen.findByTestId("eval-aggregate");
+    expect(within(aggregate).getByText("Weighted pass rate")).toBeInTheDocument();
+    expect(
+      within(aggregate).getByText("1/2 raw rows · 2.00/3.00 passing weight"),
+    ).toBeInTheDocument();
+    expect(
+      within(aggregate).getAllByText("valid 1/2 rows · 2.00/3.00 weight"),
+    ).toHaveLength(2);
+
+    // The custom judge is readable in both the aggregate card and table header.
+    expect(screen.getAllByText(/tone-judge/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByTestId("eval-result-tag").map((tag) => tag.textContent)).toEqual([
+      "golden",
+      "geography",
+      "edge",
+    ]);
+
+    const rows = await screen.findAllByTestId("eval-result-row");
+    expect(rows[1]).toHaveTextContent("Four");
+    expect(rows[1]).toHaveTextContent("Judge.JDG-tone: provider unavailable");
+    expect(within(rows[1]).getByText("Incomplete")).toBeInTheDocument();
+    expect(screen.getByTestId("eval-incomplete-warning")).toHaveTextContent(
+      "Surviving raw scorer values remain visible",
+    );
+  });
+
+  it("labels the all-zero equal-row fallback instead of implying row exclusion", async () => {
+    useHandlers();
+    const zeroWeightRun = {
+      ...RUN_A_DETAIL,
+      results: RUN_A_DETAIL.results.map((row) => ({ ...row, weight: 0, tags: [] })),
+    };
+    server.use(
+      http.get(`${API_BASE}/evaluations/:runId`, () =>
+        HttpResponse.json(envelope(zeroWeightRun)),
+      ),
+    );
+    renderDetail();
+
+    expect(await screen.findByTestId("eval-zero-weight-warning")).toHaveTextContent(
+      "legacy run predates zero-total validation",
+    );
+    const aggregate = screen.getByTestId("eval-aggregate");
+    expect(
+      within(aggregate).getByText("Equal-row fallback · stored total weight 0.00"),
+    ).toBeInTheDocument();
+    expect(
+      within(aggregate).getByText("1/2 rows passed · equal-row fallback"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Weight" })).toBeInTheDocument();
+  });
+
+  it("offers only compatible completed baselines and discloses changed variables", async () => {
+    useHandlers();
+    const changedCandidate = {
+      ...RUN_B,
+      run_id: "EVR-changed",
+      label: "prompt candidate",
+      predict_target: "prompt",
+      subject_ref: "support-greeting@3",
+      model: "gpt-4.1-mini",
+    };
+    const wrongVersion = {
+      ...RUN_B,
+      run_id: "EVR-old-version",
+      label: "old snapshot",
+      dataset_version: 1,
+    };
+    const wrongScorers = {
+      ...RUN_B,
+      run_id: "EVR-wrong-scorers",
+      label: "wrong graders",
+      scorers: ["token_f1"],
+    };
+    const failedRun = {
+      ...RUN_B,
+      run_id: "EVR-failed",
+      label: "failed baseline",
+      status: "failed",
+    };
+    server.use(
+      http.get(`${API_BASE}/evaluations`, () =>
+        HttpResponse.json(
+          envelope([RUN_A, changedCandidate, wrongVersion, wrongScorers, failedRun]),
+        ),
+      ),
+      http.get(`${API_BASE}/evaluations/:runId`, ({ params }) =>
+        HttpResponse.json(
+          envelope(
+            params.runId === "EVR-changed"
+              ? { ...changedCandidate, results: [] }
+              : RUN_A_DETAIL,
+          ),
+        ),
+      ),
+    );
+    renderDetail();
+
+    const select = await screen.findByLabelText("Compare to baseline run");
+    expect(
+      within(select).getByRole("option", { name: /prompt candidate/i }),
+    ).toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: /old snapshot/i })).toBeNull();
+    expect(within(select).queryByRole("option", { name: /wrong graders/i })).toBeNull();
+    expect(within(select).queryByRole("option", { name: /failed baseline/i })).toBeNull();
+
+    await userEvent.selectOptions(select, "EVR-changed");
+    const context = await screen.findByTestId("baseline-comparison-context");
+    expect(context).toHaveTextContent("dataset v2 and grader suite match");
+    expect(context).toHaveTextContent(
+      "Current: target llm, subject (none), model gpt-4o-mini",
+    );
+    expect(context).toHaveTextContent(
+      "Baseline: target prompt, subject support-greeting@3, model gpt-4.1-mini",
+    );
+  });
 });

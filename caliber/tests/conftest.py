@@ -17,7 +17,12 @@ feedback poller starts and stops as part of every request-driven test.
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
 
 # Disable MLflow's telemetry/usage tracking for the whole test run. MLflow 3.x
 # phones home to ``config.mlflow-telemetry.io`` / CloudFront over HTTPS; the
@@ -34,22 +39,49 @@ os.environ.setdefault("DO_NOT_TRACK", "true")
 # shell that exports a live ``MLFLOW_TRACKING_URI`` could have tests write to a
 # real registry. Integration tests (``CALIBER_INTEGRATION_TESTS=1``) opt out and
 # set their own per-test URI.
+_MLFLOW_TEST_ROOTS: list[Path] = []
 if os.environ.get("CALIBER_INTEGRATION_TESTS") != "1":
-    import tempfile as _tempfile
-    from pathlib import Path as _Path
-
     # Isolate the MLflow store per xdist worker so parallel runs (`pytest -n auto`)
     # don't lock-contend on one shared SQLite file. ``PYTEST_XDIST_WORKER`` is
     # ``gw0``/``gw1``/... under xdist and unset for a serial run (→ ``main``).
     _worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
-    _mlflow_store = (
-        f"sqlite:///{_Path(_tempfile.gettempdir()) / f'caliber-test-mlflow-{_worker}.db'}"
+    _mlflow_test_root = Path(
+        tempfile.mkdtemp(prefix=f"caliber-test-mlflow-{_worker}-{os.getpid()}-")
     )
+    _MLFLOW_TEST_ROOTS.append(_mlflow_test_root)
+    _mlflow_store = f"sqlite:///{_mlflow_test_root / 'mlflow.db'}"
     os.environ["MLFLOW_TRACKING_URI"] = _mlflow_store
     os.environ["MLFLOW_REGISTRY_URI"] = _mlflow_store
+    # MLflow's SQL tracking-store factory otherwise defaults artifacts to
+    # ``./mlruns`` even when the database URI is isolated. This internal env
+    # name is what MLflow 3.14's tracking-service factory reads.
+    os.environ["_MLFLOW_SERVER_ARTIFACT_ROOT"] = (_mlflow_test_root / "artifacts").as_uri()
+    # Tests assert synchronous outcomes. Background trace exporters can outlive
+    # their test and race teardown, producing cross-test flakes and stray I/O.
+    os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"] = "false"
+
+
+def _cleanup_mlflow_test_root() -> None:
+    """Drain MLflow trace work and remove this process's isolated test root."""
+    if not _MLFLOW_TEST_ROOTS:
+        return
+    root = _MLFLOW_TEST_ROOTS.pop()
+    try:
+        if "mlflow" in sys.modules:
+            import mlflow
+
+            flush = getattr(mlflow, "flush_trace_async_logging", None)
+            if callable(flush):
+                flush(terminate=True)
+    except Exception:
+        pass  # teardown must not mask the test result
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+atexit.register(_cleanup_mlflow_test_root)
 
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine
@@ -161,11 +193,13 @@ _ALLURE_CATEGORIES: list[dict[str, object]] = [
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
-    """Drop ``categories.json`` into the Allure results dir for the report.
+    """Clean test MLflow state and optionally write Allure categories.
 
-    Only when running with ``--alluredir``; the combined report (``allure
-    generate``) merges this so the Categories tab is populated for every suite.
+    When running with ``--alluredir``, the combined report (``allure generate``)
+    merges ``categories.json`` so the Categories tab is populated for every
+    suite.
     """
+    _cleanup_mlflow_test_root()
     alluredir = session.config.getoption("--alluredir", default=None)
     if not alluredir:
         return

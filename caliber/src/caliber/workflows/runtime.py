@@ -124,10 +124,41 @@ _NODE_SPAN_TYPES: dict[NodeType, str] = {
     NodeType.OUTPUT_FOLDER: "CHAIN",
 }
 
+# Ordinary Preview cannot isolate these dedicated capability nodes from the
+# host filesystem, local subprocesses, configured storage, or outbound
+# integrations.  Fail closed for the whole IR before the interpreter starts;
+# checking every node (not only currently reachable nodes) avoids a graph edit
+# silently turning a previously dormant capability live during the same run.
+# Knowledge queries and registered tools keep their existing preview policy:
+# their runners/callables may still execute when explicitly configured as
+# preview-safe.  Knowledge builds retain their existing preview-skip behavior.
+_PREVIEW_UNISOLATED_NODE_TYPES: frozenset[NodeType] = frozenset(
+    {
+        NodeType.FILE_INPUT,
+        NodeType.FOLDER_INPUT,
+        NodeType.INPUT_BUCKET,
+        NodeType.OUTPUT_BUCKET,
+        NodeType.OUTPUT_FOLDER,
+        NodeType.MCP_RESOURCE,
+        NodeType.PYTHON_CODE,
+        NodeType.EXTERNAL_APP,
+        NodeType.WEBHOOK,
+        NodeType.API_REQUEST,
+    }
+)
+
 
 def _node_span_type(node: IRNode) -> str:
     """MLflow span_type for a non-agent node (defaults to ``CHAIN``)."""
     return _NODE_SPAN_TYPES.get(node.node_type, "CHAIN")
+
+
+def _preview_unisolated_nodes(ir: IRWorkflow) -> list[IRNode]:
+    """Return deterministic Preview blockers from the complete workflow IR."""
+    return sorted(
+        (node for node in ir.nodes.values() if node.node_type in _PREVIEW_UNISOLATED_NODE_TYPES),
+        key=lambda node: (node.node_id, node.node_type.value),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2754,7 +2785,6 @@ def execute(
     interpreter behaves exactly as before, so existing callers are unaffected.
     """
     ir = plan.ir
-    tracer = get_tracer()
     root_ctx = CaliberRunContext(
         workflow_id=ir.workflow_id,
         workflow_version=ir.version,
@@ -2769,6 +2799,33 @@ def execute(
         trace_group_tags=dict(ir.mlflow_trace_group_tags),
     )
     root_tags = run_tags(root_ctx)
+    if preview:
+        unisolated_nodes = _preview_unisolated_nodes(ir)
+        if unisolated_nodes:
+            labels = ", ".join(
+                f"{node.node_id} ({node.node_type.value})" for node in unisolated_nodes
+            )
+            error = (
+                "preview blocked before execution because ordinary Preview cannot isolate "
+                f"these capability nodes: {labels}"
+            )
+            return WorkflowRunResult(
+                status="error",
+                output="",
+                steps=[
+                    NodeStep(
+                        node_id=node.node_id,
+                        node_type=node.node_type.value,
+                        status="error",
+                        detail="preview cannot isolate this capability; no workflow node ran",
+                    )
+                    for node in unisolated_nodes
+                ],
+                tags=root_tags,
+                error=error,
+            )
+
+    tracer = get_tracer()
     # Root MLflow run + span for the whole workflow execution (golden-path
     # roadmap, Wave 1). Opening a run is what *activates* the caliber.* tags —
     # ``run_with_caliber_context`` only sets them when a run is active. The root

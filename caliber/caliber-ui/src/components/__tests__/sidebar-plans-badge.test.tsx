@@ -34,7 +34,7 @@ function renderSidebar(): void {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Sidebar />
+        <Sidebar health="ok" />
       </MemoryRouter>
     </QueryClientProvider>,
   );

@@ -19,9 +19,11 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.mcp_gateway import McpGatewayTransportError
+from caliber.mcp_secrets import MCP_WRITE_ONLY_SENTINEL
 from caliber.routes import mcp_servers as mcp_routes
 
 BASE = "/ajax-api/2.0/mlflow/caliber/mcp-servers"
+AUDIT_BASE = "/ajax-api/2.0/mlflow/caliber/audit-log"
 
 
 def _seed(db: Session, **kw: object) -> CaliberMcpServer:
@@ -47,8 +49,19 @@ def test_mcp_server_history_survives_deletion_and_includes_snapshot(
     client: TestClient, db_session: Session
 ) -> None:
     """The edit-history (audit trail) is returned even after the server is
-    deleted, and the delete row carries the full snapshot for recovery."""
-    _seed(db_session, server_id="MCP-h", name="Relational")
+    deleted, while literal connection credentials remain write-only."""
+    _seed(
+        db_session,
+        server_id="MCP-h",
+        name="Relational",
+        env={"PASSWORD": "history-env-secret", "SAFE_REF": "${SAFE_REF}"},
+        headers={"Authorization": "Bearer history-header-secret"},
+        auth_type="token",
+        auth_config={
+            "token_env_var": "PASSWORD",
+            "token": "history-auth-secret",
+        },
+    )
     # An edit, then a delete.
     client.patch(f"{BASE}/MCP-h", json={"uri": "stdio://new"})
     assert client.delete(f"{BASE}/MCP-h").status_code == 204
@@ -60,15 +73,34 @@ def test_mcp_server_history_survives_deletion_and_includes_snapshot(
     assert "update_mcp_server" in actions
     assert "delete_mcp_server" in actions  # history outlives the row
     delete_row = next(r for r in rows if r["action"] == "delete_mcp_server")
-    assert delete_row["details"]["snapshot"]["name"] == "Relational"
+    snapshot = delete_row["details"]["snapshot"]
+    assert snapshot["name"] == "Relational"
+    assert snapshot["env"] == {
+        "PASSWORD": MCP_WRITE_ONLY_SENTINEL,
+        "SAFE_REF": "${SAFE_REF}",
+    }
+    assert snapshot["headers"]["Authorization"] == MCP_WRITE_ONLY_SENTINEL
+    assert snapshot["auth_config"] == {
+        "token_env_var": "PASSWORD",
+        "token": MCP_WRITE_ONLY_SENTINEL,
+    }
+    assert "history-env-secret" not in resp.text
+    assert "history-header-secret" not in resp.text
+    assert "history-auth-secret" not in resp.text
 
 
-def test_delete_mcp_server_snapshots_full_definition(
+def test_delete_mcp_server_snapshots_definition_without_literal_secrets(
     client: TestClient, db_session: Session
 ) -> None:
-    """A hard delete records the FULL server definition in the audit row so it
-    can be recreated — not just the name as before."""
-    _seed(db_session, server_id="MCP-del", name="Relational")
+    """A hard delete records structural configuration, never credentials."""
+    _seed(
+        db_session,
+        server_id="MCP-del",
+        name="Relational",
+        env={"PASSWORD": "delete-env-secret"},
+        headers={"Authorization": "Bearer delete-header-secret"},
+        auth_config={"password": "delete-auth-secret"},
+    )
     resp = client.delete(f"{BASE}/MCP-del")
     assert resp.status_code == 204
 
@@ -84,6 +116,71 @@ def test_delete_mcp_server_snapshots_full_definition(
     assert snapshot["name"] == "Relational"
     assert snapshot["server_id"] == "MCP-del"
     assert snapshot["transport"] == "stdio"
+    assert snapshot["env"]["PASSWORD"] == MCP_WRITE_ONLY_SENTINEL
+    assert snapshot["headers"]["Authorization"] == MCP_WRITE_ONLY_SENTINEL
+    assert snapshot["auth_config"]["password"] == MCP_WRITE_ONLY_SENTINEL
+    details_text = str(delete_rows[0].details)
+    assert "delete-env-secret" not in details_text
+    assert "delete-header-secret" not in details_text
+    assert "delete-auth-secret" not in details_text
+
+
+def test_mcp_history_redacts_legacy_raw_audit_details_on_read(
+    client: TestClient, db_session: Session
+) -> None:
+    """Rows written before the write-only contract cannot leak via history."""
+    db_session.add(
+        CaliberAuditLog(
+            actor="@legacy",
+            action="update_mcp_server",
+            entity_type="mcp_server",
+            entity_id="MCP-legacy",
+            details={
+                "changes": {
+                    "env": {
+                        "from": {"TOKEN": "legacy-old-secret"},
+                        "to": {"TOKEN": "legacy-new-secret"},
+                    },
+                    "headers": {
+                        "from": {"Authorization": "Bearer old-header"},
+                        "to": {"Authorization": "Bearer new-header"},
+                    },
+                }
+            },
+        )
+    )
+    db_session.commit()
+
+    resp = client.get(f"{BASE}/MCP-legacy/history")
+    assert resp.status_code == 200
+    changes = resp.json()["data"][0]["details"]["changes"]
+    assert changes["env"]["from"]["TOKEN"] == MCP_WRITE_ONLY_SENTINEL
+    assert changes["env"]["to"]["TOKEN"] == MCP_WRITE_ONLY_SENTINEL
+    assert changes["headers"]["from"]["Authorization"] == MCP_WRITE_ONLY_SENTINEL
+    assert changes["headers"]["to"]["Authorization"] == MCP_WRITE_ONLY_SENTINEL
+    assert "legacy-old-secret" not in resp.text
+    assert "legacy-new-secret" not in resp.text
+    assert "Bearer old-header" not in resp.text
+    assert "Bearer new-header" not in resp.text
+
+    # The generic admin audit explorer and both exports apply the same legacy
+    # containment; MCP history is not the only serialization surface.
+    audit_page = client.get(AUDIT_BASE, params={"entity_type": "mcp_server"})
+    audit_json = client.get(
+        f"{AUDIT_BASE}/export",
+        params={"entity_type": "mcp_server", "format": "json"},
+    )
+    audit_csv = client.get(
+        f"{AUDIT_BASE}/export",
+        params={"entity_type": "mcp_server", "format": "csv"},
+    )
+    for audit_response in (audit_page, audit_json, audit_csv):
+        assert audit_response.status_code == 200
+        assert MCP_WRITE_ONLY_SENTINEL in audit_response.text
+        assert "legacy-old-secret" not in audit_response.text
+        assert "legacy-new-secret" not in audit_response.text
+        assert "Bearer old-header" not in audit_response.text
+        assert "Bearer new-header" not in audit_response.text
 
 
 def test_delete_mcp_server_blocked_when_referenced_by_active_deployment(

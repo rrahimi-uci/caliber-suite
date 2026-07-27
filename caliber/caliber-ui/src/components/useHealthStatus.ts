@@ -7,10 +7,9 @@
  * down — a small surface that quietly teaches users not to trust the status
  * lights.
  *
- * Built on `useApiQuery` rather than a bare `useEffect` + `setInterval` so the
- * TopBar and Sidebar indicators share **one** in-flight request and one cache
- * entry instead of each running its own poll cycle. That is the same
- * deduplication every other data surface in the app relies on.
+ * Built on `useApiQuery` rather than a bare `useEffect` + `setInterval`. The
+ * shell owns one hook instance and passes its status to both indicators, so
+ * there is one query observer, one refetch cadence, and one cache entry.
  */
 
 import { caliberApi } from "@/api/caliberApi";
@@ -33,14 +32,14 @@ export const HEALTH_DOT: Record<HealthStatus, string> = {
 
 /** Human-readable label for the status dot, keyed by health state. */
 export const HEALTH_LABEL: Record<HealthStatus, string> = {
-  ok: "System Online",
-  down: "System Unreachable",
-  loading: "Checking…",
+  ok: "API + database reachable",
+  down: "API or database unreachable",
+  loading: "Checking API + database…",
 };
 
 /**
- * Tooltip text. Deliberately narrower than the label: `/health` proves the API
- * process and its database are reachable, not that workers, the scheduler,
+ * Tooltip text stays deliberately narrow: `/health` proves the API process and
+ * its database are reachable, not that workers, the scheduler,
  * MLflow, object storage, or providers are healthy. Claiming whole-platform
  * health from a database `SELECT 1` is the kind of overstatement this
  * indicator existed to fix.

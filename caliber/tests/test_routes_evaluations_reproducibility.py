@@ -136,3 +136,51 @@ def test_example_tags_survive_into_the_row_results(
     assert by_id["EX-miss"]["tags"] == ["math", "p0"]
     assert by_id["EX-miss"]["weight"] == 3.0
     assert by_id["EX-hit"]["tags"] == ["geo"]
+
+
+def test_all_zero_dataset_weights_return_400_without_prediction(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_session.add(
+        CaliberEvalDataset(
+            dataset_id="ED-zero",
+            name="zero-weight",
+            description="",
+            owner="@test",
+            tags=[],
+            status="active",
+            version=1,
+        )
+    )
+    db_session.add(
+        CaliberEvalDatasetExample(
+            example_id="EX-zero",
+            dataset_id="ED-zero",
+            dataset_version=1,
+            input={"question": "capital of France"},
+            expected={"expected": "Paris"},
+            weight=0.0,
+            tags=["excluded"],
+        )
+    )
+    db_session.commit()
+    prediction_calls = 0
+
+    def build_completion(_config):
+        def complete(_system: str, _user: str) -> str:
+            nonlocal prediction_calls
+            prediction_calls += 1
+            return "Paris"
+
+        return complete
+
+    monkeypatch.setattr(evaluations_route, "build_completion_fn", build_completion)
+
+    resp = client.post(
+        LIST_PATH,
+        json={"dataset_id": "ED-zero", "scorers": ["exact_match"]},
+    )
+
+    assert resp.status_code == 400, resp.text
+    assert "at least one value greater than zero" in resp.json()["detail"]
+    assert prediction_calls == 0

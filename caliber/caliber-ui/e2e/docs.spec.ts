@@ -58,7 +58,10 @@ test.describe("Docs Shell", () => {
     await expect(page.locator(".topbar-links")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Ask Aria" })).toHaveCount(0);
     await expect(page.locator(".doc-breadcrumb a")).toHaveCount(0);
-    await expect(page.locator("#page-toc a")).toHaveCount(9);
+    const tocLinks = page.locator("#page-toc a");
+    await expect(tocLinks).toHaveCount(11);
+    await expect(tocLinks.first()).toHaveText("At a glance");
+    await expect(tocLinks.last()).toHaveText("9. Extension points and current constraints");
 
     const copyButton = page.locator(".doc-copy-button");
     await expect(copyButton).toHaveText("Copy page");

@@ -171,6 +171,9 @@ import type {
   WorkflowPromotion,
   WorkflowService,
   WorkflowServicePublishPayload,
+  WorkflowServiceToken,
+  WorkflowServiceTokenCreated,
+  WorkflowServiceTokenCreatePayload,
   WorkflowTemplateCatalog,
   Project,
   ProjectDirectory,
@@ -1421,12 +1424,20 @@ export const caliberApi = {
   /** GET /eval-datasets/{id}/examples */
   listEvalExamples(
     datasetId: string,
-    options: { version?: number; includeSuperseded?: boolean } = {},
+    options: {
+      /** Exact added-in version (historical event view). */
+      version?: number;
+      /** Rows active at the end of this version (reproducible snapshot view). */
+      asOfVersion?: number;
+      includeSuperseded?: boolean;
+    } = {},
     signal?: AbortSignal,
   ): Promise<EvalExample[]> {
     const query = buildQuery({
       version:
         options.version !== undefined ? String(options.version) : undefined,
+      as_of_version:
+        options.asOfVersion !== undefined ? String(options.asOfVersion) : undefined,
       include_superseded: options.includeSuperseded ? "true" : undefined,
     });
     return request<EvalExample[]>(
@@ -2538,6 +2549,14 @@ export const caliberApi = {
     }
   },
 
+  /** GET /workflows/{id}/service/openapi.json as an authenticated JSON download. */
+  downloadWorkflowServiceOpenApi(workflowId: string): Promise<Blob> {
+    return downloadFile(
+      `/workflows/${encodeURIComponent(workflowId)}/service/openapi.json`,
+      "application/json",
+    );
+  },
+
   /** POST /workflows/{id}/service */
   publishWorkflowService(
     workflowId: string,
@@ -2553,6 +2572,39 @@ export const caliberApi = {
   unpublishWorkflowService(workflowId: string): Promise<{ status: string }> {
     return request<{ status: string }>(
       `/workflows/${encodeURIComponent(workflowId)}/service`,
+      { method: "DELETE" },
+    );
+  },
+
+  /** GET /workflows/{id}/service/tokens (masked; never returns token hashes/secrets). */
+  listWorkflowServiceTokens(
+    workflowId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowServiceToken[]> {
+    return request<WorkflowServiceToken[]>(
+      `/workflows/${encodeURIComponent(workflowId)}/service/tokens`,
+      { signal },
+    );
+  },
+
+  /** POST /workflows/{id}/service/tokens (plaintext is returned once). */
+  createWorkflowServiceToken(
+    workflowId: string,
+    payload: WorkflowServiceTokenCreatePayload,
+  ): Promise<WorkflowServiceTokenCreated> {
+    return request<WorkflowServiceTokenCreated>(
+      `/workflows/${encodeURIComponent(workflowId)}/service/tokens`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** DELETE /workflows/{id}/service/tokens/{tokenId}. */
+  revokeWorkflowServiceToken(
+    workflowId: string,
+    tokenId: string,
+  ): Promise<{ status: string }> {
+    return request<{ status: string }>(
+      `/workflows/${encodeURIComponent(workflowId)}/service/tokens/${encodeURIComponent(tokenId)}`,
       { method: "DELETE" },
     );
   },

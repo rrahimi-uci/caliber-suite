@@ -18,6 +18,7 @@ import type {
   McpServer,
   McpServerCreatePayload,
   McpServerDiscoveredTool,
+  McpServerUpdatePayload,
   McpTestConnectionResult,
   McpToolPolicy,
   McpToolInvocationResult,
@@ -338,29 +339,55 @@ function AddServerDialog({
       args: transport === "stdio" && args.trim() ? args.split(/\s+/) : [],
       uri: transport !== "stdio" ? uri : "",
       auth_type: authType,
-      auth_config:
-        authType === "token" && tokenEnvVar ? { token_env_var: tokenEnvVar } : {},
-      env: {
-        ...envVars,
-        ...(authType === "token" && tokenEnvVar
-          ? { [tokenEnvVar]: `\${${tokenEnvVar}}` }
-          : {}),
-      },
       icon,
     } as const;
     try {
       if (editServer) {
         // Edit mode: PATCH the existing server. ``name`` is immutable on the
-        // backend, so it is intentionally not sent.
-        await caliberApi.updateMcpServer(editServer.server_id, {
+        // backend, so it is intentionally not sent. Sensitive maps are also
+        // omitted from ordinary edits: the API returns literal leaves as
+        // write-only sentinels, and omission is the safest preserve operation.
+        const payload: McpServerUpdatePayload = {
           description,
           ...sharedConfig,
-        });
+        };
+        const existingTokenEnvVar =
+          typeof editServer.auth_config?.token_env_var === "string"
+            ? editServer.auth_config.token_env_var
+            : "";
+        const authChanged =
+          authType !== editServer.auth_type || tokenEnvVar !== existingTokenEnvVar;
+        if (authChanged) {
+          payload.auth_config =
+            authType === "token" && tokenEnvVar
+              ? { ...editServer.auth_config, token_env_var: tokenEnvVar }
+              : {};
+          const nextEnv = { ...editServer.env };
+          if (
+            existingTokenEnvVar &&
+            (authType !== "token" || existingTokenEnvVar !== tokenEnvVar)
+          ) {
+            delete nextEnv[existingTokenEnvVar];
+          }
+          if (authType === "token" && tokenEnvVar) {
+            nextEnv[tokenEnvVar] = `\${${tokenEnvVar}}`;
+          }
+          payload.env = nextEnv;
+        }
+        await caliberApi.updateMcpServer(editServer.server_id, payload);
       } else {
         const payload: McpServerCreatePayload = {
           name,
           description,
           ...sharedConfig,
+          auth_config:
+            authType === "token" && tokenEnvVar ? { token_env_var: tokenEnvVar } : {},
+          env: {
+            ...envVars,
+            ...(authType === "token" && tokenEnvVar
+              ? { [tokenEnvVar]: `\${${tokenEnvVar}}` }
+              : {}),
+          },
           // Seed the server with the catalog template's known tools so they show
           // immediately; a live test-connection later overwrites with real ones.
           discovered_tools: initialValues?.tools ?? [],
@@ -409,6 +436,17 @@ function AddServerDialog({
             {error && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                 {error}
+              </div>
+            )}
+
+            {isEdit && (
+              <div
+                className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
+                data-testid="mcp-write-only-notice"
+              >
+                Credentials are write-only. Existing literal environment, header, and
+                authentication values are not loaded into the browser and remain unchanged
+                when you save other settings.
               </div>
             )}
 
@@ -517,6 +555,7 @@ function AddServerDialog({
                   value={tokenEnvVar}
                   onChange={(e) => setTokenEnvVar(e.target.value)}
                   placeholder="e.g. GITHUB_TOKEN"
+                  data-testid="server-token-env-input"
                 />
               </div>
             )}

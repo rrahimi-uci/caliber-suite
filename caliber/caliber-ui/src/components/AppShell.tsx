@@ -8,6 +8,7 @@ import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 import { EdgeToggle } from "./EdgeToggle";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { useHealthStatus } from "./useHealthStatus";
 import { AssistantPanelProvider, useAssistantPanel } from "./assistant/AssistantPanelContext";
 
 const CaliberAssistantPanel = lazy(
@@ -18,6 +19,8 @@ interface AppShellProps {
   children: ReactNode;
   currentUser?: string;
   onLogout?: () => void;
+  /** Test/embedding override; production uses the shared 30-second cadence. */
+  healthPollIntervalMs?: number;
 }
 
 const COLLAPSE_KEY = "caliber.sidebar.collapsed";
@@ -26,12 +29,14 @@ export function AppShell({
   children,
   currentUser,
   onLogout,
+  healthPollIntervalMs,
 }: AppShellProps): JSX.Element {
   return (
     <AssistantPanelProvider>
       <AppShellLayout
         currentUser={currentUser}
         onLogout={onLogout}
+        healthPollIntervalMs={healthPollIntervalMs}
       >
         {children}
       </AppShellLayout>
@@ -43,11 +48,13 @@ function AppShellLayout({
   children,
   currentUser,
   onLogout,
+  healthPollIntervalMs,
 }: AppShellProps): JSX.Element {
   const {
     open: assistantOpen,
     effectiveWidth: assistantWidth,
   } = useAssistantPanel();
+  const health = useHealthStatus(healthPollIntervalMs);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = (): void => setDrawerOpen(false);
 
@@ -71,6 +78,7 @@ function AppShellLayout({
   return (
     <>
       <TopBar
+        health={health}
         onToggleSidebar={() => setDrawerOpen((open) => !open)}
         currentUser={currentUser}
         onLogout={onLogout}
@@ -83,6 +91,7 @@ function AppShellLayout({
       </a>
       <div className="flex pt-14">
         <Sidebar
+          health={health}
           mobileOpen={drawerOpen}
           onNavigate={closeDrawer}
           collapsed={collapsed}

@@ -204,8 +204,10 @@ On the frontend, these routes compose into the following interaction model:
   tag, and status.
 - Archiving and restoring are metadata updates on the dataset row, not example
   mutations.
-- List-examples supports `version=<N>` to reconstruct a historical set and
-  `include_superseded=true` to include retired rows.
+- List-examples uses `version=<N>` for rows first added in N,
+  `include_superseded=true` for retired rows, and `as_of_version=<N>` for the
+  active set that a pinned evaluation would score. The active-as-of filter is
+  mutually exclusive with the other two controls.
 - From-trace import converts a captured MLflow trace into a regression example
   with `from-trace` and `trace:{trace_id}` style tags.
 - Evaluation runs can optionally pin `dataset_version` for reproducibility.

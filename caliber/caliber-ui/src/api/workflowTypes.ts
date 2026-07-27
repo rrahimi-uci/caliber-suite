@@ -883,6 +883,28 @@ export interface WorkflowServicePublishPayload {
   auth_required?: boolean;
 }
 
+export interface WorkflowServiceToken {
+  token_id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+}
+
+/** Token creation returns the plaintext exactly once. */
+export interface WorkflowServiceTokenCreated extends WorkflowServiceToken {
+  token: string;
+}
+
+export interface WorkflowServiceTokenCreatePayload {
+  name: string;
+  scopes?: string[];
+  expires_at?: string;
+}
+
 export interface WorkflowPromotion {
   promotion_id: string;
   workflow_id: string;

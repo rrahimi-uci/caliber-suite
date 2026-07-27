@@ -23,6 +23,8 @@ import type {
   WorkflowRunLineage,
   WorkflowRuntimeApproval,
   WorkflowService,
+  WorkflowServiceToken,
+  WorkflowServiceTokenCreated,
   WorkflowSessionMemoryEntry,
   WorkflowManifest,
   WorkflowRunStep,
@@ -193,6 +195,30 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
+}
+
+/** Download an authenticated service spec without navigating to its Bearer-gated URL. */
+function triggerServiceOpenApiDownload(blob: Blob, workflowId: string): boolean {
+  if (
+    typeof document === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof URL.createObjectURL !== "function"
+  ) {
+    return false;
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  const safeWorkflowId = workflowId.replace(/[^a-zA-Z0-9._-]+/g, "-");
+  anchor.href = objectUrl;
+  anchor.download = `caliber-${safeWorkflowId}-openapi.json`;
+  document.body.appendChild(anchor);
+  try {
+    anchor.click();
+  } finally {
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+  return true;
 }
 
 function approvalCapabilityMessage(approvalSubject: string): string {
@@ -959,6 +985,16 @@ export function WorkflowDetail(): JSX.Element {
     (s) => caliberApi.getWorkflowService(workflowId!, s),
     { enabled: Boolean(workflowId) && tab === "service" },
   );
+  const serviceTokensQuery = useApiQuery(
+    ["workflow-service-tokens", workflowId],
+    (s) => caliberApi.listWorkflowServiceTokens(workflowId!, s),
+    {
+      enabled:
+        Boolean(workflowId) &&
+        tab === "service" &&
+        serviceQuery.data?.auth_required === true,
+    },
+  );
   const runsQuery = useApiQuery(["workflow-runs", workflowId], (s) =>
     caliberApi.listWorkflowRuns(workflowId!, s),
   );
@@ -1153,7 +1189,10 @@ export function WorkflowDetail(): JSX.Element {
   const [deployVersionId, setDeployVersionId] = useState("");
   const [deploymentMessage, setDeploymentMessage] = useState<string | null>(null);
   const [serviceMessage, setServiceMessage] = useState<string | null>(null);
-  const [serviceCopied, setServiceCopied] = useState<null | "endpoint" | "snippet">(null);
+  const [serviceCopied, setServiceCopied] = useState<null | "endpoint" | "snippet" | "token">(null);
+  const [serviceTokenName, setServiceTokenName] = useState("default");
+  const [newServiceToken, setNewServiceToken] =
+    useState<WorkflowServiceTokenCreated | null>(null);
   const [snippetLang, setSnippetLang] = useState<SnippetLanguage>("curl");
   const workflowRunEvent = useEventStream(WORKFLOW_RUN_EVENTS);
   const previousSelectedRunIdRef = useRef<string | null>(null);
@@ -1183,7 +1222,7 @@ export function WorkflowDetail(): JSX.Element {
     );
   }, []);
   const copyServiceText = useCallback(
-    (kind: "endpoint" | "snippet", text: string): void => {
+    (kind: "endpoint" | "snippet" | "token", text: string): void => {
       if (!navigator.clipboard?.writeText) {
         showToast.error("Clipboard access is unavailable in this browser.");
         return;
@@ -1275,14 +1314,62 @@ export function WorkflowDetail(): JSX.Element {
   );
 
   const publishServiceMut = useApiMutation<WorkflowService, void>(
-    () => caliberApi.publishWorkflowService(workflowId!, {}),
+    () => caliberApi.publishWorkflowService(workflowId!, { auth_required: true }),
     {
       onSuccess: () => {
-        setServiceMessage("Published as a callable service.");
+        setServiceMessage("Published as a token-protected callable service.");
         invalidate(["workflow-service", workflowId]);
       },
       onError: (error) => {
         setServiceMessage(`Publish failed: ${error.message}`);
+      },
+    },
+  );
+  const downloadServiceOpenApiMut = useApiMutation<Blob, void>(
+    () => caliberApi.downloadWorkflowServiceOpenApi(workflowId!),
+    {
+      onSuccess: (blob) => {
+        if (triggerServiceOpenApiDownload(blob, workflowId!)) {
+          setServiceMessage("OpenAPI specification downloaded.");
+        } else {
+          setServiceMessage("OpenAPI download is unavailable in this browser.");
+        }
+      },
+      onError: (error) => {
+        setServiceMessage(`OpenAPI download failed: ${error.message}`);
+      },
+    },
+  );
+  const createServiceTokenMut = useApiMutation<WorkflowServiceTokenCreated, string>(
+    (name) =>
+      caliberApi.createWorkflowServiceToken(workflowId!, {
+        name,
+        scopes: ["invoke"],
+      }),
+    {
+      onSuccess: (token) => {
+        setNewServiceToken(token);
+        setServiceMessage(
+          "Access token created. Copy it now; CALIBER will not show it again.",
+        );
+        invalidate(["workflow-service", workflowId]);
+        invalidate(["workflow-service-tokens", workflowId]);
+      },
+      onError: (error) => {
+        setServiceMessage(`Token creation failed: ${error.message}`);
+      },
+    },
+  );
+  const revokeServiceTokenMut = useApiMutation<{ status: string }, WorkflowServiceToken>(
+    (token) => caliberApi.revokeWorkflowServiceToken(workflowId!, token.token_id),
+    {
+      onSuccess: () => {
+        setServiceMessage("Access token revoked.");
+        invalidate(["workflow-service", workflowId]);
+        invalidate(["workflow-service-tokens", workflowId]);
+      },
+      onError: (error) => {
+        setServiceMessage(`Token revocation failed: ${error.message}`);
       },
     },
   );
@@ -1291,7 +1378,9 @@ export function WorkflowDetail(): JSX.Element {
     {
       onSuccess: () => {
         setServiceMessage("Service unpublished.");
+        setNewServiceToken(null);
         invalidate(["workflow-service", workflowId]);
+        invalidate(["workflow-service-tokens", workflowId]);
       },
       onError: (error) => {
         setServiceMessage(`Unpublish failed: ${error.message}`);
@@ -4316,28 +4405,144 @@ export function WorkflowDetail(): JSX.Element {
                 authRequired: service.auth_required,
                 language: snippetLang,
               });
-              const openapiUrl = `${window.location.origin}${service.endpoint.replace(/\/invoke$/, "/openapi.json")}`;
               return (
                 <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-card space-y-5">
                   <div className="flex items-center gap-2">
                     {service.auth_required ? (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200/60">
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200/60"
+                        data-testid="service-auth-badge"
+                      >
                         Token required
                       </span>
                     ) : (
                       <span
-                        className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200/60"
+                        className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200/60"
                         data-testid="service-auth-badge"
                       >
                         Open · no auth
                       </span>
                     )}
                     {!service.auth_required && (
-                      <span className="text-[11px] text-slate-400">
-                        Authentication can be enabled later.
+                      <span className="text-[11px] font-medium text-amber-700">
+                        Explicitly public endpoint. Republish with token auth before sharing it.
                       </span>
                     )}
                   </div>
+
+                  {service.auth_required && (
+                    <div
+                      className="space-y-3 rounded-xl border border-slate-200/70 bg-slate-50/70 p-4"
+                      data-testid="service-token-panel"
+                    >
+                      <div>
+                        <div className="text-xs font-semibold text-slate-800">Access tokens</div>
+                        <p className="mt-0.5 text-[11px] text-slate-500">
+                          Tokens are stored as hashes. A new secret is visible only once.
+                        </p>
+                      </div>
+
+                      {newServiceToken && (
+                        <div
+                          className="rounded-lg border border-amber-200 bg-amber-50 p-3"
+                          data-testid="service-new-token"
+                        >
+                          <div className="mb-1 text-[11px] font-semibold text-amber-800">
+                            Copy this token now
+                          </div>
+                          <div className="flex items-stretch gap-2">
+                            <code className="min-w-0 flex-1 break-all rounded border border-amber-200 bg-white px-2 py-1.5 font-mono text-[11px] text-slate-700">
+                              {newServiceToken.token}
+                            </code>
+                            <button
+                              type="button"
+                              data-testid="service-token-copy-btn"
+                              onClick={() =>
+                                copyServiceText("token", newServiceToken.token)
+                              }
+                              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                            >
+                              {serviceCopied === "token" ? "Copied" : "Copy"}
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setNewServiceToken(null)}
+                            className="mt-2 text-[11px] font-semibold text-amber-800 hover:underline"
+                          >
+                            I saved it
+                          </button>
+                        </div>
+                      )}
+
+                      <form
+                        className="flex flex-wrap items-end gap-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const name = serviceTokenName.trim();
+                          if (name) createServiceTokenMut.mutate(name);
+                        }}
+                      >
+                        <label className="min-w-48 flex-1 text-[11px] font-medium text-slate-600">
+                          Token name
+                          <input
+                            data-testid="service-token-name"
+                            value={serviceTokenName}
+                            maxLength={128}
+                            onChange={(event) => setServiceTokenName(event.target.value)}
+                            className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none focus:border-caliber-400"
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          data-testid="service-token-create-btn"
+                          disabled={
+                            createServiceTokenMut.isPending || !serviceTokenName.trim()
+                          }
+                          className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {createServiceTokenMut.isPending ? "Creating…" : "Create token"}
+                        </button>
+                      </form>
+
+                      {serviceTokensQuery.error && (
+                        <div className="text-xs text-red-600">
+                          Token list unavailable: {serviceTokensQuery.error.message}
+                        </div>
+                      )}
+                      {(serviceTokensQuery.data ?? []).length > 0 && (
+                        <ul className="divide-y divide-slate-200" data-testid="service-token-list">
+                          {(serviceTokensQuery.data ?? []).map((token) => (
+                            <li
+                              key={token.token_id}
+                              className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"
+                            >
+                              <div>
+                                <span className="font-semibold text-slate-700">{token.name}</span>
+                                <span className="ml-2 font-mono text-slate-400">{token.prefix}…</span>
+                                {token.revoked_at && (
+                                  <span className="ml-2 text-[10px] font-semibold uppercase text-red-500">
+                                    revoked
+                                  </span>
+                                )}
+                              </div>
+                              {!token.revoked_at && (
+                                <button
+                                  type="button"
+                                  data-testid={`service-token-revoke-${token.token_id}`}
+                                  disabled={revokeServiceTokenMut.isPending}
+                                  onClick={() => revokeServiceTokenMut.mutate(token)}
+                                  className="font-semibold text-red-600 hover:underline disabled:opacity-50"
+                                >
+                                  Revoke
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
 
                   <div>
                     <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -4358,15 +4563,15 @@ export function WorkflowDetail(): JSX.Element {
                       >
                         {serviceCopied === "endpoint" ? "Copied" : "Copy"}
                       </button>
-                      <a
-                        href={openapiUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        data-testid="service-openapi-link"
+                      <button
+                        type="button"
+                        data-testid="service-openapi-download-btn"
+                        disabled={downloadServiceOpenApiMut.isPending}
+                        onClick={() => downloadServiceOpenApiMut.mutate()}
                         className="rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                       >
-                        OpenAPI
-                      </a>
+                        {downloadServiceOpenApiMut.isPending ? "Preparing…" : "OpenAPI JSON"}
+                      </button>
                     </div>
                   </div>
 
@@ -4473,7 +4678,8 @@ export function WorkflowDetail(): JSX.Element {
             <div className="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-card space-y-4">
               <p className="text-sm text-slate-500">
                 This workflow has a live deployment. Publish it as a callable HTTP
-                service to share its endpoint.
+                service protected by a bearer token. You can create and revoke access
+                tokens after publishing.
               </p>
               <button
                 type="button"

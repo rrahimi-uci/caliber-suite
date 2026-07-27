@@ -41,6 +41,8 @@ function prettyJson(value: Record<string, unknown>): string {
   return JSON.stringify(value, null, 2);
 }
 
+type VersionView = "added" | "asOf";
+
 export function EvalDatasetDetail(): JSX.Element {
   const { datasetId = "" } = useParams<{ datasetId: string }>();
 
@@ -55,6 +57,7 @@ export function EvalDatasetDetail(): JSX.Element {
     refresh: refreshDataset,
   } = useApi(datasetFetcher, [datasetId]);
 
+  const [versionView, setVersionView] = useState<VersionView>("added");
   const [versionFilter, setVersionFilter] = useState<number | "">("");
   const [showRetired, setShowRetired] = useState(false);
 
@@ -63,25 +66,33 @@ export function EvalDatasetDetail(): JSX.Element {
       caliberApi.listEvalExamples(
         datasetId,
         {
-          version: versionFilter === "" ? undefined : versionFilter,
-          includeSuperseded: showRetired,
+          version:
+            versionView === "added" && versionFilter !== ""
+              ? versionFilter
+              : undefined,
+          asOfVersion:
+            versionView === "asOf" && versionFilter !== ""
+              ? versionFilter
+              : undefined,
+          includeSuperseded: versionView === "added" && showRetired,
         },
         signal,
       ),
-    [datasetId, versionFilter, showRetired],
+    [datasetId, versionFilter, versionView, showRetired],
   );
   const {
     data: examples,
     error: examplesError,
     loading: examplesLoading,
     refresh: refreshExamples,
-  } = useApi(examplesFetcher, [datasetId, versionFilter, showRetired]);
+  } = useApi(examplesFetcher, [datasetId, versionFilter, versionView, showRetired]);
 
   const [mode, setMode] = useState<"none" | "add" | "trace">("none");
   const [editing, setEditing] = useState<EvalExample | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
 
   const refreshAll = useCallback(() => {
     refreshDataset();
@@ -119,10 +130,32 @@ export function EvalDatasetDetail(): JSX.Element {
     }
   };
 
+  const restoreSnapshot = async (version: number): Promise<void> => {
+    const confirmed = window.confirm(
+      `Restore the example set active as of v${version} as a new head version? History is preserved, but the current active set will change.`,
+    );
+    if (!confirmed) return;
+
+    setRestoringVersion(version);
+    setActionError(null);
+    try {
+      await caliberApi.restoreEvalDataset(datasetId, version);
+      setVersionFilter("");
+      refreshDataset();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "restore failed");
+    } finally {
+      setRestoringVersion(null);
+    }
+  };
+
   const rows = useMemo(() => examples ?? [], [examples]);
   const liveCount = useMemo(
-    () => rows.filter((row) => row.superseded_at === null).length,
-    [rows],
+    () =>
+      versionView === "asOf"
+        ? rows.length
+        : rows.filter((row) => row.superseded_at === null).length,
+    [rows, versionView],
   );
 
   return (
@@ -182,22 +215,52 @@ export function EvalDatasetDetail(): JSX.Element {
             {mode === "trace" ? "Cancel" : "Capture from trace"}
           </button>
         </div>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
           <label
             className="flex items-center gap-1.5 text-gray-600"
-            title="Shows examples ADDED in the selected version. An evaluation pinned to that version scores the set active as of it, which is not the same list."
+            title="Choose between version events (rows added in a version) and the reproducible example set active as of a version."
           >
-            Added in version
+            Version view
+            <select
+              data-testid="version-view"
+              aria-label="Version view"
+              className="border border-surface-200 rounded-md px-2 py-1 text-sm"
+              value={versionView}
+              onChange={(e) => {
+                const next = e.target.value as VersionView;
+                setVersionView(next);
+                setShowRetired(false);
+              }}
+            >
+              <option value="added">Added in</option>
+              <option value="asOf">Active as of</option>
+            </select>
+          </label>
+          <label
+            className="flex items-center gap-1.5 text-gray-600"
+            title={
+              versionView === "added"
+                ? "Shows examples added in the selected version. Later-retired rows require Show retired."
+                : "Shows the exact example set an evaluation pinned to the selected version would score."
+            }
+          >
+            {versionView === "added" ? "Added in version" : "Active as of version"}
             <select
               data-testid="version-filter"
-              aria-label="Filter by version added"
+              aria-label={
+                versionView === "added"
+                  ? "Filter by version added"
+                  : "Preview active snapshot version"
+              }
               className="border border-surface-200 rounded-md px-2 py-1 text-sm"
               value={versionFilter}
               onChange={(e) =>
                 setVersionFilter(e.target.value === "" ? "" : Number(e.target.value))
               }
             >
-              <option value="">All</option>
+              <option value="">
+                {versionView === "added" ? "All" : "Current head"}
+              </option>
               {dataset &&
                 Array.from({ length: dataset.version }, (_, i) => dataset.version - i).map(
                   (v) => (
@@ -208,29 +271,33 @@ export function EvalDatasetDetail(): JSX.Element {
                 )}
             </select>
           </label>
-          <label className="flex items-center gap-1.5 text-gray-600">
-            <input
-              type="checkbox"
-              data-testid="show-retired-toggle"
-              checked={showRetired}
-              onChange={(e) => setShowRetired(e.target.checked)}
-            />
-            Show retired
-          </label>
-          {typeof versionFilter === "number" && dataset && versionFilter < dataset.version && (
-            <button
-              type="button"
-              data-testid="restore-version"
-              className="text-sm font-medium text-caliber-purple border border-caliber-purple/30 px-2.5 py-1 rounded-md hover:bg-caliber-purple/5"
-              onClick={async () => {
-                await caliberApi.restoreEvalDataset(datasetId, versionFilter);
-                setVersionFilter("");
-                refreshAll();
-              }}
-            >
-              Restore v{versionFilter} as new version
-            </button>
+          {versionView === "added" && (
+            <label className="flex items-center gap-1.5 text-gray-600">
+              <input
+                type="checkbox"
+                data-testid="show-retired-toggle"
+                checked={showRetired}
+                onChange={(e) => setShowRetired(e.target.checked)}
+              />
+              Show retired
+            </label>
           )}
+          {versionView === "asOf" &&
+            typeof versionFilter === "number" &&
+            dataset &&
+            versionFilter < dataset.version && (
+              <button
+                type="button"
+                data-testid="restore-version"
+                disabled={restoringVersion !== null}
+                className="text-sm font-medium text-caliber-purple border border-caliber-purple/30 px-2.5 py-1 rounded-md hover:bg-caliber-purple/5 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void restoreSnapshot(versionFilter)}
+              >
+                {restoringVersion === versionFilter
+                  ? "Restoring…"
+                  : `Restore active snapshot v${versionFilter} as new version`}
+              </button>
+            )}
         </div>
       </div>
 
@@ -285,7 +352,9 @@ export function EvalDatasetDetail(): JSX.Element {
               <th className="text-left font-medium px-4 py-3">Weight</th>
               <th className="text-left font-medium px-4 py-3">Tags</th>
               <th className="text-left font-medium px-4 py-3">Added</th>
-              <th className="text-right font-medium px-4 py-3">Actions</th>
+              <th className="text-right font-medium px-4 py-3">
+                {versionView === "asOf" ? "Snapshot" : "Actions"}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-100">
@@ -303,7 +372,9 @@ export function EvalDatasetDetail(): JSX.Element {
                   data-testid="examples-empty"
                   className="px-4 py-10 text-center text-sm text-gray-500"
                 >
-                  No examples yet. Add one by hand or capture one from a trace.
+                  {versionView === "asOf"
+                    ? "No examples were active in this snapshot."
+                    : "No examples yet. Add one by hand or capture one from a trace."}
                 </td>
               </tr>
             )}
@@ -312,7 +383,7 @@ export function EvalDatasetDetail(): JSX.Element {
                 key={row.example_id}
                 data-testid="example-row"
                 className={`hover:bg-surface-50 align-top ${
-                  row.superseded_at ? "opacity-55" : ""
+                  versionView === "added" && row.superseded_at ? "opacity-55" : ""
                 }`}
               >
                 <td className="px-4 py-3">
@@ -338,7 +409,8 @@ export function EvalDatasetDetail(): JSX.Element {
                     ))}
                     {row.superseded_at && (
                       <span className="text-[10px] font-semibold uppercase bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded">
-                        retired v{row.superseded_version ?? "?"}
+                        {versionView === "asOf" ? "retired later" : "retired"} v
+                        {row.superseded_version ?? "?"}
                       </span>
                     )}
                   </div>
@@ -347,7 +419,9 @@ export function EvalDatasetDetail(): JSX.Element {
                   v{row.dataset_version} · {relativeTime(row.created_at)}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  {row.superseded_at ? (
+                  {versionView === "asOf" ? (
+                    <span className="text-xs text-gray-400">Read-only</span>
+                  ) : row.superseded_at ? (
                     <span className="text-xs text-gray-400">—</span>
                   ) : (
                     <div className="flex items-center justify-end gap-3">

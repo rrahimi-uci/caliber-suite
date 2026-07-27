@@ -40,6 +40,13 @@ from caliber.mcp_gateway import (
 from caliber.mcp_gateway import (
     invoke_tool as invoke_tool_via_gateway,
 )
+from caliber.mcp_secrets import (
+    MCP_SENSITIVE_CONFIG_FIELDS,
+    InvalidWriteOnlySentinelError,
+    merge_write_only_update,
+    sanitize_mcp_audit_details,
+    sanitize_mcp_config,
+)
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -96,6 +103,38 @@ def _gateway_config(server: CaliberMcpServer) -> McpServerConfig:
     return McpServerConfig.from_row(server)
 
 
+def _public_server_schema(server: CaliberMcpServer) -> McpServerSchema:
+    """Serialize an MCP server without returning literal connection secrets."""
+
+    data = McpServerSchema.model_validate(server).model_dump(mode="python")
+    for field in MCP_SENSITIVE_CONFIG_FIELDS:
+        data[field] = sanitize_mcp_config(data.get(field, {}))
+    return McpServerSchema.model_validate(data)
+
+
+def _create_sensitive_mapping(value: dict[str, object], field: str) -> dict[str, object]:
+    """Reject the reserved write-only sentinel in a create request."""
+
+    try:
+        merged = merge_write_only_update(value)
+    except InvalidWriteOnlySentinelError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid {field}: {exc}") from exc
+    return dict(merged)
+
+
+def _updated_sensitive_mapping(
+    incoming: object,
+    stored: object,
+    field: str,
+) -> object:
+    """Apply the PATCH sentinel contract to one sensitive config field."""
+
+    try:
+        return merge_write_only_update(incoming, stored)
+    except InvalidWriteOnlySentinelError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid {field}: {exc}") from exc
+
+
 def _effective_policy(server: CaliberMcpServer, tool_name: str) -> dict[str, Any]:
     base = {"allowed": True, "side_effect_level": "read", "requires_approval": False}
     raw = server.tool_policies or {}
@@ -123,7 +162,7 @@ async def list_mcp_servers(request: Request) -> JSONResponse:
         if requested_status != "all":
             stmt = stmt.where(CaliberMcpServer.status == requested_status)
         rows = session.execute(stmt.limit(limit).offset(offset)).scalars().all()
-        items = [McpServerSchema.model_validate(r) for r in rows]
+        items = [_public_server_schema(r) for r in rows]
     return envelope_response(items)
 
 
@@ -135,7 +174,7 @@ async def get_mcp_server(request: Request) -> JSONResponse:
         row = session.get(CaliberMcpServer, server_id)
         if row is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
-        data = McpServerSchema.model_validate(row)
+        data = _public_server_schema(row)
     return envelope_response(data)
 
 
@@ -144,9 +183,10 @@ async def mcp_server_history(request: Request) -> JSONResponse:
     trail for a server, newest first.
 
     MCP servers aren't versioned, so this is their edit-history surface: each
-    edit records its field diff and a delete records the full server snapshot
-    (so a deleted server is recreatable). Returned even after deletion — the
-    audit rows outlive the row — so the history isn't lost on delete.
+    edit records its field diff and a delete records a structural server
+    snapshot. Literal connection credentials are write-only and excluded from
+    both records. Returned even after deletion — the audit rows outlive the row
+    — so the non-secret history isn't lost on delete.
     """
     require_user(request)
     server_id = request.path_params["server_id"]
@@ -169,7 +209,9 @@ async def mcp_server_history(request: Request) -> JSONResponse:
                 "timestamp": row.timestamp.isoformat() if row.timestamp else None,
                 "actor": row.actor,
                 "action": row.action,
-                "details": row.details or {},
+                # Apply containment on read as well as write so historical audit
+                # rows created before this contract cannot disclose credentials.
+                "details": sanitize_mcp_audit_details(row.details or {}),
             }
             for row in rows
         ]
@@ -200,10 +242,10 @@ async def create_mcp_server(request: Request) -> JSONResponse:
             uri=payload.uri,
             command=payload.command,
             args=list(payload.args),
-            env=dict(payload.env),
-            headers=dict(payload.headers),
+            env=_create_sensitive_mapping(dict(payload.env), "env"),
+            headers=_create_sensitive_mapping(dict(payload.headers), "headers"),
             auth_type=payload.auth_type,
-            auth_config=dict(payload.auth_config),
+            auth_config=_create_sensitive_mapping(dict(payload.auth_config), "auth_config"),
             tool_policies={},
             icon=payload.icon,
             owner=payload.owner,
@@ -221,7 +263,7 @@ async def create_mcp_server(request: Request) -> JSONResponse:
             details={"name": server.name, "transport": server.transport},
         )
         session.commit()
-        data = McpServerSchema.model_validate(server)
+        data = _public_server_schema(server)
     return envelope_response(data, status_code=201)
 
 
@@ -245,21 +287,23 @@ async def update_mcp_server(request: Request) -> JSONResponse:
                 continue
             new_value = changes[field]
             old_value = getattr(server, field)
+            if field in MCP_SENSITIVE_CONFIG_FIELDS:
+                new_value = _updated_sensitive_mapping(new_value, old_value, field)
             if new_value != old_value:
                 diff[field] = {"from": old_value, "to": new_value}
                 setattr(server, field, new_value)
         if not diff:
-            return envelope_response(McpServerSchema.model_validate(server))
+            return envelope_response(_public_server_schema(server))
         audit_record(
             session,
             actor=actor,
             action="update_mcp_server",
             entity_type="mcp_server",
             entity_id=server.server_id,
-            details={"changes": diff},
+            details=sanitize_mcp_audit_details({"changes": diff}),
         )
         session.commit()
-        data = McpServerSchema.model_validate(server)
+        data = _public_server_schema(server)
     return envelope_response(data)
 
 
@@ -307,9 +351,9 @@ async def delete_mcp_server(request: Request) -> JSONResponse:
                     f"{', '.join(referencing)}; undeploy those workflows first"
                 ),
             )
-        # Snapshot the FULL definition (not just the name) into the audit row so
-        # the delete is recoverable / recreatable from history.
-        snapshot = McpServerSchema.model_validate(server).model_dump(mode="json")
+        # Keep the structural definition for diagnosis/recovery, but credentials
+        # remain write-only and can never enter the audit trail.
+        snapshot = _public_server_schema(server).model_dump(mode="json")
         audit_record(
             session,
             actor=actor,
