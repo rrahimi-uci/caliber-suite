@@ -7,7 +7,11 @@
 import { AriaLogo } from "@/components/assistant/AriaLogo";
 import { useAssistantPanel } from "@/components/assistant/AssistantPanelContext";
 import { BrandAcronym, BRAND_ACRONYM_TEXT } from "@/components/BrandAcronym";
-import { HEALTH_DOT, useHealthStatus } from "@/components/useHealthStatus";
+import {
+  HEALTH_DOT,
+  HEALTH_TITLE,
+  useHealthStatus,
+} from "@/components/useHealthStatus";
 
 import { useTheme } from "./useTheme";
 
@@ -79,7 +83,7 @@ export function TopBar({
         {/* Health dot */}
         <span
           className="flex items-center gap-1.5 text-[11px] text-slate-400 mr-1"
-          title={`System ${health}`}
+          title={HEALTH_TITLE[health]}
         >
           <span className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`} />
         </span>

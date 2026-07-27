@@ -183,11 +183,14 @@ export function EvalDatasetDetail(): JSX.Element {
           </button>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <label className="flex items-center gap-1.5 text-gray-600">
-            Version
+          <label
+            className="flex items-center gap-1.5 text-gray-600"
+            title="Shows examples ADDED in the selected version. An evaluation pinned to that version scores the set active as of it, which is not the same list."
+          >
+            Added in version
             <select
               data-testid="version-filter"
-              aria-label="Filter by version"
+              aria-label="Filter by version added"
               className="border border-surface-200 rounded-md px-2 py-1 text-sm"
               value={versionFilter}
               onChange={(e) =>

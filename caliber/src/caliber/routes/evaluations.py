@@ -31,7 +31,6 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import (
-    SCOPE_ADMIN,
     SCOPE_OPERATOR,
     require_scopes,
     require_user,
@@ -44,7 +43,7 @@ from caliber.db.models import (
     CaliberJudge,
     CaliberSkill,
 )
-from caliber.db.scoping import apply_visibility_filter
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.eval.judge_scorer import JudgeError, build_judge, score_with_judge
 from caliber.eval.predict import (
     CompletionFn,
@@ -318,21 +317,15 @@ async def get_evaluation(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberEvalRun, run_id)
-        # Scope the detail read the same way list_evaluations scopes its list —
-        # a bare get() leaked another project's run (and its full per-example
-        # results) by id. CaliberEvalRun records its actor as `created_by`
-        # rather than `owner`, so mirror the three list tiers explicitly:
-        # public, my own row, or a row in my active project (admins see all).
-        # The `created_by` branch matters because a user-scoped run carries no
-        # project_id — without it the run's own author could not read it back.
-        visible = row is not None and (
-            identity.has_scope(SCOPE_ADMIN)
-            or row.visibility == "public"
-            or (bool(row.created_by) and row.created_by == identity.user_id)
-            or (row.project_id is not None and row.project_id == identity.active_project_id)
-        )
-        if not visible:
+        # Resolve the row *through* the same visibility filter the list uses, so
+        # detail and list can never drift apart. A hand-rolled boolean here had
+        # already diverged: it admitted any row whose project_id matched the
+        # client-supplied X-CALIBER-Project header regardless of owner, and
+        # admitted the creator's rows from projects other than the active one —
+        # neither of which the list would ever return. An out-of-scope row comes
+        # back as None and 404s rather than leaking "exists but forbidden".
+        row = get_visible(session, CaliberEvalRun, CaliberEvalRun.run_id, run_id, identity)
+        if row is None:
             raise HTTPException(status_code=404, detail=f"evaluation run {run_id!r} not found")
         data = EvalRunSchema.model_validate(row)
     return envelope_response(data)

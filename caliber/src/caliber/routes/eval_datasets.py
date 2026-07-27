@@ -251,7 +251,14 @@ async def list_examples(request: Request) -> JSONResponse:
     Two query-string knobs:
 
     * ``version=<N>`` returns only examples whose ``dataset_version``
-      matches — the "what did version N actually contain?" view.
+      equals N — the "what was **added** in version N?" view. This is
+      deliberately *not* the same as "what did version N contain": an
+      evaluation pinned to ``dataset_version=N`` reconstructs the set
+      *active as of* N (``dataset_version <= N`` minus rows retired at or
+      before N), which is what
+      :func:`caliber.routes.evaluations._load_example_rows` and dataset
+      restore both use. Callers previewing what a pinned evaluation will
+      score must not use this filter for that purpose.
     * ``include_superseded=true`` opts into showing retired examples
       (default hides them; the operator usually wants the current set).
     """

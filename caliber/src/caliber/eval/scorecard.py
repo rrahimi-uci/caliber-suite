@@ -294,9 +294,12 @@ def run_scorecard(
     scorers = resolve_scorers(scorer_names, allowed_judges=list(judge_runners))
     rows: list[ScorecardRow] = []
     # Per-scorer running totals over rows that produced a value, weighted by
-    # each row's example weight.
+    # each row's example weight. The unweighted totals alongside them are the
+    # fallback for a dataset whose weights sum to zero (see below).
     scorer_totals: dict[str, float] = dict.fromkeys(scorers, 0.0)
     scorer_weights: dict[str, float] = dict.fromkeys(scorers, 0.0)
+    scorer_plain_totals: dict[str, float] = dict.fromkeys(scorers, 0.0)
+    scorer_counts: dict[str, int] = dict.fromkeys(scorers, 0)
 
     for example in examples:
         example_id = str(example.get("example_id", ""))
@@ -327,7 +330,10 @@ def run_scorecard(
 
         prediction = prediction if isinstance(prediction, str) else str(prediction)
         scores: dict[str, float] = {}
-        row_error: str | None = None
+        # Every scorer that raised, not just the first: when two judges are
+        # misconfigured, reporting only one sends the operator round the loop
+        # twice. Joined into the single ``error`` field the schema exposes.
+        scorer_errors: list[str] = []
         for name in scorers:
             try:
                 if name in _SCORERS:
@@ -335,10 +341,13 @@ def run_scorecard(
                 elif name in judge_runners:
                     scores[name] = round(judge_runners[name](prediction, inp, expected), 4)
             except Exception as exc:  # one judge failing shouldn't void the other scores
-                row_error = row_error or f"{name}: {str(exc) or exc.__class__.__name__}"
+                scorer_errors.append(f"{name}: {str(exc) or exc.__class__.__name__}")
+        row_error = "; ".join(scorer_errors) if scorer_errors else None
         for name, value in scores.items():
             scorer_totals[name] += value * weight
             scorer_weights[name] += weight
+            scorer_plain_totals[name] += value
+            scorer_counts[name] += 1
         row_score = _row_score(scores)
         rows.append(
             ScorecardRow(
@@ -358,23 +367,32 @@ def run_scorecard(
             )
         )
 
-    aggregate = {
-        name: round(scorer_totals[name] / scorer_weights[name], 4)
-        for name in scorers
-        if scorer_weights[name] > 0
-    }
     passed_count = sum(1 for row in rows if row.passed)
     failed_count = len(rows) - passed_count
     total_weight = sum(row.weight for row in rows)
-    if total_weight > 0:
+
+    # A dataset whose weights all happen to be zero carries no weighting
+    # information, so weighted means are 0/0. Reporting 0.0 there would be
+    # actively misleading — every row could have scored 1.0 and passed while
+    # the scorecard claimed a 0% pass rate. Fall back to treating the rows as
+    # equally weighted, which is the only defensible reading of "no weights".
+    weighted = total_weight > 0
+    if weighted:
+        aggregate = {
+            name: round(scorer_totals[name] / scorer_weights[name], 4)
+            for name in scorers
+            if scorer_weights[name] > 0
+        }
         overall = round(sum(row.score * row.weight for row in rows) / total_weight, 4)
-        pass_rate = round(
-            sum(row.weight for row in rows if row.passed) / total_weight,
-            4,
-        )
+        pass_rate = round(sum(row.weight for row in rows if row.passed) / total_weight, 4)
     else:
-        overall = 0.0
-        pass_rate = 0.0
+        aggregate = {
+            name: round(scorer_plain_totals[name] / scorer_counts[name], 4)
+            for name in scorers
+            if scorer_counts[name] > 0
+        }
+        overall = round(sum(row.score for row in rows) / len(rows), 4) if rows else 0.0
+        pass_rate = round(passed_count / len(rows), 4) if rows else 0.0
 
     return ScorecardResult(
         rows=rows,

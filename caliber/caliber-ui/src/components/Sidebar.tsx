@@ -30,6 +30,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { caliberApi } from "@/api/caliberApi";
 import {
   HEALTH_DOT,
+  HEALTH_TITLE,
   HEALTH_LABEL,
   useHealthStatus,
 } from "@/components/useHealthStatus";
@@ -326,7 +327,7 @@ export function Sidebar({
             <div
               className="flex items-center gap-2 px-2"
               data-testid="sidebar-health"
-              title={`System ${health}`}
+              title={HEALTH_TITLE[health]}
             >
               <div className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`} />
               <span className="text-[10px] font-medium text-slate-400">

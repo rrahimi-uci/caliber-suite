@@ -140,6 +140,68 @@ def test_row_with_a_failed_scorer_cannot_pass() -> None:
     assert "Judge.J-1" not in result.aggregate
 
 
+def test_all_zero_weights_fall_back_to_unweighted_means() -> None:
+    """Degenerate weighting must not report a 0% pass rate for passing rows.
+
+    A follow-up review caught this: with every weight at 0 the weighted means
+    are 0/0. Reporting 0.0 made a scorecard claim "0% passed" while displaying
+    two passing rows and ``passed_count=2``. Treat "no weights" as "equal
+    weights" instead, which is the only defensible reading.
+    """
+    examples = [
+        _example("EX-1", "Paris", weight=0.0),
+        _example("EX-2", "Berlin", weight=0.0),
+    ]
+
+    result = run_scorecard(examples, _fixed_predict("Paris"), ["exact_match"])
+
+    assert result.passed_count == 1
+    assert result.failed_count == 1
+    assert result.overall == 0.5
+    assert result.pass_rate == 0.5
+    assert result.aggregate["exact_match"] == 0.5
+
+
+def test_single_zero_weight_row_still_uses_the_weighted_path() -> None:
+    """Only the all-zero case falls back; a partially zero-weighted set does not."""
+    examples = [
+        _example("EX-hit", "Paris", weight=1.0),
+        _example("EX-ignored", "Berlin", weight=0.0),
+    ]
+
+    result = run_scorecard(examples, _fixed_predict("Paris"), ["exact_match"])
+
+    # The zero-weight failing row contributes nothing to the weighted fold.
+    assert result.overall == 1.0
+    assert result.pass_rate == 1.0
+    # ...while the raw counts still report both rows.
+    assert (result.passed_count, result.failed_count) == (1, 1)
+
+
+def test_every_failing_scorer_is_reported_not_just_the_first() -> None:
+    """Two broken judges must both surface, or debugging takes two round trips."""
+
+    def boom(name: str):
+        def runner(_prediction: str, _inputs: Any, _expected: Any) -> float:
+            raise RuntimeError(f"{name} unavailable")
+
+        return runner
+
+    result = run_scorecard(
+        [_example("EX-1", "Paris")],
+        _fixed_predict("Paris"),
+        ["exact_match", "Judge.A", "Judge.B"],
+        judge_runners={"Judge.A": boom("A"), "Judge.B": boom("B")},
+    )
+
+    error = result.rows[0].error or ""
+    assert "Judge.A: A unavailable" in error
+    assert "Judge.B: B unavailable" in error
+    assert result.rows[0].passed is False
+    # The healthy scorer's evidence survives.
+    assert result.rows[0].scores["exact_match"] == 1.0
+
+
 def test_row_with_all_scorers_healthy_still_passes() -> None:
     """The stricter pass rule must not make healthy rows fail."""
 

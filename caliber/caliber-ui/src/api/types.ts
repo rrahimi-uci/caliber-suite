@@ -1381,6 +1381,15 @@ export interface EvalRunResultRow {
   score: number;
   passed: boolean;
   error: string | null;
+  /**
+   * Curation metadata carried through from the dataset example. `weight` drives
+   * the run's aggregate/`overall`/`pass_rate` means, so a scorecard whose rows
+   * are not all weight 1 needs to show it — otherwise the headline number looks
+   * inconsistent with the visible rows. Optional because older persisted runs
+   * predate these fields.
+   */
+  weight?: number;
+  tags?: string[];
 }
 
 /** Summary form of an evaluation run (GET /evaluations list — no rows). */

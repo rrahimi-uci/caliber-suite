@@ -1437,13 +1437,13 @@ closed product areas.
 
 | Area | Verified current behavior | Residual limit | Evidence / regression coverage |
 | --- | --- | --- | --- |
-| Evaluation visibility | Non-admin list no longer crashes: `owner_column()` supports `created_by`. A project-less run's creator can read detail | Detail does not mirror list ownership and treats the client-supplied active-project header as authoritative. A route-created project-less eval defaults to project visibility, so detail can read it but list cannot return it | `tests/test_scoping.py`, `tests/test_routes_evaluations_visibility.py` |
-| Dataset version input | Evaluation creation rejects a version above the dataset's current version, and evaluated row content is stored inline in the run | Historical browse does not reconstruct active-as-of-N; there is no cryptographic run/content digest or full pre-truncation inventory/sampling record | `tests/test_routes_evaluations_reproducibility.py` |
-| Weights/tags | Generic loading retains both; scorer aggregates, `overall`, and `pass_rate` use weights; tags reach rows | Frontend omits both, slices are absent, zero-weight semantics conflict with raw counts, and partial scorer failures still influence aggregates | `tests/test_eval_scorecard_weighting.py`, `tests/test_routes_evaluations_reproducibility.py` |
-| Partial scorer failure | A row with a scorer error cannot pass | Surviving scores still affect aggregates/overall, only the first error is retained, and coverage is not reported | `tests/test_eval_scorecard_weighting.py` |
+| Evaluation visibility | Non-admin list no longer crashes: `owner_column()` supports `created_by`. Detail now resolves **through** `get_visible()`, so list and detail share one filter by construction — a project header alone no longer unlocks another owner's run, and the creator's rows outside the active project are no longer readable | Scoping still depends on the client-supplied `X-CALIBER-Project` header and the demo identity of C1; that is an identity problem, not a filter problem | `tests/test_scoping.py`, `tests/test_routes_evaluations_visibility.py` (incl. real create → list → detail round trips) |
+| Dataset version input | Evaluation creation rejects a version above the dataset's current version, and evaluated row content is stored inline in the run | `list_examples?version=N` intentionally means "added in N", not "active as of N"; the divergence is now documented at both the route and the UI control rather than silently misleading. No cryptographic run/content digest or pre-truncation inventory | `tests/test_routes_evaluations_reproducibility.py`, `tests/test_routes_eval_datasets.py` |
+| Weights/tags | Generic loading retains both; scorer aggregates, `overall`, and `pass_rate` use weights; tags reach rows. An all-zero-weight dataset now falls back to unweighted means instead of reporting 0. The results table shows a Weight column when any row is non-default | Tag *slice* analysis (grouped metrics) is still absent, and raw pass/fail counts sit beside weighted rates without an explicit legend | `tests/test_eval_scorecard_weighting.py`, `tests/test_routes_evaluations_reproducibility.py` |
+| Partial scorer failure | A row with a scorer error cannot pass, and **every** failing scorer is reported, not just the first | Surviving scores still contribute to aggregates — deliberate, so one broken judge does not erase the other scorers' evidence — and no scorer-coverage metric is published | `tests/test_eval_scorecard_weighting.py` |
 | Workflow trace linkage | Queued and synchronous runs persist `result.mlflow_trace_id`; the run trace panel and trace-to-run lookup can resolve it | Replay is not pinned to all resolved artifact/provider/configuration versions | `tests/test_workflow_run_trace_linkage.py` |
 | Provider-key readback | `GET /settings/llm` returns presence plus a masked fingerprint; browser key inputs are write-only and cleared after save | Updates are process-local/non-durable; MCP credential serialization and the broader secret lifecycle remain open | `tests/test_settings_routes.py`, `src/pages/__tests__/settings.test.tsx` |
-| Shell health | Sidebar and TopBar derive status from `useHealthStatus`; sidebar shows unreachable on request failure | Two independent polls run, and `/health` proves only backend/database liveness rather than platform health | `src/components/__tests__/sidebar-health-footer.test.tsx` |
+| Shell health | Sidebar and TopBar derive status from `useHealthStatus`, now built on `useApiQuery` so both indicators share **one** request and cache entry. The tooltip says "API and database reachable" rather than implying whole-platform health | The visible label is still "System Online"; `/health` remains a database-only liveness probe, so the deep readiness checks listed in §6 are still missing | `src/components/__tests__/sidebar-health-footer.test.tsx` (asserts a single request for both indicators) |
 | Unknown route UX | The wildcard renders a real Not Found view with a dashboard link | It is a client-rendered route boundary, not evidence of server HTTP-404 behavior | `src/pages/__tests__/app-shell-e2e.test.tsx` |
 | Cookbook prose | Generated 03/08/10 material better reflects shipped side-effect, workflow-target evaluation, and alignment paths | Source/generated documentation still conflicts in the places catalogued in §10 | Generated artifact diff plus existing documentation checks |
 
@@ -1453,15 +1453,75 @@ storage, and network effects in Preview and workflow-target evaluation,
 evidence-grade release gates, truthful HITL/review state, auth-on service publishing,
 isolated extensions, idempotent side effects, production topology, and operations.
 
+### Follow-up review: recommendations accepted and rejected
+
+The residual limits above were re-reviewed independently and each claim checked
+against the code before acting. Verdicts:
+
+#### Accepted and implemented
+
+| # | Recommendation | Why it was valid | Change |
+| --- | --- | --- | --- |
+| A1 | All-zero weights produce `overall=0`/`pass_rate=0`/empty aggregates even when rows passed | Reproduced: two rows scoring 1.0 with `passed_count=2` reported a 0% pass rate. A real defect introduced by the weighting change — weighted means are 0/0 when weights sum to zero | `eval/scorecard.py` falls back to unweighted means when `total_weight == 0`; "no weights" now reads as "equal weights" |
+| A2 | Detail does not mirror list ownership | Confirmed: detail admitted any row whose `project_id` matched the client-supplied header regardless of owner, and the creator's rows from non-active projects — neither of which the list returns | `get_evaluation` resolves through `db.scoping.get_visible()`, so the two surfaces cannot drift. This also applies §9's own "scoping belongs in shared repositories, not handler discipline" principle |
+| A3 | Only the first scorer error is retained | Confirmed (`row_error = row_error or ...`). Two misconfigured judges cost two debugging round trips | All failing scorers are collected and joined into `error` |
+| A4 | Sidebar/TopBar share hook code but run separate polls | Confirmed. The project already standardises on `useApiQuery`, which dedupes by key | `useHealthStatus` rebuilt on `useApiQuery`; a test asserts exactly one request serves both indicators |
+| A5 | Tests seed synthetic rows instead of the real create → list → detail path | Valid gap | Added round trips that drive `POST /evaluations` as a non-admin operator, with and without an active project |
+| A6 | Frontend omits weight/tags | Valid coherence gap: weighted headline numbers were unexplainable from the visible rows | `EvaluationDetail` shows a Weight column when any row is non-default; `EvalRunResultRow` carries `weight`/`tags` |
+| A7 | `list_examples?version=N` diverges from evaluation's as-of-N semantics | The divergence is real and the route docstring actively misdescribed it ("what did version N actually contain?") | Corrected the docstring and relabelled the UI control to "Added in version", with a tooltip stating the difference |
+
+#### Rejected, with reasons
+
+| # | Recommendation | Why it was rejected |
+| --- | --- | --- |
+| R1 | "A route-created project-less eval defaults to project visibility, so detail can read it but list cannot return it" | **Factually incorrect.** `routes/evaluations.py` has set `visibility="project" if project_id else "user"` since the initial import, and that line is present at baseline `b9d8e786e`. The model's `visibility="project"` default therefore never applies to route-created runs, and no such hole exists. Rather than argue the point, the two `test_created_run_*` round trips now assert the stored `(visibility, project_id)` tuple directly, so any future regression here fails loudly |
+| R2 | Change `list_examples?version=N` to reconstruct the active-as-of-N set | The current behaviour is an intentional, explicitly tested contract (`test_list_examples_filter_by_version` pins "added at N"). Silently redefining a public endpoint to fix a wording problem would break that contract and any consumer relying on it. Fixed the misleading documentation instead — see A7 |
+| R3 | Exclude surviving scorer scores from aggregates when a row has an error | Deliberate design, not an oversight. Discarding the scorers that *did* work destroys usable evidence and would make one broken judge silently degrade every aggregate. The row is already barred from passing, which is the safety-relevant part |
+| R4 | Publish a scorer-coverage/completeness metric | Speculative: no consumer, no defined semantics, and it would add a public schema field for a case the `error` string already communicates. Deferred until something needs it |
+| R5 | Make `/health` a whole-platform readiness probe | Correct as a *gap* but out of scope for a remediation pass — it is a multi-service operations feature already tracked in §6 and roadmap P5. Narrowed the tooltip so the current probe is not overstated, which is the honest fix available today |
+
+#### Remaining gaps after this pass
+
+Deliberately still open, in rough priority order:
+
+1. **Identity and resource scoping (C1/C3).** Every visibility fix above still
+   rests on a self-asserted `X-CALIBER-User` header and a client-supplied
+   `X-CALIBER-Project`. The eval filter is now internally consistent; the
+   boundary it enforces is not yet trustworthy.
+2. **Deep readiness probes (§6).** `/health` remains API + database only.
+3. **Tag-slice analysis.** Tags now reach the scorecard rows but nothing groups
+   metrics by them.
+4. **Evidence immutability.** No content digest or pre-truncation inventory on an
+   evaluation run, so a pinned run is reproducible by convention, not by proof.
+5. **Test-harness artifact isolation.** See the harness defect below — the
+   MLflow artifact root is still un-isolated in `conftest.py`.
+6. The larger product decisions listed above (release gates, HITL truthfulness,
+   service auth, extension isolation, production topology) are unchanged.
+
 ### Verification of current HEAD
 
 The main suite results below were produced on behavior-equivalent parent
 `d90d914e3`; current HEAD changes only Ruff wrapping in one test file.
 
+Results below are from the follow-up review pass unless marked as history.
+
 - `npm run typecheck` — **passed**.
-- Full Vitest suite — **109 files, 1,466 tests passed**.
-- Six remediation backend regression modules with `--no-cov` — **40 passed**.
-- Focused changed frontend paths — **21 passed**.
+- Full Vitest suite — **109 files, 1,467 tests passed** (one new test asserts the
+  health poll is deduped across both shell indicators).
+- `npm run build` (production bundle, including the `sync-docs` prebuild) —
+  **succeeded**, with no generated-file drift.
+- `ruff check .` and `ruff format --check .` across the whole backend — **passed**
+  (476 files formatted); `mypy` on the four changed modules — **passed**; ESLint on
+  the seven changed frontend files — **passed**.
+- Follow-up backend regression modules — **28 passed**
+  (`test_eval_scorecard_weighting.py`, `test_eval_scorecard.py`,
+  `test_routes_evaluations_visibility.py`), covering the zero-weight fallback,
+  multi-scorer error reporting, detail/list parity, and the create → list → detail
+  round trips.
+- `test_routes_eval_datasets.py` — **17 passed**, confirming the documentation-only
+  change to the version filter altered no behaviour.
+- *History (earlier remediation pass, not rerun here):* six backend regression
+  modules — 40 passed; focused changed frontend paths — 21 passed.
 - `ruff check` and `ruff format --check` on the remediation backend paths, `mypy` on
   six changed source files, and ESLint on changed frontend files — **passed**.
 - On current `9357b3d71`, `tests/test_cookbook_doc_contract.py` — **13 passed**;
