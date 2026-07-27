@@ -1518,6 +1518,10 @@ Results below are from the follow-up review pass unless marked as history.
   `test_routes_evaluations_visibility.py`), covering the zero-weight fallback,
   multi-scorer error reporting, detail/list parity, and the create → list → detail
   round trips.
+- The modules most exposed to the detail/list scoping change
+  (`test_cov90_routes_evaluations.py`, `test_routes_evaluations.py`,
+  `test_routes_evaluations_reproducibility.py`, `test_scoping.py`,
+  `test_routes_scoping.py`) — **54 passed**.
 - `test_routes_eval_datasets.py` — **17 passed**, confirming the documentation-only
   change to the version filter altered no behaviour.
 - *History (earlier remediation pass, not rerun here):* six backend regression
@@ -1531,11 +1535,16 @@ Results below are from the follow-up review pass unless marked as history.
   **24** scheduler/runtime-approval tests, **320** tests across 19 affected backend
   modules, and a successful frontend production build. They are supporting history,
   not independent fresh verification.
-- **Full backend suite, green on CI: 5,016 passed, 12 skipped, 0 failed in 24m24s**,
-  with the repository coverage gate satisfied at **94.43%** against its 80%
-  threshold. GitHub Actions run `30282561793`, commit `9357b3d71`, Python 3.11 (the
-  supported version). This is the authoritative full-suite result for the merged
-  changes and supersedes the local attempts below.
+- **Full backend suite, green on CI after the follow-up review: 5,023 passed,
+  12 skipped, 0 failed in 23m40s**, coverage **94.43%** against the 80% gate.
+  GitHub Actions run `30286528826`, commit `851b04597`, Python 3.11. The test
+  count rose from 5,016 to 5,023, matching the seven regression tests added for
+  the accepted recommendations. `Type check` and `Lint & format` are green in the
+  same run; `UI` passed 109/109 test files and `Integration` passed 6 (3 skipped),
+  both marked failed only by the artifact-quota step below.
+- *Preceding run for reference:* 5,016 passed, 12 skipped, 0 failed in 24m24s,
+  coverage 94.43% (run `30282561793`, commit `9357b3d71`). These CI results are
+  the authoritative full-suite evidence and supersede the local attempts below.
   - The CI job is nevertheless *reported* as failed, because its Allure upload step
     hit `Failed to CreateArtifact: Artifact storage quota has been hit`. The same
     quota failure marks the UI job (109/109 test files passed) and the Integration
