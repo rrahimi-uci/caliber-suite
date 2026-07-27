@@ -266,7 +266,7 @@
       &quot;amount_usd&quot;: {&quot;type&quot;: &quot;number&quot;}
     }
   },
-  &quot;notes&quot;: &quot;side_effect=write -&gt; in the Tools SANDBOX the response is mocked and the envelope carries a top-level mocked:true (it never really fires). In a normal WORKFLOW run there is no top-level mocked flag: the tool runs the real callable, but only AFTER the human_approval gate clears. Wire it AFTER the human_approval node so the refund only fires once the run is approved.&quot;
+  &quot;notes&quot;: &quot;side_effect_level=write -&gt; in the Tools SANDBOX the response is mocked and the envelope carries a top-level mocked:true (it never really fires). In a normal WORKFLOW run there is no top-level mocked flag: the tool runs the real callable, but only AFTER the human_approval gate clears. Wire it AFTER the human_approval node so the refund only fires once the run is approved.&quot;
 }
 </code></pre>
     </div><div class="ck-asset" id="asset-assets-dataset-refund-fixtures-jsonl">

@@ -137,6 +137,8 @@ describe("Settings page", () => {
             openai_key_present: true,
             anthropic_key_present: true,
             assistant_engine: "openai",
+            openai_key_fingerprint: "••••test",
+            anthropic_key_fingerprint: "••••test",
           }),
         );
       }),
@@ -158,6 +160,59 @@ describe("Settings page", () => {
         gateway_url: "",
       }),
     );
+  });
+
+  it("keeps provider key fields write-only and never prefills a secret", async () => {
+    // Regression for ui-complete-report.md §C2: GET /settings/llm returned the
+    // fully resolved provider keys so this form could prefill them, putting live
+    // credentials in every operator's browser. It now returns presence + a
+    // masked tail, and the inputs start (and stay) empty.
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Providers" }));
+
+    const openai = await screen.findByLabelText<HTMLInputElement>("OpenAI API key");
+    const anthropic = await screen.findByLabelText<HTMLInputElement>("Anthropic API key");
+    expect(openai.value).toBe("");
+    expect(anthropic.value).toBe("");
+
+    // The masked fingerprint still tells the operator which key is live.
+    expect(screen.getByTestId("openai-key-hint")).toHaveTextContent("Configured (••••7f3a)");
+    expect(screen.getByTestId("anthropic-key-hint")).toHaveTextContent("Not configured.");
+
+    // Nothing to save until the operator actually types a new key.
+    expect(screen.getByRole("button", { name: "Save provider settings" })).toBeDisabled();
+  });
+
+  it("clears the entered key from the form after a successful save", async () => {
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Providers" }));
+
+    const openai = await screen.findByLabelText<HTMLInputElement>("OpenAI API key");
+    await userEvent.type(openai, "sk-brand-new");
+    await userEvent.click(screen.getByRole("button", { name: "Save provider settings" }));
+
+    await waitFor(() => expect(openai.value).toBe(""));
+  });
+
+  it("keeps the entered key when the save fails so it can be retried", async () => {
+    server.use(
+      http.patch(`${API_BASE}/settings/llm`, () =>
+        HttpResponse.json({ detail: "gateway unreachable" }, { status: 502 }),
+      ),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Providers" }));
+
+    const openai = await screen.findByLabelText<HTMLInputElement>("OpenAI API key");
+    await userEvent.type(openai, "sk-brand-new");
+    await userEvent.click(screen.getByRole("button", { name: "Save provider settings" }));
+
+    // Because the field is write-only there is nothing to re-read it from, so
+    // discarding it on failure would lose the operator's input entirely.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save provider settings" })).toBeEnabled(),
+    );
+    expect(openai.value).toBe("sk-brand-new");
   });
 
   it("shows backing-service health on the Services tab", async () => {

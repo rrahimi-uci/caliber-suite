@@ -1217,6 +1217,9 @@ export const handlers = [
         openai_key_present: true,
         anthropic_key_present: false,
         assistant_engine: "openai",
+        // Presence + masked tail only; the API never returns resolved keys.
+        openai_key_fingerprint: "••••7f3a",
+        anthropic_key_fingerprint: "",
       }),
     );
   }),
@@ -1234,6 +1237,9 @@ export const handlers = [
         openai_key_present: typeof body.openai_api_key === "string" || true,
         anthropic_key_present: typeof body.anthropic_api_key === "string",
         assistant_engine: "openai",
+        openai_key_fingerprint: "••••7f3a",
+        anthropic_key_fingerprint:
+          typeof body.anthropic_api_key === "string" ? "••••test" : "",
       }),
     );
   }),

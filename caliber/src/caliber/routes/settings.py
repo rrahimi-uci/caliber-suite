@@ -38,6 +38,9 @@ LLM_PATH = PREFIX + "/settings/llm"
 # the conventional variable name.
 _OPENAI_KEY_ENV_FALLBACK = "OPENAI_API_KEY"
 _ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY"
+# Below this length, showing the last 4 characters would leak most of the
+# secret, so the fingerprint collapses to a bare mask instead.
+_FINGERPRINT_MIN_LENGTH = 8
 
 _DEFAULT_CONFIG = CaliberConfig.load(environ={})
 _BYTES_PER_UNIT = 1024
@@ -1315,6 +1318,21 @@ def _openai_key_env(config: CaliberConfig) -> str:
     return _OPENAI_KEY_ENV_FALLBACK
 
 
+def _key_fingerprint(key: str) -> str:
+    """Return a non-reversible display hint for a resolved credential.
+
+    Enough for an operator to confirm *which* key is live ("…the one ending
+    4f2a") without the response ever carrying the secret. Short keys collapse
+    to a bare mask so a 6-character value can't be reconstructed from its tail.
+    """
+    key = key.strip()
+    if not key:
+        return ""
+    if len(key) <= _FINGERPRINT_MIN_LENGTH:
+        return "••••"
+    return f"••••{key[-4:]}"
+
+
 def _llm_setup_status(config: CaliberConfig) -> dict[str, Any]:
     openai_source = str(getattr(config, "llm_api_key_env", "") or _OPENAI_KEY_ENV_FALLBACK)
     openai_key = resolve_secret(openai_source) or ""
@@ -1326,10 +1344,14 @@ def _llm_setup_status(config: CaliberConfig) -> dict[str, Any]:
         "openai_key_present": bool(openai_key),
         "anthropic_key_present": bool(anthropic_key),
         "assistant_engine": str(getattr(config, "assistant_engine", "") or ""),
-        # The resolved key values so the Settings UI can prefill the fields with
-        # the live environment defaults. This is an admin/operator-scoped route.
-        "openai_api_key": openai_key,
-        "anthropic_api_key": anthropic_key,
+        # Presence + a masked tail only. This route used to return the fully
+        # resolved provider keys so the Settings UI could prefill its password
+        # fields — which put live credentials into every operator's browser,
+        # React Query cache, and any response log, contradicting the route's
+        # own "never returns secret values" contract. Writes stay supported via
+        # PATCH; reads are now write-only-safe.
+        "openai_key_fingerprint": _key_fingerprint(openai_key),
+        "anthropic_key_fingerprint": _key_fingerprint(anthropic_key),
     }
 
 
@@ -1341,7 +1363,8 @@ def _config_from(request: Request) -> CaliberConfig:
 async def get_llm_setup(request: Request) -> JSONResponse:
     """Report the LLM provider, gateway URL, and which credentials are present.
 
-    Never returns secret values — only whether each key resolves.
+    Never returns secret values — only whether each key resolves, plus a masked
+    ``••••<last 4>`` fingerprint so an operator can tell *which* key is live.
     """
     require_scopes(request, [SCOPE_OPERATOR])
     return envelope_response_dict(_llm_setup_status(_config_from(request)))

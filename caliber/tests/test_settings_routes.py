@@ -30,7 +30,7 @@ def _settings_by_key(payload: dict[str, object]) -> dict[str, dict[str, object]]
 def test_llm_setup_status_reports_provider_and_presence(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-abcd1234")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     client.app.state.config = client.app.state.config.model_copy(
         update={"llm_provider": "openai", "llm_base_url": "http://gw:5000/v1"}
@@ -43,10 +43,48 @@ def test_llm_setup_status_reports_provider_and_presence(
     assert data["gateway_url"] == "http://gw:5000/v1"
     assert data["openai_key_present"] is True
     assert data["anthropic_key_present"] is False
-    # Status returns the resolved key values so the Settings UI can prefill the
-    # fields with the live environment defaults.
-    assert data["openai_api_key"] == "sk-test"
-    assert data["anthropic_api_key"] == ""
+    # Presence + a masked tail only. This route used to return the fully
+    # resolved keys so the Settings UI could prefill its fields, contradicting
+    # its own "never returns secret values" docstring — see
+    # ui-complete-report.md §C2.
+    assert data["openai_key_fingerprint"] == "••••1234"
+    assert data["anthropic_key_fingerprint"] == ""
+    assert "openai_api_key" not in data
+    assert "anthropic_api_key" not in data
+    assert "sk-test-abcd1234" not in resp.text
+
+
+def test_llm_setup_status_never_leaks_a_short_key_tail(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A key short enough that its tail would be most of it collapses to a mask."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-12")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    resp = client.get(f"{PREFIX}/settings/llm")
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["openai_key_present"] is True
+    assert data["openai_key_fingerprint"] == "••••"
+    assert "sk-12" not in resp.text
+
+
+def test_llm_setup_update_response_is_also_masked(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The PATCH echo must not hand the just-written secret back either."""
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    resp = client.patch(
+        f"{PREFIX}/settings/llm",
+        json={"openai_api_key": "sk-written-wxyz9876"},
+    )
+
+    assert resp.status_code == 200
+    assert "sk-written-wxyz9876" not in resp.text
+    assert resp.json()["data"]["openai_key_fingerprint"] == "••••9876"
 
 
 def test_llm_setup_applies_keys_and_gateway_at_runtime(

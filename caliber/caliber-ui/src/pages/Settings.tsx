@@ -153,7 +153,9 @@ export function Settings(): JSX.Element {
           setup={llmSetup ?? null}
           isLoading={llmLoading}
           isSaving={providerMutation.isPending}
-          onSave={(payload) => providerMutation.mutate(payload)}
+          // Async so the tab can clear the entered key only after the write
+          // actually lands — a failed save must not silently discard it.
+          onSave={(payload) => providerMutation.mutateAsync(payload)}
         />
       )}
       {activeTab === "services" && <ServicesTab />}
@@ -625,34 +627,49 @@ function ProviderSettingsTab({
   setup: LlmSetupStatus | null;
   isLoading: boolean;
   isSaving: boolean;
-  onSave: (payload: LlmSetupUpdate) => void;
+  onSave: (payload: LlmSetupUpdate) => Promise<unknown>;
 }): JSX.Element {
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [gatewayUrl, setGatewayUrl] = useState("");
 
-  // Prefill the fields with the keys already resolved from the environment so
-  // they read as the live defaults; edits override them on the running server.
+  // Key fields are write-only: the API returns presence + a masked fingerprint,
+  // never the resolved secret, so there is nothing to prefill. Leaving a field
+  // blank keeps the currently configured key.
   useEffect(() => {
     if (!setup) return;
-    setOpenaiKey(setup.openai_api_key ?? "");
-    setAnthropicKey(setup.anthropic_api_key ?? "");
     setGatewayUrl(setup.gateway_url ?? "");
   }, [setup]);
 
   const hasChanges =
-    openaiKey !== (setup?.openai_api_key ?? "") ||
-    anthropicKey !== (setup?.anthropic_api_key ?? "") ||
+    openaiKey.trim() !== "" ||
+    anthropicKey.trim() !== "" ||
     gatewayUrl !== (setup?.gateway_url ?? "");
 
   const handleSave = (): void => {
     const payload: LlmSetupUpdate = {};
-    if (openaiKey !== (setup?.openai_api_key ?? "")) payload.openai_api_key = openaiKey.trim();
-    if (anthropicKey !== (setup?.anthropic_api_key ?? ""))
-      payload.anthropic_api_key = anthropicKey.trim();
+    if (openaiKey.trim() !== "") payload.openai_api_key = openaiKey.trim();
+    if (anthropicKey.trim() !== "") payload.anthropic_api_key = anthropicKey.trim();
     if (gatewayUrl !== (setup?.gateway_url ?? "")) payload.gateway_url = gatewayUrl;
-    onSave(payload);
+    void onSave(payload).then(
+      () => {
+        // Don't leave the entered secret sitting in component state (and so in
+        // the DOM) once it's safely stored. Only on success — a failed save
+        // must not discard what the operator typed.
+        setOpenaiKey("");
+        setAnthropicKey("");
+      },
+      () => {
+        // The mutation's onError already surfaces a toast; keep the values so
+        // the operator can retry.
+      },
+    );
   };
+
+  const keyHint = (present: boolean, fingerprint: string): string =>
+    present
+      ? `Configured${fingerprint ? ` (${fingerprint})` : ""} — leave blank to keep it.`
+      : "Not configured.";
 
   if (isLoading && !setup) {
     return <LoadingCard text="Loading provider settings…" />;
@@ -667,8 +684,9 @@ function ProviderSettingsTab({
           </p>
           <h2 className="mt-2 text-xl font-semibold text-slate-900">Live API keys</h2>
           <p className="mt-1 text-sm leading-6 text-slate-500">
-            Prefilled with the keys resolved from the deployment environment. Editing a field
-            writes a runtime override on the running server; the durable source stays your env / .env.
+            Keys are write-only: CALIBER reports whether one is configured and its last four
+            characters, never the value. Entering a key writes a runtime override on the running
+            server; the durable source stays your env / .env.
           </p>
         </div>
 
@@ -677,11 +695,15 @@ function ProviderSettingsTab({
           <input
             aria-label="OpenAI API key"
             type="password"
+            autoComplete="off"
             value={openaiKey}
             onChange={(event) => setOpenaiKey(event.target.value)}
             placeholder="sk-..."
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-caliber-400 focus:ring-2 focus:ring-caliber-400/20"
           />
+          <span className="block text-xs text-slate-400" data-testid="openai-key-hint">
+            {keyHint(setup?.openai_key_present ?? false, setup?.openai_key_fingerprint ?? "")}
+          </span>
         </label>
 
         <label className="block space-y-2">
@@ -689,11 +711,18 @@ function ProviderSettingsTab({
           <input
             aria-label="Anthropic API key"
             type="password"
+            autoComplete="off"
             value={anthropicKey}
             onChange={(event) => setAnthropicKey(event.target.value)}
             placeholder="sk-ant-..."
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-caliber-400 focus:ring-2 focus:ring-caliber-400/20"
           />
+          <span className="block text-xs text-slate-400" data-testid="anthropic-key-hint">
+            {keyHint(
+              setup?.anthropic_key_present ?? false,
+              setup?.anthropic_key_fingerprint ?? "",
+            )}
+          </span>
         </label>
 
         <label className="block space-y-2">
@@ -714,8 +743,8 @@ function ProviderSettingsTab({
           <button
             type="button"
             onClick={() => {
-              setOpenaiKey(setup?.openai_api_key ?? "");
-              setAnthropicKey(setup?.anthropic_api_key ?? "");
+              setOpenaiKey("");
+              setAnthropicKey("");
               setGatewayUrl(setup?.gateway_url ?? "");
             }}
             disabled={isSaving || !hasChanges}

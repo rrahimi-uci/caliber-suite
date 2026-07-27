@@ -27,6 +27,29 @@ from caliber.auth import SCOPE_ADMIN, CaliberIdentity
 VisibilityTier = Literal["project", "user", "public"]
 
 
+def owner_column(model: Any) -> Any:
+    """Return the column that records who created/owns rows of ``model``.
+
+    Most CALIBER artifacts name it ``owner``, but a few run-style tables
+    (``CaliberEvalRun``) record the actor as ``created_by`` instead. Resolving
+    it here keeps :func:`apply_visibility_filter` usable for both rather than
+    raising ``AttributeError`` on the non-admin branch — the defect that made
+    every non-admin ``GET /caliber/evaluations`` a 500.
+
+    Raises ``TypeError`` when the model carries neither, so a genuinely
+    unscopeable model fails loudly at the call site instead of silently
+    returning unfiltered rows.
+    """
+    for name in ("owner", "created_by"):
+        column = getattr(model, name, None)
+        if column is not None:
+            return column
+    raise TypeError(
+        f"{getattr(model, '__name__', model)!r} has no 'owner' or 'created_by' "
+        "column, so it cannot be scoped by the visibility model"
+    )
+
+
 def get_visible(
     session: Any,
     model: Any,
@@ -62,8 +85,9 @@ def apply_visibility_filter(  # noqa: PLR0911 (one return per visibility tier re
 ) -> Select[Any]:
     """Filter a SELECT by the 3-tier visibility model.
 
-    ``model`` is the ORM class being queried (must expose ``visibility``,
-    ``owner``, and ``project_id`` columns).
+    ``model`` is the ORM class being queried. It must expose ``visibility`` and
+    ``project_id`` columns plus an ownership column — ``owner`` for artifact
+    tables, or ``created_by`` for run-style tables (see :func:`owner_column`).
 
     ``only`` restricts the result to a single tier — used by the My Library
     (``only="user"``) and Public Library (``only="public"``) views.
@@ -92,14 +116,16 @@ def apply_visibility_filter(  # noqa: PLR0911 (one return per visibility tier re
     conditions = []
     if only in (None, "public"):
         conditions.append(model.visibility == "public")
+    # Resolved lazily: the public-only tier needs no ownership column, so a
+    # ``only="public"`` query on a model without one keeps working.
     if only in (None, "user"):
-        conditions.append(and_(model.visibility == "user", model.owner == identity.user_id))
+        conditions.append(and_(model.visibility == "user", owner_column(model) == identity.user_id))
     if only in (None, "project") and project_id:
         conditions.append(
             and_(
                 model.visibility == "project",
                 model.project_id == project_id,
-                model.owner == identity.user_id,
+                owner_column(model) == identity.user_id,
             )
         )
 

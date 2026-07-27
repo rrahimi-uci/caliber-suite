@@ -8,9 +8,9 @@
  * arrangement would have caused. Live updates come from the
  * event-stream subscription inside :func:`useDashboardSummary`.
  *
- * `Placeholder` is the per-page stub for pages we haven't built yet.
- * Each is a self-contained "this lives here" card so the navigation is
- * exercised end-to-end while we iterate page-by-page.
+ * `NotFound` is the wildcard route. It used to double as a stub for
+ * unbuilt pages, but every navigable route now resolves to a real page,
+ * so reaching it means the URL is genuinely wrong.
  *
  * Pages are lazy-loaded via `React.lazy` so each route lands in its own
  * chunk. The `<Suspense>` fallback is a minimal loading skeleton. Each
@@ -19,7 +19,7 @@
  */
 
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 
 import {
   AUTH_CHANGED_EVENT,
@@ -151,7 +151,7 @@ function AuthenticatedApp({
               <Route path="/gateway" element={<Gateway />} />
               <Route path="/audit-log" element={<AuditLog />} />
               <Route path="/releases" element={<Releases />} />
-              <Route path="*" element={<Placeholder title="Not found" />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
         </RouteErrorBoundary>
@@ -160,14 +160,29 @@ function AuthenticatedApp({
   );
 }
 
-function Placeholder({ title }: { title: string }): JSX.Element {
+/**
+ * Wildcard route.
+ *
+ * Previously this rendered "This page lands in a follow-up milestone",
+ * which read as "CALIBER hasn't built this yet" for what is in fact an
+ * unrecognised URL — a mistyped link looked like a missing feature.
+ */
+function NotFound(): JSX.Element {
   return (
-    <div>
-      <h1 className="text-xl font-semibold text-gray-900 mb-2">{title}</h1>
-      <p className="text-sm text-gray-500">
-        This page lands in a follow-up milestone. The route is wired so the
-        sidebar navigation works end-to-end while we iterate.
+    <div data-testid="route-not-found">
+      <h1 className="text-xl font-semibold text-gray-900 mb-2 dark:text-slate-100">
+        Page not found
+      </h1>
+      <p className="text-sm text-gray-500 dark:text-slate-400">
+        This URL doesn&apos;t match any CALIBER page. Check the address, or
+        pick a workspace from the sidebar.
       </p>
+      <Link
+        to="/"
+        className="mt-4 inline-block text-sm font-medium text-caliber-600 hover:underline dark:text-caliber-400"
+      >
+        Go to the dashboard
+      </Link>
     </div>
   );
 }

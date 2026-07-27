@@ -80,9 +80,13 @@ export interface LlmSetupStatus {
   openai_key_present: boolean;
   anthropic_key_present: boolean;
   assistant_engine: string;
-  /** Resolved key values from the environment, used to prefill the Settings fields. */
-  openai_api_key: string;
-  anthropic_api_key: string;
+  /**
+   * Masked `••••<last 4>` hints so an operator can confirm *which* key is
+   * live. Empty when no key resolves. The API deliberately never returns the
+   * resolved values — the fields are write-only.
+   */
+  openai_key_fingerprint: string;
+  anthropic_key_fingerprint: string;
 }
 
 /** Runtime override applied to the running server. Omit a key to leave it as-is. */

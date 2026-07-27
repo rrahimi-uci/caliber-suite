@@ -21,6 +21,7 @@ target (predictions == expected) is a labelled diagnostic only.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -194,6 +195,13 @@ class ScorecardRow:
     score: float
     passed: bool
     error: str | None = None
+    # Relative importance of this example in the aggregate, carried over from
+    # ``CaliberEvalDatasetExample.weight``. 1.0 keeps every legacy call site
+    # (and every unweighted dataset) on the plain arithmetic mean.
+    weight: float = 1.0
+    # Dataset tags for this example, carried through so a scorecard can be
+    # sliced by tag downstream instead of losing the label at load time.
+    tags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -205,12 +213,21 @@ class ScorecardRow:
             "score": self.score,
             "passed": self.passed,
             "error": self.error,
+            "weight": self.weight,
+            "tags": self.tags,
         }
 
 
 @dataclass(frozen=True)
 class ScorecardResult:
-    """Per-row results + folded aggregate for one evaluation pass."""
+    """Per-row results + folded aggregate for one evaluation pass.
+
+    ``aggregate``, ``overall``, and ``pass_rate`` are **weighted** means over
+    each row's example weight, so a curated dataset's weights actually affect
+    the verdict. ``passed_count``/``failed_count``/``n_examples`` stay raw row
+    counts — they answer "how many examples", not "how much did they matter".
+    With every weight at the 1.0 default the two views coincide.
+    """
 
     rows: list[ScorecardRow] = field(default_factory=list)
     scorers: list[str] = field(default_factory=list)
@@ -226,6 +243,24 @@ def _row_score(scores: Mapping[str, float]) -> float:
     if not scores:
         return 0.0
     return round(sum(scores.values()) / len(scores), 4)
+
+
+def _example_weight(example: Mapping[str, Any]) -> float:
+    """Read an example's aggregate weight, defaulting to 1.0.
+
+    Non-numeric, negative, non-finite, or absent weights fall back to 1.0
+    rather than raising: a malformed dataset row should be scored normally, not
+    abort the run or poison every aggregate with NaN. A weight of exactly 0 is
+    honoured (the row is scored and shown but contributes nothing to the
+    aggregate).
+    """
+    raw = example.get("weight")
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return 1.0
+    value = float(raw)
+    if value < 0 or not math.isfinite(value):
+        return 1.0
+    return value
 
 
 def run_scorecard(
@@ -245,21 +280,31 @@ def run_scorecard(
     prediction with the full example context). A ``predict`` that raises for one
     example degrades that row to an error without aborting the run; a single
     judge/scorer that raises for one row is recorded on that row's ``error`` and
-    simply omitted from its scores — one bad row (or judge) shouldn't lose the
-    rest.
+    omitted from its scores — one bad row (or judge) shouldn't lose the rest.
+    A row that recorded an error never counts as ``passed``, though: scoring a
+    row on the subset of scorers that happened to survive would let a partially
+    evaluated example clear the threshold on incomplete evidence.
+
+    Examples may carry a ``weight`` (default 1.0) mirroring
+    ``CaliberEvalDatasetExample.weight``. Aggregates, ``overall``, and
+    ``pass_rate`` are weighted means over it, so an unweighted dataset behaves
+    exactly as before while a curated one actually honours its weights.
     """
     judge_runners = judge_runners or {}
     scorers = resolve_scorers(scorer_names, allowed_judges=list(judge_runners))
     rows: list[ScorecardRow] = []
-    # Per-scorer running totals over rows that produced a value.
+    # Per-scorer running totals over rows that produced a value, weighted by
+    # each row's example weight.
     scorer_totals: dict[str, float] = dict.fromkeys(scorers, 0.0)
-    scorer_counts: dict[str, int] = dict.fromkeys(scorers, 0)
+    scorer_weights: dict[str, float] = dict.fromkeys(scorers, 0.0)
 
     for example in examples:
         example_id = str(example.get("example_id", ""))
         inp = dict(example.get("input") or {})
         expected = dict(example.get("expected") or {})
         gold = expected_text(expected)
+        weight = _example_weight(example)
+        tags = [str(tag) for tag in (example.get("tags") or [])]
 
         try:
             prediction = predict(inp)
@@ -274,6 +319,8 @@ def run_scorecard(
                     score=0.0,
                     passed=False,
                     error=str(exc) or exc.__class__.__name__,
+                    weight=weight,
+                    tags=tags,
                 )
             )
             continue
@@ -290,8 +337,8 @@ def run_scorecard(
             except Exception as exc:  # one judge failing shouldn't void the other scores
                 row_error = row_error or f"{name}: {str(exc) or exc.__class__.__name__}"
         for name, value in scores.items():
-            scorer_totals[name] += value
-            scorer_counts[name] += 1
+            scorer_totals[name] += value * weight
+            scorer_weights[name] += weight
         row_score = _row_score(scores)
         rows.append(
             ScorecardRow(
@@ -301,20 +348,33 @@ def run_scorecard(
                 prediction=prediction,
                 scores=scores,
                 score=row_score,
-                passed=row_score >= pass_threshold,
+                # A row whose scorer(s) errored has incomplete evidence: pass it
+                # on the surviving subset and a broken judge silently improves
+                # the pass rate.
+                passed=row_error is None and row_score >= pass_threshold,
                 error=row_error,
+                weight=weight,
+                tags=tags,
             )
         )
 
     aggregate = {
-        name: round(scorer_totals[name] / scorer_counts[name], 4)
+        name: round(scorer_totals[name] / scorer_weights[name], 4)
         for name in scorers
-        if scorer_counts[name] > 0
+        if scorer_weights[name] > 0
     }
     passed_count = sum(1 for row in rows if row.passed)
     failed_count = len(rows) - passed_count
-    overall = round(sum(row.score for row in rows) / len(rows), 4) if rows else 0.0
-    pass_rate = round(passed_count / len(rows), 4) if rows else 0.0
+    total_weight = sum(row.weight for row in rows)
+    if total_weight > 0:
+        overall = round(sum(row.score * row.weight for row in rows) / total_weight, 4)
+        pass_rate = round(
+            sum(row.weight for row in rows if row.passed) / total_weight,
+            4,
+        )
+    else:
+        overall = 0.0
+        pass_rate = 0.0
 
     return ScorecardResult(
         rows=rows,

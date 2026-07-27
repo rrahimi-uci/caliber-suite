@@ -4,13 +4,10 @@
  * toggle.
  */
 
-import { useEffect, useState } from "react";
-
-import { caliberApi } from "@/api/caliberApi";
-
 import { AriaLogo } from "@/components/assistant/AriaLogo";
 import { useAssistantPanel } from "@/components/assistant/AssistantPanelContext";
 import { BrandAcronym, BRAND_ACRONYM_TEXT } from "@/components/BrandAcronym";
+import { HEALTH_DOT, useHealthStatus } from "@/components/useHealthStatus";
 
 import { useTheme } from "./useTheme";
 
@@ -19,39 +16,6 @@ interface TopBarProps {
   currentUser?: string;
   onLogout?: () => void;
 }
-
-/** Polls the CALIBER health endpoint and returns "ok" | "down" | "loading". */
-function useHealthStatus(intervalMs = 30_000): "ok" | "down" | "loading" {
-  const [status, setStatus] = useState<"ok" | "down" | "loading">("loading");
-
-  useEffect(() => {
-    let cancelled = false;
-    const check = (): void => {
-      caliberApi
-        .getHealth()
-        .then(() => {
-          if (!cancelled) setStatus("ok");
-        })
-        .catch(() => {
-          if (!cancelled) setStatus("down");
-        });
-    };
-    check();
-    const id = setInterval(check, intervalMs);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [intervalMs]);
-
-  return status;
-}
-
-const HEALTH_DOT: Record<string, string> = {
-  ok: "bg-emerald-400",
-  down: "bg-red-400",
-  loading: "bg-slate-400 animate-pulse",
-};
 
 export function TopBar({
   onToggleSidebar,

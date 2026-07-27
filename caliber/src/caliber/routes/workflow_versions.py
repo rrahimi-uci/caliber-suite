@@ -948,6 +948,11 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
             row.completed_at = datetime.now(timezone.utc)
             if result.mlflow_run_id:
                 row.mlflow_run_id = result.mlflow_run_id
+            # The in-app trace viewer resolves spans from ``trace_id``; without
+            # this the synchronous run path produced a trace nothing could link
+            # to (mirrors the queued worker).
+            if result.mlflow_trace_id:
+                row.trace_id = result.mlflow_trace_id
             prior_summary = dict(row.summary or {})
             summary = workflow_run_summary(result, preview=False)
             summary.update(_copy_manifest_summary_metadata(prior_summary))

@@ -28,6 +28,11 @@ import {
 import { NavLink, useLocation } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
+import {
+  HEALTH_DOT,
+  HEALTH_LABEL,
+  useHealthStatus,
+} from "@/components/useHealthStatus";
 import { useApiQuery } from "@/hooks/useApiQuery";
 
 interface Badge {
@@ -162,6 +167,7 @@ export function Sidebar({
     { refetchInterval: 30_000, staleTime: 15_000, retry: false },
   );
   const pausedCount = (plansNav.data ?? []).filter((p) => p.status === "paused").length;
+  const health = useHealthStatus();
   return (
     <CollapsedContext.Provider value={collapsed}>
     <aside
@@ -313,11 +319,19 @@ export function Sidebar({
             onNavigate={onNavigate}
           />
 
-          {/* Footer branding (hidden in the collapsed rail). */}
+          {/* Footer status (hidden in the collapsed rail). Derived from the
+              real /health poll — a decorative always-green dot here taught
+              users to ignore the status lights. */}
           <div className={`mt-4 mx-4 pt-4 border-t border-slate-200/60 ${collapsed ? "md:hidden" : ""}`}>
-            <div className="flex items-center gap-2 px-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] font-medium text-slate-400">System Online</span>
+            <div
+              className="flex items-center gap-2 px-2"
+              data-testid="sidebar-health"
+              title={`System ${health}`}
+            >
+              <div className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`} />
+              <span className="text-[10px] font-medium text-slate-400">
+                {HEALTH_LABEL[health]}
+              </span>
             </div>
           </div>
         </div>
