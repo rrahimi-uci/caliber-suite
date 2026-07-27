@@ -145,9 +145,7 @@ def test_judge_alignment_metrics_exist_and_are_documented() -> None:
     human = [True, True, False, False]
     assert 0.0 <= observed_agreement(judge, human) <= 1.0
     assert -1.0 <= cohen_kappa(judge, human) <= 1.0
-    assert {"true_pos", "false_pos", "true_neg", "false_neg"} <= set(
-        confusion_counts(judge, human)
-    )
+    assert {"true_pos", "false_pos", "true_neg", "false_neg"} <= set(confusion_counts(judge, human))
 
     readme = _read("10-judge-certification-human-review-lab/README.md")
     assert "Human alignment" in readme
