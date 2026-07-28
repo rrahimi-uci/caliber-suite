@@ -24,7 +24,9 @@ def _gated_manifest(workflow_id: str) -> dict:
         "type": "deploy_gate",
         "dataset_ref": "support_eval",
         "required_for_aliases": ["prod"],
-        "thresholds": {"min_pass_rate": 1.0},
+        # Completion, not quality: this dataset carries no expected output. See
+        # tests/test_deploy_gate_evidence.py for the graded contract.
+        "thresholds": {"min_completion_rate": 1.0},
     }
     return make_support_manifest(workflow_id, deploy_gates={"support_eval": gate})
 

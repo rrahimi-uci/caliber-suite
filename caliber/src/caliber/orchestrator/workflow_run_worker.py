@@ -33,6 +33,7 @@ from caliber.observability.trace import bind_trace_id
 from caliber.secrets import resolve_secret
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
 from caliber.workflows.compiler import CompileError
+from caliber.workflows.effect_ledger import SqlEffectLedger
 from caliber.workflows.file_tools import (
     bind_managed_file_runtime,
     bind_run_read_tools,
@@ -1553,6 +1554,14 @@ class WorkflowRunWorker:
                     error_summary=_compile_error_summary(exc),
                 )
                 return
+            # At-most-once external effects. This is the only execution path that
+            # can be *restarted*: an expired lease resets the run to ``queued`` and,
+            # without a wait/approval checkpoint, execution begins again from the
+            # start — so every effectful node would re-fire without this ledger.
+            # The key is keyed on the run id, which the restart preserves.
+            plan.effect_ledger = SqlEffectLedger(
+                self._session_factory, workflow_run_id=run.workflow_run_id
+            )
             preflight_error = _resume_checkpoint_preflight_error(plan, resume_checkpoint)
             if preflight_error is not None:
                 source_run_id = run_summary.get("resume_checkpoint_run_id")

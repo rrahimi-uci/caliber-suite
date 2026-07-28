@@ -19,13 +19,20 @@ Receivers should:
    ``hmac.compare_digest`` (constant-time) against the ``v1=`` value.
 3. Reject anything that fails either check.
 
-The dispatcher is best-effort for v1 — a failed POST is logged with the
-event type and status code, but not retried. Retries with exponential
-backoff land in a follow-up milestone alongside a queue table; for now
-the operator's expectation is "we tell you when something happens, but
-your receiver needs to be reliable enough to absorb the occasional
-outage." That matches what Slack / PagerDuty integration shapes look
-like in OSS land.
+Delivery is **bounded retry with a dead-letter**, not fire-and-forget. A
+receiver restart or a brief network blip used to drop the event silently, which
+made the webhook stream unusable as an operational signal: an operator could not
+tell "nothing happened" from "we failed to tell you". Each POST is now retried
+with exponential backoff up to a configured attempt limit; a 4xx is treated as
+permanent (retrying a rejected payload cannot help) while a 5xx, a timeout, or a
+connection error is retried. Anything still failing after the last attempt lands
+in a bounded in-memory dead-letter ring, exposed through
+:meth:`WebhookDispatcher.dead_letters` so operations can see exactly which events
+were lost rather than discovering it from a receiver-side gap.
+
+The ring is in-memory on purpose: a durable delivery queue is a schema change and
+a separate milestone. What this closes is the silent part of the loss — an
+operator can now observe it.
 
 We use ``urllib.request`` (stdlib) rather than ``httpx`` to keep the
 runtime dependency set tight. The synchronous POST is run on a thread
@@ -40,10 +47,12 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import AsyncGenerator
+from collections import deque
+from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
 from typing import Any, Final
 
@@ -58,6 +67,25 @@ _DEFAULT_TIMEOUT_SECONDS: Final[float] = 5.0
 # 2xx is success; anything >= this is treated as receiver failure and
 # logged. Named so the comparison in :meth:`_post` reads as the spec.
 _HTTP_2XX_CEILING: Final[int] = 300
+# 4xx means the receiver understood and rejected the request; replaying an
+# identical payload cannot change that, so it is permanent. 5xx and transport
+# errors are transient and worth retrying.
+_HTTP_CLIENT_ERROR_FLOOR: Final[int] = 400
+_HTTP_SERVER_ERROR_FLOOR: Final[int] = 500
+_DEFAULT_MAX_ATTEMPTS: Final[int] = 3
+_DEFAULT_BACKOFF_SECONDS: Final[float] = 0.5
+#: Bounded so a long outage cannot grow memory without limit. Oldest entries are
+#: evicted, and the eviction count is reported so the surface never implies it is
+#: complete when it is not.
+_DEAD_LETTER_CAPACITY: Final[int] = 200
+
+
+class WebhookDeliveryError(Exception):
+    """A delivery attempt failed. ``permanent`` suppresses further retries."""
+
+    def __init__(self, message: str, *, permanent: bool = False) -> None:
+        super().__init__(message)
+        self.permanent = permanent
 
 
 class WebhookDispatcher:
@@ -94,14 +122,58 @@ class WebhookDispatcher:
         secret: str,
         event_filter: frozenset[str] | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+        max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        backoff_seconds: float = _DEFAULT_BACKOFF_SECONDS,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self._bus = bus
         self._urls = list(urls)
         self._secret = secret.encode("utf-8") if secret else b""
         self._event_filter = event_filter
         self._timeout = timeout_seconds
+        self._max_attempts = max(1, int(max_attempts))
+        self._backoff = max(0.0, float(backoff_seconds))
+        # Injectable so retry timing is testable without real waiting. The
+        # dispatch path already runs on a worker thread, so a blocking sleep here
+        # does not stall the event loop.
+        self._sleep = sleep if sleep is not None else time.sleep
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
+        self._dead_letters: deque[dict[str, Any]] = deque(maxlen=_DEAD_LETTER_CAPACITY)
+        self._dead_letter_lock = threading.Lock()
+        self._dropped_dead_letters = 0
+        self._delivered = 0
+        self._retried = 0
+
+    def dead_letters(self) -> dict[str, Any]:
+        """Events that exhausted every delivery attempt.
+
+        ``dropped`` counts entries evicted by the ring's capacity, so a caller
+        can never mistake a truncated list for the whole failure history.
+        """
+        with self._dead_letter_lock:
+            return {
+                "entries": list(self._dead_letters),
+                "count": len(self._dead_letters),
+                "dropped": self._dropped_dead_letters,
+                "capacity": _DEAD_LETTER_CAPACITY,
+                "delivered": self._delivered,
+                "retried": self._retried,
+            }
+
+    def _record_dead_letter(self, url: str, event: dict[str, object], reason: str) -> None:
+        with self._dead_letter_lock:
+            if len(self._dead_letters) == _DEAD_LETTER_CAPACITY:
+                self._dropped_dead_letters += 1
+            self._dead_letters.append(
+                {
+                    "url": url,
+                    "event_type": event.get("type"),
+                    "reason": reason,
+                    "attempts": self._max_attempts,
+                    "failed_at_ms": int(time.time() * 1000),
+                }
+            )
 
     @property
     def is_enabled(self) -> bool:
@@ -188,15 +260,52 @@ class WebhookDispatcher:
         signature = compute_signature(self._secret, timestamp, payload)
         body = payload.encode("utf-8")
         for url in self._urls:
+            self._deliver_with_retry(url, body, timestamp, signature, event)
+
+    def _deliver_with_retry(
+        self,
+        url: str,
+        body: bytes,
+        timestamp: str,
+        signature: str,
+        event: dict[str, object],
+    ) -> None:
+        """POST with exponential backoff; dead-letter after the last attempt.
+
+        The signature is computed once and reused across attempts: re-signing with
+        a fresh timestamp on each retry would look like a distinct event to a
+        receiver deduplicating on it.
+        """
+        last_reason = "no attempt made"
+        for attempt in range(1, self._max_attempts + 1):
             try:
                 self._post(url, body, timestamp, signature)
+                self._delivered += 1
+                return
+            except WebhookDeliveryError as exc:
+                last_reason = str(exc)
+                if exc.permanent:
+                    break
             except Exception as exc:
+                last_reason = str(exc) or exc.__class__.__name__
+            if attempt < self._max_attempts:
+                self._retried += 1
                 logger.warning(
-                    "webhook POST failed: url=%s event=%r err=%s",
+                    "webhook POST failed, retrying: url=%s event=%r attempt=%d/%d err=%s",
                     url,
                     event.get("type"),
-                    exc,
+                    attempt,
+                    self._max_attempts,
+                    last_reason,
                 )
+                self._sleep(self._backoff * (2 ** (attempt - 1)))
+        logger.error(
+            "webhook delivery exhausted, dead-lettering: url=%s event=%r err=%s",
+            url,
+            event.get("type"),
+            last_reason,
+        )
+        self._record_dead_letter(url, event, last_reason)
 
     def _post(self, url: str, body: bytes, timestamp: str, signature: str) -> None:
         req = urllib.request.Request(  # noqa: S310 — URL comes from operator config
@@ -210,12 +319,19 @@ class WebhookDispatcher:
                 "User-Agent": "caliber",
             },
         )
-        with urllib.request.urlopen(req, timeout=self._timeout) as response:  # noqa: S310
-            # 2xx is fine; anything else gets logged so an operator can
-            # see receiver-side failures without running a debugger.
-            status = response.status
-            if status >= _HTTP_2XX_CEILING:
-                logger.warning("webhook receiver returned non-2xx: url=%s status=%d", url, status)
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as response:  # noqa: S310
+                status = response.status
+        except urllib.error.HTTPError as exc:
+            # urllib raises for 4xx/5xx rather than returning them, so the
+            # permanent/transient split has to be made here too.
+            permanent = _HTTP_CLIENT_ERROR_FLOOR <= exc.code < _HTTP_SERVER_ERROR_FLOOR
+            raise WebhookDeliveryError(
+                f"receiver returned HTTP {exc.code}", permanent=permanent
+            ) from exc
+        if status >= _HTTP_2XX_CEILING:
+            permanent = _HTTP_CLIENT_ERROR_FLOOR <= status < _HTTP_SERVER_ERROR_FLOOR
+            raise WebhookDeliveryError(f"receiver returned HTTP {status}", permanent=permanent)
 
 
 def compute_signature(secret: bytes, timestamp: str, payload: str) -> str:

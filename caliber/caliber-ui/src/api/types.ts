@@ -1375,6 +1375,22 @@ export interface EvalExampleFromTracePayload {
 }
 
 /** One scored example within an evaluation run's scorecard. */
+/**
+ * GET /agents/{id}/experiment — whether the agent's MLflow experiment binding
+ * actually resolves.
+ *
+ * `unverified` is a distinct outcome from `missing`: the registry could not be
+ * reached, so "we could not check" must not be shown as "it is not there".
+ */
+export interface AgentExperimentBinding {
+  configured_experiment_id: string;
+  status: "reachable" | "missing" | "unverified";
+  detail: string;
+  experiment_id?: string;
+  name?: string | null;
+  lifecycle_stage?: string;
+}
+
 export interface EvalRunResultRow {
   example_id: string;
   input: Record<string, unknown>;
@@ -1422,9 +1438,53 @@ export interface EvalRunSummary {
   completed_at: string | null;
 }
 
-/** Detail form — adds the heavy per-example results array. */
+/**
+ * The run's immutable evidence bundle. Written once with the run, so a pinned run
+ * is checkable rather than reproducible-by-convention: `digests.dataset` answers
+ * "was this the same data?", `digests.content` answers "is this the same result?",
+ * `sampling` states how much of the dataset was actually graded, `denominators`
+ * gives every aggregate mean the row/weight count behind it, and `slices` groups
+ * by dataset tag.
+ *
+ * `null` for runs created before the contract existed — deliberately not
+ * backfilled, since the digests can only be computed from the inputs at the time
+ * the run executed.
+ */
+export interface EvalRunEvidence {
+  schema_version: number;
+  digests: { dataset: string; content: string };
+  sampling: {
+    available_examples: number;
+    evaluated_examples: number;
+    cap: number | null;
+    truncated: boolean;
+    order: string;
+  };
+  denominators: Record<string, { valid_rows: number; weight_sum: number }>;
+  slices: Record<
+    string,
+    {
+      n_examples: number;
+      weight_sum: number;
+      passed_count: number;
+      errored_count: number;
+      overall: number | null;
+      pass_rate: number | null;
+    }
+  >;
+  policy: { scorers: string[]; pass_threshold: number; incomplete_row_policy: string };
+  resolved: Record<string, unknown>;
+  cost: {
+    avg_latency_ms: number | null;
+    max_latency_ms: number | null;
+    total_latency_ms: number | null;
+  };
+}
+
+/** Detail form — adds the heavy per-example results array plus the evidence. */
 export interface EvalRun extends EvalRunSummary {
   results: EvalRunResultRow[];
+  evidence?: EvalRunEvidence | null;
 }
 
 /** POST /evaluations */

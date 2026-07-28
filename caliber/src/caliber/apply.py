@@ -46,6 +46,7 @@ from caliber.db.models import (
 from caliber.ids import new_checkpoint_id
 from caliber.promoter import Promoter, PromoterError, PromotionResult
 from caliber.workflows.promoter import (
+    AliasPreflightError,
     DeployError,
     DeployGateFailedError,
     PublishError,
@@ -392,6 +393,13 @@ def _apply_workflow_manifest(
             alias=alias,
             actor=actor,
         )
+    except AliasPreflightError as exc:
+        # 409, not 502: the candidate is valid but its MCP dependencies are not
+        # deployable to this alias. Approving a refinement candidate used to
+        # rotate the alias with no preflight at all.
+        raise HTTPException(
+            status_code=409, detail=f"workflow candidate promotion refused: {exc}"
+        ) from exc
     except (PublishError, DeployError, DeployGateFailedError) as exc:
         raise HTTPException(status_code=502, detail=f"workflow promotion failed: {exc}") from exc
 

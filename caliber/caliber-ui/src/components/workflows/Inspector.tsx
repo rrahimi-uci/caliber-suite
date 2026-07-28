@@ -3488,28 +3488,40 @@ function WorkflowDeployGatesSection({
                       placeholder="0.02"
                     />
                   </Field>
-                  <Field label="Max tone regression">
+                  {/* Replaces the former "Max tone regression" field. No product
+                      scorer measures tone, so that threshold was accepted and
+                      silently ignored — it read as a configured safety control
+                      while enforcing nothing. The gate now rejects any threshold
+                      it cannot evaluate, so only measurable bounds are offered. */}
+                  <Field label="Max p95 latency (ms)">
                     <input
                       data-testid={workflowDeployGateTestId(
-                        "workflow-deploy-gate-threshold-max-tone-regression",
+                        "workflow-deploy-gate-threshold-max-p95-latency-ms",
                         gateName,
                       )}
                       className={inputClass}
                       type="number"
                       min={0}
-                      step={0.01}
-                      value={gate.thresholds?.max_tone_regression ?? ""}
+                      step={50}
+                      value={gate.thresholds?.max_p95_latency_ms ?? ""}
                       onChange={(event) =>
                         setDeployGateThreshold(
                           gateName,
-                          "max_tone_regression",
+                          "max_p95_latency_ms",
                           parseOptionalNumber(event.target.value),
                         )
                       }
-                      placeholder="0.01"
+                      placeholder="5000"
                     />
                   </Field>
                 </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Thresholds are evaluated against the graded replay. A threshold
+                  the gate cannot measure — including one whose scorer is not
+                  configured, or a dataset with no expected output — fails the gate
+                  rather than being skipped. Use <code>min_completion_rate</code>{" "}
+                  when the dataset has no expected answers.
+                </p>
               </div>
             );
           })}

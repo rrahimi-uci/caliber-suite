@@ -17,6 +17,16 @@ x-db-mcp-common: &db-mcp-common
     # fallback shares CALIBER's privileged metadata DB and is development-only;
     # production must supply a separate least-privilege DB/role.
     POSTGRES_URL: ${CALIBER_MCP_POSTGRES_URL:-postgresql://caliber:caliber@postgres:5432/caliber}
+    # Read-classified tools (run_query, list_tables, describe_table,
+    # similarity_search) always run in a database-enforced READ ONLY
+    # transaction. Pointing this at a separate least-privilege role additionally
+    # constrains them by GRANT, so a read tool cannot even SELECT tables it has
+    # no business reading. The initdb script provisions caliber_ro in the
+    # development stack; production should supply its own.
+    POSTGRES_READ_ONLY_URL: ${CALIBER_MCP_POSTGRES_READ_ONLY_URL:-postgresql://caliber_ro:caliber_ro@postgres:5432/caliber}
+    # Bound a read tool's runtime: an MCP caller cannot cancel an in-flight
+    # request, so an unbounded "read" can pin a backend indefinitely.
+    POSTGRES_READ_ONLY_STATEMENT_TIMEOUT_MS: ${CALIBER_MCP_POSTGRES_READ_ONLY_TIMEOUT_MS:-30000}
   read_only: true
   tmpfs:
     - /tmp:size=64m,mode=1777

@@ -53,7 +53,10 @@ class TestE2EWorkflowPipeline:
                     "type": "deploy_gate",
                     "dataset_ref": "support_eval",
                     "required_for_aliases": ["prod"],
-                    "thresholds": {"min_pass_rate": 1.0},
+                    # Completion, not quality: the seeded dataset carries no
+                    # expected output, and this test's subject is the full
+                    # lifecycle. Graded gating: test_deploy_gate_evidence.py.
+                    "thresholds": {"min_completion_rate": 1.0},
                 }
             },
         )

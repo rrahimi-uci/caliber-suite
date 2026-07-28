@@ -4,6 +4,12 @@
  * A read-only control-plane view: a board of what's currently live across
  * artifacts, and a unified promotion/rollback/activation timeline. Per-artifact
  * rollback lives on each artifact's page; this aggregates the picture.
+ *
+ * Both aggregates are visibility-scoped server-side, so this page shows the same
+ * rows the artifact workspaces would. It also renders an explicit error state:
+ * without one, a failed aggregate query rendered as "Nothing deployed yet." —
+ * an empty release board is indistinguishable from a broken one, and on this page
+ * that reads as "nothing is in production".
  */
 import { caliberApi } from "@/api/caliberApi";
 import type { ReleaseTimelineEvent } from "@/api/versioning";
@@ -23,6 +29,11 @@ const ACTION_LABEL: Record<string, string> = {
 
 function isRollback(action: string): boolean {
   return action.startsWith("rollback");
+}
+
+function queryErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  return "unknown error";
 }
 
 function transition(event: ReleaseTimelineEvent): string {
@@ -56,8 +67,20 @@ export function Releases(): JSX.Element {
           className="overflow-hidden rounded-md border border-surface-200"
         >
           {liveQuery.isLoading && <div className="p-3 text-sm text-gray-400">Loading…</div>}
-          {liveQuery.data && liveQuery.data.length === 0 && (
-            <div className="p-3 text-sm text-gray-400">Nothing deployed yet.</div>
+          {liveQuery.isError && (
+            <div
+              data-testid="releases-live-error"
+              className="p-3 text-sm text-red-700"
+              role="alert"
+            >
+              Could not load what&apos;s live: {queryErrorMessage(liveQuery.error)}. This is a
+              load failure, not an empty release board.
+            </div>
+          )}
+          {!liveQuery.isError && liveQuery.data && liveQuery.data.length === 0 && (
+            <div className="p-3 text-sm text-gray-400">
+              Nothing deployed yet in your visible projects.
+            </div>
           )}
           {liveQuery.data?.map((row) => (
             <div
@@ -83,8 +106,15 @@ export function Releases(): JSX.Element {
         <h2 className="mb-2 text-sm font-semibold text-gray-700">Timeline</h2>
         <ul data-testid="releases-timeline" className="space-y-1">
           {timelineQuery.isLoading && <li className="text-sm text-gray-400">Loading…</li>}
-          {timelineQuery.data && timelineQuery.data.length === 0 && (
-            <li className="text-sm text-gray-400">No promotions or rollbacks yet.</li>
+          {timelineQuery.isError && (
+            <li data-testid="releases-timeline-error" className="text-sm text-red-700" role="alert">
+              Could not load the release timeline: {queryErrorMessage(timelineQuery.error)}.
+            </li>
+          )}
+          {!timelineQuery.isError && timelineQuery.data && timelineQuery.data.length === 0 && (
+            <li className="text-sm text-gray-400">
+              No promotions or rollbacks yet in your visible projects.
+            </li>
           )}
           {timelineQuery.data?.map((event) => {
             const overridden = Boolean(event.details?.overridden);

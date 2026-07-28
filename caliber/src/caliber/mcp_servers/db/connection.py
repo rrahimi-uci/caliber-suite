@@ -27,11 +27,41 @@ def _load_psycopg() -> tuple[Any, Any]:
     return psycopg, dict_row
 
 
+#: Statement timeout applied to read-only queries, in milliseconds. A tool
+#: advertised as read cannot be allowed to pin a backend indefinitely, and the
+#: caller has no way to cancel an in-flight MCP request. ``0`` disables it.
+_READ_ONLY_TIMEOUT_ENV = "POSTGRES_READ_ONLY_STATEMENT_TIMEOUT_MS"
+_DEFAULT_READ_ONLY_TIMEOUT_MS = 30_000
+
+
 def _dsn() -> str:
     dsn = os.environ.get("POSTGRES_URL", "").strip()
     if not dsn:
         raise DbToolError("POSTGRES_URL is not set in the server environment")
     return dsn
+
+
+def _read_only_dsn() -> str:
+    """DSN for read-only tools.
+
+    ``POSTGRES_READ_ONLY_URL`` lets an operator point read tools at a separate
+    least-privilege role, so ``run_query`` is constrained by *grants* and not
+    only by the transaction mode below. It is optional: without it read-only
+    tools fall back to ``POSTGRES_URL`` and rely on the read-only transaction.
+    """
+    dsn = os.environ.get("POSTGRES_READ_ONLY_URL", "").strip()
+    return dsn or _dsn()
+
+
+def _read_only_timeout_ms() -> int:
+    raw = os.environ.get(_READ_ONLY_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_READ_ONLY_TIMEOUT_MS
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise DbToolError(f"{_READ_ONLY_TIMEOUT_ENV} must be an integer number of ms") from exc
+    return max(value, 0)
 
 
 @contextmanager
@@ -45,9 +75,56 @@ def connect() -> Iterator[Any]:
         conn.close()
 
 
+@contextmanager
+def connect_read_only() -> Iterator[Any]:
+    """Open a connection whose transaction the **engine** refuses writes in.
+
+    A leading-keyword parser is not a security boundary: ``EXPLAIN ANALYZE
+    DELETE ...`` and ``SELECT some_writing_function()`` both read as "select"
+    while mutating. This is the durable fix — ``read_only=True`` makes psycopg
+    begin the transaction with ``READ ONLY``, so PostgreSQL itself raises
+    ``read-only transaction`` for any INSERT/UPDATE/DELETE/DDL *and* for a
+    write attempted inside a called function.
+
+    Autocommit is deliberately off: an autocommit connection has no surrounding
+    transaction for the read-only attribute to apply to. The transaction is
+    always rolled back, never committed, so a read tool cannot leave state
+    behind even if the engine were misconfigured.
+    """
+    psycopg, dict_row = _load_psycopg()
+    conn = psycopg.connect(_read_only_dsn(), autocommit=False, row_factory=dict_row)
+    try:
+        # Set before any statement runs: psycopg refuses to change this once a
+        # transaction has begun, and autocommit=False begins one lazily.
+        conn.read_only = True
+        timeout_ms = _read_only_timeout_ms()
+        if timeout_ms:
+            # LOCAL: scoped to this transaction, so it cannot leak into a pooled
+            # session and silently bound a later write tool.
+            with conn.cursor() as cur:
+                cur.execute(f"SET LOCAL statement_timeout = {timeout_ms}")
+        yield conn
+    finally:
+        try:
+            conn.rollback()
+        finally:
+            conn.close()
+
+
 def query(sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
     """Run a statement and return all rows as dicts."""
     with connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, params or [])
+        return list(cur.fetchall())
+
+
+def read_only_query(sql: str, params: Sequence[Any] | None = None) -> list[dict[str, Any]]:
+    """Run a statement inside a database-enforced read-only transaction.
+
+    Used by every tool CALIBER classifies ``read`` / no-approval, so that
+    classification is backed by the engine rather than by a keyword parser.
+    """
+    with connect_read_only() as conn, conn.cursor() as cur:
         cur.execute(sql, params or [])
         return list(cur.fetchall())
 

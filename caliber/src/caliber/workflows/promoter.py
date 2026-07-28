@@ -23,8 +23,10 @@ step onto the existing Approvals surface is a tracked follow-up.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -49,6 +51,8 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
+from caliber.deployment_environments import environment_class
+from caliber.eval.scorecard import expected_text, run_scorecard
 from caliber.ids import (
     new_workflow_deployment_id,
     new_workflow_promotion_id,
@@ -58,7 +62,9 @@ from caliber.ids import (
 from caliber.knowledge.schemas import KnowledgeBaseVersionCreateRequest, KnowledgeQueryRequest
 from caliber.knowledge.service import KnowledgeBaseService
 from caliber.secrets import resolve_secret
+from caliber.storage.base import StorageError
 from caliber.workflows.compiler import CompileError, CompileResult, compile_workflow
+from caliber.workflows.deploy_gate import GateMetrics, evaluate_thresholds
 from caliber.workflows.file_tools import (
     bind_project_managed_file_runtime,
     managed_file_tool_aliases,
@@ -72,6 +78,7 @@ from caliber.workflows.manifest import (
     parse_manifest,
 )
 from caliber.workflows.runtime import (
+    DEFAULT_PARALLEL_BRANCH_MAX_WORKERS,
     AnthropicChatWorkflowExecutor,
     FakeWorkflowExecutor,
     NodeStep,
@@ -92,16 +99,47 @@ from caliber.workflows.session_memory import (
 )
 from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry
 
-# Aliases that require human approval (a pending promotion request) before the
-# alias rotates — even after deploy gates pass (plan §15.3).
-#
-# v1 single-environment mode: empty. Builds deploy to the single live alias
-# immediately; deploy gates still run when a workflow attaches one (optional
-# safety net), but nothing forces a human approval step and there is no
-# dev→staging→prod ladder. The full multi-stage governance loop is restored by
-# adding the gated alias(es) back here, e.g. ``frozenset({"prod"})`` — the
-# promotion/approval machinery below is intact and dormant, not removed.
+logger = logging.getLogger("caliber.workflows.promoter")
+
+# Legacy explicit alias list requiring human approval (a pending promotion
+# request) before the alias rotates. Empty by default and retained as an
+# ADDITIONAL opt-in: the primary rule is now the alias's *environment class*, via
+# ``requires_human_approval`` below. Keying release governance to a literal alias
+# string was the same defect as keying MCP isolation to one — 'production' and
+# 'prod-eu' silently escaped it.
 GATED_ALIASES: frozenset[str] = frozenset()
+
+
+def requires_human_approval(alias: str, config: CaliberConfig | None = None) -> bool:
+    """Whether promoting to ``alias`` must pause for a human approval.
+
+    Resolved from the environment class, so every spelling of production is
+    covered. Off by default (``release_require_human_approval_for_environment_classes``
+    is empty) because the shipped single-environment product deploys immediately;
+    the machinery is fully wired and tested, so enabling it is one setting rather
+    than a code change.
+    """
+    if alias in GATED_ALIASES:
+        return True
+    raw = getattr(config, "release_require_human_approval_for_environment_classes", "") or ""
+    classes = {item.strip().casefold() for item in str(raw).split(",") if item.strip()}
+    return environment_class(alias, config) in classes
+
+
+def requires_quality_gate(alias: str, config: CaliberConfig | None = None) -> bool:
+    """Whether promoting to ``alias`` must have a passing deploy gate.
+
+    Defaults to the ``production`` class: rotating a production alias onto a
+    version with no graded evidence is exactly the "false release evidence"
+    problem, and refusing it is the fail-closed answer. Development and staging
+    deploy freely.
+    """
+    raw = getattr(config, "release_require_quality_gate_for_environment_classes", None)
+    if raw is None:
+        raw = "production"
+    classes = {item.strip().casefold() for item in str(raw).split(",") if item.strip()}
+    return environment_class(alias, config) in classes
+
 
 # Aliases that represent a *live/production* deployment for protection purposes:
 # a workflow with a deployment on one of these cannot be archived or deleted
@@ -134,6 +172,19 @@ class DeployGateFailedError(Exception):
 
 class RollbackError(Exception):
     """Raised when there is nothing to roll back to."""
+
+
+class AliasPreflightError(Exception):
+    """Raised when an alias transition's target fails MCP deployment preflight.
+
+    Distinct from :class:`DeployError` so a caller can report the blockers, and
+    so rollback — which previously ran no preflight at all — can surface a
+    precise reason instead of a generic 400.
+    """
+
+    def __init__(self, message: str, *, blockers: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.blockers = list(blockers or [])
 
 
 # ---------------------------------------------------------------------------
@@ -956,6 +1007,11 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         subworkflow_depth=subworkflow_depth,
         max_output_bytes=(config.tool_sandbox_max_output_bytes if config is not None else None),
         foreach_max_workers=(config.workflow_foreach_max_workers if config is not None else 1),
+        parallel_branch_max_workers=(
+            config.workflow_parallel_branch_max_workers
+            if config is not None
+            else DEFAULT_PARALLEL_BRANCH_MAX_WORKERS
+        ),
     )
 
 
@@ -1239,6 +1295,26 @@ class GateRun:
     pass_rate: float
     n_examples: int
     detail: str = ""
+    #: Everything measured during the replay: completion, weighted scorer means,
+    #: latency percentiles, token spend, and the baseline it was compared with.
+    #: Persisted with the promotion so a release decision can be re-read later
+    #: instead of being reduced to a single boolean.
+    metrics: dict[str, Any] = field(default_factory=dict)
+    #: Per-threshold verdicts, including thresholds that failed *closed* because
+    #: they were unsupported or unmeasurable.
+    thresholds: list[dict[str, Any]] = field(default_factory=list)
+    #: Dataset identity this verdict is about. Without it a stored gate result
+    #: cannot be tied back to the data that produced it.
+    dataset_id: str | None = None
+    dataset_version: int | None = None
+    #: SHA-256 over the ordered (example_id, input, expected, weight) tuples that
+    #: were actually replayed. Two gate results with the same digest graded the
+    #: same evidence; a different digest means the sample changed.
+    sample_digest: str | None = None
+    #: Total examples active in the dataset before the sample bound was applied,
+    #: so a bounded gate cannot be mistaken for an exhaustive one.
+    available_examples: int | None = None
+    scorers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1259,10 +1335,42 @@ class GateResult:
                     "pass_rate": r.pass_rate,
                     "n_examples": r.n_examples,
                     "detail": r.detail,
+                    "metrics": r.metrics,
+                    "thresholds": r.thresholds,
+                    "dataset_id": r.dataset_id,
+                    "dataset_version": r.dataset_version,
+                    "sample_digest": r.sample_digest,
+                    "available_examples": r.available_examples,
+                    "scorers": r.scorers,
                 }
                 for r in self.runs
             ],
         }
+
+
+def _sample_digest(examples: list[CaliberEvalDatasetExample]) -> str:
+    """Content digest of the replayed sample.
+
+    Over the *ordered* graded inputs — example id, input, expected, and weight —
+    so the digest changes if the data, the weighting, or the sample boundary
+    changes. This is what makes a stored gate verdict checkable later rather than
+    reproducible only by convention.
+    """
+    payload = json.dumps(
+        [
+            {
+                "example_id": example.example_id,
+                "input": example.input or {},
+                "expected": example.expected or {},
+                "weight": example.weight,
+            }
+            for example in examples
+        ],
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _example_input(example: CaliberEvalDatasetExample) -> str:
@@ -1292,11 +1400,23 @@ def evaluate_deploy_gates(
 ) -> GateResult:
     """Run the deploy gates relevant to ``alias`` against the eval datasets.
 
-    The current gate measures successful workflow completion, not output
-    quality.  Replays therefore use preview mode to avoid turning a promotion
-    check into an unannounced production-side-effect path.  A missing dataset
-    or a dataset with no active examples fails closed: neither condition is
-    evidence that a version is safe to promote.
+    Each replay is **graded**, not merely counted. The sample is scored against
+    the dataset's expected output with the deterministic scorers the evaluation
+    product already ships, and wall-clock duration plus token spend are measured
+    per replay, so a release can be gated on quality, latency, and cost rather
+    than on "the graph did not crash". Every configured threshold is then either
+    evaluated or reported as unsupported/unmeasurable and fails the gate closed —
+    a threshold can never be silently ignored (see
+    :mod:`caliber.workflows.deploy_gate`).
+
+    Replays use preview mode so a promotion check never becomes an unannounced
+    production-side-effect path. A missing dataset, an archived dataset, or a
+    dataset with no active examples fails closed: none of those is evidence that
+    a version is safe to promote.
+
+    The result carries the dataset identity, the pre-truncation example count, and
+    a content digest of the exact sample replayed, so a stored verdict can be tied
+    back to the evidence that produced it.
     """
     gates = [g for g in manifest.deploy_gates.values() if alias in g.required_for_aliases]
     if not gates:
@@ -1359,13 +1479,25 @@ def evaluate_deploy_gates(
             .first()
         )
         examples: list[CaliberEvalDatasetExample] = []
+        available = 0
         if dataset is not None and dataset.status == "active":
+            active_filter = (
+                CaliberEvalDatasetExample.dataset_id == dataset.dataset_id,
+                CaliberEvalDatasetExample.superseded_at.is_(None),
+            )
+            # Count before truncating: a bounded sample must never be reported as
+            # if it were the whole dataset.
+            available = int(
+                session.execute(
+                    select(func.count())
+                    .select_from(CaliberEvalDatasetExample)
+                    .where(*active_filter)
+                ).scalar()
+                or 0
+            )
             examples_query = (
                 select(CaliberEvalDatasetExample)
-                .where(
-                    CaliberEvalDatasetExample.dataset_id == dataset.dataset_id,
-                    CaliberEvalDatasetExample.superseded_at.is_(None),
-                )
+                .where(*active_filter)
                 .order_by(
                     CaliberEvalDatasetExample.created_at.asc(),
                     CaliberEvalDatasetExample.example_id.asc(),
@@ -1391,24 +1523,111 @@ def evaluate_deploy_gates(
                     pass_rate=0.0,
                     n_examples=0,
                     detail=detail,
+                    dataset_id=dataset.dataset_id if dataset is not None else None,
+                    dataset_version=dataset.version if dataset is not None else None,
+                    available_examples=available,
                 )
             )
             continue
 
-        plan = RuntimePlan(
-            ir=compiled.ir,
-            resolver=resolver,
-            knowledge_query_runner=knowledge_query_runner,
-            knowledge_build_runner=knowledge_build_runner,
-        )
-        completed = 0
         managed_execute_kwargs: dict[str, Any] = {}
         if managed_resolver is not None:
             managed_execute_kwargs = {
                 "extra_tools": managed_tools,
                 "managed_file_resolver": managed_resolver.read_text,
             }
-        for example in examples:
+        metrics = _replay_and_score(
+            session,
+            ir=compiled.ir,
+            resolver=resolver,
+            knowledge_query_runner=knowledge_query_runner,
+            knowledge_build_runner=knowledge_build_runner,
+            executor=executor,
+            examples=examples,
+            gate=gate,
+            managed_execute_kwargs=managed_execute_kwargs,
+        )
+        if "min_overall_delta" in gate.thresholds:
+            metrics.baseline_overall = _baseline_overall(
+                session,
+                workflow_id=manifest.workflow_id,
+                alias=alias,
+                resolver=resolver,
+                executor=executor,
+                examples=examples,
+                gate=gate,
+                config=resolved_config,
+            )
+
+        # No implicit default: a gate that configures no threshold asserts
+        # nothing, and evaluate_thresholds says so and fails closed rather than
+        # inventing a claim on the operator's behalf.
+        outcomes = evaluate_thresholds(dict(gate.thresholds), metrics)
+        failures = [outcome for outcome in outcomes if not outcome.passed]
+        passed = not failures
+        all_passed = all_passed and passed
+        detail = "; ".join(outcome.detail for outcome in (failures if failures else outcomes))
+        runs.append(
+            GateRun(
+                name=_gate_name(manifest, gate),
+                dataset_ref=gate.dataset_ref,
+                passed=passed,
+                pass_rate=metrics.pass_rate,
+                n_examples=metrics.n_examples,
+                detail=detail,
+                metrics=metrics.to_dict(),
+                thresholds=[outcome.to_dict() for outcome in outcomes],
+                dataset_id=dataset.dataset_id if dataset is not None else None,
+                dataset_version=dataset.version if dataset is not None else None,
+                sample_digest=_sample_digest(examples),
+                available_examples=available,
+                scorers=list(gate.scorers),
+            )
+        )
+
+    return GateResult(has_gate=True, passed=all_passed, runs=runs)
+
+
+def _replay_and_score(
+    session: Session,
+    *,
+    ir: Any,
+    resolver: InMemoryToolResolver,
+    knowledge_query_runner: Any,
+    knowledge_build_runner: Any,
+    executor: WorkflowExecutor,
+    examples: list[CaliberEvalDatasetExample],
+    gate: DeployGate,
+    managed_execute_kwargs: dict[str, Any],
+) -> GateMetrics:
+    """Replay ``examples`` in preview mode and grade the outputs.
+
+    Scoring reuses :func:`caliber.eval.scorecard.run_scorecard` rather than
+    reimplementing it, so a deploy gate and an evaluation run agree by
+    construction on weights, per-scorer aggregates, incomplete-row policy, and
+    what "passed" means. A replay that does not reach ``completed`` raises inside
+    ``predict``, which the scorecard records as an errored row: it cannot pass and
+    is excluded from per-scorer aggregates, exactly as an evaluation error is.
+    """
+    del session  # replay needs no further session access; kept for signature parity
+    plan = RuntimePlan(
+        ir=ir,
+        resolver=resolver,
+        knowledge_query_runner=knowledge_query_runner,
+        knowledge_build_runner=knowledge_build_runner,
+    )
+    metrics = GateMetrics(
+        n_examples=len(examples),
+        # Counted from the data, not from the scorer list: a scorer configured
+        # against a dataset with no expected outputs measures nothing.
+        scored_examples=sum(1 for example in examples if expected_text(example.expected)),
+    )
+    by_id = {example.example_id: example for example in examples}
+
+    def predict(inputs: Mapping[str, Any]) -> str:
+        example = by_id[str(inputs.get("__gate_example_id", ""))]
+        started = time.monotonic()
+        try:
             run = execute(
                 plan,
                 _example_input(example),
@@ -1416,24 +1635,107 @@ def evaluate_deploy_gates(
                 preview=True,
                 **managed_execute_kwargs,
             )
-            if run.status == "completed":
-                completed += 1
-        pass_rate = completed / len(examples)
-        threshold = float(gate.thresholds.get("min_pass_rate", 1.0))
-        passed = pass_rate >= threshold
-        all_passed = all_passed and passed
-        runs.append(
-            GateRun(
-                name=_gate_name(manifest, gate),
-                dataset_ref=gate.dataset_ref,
-                passed=passed,
-                pass_rate=pass_rate,
-                n_examples=len(examples),
-                detail=f"pass_rate {pass_rate:.2f} vs min {threshold:.2f}",
+        finally:
+            metrics.latencies_ms.append((time.monotonic() - started) * 1000.0)
+        metrics.tokens.append(int(run.tokens or 0))
+        if run.status != "completed":
+            raise RuntimeError(f"replay status {run.status!r}: {run.error or 'no error detail'}")
+        metrics.completed += 1
+        return run.output
+
+    scorecard_examples = [
+        {
+            "example_id": example.example_id,
+            # The gate replays a workflow, whose input is derived from the whole
+            # example rather than a single template field, so the example id is
+            # threaded through and ``predict`` resolves the row from it.
+            "input": {**(example.input or {}), "__gate_example_id": example.example_id},
+            "expected": example.expected or {},
+            "weight": example.weight,
+            "tags": list(example.tags or []),
+        }
+        for example in examples
+    ]
+    result = run_scorecard(
+        scorecard_examples,
+        predict,
+        gate.scorers or None,
+        pass_threshold=gate.pass_threshold,
+    )
+    metrics.pass_rate = result.pass_rate
+    metrics.overall = result.overall
+    metrics.scorer_means = dict(result.aggregate)
+    metrics.errored = sum(1 for row in result.rows if row.error)
+    return metrics
+
+
+def _baseline_overall(
+    session: Session,
+    *,
+    workflow_id: str,
+    alias: str,
+    resolver: InMemoryToolResolver,
+    executor: WorkflowExecutor,
+    examples: list[CaliberEvalDatasetExample],
+    gate: DeployGate,
+    config: CaliberConfig,
+) -> float | None:
+    """Overall score of the alias's currently deployed version on the same sample.
+
+    This is what makes ``min_overall_delta`` a real regression check instead of a
+    decorative field: the candidate is compared against the version it would
+    replace, graded on identical data. Returns ``None`` when nothing is deployed
+    on the alias, when its version or manifest is unusable, or when replaying it
+    raises — the threshold then fails closed rather than passing on absent
+    evidence.
+    """
+    deployment = (
+        session.execute(
+            select(CaliberWorkflowDeployment).where(
+                CaliberWorkflowDeployment.workflow_id == workflow_id,
+                CaliberWorkflowDeployment.alias == alias,
+                CaliberWorkflowDeployment.status == "active",
             )
         )
-
-    return GateResult(has_gate=True, passed=all_passed, runs=runs)
+        .scalars()
+        .first()
+    )
+    if deployment is None:
+        return None
+    version = session.get(CaliberWorkflowVersion, deployment.version_id)
+    if version is None or not isinstance(version.manifest, dict):
+        return None
+    try:
+        baseline_manifest = parse_manifest(version.manifest)
+        compiled = compile_workflow(
+            baseline_manifest, resolver=resolver, version="gate-baseline", use_cache=True
+        )
+        workflow_identity = build_workflow_identity(session, workflow_id)
+        knowledge_query_runner, knowledge_build_runner = build_knowledge_runtime_runners(
+            session, identity=workflow_identity
+        )
+        return _replay_and_score(
+            session,
+            ir=compiled.ir,
+            resolver=resolver,
+            knowledge_query_runner=knowledge_query_runner,
+            knowledge_build_runner=knowledge_build_runner,
+            executor=executor,
+            examples=examples,
+            gate=gate,
+            # The baseline is scored for comparison only; it deliberately does not
+            # bind the candidate's managed files, whose refs may not exist in it.
+            managed_execute_kwargs={},
+        ).overall
+    except Exception:
+        logger.warning(
+            "deploy gate baseline replay failed for %s@%s; min_overall_delta will fail closed",
+            workflow_id,
+            alias,
+            exc_info=True,
+        )
+        del config  # accepted for signature parity with the candidate replay
+        return None
 
 
 def _gate_name(manifest: WorkflowManifest, gate: DeployGate) -> str:
@@ -1569,6 +1871,99 @@ class PromotionResult:
     promotion: CaliberWorkflowPromotion | None = None
 
 
+def require_alias_target_ready(
+    session: Session,
+    alias: str,
+    version_id: str,
+    *,
+    config: CaliberConfig | None = None,
+) -> None:
+    """MCP deployment preflight for one alias transition.
+
+    Called from :func:`_rotate_alias`, i.e. from **every** path that moves an
+    alias — forward promotion, promotion approval, refinement-candidate
+    rotation, and rollback. Route-level preflight covered only the first two, so
+    a rollback or an approved refinement candidate could rotate the live alias
+    onto a version whose MCP dependencies were disabled, deleted, or blocked by
+    policy. Enforcing it here makes the check a property of the transition rather
+    than of the caller that happens to remember it.
+    """
+    from caliber.mcp_policy import deployment_blockers  # noqa: PLC0415
+
+    version = session.get(CaliberWorkflowVersion, version_id)
+    if version is None:
+        raise AliasPreflightError(
+            f"alias {alias!r} cannot rotate to missing version {version_id!r}",
+            blockers=[f"version {version_id!r} does not exist"],
+        )
+    blockers = deployment_blockers(
+        session,
+        version.manifest or {},
+        alias=alias,
+        config=config,
+        # An alias rotation must be able to prove the whole graph, children
+        # included; a run submission keeps its runtime-error contract.
+        require_resolvable_subworkflows=True,
+    )
+    blockers.extend(_managed_file_blockers(session, version, config=config))
+    if blockers:
+        raise AliasPreflightError(
+            f"deployment preflight failed for alias {alias!r}: " + "; ".join(blockers),
+            blockers=blockers,
+        )
+
+
+def _managed_file_blockers(
+    session: Session,
+    version: CaliberWorkflowVersion,
+    *,
+    config: CaliberConfig | None,
+) -> list[str]:
+    """Re-verify the version's pinned managed files at the moment of rotation.
+
+    Closes a time-of-check/time-of-use hole: a deploy gate verified every pinned
+    object when it evaluated, but approval (potentially much later) did not
+    re-read them, so deleting or replacing an object between evaluation and
+    approval could rotate the alias onto a version that cannot run. Rollback had
+    the same hole with no check at all.
+
+    Verification is by row id, object version, size, and byte digest — the same
+    contract the runtime enforces — so a *replaced* object is caught, not just a
+    deleted one.
+    """
+    manifest_dict = version.manifest or {}
+    try:
+        manifest = parse_manifest(manifest_dict)
+    except Exception as exc:
+        return [f"version {version.version_id!r} manifest is not parseable: {exc}"]
+    # Walrus rather than ``node.file_ref``: the node union is 29 variants wide and
+    # only a few carry the attribute, so the bound name is what makes this typed.
+    snapshots = [
+        file_ref
+        for node in manifest.nodes.values()
+        if (file_ref := getattr(node, "file_ref", None)) is not None
+    ]
+    if not snapshots:
+        return []
+    workflow = session.get(CaliberWorkflow, version.workflow_id)
+    resolved_config = config or CaliberConfig()
+    try:
+        bind_project_managed_file_runtime(
+            session,
+            storage_config=resolved_config.workflow_storage,
+            project_id=(workflow.project_id if workflow is not None else None),
+            workflow_id=version.workflow_id,
+            runtime_id=f"alias-preflight-{version.version_id}",
+            snapshots=snapshots,
+        )
+    except (ValueError, RuntimeError, OSError, StorageError) as exc:
+        # StorageError covers the case the review named specifically: an object
+        # that physically disappeared. It is not a ValueError, so catching only
+        # the validation errors would let a missing object escape as a 500.
+        return [f"managed file preflight failed: {exc}"]
+    return []
+
+
 def _rotate_alias(
     session: Session,
     workflow_id: str,
@@ -1576,9 +1971,18 @@ def _rotate_alias(
     version_id: str,
     *,
     actor: str,
+    config: CaliberConfig | None = None,
+    preflight: bool = True,
 ) -> CaliberWorkflowDeployment:
     """Point ``alias`` at ``version_id``, pushing the prior target onto the
-    rollback stack. Creates the deployment row on first use."""
+    rollback stack. Creates the deployment row on first use.
+
+    Runs MCP deployment preflight first (``preflight=False`` only for callers
+    that have already run an equivalent check on the same version and alias, to
+    avoid a redundant manifest walk).
+    """
+    if preflight:
+        require_alias_target_ready(session, alias, version_id, config=config)
     deployment = (
         session.execute(
             select(CaliberWorkflowDeployment).where(
@@ -1590,12 +1994,19 @@ def _rotate_alias(
         .first()
     )
     now = datetime.now(timezone.utc)
+    # ``environment`` was a dormant column: promote requests could not set it and
+    # alias rotation never populated it, so nothing could report what class of
+    # environment a deployment actually served. Derive it from the same resolver
+    # that keys the isolation requirement, so the stored value and the enforced
+    # policy can never disagree.
+    resolved_environment = environment_class(alias, config)
     if deployment is None:
         deployment = CaliberWorkflowDeployment(
             deployment_id=new_workflow_deployment_id(),
             workflow_id=workflow_id,
             alias=alias,
             version_id=version_id,
+            environment=resolved_environment,
             status="active",
             deployed_by=actor,
             deployed_at=now,
@@ -1615,6 +2026,7 @@ def _rotate_alias(
         )
         deployment.rollback_checkpoint = checkpoint
         deployment.version_id = version_id
+        deployment.environment = resolved_environment
         deployment.deployed_by = actor
         deployment.deployed_at = now
         deployment.status = "active"
@@ -1640,12 +2052,18 @@ def promote(
     executor: WorkflowExecutor | None = None,
     config: CaliberConfig | None = None,
 ) -> PromotionResult:
-    """Run deploy gates, then rotate (ungated) or request approval (gated).
+    """Run deploy gates, then rotate or request approval per release policy.
 
-    For a **gated** alias (``prod``) the deploy gate must exist and pass; on
-    success a pending :class:`CaliberWorkflowPromotion` is created and the alias
-    is left unchanged until a reviewer approves it (plan §15.3). For an
-    **ungated** alias the alias rotates immediately after gates pass.
+    Two independent policies, both resolved from the alias's *environment class*
+    rather than from a literal alias string:
+
+    * :func:`requires_quality_gate` — defaults to the ``production`` class. A
+      production promotion with no attached deploy gate is refused, because
+      rotating a live alias onto a version with no graded evidence is precisely
+      the false-release-evidence problem.
+    * :func:`requires_human_approval` — off by default. When on, a passing gate
+      creates a pending :class:`CaliberWorkflowPromotion` and the alias stays put
+      until a reviewer approves it (plan §15.3).
 
     Raises :class:`DeployError` if the version is not published or a gated alias
     has no deploy gate, and :class:`DeployGateFailedError` if gates fail.
@@ -1665,14 +2083,17 @@ def promote(
         executor=executor,
         config=config,
     )
-    if alias in GATED_ALIASES and not gate_result.has_gate:
-        raise DeployError(f"promoting to {alias!r} requires a deploy gate")
+    if requires_quality_gate(alias, config) and not gate_result.has_gate:
+        raise DeployError(
+            f"promoting to {alias!r} ({environment_class(alias, config)}) requires a "
+            "deploy gate; attach one whose required_for_aliases includes this alias"
+        )
     if not gate_result.passed:
         raise DeployGateFailedError(
             f"deploy gate failed for alias {alias!r}", detail=gate_result.to_dict()
         )
 
-    if alias in GATED_ALIASES:
+    if requires_human_approval(alias, config):
         # Supersede any prior pending request for this alias, then record a new one.
         prior_pending = (
             session.execute(
@@ -1712,7 +2133,9 @@ def promote(
             gate_result=gate_result, rotated=False, deployment=existing, promotion=promotion
         )
 
-    deployment = _rotate_alias(session, workflow_id, alias, version.version_id, actor=actor)
+    deployment = _rotate_alias(
+        session, workflow_id, alias, version.version_id, actor=actor, config=config
+    )
     return PromotionResult(gate_result=gate_result, rotated=True, deployment=deployment)
 
 
@@ -1721,6 +2144,7 @@ def approve_promotion(
     promotion: CaliberWorkflowPromotion,
     *,
     actor: str,
+    config: CaliberConfig | None = None,
 ) -> CaliberWorkflowDeployment:
     """Approve a pending promotion: rotate the alias and mark it approved."""
     if promotion.status != "pending":
@@ -1731,7 +2155,12 @@ def approve_promotion(
     if version is None or version.status != "published":
         raise DeployError("promotion target version is missing or not published")
     deployment = _rotate_alias(
-        session, promotion.workflow_id, promotion.alias, promotion.version_id, actor=actor
+        session,
+        promotion.workflow_id,
+        promotion.alias,
+        promotion.version_id,
+        actor=actor,
+        config=config,
     )
     promotion.status = "approved"
     promotion.decided_by = actor
@@ -1767,6 +2196,7 @@ def promote_workflow_candidate(
     candidate_manifest: dict[str, Any],
     alias: str,
     actor: str,
+    config: CaliberConfig | None = None,
 ) -> tuple[CaliberWorkflowVersion, CaliberWorkflowDeployment]:
     """Publish a new version from a CALIBER candidate manifest and rotate ``alias``.
 
@@ -1798,7 +2228,11 @@ def promote_workflow_candidate(
     session.add(version)
     session.flush()
     publish_version(session, version, actor=actor)
-    deployment = _rotate_alias(session, workflow_id, alias, version.version_id, actor=actor)
+    # Preflight runs inside _rotate_alias: an approved refinement candidate used
+    # to rotate the alias with no MCP dependency check at all.
+    deployment = _rotate_alias(
+        session, workflow_id, alias, version.version_id, actor=actor, config=config
+    )
     return version, deployment
 
 
@@ -1808,8 +2242,17 @@ def rollback(
     alias: str,
     *,
     actor: str,
+    config: CaliberConfig | None = None,
 ) -> CaliberWorkflowDeployment:
-    """Restore the alias to its previous target (plan §17.5)."""
+    """Restore the alias to its previous target (plan §17.5).
+
+    Runs the same MCP deployment preflight a forward promotion does. Rollback is
+    still an alias rotation onto a live endpoint: if the older version's MCP
+    dependencies have since been disabled, deleted, or reclassified, restoring it
+    would put a broken or policy-violating graph into service. Preflight failure
+    raises :class:`AliasPreflightError`; the alias and its checkpoint stack are
+    left untouched, so the operator can fix the dependency and retry.
+    """
     deployment = (
         session.execute(
             select(CaliberWorkflowDeployment).where(
@@ -1826,8 +2269,11 @@ def rollback(
     if not checkpoint:
         raise RollbackError("no rollback checkpoint")
     prior = checkpoint.pop()
-    deployment.version_id = prior["version_id"]
+    prior_version_id = str(prior["version_id"])
+    require_alias_target_ready(session, alias, prior_version_id, config=config)
+    deployment.version_id = prior_version_id
     deployment.rollback_checkpoint = checkpoint
+    deployment.environment = environment_class(alias, config)
     deployment.deployed_by = actor
     deployment.deployed_at = datetime.now(timezone.utc)
     session.flush()
@@ -1837,6 +2283,7 @@ def rollback(
 __all__ = [
     "GATED_ALIASES",
     "LIVE_ALIASES",
+    "AliasPreflightError",
     "DeployError",
     "DeployGateFailedError",
     "GateResult",
@@ -1855,6 +2302,9 @@ __all__ = [
     "publish_version",
     "record_workflow_run",
     "reject_promotion",
+    "require_alias_target_ready",
+    "requires_human_approval",
+    "requires_quality_gate",
     "resolver_from_session",
     "rollback",
     "run_preview",

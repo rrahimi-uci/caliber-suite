@@ -2097,6 +2097,14 @@ def _agent_instruction_text(agent: IRAgent) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: Default ceiling on concurrent parallel-branch threads. Chosen to match the
+#: bound the rest of the runtime already assumes: enough width for the branch
+#: counts real graphs use, low enough that a hostile or careless manifest cannot
+#: exhaust the process's threads. Overridable via
+#: ``CALIBER_WORKFLOW_PARALLEL_BRANCH_MAX_WORKERS``.
+DEFAULT_PARALLEL_BRANCH_MAX_WORKERS = 8
+
+
 @dataclass
 class RuntimePlan:
     """Everything the interpreter needs to execute a workflow version."""
@@ -2129,6 +2137,19 @@ class RuntimePlan:
     # ``config.workflow_foreach_max_workers`` by ``build_plan``; other plan
     # builders (preview/eval/calibration) leave it at 1.
     foreach_max_workers: int = 1
+    # Cap on concurrent *parallel-branch* threads. Manifests permit large graphs
+    # and the pool used to be sized to the branch count, so a wide fan-out spawned
+    # one thread per branch with no ceiling — a graph-authoring choice could
+    # exhaust the process's threads. Sourced from
+    # ``config.workflow_parallel_branch_max_workers`` by ``build_plan``; branches
+    # beyond the cap queue and run as threads free up, so behaviour is unchanged
+    # apart from the bound.
+    parallel_branch_max_workers: int = DEFAULT_PARALLEL_BRANCH_MAX_WORKERS
+    # At-most-once external effects across a run restart. ``None`` on preview,
+    # evaluation, and deploy-gate paths — those refuse unisolated effect nodes
+    # outright, so there is nothing to deduplicate. Set by the queued run worker,
+    # which is the only path that can be restarted after a lease expiry.
+    effect_ledger: Any | None = None
 
 
 @dataclass
@@ -3235,7 +3256,11 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
             }
 
         if len(pending_specs) > 1:
-            with ThreadPoolExecutor(max_workers=len(pending_specs)) as pool:
+            # Bounded: sizing the pool to the branch count let a wide graph spawn
+            # an unbounded number of threads. Excess branches queue rather than
+            # being dropped, so results are identical.
+            branch_workers = max(1, min(len(pending_specs), plan.parallel_branch_max_workers))
+            with ThreadPoolExecutor(max_workers=branch_workers) as pool:
 
                 def _run_pending_spec(
                     spec: tuple[str, IRNode, dict[str, Any], tuple[str, str] | None],
@@ -3771,6 +3796,55 @@ _PARALLEL_BRANCH_BATCH_TARGET_TYPES = (
     IRFolderInput,
     IRInputBucket,
 )
+
+
+def _perform_guarded_effect(
+    plan: RuntimePlan,
+    *,
+    node_id: str,
+    request: Any,
+    perform: Callable[[], Any],
+) -> Any:
+    """Perform an external effect at most once per (run, node, inputs).
+
+    Without a ledger this is a plain call, which is correct for the paths that
+    cannot be restarted (preview/eval refuse effect nodes) — the guard exists for
+    the queued worker, where an expired lease restarts the run from the beginning
+    and every effectful node would otherwise re-fire.
+
+    A definitive failure is recorded as ``failed`` so a retry is allowed. An
+    *ambiguous* failure — one where the request may already have reached the remote
+    system — deliberately leaves the claim ``in_progress``, so the next attempt
+    reports it as indeterminate instead of silently repeating the effect.
+    """
+    ledger = plan.effect_ledger
+    if ledger is None:
+        return perform()
+
+    from caliber.workflows.effect_ledger import IndeterminateEffectError  # noqa: PLC0415
+
+    try:
+        claim = ledger.claim(node_id=node_id, payload=request)
+    except IndeterminateEffectError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+    if not claim.fresh:
+        return claim.replayed_result
+
+    try:
+        result = perform()
+    except _DEFINITIVE_EFFECT_FAILURES as exc:
+        # The request never went out, so the effect did not take.
+        ledger.record_failure(claim.key, f"{type(exc).__name__}: {exc}")
+        raise
+    ledger.record_success(claim.key, result if isinstance(result, dict) else {"response": result})
+    return result
+
+
+#: Failures that prove the effect did **not** reach the remote system, so the
+#: ledger row can be released for retry. Anything else (notably a timeout, where
+#: the request may already have been processed) keeps the claim, which makes the
+#: next attempt report an indeterminate effect rather than repeat it.
+_DEFINITIVE_EFFECT_FAILURES = (ConnectionError, ConnectionRefusedError, FileNotFoundError)
 
 
 def _stringify_inline_target_input(value: Any) -> str:
@@ -5389,7 +5463,11 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             "body": body,
         }
         try:
-            result = sender(request)
+            result = _perform_guarded_effect(
+                plan, node_id=nid, request=request, perform=lambda: sender(request)
+            )
+        except ToolExecutionError:
+            raise
         except Exception as exc:
             raise ToolExecutionError(
                 f"webhook node {nid!r} failed for {node.method} {url}: {type(exc).__name__}: {exc}"
@@ -5451,7 +5529,11 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             "body": req_body,
         }
         try:
-            api_result = sender(request)
+            api_result = _perform_guarded_effect(
+                plan, node_id=nid, request=request, perform=lambda: sender(request)
+            )
+        except ToolExecutionError:
+            raise
         except Exception as exc:
             raise ToolExecutionError(
                 f"api_request node {nid!r} failed for {method} {req_url}: "

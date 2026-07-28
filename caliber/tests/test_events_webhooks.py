@@ -179,6 +179,7 @@ def _build_dispatcher_with(
     urls: list[str],
     secret: str = "topsecret",
     event_filter: frozenset[str] | None = None,
+    max_attempts: int = 3,
 ) -> tuple[EventBus, WebhookDispatcher]:
     bus = EventBus()
     dispatcher = WebhookDispatcher(
@@ -186,6 +187,10 @@ def _build_dispatcher_with(
         urls=urls,
         secret=secret,
         event_filter=event_filter,
+        max_attempts=max_attempts,
+        # Retry timing is asserted separately; keep these tests instant.
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
     )
     return bus, dispatcher
 
@@ -313,9 +318,14 @@ async def test_dispatch_respects_event_filter(
 
 @pytest.mark.asyncio
 async def test_dispatch_swallows_per_url_failure() -> None:
-    """One bad receiver shouldn't taint the others."""
+    """One bad receiver shouldn't taint the others.
+
+    ``max_attempts=1`` isolates the fan-out property from the retry policy: with
+    retries on, the broken URL would legitimately appear more than once.
+    """
     bus, dispatcher = _build_dispatcher_with(
         urls=["https://broken.example/hook", "https://ok.example/hook"],
+        max_attempts=1,
     )
 
     captured: list[Any] = []
@@ -337,15 +347,24 @@ async def test_dispatch_swallows_per_url_failure() -> None:
 
     # Both URLs are attempted; only one succeeds at the receiver layer.
     assert len(captured) == 2
+    # The broken one is dead-lettered rather than silently lost.
+    letters = dispatcher.dead_letters()
+    assert letters["count"] == 1
+    assert letters["entries"][0]["url"] == "https://broken.example/hook"
+    assert letters["delivered"] == 1
 
 
 @pytest.mark.asyncio
-async def test_dispatch_logs_non_2xx_response(
+async def test_dispatch_retries_a_5xx_then_dead_letters(
     captured_requests: list[Any],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A 500 from a receiver doesn't raise — it's logged. (Mocked
-    via a custom urlopen that returns status 500.)"""
+    """A 500 is transient: retry to the attempt limit, then dead-letter.
+
+    Previously a 500 was logged once and the event was dropped silently, so an
+    operator could not distinguish "nothing happened" from "we failed to tell
+    you". The dead-letter record is what makes the loss observable.
+    """
 
     def _fake_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
         captured_requests.append(req)
@@ -353,6 +372,7 @@ async def test_dispatch_logs_non_2xx_response(
 
     bus, dispatcher = _build_dispatcher_with(
         urls=["https://broken.example/hook"],
+        max_attempts=3,
     )
     with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
         await dispatcher.start()
@@ -360,11 +380,128 @@ async def test_dispatch_logs_non_2xx_response(
             with caplog.at_level("WARNING", logger="caliber.events.webhooks"):
                 await _await_subscription(bus)
                 bus.publish({"type": "approval.promoted"})
-                await _await_captures(captured_requests, expected=1)
+                await _await_captures(captured_requests, expected=3)
         finally:
             await dispatcher.stop()
 
-    assert any("non-2xx" in record.message for record in caplog.records)
+    assert len(captured_requests) == 3  # attempted, not dropped after one try
+    letters = dispatcher.dead_letters()
+    assert letters["count"] == 1
+    assert letters["entries"][0]["event_type"] == "approval.promoted"
+    assert "HTTP 500" in letters["entries"][0]["reason"]
+    assert letters["entries"][0]["attempts"] == 3
+    assert letters["delivered"] == 0
+    assert letters["retried"] == 2
+    assert any("dead-lettering" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_does_not_retry_a_4xx(
+    captured_requests: list[Any],
+) -> None:
+    """A rejected payload is permanent: replaying it cannot change the verdict, so
+    retrying only wastes attempts and delays the dead-letter."""
+
+    def _fake_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        captured_requests.append(req)
+        return _FakeResponse(status=422)
+
+    bus, dispatcher = _build_dispatcher_with(
+        urls=["https://picky.example/hook"],
+        max_attempts=5,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "approval.promoted"})
+            await _await_captures(captured_requests, expected=1)
+        finally:
+            await dispatcher.stop()
+
+    assert len(captured_requests) == 1
+    letters = dispatcher.dead_letters()
+    assert letters["count"] == 1
+    assert "HTTP 422" in letters["entries"][0]["reason"]
+    assert letters["retried"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_transient_failure_that_recovers_is_delivered_not_dead_lettered(
+    captured_requests: list[Any],
+) -> None:
+    """The point of the retry: a receiver restart must not lose the event."""
+    attempts: list[int] = []
+
+    def _fake_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        captured_requests.append(req)
+        attempts.append(1)
+        return _FakeResponse(status=200 if len(attempts) > 1 else 503)
+
+    bus, dispatcher = _build_dispatcher_with(
+        urls=["https://flaky.example/hook"],
+        max_attempts=3,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "approval.promoted"})
+            await _await_captures(captured_requests, expected=2)
+        finally:
+            await dispatcher.stop()
+
+    letters = dispatcher.dead_letters()
+    assert letters["count"] == 0
+    assert letters["delivered"] == 1
+    assert letters["retried"] == 1
+
+
+def test_retry_backoff_is_exponential() -> None:
+    """Asserted directly so the delivery tests can run without real waiting."""
+    slept: list[float] = []
+    dispatcher = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://x.example/hook"],
+        secret="s",
+        max_attempts=4,
+        backoff_seconds=0.5,
+        sleep=slept.append,
+    )
+    with patch(
+        "caliber.events.webhooks.urllib.request.urlopen",
+        side_effect=OSError("connection refused"),
+    ):
+        dispatcher._post_to_all({"type": "approval.promoted"})
+    assert slept == [0.5, 1.0, 2.0]  # no sleep after the final attempt
+    assert dispatcher.dead_letters()["count"] == 1
+
+
+def test_the_dead_letter_ring_is_bounded_and_reports_what_it_dropped() -> None:
+    """An unbounded ring would turn a long outage into a memory leak; a silently
+    truncated one would misreport the failure history as complete."""
+    from caliber.events.webhooks import _DEAD_LETTER_CAPACITY
+
+    dispatcher = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://x.example/hook"],
+        secret="s",
+        max_attempts=1,
+        backoff_seconds=0.0,
+        sleep=lambda _s: None,
+    )
+    overflow = 5
+    with patch(
+        "caliber.events.webhooks.urllib.request.urlopen",
+        side_effect=OSError("connection refused"),
+    ):
+        for index in range(_DEAD_LETTER_CAPACITY + overflow):
+            dispatcher._post_to_all({"type": f"event.{index}"})
+
+    letters = dispatcher.dead_letters()
+    assert letters["count"] == _DEAD_LETTER_CAPACITY
+    assert letters["dropped"] == overflow
+    assert letters["capacity"] == _DEAD_LETTER_CAPACITY
 
 
 # ---------------------------------------------------------------------------

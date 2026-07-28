@@ -104,6 +104,18 @@ function handlers(initial: AgentConfig[] = [agentFixture()]) {
         }),
       ),
     ),
+    http.get(`${API_BASE}/agents/:agentId/experiment`, () =>
+      HttpResponse.json(
+        envelope({
+          configured_experiment_id: "42",
+          status: "reachable",
+          detail: "resolved to experiment 42",
+          experiment_id: "42",
+          name: "support-agent",
+          lifecycle_stage: "active",
+        }),
+      ),
+    ),
     http.get(`${API_BASE}/audit-log`, () =>
       HttpResponse.json(
         envelope({
@@ -247,5 +259,53 @@ describe("Agents lifecycle UI", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("agent-toggle-enabled")).not.toBeInTheDocument();
     expect(screen.getByText(/Administrator access is required/i)).toBeInTheDocument();
+    // Regression: the page fired the admin-only audit request as a viewer and
+    // rendered the resulting 403 as if the page itself were broken. ``/me``
+    // already answers this, so the request is not made and the copy explains the
+    // permission instead of showing an error.
+    expect(
+      await screen.findByTestId("agent-history-requires-admin"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load revision history/i)).not.toBeInTheDocument();
+  });
+
+  it("reports a real experiment-binding verdict, including 'unverified'", async () => {
+    // Regression: the check only proved the stored id was a non-empty string, so
+    // a typo'd or deleted experiment passed a control labelled "experiment
+    // binding preflight".
+    handlers();
+    server.use(
+      http.get(`${API_BASE}/agents/:agentId/experiment`, () =>
+        HttpResponse.json(
+          envelope({
+            configured_experiment_id: "9999",
+            status: "missing",
+            detail: "MLflow has no experiment '9999'",
+          }),
+        ),
+      ),
+    );
+    const { unmount } = renderAt("/agents/support-agent");
+    await userEvent.click(await screen.findByTestId("agent-preflight"));
+    expect(await screen.findByText(/MLflow has no experiment/)).toBeInTheDocument();
+    expect(screen.getAllByText("fail").length).toBeGreaterThan(0);
+    unmount();
+
+    // A registry outage is neither pass nor fail.
+    server.use(
+      http.get(`${API_BASE}/agents/:agentId/experiment`, () =>
+        HttpResponse.json(
+          envelope({
+            configured_experiment_id: "42",
+            status: "unverified",
+            detail: "could not reach MLflow: connection refused",
+          }),
+        ),
+      ),
+    );
+    renderAt("/agents/support-agent");
+    await userEvent.click(await screen.findByTestId("agent-preflight"));
+    expect(await screen.findByText(/could not reach MLflow/)).toBeInTheDocument();
+    expect(screen.getAllByText("unverified").length).toBeGreaterThan(0);
   });
 });

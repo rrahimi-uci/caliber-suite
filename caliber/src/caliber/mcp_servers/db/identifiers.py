@@ -182,6 +182,40 @@ def require_where(where: dict[str, Any] | None, allow_full: bool) -> None:
 #: leading-keyword check misses these because the statement begins with WITH.
 _CTE_WRITE_RE = re.compile(r"\(\s*(?:insert|update|delete|merge)\b", re.IGNORECASE)
 
+#: ``ANALYZE`` inside an ``EXPLAIN`` option list, either spelling.
+_ANALYZE_WORD_RE = re.compile(r"\banaly[sz]e\b", re.IGNORECASE)
+
+#: Bare keywords Postgres accepts between ``EXPLAIN`` and the statement in the
+#: legacy (non-parenthesised) form: ``EXPLAIN [ANALYZE] [VERBOSE] <stmt>``.
+_EXPLAIN_BARE_OPTIONS = frozenset({"analyze", "analyse", "verbose"})
+
+
+def _split_explain(skeleton: str) -> tuple[str, bool]:
+    """Split an ``EXPLAIN`` skeleton into ``(explained statement, analyze?)``.
+
+    ``EXPLAIN ANALYZE`` *executes* the plan it explains, so
+    ``EXPLAIN ANALYZE DELETE FROM t`` deletes rows while reading as ``explain``
+    to a leading-keyword check. Both accepted syntaxes are handled: the modern
+    ``EXPLAIN (ANALYZE, VERBOSE) <stmt>`` option list and the legacy bare-keyword
+    ``EXPLAIN ANALYZE VERBOSE <stmt>``.
+    """
+    rest = skeleton.lstrip()
+    rest = rest[len("explain") :].lstrip()
+    analyze = False
+    if rest.startswith("("):
+        close = rest.find(")")
+        options = rest[1:] if close == -1 else rest[1:close]
+        analyze = bool(_ANALYZE_WORD_RE.search(options))
+        rest = "" if close == -1 else rest[close + 1 :].lstrip()
+        return rest, analyze
+    while rest:
+        token = rest.split(None, 1)[0]
+        if token.lower() not in _EXPLAIN_BARE_OPTIONS:
+            break
+        analyze = analyze or token.lower() in ("analyze", "analyse")
+        rest = rest[len(token) :].lstrip()
+    return rest, analyze
+
 
 def _sql_skeleton(sql: str) -> str:
     """Blank out comments and string / quoted-identifier / dollar-quoted spans so
@@ -232,15 +266,21 @@ def _sql_skeleton(sql: str) -> str:
 def assert_read_only(sql: Any) -> None:
     """Reject anything that isn't a single, genuinely read-only statement.
 
-    A leading-keyword check alone fails open in two ways, so we also guard
-    against them here (defense in depth — the durable fix is to run the query
-    inside a ``SET TRANSACTION READ ONLY`` connection so the engine refuses any
-    write):
+    This is **defense in depth, not the boundary**. The boundary is
+    :func:`caliber.mcp_servers.db.connection.read_only_query`, which runs the
+    statement in a ``READ ONLY`` transaction so the engine refuses a write even
+    when it is reached through a function call this parser cannot see (e.g.
+    ``SELECT drop_graph('g', true)``). This function exists to return a clean,
+    actionable tool error for the cases it *can* recognise:
 
     1. **Stacked statements** — ``SELECT 1; DELETE FROM t`` has head ``select``
        but psycopg's simple-query protocol runs BOTH statements.
     2. **Data-modifying CTEs** — ``WITH x AS (DELETE FROM t RETURNING *) SELECT
        * FROM x`` has head ``with`` yet performs the DELETE.
+    3. **``EXPLAIN ANALYZE``** — executes the plan it explains, so
+       ``EXPLAIN ANALYZE DELETE FROM t`` deletes rows under an ``explain`` head.
+    4. **``EXPLAIN <write>``** — plain EXPLAIN does not execute, but a
+       read-classified tool has no reason to plan a mutation.
     """
     if not isinstance(sql, str) or not sql.strip():
         raise DbToolError("sql must be a non-empty string")
@@ -262,6 +302,19 @@ def assert_read_only(sql: Any) -> None:
             "(INSERT/UPDATE/DELETE/MERGE) inside a CTE is not permitted — "
             "use execute_sql for writes"
         )
+    if head == "explain":
+        inner, analyze = _split_explain(skeleton)
+        if analyze:
+            raise DbToolError(
+                "run_query does not allow EXPLAIN ANALYZE: it executes the "
+                "statement it explains — use execute_sql for writes"
+            )
+        inner_head = (inner.split(None, 1) or [""])[0].lower()
+        if inner_head == "explain" or inner_head not in _READ_KEYWORDS:
+            raise DbToolError(
+                "run_query only explains read queries "
+                "(SELECT/WITH/TABLE/VALUES/SHOW); use execute_sql for writes"
+            )
 
 
 # ---------------------------------------------------------------------------

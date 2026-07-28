@@ -41,7 +41,11 @@ def test_workflow_calibration_run_reaches_approval_and_promotes(
                 "type": "deploy_gate",
                 "dataset_ref": "support_eval",
                 "required_for_aliases": ["dev"],
-                "thresholds": {},
+                # A gate with no thresholds now asserts nothing and fails closed —
+                # it used to pass vacuously, which is how a "gated" deploy could
+                # carry no evidence at all. Completion is what this dataset
+                # supports; graded gating lives in test_deploy_gate_evidence.py.
+                "thresholds": {"min_completion_rate": 1.0},
             }
         },
     )

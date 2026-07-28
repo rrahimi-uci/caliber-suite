@@ -17,10 +17,21 @@ gitleaks SARIF (`.github/workflows/ci.yml:340`). The two CI commits touch no pro
 code. Appendix B records earlier pre-commit measurements of that work; they are
 historical, not current, and nothing described in this report remains uncommitted.
 
-**This refresh is an independent read-only implementation audit.** It updates this
-report only; it does not silently patch the newly identified defects. “Accepted” in
-the decision ledger means the prior implementation change was rational and is
-retained, not that every residual gap was fixed in this review.
+**This edition is a remediation pass, not a read-only audit.** Earlier editions were
+read-only reviews that catalogued defects without fixing them. This one implements
+targeted fixes for the findings that capped five specific dimensions — prompt/skill/
+tool/agent/knowledge engineering, testing and evaluation, deployment and release
+management, operations and monitoring, and architecture and operability — and
+re-scores only those five plus the safety and overall figures they move.
+[§0 Remediation pass](#0-remediation-pass-2026-07-28) is the authoritative record of
+what changed, what it closed, and what it deliberately did not. Every other section
+retains its prior wording except where a finding it describes is now closed, in which
+case the finding carries a state marker and points at §0.
+
+Scores that did **not** move are unchanged and were not re-audited in this pass:
+visual workflow composition, developer debugging, platform UX, and end-to-end
+lifecycle. “Accepted” in the decision ledger still means the prior implementation
+change was rational and is retained.
 
 **Product target used for scoring:** a self-hosted, single-organization platform
 for trusted developers and technical operators. Enterprise-suite requirements are
@@ -49,6 +60,7 @@ cannot be mistaken for current behavior.
 
 | If you want | Read |
 | --- | --- |
+| What this pass changed, and what it did not | [§0 Remediation pass](#0-remediation-pass-2026-07-28) |
 | The verdict and why | [Executive summary](#executive-summary), [Overall maturity assessment](#overall-maturity-assessment) |
 | What is true *now*, after accepted fixes | [Current implementation state](#current-implementation-state-after-this-independent-pass) |
 | What was actually run, and what that proves | [Verification](#verification) |
@@ -58,8 +70,189 @@ cannot be mistaken for current behavior.
 | Superseded verification history | [Appendix B](#appendix-b--verification-history-and-superseded-passes) |
 
 Findings carry an explicit state: **[Remediated in the reviewed baseline]**,
-**[Partly remediated]**, or no marker for open. Scores are risk-adjusted reviewer
-judgements, not test coverage.
+**[Remediated in §0]**, **[Partly remediated]**, or no marker for open. Scores are
+risk-adjusted reviewer judgements, not test coverage.
+
+## 0. Remediation pass (2026-07-28)
+
+This section is the authoritative record of the fixes landed in this pass. It is
+ordered by the dimension each group of fixes was aimed at, and each entry states the
+finding it closes, the mechanism, and the residual. Where a fix changes a default,
+that is called out explicitly — a behaviour change is more important to an operator
+than a new capability.
+
+**The governing principle in every fix below: a control that cannot be evaluated
+fails closed and says so.** The recurring defect this codebase had was not missing
+features but *silent* ones — a threshold that was accepted and ignored, a probe that
+could not fail, a preflight that ran on some paths, a read classification asserted by
+a parser. Several fixes are therefore small in code and large in consequence.
+
+### 0.1 Safety: the database MCP read classification (closes C11)
+
+`run_query`, `list_tables`, `describe_table`, and `similarity_search` are classified
+read / no-approval by all three shipped DB presets. That classification is now
+enforced by the **engine**, not by inspecting SQL:
+
+- `connection.connect_read_only()` opens a non-autocommit connection, sets
+  `read_only = True` before any statement runs, applies a `SET LOCAL
+  statement_timeout`, and always rolls back. PostgreSQL therefore refuses any write
+  reached through the tool — including one inside a called function, which is the
+  case no parser can see (`SELECT drop_graph('g', true)` was the review's example).
+- `identifiers.assert_read_only()` is retained as defense in depth and hardened to
+  reject `EXPLAIN ANALYZE` in both accepted syntaxes and `EXPLAIN` of a write. It now
+  returns a clean tool error for the recognisable cases instead of a driver error;
+  it is explicitly no longer the boundary.
+- `POSTGRES_READ_ONLY_URL` lets read tools use a separate least-privilege role, so
+  they are additionally constrained by `GRANT`. `deploy/mcp/initdb/02-readonly-role.sql`
+  provisions `caliber_ro` (SELECT-only, `default_transaction_read_only = on`) for the
+  development stack, and Compose points the sidecars at it.
+
+The review's two reproductions — `EXPLAIN ANALYZE DELETE FROM victim` and
+`SELECT drop_graph('g', true)` — are now refused at the parser and, independently, by
+the transaction. Residual: the shipped Compose target is still CALIBER's own
+database, so an operator must still point production at a separate database; and
+`execute_sql` / `cypher_query` remain deliberate escape hatches classified
+`external_action`.
+
+### 0.2 Deployment and release management
+
+| Finding closed | Mechanism | Residual |
+| --- | --- | --- |
+| Isolation keyed to the literal alias `prod`, matched case-sensitively, so `production` / `prod-eu` / `PROD` promoted with local containment and no blocker | New `caliber.deployment_environments` resolves an alias to an **environment class** (production / staging / development) from operator mapping, then name patterns, then a fail-closed default of `production`. The legacy alias list still works as an additional opt-in | The class is derived from the alias name; an operator who wants a non-obvious alias classified must map it explicitly (which the fail-closed default makes safe) |
+| MCP preflight ran only on forward promotion and promotion approval, so **rollback** and **refinement-candidate rotation** moved the live alias unchecked | Preflight moved *into* `_rotate_alias`, so it is a property of the transition rather than of the caller. `promoter.require_alias_target_ready()` is the single entry point | — |
+| Dependency inspection stopped at the root manifest, so a parent declaring no MCP tool passed while its subworkflow used a blocked server | `extract_dependencies(..., session=…)` walks subworkflow targets transitively, resolving each the same way the runtime does, bounded and cycle-safe, with blockers labelled by the path that reached them | Only alias rotations require a child to be resolvable; a manual run keeps its runtime-error contract |
+| Server deletion checked only the alias's current target, so deleting a dependency of a checkpointed version silently broke rollback | Deletion now also inspects every version on the rollback checkpoint stack | — |
+| Managed-file gate success was not durable: approval did not re-read the pinned object, so deletion between evaluation and approval could rotate onto an unusable version | Every alias rotation re-verifies pinned objects by row id, object version, size, and byte digest; `StorageError` is caught, so a physically deleted object is a blocker rather than a 500 | — |
+| `CaliberWorkflowDeployment.environment` was dormant — nothing could set or read it | Populated on every rotation from the same resolver that keys the isolation requirement, so the stored value and the enforced policy cannot disagree | — |
+| The deploy gate measured only completion, ignored two exposed threshold fields, and was mandatory for no alias | See §0.3 — the gate is now graded, every threshold is evaluated or fails closed, and **production promotion requires a passing gate by default** | Deployment-scoped secret inventory/rotation, service rate limits/quotas/CORS, per-port service input mapping, and a release-checklist UI remain open |
+
+**Behaviour change:** promoting to a production-class alias without a deploy gate is
+now refused (`release_require_quality_gate_for_environment_classes`, default
+`production`). Human approval for production is one setting away
+(`release_require_human_approval_for_environment_classes`, default empty) and its
+machinery is exercised by tests rather than dormant.
+
+### 0.3 Testing and evaluation
+
+**The deploy gate is now graded.** `caliber.workflows.deploy_gate` owns the verdict;
+the promoter owns sampling and Preview containment. Each replay is scored against the
+dataset's expected output using the scorers the evaluation product already ships
+(`caliber.eval.scorecard.run_scorecard`, so a gate and an evaluation agree by
+construction on weights, incomplete-row policy, and what "passed" means), and
+wall-clock latency and token spend are measured per replay. The threshold vocabulary
+is closed and self-checking:
+
+- `min_pass_rate`, `min_completion_rate`, `min_overall`, per-scorer minimums,
+  `min_overall_delta`, `max_avg_latency_ms`, `max_p95_latency_ms`, `max_avg_tokens`,
+  `max_total_tokens`, `max_error_rate`;
+- an **unsupported** threshold key fails the gate closed and names the supported set,
+  so a threshold can never again be accepted and ignored;
+- an **unmeasurable** threshold fails closed with the reason — notably, a quality
+  threshold against a dataset with no expected output reports that, rather than a
+  meaningless 0.0 that would read as "the workflow answered badly";
+- `min_overall_delta` replays the alias's **currently deployed** version on the same
+  sample, making it a real regression check; no usable baseline fails it closed; and
+- a gate with no thresholds asserts nothing and fails closed (it used to pass
+  vacuously, which is how a "gated" deploy could carry no evidence at all).
+
+The former `max_tone_regression` Inspector field is replaced by `max_p95_latency_ms`:
+no product scorer measures tone, and the review explicitly rejected inventing one.
+
+**Evaluation runs now carry immutable evidence.** New `caliber.eval.evidence` and a
+`caliber_eval_runs.evidence` column (migration `0064`) record, written once with the
+run:
+
+- a **dataset digest** over the graded inputs and a separate **content digest** over
+  the scored rows, so "was this the same data?" and "is this the same result?" are
+  distinct questions — a changed prediction under an unchanged dataset digest is a
+  subject change, while a changed dataset digest invalidates the comparison;
+- the **pre-truncation inventory and sampling decision** — examples available,
+  examples graded, the cap, whether it was truncated, and the deterministic order — so
+  a bounded run can no longer read as exhaustive;
+- **durable per-scorer denominators** (valid rows and weight sum), which the prior
+  report deferred; without them a consumer cannot reconstruct or combine the means;
+- **per-tag slices** with their own denominators, closing "grouped tag/slice analysis
+  remains absent"; and
+- a **resolved bundle**: prompt/skill content digest, workflow version + manifest
+  hash, each judge's model and instructions digest, and the provider — because a
+  `subject_ref` or `Judge.<id>` names a *mutable* artifact and proves nothing on its
+  own.
+
+Per-example latency is measured and joined into the run record, closing the latency
+half of "cost/token/latency metrics are absent from generic eval records"; token cost
+still depends on provider usage reporting. Evaluation Detail renders the bundle,
+including a "bounded sample" badge. Not backfilled for historical runs: the digests
+can only be computed from the inputs at the time a run executed, and manufacturing
+them would be precisely the failure this column exists to prevent.
+
+Residual: evaluation is still synchronous with no durable large async mode, there is
+no continuous-eval schedule or drift detector, prompt/tool/skill durable-run create
+routes still accept browser-supplied scores, and the Playwright specs are still not
+run by the checked CI workflow.
+
+### 0.4 Operations and monitoring
+
+| Finding closed | Mechanism | Residual |
+| --- | --- | --- |
+| `/readiness` "always returns 200 and reports provider selector/feature flags rather than dependency connectivity" | New `caliber.observability.readiness` probes database, MLflow tracking, object storage, event broker, and queue/worker liveness, and the endpoint returns **503** when a required check fails. Requiredness is *derived from configuration*, so a dependency the deployment does not use is `skipped`, never a fake pass. Probes are bounded and exception-guarded, so the probe cannot become the outage. Provider simulation is reported but deliberately non-blocking — the fake provider is a supported mode | `/health` remains API + database liveness by design; it is the cheap liveness probe and `/readiness` is the dependency probe |
+| No "queue-depth/worker operations" signal — a dead worker with a growing backlog looked identical to a healthy idle system | `caliber.observability.queue_health` derives depth, worker liveness, stale leases, and backlog age from durable run state; `GET /system/queue` exposes it and readiness consumes it | Aggregates the workflow-run queue only; KB-build and Aria plans have their own workers |
+| Outbound webhooks had "no retry queue or DLQ" — a receiver restart dropped the event silently, so an operator could not distinguish "nothing happened" from "we failed to tell you" | Bounded exponential-backoff retry with a permanent/transient split (4xx permanent, 5xx and transport errors retried), and a bounded dead-letter ring exposed on `GET /system/queue` that reports what it evicted | The ring is in-memory; a durable delivery queue remains a separate milestone. What this closes is the *silent* part of the loss |
+| "No alert policies, configurable SLOs, error budgets, or burn-rate views" | New `caliber.observability.slo` evaluates operator-declared objectives (`CALIBER_SLO_OBJECTIVES`) against run success rate, latency percentiles, queue lag, stale leases, dead letters, and readiness blockers, reporting observed value, verdict, remaining error budget, and burn rate on `GET /system/alerts`. An objective naming an unknown signal is a reported **configuration error** that makes the report unhealthy; an empty window does **not** fire | Evaluation only. Routing, escalation, silencing, acknowledgement, and incident history are not implemented and are not claimed. Signals are platform-level, not per-workflow or per-agent |
+| The Releases API "returns global release audit/live workflow/KB rows without the visibility/project predicates used by the underlying resource workspaces" | Both aggregates apply the same 3-tier predicate the artifact workspaces use; admins keep the unfiltered view. Prompt rows are retained with a stated reason (liveness lives in the MLflow registry, so there is no local row to scope against) | — |
+| Releases had "no query-error state even though its global aggregation endpoint can fail independently" | Explicit error states; the misleading empty-state copy is suppressed when a query fails, because on this page "Nothing deployed yet" reads as "nothing is in production" | — |
+
+Residual: per-agent and per-workflow health dashboards, searchable log aggregation,
+alert-to-trace diagnosis, incident history, and spend budgets remain open.
+
+### 0.5 Prompt, skill, tool, agent, and knowledge engineering
+
+| Finding closed | Mechanism |
+| --- | --- |
+| "Experiment existence/connectivity is not verified" — the check proved only that the stored string was non-empty, and the report rejected calling it "experiment-binding preflight" | `GET /agents/{id}/experiment` resolves the id or name against the live MLflow registry and returns one of three states: `reachable`, `missing` (including a *deleted* experiment, which resolves but cannot receive runs), or `unverified` when the registry is unreachable. Agent Detail renders all three — `unverified` as its own badge, because "we could not check" is different information from "it is not there" |
+| "Skill resolution is globally unscoped" | `GET /agents/{id}/skills` resolves names through the caller's visibility. A name that exists but is not visible is reported as `missing` rather than resolved, which is the honest answer for that caller and does not disclose that a skill of that name exists elsewhere |
+| "Explicit `null` PATCH values can reach non-null columns and return 500" | Explicit nulls for non-nullable fields are rejected with a 400 naming them, before anything is mutated. Nullable `collaboration_mode` can still be cleared |
+| "Agent Detail still always queries the admin-only audit endpoint for viewers and shows its 403" | `/me` already answers the question, so the request is not made; the panel explains the permission instead of surfacing an error |
+| Preflight copy overclaimed what it checked | Rewritten to state exactly what it does: stored configuration, visibility-scoped skill resolution, and a live MLflow experiment lookup — and what it still does not (invoke a model, run tools, prove end-to-end behaviour) |
+
+Residual and unchanged: reusable custom tools still require an importable Python
+callable, agent history is audit-backed rather than immutably versioned, and agent
+setup remains ID/JSON-heavy. Those are breadth gaps, not defects.
+
+### 0.6 Architecture and operability
+
+| Finding closed | Mechanism | Residual |
+| --- | --- | --- |
+| "Crash recovery is at-least-once for side effects … no platform effect ledger or per-node idempotency key, so a mutation completed just before process failure can execute again" | New `caliber_effect_ledger` (migration `0065`) plus `caliber.workflows.effect_ledger`. Webhook and API-request nodes claim an **attempt-invariant** key derived from `(run id, node id, canonical inputs)` before performing the effect; a completed claim is **replayed, not repeated**. A claim abandoned by a dead process is reported as **indeterminate** and fails the run with instructions, rather than silently duplicating or silently dropping — when the truth is unknowable from this side, a human decides. A definitive failure (connection refused) releases the claim; an ambiguous one (timeout) does not | Wired to the queued worker — the only restartable path — and to the two HTTP-effect node types. Registered tools, MCP, and external apps still perform effects without a ledger entry, and a receiver that is not itself idempotent can still have been hit twice before CALIBER recorded anything |
+| "Direct parallel branches size a `ThreadPoolExecutor` to the branch count without a configured cap, while manifests permit large graphs" | Bounded by `workflow_parallel_branch_max_workers` (default 8, `min(branches, cap)`); excess branches queue, so results are unchanged | — |
+| Cron "silently falls back to UTC for an invalid timezone" — the schedule kept firing at the wrong hour with no error | Timezones are validated at manifest parse time for cron triggers and `wait_until` nodes, so an unresolvable zone cannot be saved, published, or deployed. The scheduler's runtime fallback remains as a last resort for already-deployed schedules | — |
+| "Evaluation uses an unscoped target to select another project's file resolver" | The workflow-target builder resolves the version's parent workflow through the caller's visibility and 404s otherwise — the same 404 as an unknown version, because "exists but forbidden" is itself a disclosure | — |
+| DB-enforced read-only policy, universal alias preflight, transitive dependency policy | See §0.1 and §0.2 | — |
+
+Residual and unchanged: registered extensions still execute in-process,
+`SINGLE_ENVIRONMENT` is still a hard-coded frontend flag, workers remain colocated
+with the web process in the shipped Compose file, cancellation is still observed
+between nodes, and pgvector retrieval is still off by default.
+
+### 0.7 What this pass deliberately did not do
+
+Named here so the score changes cannot be read as broader than they are:
+
+- **C1 identity is untouched.** The login is still a client-side `admin/admin` demo
+  and the backend still trusts a browser-supplied identity header. Every scoping fix
+  in this pass makes the *predicate* correct; the boundary it enforces is still not
+  trustworthy. Production safety and access control is unchanged at 1.9/5.
+- **C2 secrets are untouched.** MCP literals are still ordinary JSON at rest with no
+  encrypted resolver, rotation, or revocation, and the assistant's `create_mcp_server`
+  path still copies literal credentials into a draft artifact.
+- **C8 extension isolation is untouched.** Registered tools and external-app
+  entrypoints still import and invoke installed Python callables in-process.
+- **No universal effect broker or egress control.** Normal runs still permit legacy
+  filesystem/storage capabilities and unrestricted webhook/API egress. The effect
+  ledger prevents *duplicate* effects; it does not broker or restrict them.
+- **CI was not modified.** The Playwright specs remain unrun by the checked workflow
+  and the artifact-quota failure is unchanged. Adding an unverifiable CI job would
+  have made the release signal worse, not better.
+- **No continuous evaluation or drift monitoring**, and no alert routing/escalation.
 
 ## Executive summary
 
@@ -131,13 +324,17 @@ correctness and security defects, not merely by missing polish:
    parents, but multiple other detail and mutation routes still use unscoped
    primary-key lookups. Under the single-organization target this remains an API
    integrity and accidental wrong-resource mutation risk.
-4. **The workflow deploy gate now fails closed on missing, empty, or archived data,
-   orders bounded samples deterministically, and invokes Preview.** It still uses a
-   fake agent executor and measures only successful completion—not expected output,
-   judge quality, regression, cost, or latency. Moreover, `prod` does not require a
-   quality gate or pending human promotion by default (`GATED_ALIASES` is empty).
-   This is safer containment, not release evidence; MCP's separate external-boundary
-   rule still defaults to `prod`.
+4. **The workflow deploy gate is now release evidence, not containment (§0.3).** It
+   fails closed on missing, empty, or archived data, orders bounded samples
+   deterministically, invokes Preview, **grades each replay against the dataset's
+   expected output**, measures latency and token spend, and compares the candidate
+   against the alias's currently deployed version for `min_overall_delta`. Any
+   threshold it cannot support or cannot measure fails the gate closed, and a gate
+   with no thresholds asserts nothing and fails. A **production-class promotion
+   requires a passing gate by default**; human approval is one setting with tested
+   machinery. Residual: the executor is still the deterministic fake unless a real
+   provider is configured, so on a fake-provider install the verdict grades the graph
+   and the data rather than a production model.
 5. **Ordinary Preview refuses unisolated capability nodes, with one important new
    safe path.** A `file_input` carrying a content-pinned managed project-file
    snapshot is now allowed and verified by project, row ID, object version, size,
@@ -165,35 +362,37 @@ correctness and security defects, not merely by missing polish:
    wall-time handling. Output is clipped only after unbounded capture and several
    configured limits are not propagated to normal workflow/Aria constructors. That
    is useful containment, not a container/VM/kernel boundary.
-9. **The previous arbitrary-stdio MCP RCE chain is remediated in the current
-   implementation, but the production boundary remains operator-dependent and is
-   not applied to every alias transition.** Every MCP
-   test/invocation now applies an exact executable/module or host allowlist and a
-   sanitized environment; prod deployment and runtime paths require an external
-   boundary. Three database presets use non-root, read-only-root-filesystem,
-   capability-dropped sidecars. Normal promotion/approval checks MCP readiness, but
-   rollback and refinement-candidate alias rotation do not; server deletion checks the current
-   active target but not rollback checkpoints. The sidecar host list is operator
-   attestation, remote HTTPS does not itself constrain the remote service, and
-   root-only dependency inspection does not recursively prove every deployed
-   subworkflow dependency.
-10. **A database MCP tool classified as read/no-approval is not actually
-    read-only.** `run_query` accepts `EXPLAIN` and arbitrary `SELECT` calls, while
-    its connection is privileged and autocommit. This review reproduced acceptance
-    of both `EXPLAIN ANALYZE DELETE FROM victim` and
-    `SELECT drop_graph('g', true)`. Because all three UI presets mark `run_query`
-    as read/allowed/no-approval and Compose defaults the sidecars to CALIBER's own
-    database credential, an agent can mutate control-plane data through a path
-    presented as read-only. Parser checks are not a security boundary; this needs
-    a database-enforced read-only transaction/session and a separate least-privilege
-    target role before the DB presets are production-eligible.
-11. **Operations stop at observability.** There are useful traces and metrics, but no
-   alert policies, configurable SLOs, continuous evaluation, drift monitoring,
-   incident workflow, detailed agent/workflow health, trustworthy queue/worker
-   readiness, or demonstrated single-instance failure recovery. Lease recovery
-   also restarts an interrupted workflow from the beginning without an effect
-   ledger or platform idempotency key, so a crash can duplicate external side
-   effects.
+9. **The previous arbitrary-stdio MCP RCE chain is remediated, and as of §0.2 the
+   boundary now applies to every alias transition.** Every MCP test/invocation
+   applies an exact executable/module or host allowlist and a sanitized environment.
+   Preflight moved *inside* alias rotation, so promotion, approval,
+   refinement-candidate rotation, **and rollback** are all covered; dependency
+   inspection is transitive through subworkflow targets; server deletion inspects
+   rollback checkpoints; and the production requirement is keyed to an environment
+   *class* rather than the literal string `prod`. Three database presets use
+   non-root, read-only-root-filesystem, capability-dropped sidecars. **Residual:**
+   the sidecar host list is still operator attestation, and remote HTTPS does not
+   itself constrain the remote service.
+10. **A database MCP tool classified as read/no-approval was not actually
+    read-only — now closed (§0.1).** `run_query` accepted `EXPLAIN ANALYZE DELETE
+    FROM victim` and `SELECT drop_graph('g', true)` on a privileged autocommit
+    connection. Read-classified tools now run in a database-enforced `READ ONLY`
+    transaction with a statement timeout and an always-rollback exit, so the engine
+    refuses the write even when it is reached through a called function. The parser
+    is retained as defense in depth and hardened; an optional least-privilege role
+    adds a GRANT boundary. **Residual:** Compose still defaults the sidecars to
+    CALIBER's own database, so production must supply a separate target.
+11. **Operations no longer stop at observability, but stop short of response
+   (§0.4, §0.6).** `/readiness` now probes database, MLflow, object storage, event
+   broker, and queue/worker liveness and returns 503 on a required failure; queue
+   depth, worker liveness, and backlog age are exposed; declared SLOs are evaluated
+   with error budgets and burn rates; outbound webhooks retry and dead-letter
+   visibly; and lease recovery no longer duplicates external effects — webhook and
+   API-request nodes claim an attempt-invariant idempotency key and replay a
+   completed effect instead of repeating it, surfacing an indeterminate one rather
+   than guessing. **Still absent:** alert routing/escalation/silencing, incident
+   history, continuous evaluation, drift monitoring, per-agent/workflow health
+   dashboards, and demonstrated single-instance failure recovery.
 
 The latest work also adds guarded new-workflow import/clone semantics, first-class
 managed files, typed Aria execution, routed Agent configuration, MCP readiness and
@@ -217,16 +416,22 @@ Remaining evaluation limits include synchronous/truncated execution, mutable
 judge/provider inputs, no cryptographic evidence bundle, no durable coverage schema,
 and no continuous quality/cost/latency gate.
 
-The scope-adjusted assessment is **3.0/5**. Working product paths and a completed
-supported-Python/backend coverage run justify maturity above prototype status.
-However, the database MCP read-classification bypass, preflight gaps on alias
-rollback/refinement, spoofable identity, inconsistent authorization, in-process
-extensions, normal-run egress/effect risks, completion-only release evidence, and
-incomplete operations prevent retaining the previous 3.1 risk-adjusted score.
+The scope-adjusted assessment is **3.4/5**, up from 3.0. §0 closed the database MCP
+read-classification bypass, the preflight gaps on rollback and refinement rotation,
+completion-only release evidence, the shallow readiness probe, at-least-once external
+effects, and the named authorization defects in release aggregation, evaluation
+targets, and agent skill resolution.
 
-The correct product label is **late alpha / early-beta candidate for trusted
-self-hosted technical teams**, not production-ready. Current defaults and several
-control-plane paths must not be presented as production-safe behavior.
+What still prevents a higher score is a short, specific list: **identity is a
+client-side demo with a browser-supplied header (C1), MCP credentials are plaintext at
+rest (C2), and registered extension code executes in-process (C8)**. Those three are
+untouched by this pass and are what a network-reachable deployment inherits first,
+which is why production safety moves only to 2.4/5.
+
+The correct product label is now **late beta for trusted self-hosted technical
+teams**, not production-ready. The release, evaluation, and operations paths can be
+described as production-grade; the identity, secret, and extension-isolation paths
+cannot, and current defaults on those three must not be presented as production-safe.
 
 ## Overall maturity assessment
 
@@ -237,23 +442,38 @@ coverage, and the overall score is risk-adjusted rather than an arithmetic mean.
 | Dimension | Score | Assessment |
 | --- | ---: | --- |
 | Visual workflow composition | **4.1/5** | Broad typed primitives, templates, validation, managed-file selection, and a strong graph editor. Some advanced fields still require JSON or code-like expressions. |
-| Prompt, skill, tool, agent, and knowledge engineering | **3.6/5** | Prompts, skills, and KBs are deep; routed Agent configuration and declaration checks now exist. Reusable custom tools still require importable Python, Agent history is audit-backed rather than immutable/versioned, and experiment reachability is not verified. |
+| Prompt, skill, tool, agent, and knowledge engineering | **4.0/5** ↑ | Prompts, skills, and KBs are deep, and the Agent workspace's correctness defects are closed (§0.5): the experiment binding is resolved against the live MLflow registry with an explicit `unverified` state, skill resolution is visibility-scoped, explicit-null PATCH values 400 instead of 500, and viewers no longer see an admin-only 403. The remaining gaps are **breadth, not defects**: reusable custom tools still require an importable Python callable, agent history is audit-backed rather than immutably versioned, and setup is ID/JSON-heavy. |
 | Developer debugging and run inspection | **4.0/5** | Best part of the product: run graph, events, checkpoints, retries, tool calls, memory, outputs, artifacts, and trace views. Trace-ID persistence is repaired in the reviewed baseline; deterministic replay remains incomplete. |
-| Testing and evaluation | **2.9/5** | Real datasets, judges, weighted scorecards, compatible baselines, calibration, active-as-of browsing, and some regression gates. There is still no durable large async eval, immutable run bundle, continuous eval, CI product-quality gate, or cost/latency gate. |
-| Deployment and release management | **2.3/5** | Versions, aliases, rollback, authenticated API publishing, forward MCP deployment preflight, and first-party sidecars exist. Rollback/refinement alias rotation bypasses MCP preflight; `prod` does not require the fake/completion-only quality gate or human promotion by default; deployment-scoped secrets and trustworthy evidence remain absent. |
-| Operations and monitoring | **2.6/5** | Useful traces/metrics, token/cost/latency summaries, SSE, audit, system services, and one precise API/database health poll. Release aggregation is globally unscoped, and actionable alerts, deep readiness, queue/worker operations, drift, and failure recovery remain incomplete. |
+| Testing and evaluation | **4.0/5** ↑ | Real datasets, judges, weighted scorecards, compatible baselines, calibration, and active-as-of browsing, now on an evidence footing (§0.3): every run persists an immutable bundle with a dataset digest, a separate result digest, the pre-truncation sampling decision, durable per-scorer denominators, per-tag slices, per-example latency, and a resolved subject/judge/provider snapshot. The deploy gate grades replays against expected output and enforces latency, spend, and regression-versus-deployed thresholds, with unsupported or unmeasurable thresholds failing closed. Still missing: durable large **async** eval, continuous eval/drift, browser-supplied test-run scores, per-token cost, and Playwright in CI. |
+| Deployment and release management | **4.0/5** ↑ | Versions, aliases, rollback, authenticated API publishing, and first-party sidecars, now with a trustworthy transition contract (§0.2): preflight is enforced inside alias rotation so promotion, approval, refinement-candidate rotation, **and rollback** are all covered; dependency inspection is transitive; pinned managed files are re-verified at every rotation; server deletion respects rollback checkpoints; the isolation requirement is keyed to an environment **class** rather than an alias string; `environment` is populated. A production promotion without a passing graded gate is now **refused by default**, and human approval is one setting with tested machinery. Deployment-scoped secrets/rotation, service quotas/CORS, per-port service input mapping, and a release-checklist UI remain absent. |
+| Operations and monitoring | **4.0/5** ↑ | Traces/metrics, token/cost/latency summaries, SSE, audit, and system services, now with signals an orchestrator can act on (§0.4): `/readiness` probes database, MLflow, object storage, event broker, and queue/worker liveness and returns **503** on a required failure, with requiredness derived from configuration so an unused dependency is skipped rather than faked; queue depth, worker liveness, and backlog age are exposed; outbound webhooks retry with a permanent/transient split and dead-letter visibly; declared SLOs are evaluated with error budgets and burn rates; and release aggregation is visibility-scoped with an explicit query-error state. Alert **routing**/escalation/silencing, incident history, per-agent/workflow health dashboards, log aggregation, and spend budgets remain absent. |
 | Platform UX | **3.6/5** | Agents, import/clone, project selection, managed files, typed Aria forms, MCP readiness, evaluation, and service-token states are discoverable. The import "mapping" is read-only inventory, Agent setup remains JSON/ID-heavy, and fragmented lifecycle idioms, raw IDs, and giant workspaces remain material debt. |
-| Production safety and access control | **1.9/5** | Arbitrary stdio launch is fail-closed, managed files are pinned/scoped, service auth defaults are safer, and Preview containment improved. A no-approval DB "read" tool can mutate the default control-plane database; identity remains spoofable, releases/Aria have scoping defects, literals remain stored, normal-run effects/egress are unbrokered, and registered extensions execute in-process. |
-| Architecture and operability | **3.0/5** | Typed domain/runtime, durable SQL state, managed-file protocol, MCP policy/sidecars, storage/event abstractions, and extensive tests are strengths. DB-enforced read-only policy, universal alias preflight, transitive dependency policy, at-least-once effects, in-process extensions, hard-coded modes, and scoping defects remain. |
+| Production safety and access control | **2.4/5** ↑ | Arbitrary stdio launch is fail-closed, managed files are pinned/scoped, service auth defaults are safer, and Preview containment improved. The no-approval DB "read" tool is now **database-enforced** read-only (§0.1) and the release/evaluation/agent scoping defects are fixed. **Identity remains spoofable (C1), MCP literals remain stored plaintext (C2), and registered extensions still execute in-process (C8)** — this dimension stays low because those three, not the DB classifier, are what cap it. Normal-run effects/egress are still unbrokered. |
+| Architecture and operability | **4.0/5** ↑ | Typed domain/runtime, durable SQL state, managed-file protocol, MCP policy/sidecars, and storage/event abstractions, with four of the seven previously named blockers closed (§0.1, §0.2, §0.6): read-only is database-enforced, alias preflight is universal because it lives in the transition, dependency policy is transitive, and the named scoping defects (evaluation target, agent skills, release aggregation) are fixed. External effects are now at-most-once per (run, node, inputs) with an indeterminate state surfaced rather than guessed; parallel fan-out is bounded; cron timezones are validated at authoring time. **In-process extensions and hard-coded `SINGLE_ENVIRONMENT` remain**, as do colocated workers and between-node cancellation. |
 | End-to-end low-code/no-code lifecycle | **3.1/5** | A user can build, clone/import, bind managed documents, collect typed Aria inputs, test, debug, inspect evidence, and publish an authenticated API predominantly in the UI. Production security, release evidence, and operations still require manual engineering. |
 
-**Risk-adjusted overall: 3.0/5, late alpha / early-beta candidate for trusted
-self-hosted teams.** Enterprise readiness is not scored; baseline production
-safety is. The arithmetic mean is higher than the reported overall, but the 1.9/5
-safety dimension and 2.3/5 release dimension cap the judgment: a mutation-capable
-no-approval database path, spoofable identity, unbrokered effects, in-process
-extensions, and false release evidence remain blockers even though the workflow IDE
-is strong.
+**Risk-adjusted overall: 3.4/5 (was 3.0), late beta for trusted self-hosted
+teams.** Enterprise readiness is not scored; baseline production safety is.
+
+The overall moved less than the five re-scored dimensions did, and that gap is the
+point. What §0 closed is a class of defect: controls that existed but could not be
+trusted — a read classification asserted by a parser, a threshold accepted and
+ignored, a probe that could not fail, a preflight that ran on some paths, an
+aggregate that ignored its own visibility rules. Those are now enforced, and the
+lifecycle machinery around them is real rather than dormant.
+
+What §0 did **not** touch is the set that caps the overall: **identity is still a
+client-side demo with a browser-supplied header (C1), MCP credentials are still
+plaintext at rest (C2), and registered extension code still executes in-process
+(C8)**. Until those three land, a correct authorization *predicate* is still enforcing
+a boundary that can be asserted by the client, and a hardened deploy gate still
+guards a control plane whose extensions run unsandboxed. That is why production
+safety moves only 1.9 → 2.4 and why the product label is late beta rather than
+production-ready.
+
+The arithmetic mean is now materially higher than 3.4; the reported overall is held
+down deliberately by that safety figure, because a self-hosted deployment reachable on
+a network inherits C1/C2/C8 regardless of how good the release gate is.
 
 ## Current implementation state after this independent pass
 
@@ -264,11 +484,11 @@ not a list of fully closed product areas.
 
 | Area | Verified current behavior | Residual limit | Evidence / regression coverage |
 | --- | --- | --- | --- |
-| Agent configuration workspace | `/agents` and `/agents/:agentId` provide searchable inventory, admin-scoped registration/mutation, detail/edit, enable/disable, skill-name checks, a non-empty experiment-ID check, audit-backed history, and permanent deletion. Both pages fetch `/me` and hide mutation controls from non-admins | This is refinement-fleet configuration, not a complete agent lifecycle. Experiment existence/connectivity is not verified, skill resolution is globally unscoped, explicit `null` PATCH values can reach non-null columns and return 500, and the detail page still calls the admin-only audit endpoint for viewers and shows its 403. There is no immutable version, rollback, archive, runtime test, deployment, or health view; `/me` also rests on C1's spoofable identity | `src/pages/Agents.tsx`, `src/pages/AgentDetail.tsx`, `routes/agents.py`, agent route/UI tests |
+| Agent configuration workspace **[Remediated in §0]** | `/agents` and `/agents/:agentId` provide searchable inventory, admin-scoped registration/mutation, detail/edit, enable/disable, audit-backed history, and permanent deletion. §0.5 added a live MLflow experiment lookup with an explicit `unverified` state, visibility-scoped skill resolution, a 400 for explicit-null PATCH values, and `/me`-gated history so viewers no longer see an admin-only 403 | This is refinement-fleet configuration, not a complete agent lifecycle: no immutable version, rollback, archive, runtime test, deployment, or health view. `/me` still rests on C1's spoofable identity | `routes/agents.py`, `tests/test_routes_agents_hardening.py`, `src/pages/__tests__/agents.test.tsx` |
 | Workflow import and clone | Inventory actions import YAML/JSON or clone a selected saved version. Preview validates the graph and inventories tool/skill/KB/dataset/MCP/subworkflow/managed-file references, then creates a fresh ID, actor-derived owner/project scope, and v1 draft when its checks pass | The dialog's “Dependency mapping” is read-only inventory: it cannot remap anything. Secret detection is key-name heuristic only, so a bearer value under `Authorization` or embedded in a command can pass. MCP import readiness trusts stored discovery and can accept a disabled/policy-blocked server; prompt aliases are unverified. Dependencies/files stay linked rather than copied. This is useful guarded import, not a portable or universally safe bundle | `components/workflows/WorkflowImportDialog.tsx`, `routes/workflows.py`, `workflows/validation.py`, import route/UI tests |
 | Managed project files | Object Store can copy an object into the active File Directory; Workflow Studio selects the resulting pinned snapshot. Named preview, evaluation, gate, queued, synchronous, and queued-service paths validate metadata and read/verify content; queued `input_files` materialize in the worker | Evaluation resolves a known workflow version without visibility first and then binds that workflow's project, allowing cross-project managed-file content access. A physically missing object escapes several route/gate error contracts; synchronous execution has already committed `running` before binding and can leave that row stuck. Approval does not recheck a file that disappears after gate evaluation. Binding is also absent from calibration/refinement, export, assistant drafts, nested child manifests, and dataset refs; folders/streams remain unsupported | `workflows/file_tools.py`, `routes/workflow_versions.py`, `routes/evaluations.py`, `orchestrator/workflow_run_worker.py`, `workflows/promoter.py`, associated file/runtime tests |
 | Aria typed execution | Missing capability inputs pause the plan with a schema-driven form; answers merge into the step, validate the registry schema, then re-enter the risk gate. A rejected interaction marks that step skipped. Deterministic `$from_step` references connect declared outputs, and async calibration can park/poll/resume | Skip settles a leaf/no-dependent plan, but readiness accepts only dependencies in `done`; skipping a producer leaves dependents waiting and can strand the plan paused. Judge/queue lists are global, queue mutation accepts an unscoped ID, and calibration performs unscoped workflow/agent lookups. The planner is literal-keyword based, exposes JSON for complex fields, and cannot author arbitrary workflows/prompts/tools | `assistant/capabilities.py`, `assistant/plans.py`, `assistant/executor.py`, `components/aria/planView.tsx`, Aria backend/UI tests |
-| MCP execution policy and first-party DB integrations | Test, discovery, calibration, direct invocation, queued/synchronous runtime, normal promotion and promotion approval apply command/host/discovered-tool policy. Stdio launch is fail-closed to configured executable/Python-target allowlists; runtime exposes readiness/blockers. PostgreSQL, pgvector, and AGE presets target separate hardened Compose sidecars | `run_query` is classified read/no-approval yet accepts mutation-capable SQL on a privileged autocommit connection; Compose points it to the control-plane database/credential by default. Rollback and refinement candidate rotation bypass deployment preflight, deletion ignores rollback checkpoints, policy changes can newly require approval after a run's immutable binding was created, and child inspection is not transitive. Five external presets need provisioning; sidecar trust is operator attestation and rate limits are process-local | `mcp_servers/db/identifiers.py`, `mcp_servers/db/connection.py`, `mcp_policy.py`, `mcp_gateway.py`, deployment/server routes, Compose, MCP tests |
+| MCP execution policy and first-party DB integrations | Test, discovery, calibration, direct invocation, queued/synchronous runtime, normal promotion and promotion approval apply command/host/discovered-tool policy. Stdio launch is fail-closed to configured executable/Python-target allowlists; runtime exposes readiness/blockers. PostgreSQL, pgvector, and AGE presets target separate hardened Compose sidecars | **[Remediated in §0]** `run_query` and every other read-classified tool now run in a database-enforced `READ ONLY` transaction with a statement timeout and an optional least-privilege role (§0.1); preflight is enforced inside alias rotation, so rollback and refinement-candidate rotation are covered; deletion inspects rollback checkpoints; child inspection is transitive (§0.2). **Residual:** Compose still defaults the sidecars to the control-plane database, so production must supply a separate target. Policy changes can still newly require approval after a run's immutable binding was created. Five external presets need provisioning; sidecar trust is operator attestation and rate limits are process-local | `mcp_servers/db/identifiers.py`, `mcp_servers/db/connection.py`, `mcp_policy.py`, `mcp_gateway.py`, deployment/server routes, Compose, MCP tests |
 | Local source-code sandbox | Python source-tool execution uses private workdirs, empty environment, `-I`, AST private/dunder rejection, POSIX limits, a hard timeout, and process-group termination. Returned output is byte-clipped | It remains same-host containment, not a production sandbox. `communicate()` and runner `StringIO` capture output unbounded before clipping. The dominant workflow path wires timeout and optional output only, not configured memory/file/descriptor overrides; Aria uses class defaults, including a lower output cap. Registered tools, their tests, and external-app entrypoints still run in-process | `tool_sandbox/service.py`, `tool_sandbox/_runner.py`, `workflows/runtime.py`, sandbox tests |
 | Evaluation visibility | Non-admin list no longer crashes: `owner_column()` supports `created_by`. Detail now resolves **through** `get_visible()`, so list and detail share the same default visibility predicate — a project header alone no longer unlocks another owner's run, and the creator's project-scoped rows outside the active project are no longer readable | List can additionally apply its explicit `only=<tier>` view filter. Scoping still depends on the client-supplied `X-CALIBER-Project` header and the demo identity of C1; that is an identity problem, not a default-predicate problem | `tests/test_scoping.py`, `tests/test_routes_evaluations_visibility.py` (incl. real create → list → detail round trips) |
 | Dataset versions | Evaluation creation rejects future versions. `version=N` remains “added in N”; `as_of_version=N` uses the same active-membership predicate as evaluation/restore, with mutual-exclusion and range validation. The UI presents the paginated snapshot view, keeps later-retired members read-only, and makes restore explicit | The browser defaults to a 500-row page, evaluation has lower caps, and no cryptographic run/content digest or pre-truncation inventory proves exhaustive identity | `tests/test_routes_evaluations_reproducibility.py`, `tests/test_routes_eval_datasets.py`, `src/pages/__tests__/eval-dataset-detail.test.tsx` |
@@ -279,8 +499,8 @@ not a list of fully closed product areas.
 | MCP and provider secret readback | Provider reads return presence/fingerprint. MCP literal leaves are a write-only sentinel in list/detail/history/audit export; PATCH preserves unchanged leaves and safe env references remain visible. The UI omits unchanged sensitive maps and removes an obsolete token-env mapping when token auth is disabled | MCP literals still exist in ordinary DB JSON for runtime use; URI/command arguments are outside this three-field contract; no encrypted/reference-backed secret lifecycle, rotation, revocation, or consumer graph exists | `tests/test_mcp_servers.py`, `tests/test_mcp_servers_routes.py`, `src/pages/__tests__/mcp-servers.test.tsx` |
 | Workflow service publishing | New services default to `auth_required=true`; the publish UI sends that choice, manages one-time bearer tokens, warns on explicit/legacy public state, scopes management through the parent workflow, and records the actual token/anonymous actor. OpenAPI download uses a parent-scoped authenticated Studio route without weakening the external bearer-gated route | Explicit public endpoints and legacy rows remain possible; no rate limits, quotas, CORS policy, durable vault, or trustworthy platform identity | `tests/test_routes_services.py`, `tests/test_cov90_routes_services.py`, `src/pages/__tests__/workflow-service-tab.test.tsx` |
 | Review queue submission | Add/submit resolve the visible parent, archived queues reject writes, answer types/options are enforced, and an atomic pending→submitting claim prevents duplicate concurrent writeback; a failed external write restores pending | A crash can strand `submitting`; external success followed by local DB failure has no cross-system idempotency key; `reviewers`/`assigned_to` remain descriptive rather than enforced | `tests/test_routes_review_queues.py` |
-| Preview and deploy-gate containment | Each `execute()` preflights its current IR before tracing/interpreting. Nine unconditionally blocked dedicated node types plus legacy host-path `file_input` fail closed; content-pinned managed `file_input` is the scoped exception. Deploy gates use Preview, deterministic ordering, and fail closed for missing/empty/archived datasets | Registered tools explicitly allowed in Preview and knowledge queries keep existing policy. The gate still uses a fake executor and completion-only metric, normal runs lack an effect broker, and nested managed-file binding is incomplete | `tests/test_workflow_preview_preflight.py`, `tests/test_workflow_promoter.py`, managed-file runtime tests |
-| Shell health | AppShell owns one health-query observer and passes the result to Sidebar and TopBar; visible labels and ARIA text say only “API + database reachable,” and sustained polling is regression-tested | `/health` remains API/database liveness only, not worker, scheduler, queue, storage, MLflow, or provider readiness | `src/components/__tests__/sidebar-health-footer.test.tsx` |
+| Preview and deploy-gate containment | Each `execute()` preflights its current IR before tracing/interpreting. Nine unconditionally blocked dedicated node types plus legacy host-path `file_input` fail closed; content-pinned managed `file_input` is the scoped exception. Deploy gates use Preview, deterministic ordering, and fail closed for missing/empty/archived datasets | **[Partly remediated in §0]** The gate is no longer completion-only: replays are graded against expected output, latency/spend/regression thresholds are enforced, and an unsupported or unmeasurable threshold fails closed (§0.3). Effects on the queued path are now at-most-once per (run, node, inputs) (§0.6). **Residual:** registered tools explicitly allowed in Preview and knowledge queries keep existing policy, the gate's default executor is still the deterministic fake unless a real provider is configured, normal runs still lack a universal effect *broker*, and nested managed-file binding is incomplete | `tests/test_workflow_preview_preflight.py`, `tests/test_workflow_promoter.py`, managed-file runtime tests |
+| Shell health | AppShell owns one health-query observer and passes the result to Sidebar and TopBar; visible labels and ARIA text say only “API + database reachable,” and sustained polling is regression-tested | `/health` remains API/database liveness **by design** — it is the cheap liveness probe. §0.4 added `/readiness` as the dependency probe (database, MLflow, object storage, event broker, queue/worker) returning 503 on a required failure, and `/system/queue` for depth/worker liveness. The shell still displays only the narrow `/health` signal | `src/components/__tests__/sidebar-health-footer.test.tsx`, `tests/test_readiness_probes.py`, `tests/test_queue_health.py` |
 | Test/CI isolation | Each test process/worker receives unique temporary MLflow SQLite and artifact roots; async trace export is disabled and roots are cleaned. The current remote run completed backend, UI, integration, lint/type, dependency-audit, and gitleaks steps successfully | The workflow is still red because artifact quota blocked coverage/Allure/UI-dist uploads and skipped the dependent wheel job. Seven-day retention and removal of an unused SARIF upload are rational quota controls, but the quota had not recovered. Push gitleaks scanned only the latest one-commit range, not the large preceding implementation commit, and the dependency audit used dev rather than every CI extra | `tests/test_test_harness_isolation.py`, `.github/workflows/ci.yml`, `scripts/run-supported-python-security-audit.sh`, Actions run `30373909000` |
 | Unknown route UX | The wildcard renders a real Not Found view with a dashboard link | It is a client-rendered route boundary, not evidence of server HTTP-404 behavior | `src/pages/__tests__/app-shell-e2e.test.tsx` |
 | Cookbook prose | Generated 03/08/10 material better reflects shipped side-effect, workflow-target evaluation, and alignment paths | Source/generated documentation still conflicts in the places catalogued in §10 | Generated artifact diff plus existing documentation checks |
@@ -330,6 +550,28 @@ this pass.
 | Implement organization/SSO/SCIM/multi-tenant/compliance/quorum features | **Rejected as out of scope** | Their absence is not scored. Misleading role/quorum UI still must be removed or made truthful; baseline identity and authorization remain mandatory. |
 | Full identity, secret vault, effect broker, extension sandbox, production topology, and continuous operations in this patch | **Deferred** | These are valid Critical/High roadmap items, but implementing them as incidental refactors would be speculative, high-risk, and architecturally dishonest. |
 
+### Remediation-pass decision ledger (§0)
+
+Where this pass had a genuine choice, the choice and its reasoning:
+
+| Decision | Verdict | Reasoning |
+| --- | --- | --- |
+| Keep the SQL parser as the read-only boundary and just add more patterns | **Rejected** | A `SELECT` can call a side-effecting function; no parser can see that. The engine's read-only transaction is the boundary and the parser is demoted to a fast, clear error path for the cases it *can* recognise. Its docstring now says so. |
+| Make `min_pass_rate` also mean completion so existing gates keep passing | **Rejected** | "Completion is not quality" was the whole finding. `min_pass_rate` now means "completed **and** met the scorer threshold", and `min_completion_rate` is the honest name for the weaker claim. Four existing test gates were migrated to the accurate key rather than the semantics being softened. |
+| Silently ignore a threshold the gate cannot evaluate | **Rejected as the original defect** | Unsupported and unmeasurable thresholds fail the gate **closed** and name the supported set. A test asserts the documented vocabulary equals the evaluated vocabulary, so a threshold cannot be added to the UI and quietly do nothing. |
+| Invent a `tone` scorer so `max_tone_regression` does something | **Rejected** | The prior report rejected inventing a quality scorer, and that holds. The field was removed from the Inspector and its slot given to `max_p95_latency_ms`, which is measurable. |
+| Report a quality metric as 0.0 when the dataset has no expected output | **Rejected** | 0.0 reads as "the workflow answered badly". Quality is reported as *unmeasurable* with the fix named (`min_completion_rate`, or add expected outputs). |
+| Default an unrecognised deployment alias to `development` | **Rejected** | A safety requirement must fail closed. An unclassified alias inherits `production`, so an operator who deploys to `canary` gets the strictest rules until they say otherwise. The default is configurable for development installs. |
+| Make production promotion require human approval by default | **Deferred, not rejected** | The machinery is wired and tested and is one setting away, but forcing an approval queue on every existing single-environment install is a product decision, not a defect fix. The **quality gate** requirement *is* on by default, because promoting with no graded evidence is the defect. |
+| Treat an unresolvable subworkflow target as a blocker on every path | **Rejected and narrowed** | An alias rotation is a promise the whole graph is deployable, so there it *is* a blocker. A manual run keeps its existing contract, where the runtime reports the failure precisely on the run record — changing that would have traded one honest error for a less informative one. |
+| Fail `/readiness` when providers are simulated | **Rejected** | The deterministic fake provider is a supported mode. An orchestrator acting on this probe would depool a working development instance. Simulation is reported, not enforced. |
+| Guess an outcome for an effect claimed by a process that then died | **Rejected** | Whether the request reached the remote system is unknowable from this side, and both silent choices can be wrong. The run fails with an explicit indeterminate error and resolution instructions. |
+| Record a webhook timeout as a definitive failure so it can retry | **Rejected** | A timeout may mean the receiver already processed the request. Only failures that prove the request never went out (connection refused) release the claim; a timeout keeps it, so the next attempt reports indeterminate rather than duplicating. |
+| Backfill the evidence and effect-ledger columns for historical rows | **Rejected** | Digests can only be computed from a run's own inputs at execution time. Synthesising them would manufacture exactly the evidence the column exists to prove. Historical rows read `NULL`, which honestly means "predates the contract". |
+| Add the Playwright suite to CI as part of this pass | **Rejected** | It cannot be verified from here, and an unverified job would make an already-red release signal worse. Recorded as an open residual instead. |
+| Relax the production gate default in the shared test helper | **Accepted, explicitly** | `deploy_prod` is used by tests whose subject is service publishing or run inspection, not release policy; making them all build a scored dataset would obscure what they test. The helper opts out in one visible, documented place, and the shipped default is covered by its own suite. |
+| Suppress the lint complexity warnings the new code triggered | **Rejected** | Four functions were decomposed instead. `collect_readiness` in particular became one planner per dependency, which is what makes "requiredness is derived from configuration" individually testable rather than a claim about one long branch. |
+
 ### Remaining gaps after this pass
 
 Deliberately still open, in rough priority order:
@@ -340,33 +582,94 @@ Deliberately still open, in rough priority order:
    boundary it enforces is not yet trustworthy. Release aggregation and Aria
    capability handlers add newly verified global/unscoped paths; evaluation can
    use an unscoped workflow ID to read its project's managed-file content.
-2. **Database MCP enforcement (C11).** A read/no-approval tool accepts mutating
-   SQL on an autocommit connection. Use a database-enforced read-only transaction
-   and dedicated least-privilege role; then test mutation functions and
-   `EXPLAIN ANALYZE` against the real database engine.
-3. **Evaluation evidence completeness.** Add immutable resolved run bundles,
-   durable denominators/slices, asynchronous full-dataset execution, and
-   cost/latency/continuous quality policies.
-4. **Deep readiness probes (§6).** `/health` remains API + database only even
-   though the shell now labels and polls that narrow signal correctly.
-5. **Evidence immutability.** No content digest or pre-truncation inventory on an
-   evaluation run, so a pinned run is reproducible by convention, not by proof.
+2. **Database MCP enforcement (C11) — closed in §0.1.** The read-only transaction
+   and optional least-privilege role landed, and `EXPLAIN ANALYZE` is refused.
+   Remaining: test mutation functions and `EXPLAIN ANALYZE` against a **real**
+   database engine, and point the shipped Compose sidecars at a separate database.
+3. **Evaluation evidence completeness — mostly closed in §0.3.** Immutable resolved
+   run bundles, durable denominators, and tag slices landed. Remaining:
+   asynchronous full-dataset execution, continuous quality policy, and per-token
+   monetary cost.
+4. **Deep readiness probes (§6) — closed in §0.4.** `/readiness` now probes
+   database, MLflow, object storage, event broker, and queue/worker liveness and
+   returns 503 on a required failure. Remaining: a shell surface that displays the
+   deeper verdict instead of only `/health`.
+5. **Evidence immutability — closed in §0.3.** Evaluation runs carry dataset and
+   content digests plus the pre-truncation inventory, so a pinned run is checkable
+   rather than reproducible-by-convention. Deploy-gate verdicts carry a sample
+   digest. Not backfilled for historical rows, deliberately.
 6. **Complete remote release pipeline proof.** The supported backend coverage run,
    UI suite/build, integration subset, static checks, dependency audit, and gitleaks
    command all passed remotely. The workflow remains red because artifact quota
    blocked every evidence upload and skipped the wheel job. The push gitleaks range
    covered only the latest CI-only commit rather than the large implementation
    commit, and Pages publishing is separately misconfigured.
-7. **Transitive and transition-safe execution policy.** Alternate runners and child
-   subworkflows remain outside complete managed-file/MCP propagation. MCP preflight
-   is absent on rollback and refinement alias rotation; deletion ignores rollback
-   checkpoints; managed-file disappearance is not rechecked at approval and can
-   leave synchronous runs stuck.
-8. **Release, HITL, isolation, and topology.** Deploy gates remain completion-only,
-   manifest approval semantics remain inconsistent, extensions execute in-process,
-   and production roles/recovery are incomplete.
+7. **Transitive and transition-safe execution policy — largely closed in §0.2.**
+   MCP preflight now runs on every alias transition including rollback and
+   refinement rotation, dependency inspection is transitive, deletion inspects
+   rollback checkpoints, and managed files are re-verified at rotation. Remaining:
+   alternate runners and child subworkflows are still outside complete managed-file
+   propagation, and a synchronous run can still be left stuck by a binding failure
+   after it commits `running`.
+8. **Release, HITL, isolation, and topology.** Deploy gates are no longer
+   completion-only (§0.3) and production requires one by default. Manifest approval
+   semantics remain inconsistent, **extensions still execute in-process**, and
+   production roles/recovery are incomplete.
 
 ## Verification
+
+### Remediation-pass verification (2026-07-28, local)
+
+Everything below was run locally against the working tree after the §0 changes, on
+Python 3.14. The repository's supported range is 3.10–3.12, so this is **not** a
+substitute for the remote supported-Python run; it is evidence that the changes are
+internally consistent and that no existing behaviour regressed on the interpreter
+available here.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Full backend suite + coverage gate | `pytest tests/` | **5,350 passed / 6 skipped**, coverage gate satisfied. The 6 skips are the `CALIBER_INTEGRATION_TESTS` gate |
+| Lint | `ruff check src tests` | Clean. Four functions were refactored rather than suppressed to satisfy branch/statement limits (`collect_readiness`, `extract_dependencies`, `create_evaluation`, and the prompt-subject pin), which also made the per-dependency requiredness rules individually testable |
+| Format | `ruff format src tests` | Clean |
+| Types | `mypy src` | **Clean, 282 source files.** The one narrowing suppression the new code needed was avoided by using the codebase's existing walrus pattern for the 29-variant node union |
+| Frontend unit/spec | `npx vitest run` | **110 files / 1,496 tests passed** |
+| Frontend types | `npm run typecheck` | Clean |
+| Frontend lint | `npm run lint` | Clean |
+
+New backend suites added by this pass, and the finding each pins:
+
+| Suite | Pins |
+| --- | --- |
+| `tests/test_mcp_db_tools.py` (extended) | The read-only transaction is non-autocommit, marked read-only *before* any statement, timeout-bounded, always rolled back, and closed even when the query raises; every read-classified tool routes through it and no write tool does; `POSTGRES_READ_ONLY_URL` is preferred for reads only |
+| `tests/test_mcp_db_identifiers.py` (extended) | `EXPLAIN ANALYZE DELETE FROM victim` and 11 sibling bypasses (both syntaxes, both spellings, `EXPLAIN` of a write, nesting, unterminated option list) are refused, while plain `EXPLAIN` of a read still works |
+| `tests/test_deployment_environment_policy.py` | 22 alias spellings map to the right environment class; unrecognised aliases fail closed into `production`; the transitive subworkflow walk finds a child's blocked server, terminates on a cycle, and mirrors the runtime's own alias resolution; rollback runs preflight and leaves the alias and checkpoint stack intact on failure; a deleted pinned object blocks rotation |
+| `tests/test_deploy_gate_evidence.py` | Every documented threshold is actually wired (a docs/UI-only threshold would fail this test); unsupported, non-numeric, unmeasurable, and empty threshold sets fail closed; a completed-but-wrong replay fails a quality gate; the sample digest moves when the graded data changes; `min_overall_delta` replays the deployed version; production requires a gate; `environment` is populated |
+| `tests/test_eval_evidence_bundle.py` | The dataset digest ignores predictions but moves on data/weight/tag changes and is tag-order-insensitive; denominators exclude errored rows; zero-weight slices report no mean rather than zero; a truncated run discloses what it omitted; judge definitions are pinned by digest |
+| `tests/test_readiness_probes.py` | A broken required dependency produces 503 and names the blocker; requiredness follows configuration; a probe that raises or hangs becomes a verdict, not a crash; simulated providers do not fail the probe; no server path or bucket name is disclosed |
+| `tests/test_slo_alerts.py` | An unknown signal is a reported configuration error that makes the report unhealthy; an empty window does not fire; error budget and burn rate are correct and clamped; in-flight runs are not counted as failures |
+| `tests/test_effect_ledger.py` | The key is attempt-invariant and dict-order-insensitive; a completed effect is replayed once, not performed twice; an abandoned claim is indeterminate; a refused connection is retryable but a timeout is not |
+| `tests/test_runtime_bounds.py` | A three-branch graph under a cap of two gets a two-thread pool and still runs every branch; a narrow graph is not over-allocated; unknown timezones are rejected at authoring time for cron and `wait_until`, but not for an inert manual trigger |
+| `tests/test_routes_agents_hardening.py` | Explicit nulls on nine non-null columns 400 without mutating; nullable clearing still works; cross-project skill names resolve as `missing` without disclosing the foreign body; four experiment-binding outcomes including a *deleted* experiment and a registry outage; a cross-project evaluation target 404s |
+| `tests/test_events_webhooks.py` (extended) | A 5xx retries then dead-letters; a 4xx does not retry; a recovered transient failure is delivered, not dead-lettered; backoff is exponential; the ring is bounded and reports evictions |
+
+Frontend suites extended: `releases.test.tsx` (a failed aggregate is distinguishable
+from an empty release board), `evaluations.test.tsx` (the evidence panel, including
+the bounded-sample badge and per-tag slices, and its absence for a pre-contract run),
+`agents.test.tsx` (three-state experiment verdict, and no admin-only request as a
+viewer).
+
+Two migrations were added and are **not** backfilled, for stated reasons: `0064`
+(`caliber_eval_runs.evidence`) because digests can only be computed from a run's own
+inputs at execution time, and `0065` (`caliber_effect_ledger`) because there is no
+historical effect to record. Both columns/tables read empty for pre-existing rows,
+which honestly means "predates the contract".
+
+**Not run in this pass:** the browser E2E suite (needs the documented MinIO
+dependency), the marked PostgreSQL/AGE integration tests, the wheel build, Compose
+validation, and any remote CI run. The C11 fix in particular is verified against a
+faked psycopg layer plus the parser; an engine-backed test against a live PostgreSQL
+read-only transaction remains future work and is the one piece of evidence a
+production claim for the DB presets would still need.
 
 ### Current-baseline verification status (2026-07-28)
 
@@ -394,7 +697,7 @@ files, and **8** Playwright spec files. Inventory is not a pass result.
 | Frontend Vitest, TypeScript, ESLint, and production build | **Passed remotely** | **110 files / 1,490 tests passed**; TypeScript and the production Vite build passed. A local default-concurrency attempt had two timeouts/worker errors, while the affected/unstarted suites passed individually; the remote CI result with its configured timeouts/retries is the authoritative converged count. |
 | Browser E2E with MinIO/PostgreSQL/AGE/MCP dependencies | **Passed locally with AGE opt-in skipped** | **23 passed / 1 skipped** using isolated SQLite and the documented MinIO dependency. The AGE-specific spec remains gated by `CALIBER_EXPECT_AGE`. The browser MCP case verifies a failed external invocation path, not successful HTTP-sidecar execution. |
 | Lint, format, typing, package, Compose, and security | **Checks passed; release pipeline incomplete** | Remote lint/format and strict mypy passed; the isolated dev dependency audit reported no known vulnerabilities and gitleaks reported no leaks. Local wheel build and three Compose validations passed. Remote wheel was skipped after artifact upload failures. The audit did not cover every CI extra, and push gitleaks scanned only the single HEAD CI commit, so the 128-file implementation commit lacks equivalent remote range evidence. |
-| Adversarial DB read-classification probe | **Failed the safety contract** | Calling current `assert_read_only()` accepted `EXPLAIN ANALYZE DELETE FROM victim` and `SELECT drop_graph('g', true)`. No destructive SQL was sent to a database; this was a parser-policy probe proving the advertised read classifier fails open for mutation-capable PostgreSQL syntax. |
+| Adversarial DB read-classification probe | **Failed at the prior baseline; now closed** | `assert_read_only()` accepted `EXPLAIN ANALYZE DELETE FROM victim` and `SELECT drop_graph('g', true)`. No destructive SQL was sent to a database; this was a parser-policy probe proving the advertised read classifier failed open for mutation-capable PostgreSQL syntax. §0.1 closed it twice over: the parser now refuses the first, and the read-only transaction refuses both at the engine. Both are regression-tested. The transaction assertion is against a faked psycopg layer, so an engine-backed test remains the missing piece. |
 | Artifact and documentation publication | **Failed** | All six executed upload steps in run [`30373909000`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/30373909000) returned `Failed to CreateArtifact: Artifact storage quota has been hit. Unable to upload any new artifacts. Usage is recalculated every 6-12 hours.`, so this baseline has no uploaded coverage, Allure, or UI-distribution evidence and the dependent wheel job was skipped. The block is not attributable to this repository's retention settings: every upload in `.github/workflows/ci.yml` is bounded (`retention-days: 1` for the three same-run Allure result sets at lines 126, 157, and 196; `7` at lines 118, 188, and 299; `14` for the rendered Allure report at line 253), and this repository retains only **22.1 MB across six unexpired artifacts**. Actions artifact storage is metered per account, however: non-expired artifacts across all repositories owned by the same account total **about 474.6 MB against the 500 MB Free allowance**, 419.2 MB of it in one unrelated repository. The rejection is therefore consistent with a genuinely exhausted account-level quota, and bounding retention in this repository cannot clear it. No test failed for this reason, but the evidence is genuinely absent and another run — after account-wide artifact reclamation — is required to produce it. That reclamation has since been performed outside this review: 185 unexpired artifacts dated 2026-06-29 to 2026-07-03 were deleted from this repository and 542 Allure artifacts from the unrelated repository, taking the account from about 474.6 MB to **59.2 MB against the 500 MB allowance**. Run [`30382308475`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/30382308475) at `d1f43a66e` nevertheless still returned the same rejection about ten minutes later, which is consistent with the documented 6-12 hour usage recalculation rather than with remaining exhaustion; the evidence therefore remains absent at this baseline and a later run is still required to produce it. Pages run [`30372019082`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/30372019082) regenerated documentation but `actions/configure-pages` could neither find nor create the Pages site with the available repository setting/token. |
 
 Historical and focused results are retained in Appendix B. The current evidence
@@ -678,13 +981,43 @@ unscoped lookups catalogued in C3.
   C9 means a graph containing a dedicated unisolated capability node fails before
   any node runs rather than replaying that effect.
 
-These are correct fail-closed containment changes. They do **not** turn completion
-into quality evidence: the executor is still fake, expected values/judges are not
-scored, configured `min_overall_delta`/`max_tone_regression` remain unused, no
-cost/latency evidence is captured, and `GATED_ALIASES` is empty by default, so
-`prod` does not require the gate or pending approval. MCP production-isolation
-preflight is a separate rule and does not make this quality evidence. The gate must
-not authorize a production release.
+These were correct fail-closed containment changes that did **not** turn completion
+into quality evidence.
+
+**Resolution (§0.3, §0.2).** The gate is now graded, and every threshold is either
+evaluated or fails closed:
+
+- each replay is scored against the dataset's expected output through
+  `caliber.eval.scorecard.run_scorecard`, so a gate and an evaluation agree by
+  construction on weights, incomplete-row policy, and what "passed" means;
+- wall-clock latency and token spend are measured per replay and bounded by
+  `max_avg_latency_ms` / `max_p95_latency_ms` / `max_avg_tokens` / `max_total_tokens`;
+- `min_overall_delta` replays the alias's **currently deployed** version on the same
+  sample, so it is a real regression check — a decorative field became the gate's
+  strongest control. No usable baseline fails it closed;
+- `max_tone_regression` is **removed from the Inspector**: no product scorer measures
+  tone, and this report explicitly rejected inventing one. Its slot now holds
+  `max_p95_latency_ms`. Any unrecognised threshold key fails the gate closed and names
+  the supported set, so the "decorative control" class of defect cannot recur;
+- a quality threshold against a dataset with no expected output reports that it cannot
+  be measured, rather than a meaningless 0.0 that reads as a quality failure;
+- a gate with no thresholds asserts nothing and fails closed — it used to pass
+  vacuously, which is how a "gated" deploy could carry no evidence at all; and
+- the result records the dataset id/version, the pre-truncation example count, and a
+  content digest of the exact sample replayed, so a stored verdict is tied to its
+  evidence.
+
+`GATED_ALIASES` is superseded: `release_require_quality_gate_for_environment_classes`
+defaults to `production`, so **a production promotion without a passing gate is
+refused**, and `release_require_human_approval_for_environment_classes` turns on the
+pending-approval path with one setting. Both are keyed to the alias's environment
+class, so `production` / `prod-eu` / `PROD` cannot spell their way past them.
+
+**Residual.** The gate's executor is still the deterministic fake unless a real
+provider is configured, so on a fake-provider install the graded verdict measures the
+graph and the data rather than a production model. Judge-based scoring is available
+(the scorer vocabulary includes it) but no judge is required. MCP production-isolation
+preflight remains a separate rule.
 
 #### C6 — human-in-the-loop policy is represented but not enforced — **[Partly remediated]**
 
@@ -1010,9 +1343,19 @@ transitive through child workflows. C1 also remains critical independently:
 spoofed admin identity can mutate MCP configuration inside the allowlisted
 boundary.
 
-#### C11 — database MCP `run_query` is mutation-capable while classified read/no-approval
+#### C11 — database MCP `run_query` is mutation-capable while classified read/no-approval — **[Remediated in §0]**
 
-This is a current production-blocking defect, distinct from explicit write tools:
+**Closed by §0.1.** Read-classified DB tools now execute in a database-enforced
+`READ ONLY` transaction, so PostgreSQL refuses any write reached through them —
+including one inside a called function, which no parser can see. The parser is
+retained as defense in depth and hardened to reject `EXPLAIN ANALYZE` in both
+syntaxes and `EXPLAIN` of a write; `POSTGRES_READ_ONLY_URL` adds an optional
+GRANT-level boundary and the development stack provisions a SELECT-only
+`caliber_ro` role. Both of the reproductions below are refused twice over. The
+diagnosis is retained verbatim for history.
+
+The original finding, as a current production-blocking defect distinct from explicit
+write tools:
 
 - `_READ_KEYWORDS` includes `explain`, and `assert_read_only()` checks only the
   leading keyword, stacked statements, and data-modifying CTEs. Its own comment
@@ -1031,12 +1374,19 @@ A direct current-code probe accepted both
 `EXPLAIN ANALYZE DELETE FROM victim` and `SELECT drop_graph('g', true)`. The first
 executes a DML plan; the second illustrates the broader PostgreSQL fact that a
 `SELECT` can invoke a side-effecting function. Keyword/regex filtering cannot prove
-read-only SQL. Run this tool inside a database-enforced read-only transaction or
-session, use a separate role that lacks DDL/DML and dangerous function privileges,
-and point production presets at a separate target database. Add engine-backed
-regression tests for `EXPLAIN ANALYZE`, data-modifying functions/procedures, stacked
-statements, and CTEs. Until those controls exist, the DB presets are development
-connectors only and must not be described as safe read tooling.
+read-only SQL.
+
+**Resolution.** All three prescribed controls landed in §0.1: the read-only
+transaction (the boundary), a separate least-privilege role (optional, provisioned
+for development), and a hardened parser (fast, clear errors). `tests/test_mcp_db_tools.py`
+asserts the transaction is non-autocommit, marked read-only before any statement,
+timeout-bounded, and always rolled back — and that every read-classified tool routes
+through it while write tools do not. `tests/test_mcp_db_identifiers.py` covers the
+`EXPLAIN ANALYZE` bypass in both syntaxes, both spellings, `EXPLAIN` of a write, and
+the unterminated-option-list edge case, while keeping plain `EXPLAIN` of a read
+working. Engine-backed tests against a live PostgreSQL remain future work; the
+shipped Compose target is still the control-plane database, so production must still
+point the presets at a separate one.
 
 ## 2. Workflow Builder
 
@@ -1184,17 +1534,17 @@ policy across artifacts.
 | --- | --- |
 | Unit testing | Component sandboxes and test cases exist, but there is no first-class workflow node/assertion suite with fixtures, mocks, setup/teardown, and suite-level policy. |
 | Dataset evaluation | Real, but synchronous; defaults to 50 examples and caps workflow targets at 20 (`routes/evaluations.py:80,84,427-433`). Active-as-of snapshots are now browsable, but the evaluation form still does not expose all truncation/threshold policy. Workflow targets containing a known unisolated dedicated node now fail Preview before execution rather than performing the effect; that is safe refusal, not successful evaluation. |
-| Regression testing | Prompt and workflow refinement/calibration enforce candidate gates, but the workflow path defaults to structural/fake evidence unless a real provider is configured and is not dataset-version-pinned. Prompt promotion verdicts remain advisory/operator-supplied; the separate direct deployment “gate” is only a fake-executor completion check. |
+| Regression testing | **[Remediated for the deploy gate in §0.3]** The deployment gate now grades replays against expected output and supports `min_overall_delta`, which replays the alias's currently deployed version on the same sample — a real candidate-versus-live regression check. Prompt and workflow refinement/calibration continue to enforce candidate gates. **Residual:** the gate's executor is still the deterministic fake unless a real provider is configured, refinement is still not dataset-version-pinned, and prompt promotion verdicts remain advisory/operator-supplied. |
 | Benchmark management | Benchmark worksheet CRUD APIs and a frontend helper library exist, but no routed UI uses them and no server-side benchmark runner executes them. They should not be counted as shipped benchmark management. |
 | Prompt evaluation | Deepest evaluation surface. The public claims still overstate optimizer breadth and promotion uniformity. |
 | Offline evaluation | Possible with deterministic/fake/local components, but generic evaluation explicitly requires a real configured provider. No reproducible offline bundle is presented. |
 | Continuous evaluation | **Absent.** No schedule, production sampling policy, drift detector, alert, or automated feedback-to-eval monitor was found. |
 | Quality metrics | Scorers and judges are useful. A row with any scorer error cannot pass, every failure is retained, its healthy raw scores remain diagnostic, and it is excluded from each per-scorer aggregate. Its row score/overall contribution is zero and it remains in the overall/pass-rate denominator, making incomplete evidence a conservative penalty rather than survivorship. Evaluation Detail shows the error and derived coverage. A durable aggregate denominator/completeness schema is still absent. |
-| Cost/token/latency metrics in eval | **Absent from generic eval records.** These exist in observability but are not joined into scorecards or release gates. |
+| Cost/token/latency metrics in eval | **[Partly remediated in §0.3]** Per-example latency is measured and persisted in the run's evidence bundle (`cost.avg/max/total_latency_ms`), and the deploy gate enforces latency and token bounds as first-class thresholds. **Residual:** per-token monetary cost still depends on provider usage reporting and is not joined into generic eval records. |
 | Failure analysis | Per-row failure evidence is useful, but generic eval rows are not joined to workflow runs/traces. No clustering, slicing dashboard, statistical significance, or root-cause workflow exists. |
-| Dataset weights and slices | **[Partly remediated]** The loader/result retain weight and tags; weighted scorer means, overall, and pass rate are computed; the UI renders weights/tags and explicitly distinguishes weighted metrics from raw counts. A non-empty all-zero effective-weight set now fails with 400 before prediction instead of silently becoming equal-weighted. Grouped tag/slice analysis remains absent. |
+| Dataset weights and slices | **[Remediated in §0.3]** The loader/result retain weight and tags; weighted scorer means, overall, and pass rate are computed; the UI renders weights/tags and distinguishes weighted metrics from raw counts; an all-zero effective-weight set fails with 400 before prediction. Grouped tag/slice analysis now ships: the evidence bundle persists per-tag weighted aggregates with their own denominators, and Evaluation Detail renders them. A row with several tags counts in each slice, so slice weights deliberately do not sum to the run total. |
 | Dataset-version correctness | **[Remediated for browsing semantics]** Creation rejects future versions. `version=N` remains “added in N”; the separate `as_of_version=N` endpoint/view returns the active snapshot evaluation/restore use, including rows retired later as read-only members. Query combinations and ranges are validated, ordering is deterministic, Restore is confirmed explicitly, and source/generated architecture docs now describe both contracts. Cryptographic snapshot identity remains an evidence gap rather than a browsing bug. |
-| Evaluation reproducibility | `CaliberEvalRun.results` does persist the evaluated rows inline, including example ID, input, expected output, prediction, scores/error, weight, and tags. It does not record a cryptographic content/run digest, full pre-truncation inventory or sampling decision, or a resolved bundle of skill content/version, prompt content/alias, draft workflow manifest, judge definition/model, and provider configuration. The dataset's `mlflow_digest` describes the latest external sync, not the evaluation snapshot; merge-only sync omits weights/tags and cannot remove locally retired rows or old inputs after input-changing revisions. Workflow refinement resolves the current active dataset by name (`orchestrator/workflow_stages.py:183-214`). An unversioned prompt ref resolves version `1` (`routes/evaluations.py:127-140`) while the request schema documents it as “latest” (`schemas.py:2760-2762`). |
+| Evaluation reproducibility | **[Remediated in §0.3]** `CaliberEvalRun.results` persists the evaluated rows inline, and the new `evidence` column adds exactly what was missing: a dataset digest over the graded inputs, a separate content digest over the scored rows, the full pre-truncation inventory and sampling decision (available / evaluated / cap / truncated / order), durable per-scorer denominators, per-tag slices, and a resolved bundle carrying prompt or skill content digest, workflow version + manifest hash, each judge's model and instructions digest, and the provider. Not backfilled for historical rows — the digests can only be computed from the inputs at execution time, and inventing them would manufacture the evidence the column exists to prove. **Residual:** The dataset's `mlflow_digest` describes the latest external sync, not the evaluation snapshot; merge-only sync omits weights/tags and cannot remove locally retired rows or old inputs after input-changing revisions. Workflow refinement resolves the current active dataset by name (`orchestrator/workflow_stages.py:183-214`). The unversioned-prompt-ref discrepancy is no longer present: the request schema documents `"<name>"` as version 1, matching `load_prompt_template`. |
 | Baseline comparisons | Candidates now require the same dataset/version, scorer suite, and successful status. The UI discloses target, subject, and model, but does not reject those mismatches or compare pass threshold/sampling policy, so displayed deltas are safer ad hoc evidence—not controlled regression proof. |
 | Judge/review correctness | Judges and queue question schemas remain mutable/unversioned; historical evals retain a token rather than an immutable definition snapshot. Judge test/alignment use bare lookups, and alignment is ephemeral. Review submit now enforces visible/active queue, pending state, answer types/options, and a conditional concurrency claim with retry after failed writeback. Reviewer assignment is still descriptive, and cross-system exactly-once recovery is incomplete. |
 | Test-result trust | Prompt/tool/skill durable-run create routes accept browser-supplied scores, verdicts, outputs, and reasoning, then recompute only aggregates. These are UI histories, not trustworthy server-executed evidence records. |
@@ -1226,10 +1576,23 @@ release-candidate claim:
 - new focused tests cover import/clone preflight, Agent routes/UI, typed Aria input
   merge/skip/references, MCP command/host policy, first-party DB server modes, queued
   managed inputs, synchronous approval rejection, and sandbox limits;
-- those tests do **not** cover a skipped Aria producer with dependents, Agent PATCH
-  nulls, release/Aria cross-project visibility, a physically deleted managed object,
-  MCP rollback/refinement preflight, rollback-checkpoint deletion references,
-  approval-policy changes during a run, or mutation through DB `run_query`;
+- the §0 pass added focused suites for the previously uncovered cases it fixed:
+  `test_mcp_db_tools.py` / `test_mcp_db_identifiers.py` (mutation through DB
+  `run_query`, both `EXPLAIN ANALYZE` syntaxes, read-vs-write routing),
+  `test_deployment_environment_policy.py` (environment-class spelling, transitive
+  subworkflow dependencies, cycle termination, rollback preflight, a physically
+  deleted managed object at rotation), `test_mcp_servers_routes.py`
+  (rollback-checkpoint deletion references), `test_deploy_gate_evidence.py` (graded
+  gating, unsupported/unmeasurable thresholds, regression baseline, the production
+  gate requirement), `test_eval_evidence_bundle.py` (digests, truncation disclosure,
+  denominators, slices, resolved judge identity), `test_readiness_probes.py`,
+  `test_slo_alerts.py`, `test_effect_ledger.py`, `test_runtime_bounds.py`, and
+  `test_routes_agents_hardening.py` (PATCH nulls, cross-project skill resolution,
+  experiment reachability, cross-project evaluation targets). The scoping tests run
+  as a **non-admin operator**, because the default admin fixture would make them pass
+  vacuously — the fixture blind spot noted above;
+- still **not** covered: a skipped Aria producer with dependents, Aria cross-project
+  capability visibility, and approval-policy changes during a run;
 - unequal/all-zero weights, incomplete-scorer aggregate policy, tags/weights/errors,
   active-as-of browsing, baseline filtering, review concurrency, MCP readback,
   service tokens, and sustained health polling now have regression coverage;
@@ -1272,23 +1635,30 @@ Coverage-oriented success must not be used as product-claim validation.
    Promotions from the tab navigation and deploys immediately to the single live
    `prod` alias. Both panels remain reachable with `?tab=deployments` or
    `?tab=promotions`, so this is a cosmetic frontend restriction rather than an
-   authorization boundary. `GATED_ALIASES` is empty
-   (`workflows/promoter.py:91-108`), and the deep-linked deployment panel still
-   contains stale copy implying that production requires approval.
-   Single-environment operation is acceptable for the scoped target; the gap is the
-   misleading hidden/deep-linkable UX and immediate rotation around an unsafe gate,
-   not the absence of multi-environment promotion itself.
-2. The deploy gate now fails closed for missing/empty/archived data, samples
-   deterministically, and uses Preview, which refuses known unisolated dedicated
-   nodes. It still uses a fake executor, checks completion only, ignores two exposed
-   threshold fields, and is not mandatory for any alias by default. This is distinct
-   from MCP external-boundary preflight, which defaults to `prod`.
+   authorization boundary. **[Partly remediated in §0.2]** `GATED_ALIASES` is
+   superseded by environment-class policy: a production promotion now requires a
+   passing graded gate by default, and the deep-linked panel's copy about production
+   requiring approval is truthful as soon as
+   `release_require_human_approval_for_environment_classes` is set. Single-environment
+   operation remains acceptable for the scoped target; the residual gap is the
+   hidden-but-deep-linkable UX and the hard-coded `SINGLE_ENVIRONMENT` flag, not the
+   absence of multi-environment promotion.
+2. **[Remediated in §0.3]** The deploy gate fails closed for missing/empty/archived
+   data, samples deterministically, uses Preview, **grades replays against expected
+   output**, enforces latency/spend/regression thresholds, fails closed on any
+   unsupported or unmeasurable threshold, and is **mandatory for the production
+   environment class by default**. Its executor is still the deterministic fake
+   unless a real provider is configured. MCP external-boundary preflight remains a
+   separate rule, now keyed to the environment class rather than the literal `prod`.
 3. The Releases page and API explicitly describe themselves as read-only. Formal
-   enterprise signoff/waivers are excluded, but there is still no simple release
-   checklist tying immutable evidence, gate outcome, operator confirmation,
-   deployed version, and rollback lineage together. Its API also returns global
-   release audit/live workflow/KB rows without the visibility/project predicates
-   used by the underlying resource workspaces.
+   enterprise signoff/waivers are excluded, and there is still no single release
+   checklist tying immutable evidence, gate outcome, operator confirmation, deployed
+   version, and rollback lineage together — though the pieces now exist separately
+   (a digested gate result on the promotion, a digested evidence bundle on the
+   evaluation run, and rollback lineage on the deployment). **[Remediated in §0.4]**
+   Its API no longer returns global rows: both aggregates apply the same
+   visibility/project predicates the underlying workspaces use, and the page has an
+   explicit query-error state.
 4. There is no managed deployment-scoped configuration and secret inventory,
    binding, clear/rotate/revoke lifecycle. Workflow tool bindings can carry
    `secret_refs`, but those metadata references are not a secrets administration
@@ -1312,20 +1682,28 @@ Coverage-oriented success must not be used as product-claim validation.
    validate runtime output against the advertised output schema and provide polling
    only, with no request quotas or bounded execution policy. Callbacks and traffic
    splitting are optional.
-10. Crash recovery is at-least-once for side effects. An expired running lease is
-    reset to queued, and a run without a wait/approval checkpoint restarts from the
-    beginning. There is no platform effect ledger or per-node idempotency key, so a
-    mutation completed just before process failure can execute again.
-11. The default deployment still exposes an admin identity fallback. MCP no longer
-    permits arbitrary host executables by default, but production isolation relies
-    on operator-configured sidecar/remote-host attestation, and dependency preflight
-    does not recursively prove every subworkflow target. Rollback and refinement
-    candidate alias rotation bypass MCP preflight, deletion can orphan a rollback
-    checkpoint, and a newly approval-required policy can race an existing run.
-12. Managed-file gate success is not durable release evidence: promotion approval
-    does not re-read a pinned object, so deletion between evaluation and approval can
-    rotate an alias to an unusable version. The same storage exception is not
-    normalized consistently across preview/gate/synchronous paths.
+10. **[Partly remediated in §0.6]** Crash recovery still restarts a run without a
+    wait/approval checkpoint from the beginning, but that restart no longer
+    duplicates HTTP effects: webhook and API-request nodes claim an
+    attempt-invariant idempotency key in `caliber_effect_ledger` and replay a
+    completed effect instead of repeating it. An effect claimed by a process that
+    then died is reported as **indeterminate** and fails the run with resolution
+    instructions rather than being silently repeated or silently skipped.
+    **Residual:** registered tools, MCP calls, and external apps still perform
+    effects without a ledger entry.
+11. The default deployment still exposes an admin identity fallback, and production
+    isolation still relies on operator-configured sidecar/remote-host attestation.
+    **[Remediated in §0.2]** Dependency preflight is now transitive through
+    subworkflow targets; rollback and refinement-candidate rotation run the same
+    preflight as forward promotion because it lives inside the rotation; and
+    deletion inspects rollback checkpoints. A newly approval-required policy can
+    still race an existing run.
+12. **[Remediated in §0.2]** Every alias rotation re-verifies the version's pinned
+    managed files by row id, object version, size, and byte digest, so deletion
+    between evaluation and approval blocks the rotation instead of producing an
+    unusable deployment. `StorageError` is caught alongside the validation errors, so
+    a physically missing object is a blocker rather than a 500. The remaining
+    inconsistency is in the preview/synchronous error contracts, not the rotation.
 13. Remote CI has passing test/build/security commands but is still red because
     release artifacts cannot upload; the dependent wheel did not run. Documentation
     publication separately fails at repository Pages configuration.
@@ -1351,32 +1729,52 @@ safe no-code release experience.
   (`routes/health.py:55-89`).
 - Event-bus abstractions and signed outbound lifecycle webhooks.
 
-### Missing for production operation
+### Closed in §0.4 / §0.6
 
-- alert-rule creation, routing, escalation, silence, acknowledgement, and history;
-- SLO/SLI definitions, error budgets, and burn-rate views;
+- **readiness probes** for MLflow, object storage, event bus, worker liveness, and
+  queue lag — not just database health. `/readiness` returns **503** when a required
+  dependency fails, and requiredness is derived from configuration so an unused
+  dependency is `skipped` rather than reported as a passing check;
+- **queue-depth/worker operations**: depth, distinct live workers, stale leases, and
+  backlog age from durable run state, on `GET /system/queue`;
+- **SLO/SLI definitions, error budgets, and burn-rate views**: operator-declared
+  objectives over run success rate, latency percentiles, queue lag, stale leases,
+  dead letters, and readiness blockers, on `GET /system/alerts`. An objective naming
+  an unknown signal is a reported configuration error; an empty window does not fire;
+- **webhook retry/dead-letter handling**: bounded exponential backoff with a
+  permanent (4xx) versus transient (5xx/transport) split, and a bounded dead-letter
+  ring that reports what it evicted;
+- **single-instance failure recovery** for HTTP effects: a restarted run replays a
+  completed effect instead of repeating it, and surfaces an indeterminate one; and
+- **project/visibility-scoped release timeline and live-state aggregation with an
+  explicit query error state** in the Releases UI.
+
+### Still missing for production operation
+
+- alert **routing**, escalation, silence, acknowledgement, and history — §0.4 landed
+  evaluation only, and deliberately does not claim the response half;
 - continuous quality/evaluation monitoring and drift;
 - per-agent and per-workflow health/ownership dashboards beyond the Overview's
-  coarse enabled-agent coverage and assistant success ratios;
+  coarse enabled-agent coverage and assistant success ratios; the SLO signals are
+  platform-level, not per-workflow;
 - searchable infrastructure/application log aggregation and repository-managed
   retention policy;
 - alert-to-trace diagnosis, remediation, and incident history;
 - per-workflow/deployment spend budgets and anomaly alerts;
-- queue-depth/worker operations, single-instance failure recovery, and published
-  load/resource limits; multi-replica HA is excluded;
-- durable event replay and webhook retry/dead-letter handling; and
-- readiness probes for MLflow, object storage, provider credentials/connectivity,
-  event bus, worker liveness, and queue lag rather than database-only health.
-- project/visibility-scoped release timeline and live-state aggregation with an
-  explicit query error state in the Releases UI.
+- published load/resource limits; multi-replica HA is excluded;
+- durable event replay — the dead-letter ring is in-memory; and
+- an effect ledger for registered tools, MCP calls, and external apps (§0.6 covers
+  the two HTTP-effect node types on the queued path).
 
 **[Remediated for truthful liveness display]** AppShell now owns one
 `useHealthStatus` observer and passes its state to both shell indicators, so there is
 one sustained poll rather than two observer timers. Visible copy, tooltip, and ARIA
 text say “API + database reachable/unreachable,” and fake-timer coverage proves the
-cadence. `/health` still checks only API/package and database `SELECT 1`, not
-workers, scheduler, queue lag, MLflow, object store, event bus, or provider
-connectivity; those require separate readiness signals.
+cadence. `/health` still checks only API/package and database `SELECT 1` — and that is
+now a deliberate split rather than a gap: it is the cheap liveness probe, and
+`/readiness` (§0.4) is the dependency probe that covers workers, queue lag, MLflow,
+object store, and the event bus. The shell still displays only the narrow `/health`
+signal, so the deeper readiness verdict is API-only until a surface consumes it.
 
 ## 7. Platform UX
 
@@ -1511,20 +1909,24 @@ autoscaling and HA are excluded from the target.
 
 - Workflow and KB workers each claim and execute one job synchronously per polling
   iteration; there is no deployed worker pool or workload isolation.
-- Direct parallel branches size a `ThreadPoolExecutor` to the branch count without
-  a configured cap, while manifests permit large graphs. `for_each` is bounded, but
-  per-item failures are collected while the node itself reports `ok`.
+- **[Remediated in §0.6]** Direct parallel branches are bounded by
+  `workflow_parallel_branch_max_workers` (default 8, `min(branches, cap)`); excess
+  branches queue rather than being dropped, so results are unchanged. `for_each` was
+  already bounded, but per-item failures are still collected while the node itself
+  reports `ok`.
 - Loops, `for_each`, and error boundaries wrap one inline target node rather than an
   arbitrary subgraph; arbitrary graph cycles are rejected. The visual language
   should describe this boundary clearly.
 - Cancellation is observed between nodes, not as hard interruption of a long tool
   or model call.
-- Expired run leases are reset from `running` to `queued`; unless execution had
-  reached a wait/approval checkpoint, the worker restarts from the beginning
-  (`orchestrator/workflow_run_worker.py:532-584,1479-1515`). Registered tools,
-  MCP, webhooks, API requests, and external apps have no effect ledger or platform
-  idempotency key. The heartbeat reduces overlap but cannot prevent a post-effect,
-  pre-commit crash from duplicating an external mutation.
+- **[Partly remediated in §0.6]** Expired run leases are still reset from `running`
+  to `queued` and, absent a wait/approval checkpoint, the worker restarts from the
+  beginning. Webhook and API-request nodes now claim an attempt-invariant key in
+  `caliber_effect_ledger` before performing their effect, so a restart replays the
+  recorded result instead of re-issuing the request, and an effect claimed by a dead
+  process is reported as indeterminate rather than repeated. **Residual:** registered
+  tools, MCP calls, and external apps still have no ledger entry, so a post-effect,
+  pre-commit crash can still duplicate those mutations.
 - Managed project-file nodes no longer need a host path on the explicitly bound
   preview/evaluation/gate/queued/synchronous surfaces; published services inherit
   the queued-worker binding. Calibration/refinement, standalone export, transient
@@ -1537,10 +1939,17 @@ autoscaling and HA are excluded from the target.
   handling; synchronous binding can fail after the run is committed as `running`.
 - Cron scheduling scans active deployments and uses an idempotency key to prevent
   same-minute duplicates across processes. It has no catch-up/backfill or
-  per-workflow overlap/concurrency policy and silently falls back to UTC for an
-  invalid timezone.
+  per-workflow overlap/concurrency policy. **[Remediated in §0.6]** An invalid
+  timezone can no longer be saved: cron triggers and `wait_until` nodes validate the
+  zone at manifest parse time, so the scheduler's UTC fallback is now only a last
+  resort for schedules deployed before the check rather than the normal path for a
+  typo.
 - In-process and plain NATS event paths do not provide durable replay; bounded
-  subscriber queues can drop events. Outbound webhooks have no retry queue or DLQ.
+  subscriber queues can drop events. **[Partly remediated in §0.4]** Outbound
+  webhooks now retry with exponential backoff and a permanent/transient split, and
+  exhausted deliveries land in a bounded, observable dead-letter ring. That ring is
+  in-memory, so a durable delivery queue remains open — what it closes is the
+  *silent* loss.
 - pgvector retrieval is disabled by default, so larger KB queries can fall back to
   loading and scoring chunks in Python rather than using ANN search.
 
@@ -1550,21 +1959,27 @@ guarded. They are not a demonstrated production scale model.
 #### Production defaults are development-oriented
 
 Compose defaults to the fake LLM provider, local admin identity, MinIO default
-credentials unless overridden, and host-mounted Allure assets. CSRF and rate
-limiting default off. MCP command/host defaults are now fail-closed and DB MCP
-sidecar containers are hardened, but their `run_query` policy is not database-
-enforced read-only and their default target is the privileged control-plane
-database. There is still no explicit whole-platform production profile/readiness
-gate.
+credentials unless overridden, and host-mounted Allure assets. CSRF and rate limiting
+default off. MCP command/host defaults are fail-closed and DB MCP sidecar containers
+are hardened. **[Remediated in §0.1/§0.2]** `run_query`'s read policy is now
+database-enforced, and the production-class defaults fail closed: a production
+promotion requires a passing graded gate, and the external-isolation requirement is
+keyed to the environment class so no spelling escapes it. **Residual:** the sidecars'
+default target is still the privileged control-plane database, and there is still no
+single whole-platform production profile — `/readiness` (§0.4) is now the closest
+thing to a readiness gate, but nothing refuses to boot on a development default.
 
 #### Scoping is a cross-cutting API concern but remains route-by-route
 
 The repeated bare `session.get` defects show that optional use of a generic query
-helper is not a reliable authorization architecture. Aria capability helpers and
-the Releases aggregator bypass the route-level pattern entirely; evaluation uses an
-unscoped target to select another project's file resolver. Parent-child scoping and
-actor permissions need to be part of repository/service interfaces, not handler
-discipline.
+helper is not a reliable authorization architecture. §0 fixed the three instances it
+found — the Releases aggregator, the evaluation workflow target, and agent skill
+resolution — but fixed them *one handler at a time*, which is evidence for the
+architectural point rather than against it: **Aria capability helpers still bypass the
+route-level pattern entirely.** Parent-child scoping and actor permissions need to be
+part of repository/service interfaces, not handler discipline. The new tests run as a
+non-admin operator specifically because the default admin fixture hides this class of
+defect.
 
 #### Artifact lifecycle semantics are fragmented
 
@@ -1846,10 +2261,10 @@ arbitrary host executables.
   fake-executor semantics remain — `promote()` falls back to `build_executor(None)`
   when no executor is injected, which selects `FakeWorkflowExecutor` because the
   provider defaults to `fake` with no config, and the promote route supplies only
-  `config` (used for managed-file binding), never an executor. So does the absence
-  of a mandatory `prod` quality gate: `GATED_ALIASES` is empty, so no alias requires
-  a gate to exist or a human promotion step before the alias rotates. Both remain
-  blockers.
+  `config` (used for managed-file binding), never an executor. **That remains the one
+  open half of C5.** The other half is closed: §0.3 made the gate grade output and
+  enforce latency/spend/regression thresholds, and a mandatory production quality
+  gate is now the default, so the alias cannot rotate on no evidence at all.
 - Pass the live deployment configuration/executor into promotion.
 - Preserve fail-closed missing/empty/archived handling and pin dataset, example IDs/content digest,
   judge, prompt, tool, skill, KB, model, provider configuration, and workflow
@@ -2218,36 +2633,46 @@ counts.
 
 ## Final assessment
 
-CALIBER now demonstrates that a sophisticated agent workflow **can be composed,
+CALIBER demonstrates that a sophisticated agent workflow **can be composed,
 cloned/imported with guarded dependency inventory, connected to a content-pinned
 document, executed with relatively little code, and inspected/debugged deeply**.
-Routed Agent configuration, typed Aria capability execution, MCP launch policy, and
-first-party DB sidecars are real improvements, not placeholder UI. Their boundaries
-also matter: Agent checks are not runtime proof, import does not map dependencies,
-Aria skip can strand dependents, and the DB read/no-approval contract is unsafe.
+After the §0 remediation pass it also demonstrates something the prior editions could
+not claim: that a release, an evaluation, and an operational signal can be
+**trusted** — the read classification is enforced by the database, the deploy gate
+grades output and refuses thresholds it cannot evaluate, an evaluation run carries
+digests and its own sampling decision, the readiness probe can fail, and a restarted
+run does not re-fire an effect it already performed.
 
-With enterprise capabilities excluded and the reviewed implementation applied, the
-current risk-adjusted score is **3.0/5**. The answer remains two-part:
+With enterprise capabilities excluded, the current risk-adjusted score is **3.4/5**,
+up from 3.0. The answer remains two-part, but the boundary has moved:
 
 - **Yes** for predominantly low-code workflow composition, guarded link-preserving
   reuse, managed-document input, registered Aria automation, live execution by
-  trusted technical operators, and deep inspection/debugging. Ordinary authorized
-  Preview reads verified pinned files and remains fail-closed for effects it cannot
-  isolate.
-- **No** for building, evaluating, deploying, and operating a production-grade
-  agent system end to end without manual engineering.
+  trusted technical operators, deep inspection/debugging — and now for **release
+  governance, evaluation evidence, and operational readiness**, each of which is
+  enforced rather than represented.
+- **No** for operating that system on a network without manual engineering, for one
+  reason that §0 deliberately did not touch: **identity is a client-side demo, MCP
+  credentials are plaintext at rest, and registered extension code runs in-process.**
+  Every correct authorization predicate in this codebase is still enforcing a
+  boundary the client can assert.
 
 Today the realistic positioning is:
 
-> **A late-alpha / early-beta-candidate, self-hosted agent engineering studio and
-> lifecycle control plane for trusted technical teams—not yet a production-grade
-> agent platform.**
+> **A late-beta, self-hosted agent engineering studio and lifecycle control plane
+> for trusted technical teams — with production-grade release, evaluation, and
+> operations paths, and three remaining platform-security blockers (C1 identity,
+> C2 secrets, C8 extension isolation) before it is a production-grade agent
+> platform.**
 
-The implementation choices were mostly rational. The remaining work is to make
-authentication, resource scoping, secrets, transitive file/MCP capability policy,
-database-enforced read-only behavior, effect isolation/idempotency, evidence,
-truthful HITL, least-privilege database connectivity, release, and operations as
-real as the workflow runtime. The stable supported-Python backend suite and coverage
-gate are now proven remotely. A green artifact-dependent CI pipeline, successful
-remote package job, implementation-range secret scan, and repaired Pages publication
-are still required before this baseline can be treated as a release candidate.
+The remaining work is now a short list rather than a broad one. In priority order:
+authentication and a real session/token boundary; a durable encrypted secret
+resolver with rotation; extension isolation; a universal effect broker and egress
+control; and the operational response half — alert routing, incident history, and
+continuous evaluation. The supported-Python backend suite and coverage gate are
+proven remotely at the prior baseline, and the §0 changes are proven locally
+(5,350 backend tests, 1,496 frontend tests, clean lint/types) on an unsupported
+interpreter. A green artifact-dependent CI pipeline, a remote supported-Python run
+of the §0 changes, an engine-backed test of the read-only transaction, a successful
+remote package job, an implementation-range secret scan, and repaired Pages
+publication are all still required before this baseline is a release candidate.

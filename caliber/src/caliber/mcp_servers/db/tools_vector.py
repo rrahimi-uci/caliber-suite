@@ -45,11 +45,15 @@ def upsert_vectors(table: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 def similarity_search(
     table: str, embedding: list[float], k: int = 5, metric: str = "cosine"
 ) -> dict[str, Any]:
-    """Return the ``k`` nearest rows to ``embedding`` by ``metric`` distance."""
+    """Return the ``k`` nearest rows to ``embedding`` by ``metric`` distance.
+
+    Read-classified, so it runs in a database-enforced read-only transaction
+    (see :func:`tools_relational.run_query`).
+    """
     if not isinstance(k, int) or isinstance(k, bool) or k <= 0:
         raise ids.DbToolError("k must be a positive integer")
     sql = ids.compose_similarity_search(table, metric)
-    rows = conn.query(sql, [ids.embedding_to_literal(embedding), k])
+    rows = conn.read_only_query(sql, [ids.embedding_to_literal(embedding), k])
     return {
         "matches": [
             {

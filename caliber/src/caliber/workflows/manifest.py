@@ -249,6 +249,31 @@ class _NodeBase(BaseModel):
     description: str | None = Field(default=None, max_length=4000)
 
 
+def validate_timezone(name: str) -> str:
+    """Reject a timezone the runtime cannot resolve.
+
+    The scheduler's ``_localize`` falls back to UTC when ``ZoneInfo`` raises,
+    which is the right *last resort* for an already-deployed schedule but the
+    wrong place to discover a typo: the schedule keeps firing, just at the wrong
+    hour, with no error anywhere. Validating at manifest parse time means an
+    unresolvable zone cannot be saved, published, or deployed.
+
+    An empty value means "UTC", matching the field default.
+    """
+    value = (name or "").strip()
+    if not value:
+        return "UTC"
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError  # noqa: PLC0415
+
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(
+            f"unknown timezone {value!r}; use an IANA name such as 'UTC' or 'America/Los_Angeles'"
+        ) from exc
+    return value
+
+
 class StartTrigger(BaseModel):
     """How a workflow run is initiated (plan: Start triggers).
 
@@ -278,6 +303,12 @@ class StartTrigger(BaseModel):
             from caliber.workflows.cron import validate_cron  # noqa: PLC0415
 
             validate_cron(self.cron)
+            # Validated here, at authoring time, rather than only tolerated at
+            # scheduling time: the scheduler silently fell back to UTC for an
+            # unknown zone, so "0 9 * * *" in a mistyped ``Europe/Londn`` fired at
+            # the wrong hour with nothing to indicate why. A schedule whose
+            # timezone cannot be resolved is a broken schedule, not a UTC one.
+            validate_timezone(self.timezone)
         return self
 
 
@@ -415,6 +446,13 @@ class WaitUntilNode(_NodeBase):
     timezone: str = "UTC"
     inputs: PortMap = Field(default_factory=lambda: {"input": PortSpec(type="string")})
     outputs: PortMap = Field(default_factory=lambda: {"output": PortSpec(type="string")})
+
+    @model_validator(mode="after")
+    def _check_timezone(self) -> WaitUntilNode:
+        # Same reasoning as the cron trigger: a wait boundary in an unresolvable
+        # zone resumes at the wrong wall-clock time rather than failing.
+        validate_timezone(self.timezone)
+        return self
 
 
 class WaitForEventNode(_NodeBase):
@@ -949,7 +987,17 @@ ToolBinding = Annotated[
 
 
 class DeployGate(BaseModel):
-    """A deploy-time quality gate (plan §9.4). NOT a runtime node."""
+    """A deploy-time quality gate (plan §9.4). NOT a runtime node.
+
+    ``scorers`` names the deterministic scorers from
+    :mod:`caliber.eval.scorecard` used to grade each replay against the dataset's
+    expected output. Without them the gate can only measure completion, which is
+    not quality evidence; the default therefore grades expected-output overlap.
+
+    ``pass_threshold`` is the per-example score at or above which a replay counts
+    as passing, mirroring the evaluation product's own contract so a deploy gate
+    and an evaluation run mean the same thing by the same numbers.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -957,6 +1005,8 @@ class DeployGate(BaseModel):
     dataset_ref: str = Field(min_length=1)
     required_for_aliases: list[str] = Field(default_factory=list)
     thresholds: dict[str, float] = Field(default_factory=dict)
+    scorers: list[str] = Field(default_factory=lambda: ["token_f1"])
+    pass_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
 
 
 class SessionConfig(BaseModel):

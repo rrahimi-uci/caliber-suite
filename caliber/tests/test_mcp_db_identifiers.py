@@ -166,6 +166,47 @@ def test_assert_read_only_accepts_safe_edge_cases(sql: str) -> None:
     ids.assert_read_only(sql)
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "EXPLAIN ANALYZE DELETE FROM victim",  # the reproduced C11 bypass
+        "explain analyze delete from victim",
+        "EXPLAIN ANALYSE UPDATE t SET a = 1",  # British spelling
+        "EXPLAIN (ANALYZE, VERBOSE) DELETE FROM victim",  # option-list form
+        "EXPLAIN (VERBOSE, ANALYZE) SELECT 1",  # ANALYZE executes even a SELECT
+        "EXPLAIN ANALYZE VERBOSE DELETE FROM victim",  # legacy bare keywords
+        "EXPLAIN DELETE FROM victim",  # planning a write is not a read
+        "EXPLAIN INSERT INTO t VALUES (1)",
+        "EXPLAIN (COSTS OFF) UPDATE t SET a = 1",
+        "EXPLAIN EXPLAIN SELECT 1",  # no nesting past the check
+        "EXPLAIN",  # nothing explained
+        "EXPLAIN (ANALYZE",  # unterminated option list must not fail open
+    ],
+)
+def test_assert_read_only_rejects_explain_bypasses(sql: str) -> None:
+    """Regression (C11): the audit reproduced ``EXPLAIN ANALYZE DELETE FROM
+    victim`` passing the read classifier. ``EXPLAIN ANALYZE`` *executes* the
+    statement it explains, so it can never be part of a read-only tool."""
+    with pytest.raises(ids.DbToolError):
+        ids.assert_read_only(sql)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "EXPLAIN SELECT 1",
+        "explain (costs off, verbose) select * from t",
+        "EXPLAIN VERBOSE SELECT 1",
+        "EXPLAIN WITH x AS (SELECT 1) SELECT * FROM x",
+        "EXPLAIN (FORMAT JSON) TABLE t",
+        "EXPLAIN SELECT * FROM analyze_log",  # 'analyze' only inside an identifier
+    ],
+)
+def test_assert_read_only_still_allows_plain_explain_of_a_read(sql: str) -> None:
+    """Hardening must not remove the legitimate use: planning a read query."""
+    ids.assert_read_only(sql)
+
+
 # ---------------------------------------------------------------------------
 # pgvector builders
 # ---------------------------------------------------------------------------

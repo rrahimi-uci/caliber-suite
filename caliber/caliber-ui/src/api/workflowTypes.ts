@@ -228,7 +228,17 @@ export interface WorkflowDeployGate {
   type?: "deploy_gate";
   dataset_ref: string;
   required_for_aliases?: string[];
+  /**
+   * Keys the backend evaluates (see caliber.workflows.deploy_gate.
+   * SUPPORTED_THRESHOLDS). An unrecognised key fails the gate closed rather than
+   * being ignored, so this stays a free-form map on purpose: the server, not the
+   * client, is the authority on what can be measured.
+   */
   thresholds?: Record<string, number>;
+  /** Deterministic scorers used to grade each replay against expected output. */
+  scorers?: string[];
+  /** Per-example score at or above which a replay counts as passing. */
+  pass_threshold?: number;
 }
 
 export interface WorkflowMlflowConfig {

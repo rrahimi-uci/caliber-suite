@@ -1,0 +1,505 @@
+"""Regression tests for environment-class keying and universal alias preflight.
+
+The review recorded three related defects, all about a safety requirement being
+attached to the wrong thing:
+
+* the production isolation requirement was keyed to the literal alias string
+  ``prod``, matched case-sensitively, so ``production`` / ``prod-eu`` / ``PROD``
+  promoted with local containment and *no blocker*;
+* MCP deployment preflight ran only on forward promotion and promotion approval,
+  so rollback and refinement-candidate rotation moved the live alias with no
+  dependency check at all; and
+* MCP dependency inspection stopped at the root manifest, so a parent that
+  declares no MCP tool passed preflight while the subworkflow it invokes at
+  runtime used a blocked server.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import pytest
+from sqlalchemy.orm import Session
+
+from caliber.config import CaliberConfig
+from caliber.db.models import (
+    CaliberMcpServer,
+    CaliberWorkflow,
+    CaliberWorkflowDeployment,
+    CaliberWorkflowVersion,
+)
+from caliber.deployment_environments import (
+    DEVELOPMENT,
+    PRODUCTION,
+    STAGING,
+    environment_class,
+    requires_external_isolation,
+)
+from caliber.mcp_policy import deployment_blockers, extract_dependencies
+from caliber.workflows.promoter import AliasPreflightError, rollback
+from tests.workflow_helpers import make_manifest
+
+# ---------------------------------------------------------------------------
+# Environment classification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("alias", "expected"),
+    [
+        # Every spelling the old literal 'prod' match let through.
+        ("prod", PRODUCTION),
+        ("PROD", PRODUCTION),
+        ("production", PRODUCTION),
+        ("Production", PRODUCTION),
+        ("prd", PRODUCTION),
+        ("live", PRODUCTION),
+        ("prod-eu", PRODUCTION),
+        ("prod_eu", PRODUCTION),
+        ("  prod  ", PRODUCTION),
+        ("PRODUCTION-US-EAST", PRODUCTION),
+        # Staging must not be swallowed by the 'prod' substring in 'pre-prod'.
+        ("staging", STAGING),
+        ("stage", STAGING),
+        ("preprod", STAGING),
+        ("pre-prod", STAGING),
+        ("uat", STAGING),
+        ("qa", STAGING),
+        ("dev", DEVELOPMENT),
+        ("development", DEVELOPMENT),
+        ("local", DEVELOPMENT),
+        ("sandbox", DEVELOPMENT),
+        # CALIBER's own non-deployment sentinels: a direct run of a version is not
+        # a production deployment and must not demand production boundaries.
+        ("manual", DEVELOPMENT),
+        ("preview", DEVELOPMENT),
+    ],
+)
+def test_environment_class_is_insensitive_to_spelling(alias: str, expected: str) -> None:
+    assert environment_class(alias, CaliberConfig()) == expected
+
+
+def test_unrecognised_alias_fails_closed_into_production() -> None:
+    """A house-style alias nobody classified must inherit the *strictest*
+    requirements, not escape them."""
+    assert environment_class("canary", CaliberConfig()) == PRODUCTION
+    assert environment_class("blue", CaliberConfig()) == PRODUCTION
+
+
+def test_operator_mapping_overrides_the_patterns() -> None:
+    config = CaliberConfig(
+        deployment_environment_classes="blue=production,green=production,demo=development"
+    )
+    assert environment_class("blue", config) == PRODUCTION
+    assert environment_class("demo", config) == DEVELOPMENT
+    # A typo in the class name must not silently downgrade the requirement.
+    bad = CaliberConfig(deployment_environment_classes="blue=prodction")
+    assert environment_class("blue", bad) == PRODUCTION
+
+
+def test_default_class_is_configurable_for_a_dev_only_installation() -> None:
+    config = CaliberConfig(deployment_default_environment_class="development")
+    assert environment_class("canary", config) == DEVELOPMENT
+    assert environment_class("prod", config) == PRODUCTION  # patterns still win
+
+
+@pytest.mark.parametrize("alias", ["prod", "PROD", "production", "prod-eu", "canary"])
+def test_isolation_is_required_for_every_production_spelling(alias: str) -> None:
+    """The concrete regression: the old alias-list match returned False for all
+    of these except the exact literal ``prod``."""
+    assert requires_external_isolation(alias, CaliberConfig()) is True
+
+
+@pytest.mark.parametrize("alias", ["dev", "sandbox", "manual", "preview"])
+def test_isolation_is_not_required_for_development(alias: str) -> None:
+    assert requires_external_isolation(alias, CaliberConfig()) is False
+
+
+def test_legacy_alias_list_still_adds_an_opt_in() -> None:
+    """An existing deployment's configuration keeps working: the legacy list can
+    still *add* a requirement, it just can no longer be the only thing enforcing
+    one."""
+    config = CaliberConfig(
+        mcp_require_external_isolation_for_aliases="dev",
+        mcp_require_external_isolation_for_environment_classes="production",
+    )
+    assert requires_external_isolation("dev", config) is True
+    assert requires_external_isolation("sandbox", config) is False
+
+
+def test_staging_can_be_required_too() -> None:
+    config = CaliberConfig(
+        mcp_require_external_isolation_for_environment_classes="production,staging"
+    )
+    assert requires_external_isolation("staging", config) is True
+    assert requires_external_isolation("dev", config) is False
+
+
+def test_an_empty_or_bogus_class_list_falls_back_to_production() -> None:
+    for raw in ("", "   ", "nonsense"):
+        config = CaliberConfig(mcp_require_external_isolation_for_environment_classes=raw)
+        assert requires_external_isolation("prod", config) is True
+        assert requires_external_isolation("dev", config) is False
+
+
+# ---------------------------------------------------------------------------
+# Transitive subworkflow dependency inspection
+# ---------------------------------------------------------------------------
+
+
+def _blocked_server(server_id: str = "MCP-BLOCKED") -> CaliberMcpServer:
+    """A server that fails readiness: disabled status is enough to block."""
+    return CaliberMcpServer(
+        server_id=server_id,
+        name="Blocked server",
+        transport="stdio",
+        command="${PYTHON}",
+        args=["-m", "caliber.mcp_servers.db", "--mode", "relational"],
+        status="disabled",
+        discovered_tools=[{"name": "search_docs"}],
+        tool_policies={
+            "search_docs": {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            }
+        },
+        last_connected_at=datetime.now(timezone.utc),
+    )
+
+
+def _manifest_with_mcp_node(workflow_id: str, server_id: str) -> dict[str, object]:
+    manifest = make_manifest(workflow_id)
+    nodes = manifest["nodes"]
+    assert isinstance(nodes, dict)
+    nodes["mcp_lookup"] = {
+        "id": "mcp_lookup",
+        "type": "mcp_resource",
+        "server_id": server_id,
+        "tool_name": "search_docs",
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"output": {"type": "string"}},
+    }
+    return manifest
+
+
+def _manifest_with_subworkflow(
+    workflow_id: str, child_workflow_id: str, alias: str
+) -> dict[str, object]:
+    manifest = make_manifest(workflow_id)
+    nodes = manifest["nodes"]
+    assert isinstance(nodes, dict)
+    nodes["child"] = {
+        "id": "child",
+        "type": "subworkflow",
+        "workflow_id": child_workflow_id,
+        "alias": alias,
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {"output": {"type": "string"}, "result": {"type": "structured"}},
+    }
+    return manifest
+
+
+def _deploy(session: Session, workflow_id: str, alias: str, manifest: dict[str, object]) -> str:
+    """Create workflow + published version + active deployment; return version id."""
+    version_id = f"wfv-{workflow_id}-{alias}"
+    session.add(CaliberWorkflow(workflow_id=workflow_id, name=workflow_id, owner="@test"))
+    session.add(
+        CaliberWorkflowVersion(
+            version_id=version_id,
+            workflow_id=workflow_id,
+            version_number=1,
+            status="published",
+            manifest=manifest,
+            manifest_hash=f"hash-{version_id}",
+        )
+    )
+    session.add(
+        CaliberWorkflowDeployment(
+            deployment_id=f"wfd-{workflow_id}-{alias}",
+            workflow_id=workflow_id,
+            alias=alias,
+            version_id=version_id,
+            status="active",
+            deployed_by="@test",
+            deployed_at=datetime.now(timezone.utc),
+            rollback_checkpoint=[],
+        )
+    )
+    session.flush()
+    return version_id
+
+
+def test_extract_dependencies_walks_into_a_deployed_subworkflow(db_session: Session) -> None:
+    """Without the session the walk is root-only (the old behaviour); with it the
+    child's MCP dependency is found and labelled by the path that reached it."""
+    child_manifest = _manifest_with_mcp_node("child-wf", "MCP-CHILD")
+    _deploy(db_session, "child-wf", "prod", child_manifest)
+    parent_manifest = _manifest_with_subworkflow("parent-wf", "child-wf", "prod")
+
+    root_only = extract_dependencies(parent_manifest)
+    assert root_only == []
+
+    transitive = extract_dependencies(parent_manifest, session=db_session)
+    assert [d.server_id for d in transitive] == ["MCP-CHILD"]
+    assert transitive[0].label.startswith("via subworkflow 'child' → ")
+
+
+def test_deployment_preflight_blocks_a_parent_whose_child_uses_a_blocked_server(
+    db_session: Session,
+) -> None:
+    """The concrete gap: the parent declares no MCP tool of its own, so the old
+    root-only preflight passed it while the child it invokes was unusable."""
+    db_session.add(_blocked_server("MCP-CHILD"))
+    _deploy(db_session, "child-wf", "prod", _manifest_with_mcp_node("child-wf", "MCP-CHILD"))
+    parent_manifest = _manifest_with_subworkflow("parent-wf", "child-wf", "prod")
+
+    # Root-only inspection — what preflight used to do — sees nothing to block.
+    assert extract_dependencies(parent_manifest) == []
+    blockers = deployment_blockers(db_session, parent_manifest, alias="dev", config=CaliberConfig())
+    # The child's disabled status must surface, attributed to the child.
+    assert any("via subworkflow 'child'" in b and "disabled" in b for b in blockers)
+
+
+def test_transitive_walk_terminates_on_a_subworkflow_cycle(db_session: Session) -> None:
+    """A stored manifest can predate the compiler's cycle check; the walk must
+    still terminate rather than recurse forever."""
+    db_session.add(CaliberWorkflow(workflow_id="a-wf", name="a", owner="@test"))
+    a_manifest = _manifest_with_subworkflow("a-wf", "b-wf", "prod")
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="wfv-a",
+            workflow_id="a-wf",
+            version_number=1,
+            status="published",
+            manifest=a_manifest,
+            manifest_hash="hash-a",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="wfd-a",
+            workflow_id="a-wf",
+            alias="prod",
+            version_id="wfv-a",
+            status="active",
+            deployed_by="@test",
+            deployed_at=datetime.now(timezone.utc),
+            rollback_checkpoint=[],
+        )
+    )
+    _deploy(db_session, "b-wf", "prod", _manifest_with_subworkflow("b-wf", "a-wf", "prod"))
+
+    assert extract_dependencies(a_manifest, session=db_session) == []
+
+
+def test_an_unresolvable_child_blocks_an_alias_rotation_but_not_a_run(
+    db_session: Session,
+) -> None:
+    """An alias rotation is a promise the whole graph is deployable, so a child
+    with no active deployment is a blocker. A run submission keeps its existing
+    contract, where the runtime reports the failure precisely on the run record."""
+    parent_manifest = _manifest_with_subworkflow("parent-wf", "absent-wf", "prod")
+
+    rotation = deployment_blockers(
+        db_session, parent_manifest, alias="dev", require_resolvable_subworkflows=True
+    )
+    assert any("absent-wf" in b and "no active deployment" in b for b in rotation)
+    assert deployment_blockers(db_session, parent_manifest, alias="dev") == []
+
+
+# ---------------------------------------------------------------------------
+# Universal alias preflight (rollback)
+# ---------------------------------------------------------------------------
+
+
+def test_rollback_runs_mcp_preflight_and_leaves_the_alias_untouched_on_failure(
+    db_session: Session,
+) -> None:
+    """Regression: rollback rotated the live alias with no preflight, so it could
+    restore a version whose MCP server had since been disabled."""
+    db_session.add(_blocked_server("MCP-OLD"))
+    db_session.add(CaliberWorkflow(workflow_id="wf-rb", name="Rollback", owner="@test"))
+    old = CaliberWorkflowVersion(
+        version_id="wfv-old",
+        workflow_id="wf-rb",
+        version_number=1,
+        status="published",
+        manifest=_manifest_with_mcp_node("wf-rb", "MCP-OLD"),
+        manifest_hash="hash-old",
+    )
+    new = CaliberWorkflowVersion(
+        version_id="wfv-new",
+        workflow_id="wf-rb",
+        version_number=2,
+        status="published",
+        manifest=make_manifest("wf-rb"),
+        manifest_hash="hash-new",
+    )
+    deployment = CaliberWorkflowDeployment(
+        deployment_id="wfd-rb",
+        workflow_id="wf-rb",
+        alias="prod",
+        version_id="wfv-new",
+        status="active",
+        deployed_by="@test",
+        deployed_at=datetime.now(timezone.utc),
+        rollback_checkpoint=[
+            {"version_id": "wfv-old", "deployed_at": None, "deployed_by": "@test"}
+        ],
+    )
+    db_session.add_all([old, new, deployment])
+    db_session.flush()
+
+    with pytest.raises(AliasPreflightError) as excinfo:
+        rollback(db_session, "wf-rb", "prod", actor="@test", config=CaliberConfig())
+
+    assert "MCP-OLD" in str(excinfo.value) or excinfo.value.blockers
+    # The alias and its checkpoint stack must be intact so the operator can fix
+    # the dependency and retry.
+    db_session.refresh(deployment)
+    assert deployment.version_id == "wfv-new"
+    assert [entry["version_id"] for entry in deployment.rollback_checkpoint] == ["wfv-old"]
+
+
+def test_rollback_succeeds_and_records_the_environment_class(db_session: Session) -> None:
+    """``environment`` was a dormant column: nothing populated it. It must now
+    agree with the resolver that keys the isolation requirement."""
+    db_session.add(CaliberWorkflow(workflow_id="wf-ok", name="Rollback ok", owner="@test"))
+    for number, version_id in ((1, "wfv-a"), (2, "wfv-b")):
+        db_session.add(
+            CaliberWorkflowVersion(
+                version_id=version_id,
+                workflow_id="wf-ok",
+                version_number=number,
+                status="published",
+                manifest=make_manifest("wf-ok"),
+                manifest_hash=f"hash-{version_id}",
+            )
+        )
+    deployment = CaliberWorkflowDeployment(
+        deployment_id="wfd-ok",
+        workflow_id="wf-ok",
+        alias="prod-eu",
+        version_id="wfv-b",
+        status="active",
+        deployed_by="@test",
+        deployed_at=datetime.now(timezone.utc),
+        rollback_checkpoint=[{"version_id": "wfv-a", "deployed_at": None, "deployed_by": "@test"}],
+    )
+    db_session.add(deployment)
+    db_session.flush()
+
+    result = rollback(db_session, "wf-ok", "prod-eu", actor="@ops", config=CaliberConfig())
+    assert result.version_id == "wfv-a"
+    assert result.rollback_checkpoint == []
+    assert result.environment == PRODUCTION
+    assert result.deployed_by == "@ops"
+
+
+def test_rollback_refuses_a_checkpoint_whose_version_no_longer_exists(
+    db_session: Session,
+) -> None:
+    db_session.add(CaliberWorkflow(workflow_id="wf-gone", name="Gone", owner="@test"))
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="wfv-current",
+            workflow_id="wf-gone",
+            version_number=2,
+            status="published",
+            manifest=make_manifest("wf-gone"),
+            manifest_hash="hash-current",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="wfd-gone",
+            workflow_id="wf-gone",
+            alias="dev",
+            version_id="wfv-current",
+            status="active",
+            deployed_by="@test",
+            deployed_at=datetime.now(timezone.utc),
+            rollback_checkpoint=[{"version_id": "wfv-deleted"}],
+        )
+    )
+    db_session.flush()
+
+    with pytest.raises(AliasPreflightError, match="wfv-deleted"):
+        rollback(db_session, "wf-gone", "dev", actor="@test", config=CaliberConfig())
+
+
+# ---------------------------------------------------------------------------
+# Managed-file time-of-check/time-of-use at rotation
+# ---------------------------------------------------------------------------
+
+
+def test_alias_rotation_refuses_a_version_whose_pinned_object_disappeared(
+    db_session: Session, tmp_path: object
+) -> None:
+    """Regression: the deploy gate verified pinned objects when it evaluated, but
+    approval (potentially much later) did not re-read them, so deleting an object
+    between evaluation and approval could rotate the alias onto an unrunnable
+    version. Rollback had the same hole with no check at all.
+    """
+    from pathlib import Path
+
+    from caliber.config import WorkflowStorageConfig
+    from caliber.db.models import CaliberProject
+    from caliber.storage import LocalStorageBackend, WorkingDirectoryService
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    assert isinstance(tmp_path, Path)
+    storage_config = WorkflowStorageConfig(base_uri=f"file://{tmp_path}/files")
+    service = WorkingDirectoryService(LocalStorageBackend(storage_config.base_uri), storage_config)
+    project = CaliberProject(project_id="PRJ-toctou", tenant_id="t", name="TOCTOU", owner="@test")
+    workflow = CaliberWorkflow(
+        workflow_id="wf-toctou", project_id=project.project_id, name="TOCTOU", owner="@test"
+    )
+    db_session.add_all([project, workflow])
+    record = service.register_project_file(
+        db_session,
+        project_id=project.project_id,
+        tenant_id=project.tenant_id,
+        kind="input",
+        filename="source.md",
+        data=b"pinned content",
+        media_type="text/markdown",
+        actor="@test",
+    )
+    manifest = make_manifest("wf-toctou")
+    nodes = manifest["nodes"]
+    assert isinstance(nodes, dict)
+    nodes["managed_source"] = {
+        "id": "managed_source",
+        "type": "file_input",
+        "file_ref": record.to_api()["immutable_ref"],
+    }
+    manifest["edges"] = [
+        {"id": "e0", "from": "start", "to": "managed_source", "map": {"msg": "path"}},
+        {"id": "e1", "from": "managed_source", "to": "agent", "map": {"text": "input"}},
+        {"id": "e2", "from": "agent", "to": "final", "map": {"final_output": "response"}},
+    ]
+    version = CaliberWorkflowVersion(
+        version_id="wfv-toctou",
+        workflow_id="wf-toctou",
+        version_number=1,
+        status="published",
+        manifest=manifest,
+        manifest_hash="hash-toctou",
+    )
+    db_session.add(version)
+    db_session.flush()
+
+    config = CaliberConfig(workflow_storage=storage_config)
+    # Verified while the object is present.
+    require_alias_target_ready(db_session, "prod", "wfv-toctou", config=config)
+
+    # Now the object physically disappears between evaluation and rotation.
+    for path in (tmp_path / "files").rglob("*"):
+        if path.is_file():
+            path.unlink()
+
+    with pytest.raises(AliasPreflightError) as excinfo:
+        require_alias_target_ready(db_session, "prod", "wfv-toctou", config=config)
+    assert any("managed file preflight failed" in blocker for blocker in excinfo.value.blockers)

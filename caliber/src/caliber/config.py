@@ -609,6 +609,31 @@ class CaliberConfig(BaseModel):
         gt=0,
         description="Claim-lease duration for running workflow runs before recovery.",
     )
+    slo_objectives: str = Field(
+        default="",
+        description=(
+            "Comma-separated service-level objectives evaluated by "
+            "caliber.observability.slo, e.g. "
+            "'workflow_success_rate>=0.99,workflow_p95_latency_ms<=30000'. Empty means "
+            "no objectives are declared; an objective naming an unknown signal is "
+            "reported as a configuration error rather than silently ignored."
+        ),
+    )
+    slo_window_minutes: float = Field(
+        default=60.0,
+        gt=0,
+        description="Trailing window, in minutes, over which SLO signals are computed.",
+    )
+    workflow_queue_max_age_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        description=(
+            "Backlog tolerance for the workflow run queue. A run waiting longer than "
+            "this marks the queue operationally degraded, which is what separates "
+            "'busy' from 'nothing is consuming the queue'. Read by "
+            "caliber.observability.queue_health; it does not change scheduling."
+        ),
+    )
     knowledge_build_queue_enabled: bool = Field(
         default=True,
         description=(
@@ -917,8 +942,54 @@ class CaliberConfig(BaseModel):
     mcp_require_external_isolation_for_aliases: str = Field(
         default="prod",
         description=(
-            "Comma-separated deployment aliases that reject local stdio MCP execution "
-            "because local wrappers remain containment and never satisfy this requirement."
+            "Legacy explicit alias list that rejects local stdio MCP execution. Retained "
+            "for backward compatibility and honoured as an ADDITIONAL opt-in; the primary "
+            "rule is now the environment class (see "
+            "mcp_require_external_isolation_for_environment_classes), because keying a "
+            "safety requirement to an alias string let 'production'/'prod-eu'/'PROD' "
+            "through."
+        ),
+    )
+    mcp_require_external_isolation_for_environment_classes: str = Field(
+        default="production",
+        description=(
+            "Comma-separated environment classes (production/staging/development) whose "
+            "deployments reject local stdio MCP execution. Resolved from the alias by "
+            "caliber.deployment_environments, so spelling variants cannot bypass it."
+        ),
+    )
+    deployment_environment_classes: str = Field(
+        default="",
+        description=(
+            "Optional explicit alias-to-environment-class map, e.g. "
+            "'blue=production,green=production,demo=development'. Wins over the built-in "
+            "name patterns so a house-style alias can be classified correctly."
+        ),
+    )
+    release_require_quality_gate_for_environment_classes: str = Field(
+        default="production",
+        description=(
+            "Environment classes whose promotions must have a passing deploy gate. "
+            "Rotating a production alias onto a version with no graded evidence is "
+            "refused; set to '' to allow it (development installs, migrations)."
+        ),
+    )
+    release_require_human_approval_for_environment_classes: str = Field(
+        default="",
+        description=(
+            "Environment classes whose promotions pause for a human approval instead "
+            "of rotating immediately. Empty ships single-environment behaviour; set to "
+            "'production' to require sign-off. The promotion/approval machinery is "
+            "fully wired, so this is configuration rather than a code change."
+        ),
+    )
+    deployment_default_environment_class: str = Field(
+        default="production",
+        pattern="^(production|staging|development)$",
+        description=(
+            "Environment class for an alias that matches no pattern or explicit mapping. "
+            "Defaults to 'production' so an unrecognised alias fails closed into the "
+            "strictest requirements rather than silently escaping them."
         ),
     )
     # Bounded concurrency for a ForEach node whose target is an agent: how many
@@ -929,6 +1000,12 @@ class CaliberConfig(BaseModel):
     # ForEach trace; only the agent-target branch parallelizes (subworkflow
     # targets stay sequential).
     workflow_foreach_max_workers: int = Field(default=1, ge=1, le=64)
+
+    # Ceiling on concurrent *parallel-branch* threads. The pool used to be sized to
+    # the branch count with no cap, so a wide graph spawned one thread per branch:
+    # a manifest-authoring choice could exhaust the process's threads. Excess
+    # branches queue, so raising or lowering this changes throughput, not results.
+    workflow_parallel_branch_max_workers: int = Field(default=8, ge=1, le=64)
 
     # ------------------------------------------------------------------
     # Object store (MinIO / S3) console
@@ -1350,6 +1427,9 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         float,
     ),
     ("CALIBER_WORKFLOW_RUN_LEASE_SECONDS", "workflow_run_lease_seconds", float),
+    ("CALIBER_WORKFLOW_QUEUE_MAX_AGE_SECONDS", "workflow_queue_max_age_seconds", float),
+    ("CALIBER_SLO_OBJECTIVES", "slo_objectives", str),
+    ("CALIBER_SLO_WINDOW_MINUTES", "slo_window_minutes", float),
     (
         "CALIBER_KNOWLEDGE_BUILD_QUEUE_ENABLED",
         "knowledge_build_queue_enabled",
@@ -1479,7 +1559,33 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         "mcp_require_external_isolation_for_aliases",
         str,
     ),
+    (
+        "CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES",
+        "mcp_require_external_isolation_for_environment_classes",
+        str,
+    ),
+    ("CALIBER_DEPLOYMENT_ENVIRONMENT_CLASSES", "deployment_environment_classes", str),
+    (
+        "CALIBER_RELEASE_REQUIRE_QUALITY_GATE_FOR_ENVIRONMENT_CLASSES",
+        "release_require_quality_gate_for_environment_classes",
+        str,
+    ),
+    (
+        "CALIBER_RELEASE_REQUIRE_HUMAN_APPROVAL_FOR_ENVIRONMENT_CLASSES",
+        "release_require_human_approval_for_environment_classes",
+        str,
+    ),
+    (
+        "CALIBER_DEPLOYMENT_DEFAULT_ENVIRONMENT_CLASS",
+        "deployment_default_environment_class",
+        str,
+    ),
     ("CALIBER_WORKFLOW_FOREACH_MAX_WORKERS", "workflow_foreach_max_workers", int),
+    (
+        "CALIBER_WORKFLOW_PARALLEL_BRANCH_MAX_WORKERS",
+        "workflow_parallel_branch_max_workers",
+        int,
+    ),
     ("CALIBER_WORKFLOW_RUN_ARTIFACT_BUCKET", "workflow_run_artifact_bucket", str),
     ("CALIBER_WORKFLOW_RUN_ARTIFACT_PREFIX", "workflow_run_artifact_prefix", str),
     ("CALIBER_WORKFLOW_RUN_LOG_PREFIX", "workflow_run_log_prefix", str),

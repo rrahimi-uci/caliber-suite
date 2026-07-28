@@ -32,10 +32,15 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.auth import require_user
-from caliber.routes._deps import envelope_response_dict
+from caliber.observability import slo
+from caliber.observability.queue_health import collect_queue_health
+from caliber.observability.readiness import collect_readiness
+from caliber.routes._deps import envelope_response_dict, get_session_factory
 from caliber.schemas import SystemServiceSchema
 
 SERVICES_PATH = "/ajax-api/2.0/mlflow/caliber/system/services"
+QUEUE_PATH = "/ajax-api/2.0/mlflow/caliber/system/queue"
+ALERTS_PATH = "/ajax-api/2.0/mlflow/caliber/system/alerts"
 
 _HTTP_TIMEOUT_SECONDS = 2.5
 _TCP_TIMEOUT_SECONDS = 2.0
@@ -266,5 +271,88 @@ async def _noop_probe() -> _Probe:
     return _Probe(None, "not configured", None)
 
 
+async def get_queue(request: Request) -> JSONResponse:
+    """``GET /caliber/system/queue`` — workflow run queue depth + worker liveness.
+
+    The operational signal ``/health`` cannot give: it proves only that the API
+    and its database answer, so a dead worker with a growing backlog looked
+    identical to a healthy idle system. Derived entirely from durable run state
+    (see :mod:`caliber.observability.queue_health`) — read-only, no new schema.
+    """
+    require_user(request)
+    config = getattr(request.app.state, "config", None)
+    lease = float(getattr(config, "workflow_run_lease_seconds", 60.0) or 60.0)
+    max_age = float(getattr(config, "workflow_queue_max_age_seconds", 300.0) or 300.0)
+    factory = get_session_factory(request)
+    with factory() as session:
+        health = collect_queue_health(session, lease_seconds=lease, max_queue_age_seconds=max_age)
+    # Outbound webhook delivery failures belong on the same operations surface: an
+    # event that exhausted every retry is a *lost notification*, which reads as
+    # "nothing happened" to whoever depends on the webhook stream.
+    dispatcher = getattr(request.app.state, "webhook_dispatcher", None)
+    webhooks: dict[str, object] | None = None
+    if dispatcher is not None and hasattr(dispatcher, "dead_letters"):
+        webhooks = dispatcher.dead_letters()
+    return envelope_response_dict(
+        {
+            **health.to_dict(),
+            "lease_seconds": lease,
+            "max_queue_age_seconds": max_age,
+            "webhook_delivery": webhooks,
+            "checked_at_ms": int(time.time() * 1000),
+        }
+    )
+
+
+async def get_alerts(request: Request) -> JSONResponse:
+    """``GET /caliber/system/alerts`` — declared SLOs and which are breached.
+
+    Closes the *evaluation* half of "no alert policies, configurable SLOs, error
+    budgets": an operator declares objectives in configuration and this reports the
+    observed value, the verdict, and — for ratio objectives — remaining error
+    budget and burn rate. Routing, escalation, silencing, and incident history are
+    deliberately out of scope (see :mod:`caliber.observability.slo`).
+
+    Queue, webhook, and readiness signals are collected here and handed to the
+    evaluator, so this endpoint cannot report a different queue depth than
+    ``/system/queue`` did in the same request.
+    """
+    require_user(request)
+    config = getattr(request.app.state, "config", None)
+    lease = float(getattr(config, "workflow_run_lease_seconds", 60.0) or 60.0)
+    max_age = float(getattr(config, "workflow_queue_max_age_seconds", 300.0) or 300.0)
+    window = float(getattr(config, "slo_window_minutes", slo.DEFAULT_WINDOW_MINUTES) or 60.0)
+
+    dispatcher = getattr(request.app.state, "webhook_dispatcher", None)
+    webhook_delivery = (
+        dispatcher.dead_letters()
+        if dispatcher is not None and hasattr(dispatcher, "dead_letters")
+        else None
+    )
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        queue_health = collect_queue_health(
+            session, lease_seconds=lease, max_queue_age_seconds=max_age
+        )
+        readiness = await collect_readiness(
+            config=config,
+            session_factory=factory,
+            environ=dict(os.environ),
+            queue_health=queue_health,
+        )
+        report = slo.build_report(
+            session,
+            raw_objectives=getattr(config, "slo_objectives", ""),
+            window_minutes=window,
+            queue_health=queue_health,
+            webhook_delivery=webhook_delivery,
+            readiness=readiness,
+        )
+    return envelope_response_dict({**report, "checked_at_ms": int(time.time() * 1000)})
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(SERVICES_PATH, get_services, methods=["GET"]))
+    app.routes.append(Route(QUEUE_PATH, get_queue, methods=["GET"]))
+    app.routes.append(Route(ALERTS_PATH, get_alerts, methods=["GET"]))
