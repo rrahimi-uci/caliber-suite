@@ -16,6 +16,7 @@ vi.mock("@/api/caliberApi", () => ({
   caliberApi: {
     getProviderReadiness: vi.fn(),
     listProjects: vi.fn(),
+    createProject: vi.fn(),
   },
 }));
 
@@ -109,6 +110,31 @@ describe("WorkspaceSelector", () => {
     expect(getActiveProjectId()).toBeNull();
     expect(changed).toHaveBeenCalledTimes(2);
     window.removeEventListener("caliber-workspace-changed", changed);
+  });
+
+  it("creates and selects a workspace without leaving the shell", async () => {
+    vi.mocked(caliberApi.listProjects).mockResolvedValue([]);
+    vi.mocked(caliberApi.createProject).mockResolvedValue({
+      project_id: "proj-new",
+      name: "Document automation",
+      description: "",
+      owner: "@ops",
+      status: "active",
+      storage_backend: "local",
+      created_at: null,
+      updated_at: null,
+      file_count: 0,
+    });
+    const user = userEvent.setup();
+
+    renderWithQuery(<WorkspaceSelector />);
+    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.type(screen.getByLabelText("Workspace name"), "Document automation");
+    await user.click(screen.getByRole("button", { name: "Create and select" }));
+
+    await waitFor(() => expect(caliberApi.createProject).toHaveBeenCalledWith({ name: "Document automation" }));
+    expect(getActiveProjectId()).toBe("proj-new");
+    expect(screen.getByLabelText("Active workspace")).toHaveValue("proj-new");
   });
 });
 

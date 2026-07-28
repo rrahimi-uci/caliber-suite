@@ -86,7 +86,10 @@ class AgentRegisterRequest(BaseModel):
     agent_id: str = Field(min_length=1, max_length=64)
     experiment_id: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=256)
-    owner: str = Field(min_length=1, max_length=256)
+    # Ownership is derived from the authenticated actor. Kept in the request
+    # shape for backward compatibility, but callers no longer need to send a
+    # placeholder value that the route ignores.
+    owner: str = Field(default="", max_length=256)
     artifact_types: list[str] = Field(default_factory=list)
     eval_thresholds: dict[str, object] = Field(default_factory=dict)
     optimizer_config: dict[str, object] = Field(default_factory=dict)
@@ -1311,6 +1314,7 @@ class WorkflowSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     workflow_id: str
+    project_id: str | None = None
     name: str
     description: str
     owner: str
@@ -2637,6 +2641,9 @@ class AriaPlanStepSchema(BaseModel):
     capability_key: str
     title: str
     inputs: dict[str, Any] = Field(default_factory=dict)
+    # Registry-derived (not persisted) schema used to render and validate the
+    # plan's no-code input form.
+    input_schema: dict[str, Any] = Field(default_factory=dict)
     depends_on: list[str] = Field(default_factory=list)
     status: str
     result: dict[str, Any] = Field(default_factory=dict)
@@ -2732,7 +2739,8 @@ class AriaInteractionAnswerRequest(BaseModel):
     """Body of ``POST /caliber/aria/interactions/{interaction_id}/answer``.
 
     For a ``permission`` / ``confirm`` ask, set ``approved``. For a ``choice``,
-    set ``choice`` to the selected option value. For an ``input``, set ``value``.
+    set ``choice`` to the selected option value. For an ``input``, set the
+    capability fields in ``inputs``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -2740,6 +2748,7 @@ class AriaInteractionAnswerRequest(BaseModel):
     approved: bool | None = None
     choice: str | None = None
     value: Any | None = None
+    inputs: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -3052,8 +3061,40 @@ class GatewayGuardrailCreateRequest(BaseModel):
 
 
 MCP_TRANSPORT_PATTERN = "^(stdio|sse|streamable-http)$"
-MCP_AUTH_TYPE_PATTERN = "^(none|token|oauth|basic|custom)$"
+MCP_AUTH_TYPE_PATTERN = "^(none|token|basic|custom)$"
 MCP_STATUS_PATTERN = "^(active|error|disabled)$"
+
+
+class McpExecutionReadinessSchema(BaseModel):
+    """Effective MCP runtime containment and availability assessment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ready: bool = False
+    transport_ready: bool = False
+    status_ready: bool = False
+    boundary: str = "none"
+    production_isolated: bool = False
+    command_allowed: bool | None = None
+    executable_available: bool | None = None
+    remote_host_allowed: bool | None = None
+    controls: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+MCP_SIDE_EFFECT_PATTERN = "^(read|write|external_action)$"
+
+
+class McpToolPolicySchema(BaseModel):
+    """Policy controls applied to one MCP tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    allowed: bool = True
+    side_effect_level: str = Field(default="read", pattern=MCP_SIDE_EFFECT_PATTERN)
+    requires_approval: bool = False
+    rate_limit_per_minute: int | None = Field(default=None, ge=1, le=100_000)
 
 
 class McpServerSchema(BaseModel):
@@ -3080,6 +3121,7 @@ class McpServerSchema(BaseModel):
     status: str
     last_connected_at: datetime | None = None
     connection_error: str | None = None
+    execution: McpExecutionReadinessSchema = Field(default_factory=McpExecutionReadinessSchema)
     owner: str = ""
     created_at: datetime
     updated_at: datetime
@@ -3106,6 +3148,7 @@ class McpServerCreateRequest(BaseModel):
     # template) so its tools are visible before a live discovery runs. Real
     # ``tools/list`` discovery overwrites these on the next test-connection.
     discovered_tools: list[dict[str, object]] = Field(default_factory=list)
+    tool_policies: dict[str, McpToolPolicySchema] = Field(default_factory=dict)
 
 
 class McpServerUpdateRequest(BaseModel):
@@ -3125,20 +3168,6 @@ class McpServerUpdateRequest(BaseModel):
     icon: str | None = Field(default=None, max_length=64)
     owner: str | None = Field(default=None, max_length=256)
     status: str | None = Field(default=None, pattern=MCP_STATUS_PATTERN)
-
-
-MCP_SIDE_EFFECT_PATTERN = "^(read|write|external_action)$"
-
-
-class McpToolPolicySchema(BaseModel):
-    """Policy controls applied to one MCP tool."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    allowed: bool = True
-    side_effect_level: str = Field(default="read", pattern=MCP_SIDE_EFFECT_PATTERN)
-    requires_approval: bool = False
-    rate_limit_per_minute: int | None = Field(default=None, ge=1, le=100_000)
 
 
 class McpToolPolicyUpdateRequest(BaseModel):
@@ -3180,6 +3209,7 @@ class McpDiscoveredToolWithPolicySchema(McpDiscoveredToolSchema):
     model_config = ConfigDict(extra="allow")
 
     policy: McpToolPolicySchema
+    classified: bool = False
 
 
 class McpServerToolsResponse(BaseModel):

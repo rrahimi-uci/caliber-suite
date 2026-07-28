@@ -49,11 +49,22 @@ _TOOLS_BY_MODE: dict[str, tuple[Callable[..., Any], ...]] = {
 }
 
 
-def build_server(mode: str) -> FastMCP:
+def build_server(
+    mode: str,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+) -> FastMCP:
     """Construct a FastMCP server exposing the tools for ``mode``."""
     if mode not in _TOOLS_BY_MODE:
         raise ValueError(f"unknown mode {mode!r}; expected one of {MODES}")
-    app: FastMCP = FastMCP(f"caliber-db-{mode}")
+    app: FastMCP = FastMCP(
+        f"caliber-db-{mode}",
+        host=host,
+        port=port,
+        stateless_http=True,
+        json_response=True,
+    )
     for tool in _TOOLS_BY_MODE[mode]:
         app.tool()(tool)
     return app

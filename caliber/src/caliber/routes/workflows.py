@@ -21,18 +21,25 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
+from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
+    CaliberEvalDataset,
+    CaliberKnowledgeBase,
+    CaliberKnowledgeBaseVersion,
+    CaliberMcpServer,
     CaliberRefinementJob,
     CaliberRegressionRun,
     CaliberRollbackCheckpoint,
     CaliberRuntimeApprovalRequest,
+    CaliberSkill,
+    CaliberToolRegistry,
     CaliberVerificationItem,
     CaliberWorkflow,
     CaliberWorkflowBenchmarkReport,
     CaliberWorkflowDeployment,
+    CaliberWorkflowFile,
     CaliberWorkflowPatch,
     CaliberWorkflowPromotion,
     CaliberWorkflowRun,
@@ -69,6 +76,7 @@ from caliber.schemas import (
     WorkflowUpdateRequest,
     WorkflowVersionSchema,
 )
+from caliber.storage import VISIBLE_STATUSES, StorageError, parse_ref
 from caliber.workflows.component_catalog import build_workflow_component_catalog
 from caliber.workflows.cron import next_fires, validate_cron
 from caliber.workflows.manifest import (
@@ -78,10 +86,12 @@ from caliber.workflows.manifest import (
 )
 from caliber.workflows.promoter import LIVE_ALIASES
 from caliber.workflows.template_catalog import build_workflow_template_catalog
-from caliber.workflows.validation import find_inline_secrets
+from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry, ToolResolutionError
+from caliber.workflows.validation import ValidationReport, find_inline_secrets, validate_manifest
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/workflows"
 IMPORT_PATH = "/ajax-api/2.0/mlflow/caliber/workflows/import"
+IMPORT_PREVIEW_PATH = IMPORT_PATH + "/preview"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}"
 SESSION_MEMORY_PATH = DETAIL_PATH + "/session-memory"
 COMPONENTS_PATH = "/ajax-api/2.0/mlflow/caliber/workflow-components"
@@ -672,23 +682,513 @@ async def update_workflow(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
-async def import_workflow(request: Request) -> JSONResponse:
-    """Import a workflow from a manifest (plan §15.5).
+def _scoped_tool_resolver(session: Any, identity: Any) -> InMemoryToolResolver:
+    stmt = apply_visibility_filter(
+        select(CaliberToolRegistry),
+        CaliberToolRegistry,
+        identity,
+        identity.active_project_id,
+    )
+    rows = session.execute(stmt).scalars().all()
+    return InMemoryToolResolver(
+        [
+            ToolRegistryEntry(
+                name=row.name,
+                version=row.version,
+                module_path=row.module_path,
+                callable_name=row.callable_name,
+                side_effect_level=row.side_effect_level,
+                requires_approval=row.requires_approval,
+                allow_in_preview=row.allow_in_preview,
+                input_schema=row.input_schema,
+                output_schema=row.output_schema,
+                secret_refs=tuple(row.secret_refs or []),
+                status=row.status,
+                description=row.description,
+            )
+            for row in rows
+        ]
+    )
 
-    Accepts a parsed ``manifest`` object or a raw ``manifest_yaml`` string.
-    Creates the workflow (when its ``workflow_id`` is new) and a fresh draft
-    version holding the imported manifest. Importing a manifest whose
-    ``workflow_id`` already exists appends a new draft version to it.
-    """
-    body = await parse_json_object(request)
-    payload = WorkflowImportRequest.model_validate(body)
-    actor = require_scopes(request, [SCOPE_OPERATOR])
 
-    raw = _resolve_import_manifest(payload)
+def _visible_rows(session: Any, model: Any, identity: Any) -> list[Any]:
+    stmt = apply_visibility_filter(select(model), model, identity, identity.active_project_id)
+    return list(session.execute(stmt).scalars().all())
+
+
+def _add_import_dependency(
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+    *,
+    kind: str,
+    reference: str,
+    path: str,
+    status: str,
+    version: str | None = None,
+    detail: str = "",
+) -> None:
+    item = {
+        "kind": kind,
+        "reference": reference,
+        "path": path,
+        "status": status,
+        "version": version,
+        "detail": detail,
+    }
+    if item not in dependencies:
+        dependencies.append(item)
+    if status == "unresolved":
+        report.add(
+            "unresolved_import_dependency",
+            path,
+            detail or f"{kind} dependency {reference!r} does not resolve in this workspace.",
+        )
+
+
+def _preflight_artifact_dependencies(
+    manifest: Any,
+    dataset_by_name: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    for alias, artifact in manifest.artifacts.prompts.items():
+        _add_import_dependency(
+            dependencies,
+            report,
+            kind="prompt",
+            reference=artifact.registry_name,
+            path=f"artifacts.prompts.{alias}",
+            status="unverified",
+            version=artifact.alias,
+            detail="MLflow prompt registry aliases are preserved and verified when the workflow is compiled.",
+        )
+    for alias, artifact in manifest.artifacts.eval_datasets.items():
+        row = dataset_by_name.get(artifact.dataset_name)
+        _add_import_dependency(
+            dependencies,
+            report,
+            kind="eval_dataset",
+            reference=artifact.dataset_name,
+            path=f"artifacts.eval_datasets.{alias}",
+            status="resolved" if row is not None else "unresolved",
+            version=str(row.version) if row is not None else None,
+            detail=(
+                f"Resolved to dataset version {row.version}."
+                if row is not None
+                else f"Evaluation dataset {artifact.dataset_name!r} is not visible in this workspace."
+            ),
+        )
+
+
+def _mcp_tool_is_discovered(server: Any | None, tool_name: str) -> bool:
+    discovered = {
+        str(item.get("name"))
+        for item in (server.discovered_tools if server is not None else [])
+        if isinstance(item, dict) and item.get("name")
+    }
+    return server is not None and tool_name in discovered
+
+
+def _preflight_tool_dependencies(
+    manifest: Any,
+    resolver: InMemoryToolResolver,
+    mcp_by_id: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    for local_name, binding in manifest.tools.items():
+        path = f"tools.{local_name}"
+        if getattr(binding, "type", "") == "registered_function":
+            try:
+                resolution = resolver.resolve(binding.registry_ref, binding.version_constraint)
+            except ToolResolutionError as exc:
+                _add_import_dependency(
+                    dependencies,
+                    report,
+                    kind="tool",
+                    reference=binding.registry_ref,
+                    path=path,
+                    status="unresolved",
+                    version=binding.version_constraint or None,
+                    detail=str(exc),
+                )
+            else:
+                _add_import_dependency(
+                    dependencies,
+                    report,
+                    kind="tool",
+                    reference=binding.registry_ref,
+                    path=path,
+                    status="resolved",
+                    version=resolution.entry.version,
+                    detail=f"Resolved to {resolution.entry.registry_ref} {resolution.entry.version}.",
+                )
+            continue
+        resolved = _mcp_tool_is_discovered(mcp_by_id.get(binding.server_id), binding.tool_name)
+        _add_import_dependency(
+            dependencies,
+            report,
+            kind="mcp_tool",
+            reference=f"{binding.server_id}/{binding.tool_name}",
+            path=path,
+            status="resolved" if resolved else "unresolved",
+            version=binding.tool_schema_version or None,
+            detail=(
+                "Server and discovered tool are available."
+                if resolved
+                else f"MCP tool {binding.tool_name!r} is not discovered on server {binding.server_id!r}."
+            ),
+        )
+
+
+def _preflight_agent_node(
+    node_id: str,
+    node: Any,
+    skill_by_name: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    for skill_name in node.skills:
+        skill = skill_by_name.get(skill_name)
+        _add_import_dependency(
+            dependencies,
+            report,
+            kind="skill",
+            reference=skill_name,
+            path=f"nodes.{node_id}.skills",
+            status="resolved" if skill is not None else "unresolved",
+            version=str(skill.version) if skill is not None else None,
+            detail=(
+                f"Resolved to skill version {skill.version}."
+                if skill is not None
+                else f"Skill {skill_name!r} is not visible in this workspace."
+            ),
+        )
+
+
+def _preflight_knowledge_node(
+    node_id: str,
+    node: Any,
+    kb_by_id: dict[str, Any],
+    kb_versions: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    kb = kb_by_id.get(node.knowledge_base_id)
+    _add_import_dependency(
+        dependencies,
+        report,
+        kind="knowledge_base",
+        reference=node.knowledge_base_id,
+        path=f"nodes.{node_id}.knowledge_base_id",
+        status="resolved" if kb is not None else "unresolved",
+        detail=(
+            f"Resolved to knowledge base {kb.name!r}."
+            if kb is not None
+            else f"Knowledge base {node.knowledge_base_id!r} is not visible in this workspace."
+        ),
+    )
+    for version_id in getattr(node, "version_ids", []):
+        version = kb_versions.get(version_id)
+        resolved_version = (
+            version
+            if version is not None and version.knowledge_base_id == node.knowledge_base_id
+            else None
+        )
+        _add_import_dependency(
+            dependencies,
+            report,
+            kind="knowledge_base_version",
+            reference=version_id,
+            path=f"nodes.{node_id}.version_ids",
+            status="resolved" if resolved_version is not None else "unresolved",
+            version=(
+                str(resolved_version.version_number) if resolved_version is not None else None
+            ),
+            detail=(
+                f"Resolved to knowledge-base version {resolved_version.version_number}."
+                if resolved_version is not None
+                else f"Knowledge-base version {version_id!r} does not belong to the selected visible knowledge base."
+            ),
+        )
+
+
+def _preflight_mcp_node(
+    node_id: str,
+    node: Any,
+    mcp_by_id: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    resolved = _mcp_tool_is_discovered(mcp_by_id.get(node.server_id), node.tool_name)
+    _add_import_dependency(
+        dependencies,
+        report,
+        kind="mcp_tool",
+        reference=f"{node.server_id}/{node.tool_name}",
+        path=f"nodes.{node_id}",
+        status="resolved" if resolved else "unresolved",
+        detail=(
+            "Server and discovered tool are available."
+            if resolved
+            else f"MCP tool {node.tool_name!r} is not discovered on server {node.server_id!r}."
+        ),
+    )
+
+
+def _preflight_managed_file_node(
+    node_id: str,
+    node: Any,
+    file_by_id: dict[str, Any],
+    active_project_id: str | None,
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    snapshot = getattr(node, "file_ref", None)
+    if snapshot is None:
+        return
+    row = file_by_id.get(snapshot.file_id)
+    resolved = False
+    detail = "Managed file is not available in the selected project."
     try:
-        manifest = parse_manifest(raw)
-    except (WorkflowManifestError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=f"invalid manifest: {exc}") from exc
+        parsed = parse_ref(snapshot.file_ref)
+    except StorageError:
+        parsed = None
+        detail = "Managed file reference is not a valid CALIBER project-file URI."
+    if active_project_id is None:
+        detail = "Select the source project before importing a workflow with managed files."
+    elif parsed is None:
+        pass
+    elif parsed.resource_type != "projects" or parsed.resource_id != active_project_id:
+        detail = "Managed file reference belongs to a different project."
+    elif row is None:
+        detail = "Managed file record is missing or not visible in the selected project."
+    elif row.deleted_at is not None or row.status not in VISIBLE_STATUSES:
+        detail = "Managed file record is deleted or not readable."
+    elif row.project_id != active_project_id or row.file_ref != snapshot.file_ref:
+        detail = "Managed file row does not match the selected project/reference."
+    elif row.sha256 != snapshot.sha256 or row.size_bytes != snapshot.size_bytes:
+        detail = "Managed file digest or size no longer matches the imported snapshot."
+    elif (
+        snapshot.object_version_id is not None
+        and row.object_version_id != snapshot.object_version_id
+    ):
+        detail = "Managed file object version no longer matches the imported snapshot."
+    else:
+        resolved = True
+        detail = "Content-pinned project file metadata resolves; runtime re-verifies its bytes."
+    _add_import_dependency(
+        dependencies,
+        report,
+        kind="managed_file",
+        reference=snapshot.file_ref,
+        path=f"nodes.{node_id}.file_ref",
+        status="resolved" if resolved else "unresolved",
+        version=snapshot.object_version_id,
+        detail=detail,
+    )
+
+
+def _preflight_subworkflow_node(
+    session: Any,
+    node_id: str,
+    node: Any,
+    workflow_by_id: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    child = workflow_by_id.get(node.workflow_id)
+    alias = node.alias or "prod"
+    resolved = child is not None
+    detail = (
+        f"Workflow {child.name!r} is visible; alias {alias!r} remains pinned."
+        if child is not None
+        else f"Subworkflow {node.workflow_id!r} is not visible in this workspace."
+    )
+    if child is not None and alias == "manual":
+        latest = (
+            session.execute(
+                select(CaliberWorkflowVersion)
+                .where(CaliberWorkflowVersion.workflow_id == node.workflow_id)
+                .order_by(CaliberWorkflowVersion.version_number.desc())
+            )
+            .scalars()
+            .first()
+        )
+        resolved = latest is not None
+        detail = (
+            f"Manual alias resolves to version {latest.version_id} (v{latest.version_number})."
+            if latest is not None
+            else f"Subworkflow {node.workflow_id!r} has no saved version for manual execution."
+        )
+    elif child is not None:
+        deployment = (
+            session.execute(
+                select(CaliberWorkflowDeployment).where(
+                    CaliberWorkflowDeployment.workflow_id == node.workflow_id,
+                    CaliberWorkflowDeployment.alias == alias,
+                    CaliberWorkflowDeployment.status == "active",
+                )
+            )
+            .scalars()
+            .first()
+        )
+        target_version = (
+            session.get(CaliberWorkflowVersion, deployment.version_id)
+            if deployment is not None
+            else None
+        )
+        resolved = target_version is not None
+        detail = (
+            f"Alias {alias!r} resolves to version {deployment.version_id}."
+            if target_version is not None
+            else f"Subworkflow {node.workflow_id!r} has no active {alias!r} deployment."
+        )
+    _add_import_dependency(
+        dependencies,
+        report,
+        kind="subworkflow",
+        reference=node.workflow_id,
+        path=f"nodes.{node_id}.workflow_id",
+        status="resolved" if resolved else "unresolved",
+        version=alias,
+        detail=detail,
+    )
+
+
+def _preflight_node_dependencies(
+    session: Any,
+    manifest: Any,
+    *,
+    skill_by_name: dict[str, Any],
+    kb_by_id: dict[str, Any],
+    kb_versions: dict[str, Any],
+    mcp_by_id: dict[str, Any],
+    workflow_by_id: dict[str, Any],
+    file_by_id: dict[str, Any],
+    active_project_id: str | None,
+    dependencies: list[dict[str, Any]],
+    report: ValidationReport,
+) -> None:
+    for node_id, node in manifest.nodes.items():
+        node_type = getattr(node, "type", "")
+        if node_type == "agent":
+            _preflight_agent_node(node_id, node, skill_by_name, dependencies, report)
+        elif node_type in {"knowledge_query", "knowledge_build"} and node.knowledge_base_id:
+            _preflight_knowledge_node(
+                node_id,
+                node,
+                kb_by_id,
+                kb_versions,
+                dependencies,
+                report,
+            )
+        elif node_type == "mcp_resource":
+            _preflight_mcp_node(node_id, node, mcp_by_id, dependencies, report)
+        elif node_type == "subworkflow":
+            _preflight_subworkflow_node(
+                session,
+                node_id,
+                node,
+                workflow_by_id,
+                dependencies,
+                report,
+            )
+        elif node_type == "file_input":
+            _preflight_managed_file_node(
+                node_id,
+                node,
+                file_by_id,
+                active_project_id,
+                dependencies,
+                report,
+            )
+
+
+def _import_dependency_preflight(
+    session: Any,
+    manifest: Any,
+    identity: Any,
+    report: ValidationReport,
+) -> list[dict[str, Any]]:
+    """Resolve manifest dependencies without mutating the database.
+
+    ``validate_manifest`` already checks graph wiring, declared prompt aliases,
+    tool bindings, and skills. This inventory adds the workspace-backed checks
+    the generic validator cannot perform: datasets, knowledge bases, MCP
+    discovery, and subworkflow targets. External MLflow prompt aliases remain
+    explicitly ``unverified`` rather than being misreported as resolved.
+    """
+    dependencies: list[dict[str, Any]] = []
+    skill_by_name = {row.name: row for row in _visible_rows(session, CaliberSkill, identity)}
+    dataset_by_name = {
+        row.name: row for row in _visible_rows(session, CaliberEvalDataset, identity)
+    }
+    kb_by_id = {
+        row.knowledge_base_id: row for row in _visible_rows(session, CaliberKnowledgeBase, identity)
+    }
+    workflow_by_id = {
+        row.workflow_id: row for row in _visible_rows(session, CaliberWorkflow, identity)
+    }
+    kb_versions = {
+        row.knowledge_base_version_id: row
+        for row in session.execute(select(CaliberKnowledgeBaseVersion)).scalars().all()
+        if row.knowledge_base_id in kb_by_id
+    }
+    # MCP rows predate project/visibility columns. Until that registry is
+    # project-scoped, non-admin preflight may resolve only servers it owns.
+    mcp_stmt = select(CaliberMcpServer)
+    if not identity.has_scope(SCOPE_ADMIN):
+        mcp_stmt = mcp_stmt.where(CaliberMcpServer.owner == identity.user_id)
+    mcp_by_id = {row.server_id: row for row in session.execute(mcp_stmt).scalars().all()}
+    managed_file_ids = {
+        node.file_ref.file_id
+        for node in manifest.nodes.values()
+        if getattr(node, "file_ref", None) is not None
+    }
+    file_by_id = (
+        {
+            row.file_id: row
+            for row in session.execute(
+                select(CaliberWorkflowFile).where(CaliberWorkflowFile.file_id.in_(managed_file_ids))
+            )
+            .scalars()
+            .all()
+        }
+        if managed_file_ids
+        else {}
+    )
+    _preflight_artifact_dependencies(manifest, dataset_by_name, dependencies, report)
+    _preflight_tool_dependencies(
+        manifest,
+        _scoped_tool_resolver(session, identity),
+        mcp_by_id,
+        dependencies,
+        report,
+    )
+    _preflight_node_dependencies(
+        session,
+        manifest,
+        skill_by_name=skill_by_name,
+        kb_by_id=kb_by_id,
+        kb_versions=kb_versions,
+        mcp_by_id=mcp_by_id,
+        workflow_by_id=workflow_by_id,
+        file_by_id=file_by_id,
+        active_project_id=identity.active_project_id,
+        dependencies=dependencies,
+        report=report,
+    )
+    return dependencies
+
+
+def _prepare_import_manifest(
+    payload: WorkflowImportRequest,
+    *,
+    destination_workflow_id: str,
+    owner: str,
+) -> tuple[Any, str]:
+    raw = _resolve_import_manifest(payload)
     secrets = find_inline_secrets(raw)
     if secrets:
         raise HTTPException(
@@ -696,51 +1196,127 @@ async def import_workflow(request: Request) -> JSONResponse:
             detail=f"manifest contains inline secret value(s) at {secrets}; "
             "reference secrets by name via tool secret_refs (plan §18.2)",
         )
+    try:
+        source = parse_manifest(raw)
+    except (WorkflowManifestError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"invalid manifest: {exc}") from exc
+    source_workflow_id = source.workflow_id
+    normalized = source.to_dict()
+    normalized["workflow_id"] = destination_workflow_id
+    normalized["name"] = payload.name or source.name
+    normalized["owner"] = owner
+    try:
+        return parse_manifest(normalized), source_workflow_id
+    except (WorkflowManifestError, ValueError) as exc:  # defensive: overrides are validated too
+        raise HTTPException(status_code=400, detail=f"invalid import overrides: {exc}") from exc
 
+
+def _run_import_preflight(
+    session: Any, manifest: Any, identity: Any
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    skill_names = {
+        row.name
+        for row in _visible_rows(session, CaliberSkill, identity)
+        if row.status != "archived"
+    }
+    report = validate_manifest(
+        manifest,
+        resolver=_scoped_tool_resolver(session, identity),
+        skill_names=skill_names,
+    )
+    dependencies = _import_dependency_preflight(session, manifest, identity, report)
+    return report.to_dict(), dependencies
+
+
+async def preview_workflow_import(request: Request) -> JSONResponse:
+    """Validate and resolve an import without creating a workflow or version."""
+    body = await parse_json_object(request)
+    payload = WorkflowImportRequest.model_validate(body)
+    actor = require_user(request)
+    identity = resolve_identity(request)
+    manifest, source_workflow_id = _prepare_import_manifest(
+        payload,
+        destination_workflow_id=new_workflow_id(),
+        owner=actor,
+    )
+    factory = get_session_factory(request)
+    with factory() as session:
+        report, dependencies = _run_import_preflight(session, manifest, identity)
+    return envelope_response_dict(
+        {
+            "source_workflow_id": source_workflow_id,
+            "name": manifest.name,
+            "description": manifest.description,
+            "node_count": len(manifest.nodes),
+            "edge_count": len(manifest.edges),
+            "validation": report,
+            "dependencies": dependencies,
+            "ready_to_import": bool(report.get("valid")),
+        }
+    )
+
+
+async def import_workflow(request: Request) -> JSONResponse:
+    """Validate a manifest and import it as a new, independently-owned workflow.
+
+    The source ``workflow_id`` and ``owner`` are never trusted. A fresh server
+    id is generated, graph/dependency preflight must pass, and then one draft
+    version is persisted. Version constraints and deployment aliases inside the
+    manifest are preserved exactly; referenced artifacts are not duplicated.
+    """
+    body = await parse_json_object(request)
+    payload = WorkflowImportRequest.model_validate(body)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    workflow_id = new_workflow_id()
+    manifest, source_workflow_id = _prepare_import_manifest(
+        payload,
+        destination_workflow_id=workflow_id,
+        owner=actor,
+    )
     normalized = manifest.to_dict()
-    name = payload.name or manifest.name
-    owner = payload.owner or manifest.owner or ""
 
     factory = get_session_factory(request)
     with factory() as session:
-        workflow = session.get(CaliberWorkflow, manifest.workflow_id)
-        if workflow is None:
-            name_clash = (
-                session.execute(select(CaliberWorkflow).where(CaliberWorkflow.name == name))
-                .scalars()
-                .first()
+        report, dependencies = _run_import_preflight(session, manifest, identity)
+        if not report["valid"]:
+            return JSONResponse(
+                {
+                    "detail": "workflow import preflight failed; resolve validation and dependency errors first",
+                    "validation": report,
+                    "dependencies": dependencies,
+                },
+                status_code=400,
             )
-            if name_clash is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"workflow name {name!r} is already in use by {name_clash.workflow_id!r}",
-                )
-            workflow = CaliberWorkflow(
-                workflow_id=manifest.workflow_id,
-                name=name,
-                description=manifest.description,
-                owner=owner,
-                status="active",
-            )
-            session.add(workflow)
-            session.flush()
-
-        max_number = (
-            session.execute(
-                select(CaliberWorkflowVersion.version_number)
-                .where(CaliberWorkflowVersion.workflow_id == workflow.workflow_id)
-                .order_by(CaliberWorkflowVersion.version_number.desc())
-            )
+        name_clash = (
+            session.execute(select(CaliberWorkflow).where(CaliberWorkflow.name == manifest.name))
             .scalars()
             .first()
         )
+        if name_clash is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"workflow name {manifest.name!r} is already in use by {name_clash.workflow_id!r}",
+            )
+        workflow = CaliberWorkflow(
+            workflow_id=workflow_id,
+            name=manifest.name,
+            description=manifest.description,
+            owner=actor,
+            project_id=identity.active_project_id,
+            visibility="project" if identity.active_project_id else "user",
+            status="active",
+        )
+        session.add(workflow)
+        session.flush()
         version = CaliberWorkflowVersion(
             version_id=new_workflow_version_id(),
             workflow_id=workflow.workflow_id,
-            version_number=(max_number or 0) + 1,
+            version_number=1,
             status="draft",
             manifest=normalized,
             manifest_hash=compute_manifest_hash(normalized),
+            validation_report=report,
             created_by=actor,
         )
         session.add(version)
@@ -751,13 +1327,27 @@ async def import_workflow(request: Request) -> JSONResponse:
             action="import_workflow",
             entity_type="workflow",
             entity_id=workflow.workflow_id,
-            details={"version_id": version.version_id, "version_number": version.version_number},
+            details={
+                "source_workflow_id": source_workflow_id,
+                "version_id": version.version_id,
+                "version_number": version.version_number,
+            },
         )
         session.commit()
         result = {
             "workflow": WorkflowSchema.model_validate(workflow).model_dump(mode="json"),
             "version": WorkflowVersionSchema.model_validate(version).model_dump(mode="json"),
         }
+    _publish_workflow_event(
+        request,
+        {
+            "type": "workflow.created",
+            "workflow_id": workflow_id,
+            "status": "active",
+            "name": manifest.name,
+            "owner": actor,
+        },
+    )
     return JSONResponse({"data": result}, status_code=201)
 
 
@@ -941,6 +1531,7 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(LIST_PATH, list_workflows, methods=["GET"]))
     # Import must be registered before the {workflow_id} detail GET so the
     # literal ``/workflows/import`` path isn't captured as a workflow id.
+    app.routes.append(Route(IMPORT_PREVIEW_PATH, preview_workflow_import, methods=["POST"]))
     app.routes.append(Route(IMPORT_PATH, import_workflow, methods=["POST"]))
     app.routes.append(Route(LIST_PATH, create_workflow, methods=["POST"]))
     app.routes.append(Route(DETAIL_PATH, get_workflow, methods=["GET"]))

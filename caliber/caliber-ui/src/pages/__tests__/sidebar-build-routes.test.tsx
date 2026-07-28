@@ -276,6 +276,18 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole("link", { name: "Agents" }));
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "Agents" },
+        { timeout: 5000 },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
+
     await user.click(screen.getByRole("link", { name: "Knowledge Base" }));
     expect(
       await screen.findByRole(

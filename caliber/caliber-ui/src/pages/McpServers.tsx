@@ -10,7 +10,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { caliberApi } from "@/api/caliberApi";
-import type { AssistantConfig, AssistantModelOption } from "@/api/assistantTypes";
+import type {
+  AssistantConfig,
+  AssistantModelOption,
+} from "@/api/assistantTypes";
 import type {
   CalibrationCase,
   CalibrationResult,
@@ -38,7 +41,12 @@ const MCP_TABS: PageTab[] = [
     key: "servers",
     label: "Servers",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      >
         <rect x="2" y="3" width="20" height="6" rx="2" />
         <rect x="2" y="15" width="20" height="6" rx="2" />
         <path d="M6 6h.01M6 18h.01M12 9v6" />
@@ -49,7 +57,12 @@ const MCP_TABS: PageTab[] = [
     key: "playground",
     label: "Playground",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      >
         <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
       </svg>
     ),
@@ -59,12 +72,9 @@ const MCP_TABS: PageTab[] = [
 /* ── status badge --------------------------------------------------------- */
 
 const STATUS_STYLES: Record<string, string> = {
-  active:
-    "bg-emerald-50 text-emerald-700 border-emerald-200",
-  error:
-    "bg-red-50 text-red-700 border-red-200",
-  disabled:
-    "bg-zinc-100 text-zinc-500 border-zinc-200",
+  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  error: "bg-red-50 text-red-700 border-red-200",
+  disabled: "bg-zinc-100 text-zinc-500 border-zinc-200",
 };
 
 const STATUS_DOT: Record<string, string> = {
@@ -86,11 +96,7 @@ const MCP_ERROR_PREFIXES = [
   /^MCP session failed:\s*/i,
 ];
 
-function PlaywrightIcon({
-  className,
-}: {
-  className: string;
-}): JSX.Element {
+function PlaywrightIcon({ className }: { className: string }): JSX.Element {
   return (
     <svg
       className={className}
@@ -199,11 +205,21 @@ const ICONS: Record<string, JSX.Element> = {
   ),
   alert: (
     <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+      <path
+        fillRule="evenodd"
+        d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+        clipRule="evenodd"
+      />
     </svg>
   ),
   graph: (
-    <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
       <circle cx="4.5" cy="10" r="2.2" />
       <circle cx="10" cy="4.5" r="2.2" />
       <circle cx="15.5" cy="10" r="2.2" />
@@ -215,7 +231,13 @@ const ICONS: Record<string, JSX.Element> = {
     </svg>
   ),
   ollama: (
-    <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <svg
+      className="w-5 h-5"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+    >
       <circle cx="7" cy="7.5" r="1.2" />
       <circle cx="13" cy="7.5" r="1.2" />
       <path d="M5.2 12.2c1.5 1.7 8.1 1.7 9.6 0" />
@@ -244,13 +266,15 @@ interface AddServerInitialValues {
   command?: string;
   args?: string;
   uri?: string;
-  authType?: "none" | "token" | "oauth";
+  authType?: "none" | "token";
   tokenEnvVar?: string;
   icon?: string;
   /** Env vars passed to the server (values may use ${VAR} placeholders). */
   env?: Record<string, string>;
   /** Well-known tools (from a catalog template) to seed the server with. */
   tools?: McpServerDiscoveredTool[];
+  /** Explicit deployment policy for seeded tools. */
+  toolPolicies?: Record<string, McpToolPolicy>;
 }
 
 function AddServerDialog({
@@ -271,11 +295,15 @@ function AddServerDialog({
   const isEdit = !!editServer;
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [transport, setTransport] = useState<"stdio" | "sse" | "streamable-http">("stdio");
+  const [transport, setTransport] = useState<
+    "stdio" | "sse" | "streamable-http"
+  >("stdio");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
   const [uri, setUri] = useState("");
-  const [authType, setAuthType] = useState<"none" | "token" | "oauth">("none");
+  const [authType, setAuthType] = useState<
+    "none" | "token" | "basic" | "custom"
+  >("none");
   const [tokenEnvVar, setTokenEnvVar] = useState("");
   const [icon, setIcon] = useState("");
   const [envVars, setEnvVars] = useState<Record<string, string>>({});
@@ -356,7 +384,8 @@ function AddServerDialog({
             ? editServer.auth_config.token_env_var
             : "";
         const authChanged =
-          authType !== editServer.auth_type || tokenEnvVar !== existingTokenEnvVar;
+          authType !== editServer.auth_type ||
+          tokenEnvVar !== existingTokenEnvVar;
         if (authChanged) {
           payload.auth_config =
             authType === "token" && tokenEnvVar
@@ -381,7 +410,9 @@ function AddServerDialog({
           description,
           ...sharedConfig,
           auth_config:
-            authType === "token" && tokenEnvVar ? { token_env_var: tokenEnvVar } : {},
+            authType === "token" && tokenEnvVar
+              ? { token_env_var: tokenEnvVar }
+              : {},
           env: {
             ...envVars,
             ...(authType === "token" && tokenEnvVar
@@ -391,6 +422,7 @@ function AddServerDialog({
           // Seed the server with the catalog template's known tools so they show
           // immediately; a live test-connection later overwrites with real ones.
           discovered_tools: initialValues?.tools ?? [],
+          tool_policies: initialValues?.toolPolicies ?? {},
         };
         await caliberApi.createMcpServer(payload);
       }
@@ -444,9 +476,9 @@ function AddServerDialog({
                 className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800"
                 data-testid="mcp-write-only-notice"
               >
-                Credentials are write-only. Existing literal environment, header, and
-                authentication values are not loaded into the browser and remain unchanged
-                when you save other settings.
+                Credentials are write-only. Existing literal environment,
+                header, and authentication values are not loaded into the
+                browser and remain unchanged when you save other settings.
               </div>
             )}
 
@@ -459,7 +491,11 @@ function AddServerDialog({
                 placeholder="e.g. GitHub"
                 required
                 disabled={isEdit}
-                title={isEdit ? "A server's name cannot be changed after creation." : undefined}
+                title={
+                  isEdit
+                    ? "A server's name cannot be changed after creation."
+                    : undefined
+                }
                 data-testid="server-name-input"
               />
               {isEdit && (
@@ -484,7 +520,9 @@ function AddServerDialog({
               <select
                 className={selectClass}
                 value={transport}
-                onChange={(e) => setTransport(e.target.value as typeof transport)}
+                onChange={(e) =>
+                  setTransport(e.target.value as typeof transport)
+                }
                 data-testid="server-transport-select"
                 aria-label="Transport type"
               >
@@ -543,8 +581,17 @@ function AddServerDialog({
               >
                 <option value="none">None</option>
                 <option value="token">API Token (env variable)</option>
-                <option value="oauth">OAuth</option>
+                <option value="basic" disabled>
+                  Basic (configure through API)
+                </option>
+                <option value="custom" disabled>
+                  Custom headers (configure through API)
+                </option>
               </select>
+              <p className="mt-1 text-[11px] text-zinc-500">
+                OAuth is not implemented. Put OAuth termination in an
+                operator-managed proxy.
+              </p>
             </div>
 
             {authType === "token" && (
@@ -562,7 +609,12 @@ function AddServerDialog({
 
             <div>
               <label className={labelClass}>Icon</label>
-              <select className={selectClass} value={icon} onChange={(e) => setIcon(e.target.value)} aria-label="Server icon">
+              <select
+                className={selectClass}
+                value={icon}
+                onChange={(e) => setIcon(e.target.value)}
+                aria-label="Server icon"
+              >
                 <option value="">Default</option>
                 <option value="github">GitHub</option>
                 <option value="slack">Slack</option>
@@ -620,7 +672,9 @@ function ServerRow({
   onEdit: (server: McpServer) => void;
 }): JSX.Element {
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<McpTestConnectionResult | null>(null);
+  const [testResult, setTestResult] = useState<McpTestConnectionResult | null>(
+    null,
+  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -678,7 +732,9 @@ function ServerRow({
           <ServerIcon icon={server.icon} />
           <div>
             <div className="font-medium text-zinc-900">{server.name}</div>
-            <div className="text-xs text-zinc-400 font-mono">{server.server_id}</div>
+            <div className="text-xs text-zinc-400 font-mono">
+              {server.server_id}
+            </div>
           </div>
         </div>
       </td>
@@ -696,8 +752,24 @@ function ServerRow({
           {server.status}
         </span>
         {server.connection_error && (
-          <div className="text-xs text-red-500 mt-0.5 max-w-[200px] truncate" title={server.connection_error}>
+          <div
+            className="text-xs text-red-500 mt-0.5 max-w-[200px] truncate"
+            title={server.connection_error}
+          >
             {server.connection_error}
+          </div>
+        )}
+        {server.execution && (
+          <div
+            className={`mt-1 text-[10px] font-medium ${server.execution.ready ? "text-emerald-700" : "text-amber-700"}`}
+            title={[
+              ...server.execution.blockers,
+              ...server.execution.warnings,
+            ].join("\n")}
+            data-testid={`mcp-runtime-${server.server_id}`}
+          >
+            {server.execution.ready ? "Runtime ready" : "Runtime blocked"}
+            {` · ${server.execution.boundary.replaceAll("_", " ")}`}
           </div>
         )}
       </td>
@@ -707,7 +779,10 @@ function ServerRow({
         </span>
       </td>
       <td className="px-4 py-3 text-xs text-zinc-600 max-w-[200px]">
-        <div className="truncate" title={server.transport === "stdio" ? server.command : server.uri}>
+        <div
+          className="truncate"
+          title={server.transport === "stdio" ? server.command : server.uri}
+        >
           {server.transport === "stdio"
             ? [server.command, ...server.args].join(" ")
             : server.uri}
@@ -751,8 +826,18 @@ function ServerRow({
             {testing ? (
               <span className="animate-spin h-3 w-3 border-2 border-zinc-300 border-t-zinc-600 rounded-full" />
             ) : (
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <svg
+                className="w-3 h-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
               </svg>
             )}
             {testing ? "Testing…" : "Test"}
@@ -817,7 +902,9 @@ function ServerRow({
           )}
         </div>
         {testResult && (
-          <div className={`text-[10px] mt-1 ${testResult.success ? "text-emerald-600" : "text-red-500"}`}>
+          <div
+            className={`text-[10px] mt-1 ${testResult.success ? "text-emerald-600" : "text-red-500"}`}
+          >
             {testResult.success
               ? `Connected · ${testResult.tools.length} tools`
               : testResult.error}
@@ -841,6 +928,7 @@ interface McpTemplate {
   description: string;
   icon: string;
   transport: "stdio" | "sse" | "streamable-http";
+  uri?: string;
   command: string;
   args: string[];
   /** Env vars passed to the server (values may use ${VAR} placeholders). */
@@ -849,23 +937,42 @@ interface McpTemplate {
   docsUrl: string;
   /** Well-known tools this server exposes — seeded onto the server on connect. */
   tools: McpServerDiscoveredTool[];
+  /** Explicit classifications; unclassified tools cannot be deployed. */
+  toolPolicies?: Record<string, McpToolPolicy>;
 }
 
-// The three Postgres-family entries are backed by CALIBER's first-party DB MCP
-// server (caliber.mcp_servers.db), each launched in a different --mode so it
-// exposes write tools tailored to that class. ``${PYTHON}`` resolves to the
-// CALIBER interpreter, so the server runs under the same venv (where psycopg is
-// installed) without a hardcoded path. ``${POSTGRES_URL}`` is resolved by the
-// gateway from the CALIBER process env (set POSTGRES_URL in your .env to
-// postgresql://caliber:caliber@localhost:5432/caliber — see deploy/mcp/).
-const PG_COMMAND = "${PYTHON}";
-const pgArgs = (mode: "relational" | "vector" | "graph"): string[] => [
-  "-m",
-  "caliber.mcp_servers.db",
-  "--mode",
-  mode,
-];
-const PG_ENV = { POSTGRES_URL: "${POSTGRES_URL}" };
+// The shipped compose deployment runs each first-party database MCP class in a
+// separate read-only, non-root sidecar. These internal streamable-HTTP presets
+// are therefore deployable without spawning arbitrary code in the CALIBER API
+// container. Non-compose installs can edit the URI or deliberately configure a
+// local stdio server instead.
+const dbSidecarUri = (mode: "relational" | "vector" | "graph"): string => {
+  const target = {
+    relational: ["mcp-db-relational", 8101],
+    vector: ["mcp-db-vector", 8102],
+    graph: ["mcp-db-graph", 8103],
+  }[mode];
+  return `http://${target[0]}:${target[1]}/mcp`;
+};
+
+const readPolicy: McpToolPolicy = {
+  allowed: true,
+  side_effect_level: "read",
+  requires_approval: false,
+  rate_limit_per_minute: null,
+};
+const writePolicy: McpToolPolicy = {
+  allowed: true,
+  side_effect_level: "write",
+  requires_approval: true,
+  rate_limit_per_minute: null,
+};
+const externalActionPolicy: McpToolPolicy = {
+  allowed: true,
+  side_effect_level: "external_action",
+  requires_approval: true,
+  rate_limit_per_minute: null,
+};
 
 const MCP_CATALOG: McpTemplate[] = [
   {
@@ -877,11 +984,18 @@ const MCP_CATALOG: McpTemplate[] = [
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-github"],
     tokenEnvVar: "GITHUB_TOKEN",
-    docsUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
+    docsUrl:
+      "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
     tools: [
       { name: "create_issue", description: "Create a new GitHub issue" },
-      { name: "search_repositories", description: "Search for GitHub repositories" },
-      { name: "get_file_contents", description: "Read a file from a repository" },
+      {
+        name: "search_repositories",
+        description: "Search for GitHub repositories",
+      },
+      {
+        name: "get_file_contents",
+        description: "Read a file from a repository",
+      },
       { name: "create_pull_request", description: "Open a new pull request" },
       { name: "list_commits", description: "List commits on a branch" },
       { name: "create_branch", description: "Create a new branch" },
@@ -892,62 +1006,136 @@ const MCP_CATALOG: McpTemplate[] = [
     name: "PostgreSQL",
     description: "Create tables, insert/update/delete rows, run SQL",
     icon: "database",
-    transport: "stdio",
-    command: PG_COMMAND,
-    args: pgArgs("relational"),
-    env: PG_ENV,
+    transport: "streamable-http",
+    uri: dbSidecarUri("relational"),
+    command: "",
+    args: [],
     tokenEnvVar: "",
     docsUrl: "https://www.postgresql.org/docs/",
     tools: [
       { name: "list_tables", description: "List tables in the public schema" },
-      { name: "describe_table", description: "Show a table's columns, types, and defaults" },
-      { name: "create_table", description: "Create a table from a column spec" },
+      {
+        name: "describe_table",
+        description: "Show a table's columns, types, and defaults",
+      },
+      {
+        name: "create_table",
+        description: "Create a table from a column spec",
+      },
       { name: "insert_rows", description: "Insert one or more rows" },
-      { name: "update_rows", description: "Update rows matching a WHERE filter" },
-      { name: "delete_rows", description: "Delete rows matching a WHERE filter" },
-      { name: "run_query", description: "Run a read-only SQL query with bound parameters" },
-      { name: "execute_sql", description: "Run arbitrary DDL/DML (escape hatch)" },
+      {
+        name: "update_rows",
+        description: "Update rows matching a WHERE filter",
+      },
+      {
+        name: "delete_rows",
+        description: "Delete rows matching a WHERE filter",
+      },
+      {
+        name: "run_query",
+        description: "Run a read-only SQL query with bound parameters",
+      },
+      {
+        name: "execute_sql",
+        description: "Run arbitrary DDL/DML (escape hatch)",
+      },
     ],
+    toolPolicies: {
+      list_tables: readPolicy,
+      describe_table: readPolicy,
+      run_query: readPolicy,
+      create_table: writePolicy,
+      insert_rows: writePolicy,
+      update_rows: writePolicy,
+      delete_rows: writePolicy,
+      execute_sql: externalActionPolicy,
+    },
   },
   {
     id: "pgvector",
     name: "pgvector",
     description: "Vector tables, embedding upserts, similarity search",
     icon: "database",
-    transport: "stdio",
-    command: PG_COMMAND,
-    args: pgArgs("vector"),
-    env: PG_ENV,
+    transport: "streamable-http",
+    uri: dbSidecarUri("vector"),
+    command: "",
+    args: [],
     tokenEnvVar: "",
     docsUrl: "https://github.com/pgvector/pgvector",
     tools: [
-      { name: "create_vector_table", description: "Create a vector table + HNSW index" },
-      { name: "upsert_vectors", description: "Insert/update id + embedding + metadata rows" },
-      { name: "similarity_search", description: "Find the k nearest vectors by cosine/l2/ip" },
-      { name: "list_tables", description: "List tables, including those with vector columns" },
-      { name: "describe_table", description: "Show columns and types, including vector dimensions" },
-      { name: "run_query", description: "Run a read-only SQL query with bound parameters" },
+      {
+        name: "create_vector_table",
+        description: "Create a vector table + HNSW index",
+      },
+      {
+        name: "upsert_vectors",
+        description: "Insert/update id + embedding + metadata rows",
+      },
+      {
+        name: "similarity_search",
+        description: "Find the k nearest vectors by cosine/l2/ip",
+      },
+      {
+        name: "list_tables",
+        description: "List tables, including those with vector columns",
+      },
+      {
+        name: "describe_table",
+        description: "Show columns and types, including vector dimensions",
+      },
+      {
+        name: "run_query",
+        description: "Run a read-only SQL query with bound parameters",
+      },
     ],
+    toolPolicies: {
+      list_tables: readPolicy,
+      describe_table: readPolicy,
+      run_query: readPolicy,
+      similarity_search: readPolicy,
+      create_vector_table: writePolicy,
+      upsert_vectors: writePolicy,
+    },
   },
   {
     id: "apache-age",
     name: "Apache AGE",
     description: "Graphs, vertices, edges, and openCypher queries",
     icon: "graph",
-    transport: "stdio",
-    command: PG_COMMAND,
-    args: pgArgs("graph"),
-    env: PG_ENV,
+    transport: "streamable-http",
+    uri: dbSidecarUri("graph"),
+    command: "",
+    args: [],
     tokenEnvVar: "",
     docsUrl: "https://age.apache.org/",
     tools: [
       { name: "create_graph", description: "Create a named graph" },
       { name: "drop_graph", description: "Drop a graph and its contents" },
-      { name: "create_vertex", description: "Create a labelled vertex with properties" },
-      { name: "create_edge", description: "Connect two vertices with a labelled edge" },
-      { name: "cypher_query", description: "Run an openCypher query via cypher(...)" },
-      { name: "run_query", description: "Run a read-only SQL query with bound parameters" },
+      {
+        name: "create_vertex",
+        description: "Create a labelled vertex with properties",
+      },
+      {
+        name: "create_edge",
+        description: "Connect two vertices with a labelled edge",
+      },
+      {
+        name: "cypher_query",
+        description: "Run an openCypher query via cypher(...)",
+      },
+      {
+        name: "run_query",
+        description: "Run a read-only SQL query with bound parameters",
+      },
     ],
+    toolPolicies: {
+      run_query: readPolicy,
+      create_graph: writePolicy,
+      drop_graph: writePolicy,
+      create_vertex: writePolicy,
+      create_edge: writePolicy,
+      cypher_query: externalActionPolicy,
+    },
   },
   {
     id: "minio",
@@ -957,13 +1145,20 @@ const MCP_CATALOG: McpTemplate[] = [
     transport: "stdio",
     command: "docker",
     args: [
-      "run", "-i", "--rm",
-      "-e", "MINIO_ENDPOINT=localhost:9000",
-      "-e", "MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}",
-      "-e", "MINIO_SECRET_KEY=${MINIO_SECRET_KEY}",
-      "-e", "MINIO_USE_SSL=false",
+      "run",
+      "-i",
+      "--rm",
+      "-e",
+      "MINIO_ENDPOINT=localhost:9000",
+      "-e",
+      "MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}",
+      "-e",
+      "MINIO_SECRET_KEY=${MINIO_SECRET_KEY}",
+      "-e",
+      "MINIO_USE_SSL=false",
       "quay.io/minio/aistor/mcp-server-aistor:latest",
-      "--allow-write", "--allow-delete",
+      "--allow-write",
+      "--allow-delete",
     ],
     tokenEnvVar: "MINIO_ACCESS_KEY",
     docsUrl: "https://github.com/minio/mcp-server-aistor",
@@ -972,7 +1167,10 @@ const MCP_CATALOG: McpTemplate[] = [
       { name: "list_objects", description: "List objects in a bucket" },
       { name: "get_object", description: "Download an object" },
       { name: "put_object", description: "Upload an object" },
-      { name: "presigned_url", description: "Generate a presigned URL for an object" },
+      {
+        name: "presigned_url",
+        description: "Generate a presigned URL for an object",
+      },
       { name: "remove_object", description: "Delete an object" },
     ],
   },
@@ -987,10 +1185,16 @@ const MCP_CATALOG: McpTemplate[] = [
     tokenEnvVar: "HF_TOKEN",
     docsUrl: "https://pypi.org/project/huggingface-mcp-server/",
     tools: [
-      { name: "search_models", description: "Search the Hugging Face model hub" },
+      {
+        name: "search_models",
+        description: "Search the Hugging Face model hub",
+      },
       { name: "search_datasets", description: "Search datasets" },
       { name: "search_spaces", description: "Search Spaces apps" },
-      { name: "get_model_info", description: "Get details for a specific model" },
+      {
+        name: "get_model_info",
+        description: "Get details for a specific model",
+      },
       { name: "search_papers", description: "Search ML papers" },
     ],
   },
@@ -1025,15 +1229,36 @@ const MCP_CATALOG: McpTemplate[] = [
     docsUrl: "https://playwright.dev/mcp/installation",
     tools: [
       { name: "browser_navigate", description: "Navigate to a URL" },
-      { name: "browser_snapshot", description: "Capture an accessibility snapshot" },
-      { name: "browser_click", description: "Click an element by snapshot reference" },
+      {
+        name: "browser_snapshot",
+        description: "Capture an accessibility snapshot",
+      },
+      {
+        name: "browser_click",
+        description: "Click an element by snapshot reference",
+      },
       { name: "browser_type", description: "Type text into an element" },
       { name: "browser_fill_form", description: "Fill multiple form fields" },
-      { name: "browser_take_screenshot", description: "Capture a page or element screenshot" },
-      { name: "browser_wait_for", description: "Wait for text, time, or page readiness" },
-      { name: "browser_tabs", description: "Create, close, and switch browser tabs" },
-      { name: "browser_console_messages", description: "Read browser console output" },
-      { name: "browser_network_requests", description: "Inspect page network requests" },
+      {
+        name: "browser_take_screenshot",
+        description: "Capture a page or element screenshot",
+      },
+      {
+        name: "browser_wait_for",
+        description: "Wait for text, time, or page readiness",
+      },
+      {
+        name: "browser_tabs",
+        description: "Create, close, and switch browser tabs",
+      },
+      {
+        name: "browser_console_messages",
+        description: "Read browser console output",
+      },
+      {
+        name: "browser_network_requests",
+        description: "Inspect page network requests",
+      },
       { name: "browser_close", description: "Close the browser session" },
     ],
   },
@@ -1052,7 +1277,13 @@ const CATALOG_ICONS: Record<string, JSX.Element> = {
     </svg>
   ),
   search: (
-    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg
+      className="w-6 h-6"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
       <circle cx="11" cy="11" r="8" />
       <path d="M21 21l-4.35-4.35" />
     </svg>
@@ -1076,7 +1307,8 @@ const CATALOG_ICONS: Record<string, JSX.Element> = {
 
 function CatalogIcon({ icon }: { icon: string }): JSX.Element {
   if (ICONS[icon]) return <span className="text-zinc-700">{ICONS[icon]}</span>;
-  if (CATALOG_ICONS[icon]) return <span className="text-zinc-700">{CATALOG_ICONS[icon]}</span>;
+  if (CATALOG_ICONS[icon])
+    return <span className="text-zinc-700">{CATALOG_ICONS[icon]}</span>;
   return (
     <span className="w-6 h-6 rounded bg-zinc-200 flex items-center justify-center text-[10px] font-bold text-zinc-500">
       MCP
@@ -1091,13 +1323,21 @@ function QuickConnectCatalog({
   existingServers: McpServer[];
   onConnect: (template: McpTemplate) => void;
 }): JSX.Element {
-  const existingNames = new Set(existingServers.map((s) => s.name.toLowerCase()));
+  const existingNames = new Set(
+    existingServers.map((s) => s.name.toLowerCase()),
+  );
 
   return (
     <div className="mb-6">
-      <h2 className="text-sm font-semibold text-zinc-800 mb-1">Quick Connect</h2>
+      <h2 className="text-sm font-semibold text-zinc-800 mb-1">
+        Quick Connect
+      </h2>
       <p className="text-xs text-zinc-500 mb-3">
-        Click a server to configure and connect it.
+        Click a server to configure it. Local commands must also be enabled by
+        the server-side executable allowlist before they can connect or deploy.
+        The bundled database presets share CALIBER&apos;s privileged development
+        database by default; use a separate least-privilege database and role
+        before production.
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {MCP_CATALOG.map((tpl) => {
@@ -1126,16 +1366,22 @@ function QuickConnectCatalog({
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-medium text-zinc-900">{tpl.name}</span>
+                  <span className="text-sm font-medium text-zinc-900">
+                    {tpl.name}
+                  </span>
                   {alreadyAdded && (
                     <span className="inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
                       Connected
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">{tpl.description}</p>
+                <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">
+                  {tpl.description}
+                </p>
                 {tpl.tokenEnvVar && (
-                  <p className="text-[10px] text-zinc-400 mt-1 font-mono">{tpl.tokenEnvVar}</p>
+                  <p className="text-[10px] text-zinc-400 mt-1 font-mono">
+                    {tpl.tokenEnvVar}
+                  </p>
                 )}
               </div>
             </button>
@@ -1173,11 +1419,17 @@ function ServerDetailDialog({
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-zinc-900">{server.name}</h2>
-            <div className="mt-1 font-mono text-xs text-zinc-400">{server.server_id}</div>
+            <h2 className="text-lg font-semibold text-zinc-900">
+              {server.name}
+            </h2>
+            <div className="mt-1 font-mono text-xs text-zinc-400">
+              {server.server_id}
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`rounded-md px-2 py-0.5 text-xs font-medium ring-1 ${statusColor}`}>
+            <span
+              className={`rounded-md px-2 py-0.5 text-xs font-medium ring-1 ${statusColor}`}
+            >
               {server.status}
             </span>
             <button
@@ -1190,21 +1442,76 @@ function ServerDetailDialog({
             </button>
           </div>
         </div>
-        {server.description && <p className="mb-4 text-sm text-zinc-600">{server.description}</p>}
+        {server.description && (
+          <p className="mb-4 text-sm text-zinc-600">{server.description}</p>
+        )}
+        {server.execution && (
+          <div
+            className={`mb-5 rounded-lg border p-4 ${server.execution.ready ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}
+            data-testid="mcp-execution-readiness"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-zinc-900">
+                Execution containment
+              </h3>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${server.execution.ready ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}
+              >
+                {server.execution.ready ? "Runtime ready" : "Blocked"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-zinc-700">
+              Boundary:{" "}
+              <span className="font-mono">{server.execution.boundary}</span>
+              {server.execution.production_isolated
+                ? " · external execution boundary configured"
+                : " · not an OS sandbox"}
+            </p>
+            <p className="mt-1 text-xs text-zinc-600">
+              Execution readiness does not verify the endpoint&apos;s data
+              permissions or least-privilege configuration.
+            </p>
+            {server.execution.controls.length > 0 && (
+              <p className="mt-2 text-xs text-zinc-600">
+                Controls:{" "}
+                {server.execution.controls.join(", ").replaceAll("_", " ")}
+              </p>
+            )}
+            {server.execution.blockers.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-900">
+                {server.execution.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            )}
+            {server.execution.warnings.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-zinc-600">
+                {server.execution.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <dl className="mb-5 grid grid-cols-3 gap-x-4 gap-y-2 text-sm">
           <dt className="text-zinc-500">Transport</dt>
-          <dd className="col-span-2 font-mono text-zinc-800">{server.transport}</dd>
+          <dd className="col-span-2 font-mono text-zinc-800">
+            {server.transport}
+          </dd>
           {server.transport === "stdio" ? (
             <>
               <dt className="text-zinc-500">Command</dt>
               <dd className="col-span-2 break-all font-mono text-zinc-800">
-                {[server.command, ...server.args].filter(Boolean).join(" ") || "—"}
+                {[server.command, ...server.args].filter(Boolean).join(" ") ||
+                  "—"}
               </dd>
             </>
           ) : (
             <>
               <dt className="text-zinc-500">URI</dt>
-              <dd className="col-span-2 break-all font-mono text-zinc-800">{server.uri || "—"}</dd>
+              <dd className="col-span-2 break-all font-mono text-zinc-800">
+                {server.uri || "—"}
+              </dd>
             </>
           )}
           <dt className="text-zinc-500">Auth</dt>
@@ -1212,17 +1519,23 @@ function ServerDetailDialog({
           {envKeys.length > 0 && (
             <>
               <dt className="text-zinc-500">Env</dt>
-              <dd className="col-span-2 font-mono text-xs text-zinc-700">{envKeys.join(", ")}</dd>
+              <dd className="col-span-2 font-mono text-xs text-zinc-700">
+                {envKeys.join(", ")}
+              </dd>
             </>
           )}
           <dt className="text-zinc-500">Last connected</dt>
           <dd className="col-span-2 text-zinc-800">
-            {server.last_connected_at ? new Date(server.last_connected_at).toLocaleString() : "Never"}
+            {server.last_connected_at
+              ? new Date(server.last_connected_at).toLocaleString()
+              : "Never"}
           </dd>
           {server.connection_error && (
             <>
               <dt className="text-zinc-500">Error</dt>
-              <dd className="col-span-2 text-red-600">{server.connection_error}</dd>
+              <dd className="col-span-2 text-red-600">
+                {server.connection_error}
+              </dd>
             </>
           )}
         </dl>
@@ -1230,15 +1543,22 @@ function ServerDetailDialog({
           Discovered tools ({server.discovered_tools.length})
         </h3>
         {server.discovered_tools.length === 0 ? (
-          <p className="text-sm text-zinc-400">No tools discovered yet — run “Test” to connect.</p>
+          <p className="text-sm text-zinc-400">
+            No tools discovered yet — run “Test” to connect.
+          </p>
         ) : (
           <ul className="space-y-2">
             {server.discovered_tools.map((tool) => {
               const policy = server.tool_policies?.[tool.name];
               return (
-                <li key={tool.name} className="rounded-lg border border-zinc-200 p-3">
+                <li
+                  key={tool.name}
+                  className="rounded-lg border border-zinc-200 p-3"
+                >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-sm font-medium text-zinc-800">{tool.name}</span>
+                    <span className="font-mono text-sm font-medium text-zinc-800">
+                      {tool.name}
+                    </span>
                     {policy && (
                       <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600">
                         {policy.side_effect_level}
@@ -1247,7 +1567,11 @@ function ServerDetailDialog({
                       </span>
                     )}
                   </div>
-                  {tool.description && <p className="mt-1 text-xs text-zinc-500">{tool.description}</p>}
+                  {tool.description && (
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {tool.description}
+                    </p>
+                  )}
                 </li>
               );
             })}
@@ -1260,9 +1584,13 @@ function ServerDetailDialog({
 
 export function McpServers(): JSX.Element {
   const [showAdd, setShowAdd] = useState(false);
-  const [addInitial, setAddInitial] = useState<AddServerInitialValues | undefined>();
+  const [addInitial, setAddInitial] = useState<
+    AddServerInitialValues | undefined
+  >();
   const [refreshKey, setRefreshKey] = useState(0);
-  const [activeTab, setActiveTab] = useState<"servers" | "playground">("servers");
+  const [activeTab, setActiveTab] = useState<"servers" | "playground">(
+    "servers",
+  );
   const [detailServer, setDetailServer] = useState<McpServer | null>(null);
   const [editServer, setEditServer] = useState<McpServer | null>(null);
   // Search + Status + Transport filters for the server table. All default to the
@@ -1292,7 +1620,10 @@ export function McpServers(): JSX.Element {
 
   // MCP server config (register / edit / delete) is an admin-only operation on
   // the backend; gate the mutating controls so only admins see them.
-  const meFetcher = useCallback((signal: AbortSignal) => caliberApi.getMe(signal), []);
+  const meFetcher = useCallback(
+    (signal: AbortSignal) => caliberApi.getMe(signal),
+    [],
+  );
   const { data: me } = useApi(meFetcher, []);
   const isAdmin = me?.is_admin ?? false;
 
@@ -1305,11 +1636,13 @@ export function McpServers(): JSX.Element {
       transport: tpl.transport,
       command: tpl.command,
       args: tpl.args.join(" "),
+      uri: tpl.uri,
       env: tpl.env,
       authType: tpl.tokenEnvVar ? "token" : "none",
       tokenEnvVar: tpl.tokenEnvVar,
       icon: tpl.icon,
       tools: tpl.tools,
+      toolPolicies: tpl.toolPolicies,
     });
     setShowAdd(true);
   };
@@ -1330,8 +1663,18 @@ export function McpServers(): JSX.Element {
               className="inline-flex items-center gap-1.5 rounded-lg bg-caliber-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-caliber-700"
               data-testid="add-server-btn"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4v16m8-8H4"
+                />
               </svg>
               Add Server
             </button>
@@ -1347,8 +1690,16 @@ export function McpServers(): JSX.Element {
 
       {error && (
         <div className="flex items-start gap-3 rounded-2xl border border-red-200/60 bg-red-50 px-5 py-4 shadow-card">
-          <svg className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          <svg
+            className="w-4 h-4 mt-0.5 text-red-500 flex-shrink-0"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
           <div className="flex-1 text-sm text-red-700">
             <div className="font-semibold">Failed to load MCP servers</div>
@@ -1424,35 +1775,54 @@ export function McpServers(): JSX.Element {
                   <th className="text-left font-medium px-4 py-3">Transport</th>
                   <th className="text-left font-medium px-4 py-3">Endpoint</th>
                   <th className="text-left font-medium px-4 py-3">Tools</th>
-                  <th className="text-left font-medium px-4 py-3">Last Connected</th>
+                  <th className="text-left font-medium px-4 py-3">
+                    Last Connected
+                  </th>
                   <th className="text-right font-medium px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-100">
                 {loading && !data && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
+                    <td
+                      colSpan={7}
+                      className="px-4 py-10 text-center text-sm text-gray-500"
+                    >
                       Loading…
                     </td>
                   </tr>
                 )}
                 {data && data.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
-                      No MCP servers registered yet. Click &ldquo;Add Server&rdquo;
-                      to connect your first external tool provider.
+                    <td
+                      colSpan={7}
+                      className="px-4 py-10 text-center text-sm text-gray-500"
+                    >
+                      No MCP servers registered yet. Click &ldquo;Add
+                      Server&rdquo; to connect your first external tool
+                      provider.
                     </td>
                   </tr>
                 )}
                 {data && data.length > 0 && visibleServers.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
+                    <td
+                      colSpan={7}
+                      className="px-4 py-10 text-center text-sm text-gray-500"
+                    >
                       No MCP servers match the current filters.
                     </td>
                   </tr>
                 )}
                 {visibleServers.map((server) => (
-                  <ServerRow key={server.server_id} server={server} onRefresh={refresh} onShowDetail={setDetailServer} isAdmin={isAdmin} onEdit={setEditServer} />
+                  <ServerRow
+                    key={server.server_id}
+                    server={server}
+                    onRefresh={refresh}
+                    onShowDetail={setDetailServer}
+                    isAdmin={isAdmin}
+                    onEdit={setEditServer}
+                  />
                 ))}
               </tbody>
             </table>
@@ -1461,46 +1831,78 @@ export function McpServers(): JSX.Element {
       )}
 
       {activeTab === "playground" && (
-        <PlaygroundTab servers={data ?? []} loading={loading} refresh={refresh} />
+        <PlaygroundTab
+          servers={data ?? []}
+          loading={loading}
+          refresh={refresh}
+        />
       )}
 
       <AddServerDialog
         open={showAdd || editServer !== null}
         editServer={editServer}
-        onClose={() => { setShowAdd(false); setAddInitial(undefined); setEditServer(null); }}
+        onClose={() => {
+          setShowAdd(false);
+          setAddInitial(undefined);
+          setEditServer(null);
+        }}
         onCreated={refresh}
         initialValues={editServer ? undefined : addInitial}
       />
 
-      <ServerDetailDialog server={detailServer} onClose={() => setDetailServer(null)} />
+      <ServerDetailDialog
+        server={detailServer}
+        onClose={() => setDetailServer(null)}
+      />
     </div>
   );
 }
 
 /* ── Playground tab ─────────────────────────────────────────────────────── */
 
-const PLAYGROUND_STATUS_BADGE: Record<string, { bg: string; dot: string; label: string }> = {
-  active:   { bg: "bg-emerald-50 text-emerald-700 border-emerald-200", dot: "bg-emerald-500", label: "Connected" },
-  error:    { bg: "bg-red-50 text-red-700 border-red-200",             dot: "bg-red-500",     label: "Error" },
-  disabled: { bg: "bg-zinc-100 text-zinc-500 border-zinc-200",         dot: "bg-zinc-400",    label: "Disabled" },
+const PLAYGROUND_STATUS_BADGE: Record<
+  string,
+  { bg: string; dot: string; label: string }
+> = {
+  active: {
+    bg: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    dot: "bg-emerald-500",
+    label: "Connected",
+  },
+  error: {
+    bg: "bg-red-50 text-red-700 border-red-200",
+    dot: "bg-red-500",
+    label: "Error",
+  },
+  disabled: {
+    bg: "bg-zinc-100 text-zinc-500 border-zinc-200",
+    dot: "bg-zinc-400",
+    label: "Disabled",
+  },
 };
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 const DEFAULT_TOOL_POLICY: McpToolPolicy = {
-  allowed: true,
+  allowed: false,
   side_effect_level: "read",
   requires_approval: false,
   rate_limit_per_minute: null,
 };
 
-function withDefaultPolicy(tool: McpServerDiscoveredTool): McpDiscoveredToolWithPolicy {
+function withDefaultPolicy(
+  tool: McpServerDiscoveredTool,
+): McpDiscoveredToolWithPolicy {
   return {
     ...tool,
     policy: { ...DEFAULT_TOOL_POLICY },
+    classified: false,
   };
 }
 
@@ -1516,7 +1918,9 @@ function PlaygroundTab({
   /* ── selection ──────────────────────────────────── */
   const [selectedId, setSelectedId] = useState<string>("");
   const selected = servers.find((s) => s.server_id === selectedId) ?? null;
-  const [discoveredTools, setDiscoveredTools] = useState<McpDiscoveredToolWithPolicy[]>([]);
+  const [discoveredTools, setDiscoveredTools] = useState<
+    McpDiscoveredToolWithPolicy[]
+  >([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
 
@@ -1535,9 +1939,16 @@ function PlaygroundTab({
         setDiscoveredTools(listed.tools);
       } catch (err) {
         const fallbackServer = servers.find((s) => s.server_id === serverId);
-        const fallback = fallbackTools.length > 0 ? fallbackTools : (fallbackServer?.discovered_tools ?? []);
+        const fallback =
+          fallbackTools.length > 0
+            ? fallbackTools
+            : (fallbackServer?.discovered_tools ?? []);
         setDiscoveredTools(fallback.map(withDefaultPolicy));
-        setToolsError(err instanceof Error ? err.message : "Failed to load MCP tool policies");
+        setToolsError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load MCP tool policies",
+        );
       } finally {
         setToolsLoading(false);
       }
@@ -1556,7 +1967,9 @@ function PlaygroundTab({
 
   /* ── test connection ────────────────────────────── */
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<McpTestConnectionResult | null>(null);
+  const [testResult, setTestResult] = useState<McpTestConnectionResult | null>(
+    null,
+  );
   const [testDuration, setTestDuration] = useState<number | null>(null);
 
   const runTest = async () => {
@@ -1605,12 +2018,19 @@ function PlaygroundTab({
   };
 
   /* ── tool invocation ────────────────────────────── */
-  const [activeTool, setActiveTool] = useState<McpDiscoveredToolWithPolicy | null>(null);
+  const [activeTool, setActiveTool] =
+    useState<McpDiscoveredToolWithPolicy | null>(null);
   const [toolArgs, setToolArgs] = useState<Record<string, string>>({});
   const [invoking, setInvoking] = useState(false);
-  const [invocationResult, setInvocationResult] = useState<McpToolInvocationResult | null>(null);
+  const [invocationResult, setInvocationResult] =
+    useState<McpToolInvocationResult | null>(null);
   const [invocationHistory, setInvocationHistory] = useState<
-    { tool: string; args: Record<string, string>; result: McpToolInvocationResult; timestamp: number }[]
+    {
+      tool: string;
+      args: Record<string, string>;
+      result: McpToolInvocationResult;
+      timestamp: number;
+    }[]
   >([]);
 
   const handleToolSelect = (tool: McpDiscoveredToolWithPolicy) => {
@@ -1702,16 +2122,27 @@ function PlaygroundTab({
   if (servers.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center">
-        <p className="text-sm text-zinc-500 mb-2">No MCP servers registered yet.</p>
-        <p className="text-sm text-zinc-400">Switch to the Servers tab to add one.</p>
+        <p className="text-sm text-zinc-500 mb-2">
+          No MCP servers registered yet.
+        </p>
+        <p className="text-sm text-zinc-400">
+          Switch to the Servers tab to add one.
+        </p>
       </div>
     );
   }
 
-  const badge = selected ? PLAYGROUND_STATUS_BADGE[selected.status] ?? PLAYGROUND_STATUS_BADGE.disabled : null;
-  const tools = discoveredTools.length > 0
-    ? discoveredTools
-    : (testResult?.tools?.length ? testResult.tools : (selected?.discovered_tools ?? [])).map(withDefaultPolicy);
+  const badge = selected
+    ? (PLAYGROUND_STATUS_BADGE[selected.status] ??
+      PLAYGROUND_STATUS_BADGE.disabled)
+    : null;
+  const tools =
+    discoveredTools.length > 0
+      ? discoveredTools
+      : (testResult?.tools?.length
+          ? testResult.tools
+          : (selected?.discovered_tools ?? [])
+        ).map(withDefaultPolicy);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -1719,7 +2150,9 @@ function PlaygroundTab({
       <div className="lg:col-span-3 space-y-4">
         {/* server picker */}
         <div>
-          <label className="block text-xs font-medium text-zinc-700 mb-1">Server</label>
+          <label className="block text-xs font-medium text-zinc-700 mb-1">
+            Server
+          </label>
           <select
             aria-label="Select MCP server"
             value={selectedId}
@@ -1733,7 +2166,9 @@ function PlaygroundTab({
             className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-caliber-500 focus:ring-1 focus:ring-caliber-500 outline-none"
           >
             {servers.map((s) => (
-              <option key={s.server_id} value={s.server_id}>{s.name}</option>
+              <option key={s.server_id} value={s.server_id}>
+                {s.name}
+              </option>
             ))}
           </select>
         </div>
@@ -1746,16 +2181,35 @@ function PlaygroundTab({
         >
           {testing ? (
             <>
-              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              <svg
+                className="w-4 h-4 animate-spin"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
               </svg>
               Testing…
             </>
           ) : (
             <>
               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                  clipRule="evenodd"
+                />
               </svg>
               Test Connection
             </>
@@ -1764,32 +2218,59 @@ function PlaygroundTab({
 
         {/* test result card */}
         {testResult && (
-          <div className={`rounded-lg border p-4 ${testResult.success ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+          <div
+            className={`rounded-lg border p-4 ${testResult.success ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}
+          >
             <div className="flex items-center gap-2 mb-2">
               {testResult.success ? (
-                <svg className="w-5 h-5 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <svg
+                  className="w-5 h-5 text-emerald-600"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               ) : (
-                <svg className="w-5 h-5 text-red-600" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                <svg
+                  className="w-5 h-5 text-red-600"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               )}
-              <span className={`text-sm font-semibold ${testResult.success ? "text-emerald-800" : "text-red-800"}`}>
-                {testResult.success ? "Connection Successful" : "Connection Failed"}
+              <span
+                className={`text-sm font-semibold ${testResult.success ? "text-emerald-800" : "text-red-800"}`}
+              >
+                {testResult.success
+                  ? "Connection Successful"
+                  : "Connection Failed"}
               </span>
             </div>
             {testDuration !== null && (
-              <p className={`text-xs ${testResult.success ? "text-emerald-600" : "text-red-600"} mb-1`}>
+              <p
+                className={`text-xs ${testResult.success ? "text-emerald-600" : "text-red-600"} mb-1`}
+              >
                 Response time: {testDuration}ms
               </p>
             )}
             {testResult.error && (
-              <p className="text-xs text-red-700 mt-1 font-mono bg-red-100 rounded px-2 py-1">{testResult.error}</p>
+              <p className="text-xs text-red-700 mt-1 font-mono bg-red-100 rounded px-2 py-1">
+                {testResult.error}
+              </p>
             )}
             {testResult.success && (
               <p className="text-xs text-emerald-700">
-                {testResult.tools.length} tool{testResult.tools.length !== 1 ? "s" : ""} discovered
+                {testResult.tools.length} tool
+                {testResult.tools.length !== 1 ? "s" : ""} discovered
               </p>
             )}
           </div>
@@ -1798,14 +2279,20 @@ function PlaygroundTab({
         {/* server details */}
         {selected && (
           <div className="rounded-lg border border-zinc-200 bg-white p-4 space-y-3">
-            <h3 className="text-xs font-semibold text-zinc-800 uppercase tracking-wider">Server Details</h3>
+            <h3 className="text-xs font-semibold text-zinc-800 uppercase tracking-wider">
+              Server Details
+            </h3>
             <dl className="space-y-2 text-xs">
               <div className="flex justify-between">
                 <dt className="text-zinc-500">Status</dt>
                 <dd>
                   {badge && (
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${badge.bg}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${badge.bg}`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${badge.dot}`}
+                      />
                       {badge.label}
                     </span>
                   )}
@@ -1813,20 +2300,29 @@ function PlaygroundTab({
               </div>
               <div className="flex justify-between">
                 <dt className="text-zinc-500">Transport</dt>
-                <dd className="font-mono text-zinc-800">{selected.transport}</dd>
+                <dd className="font-mono text-zinc-800">
+                  {selected.transport}
+                </dd>
               </div>
               {selected.transport === "stdio" && (
                 <div className="flex justify-between">
                   <dt className="text-zinc-500">Command</dt>
-                  <dd className="font-mono text-zinc-800 text-right max-w-[60%] truncate" title={`${selected.command} ${selected.args.join(" ")}`}>
+                  <dd
+                    className="font-mono text-zinc-800 text-right max-w-[60%] truncate"
+                    title={`${selected.command} ${selected.args.join(" ")}`}
+                  >
                     {selected.command}
                   </dd>
                 </div>
               )}
-              {(selected.transport === "sse" || selected.transport === "streamable-http") && (
+              {(selected.transport === "sse" ||
+                selected.transport === "streamable-http") && (
                 <div className="flex justify-between">
                   <dt className="text-zinc-500">URI</dt>
-                  <dd className="font-mono text-zinc-800 text-right max-w-[60%] truncate" title={selected.uri}>
+                  <dd
+                    className="font-mono text-zinc-800 text-right max-w-[60%] truncate"
+                    title={selected.uri}
+                  >
                     {selected.uri}
                   </dd>
                 </div>
@@ -1837,7 +2333,9 @@ function PlaygroundTab({
               </div>
               <div className="flex justify-between">
                 <dt className="text-zinc-500">Last Connected</dt>
-                <dd className="text-zinc-800">{formatDate(selected.last_connected_at)}</dd>
+                <dd className="text-zinc-800">
+                  {formatDate(selected.last_connected_at)}
+                </dd>
               </div>
             </dl>
           </div>
@@ -1866,10 +2364,16 @@ function PlaygroundTab({
                 onUpdated={(policy) => {
                   const toolName = activeTool.name;
                   setDiscoveredTools((current) =>
-                    current.map((item) => (item.name === toolName ? { ...item, policy } : item)),
+                    current.map((item) =>
+                      item.name === toolName
+                        ? { ...item, policy, classified: true }
+                        : item,
+                    ),
                   );
                   setActiveTool((current) =>
-                    current && current.name === toolName ? { ...current, policy } : current,
+                    current && current.name === toolName
+                      ? { ...current, policy, classified: true }
+                      : current,
                   );
                 }}
               />
@@ -1882,20 +2386,41 @@ function PlaygroundTab({
               invocationResult={invocationResult}
               onInvoke={handleInvoke}
             />
-            <McpToolCalibration server={selected} tool={activeTool} refresh={refresh} />
-            <McpToolTests server={selected} tool={activeTool} />
+            {activeTool.classified && activeTool.policy.allowed ? (
+              <>
+                <McpToolCalibration
+                  server={selected}
+                  tool={activeTool}
+                  refresh={refresh}
+                />
+                <McpToolTests server={selected} tool={activeTool} />
+              </>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                {activeTool.classified
+                  ? "This tool is blocked by its saved policy."
+                  : "Save an explicit allow, side-effect, and approval policy before invoking, testing, or calibrating this tool."}
+              </div>
+            )}
           </>
         ) : (
           <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-12 text-center">
-            <svg className="w-10 h-10 text-zinc-300 mx-auto mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <svg
+              className="w-10 h-10 text-zinc-300 mx-auto mb-3"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
               <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
             </svg>
-            <p className="text-sm text-zinc-500 font-medium">Select a tool to invoke</p>
+            <p className="text-sm text-zinc-500 font-medium">
+              Select a tool to invoke
+            </p>
             <p className="text-xs text-zinc-400 mt-1">
               {tools.length === 0
                 ? "Run Test Connection first to discover tools"
-                : "Click a tool from the list to configure and run it"
-              }
+                : "Click a tool from the list to configure and run it"}
             </p>
           </div>
         )}
@@ -1904,7 +2429,9 @@ function PlaygroundTab({
         {invocationHistory.length > 0 && (
           <div className="rounded-lg border border-zinc-200 bg-white">
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-zinc-800 uppercase tracking-wider">History</h3>
+              <h3 className="text-xs font-semibold text-zinc-800 uppercase tracking-wider">
+                History
+              </h3>
               <button
                 onClick={() => setInvocationHistory([])}
                 className="text-[10px] text-zinc-400 hover:text-zinc-600"
@@ -1927,12 +2454,18 @@ function PlaygroundTab({
                   }}
                 >
                   <div className="flex items-center gap-2">
-                    <span className={`w-1.5 h-1.5 rounded-full ${entry.result.success ? "bg-emerald-500" : "bg-red-500"}`} />
-                    <span className="font-mono text-zinc-800">{entry.tool}</span>
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${entry.result.success ? "bg-emerald-500" : "bg-red-500"}`}
+                    />
+                    <span className="font-mono text-zinc-800">
+                      {entry.tool}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 text-zinc-400">
                     <span>{entry.result.duration_ms}ms</span>
-                    <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                    <span>
+                      {new Date(entry.timestamp).toLocaleTimeString()}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -1995,10 +2528,18 @@ function ToolsPanel({
       )}
 
       {loading ? (
-        <div className="px-4 py-10 text-center text-xs text-zinc-400">Loading tool policies…</div>
+        <div className="px-4 py-10 text-center text-xs text-zinc-400">
+          Loading tool policies…
+        </div>
       ) : tools.length === 0 ? (
         <div className="px-4 py-10 text-center">
-          <svg className="w-8 h-8 text-zinc-300 mx-auto mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg
+            className="w-8 h-8 text-zinc-300 mx-auto mb-2"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
             <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
           </svg>
           <p className="text-xs text-zinc-400">
@@ -2007,13 +2548,17 @@ function ToolsPanel({
         </div>
       ) : filtered.length === 0 ? (
         <div className="px-4 py-8 text-center">
-          <p className="text-xs text-zinc-400">No tools match &ldquo;{filter}&rdquo;</p>
+          <p className="text-xs text-zinc-400">
+            No tools match &ldquo;{filter}&rdquo;
+          </p>
         </div>
       ) : (
         <div className="divide-y divide-zinc-100 max-h-[65vh] overflow-y-auto">
           {filtered.map((tool, i) => {
             const isActive = activeTool?.name === tool.name;
-            const paramCount = Object.keys(tool.input_schema?.properties ?? {}).length;
+            const paramCount = Object.keys(
+              tool.input_schema?.properties ?? {},
+            ).length;
             return (
               <button
                 key={`${tool.name}-${i}`}
@@ -2026,32 +2571,57 @@ function ToolsPanel({
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center ${
-                    isActive ? "bg-blue-100 border border-blue-200" : "bg-zinc-100 border border-zinc-200"
-                  }`}>
-                    <svg className={`w-3.5 h-3.5 ${isActive ? "text-blue-600" : "text-zinc-500"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <div
+                    className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center ${
+                      isActive
+                        ? "bg-blue-100 border border-blue-200"
+                        : "bg-zinc-100 border border-zinc-200"
+                    }`}
+                  >
+                    <svg
+                      className={`w-3.5 h-3.5 ${isActive ? "text-blue-600" : "text-zinc-500"}`}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
                     </svg>
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className={`text-sm font-medium font-mono ${isActive ? "text-blue-800" : "text-zinc-900"}`}>{tool.name}</p>
+                      <p
+                        className={`text-sm font-medium font-mono ${isActive ? "text-blue-800" : "text-zinc-900"}`}
+                      >
+                        {tool.name}
+                      </p>
                       {paramCount > 0 && (
                         <span className="text-[9px] text-zinc-400 bg-zinc-100 rounded px-1 py-0.5">
                           {paramCount} param{paramCount !== 1 ? "s" : ""}
                         </span>
                       )}
                       {!tool.policy.allowed && (
-                        <span className="text-[9px] font-semibold text-red-700 bg-red-50 rounded px-1.5 py-0.5">Blocked</span>
+                        <span className="text-[9px] font-semibold text-red-700 bg-red-50 rounded px-1.5 py-0.5">
+                          Blocked
+                        </span>
+                      )}
+                      {!tool.classified && (
+                        <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5">
+                          Unclassified
+                        </span>
                       )}
                       {tool.policy.requires_approval && (
-                        <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5">Approval</span>
+                        <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 rounded px-1.5 py-0.5">
+                          Approval
+                        </span>
                       )}
                       <span className="text-[9px] font-semibold text-zinc-600 bg-zinc-100 rounded px-1.5 py-0.5 uppercase">
                         {tool.policy.side_effect_level}
                       </span>
                     </div>
-                    <p className="text-xs text-zinc-500 mt-0.5">{tool.description}</p>
+                    <p className="text-xs text-zinc-500 mt-0.5">
+                      {tool.description}
+                    </p>
                   </div>
                 </div>
               </button>
@@ -2087,12 +2657,13 @@ function ToolPolicyEditor({
     setSaved(false);
   }, [tool.name]);
 
-  const dirty = (
-    policy.allowed !== tool.policy.allowed
-    || policy.side_effect_level !== tool.policy.side_effect_level
-    || policy.requires_approval !== tool.policy.requires_approval
-    || (policy.rate_limit_per_minute ?? null) !== (tool.policy.rate_limit_per_minute ?? null)
-  );
+  const dirty =
+    !tool.classified ||
+    policy.allowed !== tool.policy.allowed ||
+    policy.side_effect_level !== tool.policy.side_effect_level ||
+    policy.requires_approval !== tool.policy.requires_approval ||
+    (policy.rate_limit_per_minute ?? null) !==
+      (tool.policy.rate_limit_per_minute ?? null);
 
   const save = async (): Promise<void> => {
     if (!dirty) return;
@@ -2100,17 +2671,23 @@ function ToolPolicyEditor({
     setError(null);
     setSaved(false);
     try {
-      const updated = await caliberApi.updateMcpToolPolicy(serverId, tool.name, {
-        allowed: policy.allowed,
-        side_effect_level: policy.side_effect_level,
-        requires_approval: policy.requires_approval,
-        rate_limit_per_minute: policy.rate_limit_per_minute ?? null,
-      });
+      const updated = await caliberApi.updateMcpToolPolicy(
+        serverId,
+        tool.name,
+        {
+          allowed: policy.allowed,
+          side_effect_level: policy.side_effect_level,
+          requires_approval: policy.requires_approval,
+          rate_limit_per_minute: policy.rate_limit_per_minute ?? null,
+        },
+      );
       setPolicy(updated.policy);
       onUpdated(updated.policy);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update MCP tool policy");
+      setError(
+        err instanceof Error ? err.message : "Failed to update MCP tool policy",
+      );
     } finally {
       setSaving(false);
     }
@@ -2140,7 +2717,10 @@ function ToolPolicyEditor({
             type="checkbox"
             checked={policy.allowed}
             onChange={(event) => {
-              setPolicy((current) => ({ ...current, allowed: event.target.checked }));
+              setPolicy((current) => ({
+                ...current,
+                allowed: event.target.checked,
+              }));
               setSaved(false);
             }}
             className="rounded border-zinc-300"
@@ -2152,7 +2732,10 @@ function ToolPolicyEditor({
             type="checkbox"
             checked={policy.requires_approval}
             onChange={(event) => {
-              setPolicy((current) => ({ ...current, requires_approval: event.target.checked }));
+              setPolicy((current) => ({
+                ...current,
+                requires_approval: event.target.checked,
+              }));
               setSaved(false);
             }}
             className="rounded border-zinc-300"
@@ -2162,11 +2745,14 @@ function ToolPolicyEditor({
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block text-xs">
-          <span className="mb-1 block font-medium text-zinc-700">Side effect level</span>
+          <span className="mb-1 block font-medium text-zinc-700">
+            Side effect level
+          </span>
           <select
             value={policy.side_effect_level}
             onChange={(event) => {
-              const side_effect_level = event.target.value as McpToolPolicy["side_effect_level"];
+              const side_effect_level = event.target
+                .value as McpToolPolicy["side_effect_level"];
               setPolicy((current) => ({ ...current, side_effect_level }));
               setSaved(false);
             }}
@@ -2178,7 +2764,9 @@ function ToolPolicyEditor({
           </select>
         </label>
         <label className="block text-xs">
-          <span className="mb-1 block font-medium text-zinc-700">Rate limit / minute</span>
+          <span className="mb-1 block font-medium text-zinc-700">
+            Rate limit / minute
+          </span>
           <input
             type="number"
             min={1}
@@ -2189,7 +2777,10 @@ function ToolPolicyEditor({
               const parsed = raw ? Number.parseInt(raw, 10) : null;
               setPolicy((current) => ({
                 ...current,
-                rate_limit_per_minute: parsed && Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+                rate_limit_per_minute:
+                  parsed && Number.isFinite(parsed) && parsed > 0
+                    ? parsed
+                    : null,
               }));
               setSaved(false);
             }}
@@ -2236,16 +2827,19 @@ function parseJsonArrayFromAssistant(raw: string): unknown[] {
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) throw new Error("LLM did not return a JSON array.");
   const parsed = JSON.parse(match[0]) as unknown;
-  if (!Array.isArray(parsed)) throw new Error("Generated tests must be an array.");
+  if (!Array.isArray(parsed))
+    throw new Error("Generated tests must be an array.");
   return parsed;
 }
 
-function parseJsonObjectFromAssistant(raw: string): Record<string, unknown> | null {
+function parseJsonObjectFromAssistant(
+  raw: string,
+): Record<string, unknown> | null {
   const match = raw.match(/\{[\s\S]*\}/);
   if (!match) return null;
   const parsed = JSON.parse(match[0]) as unknown;
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? parsed as Record<string, unknown>
+    ? (parsed as Record<string, unknown>)
     : null;
 }
 
@@ -2259,16 +2853,20 @@ function normalizeMcpGeneratedTests(raw: unknown[]): McpGeneratedTestCase[] {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new Error(`Test case ${index + 1} needs an object input.`);
     }
-    const expectedBehavior = typeof payload.expectedBehavior === "string"
-      ? payload.expectedBehavior.trim()
-      : "";
+    const expectedBehavior =
+      typeof payload.expectedBehavior === "string"
+        ? payload.expectedBehavior.trim()
+        : "";
     return {
       id: `mcp-tc-${Date.now()}-${index}`,
       input: input as Record<string, unknown>,
       expectedOutput: payload.expectedOutput ?? payload.output ?? {},
       expectedBehavior,
       tags: Array.isArray(payload.tags)
-        ? payload.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0)
+        ? payload.tags.filter(
+            (tag): tag is string =>
+              typeof tag === "string" && tag.trim().length > 0,
+          )
         : [],
     };
   });
@@ -2295,12 +2893,19 @@ function McpToolCalibration({
         initialCases={savedCases}
         lastResult={lastResult}
         onSave={async (cases: CalibrationCase[]) => {
-          const saved = await caliberApi.saveMcpToolTestCases(server.server_id, tool.name, cases);
+          const saved = await caliberApi.saveMcpToolTestCases(
+            server.server_id,
+            tool.name,
+            cases,
+          );
           refresh();
           return saved;
         }}
         onCalibrate={async (): Promise<CalibrationResult> => {
-          const scored = await caliberApi.calibrateMcpTool(server.server_id, tool.name);
+          const scored = await caliberApi.calibrateMcpTool(
+            server.server_id,
+            tool.name,
+          );
           refresh();
           return scored;
         }}
@@ -2329,7 +2934,8 @@ function McpToolTests({
 
   useEffect(() => {
     let cancelled = false;
-    caliberApi.getAssistantConfig()
+    caliberApi
+      .getAssistantConfig()
       .then((value) => {
         if (cancelled) return;
         setConfig(value);
@@ -2357,7 +2963,9 @@ function McpToolTests({
 
   const syncModel = async (): Promise<void> => {
     if (config && selectedModel && selectedModel !== config.model) {
-      const updated = await caliberApi.updateAssistantConfig({ model: selectedModel });
+      const updated = await caliberApi.updateAssistantConfig({
+        model: selectedModel,
+      });
       setConfig(updated);
     }
   };
@@ -2392,10 +3000,16 @@ function McpToolTests({
         content: "Generate the MCP tool tests now.",
         artifact_type: "mcp_server",
       });
-      setCases(normalizeMcpGeneratedTests(parseJsonArrayFromAssistant(turn.assistant_message.content)));
+      setCases(
+        normalizeMcpGeneratedTests(
+          parseJsonArrayFromAssistant(turn.assistant_message.content),
+        ),
+      );
       setResults([]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate MCP tests");
+      setError(
+        err instanceof Error ? err.message : "Failed to generate MCP tests",
+      );
     } finally {
       setGenerating(false);
     }
@@ -2415,7 +3029,11 @@ function McpToolTests({
         setProgress({ current: i + 1, total: cases.length });
         let invocation: McpToolInvocationResult;
         try {
-          invocation = await caliberApi.invokeMcpTool(server.server_id, tool.name, testCase.input);
+          invocation = await caliberApi.invokeMcpTool(
+            server.server_id,
+            tool.name,
+            testCase.input,
+          );
         } catch (err) {
           invocation = {
             server_id: server.server_id,
@@ -2427,7 +3045,9 @@ function McpToolTests({
           };
         }
 
-        let verdict: McpGeneratedTestResult["verdict"] = invocation.success ? "partial" : "fail";
+        let verdict: McpGeneratedTestResult["verdict"] = invocation.success
+          ? "partial"
+          : "fail";
         let score = invocation.success ? 0.5 : 0;
         let reasoning = invocation.error ?? "Judge response was not available.";
         if (invocation.success) {
@@ -2456,18 +3076,32 @@ function McpToolTests({
               goal: judgeGoal,
               artifact_type: "mcp_server",
             });
-            const turn = await caliberApi.sendAssistantMessage(session.session_id, {
-              content: "Judge this MCP test now.",
-              artifact_type: "mcp_server",
-            });
-            const judged = parseJsonObjectFromAssistant(turn.assistant_message.content);
+            const turn = await caliberApi.sendAssistantMessage(
+              session.session_id,
+              {
+                content: "Judge this MCP test now.",
+                artifact_type: "mcp_server",
+              },
+            );
+            const judged = parseJsonObjectFromAssistant(
+              turn.assistant_message.content,
+            );
             if (judged) {
               const rawVerdict = judged.verdict;
-              verdict = rawVerdict === "pass" || rawVerdict === "fail" || rawVerdict === "partial"
-                ? rawVerdict
-                : "fail";
-              score = typeof judged.score === "number" ? Math.max(0, Math.min(1, judged.score)) : 0;
-              reasoning = typeof judged.reasoning === "string" ? judged.reasoning : "No reasoning returned.";
+              verdict =
+                rawVerdict === "pass" ||
+                rawVerdict === "fail" ||
+                rawVerdict === "partial"
+                  ? rawVerdict
+                  : "fail";
+              score =
+                typeof judged.score === "number"
+                  ? Math.max(0, Math.min(1, judged.score))
+                  : 0;
+              reasoning =
+                typeof judged.reasoning === "string"
+                  ? judged.reasoning
+                  : "No reasoning returned.";
             }
           } catch (err) {
             reasoning = err instanceof Error ? err.message : "Judge failed";
@@ -2495,11 +3129,18 @@ function McpToolTests({
     : null;
 
   return (
-    <div data-testid="mcp-tool-tests" className="rounded-lg border border-zinc-200 bg-white p-4 space-y-4">
+    <div
+      data-testid="mcp-tool-tests"
+      className="rounded-lg border border-zinc-200 bg-white p-4 space-y-4"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900">Generated Tool Tests</h3>
-          <p className="mt-0.5 text-xs text-zinc-500">LLM-generated input and expected-output cases for this MCP tool.</p>
+          <h3 className="text-sm font-semibold text-zinc-900">
+            Generated Tool Tests
+          </h3>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            LLM-generated input and expected-output cases for this MCP tool.
+          </p>
         </div>
         {averageScore !== null && (
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold text-zinc-700">
@@ -2510,7 +3151,9 @@ function McpToolTests({
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <label className="block">
-          <span className="block text-xs font-medium text-zinc-700 mb-1">LLM Model</span>
+          <span className="block text-xs font-medium text-zinc-700 mb-1">
+            LLM Model
+          </span>
           {configLoading ? (
             <div className="text-xs text-zinc-400 py-2">Loading models…</div>
           ) : (
@@ -2522,13 +3165,17 @@ function McpToolTests({
               className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-caliber-500 focus:ring-1 focus:ring-caliber-500 outline-none disabled:opacity-50"
             >
               {config?.available_models.map((model: AssistantModelOption) => (
-                <option key={model.id} value={model.id}>{model.name} ({model.provider})</option>
+                <option key={model.id} value={model.id}>
+                  {model.name} ({model.provider})
+                </option>
               ))}
             </select>
           )}
         </label>
         <label className="block">
-          <span className="block text-xs font-medium text-zinc-700 mb-1">Number of Tests</span>
+          <span className="block text-xs font-medium text-zinc-700 mb-1">
+            Number of Tests
+          </span>
           <input
             aria-label="Number of MCP tool tests"
             type="number"
@@ -2559,7 +3206,9 @@ function McpToolTests({
           disabled={cases.length === 0 || generating || running}
           className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
         >
-          {running ? `Running ${progress.current}/${progress.total}…` : "Run Tests"}
+          {running
+            ? `Running ${progress.current}/${progress.total}…`
+            : "Run Tests"}
         </button>
       </div>
 
@@ -2576,33 +3225,59 @@ function McpToolTests({
       ) : (
         <div className="space-y-2">
           {cases.map((testCase, index) => {
-            const result = results.find((item) => item.testCaseId === testCase.id);
+            const result = results.find(
+              (item) => item.testCaseId === testCase.id,
+            );
             return (
-              <div key={testCase.id} className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+              <div
+                key={testCase.id}
+                className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold text-zinc-900">Test {index + 1}</div>
-                    <div className="mt-0.5 text-[11px] text-zinc-500">{testCase.expectedBehavior || "Output assertion"}</div>
+                    <div className="text-xs font-semibold text-zinc-900">
+                      Test {index + 1}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-zinc-500">
+                      {testCase.expectedBehavior || "Output assertion"}
+                    </div>
                   </div>
                   {result && (
-                    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
-                      result.verdict === "pass"
-                        ? "bg-emerald-50 text-emerald-700"
-                        : result.verdict === "partial"
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-red-50 text-red-700"
-                    }`}>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${
+                        result.verdict === "pass"
+                          ? "bg-emerald-50 text-emerald-700"
+                          : result.verdict === "partial"
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-red-50 text-red-700"
+                      }`}
+                    >
                       {result.verdict} {(result.score * 100).toFixed(0)}%
                     </span>
                   )}
                 </div>
                 <div className="mt-2 grid gap-2">
                   <pre className="max-h-32 overflow-auto rounded bg-white p-2 text-[10px] text-zinc-700">
-                    {JSON.stringify({ input: testCase.input, expectedOutput: testCase.expectedOutput }, null, 2)}
+                    {JSON.stringify(
+                      {
+                        input: testCase.input,
+                        expectedOutput: testCase.expectedOutput,
+                      },
+                      null,
+                      2,
+                    )}
                   </pre>
                   {result && (
                     <pre className="max-h-32 overflow-auto rounded bg-white p-2 text-[10px] text-zinc-700">
-                      {JSON.stringify({ actualOutput: result.actualOutput, error: result.error, reasoning: result.reasoning }, null, 2)}
+                      {JSON.stringify(
+                        {
+                          actualOutput: result.actualOutput,
+                          error: result.error,
+                          reasoning: result.reasoning,
+                        },
+                        null,
+                        2,
+                      )}
                     </pre>
                   )}
                 </div>
@@ -2625,7 +3300,7 @@ function ToolInvoker({
   invocationResult,
   onInvoke,
 }: {
-  tool: McpServerDiscoveredTool;
+  tool: McpDiscoveredToolWithPolicy;
   toolArgs: Record<string, string>;
   setToolArgs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   invoking: boolean;
@@ -2643,12 +3318,20 @@ function ToolInvoker({
       <div className="rounded-lg border border-zinc-200 bg-white p-4">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center">
-            <svg className="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              className="w-4 h-4 text-blue-600"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
             </svg>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-zinc-900 font-mono">{tool.name}</h3>
+            <h3 className="text-sm font-semibold text-zinc-900 font-mono">
+              {tool.name}
+            </h3>
             <p className="text-xs text-zinc-500">{tool.description}</p>
           </div>
         </div>
@@ -2671,7 +3354,9 @@ function ToolInvoker({
         {/* parameter inputs */}
         {paramKeys.length > 0 ? (
           <div className="space-y-3">
-            <h4 className="text-xs font-medium text-zinc-600 uppercase tracking-wider">Parameters</h4>
+            <h4 className="text-xs font-medium text-zinc-600 uppercase tracking-wider">
+              Parameters
+            </h4>
             {paramKeys.map((key) => {
               const prop = properties[key];
               const isRequired = required.has(key);
@@ -2680,15 +3365,24 @@ function ToolInvoker({
                   <label className="flex items-baseline gap-1 text-xs font-medium text-zinc-700 mb-1">
                     <span className="font-mono">{key}</span>
                     {isRequired && <span className="text-red-400">*</span>}
-                    <span className="text-zinc-400 font-normal ml-1">({prop?.type ?? "string"})</span>
+                    <span className="text-zinc-400 font-normal ml-1">
+                      ({prop?.type ?? "string"})
+                    </span>
                   </label>
                   {prop?.description && (
-                    <p className="text-[10px] text-zinc-400 mb-1">{prop.description}</p>
+                    <p className="text-[10px] text-zinc-400 mb-1">
+                      {prop.description}
+                    </p>
                   )}
                   <input
                     type="text"
                     value={toolArgs[key] ?? ""}
-                    onChange={(e) => setToolArgs((prev) => ({ ...prev, [key]: e.target.value }))}
+                    onChange={(e) =>
+                      setToolArgs((prev) => ({
+                        ...prev,
+                        [key]: e.target.value,
+                      }))
+                    }
                     placeholder={prop?.description ?? key}
                     className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-mono focus:border-caliber-400 focus:ring-1 focus:ring-caliber-400 outline-none"
                   />
@@ -2703,21 +3397,46 @@ function ToolInvoker({
         {/* invoke button */}
         <button
           onClick={onInvoke}
-          disabled={invoking}
+          disabled={
+            invoking || !tool.classified || !tool.policy.allowed
+          }
           className="mt-4 w-full flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {invoking ? (
             <>
-              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              <svg
+                className="w-4 h-4 animate-spin"
+                viewBox="0 0 24 24"
+                fill="none"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
               </svg>
               Invoking…
             </>
+          ) : !tool.classified ? (
+            "Classify Tool Before Invoking"
+          ) : !tool.policy.allowed ? (
+            "Tool Blocked by Policy"
           ) : (
             <>
               <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                  clipRule="evenodd"
+                />
               </svg>
               Invoke Tool
             </>
@@ -2727,29 +3446,55 @@ function ToolInvoker({
 
       {/* result card */}
       {invocationResult && (
-        <div className={`rounded-lg border ${invocationResult.success ? "border-emerald-200" : "border-red-200"}`}>
-          <div className={`px-4 py-3 border-b ${invocationResult.success ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"} rounded-t-lg`}>
+        <div
+          className={`rounded-lg border ${invocationResult.success ? "border-emerald-200" : "border-red-200"}`}
+        >
+          <div
+            className={`px-4 py-3 border-b ${invocationResult.success ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"} rounded-t-lg`}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {invocationResult.success ? (
-                  <svg className="w-4 h-4 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  <svg
+                    className="w-4 h-4 text-emerald-600"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 ) : (
-                  <svg className="w-4 h-4 text-red-600" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  <svg
+                    className="w-4 h-4 text-red-600"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 )}
-                <span className={`text-xs font-semibold ${invocationResult.success ? "text-emerald-800" : "text-red-800"}`}>
+                <span
+                  className={`text-xs font-semibold ${invocationResult.success ? "text-emerald-800" : "text-red-800"}`}
+                >
                   {invocationResult.success ? "Success" : "Failed"}
                 </span>
               </div>
-              <span className={`text-[10px] font-mono ${invocationResult.success ? "text-emerald-600" : "text-red-600"}`}>
+              <span
+                className={`text-[10px] font-mono ${invocationResult.success ? "text-emerald-600" : "text-red-600"}`}
+              >
                 {invocationResult.duration_ms}ms
               </span>
             </div>
             {invocationResult.error && (
-              <p className="text-xs text-red-700 mt-1 font-mono">{invocationResult.error}</p>
+              <p className="text-xs text-red-700 mt-1 font-mono">
+                {invocationResult.error}
+              </p>
             )}
           </div>
           {invocationResult.result != null && (

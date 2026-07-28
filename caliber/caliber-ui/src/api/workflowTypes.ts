@@ -90,6 +90,17 @@ export interface HandoffSpec {
   condition?: string | null;
 }
 
+/** Immutable project-file snapshot embedded in a workflow version. */
+export interface ManagedFileReference {
+  file_id: string;
+  file_ref: string;
+  sha256: string;
+  name: string;
+  size_bytes: number;
+  media_type: string | null;
+  object_version_id: string | null;
+}
+
 export interface ManifestNode {
   id: string;
   type: WorkflowNodeType;
@@ -152,6 +163,7 @@ export interface ManifestNode {
   // Start node trigger (manual / event / cron)
   trigger?: StartTriggerConfig | null;
   // Bucket / folder I/O nodes
+  file_ref?: ManagedFileReference | null;
   bucket?: string;
   prefix?: string;
   path?: string;
@@ -247,10 +259,7 @@ export type WorkflowOpenAIParallelToolCallsMode =
   | "auto"
   | "enabled"
   | "disabled";
-export type WorkflowOpenAIPromptCacheMode =
-  | "auto"
-  | "enabled"
-  | "disabled";
+export type WorkflowOpenAIPromptCacheMode = "auto" | "enabled" | "disabled";
 export type WorkflowOpenAIPromptCacheRetention =
   | "default"
   | "in_memory"
@@ -294,6 +303,7 @@ export interface WorkflowManifest {
 
 export interface Workflow {
   workflow_id: string;
+  project_id: string | null;
   name: string;
   description: string;
   owner: string;
@@ -322,6 +332,34 @@ export interface WorkflowVersion {
   created_at: string;
   published_by: string | null;
   published_at: string | null;
+}
+
+export interface WorkflowImportDependency {
+  kind:
+    | "prompt"
+    | "eval_dataset"
+    | "tool"
+    | "mcp_tool"
+    | "skill"
+    | "knowledge_base"
+    | "knowledge_base_version"
+    | "subworkflow";
+  reference: string;
+  path: string;
+  status: "resolved" | "unresolved" | "unverified";
+  version: string | null;
+  detail: string;
+}
+
+export interface WorkflowImportPreview {
+  source_workflow_id: string;
+  name: string;
+  description: string;
+  node_count: number;
+  edge_count: number;
+  validation: ValidationReport;
+  dependencies: WorkflowImportDependency[];
+  ready_to_import: boolean;
 }
 
 export interface WorkflowRun {
@@ -711,10 +749,7 @@ export interface WorkflowBakeoffWorksheet {
   rubric: Record<string, WorkflowBakeoffRubricWorksheetEntry>;
 }
 
-export type WorkflowBenchmarkReportStatus =
-  | "draft"
-  | "completed"
-  | "archived";
+export type WorkflowBenchmarkReportStatus = "draft" | "completed" | "archived";
 
 export interface WorkflowBenchmarkReport {
   report_id: string;
@@ -1022,7 +1057,10 @@ export interface ToolTestRunResult {
 
 /* ── Component calibration (tools + MCP tools) ───────────────────────────── */
 
-export type CalibrationAssertionType = "no_error" | "output_contains" | "equals";
+export type CalibrationAssertionType =
+  | "no_error"
+  | "output_contains"
+  | "equals";
 
 export interface CalibrationAssertion {
   type: CalibrationAssertionType;
@@ -1233,7 +1271,7 @@ export interface McpServer {
   args: string[];
   env: Record<string, string>;
   headers: Record<string, string>;
-  auth_type: "none" | "token" | "oauth";
+  auth_type: "none" | "token" | "basic" | "custom";
   auth_config: Record<string, unknown>;
   discovered_tools: McpServerDiscoveredTool[];
   tool_policies: Record<string, McpToolPolicy>;
@@ -1243,9 +1281,32 @@ export interface McpServer {
   status: "active" | "error" | "disabled";
   last_connected_at: string | null;
   connection_error: string | null;
+  execution?: McpExecutionReadiness;
   owner: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface McpExecutionReadiness {
+  ready: boolean;
+  transport_ready: boolean;
+  status_ready: boolean;
+  boundary:
+    | "none"
+    | "local_containment"
+    | "external_wrapper"
+    | "bubblewrap"
+    | "remote_transport"
+    | "remote_https"
+    | "managed_sidecar"
+    | string;
+  production_isolated: boolean;
+  command_allowed: boolean | null;
+  executable_available: boolean | null;
+  remote_host_allowed: boolean | null;
+  controls: string[];
+  blockers: string[];
+  warnings: string[];
 }
 
 export interface McpServerCreatePayload {
@@ -1257,12 +1318,14 @@ export interface McpServerCreatePayload {
   args?: string[];
   env?: Record<string, string>;
   headers?: Record<string, string>;
-  auth_type?: "none" | "token" | "oauth";
+  auth_type?: "none" | "token" | "basic" | "custom";
   auth_config?: Record<string, unknown>;
   icon?: string;
   owner?: string;
   /** Seed the server with a known toolset (e.g. from a catalog template). */
   discovered_tools?: McpServerDiscoveredTool[];
+  /** Explicit deploy-time classifications for seeded tools. */
+  tool_policies?: Record<string, McpToolPolicy>;
 }
 
 export type McpServerUpdatePayload = Partial<
@@ -1315,6 +1378,7 @@ export interface McpToolPolicyUpdatePayload {
 
 export interface McpDiscoveredToolWithPolicy extends McpServerDiscoveredTool {
   policy: McpToolPolicy;
+  classified: boolean;
 }
 
 export interface McpDiscoverToolsResult {
@@ -1367,6 +1431,10 @@ export interface WorkflowFile {
   media_type: string | null;
   size_bytes: number;
   sha256: string | null;
+  etag?: string | null;
+  object_version_id?: string | null;
+  version?: number;
+  immutable_ref?: ManagedFileReference;
   status: string;
   storage_backend?: string;
   producer_node_id: string | null;

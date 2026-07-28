@@ -22,6 +22,31 @@ def _ir(manifest_dict: dict[str, object]):
     return build_ir(parse_manifest(manifest_dict), fake_resolver(), version="7")
 
 
+def _managed_file_manifest(workflow_id: str = "managed-export") -> dict[str, object]:
+    data = make_manifest(workflow_id)
+    data["nodes"]["source"] = {
+        "id": "source",
+        "type": "file_input",
+        "file_ref": {
+            "file_id": "FILE-export",
+            "file_ref": "caliber://projects/PRJ-export/input/source.txt",
+            "sha256": "a" * 64,
+            "name": "source.txt",
+            "size_bytes": 7,
+        },
+    }
+    return data
+
+
+def test_execute_exported_workflow_rejects_managed_file_without_project_binder() -> None:
+    with pytest.raises(RuntimeError, match="standalone exported runtime"):
+        export_runtime.execute_exported_workflow(
+            _ir(_managed_file_manifest()),
+            "input",
+            config=CaliberConfig(),
+        )
+
+
 def _workflow_version(
     *,
     workflow_id: str,

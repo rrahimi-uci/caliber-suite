@@ -127,6 +127,7 @@ def test_aria_interaction_answer_schema_is_narrow() -> None:
     assert set(AriaInteractionAnswerRequest.model_fields) == {
         "approved",
         "choice",
+        "inputs",
         "value",
     }
 

@@ -37,6 +37,21 @@ def test_heuristic_planner_empty_when_no_domain_match() -> None:
     assert steps == []
 
 
+def test_heuristic_planner_wires_declared_step_outputs() -> None:
+    steps = HeuristicPlanner().plan(
+        "create a review queue and add review items",
+        capabilities=registered_capabilities(),
+    )
+    create_step, add_step = steps
+    assert create_step.capability_key == "review_queue.create"
+    assert add_step.capability_key == "review_queue.add_items"
+    assert add_step.depends_on == [0]
+    assert add_step.inputs["queue_id"] == {
+        "$from_step_index": 0,
+        "path": "queue_id",
+    }
+
+
 def test_planner_is_registry_driven() -> None:
     # A planner sees a freshly-registered capability without code changes.
     def _h(_c, _a):  # pragma: no cover - not invoked here
@@ -75,6 +90,7 @@ def test_create_plan_persists_plan_and_steps(session_factory) -> None:
     assert detail["plan"]["context_refs"][0]["ref_id"] == "WF-1"
     assert detail["steps"][0]["step_id"].startswith("PSTEP-")
     assert detail["steps"][0]["capability_key"] == "judge.create"
+    assert detail["steps"][0]["input_schema"]["required"] == ["name", "instructions"]
     # Persisted + audited.
     with session_factory() as db:
         plan = db.get(CaliberAriaPlan, detail["plan"]["plan_id"])

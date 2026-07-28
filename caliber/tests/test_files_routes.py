@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
 from caliber.config import WorkflowStorageConfig
-from caliber.db.models import CaliberWorkflowFile, CaliberWorkflowRun
+from caliber.db.models import CaliberProject, CaliberWorkflowFile, CaliberWorkflowRun
 from caliber.storage import LocalStorageBackend, WorkingDirectoryService
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -85,6 +85,71 @@ def test_staging_upload_then_list_empty_for_run(files_client: TestClient, run_id
     assert resp.json()["data"]["workflow_run_id"] is None
     # staged file is not bound to the run, so the run lists nothing
     assert files_client.get(f"{PREFIX}/workflow-runs/{run_id}/files").json()["data"]["items"] == []
+
+
+def test_project_staging_and_run_upload_keep_tenant_project_scope(
+    files_client: TestClient,
+    session_factory: sessionmaker[Session],
+) -> None:
+    with session_factory() as session:
+        session.add(
+            CaliberProject(
+                project_id="PRJ-files",
+                tenant_id="tenant-files",
+                name="Scoped files",
+                owner="@test",
+            )
+        )
+        session.add(
+            CaliberWorkflowRun(
+                workflow_run_id="WR-project",
+                workflow_id="WF-project",
+                project_id="PRJ-files",
+                tenant_id="tenant-files",
+            )
+        )
+        session.commit()
+    headers = {"X-CALIBER-Project": "PRJ-files"}
+
+    staged_response = files_client.post(
+        f"{PREFIX}/workflow-files",
+        headers=headers,
+        files={"file": ("staged.txt", b"staged", "text/plain")},
+        data={"kind": "input"},
+    )
+    assert staged_response.status_code == 201, staged_response.text
+    staged_id = staged_response.json()["data"]["file_id"]
+
+    run_response = files_client.post(
+        f"{PREFIX}/workflow-runs/WR-project/files",
+        headers=headers,
+        files={"file": ("direct.txt", b"direct", "text/plain")},
+        data={"kind": "input"},
+    )
+    assert run_response.status_code == 201, run_response.text
+    direct_id = run_response.json()["data"]["file_id"]
+
+    service = files_client.app.state.working_dir_service
+    with session_factory() as session:
+        staged = session.get(CaliberWorkflowFile, staged_id)
+        direct = session.get(CaliberWorkflowFile, direct_id)
+        assert staged is not None and direct is not None
+        assert (staged.tenant_id, staged.project_id) == ("tenant-files", "PRJ-files")
+        assert (direct.tenant_id, direct.project_id) == ("tenant-files", "PRJ-files")
+        ctx = service.create_run_workspace(
+            tenant_id="tenant-files",
+            project_id="PRJ-files",
+            workflow_id="WF-project",
+            workflow_run_id="WR-project",
+        )
+        bound = service.materialize_input_files(
+            session,
+            ctx,
+            [{"file_id": staged_id}],
+            actor="@test",
+        )
+        assert len(bound) == 1
+        assert bound[0].workflow_run_id == "WR-project"
 
 
 def test_idor_file_from_other_run_not_visible(

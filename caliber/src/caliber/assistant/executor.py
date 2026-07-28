@@ -153,6 +153,117 @@ class PlanForbiddenError(PlanExecutionError):
 # A gated interaction's ``required_scope`` label maps to a CALIBER scope.
 _REQUIRED_SCOPE_MAP = {"approver": "caliber.approver"}
 
+_STEP_REF_KEY = "$from_step"
+
+
+def _is_step_reference(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and isinstance(value.get(_STEP_REF_KEY), str)
+        and isinstance(value.get("path"), str)
+    )
+
+
+def _missing_capability_inputs(capability: Any, inputs: dict[str, Any]) -> list[str]:
+    return [name for name in capability.required if name not in inputs or inputs[name] is None]
+
+
+def _validate_schema_value(  # noqa: PLR0912 - compact JSON-Schema subset interpreter
+    value: Any, schema: dict[str, Any], *, path: str
+) -> None:
+    """Validate the JSON-Schema subset emitted by the capability registry."""
+    if _is_step_reference(value):
+        return
+    allowed = schema.get("enum")
+    if isinstance(allowed, list) and value not in allowed:
+        raise PlanExecutionError(f"{path} must be one of {allowed!r}")
+    expected = schema.get("type")
+    valid = True
+    if expected == "string":
+        valid = isinstance(value, str)
+    elif expected == "boolean":
+        valid = isinstance(value, bool)
+    elif expected == "integer":
+        valid = isinstance(value, int) and not isinstance(value, bool)
+    elif expected == "number":
+        valid = isinstance(value, (int, float)) and not isinstance(value, bool)
+    elif expected == "array":
+        valid = isinstance(value, list)
+    elif expected == "object":
+        valid = isinstance(value, dict)
+    if not valid:
+        raise PlanExecutionError(f"{path} must be {expected}")
+    if expected == "string" and isinstance(value, str):
+        minimum = schema.get("minLength")
+        if isinstance(minimum, int) and len(value) < minimum:
+            raise PlanExecutionError(f"{path} must contain at least {minimum} character(s)")
+    if expected == "array" and isinstance(value, list):
+        minimum = schema.get("minItems")
+        if isinstance(minimum, int) and len(value) < minimum:
+            raise PlanExecutionError(f"{path} must contain at least {minimum} item(s)")
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(value):
+                _validate_schema_value(item, item_schema, path=f"{path}[{index}]")
+    if expected == "object" and isinstance(value, dict):
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            required_value = schema.get("required")
+            required = required_value if isinstance(required_value, list) else []
+            missing = [name for name in required if name not in value or value[name] is None]
+            if missing:
+                raise PlanExecutionError(
+                    f"{path} is missing required field(s): {', '.join(missing)}"
+                )
+            for key, item in value.items():
+                field_schema = properties.get(key)
+                if isinstance(field_schema, dict):
+                    _validate_schema_value(item, field_schema, path=f"{path}.{key}")
+
+
+def _validate_capability_inputs(capability: Any, inputs: dict[str, Any]) -> None:
+    unknown = sorted(set(inputs) - set(capability.properties))
+    if unknown:
+        raise PlanExecutionError(
+            f"{capability.key} received unknown input field(s): {', '.join(unknown)}"
+        )
+    missing = _missing_capability_inputs(capability, inputs)
+    if missing:
+        raise PlanExecutionError(
+            f"{capability.key} is missing required input field(s): {', '.join(missing)}"
+        )
+    for key, value in inputs.items():
+        schema = capability.properties.get(key)
+        if isinstance(schema, dict):
+            _validate_schema_value(value, schema, path=key)
+
+
+def _result_path(value: Any, path: str) -> Any:
+    current = value
+    for part in [item for item in path.split(".") if item]:
+        if not isinstance(current, dict) or part not in current:
+            raise PlanExecutionError(f"dependency result does not contain path {path!r}")
+        current = current[part]
+    return current
+
+
+def _resolve_step_input_value(session: Any, plan_id: str, value: Any) -> Any:
+    if _is_step_reference(value):
+        source_id = value[_STEP_REF_KEY]
+        source = session.get(CaliberAriaPlanStep, source_id)
+        if source is None or source.plan_id != plan_id:
+            raise PlanExecutionError(f"dependency step {source_id!r} was not found in this plan")
+        if source.status != "done":
+            raise PlanExecutionError(f"dependency step {source_id!r} is not complete")
+        return _result_path(dict(source.result or {}), str(value.get("path") or ""))
+    if isinstance(value, list):
+        return [_resolve_step_input_value(session, plan_id, item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _resolve_step_input_value(session, plan_id, item) for key, item in value.items()
+        }
+    return value
+
 
 class PlanExecutor:
     """Drives a plan to its next pause point (interaction) or to completion."""
@@ -177,7 +288,10 @@ class PlanExecutor:
         # Bound the loop by the step count (+slack) so a logic bug can't spin.
         for _ in range(self._step_budget(session_factory, plan_id) + 2):
             action = self._plan_next_action(
-                session_factory=session_factory, plan_id=plan_id, approved=approved
+                session_factory=session_factory,
+                config=config,
+                plan_id=plan_id,
+                approved=approved,
             )
             if action is None:
                 break  # terminal: paused (asked), completed, failed, or not executable
@@ -241,6 +355,7 @@ class PlanExecutor:
             # reject an already-produced below-gate result); "permission" is a
             # pre-execution gate (run the step or not).
             is_gate = interaction.kind == "confirm"
+            is_input = interaction.kind == "input"
             # Authorize the answerer: only the plan owner (or an admin) may answer
             # their own asks/denials; a scoped gated approval goes through the
             # separation-of-duties path. Closes the IDOR where any authenticated
@@ -266,13 +381,32 @@ class PlanExecutor:
                     step.status = "done" if approved else "skipped"
                 elif not approved:
                     step.status = "skipped"
+                elif is_input:
+                    supplied = (response or {}).get("inputs")
+                    if not isinstance(supplied, dict):
+                        raise PlanExecutionError("an input interaction requires an 'inputs' object")
+                    capability = get_capability(step.capability_key)
+                    if capability is None:
+                        raise PlanExecutionError(f"unknown capability {step.capability_key!r}")
+                    merged = {**dict(step.inputs or {}), **dict(supplied)}
+                    _validate_capability_inputs(capability, merged)
+                    step.inputs = merged
+                    # Input collection is not permission approval. Return the
+                    # step to pending so the normal autonomy/risk gate runs next.
+                    step.status = "pending"
             audit_record(
                 session,
                 actor=actor,
                 action="answer_aria_interaction",
                 entity_type="aria_plan",
                 entity_id=plan_id,
-                details={"interaction_id": interaction_id, "approved": approved},
+                details={
+                    "interaction_id": interaction_id,
+                    "approved": approved,
+                    "input_fields": sorted((response or {}).get("inputs", {}))
+                    if isinstance((response or {}).get("inputs"), dict)
+                    else [],
+                },
             )
             session.commit()
 
@@ -284,7 +418,7 @@ class PlanExecutor:
             project_id=project_id,
             # A pre-execution permission approval pre-clears the step to run; a
             # gate (confirm) acceptance already marked it done — don't re-run it.
-            approved_step_ids={step_id} if (approved and not is_gate) else set(),
+            approved_step_ids={step_id} if (approved and not is_gate and not is_input) else set(),
         )
 
     def poll(
@@ -460,8 +594,8 @@ class PlanExecutor:
                 ).scalar_one()
             )
 
-    def _plan_next_action(
-        self, *, session_factory: Any, plan_id: str, approved: set[str]
+    def _plan_next_action(  # noqa: PLR0911 - explicit persisted plan-state outcomes
+        self, *, session_factory: Any, config: Any, plan_id: str, approved: set[str]
     ) -> tuple[str, str] | None:
         """Pick the next runnable step, or settle a terminal plan state.
 
@@ -503,6 +637,36 @@ class PlanExecutor:
                     step.status = "failed"
                     step.error = f"unknown capability {step.capability_key!r}"
                     plan.status = "failed"
+                    session.commit()
+                    return None
+
+                if cap.required_scopes and config is not None:
+                    from caliber.auth import scopes_for_user  # noqa: PLC0415
+
+                    have = scopes_for_user(config, plan.owner)
+                    missing_scopes = [
+                        scope for scope in cap.required_scopes if f"caliber.{scope}" not in have
+                    ]
+                    if missing_scopes:
+                        step.status = "failed"
+                        step.error = "plan owner lacks required scope(s): " + ", ".join(
+                            sorted(missing_scopes)
+                        )
+                        plan.status = "failed"
+                        session.commit()
+                        return None
+
+                missing_inputs = _missing_capability_inputs(cap, dict(step.inputs or {}))
+                if missing_inputs:
+                    self._create_input_interaction(
+                        session,
+                        plan,
+                        step,
+                        cap.input_schema,
+                        missing_inputs,
+                    )
+                    step.status = "waiting_input"
+                    plan.status = "paused"
                     session.commit()
                     return None
 
@@ -558,11 +722,32 @@ class PlanExecutor:
     ) -> None:
         """Run one capability handler outside any open plan transaction."""
         cap = get_capability(cap_key)
+        resolution_error: str | None = None
         with session_factory() as session:
             step = session.get(CaliberAriaPlanStep, step_id)
-            inputs = dict(step.inputs or {}) if step is not None else {}
+            raw_inputs = dict(step.inputs or {}) if step is not None else {}
+            try:
+                inputs = {
+                    key: _resolve_step_input_value(session, plan_id, value)
+                    for key, value in raw_inputs.items()
+                }
+                if cap is not None:
+                    _validate_capability_inputs(cap, inputs)
+            except PlanExecutionError as exc:
+                inputs = {}
+                resolution_error = str(exc)
             plan = session.get(CaliberAriaPlan, plan_id)
             owner = plan.owner if plan is not None else actor
+        if resolution_error is not None:
+            self._finish_step(
+                session_factory,
+                plan_id,
+                step_id,
+                status="failed",
+                error=resolution_error,
+                plan_status="failed",
+            )
+            return
         # RBAC floor: the autonomy dial gates on a capability's risk *tier*, but a
         # capability also declares the *scopes* it needs. Enforce them against the
         # plan **owner** — the principal the plan runs on behalf of — so an
@@ -748,6 +933,35 @@ class PlanExecutor:
                 # Gated steps demand an approver authority (distinct-identity check
                 # is enforced in Phase 3).
                 required_scope="approver" if gated else None,
+                status="pending",
+            )
+        )
+
+    @staticmethod
+    def _create_input_interaction(
+        session: Any,
+        plan: CaliberAriaPlan,
+        step: CaliberAriaPlanStep,
+        input_schema: dict[str, Any],
+        missing: list[str],
+    ) -> None:
+        """Ask once for all unresolved capability fields using its JSON Schema."""
+        session.add(
+            CaliberAriaInteraction(
+                interaction_id=new_aria_interaction_id(),
+                plan_id=plan.plan_id,
+                step_id=step.step_id,
+                kind="input",
+                prompt=(
+                    f"Provide the required inputs for step {step.seq + 1}: "
+                    f"{step.title or step.capability_key}."
+                ),
+                evidence={
+                    "capability_key": step.capability_key,
+                    "input_schema": input_schema,
+                    "missing": list(missing),
+                    "current_inputs": dict(step.inputs or {}),
+                },
                 status="pending",
             )
         )

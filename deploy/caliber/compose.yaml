@@ -5,7 +5,67 @@
 
 name: caliber-app
 
+x-db-mcp-common: &db-mcp-common
+  image: caliber/caliber:latest
+  profiles: ["app"]
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment:
+    # Dedicated variable: the root .env commonly has POSTGRES_URL=...localhost
+    # for host-side tools, which is invalid from inside this sidecar. The
+    # fallback shares CALIBER's privileged metadata DB and is development-only;
+    # production must supply a separate least-privilege DB/role.
+    POSTGRES_URL: ${CALIBER_MCP_POSTGRES_URL:-postgresql://caliber:caliber@postgres:5432/caliber}
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  cap_drop: ["ALL"]
+  security_opt:
+    - no-new-privileges:true
+  user: "65532:65532"
+  cpus: 1.0
+  mem_limit: 512m
+  pids_limit: 128
+  networks:
+    - mcp-db-internal
+  restart: unless-stopped
+
 services:
+  # First-party DB MCP sidecars. They are reachable only on the compose network
+  # (no host ports), use a read-only root filesystem, run non-root with all
+  # capabilities dropped, and expose stateless streamable HTTP on a dedicated
+  # internal network. CALIBER still enforces per-tool policy.
+  mcp-db-relational:
+    <<: *db-mcp-common
+    entrypoint: ["python", "-m", "caliber.mcp_servers.db", "--mode", "relational", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8101"]
+    expose: ["8101"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8101), 2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mcp-db-vector:
+    <<: *db-mcp-common
+    entrypoint: ["python", "-m", "caliber.mcp_servers.db", "--mode", "vector", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8102"]
+    expose: ["8102"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8102), 2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mcp-db-graph:
+    <<: *db-mcp-common
+    entrypoint: ["python", "-m", "caliber.mcp_servers.db", "--mode", "graph", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8103"]
+    expose: ["8103"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8103), 2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   caliber:
     build:
       context: ../..
@@ -24,6 +84,12 @@ services:
         condition: service_started
       minio:
         condition: service_started
+      mcp-db-relational:
+        condition: service_healthy
+      mcp-db-vector:
+        condition: service_healthy
+      mcp-db-graph:
+        condition: service_healthy
     ports:
       - "${CALIBER_PORT:-5001}:5001"
     environment:
@@ -87,6 +153,23 @@ services:
       CALIBER_WORKFLOW_FOREACH_MAX_WORKERS: ${CALIBER_WORKFLOW_FOREACH_MAX_WORKERS:-12}
       # Whole-document KG JSON + HTML report can exceed the 1 MiB default.
       CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES: ${CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES:-8388608}
+      CALIBER_TOOL_SANDBOX_MAX_MEMORY_BYTES: ${CALIBER_TOOL_SANDBOX_MAX_MEMORY_BYTES:-268435456}
+      CALIBER_TOOL_SANDBOX_MAX_FILE_BYTES: ${CALIBER_TOOL_SANDBOX_MAX_FILE_BYTES:-1048576}
+      CALIBER_TOOL_SANDBOX_MAX_OPEN_FILES: ${CALIBER_TOOL_SANDBOX_MAX_OPEN_FILES:-32}
+      # MCP is containment-by-policy unless an external execution boundary is
+      # configured. The default only permits CALIBER's bundled Python server;
+      # production aliases reject every local stdio profile, including bwrap.
+      CALIBER_MCP_STDIO_COMMAND_ALLOWLIST: "${CALIBER_MCP_STDIO_COMMAND_ALLOWLIST:-$${PYTHON}}"
+      CALIBER_MCP_STDIO_SAFE_PATH: ${CALIBER_MCP_STDIO_SAFE_PATH:-/usr/local/bin:/usr/bin:/bin}
+      CALIBER_MCP_STDIO_PYTHON_MODULE_ALLOWLIST: ${CALIBER_MCP_STDIO_PYTHON_MODULE_ALLOWLIST:-caliber.mcp_servers.db}
+      CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST: ${CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST:-}
+      CALIBER_MCP_REMOTE_HOST_ALLOWLIST: ${CALIBER_MCP_REMOTE_HOST_ALLOWLIST:-localhost,127.0.0.1,::1,mcp-db-relational,mcp-db-vector,mcp-db-graph}
+      CALIBER_MCP_MANAGED_SIDECAR_HOSTS: ${CALIBER_MCP_MANAGED_SIDECAR_HOSTS:-mcp-db-relational,mcp-db-vector,mcp-db-graph}
+      CALIBER_MCP_ALLOW_INSECURE_HTTP: ${CALIBER_MCP_ALLOW_INSECURE_HTTP:-false}
+      CALIBER_MCP_STDIO_ISOLATED_WORKDIR: ${CALIBER_MCP_STDIO_ISOLATED_WORKDIR:-true}
+      CALIBER_MCP_STDIO_ISOLATION_PROFILE: ${CALIBER_MCP_STDIO_ISOLATION_PROFILE:-none}
+      CALIBER_MCP_STDIO_ISOLATION_PREFIX: ${CALIBER_MCP_STDIO_ISOLATION_PREFIX:-}
+      CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ALIASES: ${CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ALIASES:-prod}
       # Async run queue so long runs execute server-side via the worker (the
       # lease heartbeat keeps the lease alive across long ForEach nodes).
       CALIBER_WORKFLOW_RUN_QUEUE_ENABLED: ${CALIBER_WORKFLOW_RUN_QUEUE_ENABLED:-true}
@@ -126,4 +209,7 @@ services:
       # first `make allure-report`; the route shows a friendly hint until then.
       # Path is resolved from this compose file dir (deploy/caliber).
       - ${CALIBER_ALLURE_REPORT_HOST_DIR:-../../caliber/caliber-ui/allure-report}:/app/allure-report:ro
+    networks:
+      - default
+      - mcp-db-internal
     restart: unless-stopped

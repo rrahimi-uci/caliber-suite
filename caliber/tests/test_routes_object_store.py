@@ -78,6 +78,61 @@ def test_status_buckets_objects_full_crud(client: TestClient) -> None:
 
 
 @mock_aws
+def test_import_object_creates_content_pinned_active_project_file(client: TestClient) -> None:
+    _wire_moto(client)
+    project = client.post(f"{PREFIX}/projects", json={"name": "Document workflow files"}).json()[
+        "data"
+    ]
+    headers = {"X-CALIBER-Project": project["project_id"]}
+    assert client.post(f"{OS}/buckets", json={"name": "imports"}).status_code == 201
+    _put_bytes(
+        client,
+        "imports",
+        "incoming/source.md",
+        b"# Managed source",
+        "text/markdown",
+    )
+    listed = client.get(f"{OS}/buckets/imports/objects", params={"prefix": "incoming/"}).json()[
+        "data"
+    ]
+    obj = next(item for item in listed["objects"] if item["key"] == "incoming/source.md")
+
+    imported = client.post(
+        f"{OS}/buckets/imports/object/import",
+        headers=headers,
+        json={"key": obj["key"], "expected_etag": obj["etag"]},
+    )
+    assert imported.status_code == 201, imported.text
+    file = imported.json()["data"]
+    pinned = file["immutable_ref"]
+    assert pinned["file_id"] == file["file_id"]
+    assert pinned["file_ref"].startswith(f"caliber://projects/{project['project_id']}/input/")
+    assert len(pinned["sha256"]) == 64
+    assert pinned["size_bytes"] == len(b"# Managed source")
+
+    directory = client.get(
+        f"{PREFIX}/projects/{project['project_id']}/files", headers=headers
+    ).json()["data"]
+    assert directory["items"][0]["immutable_ref"] == pinned
+
+
+@mock_aws
+def test_import_object_rejects_stale_etag(client: TestClient) -> None:
+    _wire_moto(client)
+    project = client.post(f"{PREFIX}/projects", json={"name": "Pinned files"}).json()["data"]
+    headers = {"X-CALIBER-Project": project["project_id"]}
+    client.post(f"{OS}/buckets", json={"name": "stale-import"})
+    _put_bytes(client, "stale-import", "source.txt", b"v1", "text/plain")
+    response = client.post(
+        f"{OS}/buckets/stale-import/object/import",
+        headers=headers,
+        json={"key": "source.txt", "expected_etag": "not-the-live-etag"},
+    )
+    assert response.status_code == 409
+    assert "changed" in response.text.lower()
+
+
+@mock_aws
 def test_create_bucket_rejects_invalid_name(client: TestClient) -> None:
     assert client.post(f"{OS}/buckets", json={"name": "A_B C"}).status_code == 400
 

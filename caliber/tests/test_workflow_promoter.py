@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import Session
 
+from caliber.config import CaliberConfig, WorkflowStorageConfig
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
+    CaliberProject,
     CaliberSkill,
     CaliberToolRegistry,
     CaliberWorkflow,
@@ -19,6 +22,7 @@ from caliber.db.models import (
     CaliberWorkflowPromotion,
     CaliberWorkflowVersion,
 )
+from caliber.storage import LocalStorageBackend, WorkingDirectoryService
 from caliber.workflows import promoter
 from caliber.workflows.compiler import CompileError, build_ir
 from caliber.workflows.manifest import DeployGate, parse_manifest
@@ -36,6 +40,7 @@ from caliber.workflows.promoter import (
     reject_promotion,
     resolver_from_session,
     rollback,
+    run_preview,
 )
 from caliber.workflows.runtime import (
     OpenAIAgentsWorkflowExecutor,
@@ -64,6 +69,85 @@ def _version(
         manifest=manifest or make_manifest("wf"),
         manifest_hash=f"hash-{version_id}",
     )
+
+
+def test_run_preview_reads_hash_verified_managed_project_file(
+    db_session: Session,
+    tmp_path: Path,
+) -> None:
+    storage_config = WorkflowStorageConfig(base_uri=f"file://{tmp_path}/preview-files")
+    service = WorkingDirectoryService(LocalStorageBackend(storage_config.base_uri), storage_config)
+    project = CaliberProject(
+        project_id="PRJ-preview",
+        tenant_id="tenant-preview",
+        name="Preview files",
+        owner="@test",
+    )
+    workflow = CaliberWorkflow(
+        workflow_id="wf-preview",
+        project_id=project.project_id,
+        name="Managed preview",
+        owner="@test",
+    )
+    db_session.add_all([project, workflow])
+    record = service.register_project_file(
+        db_session,
+        project_id=project.project_id,
+        tenant_id=project.tenant_id,
+        kind="input",
+        filename="source.md",
+        data=b"verified preview content",
+        media_type="text/markdown",
+        actor="@test",
+    )
+    manifest = make_manifest("wf-preview")
+    manifest["nodes"]["managed_source"] = {
+        "id": "managed_source",
+        "type": "file_input",
+        "file_ref": record.to_api()["immutable_ref"],
+    }
+    manifest["edges"] = [
+        {
+            "id": "start_source",
+            "from": "start",
+            "to": "managed_source",
+            "map": {"msg": "path"},
+        },
+        {
+            "id": "source_agent",
+            "from": "managed_source",
+            "to": "agent",
+            "map": {"text": "input"},
+        },
+        {
+            "id": "agent_final",
+            "from": "agent",
+            "to": "final",
+            "map": {"final_output": "response"},
+        },
+    ]
+    version = CaliberWorkflowVersion(
+        version_id="wfv-preview",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest,
+        manifest_hash="preview-hash",
+        created_by="@test",
+    )
+    db_session.add(version)
+    db_session.commit()
+
+    result = run_preview(
+        db_session,
+        version,
+        "ignored",
+        config=CaliberConfig(workflow_storage=storage_config),
+    )
+
+    assert result["status"] == "completed"
+    source_step = next(step for step in result["steps"] if step["node_id"] == "managed_source")
+    assert source_step["output"] == "verified preview content"
 
 
 def test_resolver_from_session_records_successor_refs(db_session: Session) -> None:

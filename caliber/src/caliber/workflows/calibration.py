@@ -706,6 +706,11 @@ def _replay_calibration_manifest(
     compiled = compile_workflow(
         parse_manifest(manifest_dict), resolver=resolver, version="calibration"
     )
+    if any(getattr(node, "file_ref", None) is not None for node in compiled.ir.nodes.values()):
+        raise WorkflowCalibrationError(
+            "workflow calibration does not yet support managed file inputs; "
+            "run a project-scoped workflow evaluation instead"
+        )
     plan = RuntimePlan(
         ir=compiled.ir,
         resolver=resolver,

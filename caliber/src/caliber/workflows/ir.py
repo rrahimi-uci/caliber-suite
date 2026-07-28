@@ -161,8 +161,20 @@ class IRAgent(IRNode):
     skill_instructions: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class IRManagedFileReference:
+    file_id: str
+    file_ref: str
+    sha256: str
+    name: str
+    size_bytes: int
+    media_type: str | None = None
+    object_version_id: str | None = None
+
+
 @dataclass
 class IRFileInput(IRNode):
+    file_ref: IRManagedFileReference | None = None
     path: str = ""
     encoding: str = "utf-8"
     max_bytes: int = 200_000
@@ -408,6 +420,7 @@ __all__ = [
     "IRJoin",
     "IRKnowledgeBuild",
     "IRKnowledgeQuery",
+    "IRManagedFileReference",
     "IRMcpResource",
     "IRNode",
     "IRParallel",

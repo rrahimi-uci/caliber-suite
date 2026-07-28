@@ -36,6 +36,7 @@ import type {
   WorkflowDeployGate,
   WorkflowDeployment,
   WorkflowEvalDatasetArtifact,
+  WorkflowFileList,
   WorkflowNodeType,
   WorkflowPromptArtifact,
   WorkflowRegisteredFunctionToolBinding,
@@ -90,6 +91,7 @@ import { WorkflowComponentSchemaSummary } from "@/components/workflows/WorkflowC
 
 interface InspectorProps {
   manifest: WorkflowManifest;
+  projectId?: string | null;
   selectedNodeId: string | null;
   focusFieldKey?: string | null;
   focusFieldSignal?: number;
@@ -127,6 +129,51 @@ const textareaClass =
 
 const selectClass =
   "w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 transition-colors hover:border-zinc-300 focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900";
+
+function ManagedProjectFileSelect({
+  projectId,
+  value,
+  onSelect,
+}: {
+  projectId: string;
+  value: string;
+  onSelect: (file: WorkflowFileList["items"][number] | null) => void;
+}): JSX.Element {
+  const projectFilesQuery = useApiQuery<WorkflowFileList>(
+    ["project-files", projectId, "workflow-file-selector"],
+    (signal) => caliberApi.listProjectFiles(projectId, signal),
+  );
+  const files = (projectFilesQuery.data?.items ?? []).filter((file) =>
+    Boolean(file.immutable_ref),
+  );
+  return (
+    <>
+      <select
+        data-testid="inspector-managed-file"
+        className={selectClass}
+        disabled={projectFilesQuery.isLoading}
+        value={value}
+        onChange={(event) =>
+          onSelect(
+            files.find((file) => file.file_id === event.target.value) ?? null,
+          )
+        }
+      >
+        <option value="">Select a content-pinned file…</option>
+        {files.map((file) => (
+          <option key={file.file_id} value={file.file_id}>
+            {file.name} · {file.sha256?.slice(0, 12)}
+          </option>
+        ))}
+      </select>
+      {!projectFilesQuery.isLoading && files.length === 0 && (
+        <p className="mt-1 text-[11px] text-zinc-400">
+          Upload a project file or add one from Object Store first.
+        </p>
+      )}
+    </>
+  );
+}
 
 type TargetOption = {
   nodeId: string;
@@ -178,7 +225,9 @@ function workflowSessionMode(manifest: WorkflowManifest): WorkflowSessionMode {
   return type === "in_memory" || type === "persistent" ? type : "none";
 }
 
-function workflowRuntimeConfig(manifest: WorkflowManifest): WorkflowRuntimeConfig {
+function workflowRuntimeConfig(
+  manifest: WorkflowManifest,
+): WorkflowRuntimeConfig {
   return manifest.runtime ?? {};
 }
 
@@ -771,9 +820,11 @@ function subworkflowResolvedVersion(
   deployment: WorkflowDeployment | null,
 ): WorkflowVersion | null {
   if (alias === "manual") {
-    return [...versions].sort(
-      (left, right) => right.version_number - left.version_number,
-    )[0] ?? null;
+    return (
+      [...versions].sort(
+        (left, right) => right.version_number - left.version_number,
+      )[0] ?? null
+    );
   }
   if (!deployment) return null;
   return (
@@ -807,9 +858,11 @@ function workflowTriggerSummary(
   return "Manual trigger";
 }
 
-function workflowValidationCounts(
-  workflowVersion: WorkflowVersion | null,
-): { errors: number; warnings: number; valid: boolean } {
+function workflowValidationCounts(workflowVersion: WorkflowVersion | null): {
+  errors: number;
+  warnings: number;
+  valid: boolean;
+} {
   const errors = workflowVersion?.validation_report?.errors.length ?? 0;
   const warnings = workflowVersion?.validation_report?.warnings.length ?? 0;
   return { errors, warnings, valid: errors === 0 };
@@ -1188,12 +1241,11 @@ function SubworkflowSection({
                 Runtime contract
               </div>
               <div className="mt-1 text-[11px] leading-relaxed text-zinc-600">
-                Parent port <span className="font-mono">input</span> becomes
-                the child workflow run input. The child workflow’s terminal
-                string output flows back on{" "}
-                <span className="font-mono">output</span>, and CALIBER also
-                publishes child run metadata, version details, and step lineage
-                on <span className="font-mono">result</span>.
+                Parent port <span className="font-mono">input</span> becomes the
+                child workflow run input. The child workflow’s terminal string
+                output flows back on <span className="font-mono">output</span>,
+                and CALIBER also publishes child run metadata, version details,
+                and step lineage on <span className="font-mono">result</span>.
               </div>
             </div>
 
@@ -1249,10 +1301,10 @@ function KnowledgeBuildSection({
     embeddingOptions.find((item) => item.id === selectedEmbeddingModel) ?? null;
   const embeddingBlockedReason =
     selectedEmbeddingOption?.available === false
-      ? selectedEmbeddingOption.unavailable_reason ??
-        "This embedding model is unavailable in the current runtime."
-      : embeddingOptions.find((item) => item.available === false)
-            ?.unavailable_reason ?? null;
+      ? (selectedEmbeddingOption.unavailable_reason ??
+        "This embedding model is unavailable in the current runtime.")
+      : (embeddingOptions.find((item) => item.available === false)
+          ?.unavailable_reason ?? null);
   const hasAvailableEmbeddingOptions = embeddingOptions.some(
     (item) => item.available !== false,
   );
@@ -2164,9 +2216,13 @@ function WebhookSection({
           min={1}
           max={600}
           step={1}
-          value={typeof node.timeout_seconds === "number" ? node.timeout_seconds : 30}
+          value={
+            typeof node.timeout_seconds === "number" ? node.timeout_seconds : 30
+          }
           onChange={(e) =>
-            onChangeNode(node.id, { timeout_seconds: Number(e.target.value) || 30 })
+            onChangeNode(node.id, {
+              timeout_seconds: Number(e.target.value) || 30,
+            })
           }
         />
       </Field>
@@ -2176,9 +2232,9 @@ function WebhookSection({
       />
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
         The upstream <span className="font-mono">payload</span> (or{" "}
-        <span className="font-mono">input</span>) becomes the request body — structured
-        bodies are sent as JSON. Reference auth secrets by name in headers rather than
-        pasting them inline.
+        <span className="font-mono">input</span>) becomes the request body —
+        structured bodies are sent as JSON. Reference auth secrets by name in
+        headers rather than pasting them inline.
       </div>
     </Section>
   );
@@ -2195,7 +2251,8 @@ function HeadersEditor({
   onChange: (next: Record<string, string>) => void;
 }): JSX.Element {
   const rows = Object.entries(headers);
-  const writeRows = (next: [string, string][]): void => onChange(Object.fromEntries(next));
+  const writeRows = (next: [string, string][]): void =>
+    onChange(Object.fromEntries(next));
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -2224,7 +2281,9 @@ function HeadersEditor({
             value={key}
             placeholder="Header"
             onChange={(e) =>
-              writeRows(rows.map((r, i) => (i === index ? [e.target.value, r[1]] : r)))
+              writeRows(
+                rows.map((r, i) => (i === index ? [e.target.value, r[1]] : r)),
+              )
             }
           />
           <input
@@ -2233,7 +2292,9 @@ function HeadersEditor({
             value={value}
             placeholder="Value"
             onChange={(e) =>
-              writeRows(rows.map((r, i) => (i === index ? [r[0], e.target.value] : r)))
+              writeRows(
+                rows.map((r, i) => (i === index ? [r[0], e.target.value] : r)),
+              )
             }
           />
           <button
@@ -2340,7 +2401,9 @@ function ApiRequestSection({
             className={textareaClass}
             rows={5}
             value={typeof node.curl === "string" ? node.curl : ""}
-            placeholder={"curl -X POST 'https://api.example.com' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"key\":\"value\"}'"}
+            placeholder={
+              "curl -X POST 'https://api.example.com' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"key\":\"value\"}'"
+            }
             onChange={(e) => onChangeNode(node.id, { curl: e.target.value })}
           />
         </Field>
@@ -2354,9 +2417,13 @@ function ApiRequestSection({
           min={1}
           max={600}
           step={1}
-          value={typeof node.timeout_seconds === "number" ? node.timeout_seconds : 30}
+          value={
+            typeof node.timeout_seconds === "number" ? node.timeout_seconds : 30
+          }
           onChange={(e) =>
-            onChangeNode(node.id, { timeout_seconds: Number(e.target.value) || 30 })
+            onChangeNode(node.id, {
+              timeout_seconds: Number(e.target.value) || 30,
+            })
           }
         />
       </Field>
@@ -3562,6 +3629,7 @@ function NodeGuideSection({
 
 export function Inspector({
   manifest,
+  projectId = null,
   selectedNodeId,
   focusFieldKey = null,
   focusFieldSignal = 0,
@@ -4043,20 +4111,23 @@ export function Inspector({
                         onChange={(e) =>
                           patchWorkflowOpenAI({
                             workflow_api: e.target.value
-                              ? (e.target.value as WorkflowRuntimeOpenAIConfig["workflow_api"])
+                              ? (e.target
+                                  .value as WorkflowRuntimeOpenAIConfig["workflow_api"])
                               : null,
                           })
                         }
                       >
                         <option value="">Inherit deployment default</option>
-                        <option value="chat_completions">Chat Completions</option>
+                        <option value="chat_completions">
+                          Chat Completions
+                        </option>
                         <option value="responses">Responses API</option>
                         <option value="agents_sdk">Agents SDK</option>
                       </select>
                       <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                        Overrides how agent nodes talk to OpenAI for this workflow
-                        only. Secrets and gateway endpoints still come from the
-                        deployment runtime.
+                        Overrides how agent nodes talk to OpenAI for this
+                        workflow only. Secrets and gateway endpoints still come
+                        from the deployment runtime.
                       </p>
                     </>
                   </Field>
@@ -4068,7 +4139,8 @@ export function Inspector({
                       onChange={(e) =>
                         patchWorkflowOpenAI({
                           parallel_tool_calls: e.target.value
-                            ? (e.target.value as WorkflowRuntimeOpenAIConfig["parallel_tool_calls"])
+                            ? (e.target
+                                .value as WorkflowRuntimeOpenAIConfig["parallel_tool_calls"])
                             : null,
                         })
                       }
@@ -4087,7 +4159,8 @@ export function Inspector({
                       onChange={(e) =>
                         patchWorkflowOpenAI({
                           prompt_cache_mode: e.target.value
-                            ? (e.target.value as WorkflowRuntimeOpenAIConfig["prompt_cache_mode"])
+                            ? (e.target
+                                .value as WorkflowRuntimeOpenAIConfig["prompt_cache_mode"])
                             : null,
                         })
                       }
@@ -4107,7 +4180,8 @@ export function Inspector({
                         onChange={(e) =>
                           patchWorkflowOpenAI({
                             prompt_cache_retention: e.target.value
-                              ? (e.target.value as WorkflowRuntimeOpenAIConfig["prompt_cache_retention"])
+                              ? (e.target
+                                  .value as WorkflowRuntimeOpenAIConfig["prompt_cache_retention"])
                               : null,
                           })
                         }
@@ -4118,8 +4192,8 @@ export function Inspector({
                         <option value="24h">24h extended</option>
                       </select>
                       <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                        Choose a workflow-specific cache retention policy when the
-                        selected OpenAI model supports it.
+                        Choose a workflow-specific cache retention policy when
+                        the selected OpenAI model supports it.
                       </p>
                     </>
                   </Field>
@@ -4226,1521 +4300,1595 @@ export function Inspector({
       <COMPONENT_FIELD_FEEDBACK_CONTEXT.Provider value={componentFieldFeedback}>
         <COMPONENT_FIELD_HIGHLIGHT_CONTEXT.Provider value={highlightedFieldKey}>
           <COMPONENT_SHOW_ADVANCED_CONTEXT.Provider value={showAdvanced}>
-          <div
-            ref={inspectorRootRef}
-            data-testid="wf-inspector"
-            data-node-type={node.type}
-            className="space-y-4"
-          >
-            {/* Type-accented header — n8n style */}
-            <div className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2.5">
-              <div className="flex items-center gap-2">
-                <span
-                  className="flex h-7 w-7 items-center justify-center rounded-md"
-                  style={{ backgroundColor: `${color}12`, color }}
-                >
-                  <NodeIcon type={node.type} size={16} />
-                </span>
-                <div>
-                  <h3 className="text-sm font-semibold text-zinc-900">
-                    {node.id}
-                  </h3>
-                  <div
-                    className="text-[10px] uppercase font-medium tracking-wider"
-                    style={{ color }}
+            <div
+              ref={inspectorRootRef}
+              data-testid="wf-inspector"
+              data-node-type={node.type}
+              className="space-y-4"
+            >
+              {/* Type-accented header — n8n style */}
+              <div className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="flex h-7 w-7 items-center justify-center rounded-md"
+                    style={{ backgroundColor: `${color}12`, color }}
                   >
-                    {node.type.replace("_", " ")}
+                    <NodeIcon type={node.type} size={16} />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-900">
+                      {node.id}
+                    </h3>
+                    <div
+                      className="text-[10px] uppercase font-medium tracking-wider"
+                      style={{ color }}
+                    >
+                      {node.type.replace("_", " ")}
+                    </div>
                   </div>
                 </div>
+                {onDeleteNode &&
+                  node.type !== "start" &&
+                  node.type !== "output" && (
+                    <button
+                      type="button"
+                      data-testid="inspector-delete"
+                      className="flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 active:scale-[0.97]"
+                      onClick={() => onDeleteNode(node.id)}
+                    >
+                      🗑 Delete
+                    </button>
+                  )}
               </div>
-              {onDeleteNode &&
-                node.type !== "start" &&
-                node.type !== "output" && (
+
+              <NodeMetaSection node={node} onChangeNode={onChangeNode} />
+
+              {lastStep && <NodeOutputSection step={lastStep} />}
+
+              {hasAdvancedFields && (
+                <div className="flex items-center justify-end">
                   <button
                     type="button"
-                    data-testid="inspector-delete"
-                    className="flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 active:scale-[0.97]"
-                    onClick={() => onDeleteNode(node.id)}
+                    data-testid="inspector-toggle-advanced"
+                    aria-pressed={showAdvanced}
+                    onClick={() => setShowAdvanced((v) => !v)}
+                    className="text-[11px] font-medium text-caliber-600 transition-colors hover:text-caliber-700"
                   >
-                    🗑 Delete
+                    {showAdvanced
+                      ? "Hide advanced fields"
+                      : "Show advanced fields"}
                   </button>
-                )}
-            </div>
+                </div>
+              )}
 
-            <NodeMetaSection node={node} onChangeNode={onChangeNode} />
+              {node.type === "start" && (
+                <StartTriggerSection
+                  workflowId={manifest.workflow_id}
+                  nodeId={node.id}
+                  trigger={(node.trigger ?? null) as StartTriggerConfig | null}
+                  onChangeNode={onChangeNode}
+                />
+              )}
 
-            {lastStep && <NodeOutputSection step={lastStep} />}
-
-            {hasAdvancedFields && (
-              <div className="flex items-center justify-end">
-                <button
-                  type="button"
-                  data-testid="inspector-toggle-advanced"
-                  aria-pressed={showAdvanced}
-                  onClick={() => setShowAdvanced((v) => !v)}
-                  className="text-[11px] font-medium text-caliber-600 transition-colors hover:text-caliber-700"
-                >
-                  {showAdvanced ? "Hide advanced fields" : "Show advanced fields"}
-                </button>
-              </div>
-            )}
-
-            {node.type === "start" && (
-              <StartTriggerSection
-                workflowId={manifest.workflow_id}
-                nodeId={node.id}
-                trigger={(node.trigger ?? null) as StartTriggerConfig | null}
-                onChangeNode={onChangeNode}
+              <NodeGuideSection
+                manifest={manifest}
+                node={node}
+                componentSpec={componentSpec}
+                validationReport={validationReport}
               />
-            )}
 
-            <NodeGuideSection
-              manifest={manifest}
-              node={node}
-              componentSpec={componentSpec}
-              validationReport={validationReport}
-            />
-
-            {componentSpec && (
-              <Section title="Runtime schema">
-                <WorkflowComponentSchemaSummary component={componentSpec} />
-              </Section>
-            )}
-
-            {node.type === "agent" && (
-              <>
-                <Section title="Configuration">
-                  <Field label="Name" fieldKey="name">
-                    <input
-                      className={inputClass}
-                      value={node.name ?? ""}
-                      onChange={(e) =>
-                        onChangeNode(node.id, { name: e.target.value })
-                      }
-                    />
-                  </Field>
-                  <Field label="Model" fieldKey="model">
-                    <input
-                      className={inputClass}
-                      value={
-                        typeof node.model === "string" ? node.model : "inherit"
-                      }
-                      onChange={(e) =>
-                        onChangeNode(node.id, { model: e.target.value })
-                      }
-                    />
-                  </Field>
+              {componentSpec && (
+                <Section title="Runtime schema">
+                  <WorkflowComponentSchemaSummary component={componentSpec} />
                 </Section>
-                <Section title="Instructions">
-                  <Field
-                    label="Prompt or inline instructions"
-                    fieldKey="instructions"
-                  >
-                    <div className="mb-2 inline-flex rounded-lg border border-zinc-200 p-0.5 text-xs">
-                      <button
-                        type="button"
-                        data-testid="instructions-mode-inline"
-                        onClick={() =>
-                          onChangeNode(node.id, {
-                            instructions: {
-                              type: "inline",
-                              text: agentInstructions?.text ?? "",
-                            },
-                          })
-                        }
-                        className={`rounded-md px-2 py-1 font-medium transition-colors ${
-                          isPromptMode
-                            ? "text-zinc-500 hover:bg-zinc-50"
-                            : "bg-zinc-900 text-white"
-                        }`}
-                      >
-                        Inline
-                      </button>
-                      <button
-                        type="button"
-                        data-testid="instructions-mode-prompt"
-                        onClick={() =>
-                          onChangeNode(node.id, {
-                            instructions: {
-                              type: "mlflow_prompt",
-                              ref: agentInstructions?.ref ?? "",
-                            },
-                          })
-                        }
-                        className={`rounded-md px-2 py-1 font-medium transition-colors ${
-                          isPromptMode
-                            ? "bg-zinc-900 text-white"
-                            : "text-zinc-500 hover:bg-zinc-50"
-                        }`}
-                      >
-                        Registered prompt
-                      </button>
-                    </div>
+              )}
 
-                    {isPromptMode ? (
-                      <>
-                        <select
-                          data-testid="inspector-prompt-ref"
-                          aria-label="Registered prompt"
-                          className={selectClass}
-                          value={agentInstructions?.ref ?? ""}
-                          onChange={(e) => {
-                            const ref = e.target.value;
+              {node.type === "agent" && (
+                <>
+                  <Section title="Configuration">
+                    <Field label="Name" fieldKey="name">
+                      <input
+                        className={inputClass}
+                        value={node.name ?? ""}
+                        onChange={(e) =>
+                          onChangeNode(node.id, { name: e.target.value })
+                        }
+                      />
+                    </Field>
+                    <Field label="Model" fieldKey="model">
+                      <input
+                        className={inputClass}
+                        value={
+                          typeof node.model === "string"
+                            ? node.model
+                            : "inherit"
+                        }
+                        onChange={(e) =>
+                          onChangeNode(node.id, { model: e.target.value })
+                        }
+                      />
+                    </Field>
+                  </Section>
+                  <Section title="Instructions">
+                    <Field
+                      label="Prompt or inline instructions"
+                      fieldKey="instructions"
+                    >
+                      <div className="mb-2 inline-flex rounded-lg border border-zinc-200 p-0.5 text-xs">
+                        <button
+                          type="button"
+                          data-testid="instructions-mode-inline"
+                          onClick={() =>
                             onChangeNode(node.id, {
-                              instructions: { type: "mlflow_prompt", ref },
-                            });
-                            if (!ref) return;
-                            const picked = prompts.find(
-                              (p) => p.prompt_name === ref,
-                            );
-                            const currentArtifacts =
-                              workflowPromptArtifacts(manifest);
-                            const existingArtifact = currentArtifacts[ref];
-                            onChangeWorkflow({
-                              artifacts: {
-                                ...workflowArtifacts(manifest),
-                                prompts: {
-                                  ...currentArtifacts,
-                                  [ref]: {
-                                    registry_name: ref,
-                                    alias:
-                                      picked?.alias ??
-                                      existingArtifact?.alias ??
-                                      "prod",
-                                    managed_by:
-                                      existingArtifact?.managed_by ??
-                                      "mlflow_prompt_registry",
+                              instructions: {
+                                type: "inline",
+                                text: agentInstructions?.text ?? "",
+                              },
+                            })
+                          }
+                          className={`rounded-md px-2 py-1 font-medium transition-colors ${
+                            isPromptMode
+                              ? "text-zinc-500 hover:bg-zinc-50"
+                              : "bg-zinc-900 text-white"
+                          }`}
+                        >
+                          Inline
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="instructions-mode-prompt"
+                          onClick={() =>
+                            onChangeNode(node.id, {
+                              instructions: {
+                                type: "mlflow_prompt",
+                                ref: agentInstructions?.ref ?? "",
+                              },
+                            })
+                          }
+                          className={`rounded-md px-2 py-1 font-medium transition-colors ${
+                            isPromptMode
+                              ? "bg-zinc-900 text-white"
+                              : "text-zinc-500 hover:bg-zinc-50"
+                          }`}
+                        >
+                          Registered prompt
+                        </button>
+                      </div>
+
+                      {isPromptMode ? (
+                        <>
+                          <select
+                            data-testid="inspector-prompt-ref"
+                            aria-label="Registered prompt"
+                            className={selectClass}
+                            value={agentInstructions?.ref ?? ""}
+                            onChange={(e) => {
+                              const ref = e.target.value;
+                              onChangeNode(node.id, {
+                                instructions: { type: "mlflow_prompt", ref },
+                              });
+                              if (!ref) return;
+                              const picked = prompts.find(
+                                (p) => p.prompt_name === ref,
+                              );
+                              const currentArtifacts =
+                                workflowPromptArtifacts(manifest);
+                              const existingArtifact = currentArtifacts[ref];
+                              onChangeWorkflow({
+                                artifacts: {
+                                  ...workflowArtifacts(manifest),
+                                  prompts: {
+                                    ...currentArtifacts,
+                                    [ref]: {
+                                      registry_name: ref,
+                                      alias:
+                                        picked?.alias ??
+                                        existingArtifact?.alias ??
+                                        "prod",
+                                      managed_by:
+                                        existingArtifact?.managed_by ??
+                                        "mlflow_prompt_registry",
+                                    },
                                   },
                                 },
+                              } as Partial<WorkflowManifest>);
+                            }}
+                          >
+                            <option value="">Select a prompt…</option>
+                            {promptOptions.map((p) => (
+                              <option
+                                key={p.prompt_name!}
+                                value={p.prompt_name!}
+                              >
+                                {p.prompt_name} @{p.alias}
+                              </option>
+                            ))}
+                          </select>
+                          {!agentInstructions?.ref && (
+                            <p className="mt-1 text-[11px] text-amber-600">
+                              Pick a registered prompt — the agent won’t compile
+                              until its instructions resolve.
+                            </p>
+                          )}
+                          {promptOptions.length === 0 && (
+                            <p className="mt-1 text-[11px] text-zinc-400">
+                              No registered prompts available.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <textarea
+                          data-testid="inspector-instructions"
+                          aria-label="Agent instructions"
+                          className={textareaClass}
+                          rows={5}
+                          value={
+                            agentInstructions?.type === "inline"
+                              ? (agentInstructions.text ?? "")
+                              : ""
+                          }
+                          onChange={(e) =>
+                            onChangeNode(node.id, {
+                              instructions: {
+                                type: "inline",
+                                text: e.target.value,
                               },
-                            } as Partial<WorkflowManifest>);
-                          }}
-                        >
-                          <option value="">Select a prompt…</option>
-                          {promptOptions.map((p) => (
-                            <option key={p.prompt_name!} value={p.prompt_name!}>
-                              {p.prompt_name} @{p.alias}
-                            </option>
+                            })
+                          }
+                        />
+                      )}
+                    </Field>
+                  </Section>
+                  <Section title="Tools">
+                    <Field label="Allowed tools" fieldKey="tools">
+                      <ChipMultiSelect
+                        prefix="tools"
+                        addLabel="Add tool"
+                        emptyText="No registered tools or MCP servers."
+                        searchPlaceholder="Search tools…"
+                        selected={node.tools ?? []}
+                        onChange={(next) =>
+                          onChangeNode(node.id, {
+                            tools: next,
+                            tool_constraints: pruneToolConstraints(
+                              node.tool_constraints,
+                              next,
+                            ),
+                          })
+                        }
+                        options={toolPickerOptions}
+                      />
+                    </Field>
+                  </Section>
+                  <Section title="Tool rules">
+                    <Field
+                      label="Per-tool constraints"
+                      fieldKey="tool_constraints"
+                    >
+                      {(node.tools ?? []).length === 0 ? (
+                        <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
+                          Select one or more tools to configure claim or
+                          grounding rules.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {(node.tools ?? []).map((toolRef) => (
+                            <label
+                              key={toolRef}
+                              className="grid gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600"
+                            >
+                              <span className="font-mono text-[11px] text-zinc-700">
+                                {toolRef}
+                              </span>
+                              <select
+                                data-testid={`inspector-tool-constraint-${toolRef.replace(/[^a-zA-Z0-9_-]/g, "_")}`}
+                                className={selectClass}
+                                value={node.tool_constraints?.[toolRef] ?? ""}
+                                onChange={(e) =>
+                                  updateAgentToolConstraint(
+                                    toolRef,
+                                    e.target.value,
+                                  )
+                                }
+                              >
+                                <option value="">No extra rule</option>
+                                <option value="required_before_claim">
+                                  Required before claim
+                                </option>
+                              </select>
+                            </label>
                           ))}
-                        </select>
-                        {!agentInstructions?.ref && (
-                          <p className="mt-1 text-[11px] text-amber-600">
-                            Pick a registered prompt — the agent won’t compile
-                            until its instructions resolve.
+                          <p className="text-[11px] leading-relaxed text-zinc-500">
+                            Use these rules to bias the compiler and guardrails
+                            toward grounded answers for higher-risk tools.
                           </p>
-                        )}
-                        {promptOptions.length === 0 && (
-                          <p className="mt-1 text-[11px] text-zinc-400">
-                            No registered prompts available.
-                          </p>
-                        )}
-                      </>
-                    ) : (
+                        </div>
+                      )}
+                    </Field>
+                  </Section>
+                  <Section title="Structured output">
+                    <Field label="JSON Schema" fieldKey="output_type">
                       <textarea
-                        data-testid="inspector-instructions"
-                        aria-label="Agent instructions"
+                        data-testid="inspector-agent-output-type"
                         className={textareaClass}
-                        rows={5}
+                        rows={10}
+                        placeholder={`{\n  "type": "object",\n  "properties": {\n    "answer": { "type": "string" }\n  },\n  "required": ["answer"]\n}`}
+                        value={agentOutputTypeText}
+                        onChange={(e) => {
+                          setAgentOutputTypeText(e.target.value);
+                          if (agentOutputTypeError)
+                            setAgentOutputTypeError(null);
+                        }}
+                        onBlur={commitAgentOutputType}
+                      />
+                      {agentOutputTypeError ? (
+                        <p className="mt-1 text-[11px] text-red-600">
+                          {agentOutputTypeError}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                          Save a JSON Schema here to request parsed agent
+                          output. The first time you add a schema, Caliber also
+                          adds a{" "}
+                          <span className="font-mono">structured_output</span>{" "}
+                          port so downstream nodes can consume the object
+                          directly.
+                        </p>
+                      )}
+                    </Field>
+                  </Section>
+                  <Section title="Evaluation">
+                    <Field label="Eval dataset" fieldKey="eval_dataset">
+                      <select
+                        data-testid="inspector-agent-eval-dataset"
+                        className={selectClass}
                         value={
-                          agentInstructions?.type === "inline"
-                            ? (agentInstructions.text ?? "")
+                          typeof node.eval_dataset === "string"
+                            ? node.eval_dataset
                             : ""
                         }
                         onChange={(e) =>
-                          onChangeNode(node.id, {
-                            instructions: {
-                              type: "inline",
-                              text: e.target.value,
-                            },
-                          })
+                          handleAgentEvalDatasetChange(e.target.value)
+                        }
+                      >
+                        <option value="">No dataset</option>
+                        {evalDatasets.map((dataset) => (
+                          <option
+                            key={dataset.dataset_id}
+                            value={dataset.dataset_id}
+                          >
+                            {dataset.name} ({dataset.dataset_id})
+                          </option>
+                        ))}
+                      </select>
+                      {evalDatasets.length === 0 && (
+                        <p className="mt-1 text-[11px] text-zinc-400">
+                          No active eval datasets available.
+                        </p>
+                      )}
+                    </Field>
+                  </Section>
+                  <Section title="Skills">
+                    <Field label="Reusable skills" fieldKey="skills">
+                      <ChipMultiSelect
+                        prefix="skills"
+                        addLabel="Add skill"
+                        emptyText="No registered skills."
+                        searchPlaceholder="Search skills…"
+                        selected={node.skills ?? []}
+                        onChange={(next) =>
+                          onChangeNode(node.id, { skills: next })
+                        }
+                        options={skills.map((skill) => ({
+                          value: skill.name,
+                          label: skill.name,
+                          hint: skill.summary,
+                          testId: `skill-${skill.name}`,
+                        }))}
+                      />
+                    </Field>
+                  </Section>
+                  <Section title="Handoffs">
+                    <Field label="Delegation handoffs" fieldKey="handoffs">
+                      <AgentHandoffEditor
+                        agentId={node.id}
+                        nodes={manifest.nodes}
+                        handoffs={node.handoffs ?? []}
+                        onChange={(handoffs) =>
+                          onChangeNode(node.id, { handoffs })
                         }
                       />
+                    </Field>
+                  </Section>
+                </>
+              )}
+
+              {node.type === "file_input" && (
+                <Section title="File source">
+                  <Field label="Managed project file" fieldKey="file_ref">
+                    {projectId ? (
+                      <ManagedProjectFileSelect
+                        projectId={projectId}
+                        value={node.file_ref?.file_id ?? ""}
+                        onSelect={(selectedFile) => {
+                          onChangeNode(node.id, {
+                            file_ref: selectedFile?.immutable_ref ?? null,
+                            path: "",
+                          });
+                        }}
+                      />
+                    ) : (
+                      <select
+                        data-testid="inspector-managed-file"
+                        className={selectClass}
+                        disabled
+                        value=""
+                        onChange={() => undefined}
+                      >
+                        <option value="">Select an active project first</option>
+                      </select>
                     )}
                   </Field>
-                </Section>
-                <Section title="Tools">
-                  <Field label="Allowed tools" fieldKey="tools">
-                    <ChipMultiSelect
-                      prefix="tools"
-                      addLabel="Add tool"
-                      emptyText="No registered tools or MCP servers."
-                      searchPlaceholder="Search tools…"
-                      selected={node.tools ?? []}
-                      onChange={(next) =>
+                  <Field label="Legacy host path (advanced)" fieldKey="path">
+                    <input
+                      data-testid="inspector-file-path"
+                      className={inputClass}
+                      value={typeof node.path === "string" ? node.path : ""}
+                      onChange={(e) =>
                         onChangeNode(node.id, {
-                          tools: next,
-                          tool_constraints: pruneToolConstraints(
-                            node.tool_constraints,
-                            next,
-                          ),
+                          path: e.target.value,
+                          file_ref: null,
                         })
                       }
-                      options={toolPickerOptions}
                     />
                   </Field>
-                </Section>
-                <Section title="Tool rules">
-                  <Field
-                    label="Per-tool constraints"
-                    fieldKey="tool_constraints"
-                  >
-                    {(node.tools ?? []).length === 0 ? (
-                      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
-                        Select one or more tools to configure claim or grounding
-                        rules.
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {(node.tools ?? []).map((toolRef) => (
-                          <label
-                            key={toolRef}
-                            className="grid gap-1 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600"
-                          >
-                            <span className="font-mono text-[11px] text-zinc-700">
-                              {toolRef}
-                            </span>
-                            <select
-                              data-testid={`inspector-tool-constraint-${toolRef.replace(/[^a-zA-Z0-9_-]/g, "_")}`}
-                              className={selectClass}
-                              value={node.tool_constraints?.[toolRef] ?? ""}
-                              onChange={(e) =>
-                                updateAgentToolConstraint(
-                                  toolRef,
-                                  e.target.value,
-                                )
-                              }
-                            >
-                              <option value="">No extra rule</option>
-                              <option value="required_before_claim">
-                                Required before claim
-                              </option>
-                            </select>
-                          </label>
-                        ))}
-                        <p className="text-[11px] leading-relaxed text-zinc-500">
-                          Use these rules to bias the compiler and guardrails
-                          toward grounded answers for higher-risk tools.
-                        </p>
-                      </div>
-                    )}
-                  </Field>
-                </Section>
-                <Section title="Structured output">
-                  <Field label="JSON Schema" fieldKey="output_type">
-                    <textarea
-                      data-testid="inspector-agent-output-type"
-                      className={textareaClass}
-                      rows={10}
-                      placeholder={`{\n  "type": "object",\n  "properties": {\n    "answer": { "type": "string" }\n  },\n  "required": ["answer"]\n}`}
-                      value={agentOutputTypeText}
-                      onChange={(e) => {
-                        setAgentOutputTypeText(e.target.value);
-                        if (agentOutputTypeError) setAgentOutputTypeError(null);
-                      }}
-                      onBlur={commitAgentOutputType}
-                    />
-                    {agentOutputTypeError ? (
-                      <p className="mt-1 text-[11px] text-red-600">
-                        {agentOutputTypeError}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
-                        Save a JSON Schema here to request parsed agent output.
-                        The first time you add a schema, Caliber also adds a{" "}
-                        <span className="font-mono">structured_output</span>{" "}
-                        port so downstream nodes can consume the object
-                        directly.
-                      </p>
-                    )}
-                  </Field>
-                </Section>
-                <Section title="Evaluation">
-                  <Field label="Eval dataset" fieldKey="eval_dataset">
-                    <select
-                      data-testid="inspector-agent-eval-dataset"
-                      className={selectClass}
+                  <Field label="Max bytes" fieldKey="max_bytes">
+                    <input
+                      data-testid="inspector-file-max-bytes"
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={5000000}
                       value={
-                        typeof node.eval_dataset === "string"
-                          ? node.eval_dataset
+                        typeof node.max_bytes === "number"
+                          ? node.max_bytes
+                          : 200000
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          max_bytes: Number(e.target.value) || 1,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Encoding" fieldKey="encoding">
+                    <input
+                      className={inputClass}
+                      value={
+                        typeof node.encoding === "string"
+                          ? node.encoding
+                          : "utf-8"
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { encoding: e.target.value })
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "folder_input" && (
+                <Section title="Folder source">
+                  <Field label="Path" fieldKey="path">
+                    <input
+                      data-testid="inspector-folder-path"
+                      className={inputClass}
+                      value={typeof node.path === "string" ? node.path : ""}
+                      onChange={(e) =>
+                        onChangeNode(node.id, { path: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Pattern" fieldKey="pattern">
+                    <input
+                      data-testid="inspector-folder-pattern"
+                      className={inputClass}
+                      value={
+                        typeof node.pattern === "string" ? node.pattern : "**/*"
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { pattern: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Recursive" fieldKey="recursive">
+                    <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
+                      <input
+                        data-testid="inspector-folder-recursive"
+                        aria-label="Recursive"
+                        type="checkbox"
+                        className="rounded border-zinc-300"
+                        checked={node.recursive !== false}
+                        onChange={(e) =>
+                          onChangeNode(node.id, { recursive: e.target.checked })
+                        }
+                      />
+                      <span className="font-medium">
+                        Include nested folders
+                      </span>
+                    </span>
+                  </Field>
+                  <Field label="Max files" fieldKey="max_files">
+                    <input
+                      data-testid="inspector-folder-max-files"
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={
+                        typeof node.max_files === "number" ? node.max_files : 50
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          max_files: Number(e.target.value) || 1,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Bytes per file" fieldKey="max_bytes_per_file">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={1000000}
+                      value={
+                        typeof node.max_bytes_per_file === "number"
+                          ? node.max_bytes_per_file
+                          : 100000
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          max_bytes_per_file: Number(e.target.value) || 1,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Encoding" fieldKey="encoding">
+                    <input
+                      className={inputClass}
+                      value={
+                        typeof node.encoding === "string"
+                          ? node.encoding
+                          : "utf-8"
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { encoding: e.target.value })
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "input_bucket" && (
+                <Section title="Input bucket">
+                  <Field label="Bucket" fieldKey="bucket">
+                    <BucketSelect
+                      testId="inspector-input-bucket"
+                      value={typeof node.bucket === "string" ? node.bucket : ""}
+                      onChange={(bucket) => onChangeNode(node.id, { bucket })}
+                    />
+                  </Field>
+                  <Field label="Prefix" fieldKey="prefix">
+                    <BucketPrefixField
+                      testId="inspector-input-bucket-prefix"
+                      bucket={
+                        typeof node.bucket === "string" ? node.bucket : ""
+                      }
+                      value={typeof node.prefix === "string" ? node.prefix : ""}
+                      onChange={(prefix) => onChangeNode(node.id, { prefix })}
+                      placeholder="e.g. docs/ (optional)"
+                    />
+                  </Field>
+                  <Field label="Recursive" fieldKey="recursive">
+                    <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
+                      <input
+                        data-testid="inspector-input-bucket-recursive"
+                        aria-label="Recursive"
+                        type="checkbox"
+                        className="rounded border-zinc-300"
+                        checked={node.recursive !== false}
+                        onChange={(e) =>
+                          onChangeNode(node.id, { recursive: e.target.checked })
+                        }
+                      />
+                      <span className="font-medium">
+                        Include nested prefixes
+                      </span>
+                    </span>
+                  </Field>
+                  <Field label="Max objects" fieldKey="max_files">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={
+                        typeof node.max_files === "number" ? node.max_files : 50
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          max_files: Number(e.target.value) || 1,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Bytes per object" fieldKey="max_bytes_per_file">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={5000000}
+                      value={
+                        typeof node.max_bytes_per_file === "number"
+                          ? node.max_bytes_per_file
+                          : 100000
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          max_bytes_per_file: Number(e.target.value) || 1,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Encoding" fieldKey="encoding">
+                    <input
+                      data-testid="inspector-input-bucket-encoding"
+                      className={inputClass}
+                      value={
+                        typeof node.encoding === "string"
+                          ? node.encoding
+                          : "utf-8"
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { encoding: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Objects">
+                    <BucketContentsField
+                      testId="inspector-input-bucket-contents"
+                      bucket={
+                        typeof node.bucket === "string" ? node.bucket : ""
+                      }
+                      prefix={
+                        typeof node.prefix === "string" ? node.prefix : ""
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "output_bucket" && (
+                <Section title="Output bucket">
+                  <Field label="Bucket" fieldKey="bucket">
+                    <BucketSelect
+                      testId="inspector-output-bucket"
+                      value={typeof node.bucket === "string" ? node.bucket : ""}
+                      onChange={(bucket) => onChangeNode(node.id, { bucket })}
+                    />
+                  </Field>
+                  <Field label="Prefix" fieldKey="prefix">
+                    <BucketPrefixField
+                      testId="inspector-output-bucket-prefix"
+                      bucket={
+                        typeof node.bucket === "string" ? node.bucket : ""
+                      }
+                      value={typeof node.prefix === "string" ? node.prefix : ""}
+                      onChange={(prefix) => onChangeNode(node.id, { prefix })}
+                      placeholder="e.g. runs/output/ (optional)"
+                    />
+                  </Field>
+                  <Field label="Overwrite" fieldKey="overwrite">
+                    <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
+                      <input
+                        data-testid="inspector-output-bucket-overwrite"
+                        aria-label="Overwrite existing objects"
+                        type="checkbox"
+                        className="rounded border-zinc-300"
+                        checked={node.overwrite !== false}
+                        onChange={(e) =>
+                          onChangeNode(node.id, { overwrite: e.target.checked })
+                        }
+                      />
+                      <span className="font-medium">
+                        Overwrite existing objects
+                      </span>
+                    </span>
+                  </Field>
+                  <p className="text-[11px] leading-relaxed text-zinc-500">
+                    Writes every artifact produced by the workflow into this
+                    bucket.
+                  </p>
+                  {typeof node.bucket === "string" &&
+                    node.bucket.trim() !== "" && (
+                      <a
+                        href={`/object-store?bucket=${encodeURIComponent(node.bucket)}${
+                          typeof node.prefix === "string" && node.prefix
+                            ? `&prefix=${encodeURIComponent(node.prefix.replace(/^\/+/, ""))}`
+                            : ""
+                        }`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-block text-[11px] font-medium text-caliber-purple hover:underline"
+                      >
+                        Open in Object Store ↗
+                      </a>
+                    )}
+                </Section>
+              )}
+
+              {node.type === "output_folder" && (
+                <Section title="Output folder">
+                  <Field label="Path" fieldKey="path">
+                    <input
+                      data-testid="inspector-output-folder-path"
+                      className={inputClass}
+                      placeholder="e.g. /data/exports"
+                      value={typeof node.path === "string" ? node.path : ""}
+                      onChange={(e) =>
+                        onChangeNode(node.id, { path: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Overwrite" fieldKey="overwrite">
+                    <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
+                      <input
+                        data-testid="inspector-output-folder-overwrite"
+                        aria-label="Overwrite existing files"
+                        type="checkbox"
+                        className="rounded border-zinc-300"
+                        checked={node.overwrite !== false}
+                        onChange={(e) =>
+                          onChangeNode(node.id, { overwrite: e.target.checked })
+                        }
+                      />
+                      <span className="font-medium">
+                        Overwrite existing files
+                      </span>
+                    </span>
+                  </Field>
+                  <p className="text-[11px] leading-relaxed text-zinc-500">
+                    Writes every artifact produced by the workflow into this
+                    folder.
+                  </p>
+                </Section>
+              )}
+
+              {node.type === "wait_until" && (
+                <Section title="Wait until">
+                  <Field label="Timestamp (ISO)" fieldKey="wait_until">
+                    <input
+                      data-testid="inspector-wait-until"
+                      className={inputClass}
+                      value={
+                        typeof node.wait_until === "string"
+                          ? node.wait_until
                           : ""
                       }
                       onChange={(e) =>
-                        handleAgentEvalDatasetChange(e.target.value)
+                        onChangeNode(node.id, { wait_until: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Timezone" fieldKey="timezone">
+                    <input
+                      className={inputClass}
+                      value={
+                        typeof node.timezone === "string"
+                          ? node.timezone
+                          : "UTC"
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { timezone: e.target.value })
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "wait_for_event" && (
+                <Section title="Wait for event">
+                  <Field label="Event name" fieldKey="event_name">
+                    <input
+                      data-testid="inspector-wait-event-name"
+                      className={inputClass}
+                      value={
+                        typeof node.event_name === "string"
+                          ? node.event_name
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { event_name: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Correlation key" fieldKey="correlation_key">
+                    <input
+                      className={inputClass}
+                      value={
+                        typeof node.correlation_key === "string"
+                          ? node.correlation_key
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          correlation_key: e.target.value,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Timeout (seconds)" fieldKey="timeout_seconds">
+                    <input
+                      data-testid="inspector-wait-event-timeout"
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={2592000}
+                      step={1}
+                      value={
+                        typeof node.timeout_seconds === "number"
+                          ? node.timeout_seconds
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          timeout_seconds:
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value) || null,
+                        })
+                      }
+                      placeholder="Optional"
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "parallel" && (
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
+                  Fans out to all downstream edges in parallel.
+                </div>
+              )}
+
+              {node.type === "join" && (
+                <Section title="Join settings">
+                  <Field label="Mode" fieldKey="mode">
+                    <select
+                      className={selectClass}
+                      value={typeof node.mode === "string" ? node.mode : "all"}
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          mode: e.target.value as "all" | "any",
+                        })
                       }
                     >
-                      <option value="">No dataset</option>
-                      {evalDatasets.map((dataset) => (
-                        <option
-                          key={dataset.dataset_id}
-                          value={dataset.dataset_id}
-                        >
-                          {dataset.name} ({dataset.dataset_id})
+                      <option value="all">Wait for all inputs</option>
+                      <option value="any">First available input</option>
+                    </select>
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "for_each" && (
+                <Section title="For each settings">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
+                    ForEach targets can be any executable node, including
+                    agents, subworkflows, tool nodes, MCP resources, knowledge
+                    queries, templates, Python code, and external apps.
+                  </div>
+                  <Field label="Target node" fieldKey="target_node_id">
+                    <select
+                      data-testid="inspector-for-each-target"
+                      className={selectClass}
+                      value={
+                        typeof node.target_node_id === "string"
+                          ? node.target_node_id
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          target_node_id: e.target.value || null,
+                        })
+                      }
+                    >
+                      <option value="">(none)</option>
+                      {forEachTargetOptions.map((option) => (
+                        <option key={option.nodeId} value={option.nodeId}>
+                          {targetOptionLabel(manifest, option, {
+                            unsupportedLabel: "unsupported target",
+                          })}
                         </option>
                       ))}
                     </select>
-                    {evalDatasets.length === 0 && (
-                      <p className="mt-1 text-[11px] text-zinc-400">
-                        No active eval datasets available.
-                      </p>
-                    )}
                   </Field>
-                </Section>
-                <Section title="Skills">
-                  <Field label="Reusable skills" fieldKey="skills">
-                    <ChipMultiSelect
-                      prefix="skills"
-                      addLabel="Add skill"
-                      emptyText="No registered skills."
-                      searchPlaceholder="Search skills…"
-                      selected={node.skills ?? []}
-                      onChange={(next) =>
-                        onChangeNode(node.id, { skills: next })
+                  <Field label="Items input port" fieldKey="item_input_port">
+                    <input
+                      className={inputClass}
+                      value={
+                        typeof node.item_input_port === "string"
+                          ? node.item_input_port
+                          : "items"
                       }
-                      options={skills.map((skill) => ({
-                        value: skill.name,
-                        label: skill.name,
-                        hint: skill.summary,
-                        testId: `skill-${skill.name}`,
-                      }))}
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          item_input_port: e.target.value,
+                        })
+                      }
                     />
                   </Field>
-                </Section>
-                <Section title="Handoffs">
-                  <Field label="Delegation handoffs" fieldKey="handoffs">
-                    <AgentHandoffEditor
-                      agentId={node.id}
-                      nodes={manifest.nodes}
-                      handoffs={node.handoffs ?? []}
-                      onChange={(handoffs) =>
-                        onChangeNode(node.id, { handoffs })
+                  <Field label="Max items" fieldKey="max_items">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={10000}
+                      value={
+                        typeof node.max_items === "number"
+                          ? node.max_items
+                          : 100
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          max_items: Number(e.target.value) || 1,
+                        })
                       }
                     />
                   </Field>
                 </Section>
-              </>
-            )}
+              )}
 
-            {node.type === "file_input" && (
-              <Section title="File source">
-                <Field label="Path" fieldKey="path">
-                  <input
-                    data-testid="inspector-file-path"
-                    className={inputClass}
-                    value={typeof node.path === "string" ? node.path : ""}
-                    onChange={(e) =>
-                      onChangeNode(node.id, { path: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Max bytes" fieldKey="max_bytes">
-                  <input
-                    data-testid="inspector-file-max-bytes"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={5000000}
-                    value={
-                      typeof node.max_bytes === "number"
-                        ? node.max_bytes
-                        : 200000
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_bytes: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Encoding" fieldKey="encoding">
-                  <input
-                    className={inputClass}
-                    value={
-                      typeof node.encoding === "string"
-                        ? node.encoding
-                        : "utf-8"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { encoding: e.target.value })
-                    }
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "folder_input" && (
-              <Section title="Folder source">
-                <Field label="Path" fieldKey="path">
-                  <input
-                    data-testid="inspector-folder-path"
-                    className={inputClass}
-                    value={typeof node.path === "string" ? node.path : ""}
-                    onChange={(e) =>
-                      onChangeNode(node.id, { path: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Pattern" fieldKey="pattern">
-                  <input
-                    data-testid="inspector-folder-pattern"
-                    className={inputClass}
-                    value={
-                      typeof node.pattern === "string" ? node.pattern : "**/*"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { pattern: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Recursive" fieldKey="recursive">
-                  <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
-                    <input
-                      data-testid="inspector-folder-recursive"
-                      aria-label="Recursive"
-                      type="checkbox"
-                      className="rounded border-zinc-300"
-                      checked={node.recursive !== false}
-                      onChange={(e) =>
-                        onChangeNode(node.id, { recursive: e.target.checked })
-                      }
-                    />
-                    <span className="font-medium">Include nested folders</span>
-                  </span>
-                </Field>
-                <Field label="Max files" fieldKey="max_files">
-                  <input
-                    data-testid="inspector-folder-max-files"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={
-                      typeof node.max_files === "number" ? node.max_files : 50
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_files: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Bytes per file" fieldKey="max_bytes_per_file">
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={1000000}
-                    value={
-                      typeof node.max_bytes_per_file === "number"
-                        ? node.max_bytes_per_file
-                        : 100000
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_bytes_per_file: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Encoding" fieldKey="encoding">
-                  <input
-                    className={inputClass}
-                    value={
-                      typeof node.encoding === "string"
-                        ? node.encoding
-                        : "utf-8"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { encoding: e.target.value })
-                    }
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "input_bucket" && (
-              <Section title="Input bucket">
-                <Field label="Bucket" fieldKey="bucket">
-                  <BucketSelect
-                    testId="inspector-input-bucket"
-                    value={typeof node.bucket === "string" ? node.bucket : ""}
-                    onChange={(bucket) => onChangeNode(node.id, { bucket })}
-                  />
-                </Field>
-                <Field label="Prefix" fieldKey="prefix">
-                  <BucketPrefixField
-                    testId="inspector-input-bucket-prefix"
-                    bucket={typeof node.bucket === "string" ? node.bucket : ""}
-                    value={typeof node.prefix === "string" ? node.prefix : ""}
-                    onChange={(prefix) => onChangeNode(node.id, { prefix })}
-                    placeholder="e.g. docs/ (optional)"
-                  />
-                </Field>
-                <Field label="Recursive" fieldKey="recursive">
-                  <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
-                    <input
-                      data-testid="inspector-input-bucket-recursive"
-                      aria-label="Recursive"
-                      type="checkbox"
-                      className="rounded border-zinc-300"
-                      checked={node.recursive !== false}
-                      onChange={(e) =>
-                        onChangeNode(node.id, { recursive: e.target.checked })
-                      }
-                    />
-                    <span className="font-medium">Include nested prefixes</span>
-                  </span>
-                </Field>
-                <Field label="Max objects" fieldKey="max_files">
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={
-                      typeof node.max_files === "number" ? node.max_files : 50
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_files: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Bytes per object" fieldKey="max_bytes_per_file">
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={5000000}
-                    value={
-                      typeof node.max_bytes_per_file === "number"
-                        ? node.max_bytes_per_file
-                        : 100000
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_bytes_per_file: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Encoding" fieldKey="encoding">
-                  <input
-                    data-testid="inspector-input-bucket-encoding"
-                    className={inputClass}
-                    value={
-                      typeof node.encoding === "string"
-                        ? node.encoding
-                        : "utf-8"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { encoding: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Objects">
-                  <BucketContentsField
-                    testId="inspector-input-bucket-contents"
-                    bucket={typeof node.bucket === "string" ? node.bucket : ""}
-                    prefix={typeof node.prefix === "string" ? node.prefix : ""}
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "output_bucket" && (
-              <Section title="Output bucket">
-                <Field label="Bucket" fieldKey="bucket">
-                  <BucketSelect
-                    testId="inspector-output-bucket"
-                    value={typeof node.bucket === "string" ? node.bucket : ""}
-                    onChange={(bucket) => onChangeNode(node.id, { bucket })}
-                  />
-                </Field>
-                <Field label="Prefix" fieldKey="prefix">
-                  <BucketPrefixField
-                    testId="inspector-output-bucket-prefix"
-                    bucket={typeof node.bucket === "string" ? node.bucket : ""}
-                    value={typeof node.prefix === "string" ? node.prefix : ""}
-                    onChange={(prefix) => onChangeNode(node.id, { prefix })}
-                    placeholder="e.g. runs/output/ (optional)"
-                  />
-                </Field>
-                <Field label="Overwrite" fieldKey="overwrite">
-                  <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
-                    <input
-                      data-testid="inspector-output-bucket-overwrite"
-                      aria-label="Overwrite existing objects"
-                      type="checkbox"
-                      className="rounded border-zinc-300"
-                      checked={node.overwrite !== false}
-                      onChange={(e) =>
-                        onChangeNode(node.id, { overwrite: e.target.checked })
-                      }
-                    />
-                    <span className="font-medium">
-                      Overwrite existing objects
+              {node.type === "loop" && (
+                <Section title="Loop settings">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
+                    Loop targets can be any executable node. The stop condition
+                    runs after each iteration and can reference{" "}
+                    <span className="font-mono">
+                      iteration, state, output, result
                     </span>
-                  </span>
-                </Field>
-                <p className="text-[11px] leading-relaxed text-zinc-500">
-                  Writes every artifact produced by the workflow into this
-                  bucket.
-                </p>
-                {typeof node.bucket === "string" &&
-                  node.bucket.trim() !== "" && (
-                    <a
-                      href={`/object-store?bucket=${encodeURIComponent(node.bucket)}${
-                        typeof node.prefix === "string" && node.prefix
-                          ? `&prefix=${encodeURIComponent(node.prefix.replace(/^\/+/, ""))}`
+                    , and <span className="font-mono">outputs</span>.
+                  </div>
+                  <Field label="Target node" fieldKey="target_node_id">
+                    <select
+                      data-testid="inspector-loop-target"
+                      className={selectClass}
+                      value={
+                        typeof node.target_node_id === "string"
+                          ? node.target_node_id
                           : ""
-                      }`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-block text-[11px] font-medium text-caliber-purple hover:underline"
-                    >
-                      Open in Object Store ↗
-                    </a>
-                  )}
-              </Section>
-            )}
-
-            {node.type === "output_folder" && (
-              <Section title="Output folder">
-                <Field label="Path" fieldKey="path">
-                  <input
-                    data-testid="inspector-output-folder-path"
-                    className={inputClass}
-                    placeholder="e.g. /data/exports"
-                    value={typeof node.path === "string" ? node.path : ""}
-                    onChange={(e) =>
-                      onChangeNode(node.id, { path: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Overwrite" fieldKey="overwrite">
-                  <span className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
-                    <input
-                      data-testid="inspector-output-folder-overwrite"
-                      aria-label="Overwrite existing files"
-                      type="checkbox"
-                      className="rounded border-zinc-300"
-                      checked={node.overwrite !== false}
+                      }
                       onChange={(e) =>
-                        onChangeNode(node.id, { overwrite: e.target.checked })
+                        onChangeNode(node.id, {
+                          target_node_id: e.target.value || null,
+                        })
+                      }
+                    >
+                      <option value="">(none)</option>
+                      {loopTargetOptions.map((option) => (
+                        <option key={option.nodeId} value={option.nodeId}>
+                          {targetOptionLabel(manifest, option, {
+                            unsupportedLabel: "unsupported target",
+                          })}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Max iterations" fieldKey="max_iterations">
+                    <input
+                      data-testid="inspector-loop-max-iterations"
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={10000}
+                      value={
+                        typeof node.max_iterations === "number"
+                          ? node.max_iterations
+                          : 10
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          max_iterations: Number(e.target.value) || 1,
+                        })
                       }
                     />
-                    <span className="font-medium">
-                      Overwrite existing files
-                    </span>
-                  </span>
-                </Field>
-                <p className="text-[11px] leading-relaxed text-zinc-500">
-                  Writes every artifact produced by the workflow into this
-                  folder.
-                </p>
-              </Section>
-            )}
+                  </Field>
+                  <Field label="Stop condition" fieldKey="stop_condition">
+                    <input
+                      data-testid="inspector-loop-stop-condition"
+                      className={inputClass}
+                      value={
+                        typeof node.stop_condition === "string"
+                          ? node.stop_condition
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          stop_condition: e.target.value,
+                        })
+                      }
+                      placeholder="state.done or iteration >= 3"
+                    />
+                  </Field>
+                </Section>
+              )}
 
-            {node.type === "wait_until" && (
-              <Section title="Wait until">
-                <Field label="Timestamp (ISO)" fieldKey="wait_until">
-                  <input
-                    data-testid="inspector-wait-until"
-                    className={inputClass}
-                    value={
-                      typeof node.wait_until === "string" ? node.wait_until : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { wait_until: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Timezone" fieldKey="timezone">
-                  <input
-                    className={inputClass}
-                    value={
-                      typeof node.timezone === "string" ? node.timezone : "UTC"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { timezone: e.target.value })
-                    }
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "wait_for_event" && (
-              <Section title="Wait for event">
-                <Field label="Event name" fieldKey="event_name">
-                  <input
-                    data-testid="inspector-wait-event-name"
-                    className={inputClass}
-                    value={
-                      typeof node.event_name === "string" ? node.event_name : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { event_name: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Correlation key" fieldKey="correlation_key">
-                  <input
-                    className={inputClass}
-                    value={
-                      typeof node.correlation_key === "string"
-                        ? node.correlation_key
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { correlation_key: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Timeout (seconds)" fieldKey="timeout_seconds">
-                  <input
-                    data-testid="inspector-wait-event-timeout"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={2592000}
-                    step={1}
-                    value={
-                      typeof node.timeout_seconds === "number"
-                        ? node.timeout_seconds
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        timeout_seconds:
-                          e.target.value === ""
-                            ? null
-                            : Number(e.target.value) || null,
-                      })
-                    }
-                    placeholder="Optional"
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "parallel" && (
-              <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3 text-xs text-zinc-600">
-                Fans out to all downstream edges in parallel.
-              </div>
-            )}
-
-            {node.type === "join" && (
-              <Section title="Join settings">
-                <Field label="Mode" fieldKey="mode">
-                  <select
-                    className={selectClass}
-                    value={typeof node.mode === "string" ? node.mode : "all"}
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        mode: e.target.value as "all" | "any",
-                      })
-                    }
-                  >
-                    <option value="all">Wait for all inputs</option>
-                    <option value="any">First available input</option>
-                  </select>
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "for_each" && (
-              <Section title="For each settings">
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
-                  ForEach targets can be any executable node, including agents,
-                  subworkflows, tool nodes, MCP resources, knowledge queries,
-                  templates, Python code, and external apps.
-                </div>
-                <Field label="Target node" fieldKey="target_node_id">
-                  <select
-                    data-testid="inspector-for-each-target"
-                    className={selectClass}
-                    value={
-                      typeof node.target_node_id === "string"
-                        ? node.target_node_id
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        target_node_id: e.target.value || null,
-                      })
-                    }
-                  >
-                    <option value="">(none)</option>
-                    {forEachTargetOptions.map((option) => (
-                      <option key={option.nodeId} value={option.nodeId}>
-                        {targetOptionLabel(manifest, option, {
-                          unsupportedLabel: "unsupported target",
-                        })}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Items input port" fieldKey="item_input_port">
-                  <input
-                    className={inputClass}
-                    value={
-                      typeof node.item_input_port === "string"
-                        ? node.item_input_port
-                        : "items"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { item_input_port: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Max items" fieldKey="max_items">
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={10000}
-                    value={
-                      typeof node.max_items === "number" ? node.max_items : 100
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_items: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "loop" && (
-              <Section title="Loop settings">
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
-                  Loop targets can be any executable node. The stop condition
-                  runs after each iteration and can reference{" "}
-                  <span className="font-mono">
-                    iteration, state, output, result
-                  </span>
-                  , and <span className="font-mono">outputs</span>.
-                </div>
-                <Field label="Target node" fieldKey="target_node_id">
-                  <select
-                    data-testid="inspector-loop-target"
-                    className={selectClass}
-                    value={
-                      typeof node.target_node_id === "string"
-                        ? node.target_node_id
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        target_node_id: e.target.value || null,
-                      })
-                    }
-                  >
-                    <option value="">(none)</option>
-                    {loopTargetOptions.map((option) => (
-                      <option key={option.nodeId} value={option.nodeId}>
-                        {targetOptionLabel(manifest, option, {
-                          unsupportedLabel: "unsupported target",
-                        })}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Max iterations" fieldKey="max_iterations">
-                  <input
-                    data-testid="inspector-loop-max-iterations"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={10000}
-                    value={
-                      typeof node.max_iterations === "number"
-                        ? node.max_iterations
-                        : 10
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_iterations: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Stop condition" fieldKey="stop_condition">
-                  <input
-                    data-testid="inspector-loop-stop-condition"
-                    className={inputClass}
-                    value={
-                      typeof node.stop_condition === "string"
-                        ? node.stop_condition
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        stop_condition: e.target.value,
-                      })
-                    }
-                    placeholder="state.done or iteration >= 3"
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "error_boundary" && (
-              <Section title="Error boundary">
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
-                  Error boundaries can guard any executable node and optionally
-                  compensate with another executable node when the target fails.
-                </div>
-                <Field label="Target node" fieldKey="target_node_id">
-                  <select
-                    data-testid="inspector-error-boundary-target"
-                    className={selectClass}
-                    value={
-                      typeof node.target_node_id === "string"
-                        ? node.target_node_id
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        target_node_id: e.target.value || null,
-                      })
-                    }
-                  >
-                    <option value="">(none)</option>
-                    {errorBoundaryTargetOptions.map((option) => (
-                      <option key={option.nodeId} value={option.nodeId}>
-                        {targetOptionLabel(manifest, option, {
-                          unsupportedLabel: "unsupported target",
-                        })}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Compensate with" fieldKey="compensate_with">
-                  <select
-                    data-testid="inspector-error-boundary-compensate"
-                    className={selectClass}
-                    value={
-                      typeof node.compensate_with === "string"
-                        ? node.compensate_with
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        compensate_with: e.target.value || null,
-                      })
-                    }
-                  >
-                    <option value="">(none)</option>
-                    {errorBoundaryCompensationOptions.map((option) => (
-                      <option key={option.nodeId} value={option.nodeId}>
-                        {targetOptionLabel(manifest, option, {
-                          unsupportedLabel: "unsupported compensation",
-                        })}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Fallback text" fieldKey="fallback_text">
-                  <textarea
-                    className={textareaClass}
-                    rows={3}
-                    value={
-                      typeof node.fallback_text === "string"
-                        ? node.fallback_text
-                        : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { fallback_text: e.target.value })
-                    }
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "subworkflow" && (
-              <SubworkflowSection
-                manifest={manifest}
-                node={node}
-                onChangeNode={onChangeNode}
-              />
-            )}
-
-            {node.type === "tool" && (
-              <Section title="Tool">
-                <Field label="Binding" fieldKey="tool_name">
-                  <select
-                    data-testid="inspector-tool-node-name"
-                    className={selectClass}
-                    value={selectedToolBindingName}
-                    onChange={(e) =>
-                      onChangeNode(node.id, { tool_name: e.target.value })
-                    }
-                  >
-                    <option value="">Select a tool binding</option>
-                    {tools.length > 0 && (
-                      <optgroup label="Registered tools">
-                        {tools.map((tool) => (
-                          <option key={tool.name} value={tool.name}>
-                            {tool.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {activeMcpServers.length > 0 && (
-                      <optgroup label="MCP tools">
-                        {activeMcpServers.flatMap((server) =>
-                          server.discovered_tools.map((toolDef) => {
-                            const value = `mcp:${server.name}/${toolDef.name}`;
-                            return (
-                              <option key={value} value={value}>
-                                {server.name} / {toolDef.name}
-                              </option>
-                            );
-                          }),
-                        )}
-                      </optgroup>
-                    )}
-                    {selectedToolBindingName &&
-                      !toolPickerValueSet.has(selectedToolBindingName) && (
-                        <option value={selectedToolBindingName}>
-                          {selectedToolBindingName}
+              {node.type === "error_boundary" && (
+                <Section title="Error boundary">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
+                    Error boundaries can guard any executable node and
+                    optionally compensate with another executable node when the
+                    target fails.
+                  </div>
+                  <Field label="Target node" fieldKey="target_node_id">
+                    <select
+                      data-testid="inspector-error-boundary-target"
+                      className={selectClass}
+                      value={
+                        typeof node.target_node_id === "string"
+                          ? node.target_node_id
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          target_node_id: e.target.value || null,
+                        })
+                      }
+                    >
+                      <option value="">(none)</option>
+                      {errorBoundaryTargetOptions.map((option) => (
+                        <option key={option.nodeId} value={option.nodeId}>
+                          {targetOptionLabel(manifest, option, {
+                            unsupportedLabel: "unsupported target",
+                          })}
                         </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Compensate with" fieldKey="compensate_with">
+                    <select
+                      data-testid="inspector-error-boundary-compensate"
+                      className={selectClass}
+                      value={
+                        typeof node.compensate_with === "string"
+                          ? node.compensate_with
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          compensate_with: e.target.value || null,
+                        })
+                      }
+                    >
+                      <option value="">(none)</option>
+                      {errorBoundaryCompensationOptions.map((option) => (
+                        <option key={option.nodeId} value={option.nodeId}>
+                          {targetOptionLabel(manifest, option, {
+                            unsupportedLabel: "unsupported compensation",
+                          })}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Fallback text" fieldKey="fallback_text">
+                    <textarea
+                      className={textareaClass}
+                      rows={3}
+                      value={
+                        typeof node.fallback_text === "string"
+                          ? node.fallback_text
+                          : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { fallback_text: e.target.value })
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "subworkflow" && (
+                <SubworkflowSection
+                  manifest={manifest}
+                  node={node}
+                  onChangeNode={onChangeNode}
+                />
+              )}
+
+              {node.type === "tool" && (
+                <Section title="Tool">
+                  <Field label="Binding" fieldKey="tool_name">
+                    <select
+                      data-testid="inspector-tool-node-name"
+                      className={selectClass}
+                      value={selectedToolBindingName}
+                      onChange={(e) =>
+                        onChangeNode(node.id, { tool_name: e.target.value })
+                      }
+                    >
+                      <option value="">Select a tool binding</option>
+                      {tools.length > 0 && (
+                        <optgroup label="Registered tools">
+                          {tools.map((tool) => (
+                            <option key={tool.name} value={tool.name}>
+                              {tool.name}
+                            </option>
+                          ))}
+                        </optgroup>
                       )}
-                  </select>
-                </Field>
-                {selectedDirectToolDefinition ? (
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-600">
-                    Calls{" "}
-                    <span className="font-mono">
-                      {selectedDirectToolDefinition.name}
-                    </span>{" "}
-                    directly. Side effect level:{" "}
-                    <span className="font-medium">
-                      {SIDE_EFFECT_LABEL[
-                        selectedDirectToolDefinition.side_effect_level
-                      ] ?? selectedDirectToolDefinition.side_effect_level}
-                    </span>
-                    {selectedDirectToolDefinition.requires_approval
-                      ? " · marked as approval-sensitive"
-                      : ""}
-                  </div>
-                ) : selectedDirectMcpToolLabel ? (
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-600">
-                    Calls{" "}
-                    <span className="font-mono">
-                      {selectedDirectMcpToolLabel}
-                    </span>{" "}
-                    through an MCP-backed manifest binding.
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
-                    Pick a registered tool or MCP tool to invoke directly
-                    without an agent step.
-                  </div>
-                )}
-              </Section>
-            )}
+                      {activeMcpServers.length > 0 && (
+                        <optgroup label="MCP tools">
+                          {activeMcpServers.flatMap((server) =>
+                            server.discovered_tools.map((toolDef) => {
+                              const value = `mcp:${server.name}/${toolDef.name}`;
+                              return (
+                                <option key={value} value={value}>
+                                  {server.name} / {toolDef.name}
+                                </option>
+                              );
+                            }),
+                          )}
+                        </optgroup>
+                      )}
+                      {selectedToolBindingName &&
+                        !toolPickerValueSet.has(selectedToolBindingName) && (
+                          <option value={selectedToolBindingName}>
+                            {selectedToolBindingName}
+                          </option>
+                        )}
+                    </select>
+                  </Field>
+                  {selectedDirectToolDefinition ? (
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-600">
+                      Calls{" "}
+                      <span className="font-mono">
+                        {selectedDirectToolDefinition.name}
+                      </span>{" "}
+                      directly. Side effect level:{" "}
+                      <span className="font-medium">
+                        {SIDE_EFFECT_LABEL[
+                          selectedDirectToolDefinition.side_effect_level
+                        ] ?? selectedDirectToolDefinition.side_effect_level}
+                      </span>
+                      {selectedDirectToolDefinition.requires_approval
+                        ? " · marked as approval-sensitive"
+                        : ""}
+                    </div>
+                  ) : selectedDirectMcpToolLabel ? (
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-600">
+                      Calls{" "}
+                      <span className="font-mono">
+                        {selectedDirectMcpToolLabel}
+                      </span>{" "}
+                      through an MCP-backed manifest binding.
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
+                      Pick a registered tool or MCP tool to invoke directly
+                      without an agent step.
+                    </div>
+                  )}
+                </Section>
+              )}
 
-            {node.type === "mcp_resource" && (
-              <Section title="MCP resource">
-                <Field label="Server" fieldKey="server_id">
-                  <select
-                    data-testid="inspector-mcp-server"
-                    className={selectClass}
-                    value={selectedMcpServerId}
-                    onChange={(e) => {
-                      const serverId = e.target.value;
-                      const server = activeMcpServers.find(
-                        (item) => item.server_id === serverId,
-                      );
-                      const firstTool = server?.discovered_tools[0]?.name ?? "";
-                      onChangeNode(node.id, {
-                        server_id: serverId,
-                        tool_name: firstTool,
-                      });
-                    }}
-                  >
-                    <option value="">Select an MCP server</option>
-                    {activeMcpServers.map((server) => (
-                      <option key={server.server_id} value={server.server_id}>
-                        {server.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Tool" fieldKey="tool_name">
-                  <select
-                    data-testid="inspector-mcp-tool"
-                    className={selectClass}
-                    value={
-                      typeof node.tool_name === "string" ? node.tool_name : ""
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { tool_name: e.target.value })
-                    }
-                    disabled={!selectedMcpServer}
-                  >
-                    <option value="">
-                      {selectedMcpServer
-                        ? "Select a tool"
-                        : "Select a server first"}
-                    </option>
-                    {(selectedMcpServer?.discovered_tools ?? []).map(
-                      (toolDef) => (
-                        <option key={toolDef.name} value={toolDef.name}>
-                          {toolDef.name}
+              {node.type === "mcp_resource" && (
+                <Section title="MCP resource">
+                  <Field label="Server" fieldKey="server_id">
+                    <select
+                      data-testid="inspector-mcp-server"
+                      className={selectClass}
+                      value={selectedMcpServerId}
+                      onChange={(e) => {
+                        const serverId = e.target.value;
+                        const server = activeMcpServers.find(
+                          (item) => item.server_id === serverId,
+                        );
+                        const firstTool =
+                          server?.discovered_tools[0]?.name ?? "";
+                        onChangeNode(node.id, {
+                          server_id: serverId,
+                          tool_name: firstTool,
+                        });
+                      }}
+                    >
+                      <option value="">Select an MCP server</option>
+                      {activeMcpServers.map((server) => (
+                        <option key={server.server_id} value={server.server_id}>
+                          {server.name}
                         </option>
-                      ),
-                    )}
-                  </select>
-                </Field>
-                <Field label="Timeout (seconds)" fieldKey="timeout_seconds">
-                  <input
-                    data-testid="inspector-mcp-timeout"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={600}
-                    step={1}
-                    value={
-                      typeof node.timeout_seconds === "number"
-                        ? node.timeout_seconds
-                        : 45
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        timeout_seconds: Number(e.target.value) || 45,
-                      })
-                    }
-                  />
-                </Field>
-                {activeMcpServers.length === 0 && (
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
-                    No active MCP servers are available.
-                  </div>
-                )}
-              </Section>
-            )}
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Tool" fieldKey="tool_name">
+                    <select
+                      data-testid="inspector-mcp-tool"
+                      className={selectClass}
+                      value={
+                        typeof node.tool_name === "string" ? node.tool_name : ""
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { tool_name: e.target.value })
+                      }
+                      disabled={!selectedMcpServer}
+                    >
+                      <option value="">
+                        {selectedMcpServer
+                          ? "Select a tool"
+                          : "Select a server first"}
+                      </option>
+                      {(selectedMcpServer?.discovered_tools ?? []).map(
+                        (toolDef) => (
+                          <option key={toolDef.name} value={toolDef.name}>
+                            {toolDef.name}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </Field>
+                  <Field label="Timeout (seconds)" fieldKey="timeout_seconds">
+                    <input
+                      data-testid="inspector-mcp-timeout"
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={600}
+                      step={1}
+                      value={
+                        typeof node.timeout_seconds === "number"
+                          ? node.timeout_seconds
+                          : 45
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          timeout_seconds: Number(e.target.value) || 45,
+                        })
+                      }
+                    />
+                  </Field>
+                  {activeMcpServers.length === 0 && (
+                    <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">
+                      No active MCP servers are available.
+                    </div>
+                  )}
+                </Section>
+              )}
 
-            {node.type === "knowledge_query" && (
-              <KnowledgeQuerySection node={node} onChangeNode={onChangeNode} />
-            )}
+              {node.type === "knowledge_query" && (
+                <KnowledgeQuerySection
+                  node={node}
+                  onChangeNode={onChangeNode}
+                />
+              )}
 
-            {node.type === "knowledge_build" && (
-              <KnowledgeBuildSection node={node} onChangeNode={onChangeNode} />
-            )}
+              {node.type === "knowledge_build" && (
+                <KnowledgeBuildSection
+                  node={node}
+                  onChangeNode={onChangeNode}
+                />
+              )}
 
-            {node.type === "template" && (
-              <TemplateSection node={node} onChangeNode={onChangeNode} />
-            )}
+              {node.type === "template" && (
+                <TemplateSection node={node} onChangeNode={onChangeNode} />
+              )}
 
-            {node.type === "external_app" && (
-              <ExternalAppSection node={node} onChangeNode={onChangeNode} />
-            )}
+              {node.type === "external_app" && (
+                <ExternalAppSection node={node} onChangeNode={onChangeNode} />
+              )}
 
-            {node.type === "webhook" && (
-              <WebhookSection node={node} onChangeNode={onChangeNode} />
-            )}
+              {node.type === "webhook" && (
+                <WebhookSection node={node} onChangeNode={onChangeNode} />
+              )}
 
-            {node.type === "api_request" && (
-              <ApiRequestSection node={node} onChangeNode={onChangeNode} />
-            )}
+              {node.type === "api_request" && (
+                <ApiRequestSection node={node} onChangeNode={onChangeNode} />
+              )}
 
-            {node.type === "python_code" && (
-              <Section title="Python code">
-                <Field label="Code" fieldKey="code">
-                  <textarea
-                    data-testid="inspector-python-code"
-                    className={textareaClass}
-                    rows={10}
-                    value={typeof node.code === "string" ? node.code : ""}
-                    onChange={(e) =>
-                      onChangeNode(node.id, { code: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Timeout (seconds)" fieldKey="timeout_seconds">
-                  <input
-                    data-testid="inspector-python-timeout"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={120}
-                    step={1}
-                    value={
-                      typeof node.timeout_seconds === "number"
-                        ? node.timeout_seconds
-                        : 5
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        timeout_seconds: Number(e.target.value) || 5,
-                      })
-                    }
-                  />
-                </Field>
-              </Section>
-            )}
+              {node.type === "python_code" && (
+                <Section title="Python code">
+                  <Field label="Code" fieldKey="code">
+                    <textarea
+                      data-testid="inspector-python-code"
+                      className={textareaClass}
+                      rows={10}
+                      value={typeof node.code === "string" ? node.code : ""}
+                      onChange={(e) =>
+                        onChangeNode(node.id, { code: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Timeout (seconds)" fieldKey="timeout_seconds">
+                    <input
+                      data-testid="inspector-python-timeout"
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={120}
+                      step={1}
+                      value={
+                        typeof node.timeout_seconds === "number"
+                          ? node.timeout_seconds
+                          : 5
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          timeout_seconds: Number(e.target.value) || 5,
+                        })
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
 
-            {node.type === "guardrail" && (
-              <Section title="Guardrail settings">
-                <Field label="Mode" fieldKey="mode">
-                  <select
-                    data-testid="inspector-mode"
-                    className={selectClass}
-                    value={node.mode ?? "post_agent"}
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        mode: e.target.value as ManifestNode["mode"],
-                      })
-                    }
-                  >
-                    <option value="pre_agent">Pre-Agent</option>
-                    <option value="post_agent">Post-Agent</option>
-                  </select>
-                </Field>
-                <Field label="On failure" fieldKey="on_failure">
-                  <select
-                    data-testid="inspector-on-failure"
-                    className={selectClass}
-                    value={node.on_failure ?? "block"}
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        on_failure: e.target
-                          .value as ManifestNode["on_failure"],
-                      })
-                    }
-                  >
-                    <option value="block">Block</option>
-                    <option value="block_retry">Block + Retry</option>
-                    <option value="warn">Warn + Continue</option>
-                    <option value="redact">Redact</option>
-                    <option value="escalate">Escalate</option>
-                  </select>
-                </Field>
-                <Field label="Retry attempts" fieldKey="max_retries">
-                  <input
-                    data-testid="inspector-guardrail-max-retries"
-                    className={inputClass}
-                    type="number"
-                    min={0}
-                    max={10}
-                    step={1}
-                    value={
-                      typeof node.max_retries === "number"
-                        ? node.max_retries
-                        : 0
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        max_retries: Number(e.target.value) || 0,
-                      })
-                    }
-                    disabled={(node.on_failure ?? "block") !== "block_retry"}
-                  />
-                </Field>
-                <Field label="Checks" fieldKey="checks">
-                  <GuardrailChecksEditor
-                    checks={
-                      (node.checks ?? []) as Array<Record<string, unknown>>
-                    }
-                    onChange={(checks) => onChangeNode(node.id, { checks })}
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "router" && (
-              <Section title="Routing conditions">
-                <Field label="Branches" fieldKey="branches">
-                  <RouterConditionBuilder
-                    branches={(node.branches ?? []) as RouterBranch[]}
-                    nodeIds={routerTargets(manifest.nodes)}
-                    onChange={(branches) => onChangeNode(node.id, { branches })}
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type === "human_approval" && (
-              <Section title="Human approval">
-                <Field label="Required role" fieldKey="required_role">
-                  <input
-                    data-testid="inspector-approval-role"
-                    className={inputClass}
-                    value={
-                      typeof node.required_role === "string"
-                        ? node.required_role
-                        : "caliber.approver"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, { required_role: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field label="Approval count" fieldKey="approval_count">
-                  <input
-                    data-testid="inspector-approval-count"
-                    className={inputClass}
-                    type="number"
-                    min={1}
-                    max={10}
-                    step={1}
-                    value={
-                      typeof node.approval_count === "number"
-                        ? node.approval_count
-                        : 1
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        approval_count: Number(e.target.value) || 1,
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Timeout behavior" fieldKey="timeout_behavior">
-                  <select
-                    data-testid="inspector-approval-timeout"
-                    className={selectClass}
-                    value={
-                      typeof node.timeout_behavior === "string"
-                        ? node.timeout_behavior
-                        : "block"
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        timeout_behavior: e.target.value as
-                          | "block"
-                          | "escalate"
-                          | "auto_reject",
-                      })
-                    }
-                  >
-                    <option value="block">Block until decision</option>
-                    <option value="escalate">Escalate on timeout</option>
-                    <option value="auto_reject">Auto-reject on timeout</option>
-                  </select>
-                </Field>
-                <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-3 text-xs leading-relaxed text-violet-700">
-                  Runtime approval records inherit this policy. When more than
-                  one approval is required, the run remains blocked until every
-                  pending approval decision for this node has been recorded.
-                </div>
-              </Section>
-            )}
-
-            {node.type === "note" && (
-              <Section title="Note">
-                <Field label="Note" fieldKey="text">
-                  <textarea
-                    data-testid="inspector-note-text"
-                    className={textareaClass}
-                    rows={4}
-                    value={node.text ?? ""}
-                    onChange={(e) =>
-                      onChangeNode(node.id, { text: e.target.value })
-                    }
-                  />
-                </Field>
-              </Section>
-            )}
-
-            {node.type !== "start" && node.type !== "output" && (
-              <Section title="Execution Policy">
-                <Field label="Timeout (seconds)" fieldKey="execution_policy">
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={
-                      typeof node.execution_policy?.timeout_seconds === "number"
-                        ? node.execution_policy.timeout_seconds
-                        : ""
-                    }
-                    onChange={(e) => {
-                      const raw = e.target.value.trim();
-                      const timeout = raw === "" ? null : Number(raw);
-                      onChangeNode(node.id, {
-                        execution_policy: {
-                          timeout_seconds:
-                            timeout == null ||
-                            Number.isNaN(timeout) ||
-                            timeout <= 0
-                              ? null
-                              : timeout,
-                          max_retries:
-                            typeof node.execution_policy?.max_retries ===
-                            "number"
-                              ? node.execution_policy.max_retries
-                              : 0,
-                          idempotent: Boolean(
-                            node.execution_policy?.idempotent,
-                          ),
-                        },
-                      });
-                    }}
-                  />
-                </Field>
-                <Field label="Max retries">
-                  <input
-                    className={inputClass}
-                    type="number"
-                    min={0}
-                    max={10}
-                    value={
-                      typeof node.execution_policy?.max_retries === "number"
-                        ? node.execution_policy.max_retries
-                        : 0
-                    }
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        execution_policy: {
-                          timeout_seconds:
-                            typeof node.execution_policy?.timeout_seconds ===
-                            "number"
-                              ? node.execution_policy.timeout_seconds
-                              : null,
+              {node.type === "guardrail" && (
+                <Section title="Guardrail settings">
+                  <Field label="Mode" fieldKey="mode">
+                    <select
+                      data-testid="inspector-mode"
+                      className={selectClass}
+                      value={node.mode ?? "post_agent"}
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          mode: e.target.value as ManifestNode["mode"],
+                        })
+                      }
+                    >
+                      <option value="pre_agent">Pre-Agent</option>
+                      <option value="post_agent">Post-Agent</option>
+                    </select>
+                  </Field>
+                  <Field label="On failure" fieldKey="on_failure">
+                    <select
+                      data-testid="inspector-on-failure"
+                      className={selectClass}
+                      value={node.on_failure ?? "block"}
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          on_failure: e.target
+                            .value as ManifestNode["on_failure"],
+                        })
+                      }
+                    >
+                      <option value="block">Block</option>
+                      <option value="block_retry">Block + Retry</option>
+                      <option value="warn">Warn + Continue</option>
+                      <option value="redact">Redact</option>
+                      <option value="escalate">Escalate</option>
+                    </select>
+                  </Field>
+                  <Field label="Retry attempts" fieldKey="max_retries">
+                    <input
+                      data-testid="inspector-guardrail-max-retries"
+                      className={inputClass}
+                      type="number"
+                      min={0}
+                      max={10}
+                      step={1}
+                      value={
+                        typeof node.max_retries === "number"
+                          ? node.max_retries
+                          : 0
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
                           max_retries: Number(e.target.value) || 0,
-                          idempotent: Boolean(
-                            node.execution_policy?.idempotent,
-                          ),
-                        },
-                      })
-                    }
-                  />
-                </Field>
-                <label className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
-                  <input
-                    type="checkbox"
-                    className="rounded border-zinc-300"
-                    checked={Boolean(node.execution_policy?.idempotent)}
-                    onChange={(e) =>
-                      onChangeNode(node.id, {
-                        execution_policy: {
-                          timeout_seconds:
-                            typeof node.execution_policy?.timeout_seconds ===
-                            "number"
-                              ? node.execution_policy.timeout_seconds
-                              : null,
-                          max_retries:
-                            typeof node.execution_policy?.max_retries ===
-                            "number"
-                              ? node.execution_policy.max_retries
-                              : 0,
-                          idempotent: e.target.checked,
-                        },
-                      })
-                    }
-                  />
-                  <span className="font-medium">Idempotent execution</span>
-                </label>
-              </Section>
-            )}
-          </div>
+                        })
+                      }
+                      disabled={(node.on_failure ?? "block") !== "block_retry"}
+                    />
+                  </Field>
+                  <Field label="Checks" fieldKey="checks">
+                    <GuardrailChecksEditor
+                      checks={
+                        (node.checks ?? []) as Array<Record<string, unknown>>
+                      }
+                      onChange={(checks) => onChangeNode(node.id, { checks })}
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "router" && (
+                <Section title="Routing conditions">
+                  <Field label="Branches" fieldKey="branches">
+                    <RouterConditionBuilder
+                      branches={(node.branches ?? []) as RouterBranch[]}
+                      nodeIds={routerTargets(manifest.nodes)}
+                      onChange={(branches) =>
+                        onChangeNode(node.id, { branches })
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type === "human_approval" && (
+                <Section title="Human approval">
+                  <Field label="Required role" fieldKey="required_role">
+                    <input
+                      data-testid="inspector-approval-role"
+                      className={inputClass}
+                      value={
+                        typeof node.required_role === "string"
+                          ? node.required_role
+                          : "caliber.approver"
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, { required_role: e.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field label="Approval count" fieldKey="approval_count">
+                    <input
+                      data-testid="inspector-approval-count"
+                      className={inputClass}
+                      type="number"
+                      min={1}
+                      max={10}
+                      step={1}
+                      value={
+                        typeof node.approval_count === "number"
+                          ? node.approval_count
+                          : 1
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          approval_count: Number(e.target.value) || 1,
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Timeout behavior" fieldKey="timeout_behavior">
+                    <select
+                      data-testid="inspector-approval-timeout"
+                      className={selectClass}
+                      value={
+                        typeof node.timeout_behavior === "string"
+                          ? node.timeout_behavior
+                          : "block"
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          timeout_behavior: e.target.value as
+                            | "block"
+                            | "escalate"
+                            | "auto_reject",
+                        })
+                      }
+                    >
+                      <option value="block">Block until decision</option>
+                      <option value="escalate">Escalate on timeout</option>
+                      <option value="auto_reject">
+                        Auto-reject on timeout
+                      </option>
+                    </select>
+                  </Field>
+                  <div className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-3 text-xs leading-relaxed text-violet-700">
+                    Runtime approval records inherit this policy. When more than
+                    one approval is required, the run remains blocked until
+                    every pending approval decision for this node has been
+                    recorded.
+                  </div>
+                </Section>
+              )}
+
+              {node.type === "note" && (
+                <Section title="Note">
+                  <Field label="Note" fieldKey="text">
+                    <textarea
+                      data-testid="inspector-note-text"
+                      className={textareaClass}
+                      rows={4}
+                      value={node.text ?? ""}
+                      onChange={(e) =>
+                        onChangeNode(node.id, { text: e.target.value })
+                      }
+                    />
+                  </Field>
+                </Section>
+              )}
+
+              {node.type !== "start" && node.type !== "output" && (
+                <Section title="Execution Policy">
+                  <Field label="Timeout (seconds)" fieldKey="execution_policy">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={
+                        typeof node.execution_policy?.timeout_seconds ===
+                        "number"
+                          ? node.execution_policy.timeout_seconds
+                          : ""
+                      }
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        const timeout = raw === "" ? null : Number(raw);
+                        onChangeNode(node.id, {
+                          execution_policy: {
+                            timeout_seconds:
+                              timeout == null ||
+                              Number.isNaN(timeout) ||
+                              timeout <= 0
+                                ? null
+                                : timeout,
+                            max_retries:
+                              typeof node.execution_policy?.max_retries ===
+                              "number"
+                                ? node.execution_policy.max_retries
+                                : 0,
+                            idempotent: Boolean(
+                              node.execution_policy?.idempotent,
+                            ),
+                          },
+                        });
+                      }}
+                    />
+                  </Field>
+                  <Field label="Max retries">
+                    <input
+                      className={inputClass}
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={
+                        typeof node.execution_policy?.max_retries === "number"
+                          ? node.execution_policy.max_retries
+                          : 0
+                      }
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          execution_policy: {
+                            timeout_seconds:
+                              typeof node.execution_policy?.timeout_seconds ===
+                              "number"
+                                ? node.execution_policy.timeout_seconds
+                                : null,
+                            max_retries: Number(e.target.value) || 0,
+                            idempotent: Boolean(
+                              node.execution_policy?.idempotent,
+                            ),
+                          },
+                        })
+                      }
+                    />
+                  </Field>
+                  <label className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700">
+                    <input
+                      type="checkbox"
+                      className="rounded border-zinc-300"
+                      checked={Boolean(node.execution_policy?.idempotent)}
+                      onChange={(e) =>
+                        onChangeNode(node.id, {
+                          execution_policy: {
+                            timeout_seconds:
+                              typeof node.execution_policy?.timeout_seconds ===
+                              "number"
+                                ? node.execution_policy.timeout_seconds
+                                : null,
+                            max_retries:
+                              typeof node.execution_policy?.max_retries ===
+                              "number"
+                                ? node.execution_policy.max_retries
+                                : 0,
+                            idempotent: e.target.checked,
+                          },
+                        })
+                      }
+                    />
+                    <span className="font-medium">Idempotent execution</span>
+                  </label>
+                </Section>
+              )}
+            </div>
           </COMPONENT_SHOW_ADVANCED_CONTEXT.Provider>
         </COMPONENT_FIELD_HIGHLIGHT_CONTEXT.Provider>
       </COMPONENT_FIELD_FEEDBACK_CONTEXT.Provider>
@@ -5896,7 +6044,10 @@ function StartTriggerSection({
               </div>
               {cronPreviewQuery.isLoading && <div>Calculating next runs…</div>}
               {cronPreviewQuery.error && (
-                <div data-testid="inspector-start-cron-preview-error" className="text-amber-600">
+                <div
+                  data-testid="inspector-start-cron-preview-error"
+                  className="text-amber-600"
+                >
                   {cronPreviewQuery.error.message ||
                     "This cron expression or timezone isn't valid yet."}
                 </div>
@@ -5919,7 +6070,9 @@ function StartTriggerSection({
                     </li>
                   </ul>
                 ) : (
-                  <div>This expression has no upcoming runs in the next year.</div>
+                  <div>
+                    This expression has no upcoming runs in the next year.
+                  </div>
                 ))}
             </div>
           )}
@@ -6020,8 +6173,9 @@ function NodeMetaSection({
         />
       </label>
       <div className="text-[10px] text-zinc-400">
-        ID <span className="font-mono">{node.id}</span> — referenced by connections;
-        edit via the node&apos;s code (<span className="font-mono">&lt;&gt;</span>) view.
+        ID <span className="font-mono">{node.id}</span> — referenced by
+        connections; edit via the node&apos;s code (
+        <span className="font-mono">&lt;&gt;</span>) view.
       </div>
     </Section>
   );
@@ -6056,10 +6210,13 @@ function NodeOutputSection({ step }: { step: PreviewStep }): JSX.Element {
             {step.output}
           </pre>
         )}
-        {step.detail && <div className="text-[11px] text-zinc-500">{step.detail}</div>}
+        {step.detail && (
+          <div className="text-[11px] text-zinc-500">{step.detail}</div>
+        )}
         {step.tool_calls.length > 0 && (
           <div className="text-[11px] text-zinc-500">
-            {step.tool_calls.length} tool call{step.tool_calls.length === 1 ? "" : "s"}
+            {step.tool_calls.length} tool call
+            {step.tool_calls.length === 1 ? "" : "s"}
           </div>
         )}
       </div>

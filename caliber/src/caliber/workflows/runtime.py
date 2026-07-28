@@ -66,6 +66,7 @@ from caliber.workflows.ir import (
     IRKnowledgeBuild,
     IRKnowledgeQuery,
     IRLoop,
+    IRManagedFileReference,
     IRMcpResource,
     IRNode,
     IROutputBucket,
@@ -129,6 +130,10 @@ _NODE_SPAN_TYPES: dict[NodeType, str] = {
 # integrations.  Fail closed for the whole IR before the interpreter starts;
 # checking every node (not only currently reachable nodes) avoids a graph edit
 # silently turning a previously dormant capability live during the same run.
+# A content-pinned managed file is the one exception: it is read through the
+# run-scoped resolver supplied by the application, which verifies project
+# ownership, row metadata, object version, byte length, and digest. Legacy host
+# paths remain blocked.
 # Knowledge queries and registered tools keep their existing preview policy:
 # their runners/callables may still execute when explicitly configured as
 # preview-safe.  Knowledge builds retain their existing preview-skip behavior.
@@ -156,7 +161,12 @@ def _node_span_type(node: IRNode) -> str:
 def _preview_unisolated_nodes(ir: IRWorkflow) -> list[IRNode]:
     """Return deterministic Preview blockers from the complete workflow IR."""
     return sorted(
-        (node for node in ir.nodes.values() if node.node_type in _PREVIEW_UNISOLATED_NODE_TYPES),
+        (
+            node
+            for node in ir.nodes.values()
+            if node.node_type in _PREVIEW_UNISOLATED_NODE_TYPES
+            and not (isinstance(node, IRFileInput) and node.file_ref is not None)
+        ),
         key=lambda node: (node.node_id, node.node_type.value),
     )
 
@@ -184,10 +194,28 @@ class CaliberRunContext:
 _RUN_CONTEXT: contextvars.ContextVar[CaliberRunContext | None] = contextvars.ContextVar(
     "caliber_workflow_run_context", default=None
 )
+ManagedFileResolver = Callable[
+    [IRManagedFileReference, str, int],
+    tuple[str, dict[str, Any]],
+]
+_MANAGED_FILE_RESOLVER: contextvars.ContextVar[ManagedFileResolver | None] = contextvars.ContextVar(
+    "caliber_managed_file_resolver", default=None
+)
 
 
 def current_run_context() -> CaliberRunContext | None:
     return _RUN_CONTEXT.get()
+
+
+@contextlib.contextmanager
+def _bind_managed_file_resolver(
+    resolver: ManagedFileResolver | None,
+) -> Iterator[None]:
+    token = _MANAGED_FILE_RESOLVER.set(resolver)
+    try:
+        yield
+    finally:
+        _MANAGED_FILE_RESOLVER.reset(token)
 
 
 def run_tags(ctx: CaliberRunContext, *, node_id: str | None = None) -> dict[str, str]:
@@ -2772,6 +2800,7 @@ def execute(
     runtime_approvals_enabled: bool = False,
     approved_human_approval_nodes: set[str] | None = None,
     resume_checkpoint: RuntimeResumeCheckpoint | None = None,
+    managed_file_resolver: ManagedFileResolver | None = None,
 ) -> WorkflowRunResult:
     """Execute a workflow plan against a single string input.
 
@@ -2851,6 +2880,7 @@ def execute(
             preview=preview,
             extra_tags=ir.mlflow_trace_group_tags,
         ) as ctx,
+        _bind_managed_file_resolver(managed_file_resolver),
     ):
         # Stamp the trace with the session so multi-turn / retried runs group
         # into one MLflow session (surfaced in CALIBER Observability).
@@ -4515,16 +4545,43 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         return 0, NodeStep(nid, ntype, "ok", output=run_input)
 
     if isinstance(node, IRFileInput):
-        file_path = _path_from_inputs(inputs, configured_path=node.path, run_input=run_input)
-        text, file_metadata = _read_text_file_node(
-            file_path,
-            encoding=node.encoding,
-            max_bytes=node.max_bytes,
-        )
+        if node.file_ref is not None:
+            resolver = _MANAGED_FILE_RESOLVER.get()
+            if resolver is None:
+                raise ToolExecutionError(
+                    "managed file input requires a scoped runtime file resolver"
+                )
+            text, file_metadata = resolver(node.file_ref, node.encoding, node.max_bytes)
+            source_label = node.file_ref.file_ref
+            published_ref: dict[str, Any] | None = {
+                "file_id": node.file_ref.file_id,
+                "file_ref": node.file_ref.file_ref,
+                "sha256": node.file_ref.sha256,
+                "name": node.file_ref.name,
+                "size_bytes": node.file_ref.size_bytes,
+                "media_type": node.file_ref.media_type,
+                "object_version_id": node.file_ref.object_version_id,
+            }
+        else:
+            file_path = _path_from_inputs(inputs, configured_path=node.path, run_input=run_input)
+            text, file_metadata = _read_text_file_node(
+                file_path,
+                encoding=node.encoding,
+                max_bytes=node.max_bytes,
+            )
+            source_label = str(file_path)
+            published_ref = None
         _publish_declared_outputs(
             node,
             port_values,
-            {"text": text, "path": str(file_path), "metadata": file_metadata},
+            {
+                "text": text,
+                # Retained for existing graph mappings. For managed files this
+                # is the safe caliber:// URI, never a materialized host path.
+                "path": source_label,
+                "file_ref": published_ref,
+                "metadata": file_metadata,
+            },
             fallback=text,
         )
         return 0, NodeStep(
@@ -4532,7 +4589,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             ntype,
             "ok",
             output=text,
-            detail=f"read {file_metadata['bytes']} byte(s) from {file_path}",
+            detail=f"read {file_metadata['bytes']} byte(s) from {source_label}",
         )
 
     if isinstance(node, IRFolderInput):
@@ -5180,11 +5237,16 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 output=fallback_input,
                 detail=f"waiting_approval:{nid}",
             )
-        fn = _resolve_bound_tool_callable(
-            binding,
-            plan.resolver,
-            preview=preview,
-            required=True,
+        override = (extra_tools or {}).get(binding.local_name)
+        fn = (
+            _resilient_callable(binding, override)
+            if override is not None
+            else _resolve_bound_tool_callable(
+                binding,
+                plan.resolver,
+                preview=preview,
+                required=True,
+            )
         )
         assert fn is not None
         tracer = get_tracer()

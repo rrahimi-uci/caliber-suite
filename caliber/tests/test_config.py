@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from caliber.config import CaliberConfig, ConfigError
@@ -20,6 +22,11 @@ def test_defaults() -> None:
     assert config.builtin_skills_auto_seed is False
     assert config.tool_sandbox_timeout_seconds == 5.0
     assert config.tool_sandbox_max_output_bytes == 1_048_576
+    assert config.tool_sandbox_max_memory_bytes == 268_435_456
+    assert config.mcp_stdio_command_allowlist == "${PYTHON}"
+    assert config.mcp_stdio_safe_path == os.defpath
+    assert config.mcp_stdio_isolation_profile == "none"
+    assert config.mcp_require_external_isolation_for_aliases == "prod"
 
 
 def test_log_level_from_env() -> None:
@@ -59,10 +66,40 @@ def test_tool_sandbox_settings_from_env() -> None:
         environ={
             "CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS": "1.5",
             "CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES": "4096",
+            "CALIBER_TOOL_SANDBOX_MAX_MEMORY_BYTES": "67108864",
+            "CALIBER_TOOL_SANDBOX_MAX_FILE_BYTES": "2048",
+            "CALIBER_TOOL_SANDBOX_MAX_OPEN_FILES": "24",
         }
     )
     assert config.tool_sandbox_timeout_seconds == 1.5
     assert config.tool_sandbox_max_output_bytes == 4096
+    assert config.tool_sandbox_max_memory_bytes == 67_108_864
+    assert config.tool_sandbox_max_file_bytes == 2048
+    assert config.tool_sandbox_max_open_files == 24
+
+
+def test_mcp_containment_settings_from_env() -> None:
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_MCP_STDIO_COMMAND_ALLOWLIST": "${PYTHON},npx",
+            "CALIBER_MCP_STDIO_SAFE_PATH": "/trusted/bin",
+            "CALIBER_MCP_REMOTE_HOST_ALLOWLIST": "mcp.example.test",
+            "CALIBER_MCP_MANAGED_SIDECAR_HOSTS": "mcp.example.test",
+            "CALIBER_MCP_ALLOW_INSECURE_HTTP": "true",
+            "CALIBER_MCP_STDIO_ISOLATED_WORKDIR": "false",
+            "CALIBER_MCP_STDIO_ISOLATION_PROFILE": "bubblewrap",
+            "CALIBER_MCP_STDIO_ISOLATION_PREFIX": "bwrap --unshare-all",
+            "CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ALIASES": "prod,regulated",
+        }
+    )
+    assert config.mcp_stdio_command_allowlist == "${PYTHON},npx"
+    assert config.mcp_stdio_safe_path == "/trusted/bin"
+    assert config.mcp_remote_host_allowlist == "mcp.example.test"
+    assert config.mcp_managed_sidecar_hosts == "mcp.example.test"
+    assert config.mcp_allow_insecure_http is True
+    assert config.mcp_stdio_isolated_workdir is False
+    assert config.mcp_stdio_isolation_profile == "bubblewrap"
+    assert config.mcp_require_external_isolation_for_aliases == "prod,regulated"
 
 
 def test_database_url_from_env_normalizes_postgres_driver() -> None:

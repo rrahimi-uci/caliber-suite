@@ -800,7 +800,13 @@ describe("McpServers playground", () => {
               headers: {},
               auth_type: "none",
               auth_config: {},
-              tool_policies: {},
+              tool_policies: {
+                search_docs: {
+                  allowed: true,
+                  side_effect_level: "read",
+                  requires_approval: false,
+                },
+              },
               icon: "book",
               status: "active",
               last_connected_at: null,
@@ -825,6 +831,35 @@ describe("McpServers playground", () => {
               updated_at: NOW,
             },
           ]),
+        ),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tools: [
+              {
+                name: "search_docs",
+                description: "Search documentation",
+                input_schema: {
+                  type: "object",
+                  properties: { query: { type: "string" } },
+                  required: ["query"],
+                },
+                output_schema: {
+                  type: "object",
+                  properties: { results: { type: "array" } },
+                },
+                classified: true,
+                policy: {
+                  allowed: true,
+                  side_effect_level: "read",
+                  requires_approval: false,
+                  rate_limit_per_minute: null,
+                },
+              },
+            ],
+          }),
         ),
       ),
       http.get(`${API_BASE}/assistant/config`, () =>

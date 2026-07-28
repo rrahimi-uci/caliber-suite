@@ -844,6 +844,83 @@ class CaliberConfig(BaseModel):
     # that emit data/HTML (e.g. a KG report); 1 MiB is a safer default, and big
     # document pipelines raise it via CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES.
     tool_sandbox_max_output_bytes: int = Field(default=1_048_576, gt=0)
+    tool_sandbox_max_memory_bytes: int = Field(default=268_435_456, ge=33_554_432)
+    tool_sandbox_max_file_bytes: int = Field(default=1_048_576, gt=0)
+    tool_sandbox_max_open_files: int = Field(default=32, ge=8, le=4096)
+
+    # MCP execution containment.  Local stdio servers are child processes, not
+    # an OS security sandbox: the command/host allowlists and private working
+    # directory reduce ambient authority, while production aliases can require
+    # a verified namespace profile, operator-attested managed sidecar, or remote
+    # HTTPS MCP boundary.
+    mcp_stdio_command_allowlist: str = Field(
+        default="${PYTHON}",
+        description=(
+            "Comma-separated stdio executables allowed for MCP child processes. "
+            "${PYTHON} means the interpreter running CALIBER."
+        ),
+    )
+    mcp_stdio_safe_path: str = Field(
+        default=os.defpath,
+        description=(
+            "CALIBER-controlled PATH supplied to stdio MCP children. Server records "
+            "cannot override PATH; add directories here only when an allowlisted "
+            "launcher needs them."
+        ),
+    )
+    mcp_stdio_python_module_allowlist: str = Field(
+        default="caliber.mcp_servers.db",
+        description=(
+            "Comma-separated Python modules allowed after '-m' when the MCP stdio "
+            "command resolves to the CALIBER interpreter."
+        ),
+    )
+    mcp_stdio_python_script_allowlist: str = Field(
+        default="",
+        description="Comma-separated absolute Python MCP script paths explicitly allowed to run.",
+    )
+    mcp_remote_host_allowlist: str = Field(
+        default="localhost,127.0.0.1,::1",
+        description="Comma-separated exact hostnames allowed for remote MCP transports.",
+    )
+    mcp_managed_sidecar_hosts: str = Field(
+        default="",
+        description=(
+            "Comma-separated remote MCP hosts that the deployment operator attests run "
+            "in a separately isolated sidecar boundary."
+        ),
+    )
+    mcp_allow_insecure_http: bool = Field(
+        default=False,
+        description="Allow plain HTTP for non-loopback MCP hosts (disabled by default).",
+    )
+    mcp_stdio_isolated_workdir: bool = Field(
+        default=True,
+        description="Start each stdio MCP session in a fresh private temporary directory.",
+    )
+    mcp_stdio_isolation_prefix: str = Field(
+        default="",
+        description=(
+            "Optional shell-style argv prefix for an operator-managed isolation wrapper. "
+            "It is parsed without a shell and prepended to the MCP executable."
+        ),
+    )
+    mcp_stdio_isolation_profile: str = Field(
+        default="none",
+        pattern="^(none|bubblewrap)$",
+        description=(
+            "Recognized stdio containment profile. 'bubblewrap' requires CALIBER's "
+            "exact network-unshared, read-only-root namespace argv, but never counts "
+            "as a production isolation boundary."
+        ),
+    )
+    mcp_require_external_isolation_for_aliases: str = Field(
+        default="prod",
+        description=(
+            "Comma-separated deployment aliases that reject local stdio MCP execution "
+            "because local wrappers remain containment and never satisfy this requirement."
+        ),
+    )
     # Bounded concurrency for a ForEach node whose target is an agent: how many
     # items run their agent call in parallel. 1 (default) = sequential, identical
     # to pre-concurrency behavior. Raising it lets large fan-out document
@@ -1376,6 +1453,32 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
     ("CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS", "tool_sandbox_timeout_seconds", float),
     ("CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES", "tool_sandbox_max_output_bytes", int),
+    ("CALIBER_TOOL_SANDBOX_MAX_MEMORY_BYTES", "tool_sandbox_max_memory_bytes", int),
+    ("CALIBER_TOOL_SANDBOX_MAX_FILE_BYTES", "tool_sandbox_max_file_bytes", int),
+    ("CALIBER_TOOL_SANDBOX_MAX_OPEN_FILES", "tool_sandbox_max_open_files", int),
+    ("CALIBER_MCP_STDIO_COMMAND_ALLOWLIST", "mcp_stdio_command_allowlist", str),
+    ("CALIBER_MCP_STDIO_SAFE_PATH", "mcp_stdio_safe_path", str),
+    (
+        "CALIBER_MCP_STDIO_PYTHON_MODULE_ALLOWLIST",
+        "mcp_stdio_python_module_allowlist",
+        str,
+    ),
+    (
+        "CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST",
+        "mcp_stdio_python_script_allowlist",
+        str,
+    ),
+    ("CALIBER_MCP_REMOTE_HOST_ALLOWLIST", "mcp_remote_host_allowlist", str),
+    ("CALIBER_MCP_MANAGED_SIDECAR_HOSTS", "mcp_managed_sidecar_hosts", str),
+    ("CALIBER_MCP_ALLOW_INSECURE_HTTP", "mcp_allow_insecure_http", _flag),
+    ("CALIBER_MCP_STDIO_ISOLATED_WORKDIR", "mcp_stdio_isolated_workdir", _flag),
+    ("CALIBER_MCP_STDIO_ISOLATION_PREFIX", "mcp_stdio_isolation_prefix", str),
+    ("CALIBER_MCP_STDIO_ISOLATION_PROFILE", "mcp_stdio_isolation_profile", str),
+    (
+        "CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ALIASES",
+        "mcp_require_external_isolation_for_aliases",
+        str,
+    ),
     ("CALIBER_WORKFLOW_FOREACH_MAX_WORKERS", "workflow_foreach_max_workers", int),
     ("CALIBER_WORKFLOW_RUN_ARTIFACT_BUCKET", "workflow_run_artifact_bucket", str),
     ("CALIBER_WORKFLOW_RUN_ARTIFACT_PREFIX", "workflow_run_artifact_prefix", str),

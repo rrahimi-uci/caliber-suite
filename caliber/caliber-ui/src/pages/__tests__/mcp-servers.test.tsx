@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -35,6 +41,25 @@ function baseServer() {
     status: "active" as const,
     last_connected_at: null,
     connection_error: null,
+    execution: {
+      ready: true,
+      transport_ready: true,
+      status_ready: true,
+      boundary: "local_containment",
+      production_isolated: false,
+      command_allowed: true,
+      executable_available: true,
+      remote_host_allowed: null,
+      controls: [
+        "no_shell",
+        "sanitized_environment",
+        "private_working_directory",
+      ],
+      blockers: [],
+      warnings: [
+        "local stdio containment does not block filesystem or network access",
+      ],
+    },
     owner: "@qa",
     discovered_tools: [
       {
@@ -65,7 +90,10 @@ function baseServer() {
 
 function renderPage(): void {
   render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/mcp-servers"]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={["/mcp-servers"]}
+    >
       <Routes>
         <Route path="/mcp-servers" element={<McpServers />} />
       </Routes>
@@ -105,16 +133,25 @@ describe("McpServers", () => {
     expect(screen.getByTestId("mcp-row-MCP-2")).toBeInTheDocument();
 
     // Text search narrows to the matching server.
-    await user.type(screen.getByRole("searchbox", { name: "Search MCP servers" }), "graph");
+    await user.type(
+      screen.getByRole("searchbox", { name: "Search MCP servers" }),
+      "graph",
+    );
     expect(screen.queryByTestId("mcp-row-MCP-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("mcp-row-MCP-2")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Clear search" }));
 
     // Status filter narrows to active-only.
-    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by status" }), "active");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Filter by status" }),
+      "active",
+    );
     expect(screen.getByTestId("mcp-row-MCP-1")).toBeInTheDocument();
     expect(screen.queryByTestId("mcp-row-MCP-2")).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by status" }), "");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Filter by status" }),
+      "",
+    );
 
     // Transport filter narrows to streamable-http.
     await user.selectOptions(
@@ -125,9 +162,14 @@ describe("McpServers", () => {
     expect(screen.getByTestId("mcp-row-MCP-2")).toBeInTheDocument();
 
     // Combining transport + a non-matching status empties the table.
-    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by status" }), "active");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Filter by status" }),
+      "active",
+    );
     expect(screen.queryByTestId("mcp-row-MCP-2")).not.toBeInTheDocument();
-    expect(screen.getByText("No MCP servers match the current filters.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No MCP servers match the current filters."),
+    ).toBeInTheDocument();
   });
 
   it("opens quick-connect templates and registers a prefilled server", async () => {
@@ -157,7 +199,9 @@ describe("McpServers", () => {
     expect(dialog).toBeInTheDocument();
     expect(screen.getByTestId("server-name-input")).toHaveValue("GitHub");
     expect(screen.getByTestId("server-command-input")).toHaveValue("npx");
-    expect(screen.getByRole("combobox", { name: "Authentication type" })).toHaveValue("token");
+    expect(
+      screen.getByRole("combobox", { name: "Authentication type" }),
+    ).toHaveValue("token");
     await user.click(screen.getByTestId("server-submit-btn"));
 
     expect(await screen.findByTestId("mcp-row-MCP-1")).toBeInTheDocument();
@@ -169,7 +213,8 @@ describe("McpServers", () => {
     });
     // Catalog templates seed the server with their known tools on connect, so
     // tools are visible without needing a live test-connection first.
-    const tools = (createBody as { discovered_tools?: Array<{ name: string }> }).discovered_tools;
+    const tools = (createBody as { discovered_tools?: Array<{ name: string }> })
+      .discovered_tools;
     expect(tools?.length).toBeGreaterThan(0);
     expect(tools?.map((t) => t.name)).toContain("create_issue");
   });
@@ -177,7 +222,9 @@ describe("McpServers", () => {
   it("registers the Playwright quick-connect template with browser tools", async () => {
     let createBody: Record<string, unknown> | null = null;
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([])),
+      ),
       http.post(`${API_BASE}/mcp-servers`, async ({ request }) => {
         createBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(envelope(baseServer()), { status: 201 });
@@ -193,7 +240,9 @@ describe("McpServers", () => {
     expect(dialog).toBeInTheDocument();
     expect(screen.getByTestId("server-name-input")).toHaveValue("Playwright");
     expect(screen.getByTestId("server-command-input")).toHaveValue("npx");
-    expect(screen.getByRole("combobox", { name: "Authentication type" })).toHaveValue("none");
+    expect(
+      screen.getByRole("combobox", { name: "Authentication type" }),
+    ).toHaveValue("none");
 
     await user.click(screen.getByTestId("server-submit-btn"));
 
@@ -208,15 +257,64 @@ describe("McpServers", () => {
       }),
     );
 
-    const tools = (createBody as { discovered_tools?: Array<{ name: string }> }).discovered_tools;
+    const tools = (createBody as { discovered_tools?: Array<{ name: string }> })
+      .discovered_tools;
     expect(tools?.map((t) => t.name)).toContain("browser_navigate");
     expect(tools?.map((t) => t.name)).toContain("browser_take_screenshot");
     expect(tools?.map((t) => t.name)).toContain("browser_tabs");
   });
 
+  it("seeds first-party database presets with explicit deployment policies", async () => {
+    let createBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.post(`${API_BASE}/mcp-servers`, async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(envelope(baseServer()), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+    await user.click(screen.getByTestId("catalog-postgres"));
+    expect(await screen.findByTestId("server-name-input")).toHaveValue(
+      "PostgreSQL",
+    );
+    await user.click(screen.getByTestId("server-submit-btn"));
+
+    await waitFor(() => expect(createBody).not.toBeNull());
+    expect(createBody).toMatchObject({
+      name: "PostgreSQL",
+      transport: "streamable-http",
+      uri: "http://mcp-db-relational:8101/mcp",
+      tool_policies: {
+        run_query: {
+          allowed: true,
+          side_effect_level: "read",
+          requires_approval: false,
+        },
+        insert_rows: {
+          allowed: true,
+          side_effect_level: "write",
+          requires_approval: true,
+        },
+        execute_sql: {
+          allowed: true,
+          side_effect_level: "external_action",
+          requires_approval: true,
+        },
+      },
+    });
+  });
+
   it("shows registration errors when server creation fails", async () => {
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([])),
+      ),
       http.post(`${API_BASE}/mcp-servers`, () =>
         HttpResponse.json({ detail: "invalid command" }, { status: 500 }),
       ),
@@ -247,6 +345,7 @@ describe("McpServers", () => {
             server_id: "MCP-1",
             tools: discoveredTools.map((tool) => ({
               ...tool,
+              classified: true,
               policy: {
                 allowed: true,
                 side_effect_level: "read",
@@ -281,19 +380,22 @@ describe("McpServers", () => {
           }),
         );
       }),
-      http.post(`${API_BASE}/mcp-servers/MCP-1/invoke-tool`, async ({ request }) => {
-        invokeBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope({
-            server_id: "MCP-1",
-            tool_name: "search_docs",
-            success: true,
-            error: null,
-            result: { results: ["doc-1"] },
-            duration_ms: 7,
-          }),
-        );
-      }),
+      http.post(
+        `${API_BASE}/mcp-servers/MCP-1/invoke-tool`,
+        async ({ request }) => {
+          invokeBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              server_id: "MCP-1",
+              tool_name: "search_docs",
+              success: true,
+              error: null,
+              result: { results: ["doc-1"] },
+              duration_ms: 7,
+            }),
+          );
+        },
+      ),
     );
 
     const user = userEvent.setup();
@@ -304,8 +406,12 @@ describe("McpServers", () => {
     expect(await screen.findByText("network")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Playground" }));
-    await user.click(await screen.findByRole("button", { name: "Test Connection" }));
-    expect(await screen.findByText("Connection Successful")).toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("button", { name: "Test Connection" }),
+    );
+    expect(
+      await screen.findByText("Connection Successful"),
+    ).toBeInTheDocument();
 
     const toolLabel = await screen.findByText("search_docs");
     const toolButton = toolLabel.closest("button");
@@ -328,16 +434,22 @@ describe("McpServers", () => {
       },
     });
 
-    expect(await screen.findByRole("button", { name: "Clear" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Clear" }),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Clear" }));
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole("button", { name: "Clear" }),
+      ).not.toBeInTheDocument(),
     );
   });
 
   it("shows an empty playground state when no MCP servers are registered", async () => {
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([])),
+      ),
     );
 
     const user = userEvent.setup();
@@ -345,8 +457,12 @@ describe("McpServers", () => {
     await screen.findByRole("heading", { name: "MCP Servers" });
     await user.click(screen.getByRole("button", { name: "Playground" }));
 
-    expect(await screen.findByText("No MCP servers registered yet.")).toBeInTheDocument();
-    expect(screen.getByText("Switch to the Servers tab to add one.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No MCP servers registered yet."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Switch to the Servers tab to add one."),
+    ).toBeInTheDocument();
   });
 
   it("updates MCP tool policy from the playground", async () => {
@@ -362,6 +478,7 @@ describe("McpServers", () => {
             server_id: "MCP-1",
             tools: discoveredTools.map((tool) => ({
               ...tool,
+              classified: true,
               policy: {
                 allowed: true,
                 side_effect_level: "read",
@@ -372,21 +489,24 @@ describe("McpServers", () => {
           }),
         ),
       ),
-      http.patch(`${API_BASE}/mcp-servers/MCP-1/tools/search_docs/policy`, async ({ request }) => {
-        patchBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope({
-            server_id: "MCP-1",
-            tool_name: "search_docs",
-            policy: {
-              allowed: true,
-              side_effect_level: "write",
-              requires_approval: true,
-              rate_limit_per_minute: 25,
-            },
-          }),
-        );
-      }),
+      http.patch(
+        `${API_BASE}/mcp-servers/MCP-1/tools/search_docs/policy`,
+        async ({ request }) => {
+          patchBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              server_id: "MCP-1",
+              tool_name: "search_docs",
+              policy: {
+                allowed: true,
+                side_effect_level: "write",
+                requires_approval: true,
+                rate_limit_per_minute: 25,
+              },
+            }),
+          );
+        },
+      ),
     );
 
     const user = userEvent.setup();
@@ -399,9 +519,17 @@ describe("McpServers", () => {
     expect(toolButton).toBeTruthy();
     await user.click(toolButton as HTMLButtonElement);
 
-    await user.click(screen.getByRole("checkbox", { name: "Requires approval" }));
-    await user.selectOptions(screen.getByRole("combobox", { name: /side effect level/i }), "write");
-    await user.type(screen.getByRole("spinbutton", { name: /rate limit/i }), "25");
+    await user.click(
+      screen.getByRole("checkbox", { name: "Requires approval" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /side effect level/i }),
+      "write",
+    );
+    await user.type(
+      screen.getByRole("spinbutton", { name: /rate limit/i }),
+      "25",
+    );
     await user.click(screen.getByRole("button", { name: "Save Policy" }));
 
     expect(await screen.findByText("Policy saved.")).toBeInTheDocument();
@@ -439,7 +567,7 @@ describe("McpServers", () => {
       uri: "http://localhost:7777/mcp",
       command: "",
       args: [],
-      auth_type: "oauth" as const,
+      auth_type: "custom" as const,
       icon: "graph",
     };
     let listCalls = 0;
@@ -448,7 +576,11 @@ describe("McpServers", () => {
       http.get(`${API_BASE}/mcp-servers`, () => {
         listCalls += 1;
         return HttpResponse.json(
-          envelope(listCalls === 1 ? [connectedGithub] : [connectedGithub, remoteGraph]),
+          envelope(
+            listCalls === 1
+              ? [connectedGithub]
+              : [connectedGithub, remoteGraph],
+          ),
         );
       }),
       http.post(`${API_BASE}/mcp-servers`, async ({ request }) => {
@@ -464,24 +596,69 @@ describe("McpServers", () => {
     expect(screen.getByText("Connected")).toBeInTheDocument();
     await user.click(githubCard);
     const addDialog = await screen.findByTestId("add-server-dialog");
-    expect(within(addDialog).getByTestId("server-name-input")).toHaveValue("GitHub");
+    expect(within(addDialog).getByTestId("server-name-input")).toHaveValue(
+      "GitHub",
+    );
     await user.click(within(addDialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByTestId("add-server-dialog")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByTestId("add-server-dialog")).not.toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByTestId("catalog-postgres"));
+    const postgresDialog = await screen.findByTestId("add-server-dialog");
+    expect(
+      within(postgresDialog).getByTestId("server-transport-select"),
+    ).toHaveValue("streamable-http");
+    expect(within(postgresDialog).getByTestId("server-uri-input")).toHaveValue(
+      "http://mcp-db-relational:8101/mcp",
+    );
+    await user.click(
+      within(postgresDialog).getByRole("button", { name: "Cancel" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("add-server-dialog")).not.toBeInTheDocument(),
+    );
 
     fireEvent.doubleClick(await screen.findByTestId("mcp-row-MCP-GH"));
     const dialog = await screen.findByTestId("mcp-detail-dialog");
+    expect(
+      within(dialog).getByTestId("mcp-execution-readiness"),
+    ).toHaveTextContent("not an OS sandbox");
     expect(within(dialog).getByText("Token expired")).toBeInTheDocument();
     expect(within(dialog).getByText("GITHUB_TOKEN")).toBeInTheDocument();
-    expect(within(dialog).getByText(/No tools discovered yet/)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/No tools discovered yet/),
+    ).toBeInTheDocument();
     await user.click(within(dialog).getByLabelText("Close"));
-    await waitFor(() => expect(screen.queryByTestId("mcp-detail-dialog")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByTestId("mcp-detail-dialog")).not.toBeInTheDocument(),
+    );
 
     await user.click(screen.getByTestId("add-server-btn"));
     await user.type(screen.getByTestId("server-name-input"), "Remote Graph");
-    await user.selectOptions(screen.getByTestId("server-transport-select"), "streamable-http");
-    await user.type(screen.getByTestId("server-uri-input"), "http://localhost:7777/mcp");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Authentication type" }), "oauth");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Server icon" }), "graph");
+    await user.selectOptions(
+      screen.getByTestId("server-transport-select"),
+      "streamable-http",
+    );
+    await user.type(
+      screen.getByTestId("server-uri-input"),
+      "http://localhost:7777/mcp",
+    );
+    const authSelect = screen.getByRole("combobox", {
+      name: "Authentication type",
+    });
+    expect(
+      within(authSelect).queryByRole("option", { name: "OAuth" }),
+    ).not.toBeInTheDocument();
+    await user.selectOptions(authSelect, "token");
+    await user.type(
+      screen.getByTestId("server-token-env-input"),
+      "GRAPH_TOKEN",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Server icon" }),
+      "graph",
+    );
     await user.click(screen.getByTestId("server-submit-btn"));
 
     await waitFor(() =>
@@ -491,8 +668,9 @@ describe("McpServers", () => {
         uri: "http://localhost:7777/mcp",
         command: "",
         args: [],
-        auth_type: "oauth",
-        auth_config: {},
+        auth_type: "token",
+        auth_config: { token_env_var: "GRAPH_TOKEN" },
+        env: { GRAPH_TOKEN: "${GRAPH_TOKEN}" },
       }),
     );
     expect(await screen.findByTestId("mcp-row-MCP-GRAPH")).toBeInTheDocument();
@@ -501,13 +679,30 @@ describe("McpServers", () => {
   it("falls back to discovered tools when policy loading and discovery fail", async () => {
     const manyTools = [
       ...baseServer().discovered_tools,
-      { name: "alpha_tool", description: "Alpha", input_schema: { type: "object", properties: {} }, output_schema: {} },
-      { name: "beta_tool", description: "Beta", input_schema: { type: "object", properties: {} }, output_schema: {} },
-      { name: "gamma_tool", description: "Gamma", input_schema: { type: "object", properties: {} }, output_schema: {} },
+      {
+        name: "alpha_tool",
+        description: "Alpha",
+        input_schema: { type: "object", properties: {} },
+        output_schema: {},
+      },
+      {
+        name: "beta_tool",
+        description: "Beta",
+        input_schema: { type: "object", properties: {} },
+        output_schema: {},
+      },
+      {
+        name: "gamma_tool",
+        description: "Gamma",
+        input_schema: { type: "object", properties: {} },
+        output_schema: {},
+      },
     ];
     server.use(
       http.get(`${API_BASE}/mcp-servers`, () =>
-        HttpResponse.json(envelope([{ ...baseServer(), discovered_tools: manyTools }])),
+        HttpResponse.json(
+          envelope([{ ...baseServer(), discovered_tools: manyTools }]),
+        ),
       ),
       http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
         HttpResponse.json({ detail: "policies unavailable" }, { status: 503 }),
@@ -535,22 +730,35 @@ describe("McpServers", () => {
     await screen.findByRole("heading", { name: "MCP Servers" });
     await user.click(screen.getByRole("button", { name: "Playground" }));
 
-    expect(await screen.findByText("Could not load policies. Showing discovered tools only.")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "Could not load policies. Showing discovered tools only.",
+      ),
+    ).toBeInTheDocument();
     await user.type(screen.getByPlaceholderText("Filter…"), "missing");
     expect(await screen.findByText(/No tools match/)).toBeInTheDocument();
     await user.clear(screen.getByPlaceholderText("Filter…"));
 
     await user.click(screen.getByRole("button", { name: "Test Connection" }));
-    expect(await screen.findByText("Connection Successful")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Connection Successful"),
+    ).toBeInTheDocument();
 
-    const toolButton = (await screen.findByText("alpha_tool")).closest("button");
+    const toolButton = (await screen.findByText("alpha_tool")).closest(
+      "button",
+    );
     expect(toolButton).toBeTruthy();
     await user.click(toolButton as HTMLButtonElement);
-    expect(await screen.findByText("No parameters required")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Invoke Tool" }));
-
-    expect(await screen.findByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("tool failed")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No parameters required"),
+    ).toBeInTheDocument();
+    const invokeButton = screen.getByRole("button", {
+      name: "Classify Tool Before Invoking",
+    });
+    expect(invokeButton).toBeDisabled();
+    expect(
+      screen.getByText(/Save an explicit allow, side-effect, and approval policy/),
+    ).toBeInTheDocument();
   });
 
   it("cleans structured MCP invocation errors before showing them in the playground", async () => {
@@ -565,6 +773,7 @@ describe("McpServers", () => {
             server_id: "MCP-1",
             tools: discoveredTools.map((tool) => ({
               ...tool,
+              classified: true,
               policy: {
                 allowed: true,
                 side_effect_level: "read",
@@ -595,13 +804,17 @@ describe("McpServers", () => {
     await screen.findByRole("heading", { name: "MCP Servers" });
     await user.click(screen.getByRole("button", { name: "Playground" }));
 
-    const toolButton = (await screen.findByText("search_docs")).closest("button");
+    const toolButton = (await screen.findByText("search_docs")).closest(
+      "button",
+    );
     expect(toolButton).toBeTruthy();
     await user.click(toolButton as HTMLButtonElement);
     await user.click(screen.getByRole("button", { name: "Invoke Tool" }));
 
     expect(await screen.findByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("Invalid input: query is required")).toBeInTheDocument();
+    expect(
+      screen.getByText("Invalid input: query is required"),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText(/MCP tools\/call failed: Invalid input:/),
     ).not.toBeInTheDocument();
@@ -619,6 +832,7 @@ describe("McpServers", () => {
             server_id: "MCP-1",
             tools: discoveredTools.map((tool) => ({
               ...tool,
+              classified: true,
               policy: {
                 allowed: true,
                 side_effect_level: "read",
@@ -648,14 +862,18 @@ describe("McpServers", () => {
     await screen.findByRole("heading", { name: "MCP Servers" });
     await user.click(screen.getByRole("button", { name: "Playground" }));
 
-    const toolButton = (await screen.findByText("search_docs")).closest("button");
+    const toolButton = (await screen.findByText("search_docs")).closest(
+      "button",
+    );
     expect(toolButton).toBeTruthy();
     await user.click(toolButton as HTMLButtonElement);
     await user.click(screen.getByRole("button", { name: "Invoke Tool" }));
 
     expect(await screen.findByText("Failed")).toBeInTheDocument();
     expect(
-      screen.getByText("Request failed — check the server is installed or available"),
+      screen.getByText(
+        "Request failed — check the server is installed or available",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("[Errno 2] No such file or directory"),
@@ -674,6 +892,7 @@ describe("McpServers", () => {
             server_id: "MCP-1",
             tools: discoveredTools.map((tool) => ({
               ...tool,
+              classified: true,
               policy: {
                 allowed: true,
                 side_effect_level: "read",
@@ -694,7 +913,9 @@ describe("McpServers", () => {
     await screen.findByRole("heading", { name: "MCP Servers" });
     await user.click(screen.getByRole("button", { name: "Playground" }));
 
-    const toolButton = (await screen.findByText("search_docs")).closest("button");
+    const toolButton = (await screen.findByText("search_docs")).closest(
+      "button",
+    );
     expect(toolButton).toBeTruthy();
     await user.click(toolButton as HTMLButtonElement);
     await user.click(screen.getByRole("checkbox", { name: "Allow tool" }));
@@ -713,10 +934,14 @@ describe("McpServers", () => {
       auth_config: { token_env_var: "TOKEN", token: WRITE_ONLY },
     };
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([credentialServer]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([credentialServer])),
+      ),
       http.patch(`${API_BASE}/mcp-servers/MCP-1`, async ({ request }) => {
         patchBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(envelope({ ...credentialServer, description: "Updated docs" }));
+        return HttpResponse.json(
+          envelope({ ...credentialServer, description: "Updated docs" }),
+        );
       }),
     );
 
@@ -730,18 +955,29 @@ describe("McpServers", () => {
     const nameInput = within(dialog).getByTestId("server-name-input");
     expect(nameInput).toHaveValue("Docs");
     expect(nameInput).toBeDisabled();
-    expect(within(dialog).getByTestId("server-command-input")).toHaveValue("npx");
-    expect(within(dialog).getByTestId("mcp-write-only-notice")).toHaveTextContent(
-      "Credentials are write-only",
+    expect(within(dialog).getByTestId("server-command-input")).toHaveValue(
+      "npx",
     );
-    expect(within(dialog).queryByDisplayValue(WRITE_ONLY)).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByTestId("mcp-write-only-notice"),
+    ).toHaveTextContent("Credentials are write-only");
+    expect(
+      within(dialog).queryByDisplayValue(WRITE_ONLY),
+    ).not.toBeInTheDocument();
 
-    const description = within(dialog).getByPlaceholderText("What does this server provide?");
+    const description = within(dialog).getByPlaceholderText(
+      "What does this server provide?",
+    );
     await user.clear(description);
     await user.type(description, "Updated docs");
     await user.click(within(dialog).getByTestId("server-submit-btn"));
 
-    await waitFor(() => expect(patchBody).toMatchObject({ description: "Updated docs", command: "npx" }));
+    await waitFor(() =>
+      expect(patchBody).toMatchObject({
+        description: "Updated docs",
+        command: "npx",
+      }),
+    );
     // ``name`` is immutable on the backend, so it is intentionally not sent.
     expect(patchBody && "name" in patchBody).toBe(false);
     // Unchanged sensitive maps are omitted, so a sanitized GET can never
@@ -749,7 +985,11 @@ describe("McpServers", () => {
     expect(patchBody && "env" in patchBody).toBe(false);
     expect(patchBody && "headers" in patchBody).toBe(false);
     expect(patchBody && "auth_config" in patchBody).toBe(false);
-    await waitFor(() => expect(screen.queryByTestId("edit-server-dialog")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("edit-server-dialog"),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("round-trips write-only leaves only when changing the token reference", async () => {
@@ -766,7 +1006,9 @@ describe("McpServers", () => {
       auth_config: { token_env_var: "TOKEN", token: WRITE_ONLY },
     };
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([credentialServer]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([credentialServer])),
+      ),
       http.patch(`${API_BASE}/mcp-servers/MCP-1`, async ({ request }) => {
         patchBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(envelope(credentialServer));
@@ -808,10 +1050,14 @@ describe("McpServers", () => {
       auth_config: { token_env_var: "TOKEN", token: WRITE_ONLY },
     };
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([credentialServer]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([credentialServer])),
+      ),
       http.patch(`${API_BASE}/mcp-servers/MCP-1`, async ({ request }) => {
         patchBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(envelope({ ...credentialServer, auth_type: "none" }));
+        return HttpResponse.json(
+          envelope({ ...credentialServer, auth_type: "none" }),
+        );
       }),
     );
 
@@ -832,7 +1078,9 @@ describe("McpServers", () => {
       auth_config: {},
       env: { KEEP_SECRET: WRITE_ONLY },
     });
-    expect((patchBody as { env: Record<string, string> }).env).not.toHaveProperty("TOKEN");
+    expect(
+      (patchBody as { env: Record<string, string> }).env,
+    ).not.toHaveProperty("TOKEN");
   });
 
   it("lets an admin delete a server after an inline confirmation", async () => {
@@ -841,7 +1089,9 @@ describe("McpServers", () => {
     server.use(
       http.get(`${API_BASE}/mcp-servers`, () => {
         listCalls += 1;
-        return HttpResponse.json(envelope(listCalls === 1 ? [baseServer()] : []));
+        return HttpResponse.json(
+          envelope(listCalls === 1 ? [baseServer()] : []),
+        );
       }),
       http.delete(`${API_BASE}/mcp-servers/MCP-1`, () => {
         deleteCalled = true;
@@ -859,15 +1109,23 @@ describe("McpServers", () => {
     await user.click(await screen.findByTestId("confirm-delete-btn-MCP-1"));
 
     await waitFor(() => expect(deleteCalled).toBe(true));
-    await waitFor(() => expect(screen.queryByTestId("mcp-row-MCP-1")).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByTestId("mcp-row-MCP-1")).not.toBeInTheDocument(),
+    );
   });
 
   it("hides edit and delete controls from non-admins", async () => {
     server.use(
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([baseServer()]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
       http.get(`${API_BASE}/me`, () =>
         HttpResponse.json(
-          envelope({ user_id: "@viewer", scopes: ["caliber.viewer"], is_admin: false }),
+          envelope({
+            user_id: "@viewer",
+            scopes: ["caliber.viewer"],
+            is_admin: false,
+          }),
         ),
       ),
     );

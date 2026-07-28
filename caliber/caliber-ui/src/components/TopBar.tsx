@@ -12,6 +12,7 @@ import {
   HEALTH_TITLE,
   type HealthStatus,
 } from "@/components/useHealthStatus";
+import { WorkspaceSelector } from "@/components/WorkspaceSelector";
 
 import { useTheme } from "./useTheme";
 
@@ -80,6 +81,8 @@ export function TopBar({
 
       {/* Right actions */}
       <div className="ml-auto flex items-center gap-2">
+        <WorkspaceSelector />
+        <div className="hidden h-4 w-px bg-slate-200 dark:bg-white/15 sm:block" />
         {/* Health dot */}
         <span
           className="flex items-center gap-1.5 text-[11px] text-slate-400 mr-1"

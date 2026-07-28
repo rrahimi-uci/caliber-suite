@@ -162,7 +162,8 @@ _FALLBACK_DESCRIPTIONS: dict[str, str] = {
 
 _COMPONENT_DOCS: dict[str, tuple[str, ...]] = {
     "file_input": (
-        "Use this for operator-provided or mounted local files when a single document should enter the flow as text plus metadata.",
+        "Select a content-pinned project file for production runs. The runtime verifies its project ownership, size, object version, and SHA-256 before exposing text and lineage metadata.",
+        "Legacy host paths remain available for mounted, operator-controlled development environments.",
     ),
     "folder_input": (
         "Useful for batch ingestion from a local workspace; pair it with For Each when every discovered file should run through the same agent or tool path.",
@@ -260,10 +261,10 @@ _COMPONENT_DOCS: dict[str, tuple[str, ...]] = {
 _COMPONENT_SETUP_CHECKS: dict[str, tuple[dict[str, Any], ...]] = {
     "file_input": (
         {
-            "label": "Provide a file path",
-            "help": "Set the file path directly or map one into the node's path input.",
-            "kind": "non_empty_string",
-            "field": "path",
+            "label": "Select a managed file or provide a legacy path",
+            "help": "Select a project file, set a host path, or map a path into the node.",
+            "kind": "any_non_empty",
+            "fields": ["file_ref", "path"],
         },
     ),
     "folder_input": (
@@ -539,6 +540,7 @@ _DESIGNER_STARTER_NODES: dict[str, dict[str, Any]] = {
         "outputs": {
             "text": _starter_port("string"),
             "path": _starter_port("string"),
+            "file_ref": _starter_port("structured"),
             "metadata": _starter_port("structured"),
         },
     },

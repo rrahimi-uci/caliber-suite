@@ -1076,6 +1076,50 @@ def test_run_version_records_persisted_run_with_steps(client: TestClient) -> Non
     assert row["summary"]["steps"][0]["node_id"] == "start"
 
 
+def test_run_version_rejects_deployed_alias_manifest_override(client: TestClient) -> None:
+    wid, vid, _ = _support_workflow(client)
+    override = make_manifest(wid)
+
+    response = client.post(
+        f"{PREFIX}/workflow-versions/{vid}/run",
+        json={"input": "hello", "alias": "prod", "manifest": override},
+    )
+
+    assert response.status_code == 400
+    assert "immutable saved version" in response.json()["detail"]
+
+
+def test_sync_run_rejects_human_approval_checkpoint_workflow(client: TestClient) -> None:
+    wid = create_workflow(client, "Approval workflow")
+    vid, _ = create_draft(client, wid, _hitl_template_manifest(wid))
+
+    response = client.post(
+        f"{PREFIX}/workflow-versions/{vid}/run",
+        json={"input": "review this"},
+    )
+
+    assert response.status_code == 400
+    assert "synchronous real runs cannot checkpoint runtime approvals" in response.json()["detail"]
+    assert "queued /workflow-runs" in response.json()["detail"]
+
+
+def test_sync_approval_preflight_detects_direct_approval_tool() -> None:
+    plan = SimpleNamespace(
+        ir=SimpleNamespace(
+            nodes={
+                "write": SimpleNamespace(
+                    node_type="tool",
+                    binding=SimpleNamespace(requires_approval=True),
+                )
+            }
+        )
+    )
+
+    assert workflow_versions_routes._sync_approval_requirement_nodes(plan) == [
+        "approval-required tool at node 'write'"
+    ]
+
+
 def test_run_version_succeeds_when_event_bus_publish_raises(
     client: TestClient, monkeypatch
 ) -> None:

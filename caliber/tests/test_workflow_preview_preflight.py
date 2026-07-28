@@ -7,6 +7,8 @@ import pytest
 import caliber.workflows.runtime as workflow_runtime
 from caliber.workflows.ir import (
     IREdge,
+    IRFileInput,
+    IRManagedFileReference,
     IRNode,
     IRSubworkflow,
     IRType,
@@ -122,6 +124,106 @@ def test_preview_preflight_reports_all_blockers_deterministically() -> None:
     assert result.error is not None
     for node_id, node_type in expected:
         assert f"{node_id} ({node_type})" in result.error
+
+
+def test_preview_allows_managed_file_and_invokes_scoped_resolver() -> None:
+    string = IRType("string")
+    structured = IRType("structured")
+    snapshot = IRManagedFileReference(
+        file_id="FILE-preview",
+        file_ref="caliber://projects/PRJ-preview/input/source.md",
+        sha256="a" * 64,
+        name="source.md",
+        size_bytes=15,
+        media_type="text/markdown",
+        object_version_id="v1",
+    )
+    source = IRFileInput(
+        node_id="managed_source",
+        node_type=NodeType.FILE_INPUT,
+        inputs={"path": string},
+        outputs={"text": string, "metadata": structured},
+        file_ref=snapshot,
+    )
+    start = IRNode(node_id="start", node_type=NodeType.START, outputs={"msg": string})
+    final = IRNode(node_id="final", node_type=NodeType.OUTPUT, inputs={"response": string})
+    plan = RuntimePlan(
+        ir=IRWorkflow(
+            workflow_id="managed-preview",
+            version="1",
+            nodes={start.node_id: start, source.node_id: source, final.node_id: final},
+            edges=[
+                IREdge(
+                    "start_source",
+                    start.node_id,
+                    "msg",
+                    source.node_id,
+                    "path",
+                    string,
+                ),
+                IREdge(
+                    "source_final",
+                    source.node_id,
+                    "text",
+                    final.node_id,
+                    "response",
+                    string,
+                ),
+            ],
+            entry_node_id=start.node_id,
+            output_node_id=final.node_id,
+        ),
+        resolver=InMemoryToolResolver([]),
+    )
+    calls: list[tuple[IRManagedFileReference, str, int]] = []
+
+    def resolve(
+        file_ref: IRManagedFileReference, encoding: str, max_bytes: int
+    ) -> tuple[str, dict[str, object]]:
+        calls.append((file_ref, encoding, max_bytes))
+        return "managed preview", {"bytes": 15, "sha256": file_ref.sha256}
+
+    result = execute(
+        plan,
+        "ignored",
+        executor=FakeWorkflowExecutor(),
+        preview=True,
+        managed_file_resolver=resolve,
+    )
+
+    assert result.status == "completed"
+    assert calls == [(snapshot, "utf-8", 200_000)]
+    source_step = next(step for step in result.steps if step.node_id == source.node_id)
+    assert source_step.output == "managed preview"
+
+
+def test_preview_still_blocks_legacy_file_path_before_interpretation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interpreted = False
+
+    def unexpected_interpret(*args: object, **kwargs: object) -> None:
+        nonlocal interpreted
+        interpreted = True
+        raise AssertionError("Preview entered the workflow interpreter")
+
+    monkeypatch.setattr(workflow_runtime, "_interpret", unexpected_interpret)
+    legacy = IRFileInput(
+        node_id="legacy_source",
+        node_type=NodeType.FILE_INPUT,
+        path="/host/path/must-not-be-read.txt",
+    )
+
+    result = execute(
+        _connected_plan(legacy),
+        "ignored",
+        executor=FakeWorkflowExecutor(),
+        preview=True,
+    )
+
+    assert interpreted is False
+    assert result.status == "error"
+    assert "legacy_source (file_input)" in (result.error or "")
 
 
 def test_preview_preflight_never_starts_nodes_or_invokes_reachable_effect_callable() -> None:

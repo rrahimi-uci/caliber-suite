@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import signal
+from types import SimpleNamespace
+
+import pytest
 from starlette.testclient import TestClient
 
 from caliber.config import CaliberConfig
+from caliber.tool_sandbox import service as sandbox_service
 from caliber.tool_sandbox.models import (
     ToolSandboxRunRequest,
     ToolSandboxTestCase,
@@ -74,6 +80,23 @@ def loop():
 
     assert result.status == "timed_out"
     assert "timed out" in (result.error or "")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups are unavailable")
+def test_timeout_termination_kills_the_sandbox_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[int, signal.Signals]] = []
+    process = SimpleNamespace(pid=4123, poll=lambda: None)
+    monkeypatch.setattr(
+        sandbox_service.os,
+        "killpg",
+        lambda pid, sig: calls.append((pid, sig)),
+    )
+
+    LocalSubprocessToolSandbox._terminate_process_tree(process)  # type: ignore[arg-type]
+
+    assert calls == [(4123, signal.SIGKILL)]
 
 
 def test_local_subprocess_sandbox_runs_tool_tests() -> None:

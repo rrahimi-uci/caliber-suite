@@ -211,6 +211,23 @@ def test_file_input_pipeline_validates() -> None:
     assert report.valid
 
 
+def test_managed_file_ref_satisfies_file_source_validation() -> None:
+    data = make_manifest()
+    data["nodes"]["file_input"] = {
+        "id": "file_input",
+        "type": "file_input",
+        "file_ref": {
+            "file_id": "FILE-1",
+            "file_ref": "caliber://projects/PRJ-1/input/source.md",
+            "sha256": "d" * 64,
+            "name": "source.md",
+            "size_bytes": 12,
+        },
+    }
+    report = validate_manifest(parse_manifest(data))
+    assert "missing_file_path" not in _codes(report)
+
+
 def test_mcp_resource_pipeline_validates() -> None:
     data = make_manifest()
     data["nodes"]["mcp_lookup"] = {

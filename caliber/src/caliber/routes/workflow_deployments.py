@@ -38,6 +38,7 @@ from caliber.db.models import (
     CaliberWorkflowPromotion,
     CaliberWorkflowVersion,
 )
+from caliber.mcp_policy import deployment_blockers
 from caliber.observability import metrics
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import (
@@ -64,6 +65,20 @@ ROLLBACK_PATH = PREFIX + "/workflows/{workflow_id}/deployments/{alias}/rollback"
 PROMOTIONS_PATH = PREFIX + "/workflows/{workflow_id}/promotions"
 PROMOTION_APPROVE_PATH = PREFIX + "/workflow-promotions/{promotion_id}/approve"
 PROMOTION_REJECT_PATH = PREFIX + "/workflow-promotions/{promotion_id}/reject"
+
+
+def _require_mcp_dependencies_ready(
+    session: Any,
+    version: CaliberWorkflowVersion,
+    *,
+    alias: str,
+) -> None:
+    blockers = deployment_blockers(session, version.manifest or {}, alias=alias)
+    if blockers:
+        raise HTTPException(
+            status_code=400,
+            detail="MCP deployment preflight failed: " + "; ".join(blockers),
+        )
 
 
 def _envelope(payload: dict[str, Any], status_code: int = 200) -> JSONResponse:
@@ -109,6 +124,7 @@ async def promote_deployment(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"version {payload.version_id!r} not found for workflow {workflow_id!r}",
             )
+        _require_mcp_dependencies_ready(session, version, alias=alias)
         # Optimistic-concurrency guard: refuse if the alias has moved since the
         # caller last saw it (avoids clobbering a concurrent promotion).
         # ``expected_version_id=null`` asserts the alias is not yet deployed.
@@ -137,7 +153,14 @@ async def promote_deployment(request: Request) -> JSONResponse:
                     ),
                 )
         try:
-            result = promote(session, workflow_id, alias, version, actor=actor)
+            result = promote(
+                session,
+                workflow_id,
+                alias,
+                version,
+                actor=actor,
+                config=request.app.state.config,
+            )
         except DeployError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except DeployGateFailedError as exc:
@@ -236,6 +259,16 @@ async def approve_promotion_route(request: Request) -> JSONResponse:
         promotion = session.get(CaliberWorkflowPromotion, promotion_id)
         if promotion is None:
             raise HTTPException(status_code=404, detail=f"promotion {promotion_id!r} not found")
+        version = session.get(CaliberWorkflowVersion, promotion.version_id)
+        if version is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"promotion version {promotion.version_id!r} no longer exists",
+            )
+        try:
+            _require_mcp_dependencies_ready(session, version, alias=promotion.alias)
+        except HTTPException as exc:
+            raise HTTPException(status_code=409, detail=exc.detail) from exc
         try:
             deployment = approve_promotion(session, promotion, actor=actor)
         except DeployError as exc:

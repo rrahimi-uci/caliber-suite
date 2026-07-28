@@ -221,7 +221,12 @@ def _build_workflow_predict(session: Any, version_id: str, config: Any) -> Predi
     capped tighter (``_WORKFLOW_MAX_EXAMPLES``). Raises 404 on an unknown version
     and 400 if the version won't compile.
     """
-    from caliber.db.models import CaliberWorkflowVersion  # noqa: PLC0415
+    from caliber.config import CaliberConfig  # noqa: PLC0415
+    from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion  # noqa: PLC0415
+    from caliber.workflows.file_tools import (  # noqa: PLC0415
+        bind_project_managed_file_runtime,
+        managed_file_tool_aliases,
+    )
     from caliber.workflows.promoter import build_executor, build_plan  # noqa: PLC0415
     from caliber.workflows.runtime import execute  # noqa: PLC0415
 
@@ -229,15 +234,38 @@ def _build_workflow_predict(session: Any, version_id: str, config: Any) -> Predi
     if version is None:
         raise HTTPException(status_code=404, detail=f"workflow version {version_id!r} not found")
     try:
-        plan = build_plan(session, version, config=config)
-        executor = build_executor(config, ir=plan.ir)
+        resolved_config = config or CaliberConfig()
+        plan = build_plan(session, version, config=resolved_config)
+        executor = build_executor(resolved_config, ir=plan.ir)
+        workflow = session.get(CaliberWorkflow, version.workflow_id)
+        managed_snapshots = [
+            file_ref
+            for node in plan.ir.nodes.values()
+            if (file_ref := getattr(node, "file_ref", None)) is not None
+        ]
+        managed_resolver, managed_tools = bind_project_managed_file_runtime(
+            session,
+            storage_config=resolved_config.workflow_storage,
+            project_id=(workflow.project_id if workflow is not None else None),
+            workflow_id=version.workflow_id,
+            runtime_id=f"evaluation-{version.version_id}",
+            snapshots=managed_snapshots,
+            extract_document_aliases=managed_file_tool_aliases(plan.ir),
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=400, detail=f"failed to compile workflow {version_id!r}: {exc}"
         ) from exc
 
     def predict(inputs: Mapping[str, Any]) -> str:
-        result = execute(plan, user_message(dict(inputs)), executor=executor, preview=True)
+        result = execute(
+            plan,
+            user_message(dict(inputs)),
+            executor=executor,
+            preview=True,
+            extra_tools=managed_tools,
+            managed_file_resolver=(managed_resolver.read_text if managed_resolver else None),
+        )
         return str(getattr(result, "output", "") or "")
 
     return predict

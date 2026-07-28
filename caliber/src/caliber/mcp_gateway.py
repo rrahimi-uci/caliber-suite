@@ -20,10 +20,11 @@ import sys
 import threading
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from contextlib import asynccontextmanager, nullcontext
+from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import lru_cache
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import anyio
@@ -37,10 +38,39 @@ from sqlalchemy.orm import Session, sessionmaker
 from caliber.config import CaliberConfig
 from caliber.db.models import CaliberMcpServer
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
+from caliber.mcp_policy import (
+    McpPolicyError,
+    stdio_launch,
+    validate_tool_access,
+    validate_transport,
+)
 from caliber.observability.mlflow_tracing import get_tracer
 
 _ENV_PLACEHOLDER_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 _SESSION_FACTORY_LOCK = threading.Lock()
+_BUBBLEWRAP_TMP = "/tmp"  # noqa: S108 - private tmpfs inside the new namespace.
+_SDK_INHERITED_ENV_KEYS = frozenset(
+    {
+        "APPDATA",
+        "HOME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "LOCALAPPDATA",
+        "LOGNAME",
+        "PATH",
+        "PATHEXT",
+        "PROCESSOR_ARCHITECTURE",
+        "SHELL",
+        "SYSTEMDRIVE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "USER",
+        "USERNAME",
+        "USERPROFILE",
+    }
+)
 
 # A stdio ``command`` of ``${PYTHON}`` resolves to the interpreter running the
 # CALIBER server itself. First-party Python MCP servers (e.g.
@@ -83,6 +113,9 @@ class McpServerConfig:
     headers: dict[str, object]
     auth_type: str
     auth_config: dict[str, object]
+    status: str = "active"
+    discovered_tools: tuple[dict[str, object], ...] = ()
+    tool_policies: dict[str, object] = field(default_factory=dict)
 
     @classmethod
     def from_row(cls, row: CaliberMcpServer) -> McpServerConfig:
@@ -97,6 +130,13 @@ class McpServerConfig:
             headers=dict(row.headers or {}),
             auth_type=row.auth_type,
             auth_config=dict(row.auth_config or {}),
+            status=str(getattr(row, "status", "active")),
+            discovered_tools=tuple(
+                dict(tool)
+                for tool in (getattr(row, "discovered_tools", None) or [])
+                if isinstance(tool, dict)
+            ),
+            tool_policies=dict(getattr(row, "tool_policies", None) or {}),
         )
 
 
@@ -146,6 +186,10 @@ async def invoke_tool(
     name/input/output/latency/status shape as native workflow tool calls. The
     tracer redacts + byte-caps every attribute, so raw args/result are safe to pass.
     """
+    try:
+        validate_tool_access(server, tool_name)
+    except McpPolicyError as exc:
+        raise McpGatewayConfigError(str(exc)) from exc
     tracer = get_tracer()
     started = time.perf_counter()
     with tracer.span(
@@ -283,16 +327,39 @@ async def _transport_streams(
     timeout_seconds: float,
 ) -> AsyncIterator[tuple[Any, Any]]:
     transport = server.transport.strip().lower()
+    config = CaliberConfig.load()
+    try:
+        validate_transport(server, config=config)
+    except McpPolicyError as exc:
+        raise McpGatewayConfigError(str(exc)) from exc
     if transport == "stdio":
-        if not server.command.strip():
-            raise McpGatewayConfigError("stdio transport requires a non-empty command")
-        params = StdioServerParameters(
-            command=_resolve_command(server.command),
-            args=[arg for arg in server.args if arg != ""],
-            env=_resolved_stdio_env(server),
+        try:
+            command, args = stdio_launch(server, config=config)
+        except McpPolicyError as exc:
+            raise McpGatewayConfigError(str(exc)) from exc
+        workdir_context: Any = (
+            TemporaryDirectory(prefix="caliber-mcp-")
+            if config.mcp_stdio_isolated_workdir
+            else nullcontext(None)
         )
-        async with stdio_client(params) as (read, write):
-            yield read, write
+        with workdir_context as working_directory:
+            child_working_directory = (
+                _BUBBLEWRAP_TMP
+                if config.mcp_stdio_isolation_profile == "bubblewrap"
+                else working_directory
+            )
+            params = StdioServerParameters(
+                command=command,
+                args=args,
+                env=_resolved_stdio_env(
+                    server,
+                    working_directory=child_working_directory,
+                    safe_path=config.mcp_stdio_safe_path,
+                ),
+                cwd=working_directory,
+            )
+            async with stdio_client(params) as (read, write):
+                yield read, write
         return
 
     if transport == "sse":
@@ -435,13 +502,31 @@ def _dict_or_none(value: Any) -> dict[str, Any] | None:
     return None
 
 
-def _resolved_stdio_env(server: McpServerConfig) -> dict[str, str]:
-    resolved: dict[str, str] = {}
+def _resolved_stdio_env(
+    server: McpServerConfig,
+    *,
+    working_directory: str | None = None,
+    safe_path: str = "",
+) -> dict[str, str]:
+    # The MCP SDK merges a small inherited environment into ``server.env``.
+    # Override every inherited key so the child receives CALIBER-controlled
+    # values even when the parent has a poisoned PATH/SHELL/HOME. Windows needs
+    # its system roots to create a process; those are retained but remain
+    # operator/process configuration, never values supplied by an MCP record.
+    resolved: dict[str, str] = dict.fromkeys(_SDK_INHERITED_ENV_KEYS, "")
+    resolved["PATH"] = safe_path
+    resolved["TERM"] = "dumb"
+    if os.name == "nt":  # pragma: no cover - Windows-specific process bootstrap.
+        for key in ("SYSTEMDRIVE", "SYSTEMROOT"):
+            resolved[key] = os.environ.get(key, "")
     for key, raw in server.env.items():
         key_name = str(key).strip()
         if not key_name:
             continue
         resolved[key_name] = _resolve_env_value(raw)
+    if working_directory:
+        resolved["HOME"] = working_directory
+        resolved["TMPDIR"] = working_directory
     return resolved
 
 

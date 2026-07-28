@@ -32,8 +32,14 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
-from caliber.db.models import CaliberWorkflowFile, CaliberWorkflowRun
+from caliber.auth import (
+    SCOPE_ADMIN,
+    SCOPE_OPERATOR,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
+from caliber.db.models import CaliberProject, CaliberWorkflowFile, CaliberWorkflowRun
 from caliber.routes._deps import (
     envelope_response_dict,
     get_session_factory,
@@ -141,16 +147,41 @@ async def _read_upload(request: Request) -> tuple[bytes, str, str, str | None, d
 async def staging_upload(request: Request) -> JSONResponse:
     """Upload a file before a run exists (workflow_run_id NULL, storage doc §4.7)."""
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     data, filename, kind, media_type, metadata = await _read_upload(request)
     session_id = request.query_params.get("session_id")
     service = get_working_dir_service(request)
     factory = get_session_factory(request)
     try:
         with factory() as session:
+            project_id = identity.active_project_id or "default"
+            tenant_id = "local"
+            scoped_service = service
+            if identity.active_project_id:
+                project = session.get(CaliberProject, identity.active_project_id)
+                if project is None or (
+                    not identity.has_scope(SCOPE_ADMIN) and project.owner != identity.user_id
+                ):
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"project {identity.active_project_id!r} not found",
+                    )
+                if project.status != "active":
+                    raise HTTPException(
+                        status_code=409, detail="archived projects cannot receive files"
+                    )
+                project_id = project.project_id
+                tenant_id = project.tenant_id
+                scoped_service = service.for_backend(project.storage_backend)
             # Staging namespace keyed by session (or a generated one).
             staging_run = f"staging-{session_id}" if session_id else "staging"
-            ctx = service.create_run_workspace(workflow_id="_staging", workflow_run_id=staging_run)
-            rec = service.register_upload(
+            ctx = scoped_service.create_run_workspace(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                workflow_id="_staging",
+                workflow_run_id=staging_run,
+            )
+            rec = scoped_service.register_upload(
                 session,
                 ctx,
                 kind=kind,  # type: ignore[arg-type]
@@ -191,8 +222,22 @@ async def run_upload(request: Request) -> JSONResponse:
     try:
         with factory() as session:
             run = _require_run(session, run_id)
-            ctx = service.create_run_workspace(workflow_id=run.workflow_id, workflow_run_id=run_id)
-            rec = service.register_upload(
+            scoped_service = service
+            if run.project_id:
+                project = session.get(CaliberProject, run.project_id)
+                if project is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"workflow project {run.project_id!r} no longer exists",
+                    )
+                scoped_service = service.for_backend(project.storage_backend)
+            ctx = scoped_service.create_run_workspace(
+                tenant_id=run.tenant_id or "local",
+                project_id=run.project_id or "default",
+                workflow_id=run.workflow_id,
+                workflow_run_id=run_id,
+            )
+            rec = scoped_service.register_upload(
                 session,
                 ctx,
                 kind=kind,  # type: ignore[arg-type]

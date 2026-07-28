@@ -481,6 +481,30 @@ def test_build_ir_handles_non_agent_nodes_and_orphan_edge_source() -> None:
     assert ir.edges[-1].type_check.name == "void"
 
 
+def test_build_ir_preserves_managed_file_snapshot() -> None:
+    data = make_manifest()
+    data["nodes"]["managed"] = {
+        "id": "managed",
+        "type": "file_input",
+        "file_ref": {
+            "file_id": "FILE-1",
+            "file_ref": "caliber://projects/PRJ-1/input/source.md",
+            "sha256": "b" * 64,
+            "name": "source.md",
+            "size_bytes": 42,
+            "media_type": "text/markdown",
+            "object_version_id": "version-7",
+        },
+    }
+    node = build_ir(parse_manifest(data), fake_resolver()).nodes["managed"]
+    assert isinstance(node, IRFileInput)
+    assert node.path == ""
+    assert node.file_ref is not None
+    assert node.file_ref.file_id == "FILE-1"
+    assert node.file_ref.sha256 == "b" * 64
+    assert node.file_ref.object_version_id == "version-7"
+
+
 def test_entry_agent_falls_back_and_errors_when_absent() -> None:
     unreachable = make_manifest()
     unreachable["edges"] = [

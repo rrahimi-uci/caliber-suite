@@ -32,8 +32,20 @@ def _seed(db: Session, **kw: object) -> CaliberMcpServer:
         "name": "Relational",
         "transport": "stdio",
         "command": "${PYTHON}",
+        "args": ["-m", "caliber.mcp_servers.db", "--mode", "relational"],
         "status": "active",
     }
+    discovered = kw.get("discovered_tools")
+    if isinstance(discovered, list) and "tool_policies" not in kw:
+        kw["tool_policies"] = {
+            str(tool["name"]): {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            }
+            for tool in discovered
+            if isinstance(tool, dict) and tool.get("name")
+        }
     defaults.update(kw)
     server = CaliberMcpServer(**defaults)  # type: ignore[arg-type]
     db.add(server)
@@ -215,6 +227,45 @@ def test_delete_mcp_server_blocked_when_referenced_by_active_deployment(
     assert db_session.get(CaliberMcpServer, "MCP-ref") is not None
 
 
+def test_delete_mcp_server_detects_direct_resource_node_dependency(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed(db_session, server_id="MCP-node")
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WFV-node-ref",
+            workflow_id="WF-node-ref",
+            version_number=1,
+            status="published",
+            manifest={
+                "nodes": {
+                    "lookup": {
+                        "id": "lookup",
+                        "type": "mcp_resource",
+                        "server_id": "MCP-node",
+                        "tool_name": "query",
+                    }
+                }
+            },
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="DEP-node-ref",
+            workflow_id="WF-node-ref",
+            alias="prod",
+            version_id="WFV-node-ref",
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    response = client.delete(f"{BASE}/MCP-node")
+
+    assert response.status_code == 409
+    assert db_session.get(CaliberMcpServer, "MCP-node") is not None
+
+
 # ── test-connection ───────────────────────────────────────────────────────
 
 
@@ -278,13 +329,34 @@ def test_invoke_blocked_by_policy(client: TestClient, db_session: Session) -> No
     _seed(
         db_session,
         discovered_tools=[{"name": "execute_sql"}],
-        tool_policies={"execute_sql": {"allowed": False}},
+        tool_policies={
+            "execute_sql": {
+                "allowed": False,
+                "side_effect_level": "external_action",
+                "requires_approval": True,
+            }
+        },
     )
     r = client.post(
         f"{BASE}/MCP-r1/invoke-tool", json={"tool_name": "execute_sql", "arguments": {}}
     )
     data = r.json()["data"]
     assert data["success"] is False and "blocked by policy" in data["error"]
+
+
+def test_invoke_unclassified_tool_fails_closed(client: TestClient, db_session: Session) -> None:
+    _seed(
+        db_session,
+        discovered_tools=[{"name": "execute_sql"}],
+        tool_policies={},
+    )
+    r = client.post(
+        f"{BASE}/MCP-r1/invoke-tool",
+        json={"tool_name": "execute_sql", "arguments": {}},
+    )
+    data = r.json()["data"]
+    assert data["success"] is False
+    assert "no explicit allow" in data["error"]
 
 
 def test_invoke_success(
@@ -480,6 +552,26 @@ def test_calibrate_mcp_tool_no_cases_400(client: TestClient, db_session: Session
     r = client.post(f"{BASE}/MCP-r1/tools/create_table/calibrate")
     assert r.status_code == 400
     assert "no saved test cases" in r.json()["detail"]
+
+
+def test_calibrate_mcp_tool_rejects_approval_required_policy(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed(
+        db_session,
+        discovered_tools=[{"name": "execute_sql"}],
+        tool_policies={
+            "execute_sql": {
+                "allowed": True,
+                "side_effect_level": "external_action",
+                "requires_approval": True,
+            }
+        },
+        tool_test_cases={"execute_sql": [{"name": "write", "input": {}}]},
+    )
+    r = client.post(f"{BASE}/MCP-r1/tools/execute_sql/calibrate")
+    assert r.status_code == 409
+    assert "no approval checkpoint" in r.json()["detail"]
 
 
 def test_calibrate_mcp_tool_unknown_tool_404(client: TestClient, db_session: Session) -> None:

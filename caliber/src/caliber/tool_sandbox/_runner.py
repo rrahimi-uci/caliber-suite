@@ -14,6 +14,11 @@ import io
 import json
 import math as _math
 import re as _re
+
+try:
+    import resource as _resource
+except ImportError:  # pragma: no cover - Windows has no resource module
+    _resource = None  # type: ignore[assignment]
 import statistics as _statistics
 import sys
 import time
@@ -56,6 +61,7 @@ SAFE_BUILTINS = {
 
 def main() -> None:
     request = json.loads(sys.stdin.read() or "{}")
+    _apply_resource_limits(request.get("_limits"))
     stdout = io.StringIO()
     stderr = io.StringIO()
     start = time.monotonic()
@@ -89,6 +95,37 @@ def main() -> None:
             sort_keys=True,
         )
     print(payload, file=sys.__stdout__)
+
+
+def _apply_resource_limits(raw: Any) -> None:
+    """Apply best-effort POSIX limits before any user-authored code runs.
+
+    These caps harden the local subprocess containment backend; they are not a
+    replacement for a container, VM, seccomp profile, or equivalent OS policy.
+    Unsupported limits are ignored so the same runner remains portable.
+    """
+
+    if _resource is None or not isinstance(raw, dict):
+        return
+    names = {
+        "cpu_seconds": "RLIMIT_CPU",
+        "memory_bytes": "RLIMIT_AS",
+        "file_bytes": "RLIMIT_FSIZE",
+        "open_files": "RLIMIT_NOFILE",
+    }
+    for key, resource_name in names.items():
+        value = raw.get(key)
+        limit_kind = getattr(_resource, resource_name, None)
+        if limit_kind is None or not isinstance(value, int) or value <= 0:
+            continue
+        try:
+            _soft, hard = _resource.getrlimit(limit_kind)
+            effective = value if hard == _resource.RLIM_INFINITY else min(value, hard)
+            _resource.setrlimit(limit_kind, (effective, effective))
+        except (OSError, ValueError):
+            # Some platforms expose a limit but refuse changes for unprivileged
+            # processes. Wall timeout + process-group termination still apply.
+            continue
 
 
 def _reject_unsafe_ast(tree: _ast.AST) -> None:

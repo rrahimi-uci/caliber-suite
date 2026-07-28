@@ -881,7 +881,9 @@ describe("WorkflowComponentSchemaSummary", () => {
           label: "Router",
           category: "Logic",
           description: "Conditional branch selector.",
-          docs: ["Branches are evaluated top-to-bottom and the first match wins."],
+          docs: [
+            "Branches are evaluated top-to-bottom and the first match wins.",
+          ],
           default_inputs: { decision: { type: "string" } },
           default_outputs: {},
           fields: [
@@ -891,7 +893,8 @@ describe("WorkflowComponentSchemaSummary", () => {
               type: "list<RouterBranch>",
               required: false,
               default: [],
-              description: "Ordered router branches evaluated from top to bottom.",
+              description:
+                "Ordered router branches evaluated from top to bottom.",
               constraints: {},
               examples: [],
             },
@@ -914,7 +917,9 @@ describe("WorkflowComponentSchemaSummary", () => {
           label: "Output",
           category: "Inputs & Outputs",
           description: "Final response endpoint.",
-          docs: ["Map the final downstream field that should be returned as the workflow response."],
+          docs: [
+            "Map the final downstream field that should be returned as the workflow response.",
+          ],
           default_inputs: { response: { type: "string" } },
           default_outputs: {},
           fields: [],
@@ -1110,7 +1115,11 @@ describe("Inspector", () => {
       ),
       http.get(`${API_BASE}/workflow-cron-preview`, () =>
         HttpResponse.json(
-          envelope({ timezone: "UTC", expression: "0 9 * * *", fire_times: [] }),
+          envelope({
+            timezone: "UTC",
+            expression: "0 9 * * *",
+            fire_times: [],
+          }),
         ),
       ),
     );
@@ -1762,9 +1771,12 @@ describe("Inspector", () => {
       },
     });
 
-    fireEvent.change(screen.getByTestId("workflow-openai-prompt-cache-retention"), {
-      target: { value: "24h" },
-    });
+    fireEvent.change(
+      screen.getByTestId("workflow-openai-prompt-cache-retention"),
+      {
+        target: { value: "24h" },
+      },
+    );
     expect(onChangeWorkflow).toHaveBeenLastCalledWith({
       runtime: {
         sdk: "openai-agents-python",
@@ -2157,6 +2169,77 @@ describe("Inspector", () => {
     });
     expect(onChangeNode).toHaveBeenCalledWith("file_input", {
       path: "/tmp/input.txt",
+      file_ref: null,
+    });
+  });
+
+  it("selects a content-pinned project file for a file input node", async () => {
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/files`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              {
+                file_id: "FILE-1",
+                file_ref: "caliber://projects/PRJ-1/input/source.md",
+                name: "source.md",
+                kind: "input",
+                relative_path: "source.md",
+                media_type: "text/markdown",
+                size_bytes: 12,
+                sha256: "a".repeat(64),
+                status: "attached",
+                producer_node_id: null,
+                created_at: null,
+                immutable_ref: {
+                  file_id: "FILE-1",
+                  file_ref: "caliber://projects/PRJ-1/input/source.md",
+                  sha256: "a".repeat(64),
+                  name: "source.md",
+                  size_bytes: 12,
+                  media_type: "text/markdown",
+                  object_version_id: null,
+                },
+              },
+            ],
+            directories: [],
+            next_cursor: null,
+          }),
+        ),
+      ),
+    );
+    const m = manifest();
+    m.nodes.file_input = {
+      id: "file_input",
+      type: "file_input",
+      path: "",
+    };
+    const onChangeNode = vi.fn();
+    renderWithQuery(
+      <Inspector
+        manifest={m}
+        projectId="PRJ-1"
+        selectedNodeId="file_input"
+        tools={[]}
+        onChangeNode={onChangeNode}
+        onChangeWorkflow={vi.fn()}
+      />,
+    );
+
+    const selector = await screen.findByTestId("inspector-managed-file");
+    await screen.findByRole("option", { name: /source\.md/ });
+    await userEvent.selectOptions(selector, "FILE-1");
+    expect(onChangeNode).toHaveBeenCalledWith("file_input", {
+      file_ref: {
+        file_id: "FILE-1",
+        file_ref: "caliber://projects/PRJ-1/input/source.md",
+        sha256: "a".repeat(64),
+        name: "source.md",
+        size_bytes: 12,
+        media_type: "text/markdown",
+        object_version_id: null,
+      },
+      path: "",
     });
   });
 
@@ -3132,7 +3215,10 @@ describe("Inspector", () => {
       />,
     );
     await userEvent.clear(screen.getByTestId("inspector-note-text"));
-    await userEvent.type(screen.getByTestId("inspector-note-text"), "Updated note");
+    await userEvent.type(
+      screen.getByTestId("inspector-note-text"),
+      "Updated note",
+    );
     expect(
       onChangeNode.mock.calls.some(
         ([id, patch]) =>
@@ -3939,9 +4025,7 @@ describe("Inspector", () => {
       />,
     );
 
-    expect(
-      await screen.findByText(embeddingBlockedReason),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(embeddingBlockedReason)).toBeInTheDocument();
     expect(
       screen.getByTestId("inspector-knowledge-build-embedding"),
     ).toBeDisabled();
@@ -4284,213 +4368,210 @@ describe("Inspector", () => {
           return HttpResponse.json(envelope([]));
         },
       ),
-      http.get(
-        `${API_BASE}/workflows/:workflowId/versions`,
-        ({ params }) => {
-          if (params.workflowId === "wf-child") {
-            return HttpResponse.json(
-              envelope([
-                {
-                  version_id: "WVF-100",
+      http.get(`${API_BASE}/workflows/:workflowId/versions`, ({ params }) => {
+        if (params.workflowId === "wf-child") {
+          return HttpResponse.json(
+            envelope([
+              {
+                version_id: "WVF-100",
+                workflow_id: "wf-child",
+                version_number: 2,
+                status: "published",
+                manifest: {
+                  schema_version: 1,
                   workflow_id: "wf-child",
-                  version_number: 2,
-                  status: "published",
-                  manifest: {
-                    schema_version: 1,
-                    workflow_id: "wf-child",
-                    name: "Child Workflow",
-                    nodes: {
-                      start: {
-                        id: "start",
-                        type: "start",
-                        trigger: {
-                          mode: "event",
-                          event_name: "ticket.approved",
-                          alias: "prod",
-                          enabled: true,
-                        },
-                        outputs: { user_message: { type: "string" } },
+                  name: "Child Workflow",
+                  nodes: {
+                    start: {
+                      id: "start",
+                      type: "start",
+                      trigger: {
+                        mode: "event",
+                        event_name: "ticket.approved",
+                        alias: "prod",
+                        enabled: true,
                       },
-                      agent: {
-                        id: "agent",
-                        type: "agent",
-                        name: "Child agent",
-                        model: "inherit",
-                        instructions: {
-                          type: "inline",
-                          text: "Summarize the approval context.",
-                        },
-                        tools: [],
-                        inputs: { input: { type: "string" } },
-                        outputs: { final_output: { type: "string" } },
-                      },
-                      final: {
-                        id: "final",
-                        type: "output",
-                        inputs: { response: { type: "string" } },
-                      },
+                      outputs: { user_message: { type: "string" } },
                     },
-                    edges: [
-                      {
-                        id: "e1",
-                        from: "start",
-                        to: "agent",
-                        map: { user_message: "input" },
+                    agent: {
+                      id: "agent",
+                      type: "agent",
+                      name: "Child agent",
+                      model: "inherit",
+                      instructions: {
+                        type: "inline",
+                        text: "Summarize the approval context.",
                       },
-                      {
-                        id: "e2",
-                        from: "agent",
-                        to: "final",
-                        map: { final_output: "response" },
-                      },
-                    ],
-                    tools: {},
+                      tools: [],
+                      inputs: { input: { type: "string" } },
+                      outputs: { final_output: { type: "string" } },
+                    },
+                    final: {
+                      id: "final",
+                      type: "output",
+                      inputs: { response: { type: "string" } },
+                    },
                   },
-                  manifest_hash: "hash-child-2",
-                  compiler_version: "compiler",
-                  compiled_artifact_uri: "s3://compiled/wf-child/2.py",
-                  compiled_bundle: null,
-                  validation_report: { valid: true, errors: [], warnings: [] },
-                  created_by: "@test",
-                  created_at: "2026-06-09T00:00:00Z",
-                  published_by: "@test",
-                  published_at: "2026-06-09T00:30:00Z",
+                  edges: [
+                    {
+                      id: "e1",
+                      from: "start",
+                      to: "agent",
+                      map: { user_message: "input" },
+                    },
+                    {
+                      id: "e2",
+                      from: "agent",
+                      to: "final",
+                      map: { final_output: "response" },
+                    },
+                  ],
+                  tools: {},
                 },
-                {
-                  version_id: "WVF-101",
+                manifest_hash: "hash-child-2",
+                compiler_version: "compiler",
+                compiled_artifact_uri: "s3://compiled/wf-child/2.py",
+                compiled_bundle: null,
+                validation_report: { valid: true, errors: [], warnings: [] },
+                created_by: "@test",
+                created_at: "2026-06-09T00:00:00Z",
+                published_by: "@test",
+                published_at: "2026-06-09T00:30:00Z",
+              },
+              {
+                version_id: "WVF-101",
+                workflow_id: "wf-child",
+                version_number: 3,
+                status: "published",
+                manifest: {
+                  schema_version: 1,
                   workflow_id: "wf-child",
-                  version_number: 3,
-                  status: "published",
-                  manifest: {
-                    schema_version: 1,
-                    workflow_id: "wf-child",
-                    name: "Child Workflow",
-                    nodes: {
-                      start: {
-                        id: "start",
-                        type: "start",
-                        trigger: {
-                          mode: "event",
-                          event_name: "ticket.approved",
-                          alias: "prod",
-                          enabled: true,
-                        },
-                        outputs: { user_message: { type: "string" } },
+                  name: "Child Workflow",
+                  nodes: {
+                    start: {
+                      id: "start",
+                      type: "start",
+                      trigger: {
+                        mode: "event",
+                        event_name: "ticket.approved",
+                        alias: "prod",
+                        enabled: true,
                       },
-                      router: {
-                        id: "router",
-                        type: "router",
-                        inputs: { decision: { type: "string" } },
-                        outputs: {},
-                        branches: [],
-                      },
-                      agent: {
-                        id: "agent",
-                        type: "agent",
-                        name: "Child agent",
-                        model: "inherit",
-                        instructions: {
-                          type: "inline",
-                          text: "Summarize the approval context.",
-                        },
-                        tools: [],
-                        inputs: { input: { type: "string" } },
-                        outputs: { final_output: { type: "string" } },
-                      },
-                      review_note: {
-                        id: "review_note",
-                        type: "note",
-                        text: "Escalate only when the approval payload is incomplete.",
-                      },
-                      final: {
-                        id: "final",
-                        type: "output",
-                        inputs: { response: { type: "string" } },
-                      },
+                      outputs: { user_message: { type: "string" } },
                     },
-                    edges: [
-                      {
-                        id: "e1",
-                        from: "start",
-                        to: "agent",
-                        map: { user_message: "input" },
+                    router: {
+                      id: "router",
+                      type: "router",
+                      inputs: { decision: { type: "string" } },
+                      outputs: {},
+                      branches: [],
+                    },
+                    agent: {
+                      id: "agent",
+                      type: "agent",
+                      name: "Child agent",
+                      model: "inherit",
+                      instructions: {
+                        type: "inline",
+                        text: "Summarize the approval context.",
                       },
-                      {
-                        id: "e2",
-                        from: "agent",
-                        to: "final",
-                        map: { final_output: "response" },
-                      },
-                    ],
-                    tools: {},
+                      tools: [],
+                      inputs: { input: { type: "string" } },
+                      outputs: { final_output: { type: "string" } },
+                    },
+                    review_note: {
+                      id: "review_note",
+                      type: "note",
+                      text: "Escalate only when the approval payload is incomplete.",
+                    },
+                    final: {
+                      id: "final",
+                      type: "output",
+                      inputs: { response: { type: "string" } },
+                    },
                   },
-                  manifest_hash: "hash-child-3",
-                  compiler_version: "compiler",
-                  compiled_artifact_uri: "s3://compiled/wf-child/3.py",
-                  compiled_bundle: null,
-                  validation_report: { valid: true, errors: [], warnings: [] },
-                  created_by: "@test",
-                  created_at: "2026-06-10T00:00:00Z",
-                  published_by: "@test",
-                  published_at: "2026-06-10T00:30:00Z",
+                  edges: [
+                    {
+                      id: "e1",
+                      from: "start",
+                      to: "agent",
+                      map: { user_message: "input" },
+                    },
+                    {
+                      id: "e2",
+                      from: "agent",
+                      to: "final",
+                      map: { final_output: "response" },
+                    },
+                  ],
+                  tools: {},
                 },
-              ]),
-            );
-          }
-          if (params.workflowId === "wf-child-2") {
-            return HttpResponse.json(
-              envelope([
-                {
-                  version_id: "WVF-202",
+                manifest_hash: "hash-child-3",
+                compiler_version: "compiler",
+                compiled_artifact_uri: "s3://compiled/wf-child/3.py",
+                compiled_bundle: null,
+                validation_report: { valid: true, errors: [], warnings: [] },
+                created_by: "@test",
+                created_at: "2026-06-10T00:00:00Z",
+                published_by: "@test",
+                published_at: "2026-06-10T00:30:00Z",
+              },
+            ]),
+          );
+        }
+        if (params.workflowId === "wf-child-2") {
+          return HttpResponse.json(
+            envelope([
+              {
+                version_id: "WVF-202",
+                workflow_id: "wf-child-2",
+                version_number: 7,
+                status: "draft",
+                manifest: {
+                  schema_version: 1,
                   workflow_id: "wf-child-2",
-                  version_number: 7,
-                  status: "draft",
-                  manifest: {
-                    schema_version: 1,
-                    workflow_id: "wf-child-2",
-                    name: "Summaries",
-                    nodes: {
-                      start: {
-                        id: "start",
-                        type: "start",
-                        outputs: { user_message: { type: "string" } },
-                      },
-                      final: {
-                        id: "final",
-                        type: "output",
-                        inputs: { response: { type: "string" } },
-                      },
+                  name: "Summaries",
+                  nodes: {
+                    start: {
+                      id: "start",
+                      type: "start",
+                      outputs: { user_message: { type: "string" } },
                     },
-                    edges: [],
-                    tools: {},
+                    final: {
+                      id: "final",
+                      type: "output",
+                      inputs: { response: { type: "string" } },
+                    },
                   },
-                  manifest_hash: "hash-child-7",
-                  compiler_version: "compiler",
-                  compiled_artifact_uri: null,
-                  compiled_bundle: null,
-                  validation_report: {
-                    valid: false,
-                    errors: [],
-                    warnings: [
-                      {
-                        code: "draft_warning",
-                        path: "nodes.final",
-                        message: "Needs review",
-                        severity: "warning",
-                      },
-                    ],
-                  },
-                  created_by: "@test",
-                  created_at: "2026-06-11T00:00:00Z",
-                  published_by: null,
-                  published_at: null,
+                  edges: [],
+                  tools: {},
                 },
-              ]),
-            );
-          }
-          return HttpResponse.json(envelope([]));
-        },
-      ),
+                manifest_hash: "hash-child-7",
+                compiler_version: "compiler",
+                compiled_artifact_uri: null,
+                compiled_bundle: null,
+                validation_report: {
+                  valid: false,
+                  errors: [],
+                  warnings: [
+                    {
+                      code: "draft_warning",
+                      path: "nodes.final",
+                      message: "Needs review",
+                      severity: "warning",
+                    },
+                  ],
+                },
+                created_by: "@test",
+                created_at: "2026-06-11T00:00:00Z",
+                published_by: null,
+                published_at: null,
+              },
+            ]),
+          );
+        }
+        return HttpResponse.json(envelope([]));
+      }),
     );
     const m = manifest();
     m.nodes.subflow = {
@@ -4525,7 +4606,9 @@ describe("Inspector", () => {
         "Alias prod resolves to active deployment DEP-prod-1.",
       ),
     ).toBeInTheDocument();
-    const contract = await screen.findByTestId("inspector-subworkflow-contract");
+    const contract = await screen.findByTestId(
+      "inspector-subworkflow-contract",
+    );
     expect(contract).toHaveTextContent("Resolved child contract");
     expect(contract).toHaveTextContent(
       "Alias prod resolves to deployment DEP-prod-1.",
@@ -5668,12 +5751,8 @@ describe("TraceReplayGraph", () => {
     expect(
       within(traceStep).getByText("Object store + AGE"),
     ).toBeInTheDocument();
-    expect(
-      within(traceStep).getByText("Apache AGE graph"),
-    ).toBeInTheDocument();
-    expect(
-      within(traceStep).getByText("Activated KBV-3"),
-    ).toBeInTheDocument();
+    expect(within(traceStep).getByText("Apache AGE graph")).toBeInTheDocument();
+    expect(within(traceStep).getByText("Activated KBV-3")).toBeInTheDocument();
     expect(within(traceStep).getByText("AGE synced")).toBeInTheDocument();
     expect(traceStep).toHaveTextContent("semantic");
     expect(traceStep).toHaveTextContent("intfloat/e5-large-v2");
@@ -6246,7 +6325,10 @@ describe("TraceReplayGraph", () => {
         event_type: "workflow.run.step",
         node_id: "start",
         payload: {
-          step: runtimeApprovalRun.summary?.steps?.[0] as Record<string, unknown>,
+          step: runtimeApprovalRun.summary?.steps?.[0] as Record<
+            string,
+            unknown
+          >,
         },
         created_at: "2026-06-13T00:10:00Z",
       },
@@ -6258,7 +6340,10 @@ describe("TraceReplayGraph", () => {
         event_type: "workflow.run.step",
         node_id: "tool_gate",
         payload: {
-          step: runtimeApprovalRun.summary?.steps?.[1] as Record<string, unknown>,
+          step: runtimeApprovalRun.summary?.steps?.[1] as Record<
+            string,
+            unknown
+          >,
         },
         created_at: "2026-06-13T00:10:01Z",
       },
@@ -6315,9 +6400,15 @@ describe("TraceReplayGraph", () => {
     const traceStep = screen.getByTestId("trace-path-step-1");
     expect(within(traceStep).getByText("Runtime approval")).toBeInTheDocument();
     expect(within(traceStep).getByText("Resume target")).toBeInTheDocument();
-    expect(within(traceStep).getByText("Paused for runtime approval")).toBeInTheDocument();
-    expect(within(traceStep).getByText("Runtime approval recorded")).toBeInTheDocument();
-    expect(traceStep).toHaveTextContent("Runtime approval RA-TOOL-1 approved: policy reviewed");
+    expect(
+      within(traceStep).getByText("Paused for runtime approval"),
+    ).toBeInTheDocument();
+    expect(
+      within(traceStep).getByText("Runtime approval recorded"),
+    ).toBeInTheDocument();
+    expect(traceStep).toHaveTextContent(
+      "Runtime approval RA-TOOL-1 approved: policy reviewed",
+    );
 
     await userEvent.click(traceStep);
     expect(onSelectNodeId).toHaveBeenCalledWith("tool_gate");
@@ -6435,8 +6526,12 @@ describe("TraceReplayGraph", () => {
     const traceStep = screen.getByTestId("trace-path-step-1");
     expect(within(traceStep).getByText("Approval gate")).toBeInTheDocument();
     expect(within(traceStep).getByText("Resume target")).toBeInTheDocument();
-    expect(within(traceStep).getByText("Paused for approval")).toBeInTheDocument();
-    expect(within(traceStep).queryByText("Paused for runtime approval")).not.toBeInTheDocument();
+    expect(
+      within(traceStep).getByText("Paused for approval"),
+    ).toBeInTheDocument();
+    expect(
+      within(traceStep).queryByText("Paused for runtime approval"),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(traceStep);
     expect(onSelectNodeId).toHaveBeenCalledWith("review_gate");
@@ -6501,7 +6596,10 @@ describe("TraceReplayGraph", () => {
         event_type: "workflow.run.step",
         node_id: "start",
         payload: {
-          step: inheritedApprovalRun.summary?.steps?.[0] as Record<string, unknown>,
+          step: inheritedApprovalRun.summary?.steps?.[0] as Record<
+            string,
+            unknown
+          >,
         },
         created_at: "2026-06-13T00:12:00Z",
       },
@@ -6513,7 +6611,10 @@ describe("TraceReplayGraph", () => {
         event_type: "workflow.run.step",
         node_id: "review_gate",
         payload: {
-          step: inheritedApprovalRun.summary?.steps?.[1] as Record<string, unknown>,
+          step: inheritedApprovalRun.summary?.steps?.[1] as Record<
+            string,
+            unknown
+          >,
         },
         created_at: "2026-06-13T00:12:01Z",
       },
@@ -6556,9 +6657,13 @@ describe("TraceReplayGraph", () => {
 
     const traceStep = screen.getByTestId("trace-path-step-1");
     expect(within(traceStep).getByText("Approval gate")).toBeInTheDocument();
-    expect(within(traceStep).getByText("Inherited checkpoint")).toBeInTheDocument();
+    expect(
+      within(traceStep).getByText("Inherited checkpoint"),
+    ).toBeInTheDocument();
     expect(within(traceStep).getByText("Resume target")).toBeInTheDocument();
-    expect(within(traceStep).getByText("Paused for approval")).toBeInTheDocument();
+    expect(
+      within(traceStep).getByText("Paused for approval"),
+    ).toBeInTheDocument();
     expect(traceStep).toHaveTextContent("Checkpoint #7 from WR-parent");
 
     await userEvent.click(traceStep);
@@ -6795,8 +6900,12 @@ describe("TraceReplayGraph", () => {
     );
 
     const recoveredTraceStep = screen.getByTestId("trace-path-step-1");
-    expect(within(recoveredTraceStep).getByText("Recovered")).toBeInTheDocument();
-    expect(recoveredTraceStep).toHaveTextContent("Recovered by worker-7: worker lease expired");
+    expect(
+      within(recoveredTraceStep).getByText("Recovered"),
+    ).toBeInTheDocument();
+    expect(recoveredTraceStep).toHaveTextContent(
+      "Recovered by worker-7: worker lease expired",
+    );
 
     await userEvent.click(recoveredTraceStep);
     expect(onSelectNodeId).toHaveBeenCalledWith("support_agent");
@@ -6917,7 +7026,9 @@ describe("TraceReplayGraph", () => {
     );
 
     const expiredTraceStep = screen.getByTestId("trace-path-step-1");
-    expect(within(expiredTraceStep).getByText("Run expired")).toBeInTheDocument();
+    expect(
+      within(expiredTraceStep).getByText("Run expired"),
+    ).toBeInTheDocument();
     expect(expiredTraceStep).toHaveTextContent("Expired: worker lease lost");
 
     await userEvent.click(expiredTraceStep);
@@ -6983,8 +7094,26 @@ describe("Component enhancements (label / advanced / output / legacy)", () => {
       default_inputs: {},
       default_outputs: {},
       fields: [
-        { key: "url", label: "URL", type: "string", required: false, default: "", advanced: false, constraints: {}, examples: [] },
-        { key: "timeout_seconds", label: "Timeout", type: "number", required: false, default: 30, advanced: true, constraints: {}, examples: [] },
+        {
+          key: "url",
+          label: "URL",
+          type: "string",
+          required: false,
+          default: "",
+          advanced: false,
+          constraints: {},
+          examples: [],
+        },
+        {
+          key: "timeout_seconds",
+          label: "Timeout",
+          type: "number",
+          required: false,
+          default: 30,
+          advanced: true,
+          constraints: {},
+          examples: [],
+        },
       ],
       setup_checks: [],
     };
@@ -6999,9 +7128,13 @@ describe("Component enhancements (label / advanced / output / legacy)", () => {
       />,
     );
     expect(screen.getByTestId("inspector-field-url")).toBeInTheDocument();
-    expect(screen.queryByTestId("inspector-field-timeout_seconds")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("inspector-field-timeout_seconds"),
+    ).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("inspector-toggle-advanced"));
-    expect(screen.getByTestId("inspector-field-timeout_seconds")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("inspector-field-timeout_seconds"),
+    ).toBeInTheDocument();
   });
 
   // C — inline last output
@@ -7041,7 +7174,9 @@ describe("Component enhancements (label / advanced / output / legacy)", () => {
         onChangeWorkflow={vi.fn()}
       />,
     );
-    expect(screen.queryByTestId("inspector-node-output")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("inspector-node-output"),
+    ).not.toBeInTheDocument();
   });
 
   // D — legacy palette
@@ -7063,9 +7198,13 @@ describe("Component enhancements (label / advanced / output / legacy)", () => {
     ];
     render(<NodePalette onAddNode={vi.fn()} components={components} />);
     // legacy item hidden by default
-    expect(screen.queryByTestId("palette-external_app")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("palette-external_app"),
+    ).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("palette-show-legacy"));
     expect(screen.getByTestId("palette-external_app")).toBeInTheDocument();
-    expect(screen.getByTestId("palette-legacy-external_app")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("palette-legacy-external_app"),
+    ).toBeInTheDocument();
   });
 });

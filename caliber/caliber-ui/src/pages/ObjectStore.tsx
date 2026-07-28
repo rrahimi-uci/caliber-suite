@@ -43,6 +43,7 @@ import {
   FileType2,
   FileVideo,
   Folder,
+  FolderInput,
   FolderPlus,
   GripVertical,
   HardDrive,
@@ -336,6 +337,11 @@ export function ObjectStore(): JSX.Element {
   } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [importedKey, setImportedKey] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<{
+    name: string;
+    ref: string;
+  } | null>(null);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [bucketPaneWidth, setBucketPaneWidth] = useState(() =>
     readPaneWidth(BUCKET_PANE_WIDTH_KEY, BUCKET_PANE_DEFAULT),
@@ -783,6 +789,28 @@ export function ObjectStore(): JSX.Element {
     });
   };
 
+  const addToProjectFiles = (object: ObjectStoreObject): void => {
+    if (!selectedBucket) return;
+    void run(`import:${object.key}`, async () => {
+      const file = await caliberApi.importObjectStoreObject(selectedBucket, {
+        key: object.key,
+        expected_etag: object.etag,
+      });
+      setImportedKey(object.key);
+      const managedRef = file.immutable_ref?.file_ref ?? file.file_ref;
+      setImportNotice({ name: file.name, ref: managedRef });
+      if (navigator.clipboard && managedRef) {
+        // Import already succeeded; clipboard permission is merely a
+        // convenience and must not turn that success into an error banner.
+        await navigator.clipboard.writeText(managedRef).catch(() => undefined);
+      }
+      window.setTimeout(
+        () => setImportedKey((current) => (current === object.key ? null : current)),
+        1800,
+      );
+    });
+  };
+
   // Copy the keys of all currently-selected objects, one per line.
   const copySelectedKeys = (): void => {
     if (!navigator.clipboard || !selected.size) return;
@@ -897,6 +925,22 @@ export function ObjectStore(): JSX.Element {
             onClick={() => setError(null)}
             aria-label="Dismiss error"
             className="text-red-400 hover:text-red-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {importNotice && (
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/95 px-4 py-3 text-sm text-emerald-800 shadow-card">
+          <span>
+            Added <strong>{importNotice.name}</strong> to active project files as{" "}
+            <code className="text-xs">{importNotice.ref}</code>.
+          </span>
+          <button
+            type="button"
+            onClick={() => setImportNotice(null)}
+            aria-label="Dismiss import confirmation"
+            className="text-emerald-500 hover:text-emerald-700"
           >
             <X className="h-4 w-4" />
           </button>
@@ -1684,6 +1728,19 @@ export function ObjectStore(): JSX.Element {
                                   <Check className="h-4 w-4 text-emerald-500" />
                                 ) : (
                                   <Copy className="h-4 w-4" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy === `import:${o.key}`}
+                                onClick={() => addToProjectFiles(o)}
+                                title="Add immutable copy to active project files"
+                                className={`ml-0.5 ${iconButtonClass} disabled:opacity-50`}
+                              >
+                                {importedKey === o.key ? (
+                                  <Check className="h-4 w-4 text-emerald-500" />
+                                ) : (
+                                  <FolderInput className="h-4 w-4" />
                                 )}
                               </button>
                               <button

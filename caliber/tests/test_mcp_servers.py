@@ -217,6 +217,64 @@ class TestCreateMcpServer:
         tools = r.json()["data"]["discovered_tools"]
         assert [t["name"] for t in tools] == ["query", "list_tables"]
 
+    def test_create_seeds_explicit_tool_policies(self, client: TestClient) -> None:
+        r = client.post(
+            BASE,
+            json={
+                "name": "Governed DB",
+                "transport": "streamable-http",
+                "uri": "http://mcp-db-relational:8101/mcp",
+                "discovered_tools": [{"name": "run_query"}],
+                "tool_policies": {
+                    "run_query": {
+                        "allowed": True,
+                        "side_effect_level": "read",
+                        "requires_approval": False,
+                    }
+                },
+            },
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["data"]["tool_policies"]["run_query"] == {
+            "allowed": True,
+            "side_effect_level": "read",
+            "requires_approval": False,
+        }
+
+    def test_create_rejects_policy_for_unseeded_tool(self, client: TestClient) -> None:
+        r = client.post(
+            BASE,
+            json={
+                "name": "Invalid Policy",
+                "transport": "stdio",
+                "command": "npx",
+                "discovered_tools": [{"name": "read_file"}],
+                "tool_policies": {
+                    "delete_file": {
+                        "allowed": True,
+                        "side_effect_level": "write",
+                        "requires_approval": True,
+                    }
+                },
+            },
+        )
+        assert r.status_code == 400
+        assert "outside discovered_tools" in r.json()["detail"]
+
+    def test_create_rejects_incomplete_seeded_tool_policy(self, client: TestClient) -> None:
+        r = client.post(
+            BASE,
+            json={
+                "name": "Implicit Policy",
+                "transport": "stdio",
+                "command": "npx",
+                "discovered_tools": [{"name": "read_file"}],
+                "tool_policies": {"read_file": {"allowed": True}},
+            },
+        )
+        assert r.status_code == 400
+        assert "must explicitly set" in r.json()["detail"]
+
     def test_forbidden_for_non_admin(self, client: TestClient) -> None:
         r = client.post(
             BASE,
@@ -615,8 +673,16 @@ class TestToolListAndPolicy:
     def test_policy_blocks_invoke(self, client: TestClient, db_session: Session) -> None:
         _seed_server(
             db_session,
+            command="${PYTHON}",
+            args=["-m", "caliber.mcp_servers.db", "--mode", "relational"],
             discovered_tools=[{"name": "read_file", "description": "Read"}],
-            tool_policies={"read_file": {"allowed": False}},
+            tool_policies={
+                "read_file": {
+                    "allowed": False,
+                    "side_effect_level": "read",
+                    "requires_approval": False,
+                }
+            },
         )
         r = client.post(
             f"{BASE}/MCP-test1/invoke-tool",

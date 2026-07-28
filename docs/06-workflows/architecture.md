@@ -2,15 +2,15 @@
 
 ## At a glance
 
-| Dimension | Workflows module |
-| --- | --- |
-| **What it is** | CALIBER's execution backbone — authoring, deterministic compilation, and durable runtime for agent workflows. |
-| **Source of truth** | The workflow graph as a manifest (`workflows/manifest.py`), from which every downstream step derives. |
-| **Runtime model** | The interpreter (`workflows/runtime.py`) executes the IR directly via a background worker (`orchestrator/workflow_run_worker.py`); generated Python is export/review material only. |
-| **Where state lives** | Authoring records (`CaliberWorkflowVersion`, `CaliberWorkflowDeployment`) kept separate from runtime records (`CaliberWorkflowRun`, events, checkpoints, approvals). |
-| **Key surfaces** | HTTP routes under `/ajax-api/2.0/mlflow/caliber` plus Workflow Studio (`Workflows.tsx`, `WorkflowEditor.tsx`). |
-| **Trust / safety** | User-authored manifests are accepted as data, never executed directly; mutating endpoints require the `operator` scope; transitions validated via `run_state.py`. |
-| **Calibration** | `routes/workflow_calibration.py` enqueues workflow-specific calibration runs with dataset/judge gating. |
+| Dimension                   | Workflows module                                                                                                                                                                        |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**        | CALIBER's execution backbone — authoring, deterministic compilation, and durable runtime for agent workflows.                                                                          |
+| **Source of truth**   | The workflow graph as a manifest (`workflows/manifest.py`), from which every downstream step derives.                                                                                 |
+| **Runtime model**     | The interpreter (`workflows/runtime.py`) executes the IR directly via a background worker (`orchestrator/workflow_run_worker.py`); generated Python is export/review material only. |
+| **Where state lives** | Authoring records (`CaliberWorkflowVersion`, `CaliberWorkflowDeployment`) kept separate from runtime records (`CaliberWorkflowRun`, events, checkpoints, approvals).              |
+| **Key surfaces**      | HTTP routes under`/ajax-api/2.0/mlflow/caliber` plus Workflow Studio (`Workflows.tsx`, `WorkflowEditor.tsx`).                                                                     |
+| **Trust / safety**    | User-authored manifests are accepted as data, never executed directly; mutating endpoints require the`operator` scope; transitions validated via `run_state.py`.                    |
+| **Calibration**       | `routes/workflow_calibration.py` enqueues workflow-specific calibration runs with dataset/judge gating.                                                                               |
 
 The sections below start from this picture and drill down into the scope, boundaries, data model, APIs, lifecycle, and trust boundaries in detail.
 
@@ -67,16 +67,16 @@ Each responsibility above maps to a clear owner, so that authoring, compilation,
 and execution can evolve independently. The following table records who owns
 what:
 
-| Responsibility | Owner | Notes |
-| --- | --- | --- |
-| Workflow inventory | `routes/workflows.py`, `CaliberWorkflow` | Logical workflow containers, imports, benchmark reports, session memory. |
-| Version lifecycle | `routes/workflow_versions.py`, `CaliberWorkflowVersion`, `CaliberWorkflowDeployment` | Drafting, optimistic update, validate, compile, publish, export, preview, run. |
-| Manifest schema | `workflows/manifest.py` | Source-of-truth typed schema and canonical hashing rules. |
-| Deterministic compilation | `workflows/compiler.py` | Manifest -> IR -> generated Python artifact and report. |
-| Runtime interpreter | `workflows/runtime.py` | Executes the IR directly inside CALIBER. Generated Python is export/review material, not the execution path. |
-| Queued execution | `workflows/run_launch.py`, `orchestrator/workflow_run_worker.py` | Durable enqueue plus background worker claim/execute/heartbeat lifecycle. |
-| Run read/write API | `routes/workflow_runs.py` | Create, lineage, manifest, events, trace, checkpoints, cancel, retry, approvals, resume. |
-| Calibration | `routes/workflow_calibration.py` | Workflow-specific calibration queue entry and dataset/judge gating. |
+| Responsibility            | Owner                                                                                      | Notes                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Workflow inventory        | `routes/workflows.py`, `CaliberWorkflow`                                               | Logical workflow containers, dependency-preflighted import/clone-as-new, benchmark reports, session memory.  |
+| Version lifecycle         | `routes/workflow_versions.py`, `CaliberWorkflowVersion`, `CaliberWorkflowDeployment` | Drafting, optimistic update, validate, compile, publish, export, preview, run.                               |
+| Manifest schema           | `workflows/manifest.py`                                                                  | Source-of-truth typed schema and canonical hashing rules.                                                    |
+| Deterministic compilation | `workflows/compiler.py`                                                                  | Manifest -> IR -> generated Python artifact and report.                                                      |
+| Runtime interpreter       | `workflows/runtime.py`                                                                   | Executes the IR directly inside CALIBER. Generated Python is export/review material, not the execution path. |
+| Queued execution          | `workflows/run_launch.py`, `orchestrator/workflow_run_worker.py`                       | Durable enqueue plus background worker claim/execute/heartbeat lifecycle.                                    |
+| Run read/write API        | `routes/workflow_runs.py`                                                                | Create, lineage, manifest, events, trace, checkpoints, cancel, retry, approvals, resume.                     |
+| Calibration               | `routes/workflow_calibration.py`                                                         | Workflow-specific calibration queue entry and dataset/judge gating.                                          |
 
 These owners reflect a deliberate three-way split that recurs throughout the
 rest of this document: authoring-time graph state is kept distinct from
@@ -129,6 +129,7 @@ flowchart LR
 ```
 
 ```legend
+
 ```
 
 Several structural properties hold this picture together. The manifest is the
@@ -147,20 +148,20 @@ so observability does not depend on any external system being reachable.
 The properties above are enforced by a relational model that separates authoring
 records from runtime records. The primary entities are:
 
-| Table | Role |
-| --- | --- |
-| `CaliberWorkflow` | Logical workflow root and inventory record. |
-| `CaliberWorkflowVersion` | Draft or published immutable manifest version with validation and compilation artifacts. |
-| `CaliberWorkflowDeployment` | Mutable alias pointer to an active version. |
-| `CaliberWorkflowRun` | Queued/running/completed execution index row with summary and trace linkage. |
-| `CaliberWorkflowRunEvent` | Append-only runtime timeline. |
-| `CaliberWorkflowRunCheckpoint` | Resume-capable state snapshots. |
-| `CaliberRuntimeApprovalRequest` | In-run approval gates. |
-| `CaliberWorkflowFile` and `CaliberWorkflowFileEvent` | File metadata and lifecycle independent of storage backend. |
-| `CaliberWorkflowSessionMemory` | Durable session memory for workflow nodes. |
-| `CaliberWorkflowBenchmarkReport` | Product bakeoff scorecards. |
-| `CaliberWorkflowPatch` and `CaliberWorkflowPromotion` | Patch proposals and publish lineage. |
-| `CaliberWorkflowService` | Optional published HTTP service view over a workflow. |
+| Table                                                     | Role                                                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `CaliberWorkflow`                                       | Logical workflow root and inventory record.                                              |
+| `CaliberWorkflowVersion`                                | Draft or published immutable manifest version with validation and compilation artifacts. |
+| `CaliberWorkflowDeployment`                             | Mutable alias pointer to an active version.                                              |
+| `CaliberWorkflowRun`                                    | Queued/running/completed execution index row with summary and trace linkage.             |
+| `CaliberWorkflowRunEvent`                               | Append-only runtime timeline.                                                            |
+| `CaliberWorkflowRunCheckpoint`                          | Resume-capable state snapshots.                                                          |
+| `CaliberRuntimeApprovalRequest`                         | In-run approval gates.                                                                   |
+| `CaliberWorkflowFile` and `CaliberWorkflowFileEvent`  | File metadata and lifecycle independent of storage backend.                              |
+| `CaliberWorkflowSessionMemory`                          | Durable session memory for workflow nodes.                                               |
+| `CaliberWorkflowBenchmarkReport`                        | Product bakeoff scorecards.                                                              |
+| `CaliberWorkflowPatch` and `CaliberWorkflowPromotion` | Patch proposals and publish lineage.                                                     |
+| `CaliberWorkflowService`                                | Optional published HTTP service view over a workflow.                                    |
 
 This shape carries several intentional consequences. Workflow authoring state and
 runtime state are kept deliberately separate, so editing a workflow never
@@ -183,6 +184,7 @@ creates, imports, and inspects workflows:
 
 - `GET /workflows`
 - `POST /workflows`
+- `POST /workflows/import/preview`
 - `POST /workflows/import`
 - `GET /workflows/{workflow_id}`
 - `PATCH /workflows/{workflow_id}`
@@ -192,6 +194,14 @@ creates, imports, and inspects workflows:
 - `GET /workflows/{workflow_id}/session-memory`
 - `DELETE /workflows/{workflow_id}/session-memory`
 - benchmark report CRUD
+
+The Workflows page exposes both import and clone-as-new. Import accepts YAML or
+JSON, validates the graph, rejects inline secrets, inventories visible prompt,
+skill, tool, dataset, MCP, knowledge-base, and subworkflow dependencies, and
+refuses unresolved dependencies before persistence. Clone uses the same
+preflight against a selected saved version. Both operations generate a fresh
+workflow id, rewrite ownership to the authenticated actor, and create a new
+draft v1; referenced dependencies remain linked rather than being copied.
 
 The second group drives the version lifecycle, from drafting a manifest through
 validation, compilation, publication, preview, run, patch proposal, and export:
@@ -327,6 +337,11 @@ On the access-control side, the following controls apply:
 - Deployment rollback is `operator`-scoped to match promote, so whoever can move
   the live alias forward can also roll it back.
 - File metadata is DB-owned even when the underlying bytes live in S3 or MinIO.
+- A managed `file_input` embeds a content-pinned project-file snapshot. Runtime
+  resolution verifies the declared `caliber://` ref, file id, project scope,
+  byte length, object version when available, stored digest, and actual SHA-256
+  before content is exposed. Legacy host paths remain an explicitly advanced,
+  operator-controlled development option.
 
 Those controls rest on a clear set of trust boundaries. User-authored manifests
 are accepted as data and never executed directly; the compiler first parses and
@@ -384,6 +399,13 @@ versions or patches rather than in-place mutation. And several advanced
 behaviors, including wait/resume and approvals, are durable but operationally
 complex, which is precisely why events and checkpoints are mandatory rather than
 optional conveniences.
+
+Import is a manifest-and-reference operation, not a portable dependency bundle:
+it does not copy or remap prompts, skills, tools, datasets, knowledge bases, MCP
+servers, or child workflows. Managed project files execute through CALIBER's
+scoped runtime in normal synchronous and queued/service runs; an exported
+standalone Python artifact has no implicit access to CALIBER's file metadata or
+storage credentials and therefore needs an explicit host integration.
 
 Taken together, these pieces make the workflows module the product's execution
 backbone. It combines a strict graph source of truth, a deterministic compiler,

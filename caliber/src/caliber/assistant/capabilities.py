@@ -65,6 +65,10 @@ class Capability:
     required_scopes: tuple[str, ...] = ()
     properties: Mapping[str, Any] = field(default_factory=dict)
     required: tuple[str, ...] = ()
+    # Names this capability guarantees in its result.  The deterministic plan
+    # builder uses these to wire a later input to a prior step without guessing
+    # from prose (for example review_queue.create.queue_id -> add_items.queue_id).
+    result_properties: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.tier not in _VALID_TIERS:
@@ -80,6 +84,16 @@ class Capability:
         from caliber.assistant.tools import _fn  # noqa: PLC0415
 
         return _fn(self.tool_name, self.description, dict(self.properties), list(self.required))
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        """JSON Schema used by both engines and the human plan-input form."""
+        return {
+            "type": "object",
+            "properties": dict(self.properties),
+            "required": list(self.required),
+            "additionalProperties": False,
+        }
 
 
 # --- registry ---------------------------------------------------------------
@@ -278,6 +292,7 @@ def _register_builtins() -> None:
             tier=TIER_READ,
             handler=_judge_list,
             required_scopes=("viewer",),
+            result_properties=("judges",),
         )
     )
     register(
@@ -300,6 +315,7 @@ def _register_builtins() -> None:
                 "tags": {"type": "array", "items": {"type": "string"}},
             },
             required=("name", "instructions"),
+            result_properties=("judge_id", "name", "status"),
         )
     )
     register(
@@ -310,6 +326,7 @@ def _register_builtins() -> None:
             tier=TIER_READ,
             handler=_review_queue_list,
             required_scopes=("viewer",),
+            result_properties=("review_queues",),
         )
     )
     register(
@@ -330,6 +347,7 @@ def _register_builtins() -> None:
                 "reviewers": {"type": "array", "items": {"type": "string"}},
             },
             required=("name", "questions"),
+            result_properties=("queue_id", "name", "questions"),
         )
     )
     register(
@@ -346,6 +364,7 @@ def _register_builtins() -> None:
                 "tags": {"type": "array", "items": {"type": "string"}},
             },
             required=("name",),
+            result_properties=("dataset_id", "name"),
         )
     )
     register(
@@ -363,6 +382,7 @@ def _register_builtins() -> None:
                 "assigned_to": {"type": "string"},
             },
             required=("queue_id", "trace_ids"),
+            result_properties=("queue_id", "added"),
         )
     )
     register(
@@ -381,6 +401,7 @@ def _register_builtins() -> None:
                 "agent_id": {"type": "string"},
             },
             required=("workflow_id", "agent_id"),
+            result_properties=("job_id",),
         )
     )
 

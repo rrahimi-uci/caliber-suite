@@ -203,7 +203,14 @@ endpoint:
 - `GET /object-store/buckets/{bucket}/object`
 - `GET /object-store/buckets/{bucket}/object/preview`
 - `GET /object-store/buckets/{bucket}/object/extract`
+- `POST /object-store/buckets/{bucket}/object/import`
 - `DELETE /object-store/buckets/{bucket}/object`
+
+The import action is the explicit bridge from the untracked console to managed
+workflow storage. It reads the selected live object with an optional expected
+ETag, rejects a stale selection or an oversized object, writes an immutable
+project-file record through the project's configured storage backend, and
+returns the content-pinned reference accepted by a workflow `file_input` node.
 
 Scoped file-storage routes persist and retrieve run-bound files and artifacts:
 
@@ -306,6 +313,10 @@ boundary between CALIBER and untrusted storage:
 - Server-side media sniffing defeats basic extension and declared-type spoofing.
 - The S3 backend uses the configured public endpoint when generating presigned
   URLs, avoiding internal endpoint leakage when browser-direct access is used.
+- Object-to-project import requires an active project and an operator-visible,
+  active project. An expected ETag makes the browse-to-import transition fail
+  closed if the source object changes; the managed record then pins its own
+  SHA-256 and preserves source bucket/key/ETag lineage.
 
 Consistent with treating raw object storage as untrusted, the module hardens
 how content is read back and rendered:
@@ -367,7 +378,8 @@ Those extension points sit alongside constraints that bound the current design:
 - The Object Store page is S3-compatible only; it does not browse the local
   filesystem backend used by `workflow_storage.backend=local`.
 - Console object state and DB-backed file metadata are deliberately separate, so
-  there is no automatic reconciliation layer between them.
+  there is no automatic reconciliation layer between them. Import creates a
+  managed copy; later console changes do not mutate an existing workflow ref.
 - Knowledge-base builds currently use their own direct object-store client
   rather than `WorkingDirectoryService`, which keeps the feature moving but
   means the storage story is not yet fully unified.

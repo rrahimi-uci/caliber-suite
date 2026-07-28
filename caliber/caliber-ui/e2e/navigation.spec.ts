@@ -5,6 +5,7 @@ import { goToSidebarRoute, signIn } from "./helpers";
 const EXPECTED_NAV_ORDER = [
   "Dashboard",
   "Workflows",
+  "Agents",
   "Plans",
   "Prompts",
   "Tools",
@@ -29,6 +30,7 @@ const EXPECTED_NAV_ORDER = [
 // site, so both are exercised separately from this list.
 const SIDEBAR_ROUTES = [
   { label: "Workflows", path: "/caliber/workflows", heading: "Workflows" },
+  { label: "Agents", path: "/caliber/agents", heading: "Agents" },
   { label: "Plans", path: "/caliber/aria/plans", heading: "Aria Plans" },
   { label: "Prompts", path: "/caliber/prompts", heading: "Prompts" },
   { label: "Tools", path: "/caliber/tools", heading: "Tools" },

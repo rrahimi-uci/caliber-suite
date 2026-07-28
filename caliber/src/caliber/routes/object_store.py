@@ -18,15 +18,20 @@ import re
 from http import HTTPStatus
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from caliber.auth import SCOPE_ADMIN, require_scopes, require_user
-from caliber.routes._deps import parse_json_object
+from caliber.audit import record as audit_record
+from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
+from caliber.db.models import CaliberProject
+from caliber.routes._deps import get_session_factory, get_working_dir_service, parse_json_object
+from caliber.routes.files import _storage_http
 from caliber.secrets import resolve_secret
+from caliber.storage import StorageError, safe_relative_path
 
 logger = logging.getLogger("caliber.routes.object_store")
 
@@ -40,6 +45,7 @@ FOLDERS_PATH = PREFIX + "/object-store/buckets/{bucket}/folders"
 OBJECT_PATH = PREFIX + "/object-store/buckets/{bucket}/object"
 OBJECT_PREVIEW_PATH = PREFIX + "/object-store/buckets/{bucket}/object/preview"
 OBJECT_EXTRACT_PATH = PREFIX + "/object-store/buckets/{bucket}/object/extract"
+OBJECT_IMPORT_PATH = PREFIX + "/object-store/buckets/{bucket}/object/import"
 
 # S3 bucket naming: 3-63 chars, lowercase letters/digits/dot/hyphen, start+end alphanumeric.
 _BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]{1,61}[a-z0-9]$")
@@ -148,6 +154,7 @@ _S3_CODE_STATUS: dict[str, tuple[int, str]] = {
     "BucketAlreadyOwnedByYou": (HTTPStatus.CONFLICT, "bucket already exists"),
     "BucketAlreadyExists": (HTTPStatus.CONFLICT, "bucket already exists"),
     "BucketNotEmpty": (HTTPStatus.CONFLICT, "bucket is not empty"),
+    "PreconditionFailed": (HTTPStatus.CONFLICT, "object changed; refresh and try again"),
 }
 
 
@@ -680,6 +687,102 @@ async def delete_object(request: Request) -> Response:
     return Response(status_code=204)
 
 
+async def import_object_to_project(  # noqa: PLR0912, PLR0915 - guarded copy transaction
+    request: Request,
+) -> JSONResponse:
+    """Copy a live object into the caller's managed project file namespace.
+
+    ``expected_etag`` makes the browse -> import transition fail closed when an
+    object changed after it was listed.  The resulting response includes the
+    content-pinned ``immutable_ref`` accepted by workflow file-input nodes.
+    """
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    project_id = identity.active_project_id
+    if not project_id:
+        raise HTTPException(
+            status_code=409,
+            detail="select an active project before adding an object to workflow files",
+        )
+    cfg = _config(request)
+    bucket = _bucket_param(request)
+    payload = await parse_json_object(request)
+    key = str(payload.get("key") or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="'key' is required")
+    expected_etag = _strip_etag(payload.get("expected_etag"))
+    try:
+        relative_path = safe_relative_path(str(payload.get("path") or key))
+    except StorageError as exc:
+        raise _storage_http(exc) from exc
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        project = session.get(CaliberProject, project_id)
+        if project is None or (
+            not identity.has_scope(SCOPE_ADMIN) and project.owner != identity.user_id
+        ):
+            raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+        if project.status != "active":
+            raise HTTPException(status_code=409, detail="archived projects cannot receive files")
+
+        get_kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key}
+        if expected_etag:
+            get_kwargs["IfMatch"] = expected_etag
+        try:
+            obj = _client(request).get_object(**get_kwargs)
+            body = obj["Body"]
+            try:
+                data = body.read(_MAX_UPLOAD_BYTES + 1)
+            finally:
+                close = getattr(body, "close", None)
+                if callable(close):
+                    close()
+        except Exception as exc:
+            raise _s3_error(exc, cfg.object_store_endpoint_url) from exc
+        actual_etag = _strip_etag(obj.get("ETag"))
+        if expected_etag and actual_etag and actual_etag != expected_etag:
+            raise HTTPException(
+                status_code=409,
+                detail="object changed after it was selected; refresh and try again",
+            )
+        if len(data) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail=f"file exceeds {_MAX_UPLOAD_BYTES} bytes")
+        media_type = str(obj.get("ContentType") or "application/octet-stream")
+        service = get_working_dir_service(request).for_backend(project.storage_backend)
+        try:
+            record = service.register_project_file(
+                session,
+                project_id=project_id,
+                kind="input",
+                filename=relative_path,
+                data=data,
+                media_type=media_type,
+                actor=actor,
+                tenant_id=project.tenant_id,
+                metadata={
+                    "source": "object_store",
+                    "source_bucket": bucket,
+                    "source_key": key,
+                    "source_etag": actual_etag,
+                },
+            )
+            audit_record(
+                session,
+                actor=actor,
+                action="import_object_store_file",
+                entity_type="workflow_file",
+                entity_id=record.file_id,
+                details={"bucket": bucket, "key": key, "project_id": project_id},
+            )
+            session.commit()
+        except IntegrityError as exc:
+            raise HTTPException(status_code=409, detail="managed file already exists") from exc
+        except StorageError as exc:
+            raise _storage_http(exc) from exc
+    return JSONResponse({"data": record.to_api()}, status_code=201)
+
+
 def _collect_prefix_keys(client: Any, bucket: str, prefix: str) -> list[str]:
     """All object keys under ``prefix`` (paginated, recursive) — for folder delete."""
     keys: list[str] = []
@@ -765,5 +868,6 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(FOLDERS_PATH, create_folder, methods=["POST"]))
     app.routes.append(Route(OBJECT_PREVIEW_PATH, preview_object, methods=["GET"]))
     app.routes.append(Route(OBJECT_EXTRACT_PATH, extract_object, methods=["GET"]))
+    app.routes.append(Route(OBJECT_IMPORT_PATH, import_object_to_project, methods=["POST"]))
     app.routes.append(Route(OBJECT_PATH, download_object, methods=["GET"]))
     app.routes.append(Route(OBJECT_PATH, delete_object, methods=["DELETE"]))

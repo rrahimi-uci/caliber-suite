@@ -20,6 +20,43 @@ from caliber.tool_sandbox import _runner
 # --------------------------------------------------------------------------- #
 # _namespace — restricted execution environment
 # --------------------------------------------------------------------------- #
+def test_apply_resource_limits_caps_supported_posix_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[int, tuple[int, int]]] = []
+
+    class _FakeResource:
+        RLIM_INFINITY = -1
+        RLIMIT_CPU = 1
+        RLIMIT_AS = 2
+        RLIMIT_FSIZE = 3
+        RLIMIT_NOFILE = 4
+
+        @staticmethod
+        def getrlimit(_kind: int) -> tuple[int, int]:
+            return (999, _FakeResource.RLIM_INFINITY)
+
+        @staticmethod
+        def setrlimit(kind: int, value: tuple[int, int]) -> None:
+            calls.append((kind, value))
+
+    monkeypatch.setattr(_runner, "_resource", _FakeResource)
+    _runner._apply_resource_limits(
+        {
+            "cpu_seconds": 2,
+            "memory_bytes": 64_000_000,
+            "file_bytes": 4096,
+            "open_files": 16,
+        }
+    )
+    assert calls == [
+        (1, (2, 2)),
+        (2, (64_000_000, 64_000_000)),
+        (3, (4096, 4096)),
+        (4, (16, 16)),
+    ]
+
+
 def test_namespace_defines_and_returns_callable() -> None:
     ns, fn = _runner._namespace("def handler(x):\n    return x + 1", "handler")
     assert callable(fn)

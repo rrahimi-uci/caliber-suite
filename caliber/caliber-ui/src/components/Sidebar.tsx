@@ -6,6 +6,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import {
   Activity,
+  Bot,
   BookOpen,
   Database,
   FileText,
@@ -190,6 +191,12 @@ export function Sidebar({
           to="/workflows"
           icon={<Workflow className={NAV_ICON_CLASS} strokeWidth={1.85} />}
           label="Workflows"
+          onNavigate={onNavigate}
+        />
+        <NavItem
+          to="/agents"
+          icon={<Bot className={NAV_ICON_CLASS} strokeWidth={1.85} />}
+          label="Agents"
           onNavigate={onNavigate}
         />
         <NavItem

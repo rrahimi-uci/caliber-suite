@@ -18,7 +18,8 @@ they compose with the route handlers' ``with factory() as session`` blocks.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import hashlib
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any, BinaryIO
@@ -39,6 +40,7 @@ from caliber.storage.base import (
     KIND_TO_SEGMENT,
     FileKind,
     StorageBackend,
+    StorageConflictError,
     StorageError,
     StorageNotFoundError,
     StoragePermissionError,
@@ -124,7 +126,7 @@ class CaliberFileRecord:
 
     def to_api(self) -> dict[str, Any]:
         """Project to the §4.7 API response shape."""
-        return {
+        payload = {
             "file_id": self.file_id,
             "file_ref": self.file_ref,
             "name": self.name,
@@ -133,12 +135,26 @@ class CaliberFileRecord:
             "media_type": self.media_type,
             "size_bytes": self.size_bytes,
             "sha256": self.sha256,
+            "etag": self.etag,
+            "object_version_id": self.object_version_id,
+            "version": self.version,
             "status": self.status,
             "storage_backend": self.storage_backend,
             "producer_node_id": self.producer_node_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "metadata": self.metadata,
         }
+        if self.sha256:
+            payload["immutable_ref"] = {
+                "file_id": self.file_id,
+                "file_ref": self.file_ref,
+                "sha256": self.sha256,
+                "name": self.name,
+                "size_bytes": self.size_bytes,
+                "media_type": self.media_type,
+                "object_version_id": self.object_version_id,
+            }
+        return payload
 
 
 # Visible in list/UI; abandoned/soft-deleted rows are hidden (storage doc §4.7).
@@ -437,8 +453,75 @@ class WorkingDirectoryService:
             )
         ).scalar_one_or_none()
 
+    def resolve_scoped_file(
+        self,
+        session: Session,
+        ctx: WorkingDirectoryContext,
+        *,
+        file_id: str | None = None,
+        file_ref: str | None = None,
+        allowed_kinds: frozenset[str] | None = None,
+        allow_staged_or_dataset_input: bool = False,
+    ) -> CaliberWorkflowFile:
+        """Resolve a visible row inside one tenant/project/run capability scope."""
+        if bool(file_id) == bool(file_ref):
+            raise StorageValidationError("exactly one of file_id or file_ref is required")
+        row = (
+            self.get_row(session, str(file_id))
+            if file_id
+            else self.resolve_file_ref(session, str(file_ref))
+        )
+        if row is None or row.deleted_at is not None or row.status not in VISIBLE_STATUSES:
+            raise StorageNotFoundError(f"file not found: {file_ref or file_id!r}")
+        parsed = parse_ref(row.file_ref)
+        if file_ref is not None and row.file_ref != file_ref:
+            raise StoragePermissionError("file row does not match the requested reference")
+        if row.tenant_id != ctx.tenant_id or row.project_id != ctx.project_id:
+            raise StoragePermissionError("file is outside this run's tenant/project")
+        if allowed_kinds is not None and row.kind not in allowed_kinds:
+            raise StoragePermissionError(f"file kind {row.kind!r} is not allowed in this context")
+
+        in_current_run = (
+            parsed.resource_type == "workflow-runs"
+            and parsed.resource_id == ctx.run_id
+            and row.workflow_run_id == ctx.run_id
+        ) or (
+            parsed.resource_type == "playground-runs"
+            and parsed.resource_id == ctx.run_id
+            and row.playground_run_id == ctx.run_id
+        )
+        in_current_project = (
+            parsed.resource_type == "projects"
+            and parsed.resource_id == ctx.project_id
+            and row.project_id == ctx.project_id
+            and row.workflow_run_id is None
+            and row.playground_run_id is None
+        )
+        staged_input = (
+            allow_staged_or_dataset_input
+            and parsed.resource_type == "workflow-runs"
+            and row.workflow_id == "_staging"
+            and row.kind == "input"
+        )
+        dataset_input = (
+            allow_staged_or_dataset_input
+            and parsed.resource_type == "datasets"
+            and row.dataset_id == parsed.resource_id
+            and row.example_id == parsed.example_id
+            and row.kind == "input"
+        )
+        if not (in_current_run or in_current_project or staged_input or dataset_input):
+            raise StoragePermissionError("file reference is outside this run capability scope")
+        return row
+
     def open_for_tool(
-        self, session: Session, file_ref: str, *, run_id: str, actor: str
+        self,
+        session: Session,
+        file_ref: str,
+        *,
+        actor: str,
+        ctx: WorkingDirectoryContext | None = None,
+        run_id: str | None = None,
     ) -> BinaryIO:
         """Open a run or project file for an agent.
 
@@ -447,29 +530,38 @@ class WorkingDirectoryService:
         can read files staged by users before a workflow run starts.
         """
         parsed = parse_ref(file_ref)
-        if (
-            parsed.resource_type in {"workflow-runs", "playground-runs"}
-            and parsed.resource_id != run_id
+        if ctx is None:
+            if run_id is None or parsed.resource_type == "projects":
+                raise StoragePermissionError("a scoped run context is required for file access")
+            candidate = self.resolve_file_ref(session, file_ref)
+            if candidate is None:
+                raise StorageNotFoundError(f"file not found for ref {file_ref!r}")
+            ctx = self.create_run_workspace(
+                tenant_id=candidate.tenant_id,
+                project_id=candidate.project_id,
+                workflow_id=candidate.workflow_id or "_runtime",
+                workflow_run_id=run_id,
+            )
+        if parsed.resource_type in {"workflow-runs", "playground-runs"} and (
+            parsed.resource_id != ctx.run_id
         ):
             self.record_event(
                 session,
                 action="file_access_denied",
                 actor=actor,
-                run_id=run_id,
+                run_id=ctx.run_id,
                 relative_path=parsed.relative_path,
                 status="deny",
-                error=f"ref run {parsed.resource_id} != context run {run_id}",
+                error=f"ref run {parsed.resource_id} != context run {ctx.run_id}",
             )
-            raise StoragePermissionError(f"file ref {file_ref!r} is outside run {run_id}")
-        row = self.resolve_file_ref(session, file_ref)
-        if row is None:
-            raise StorageNotFoundError(f"file not found for ref {file_ref!r}")
+            raise StoragePermissionError(f"file ref {file_ref!r} is outside run {ctx.run_id}")
+        row = self.resolve_scoped_file(session, ctx, file_ref=file_ref)
         self.record_event(
             session,
             action="read_file_runtime",
             actor=actor,
             file_id=row.file_id,
-            run_id=run_id,
+            run_id=ctx.run_id,
             relative_path=row.relative_path,
             status="ok",
         )
@@ -576,9 +668,58 @@ class WorkingDirectoryService:
         """
         effective_type = self._effective_media_type(filename, data, media_type)
         rel = self.validate_upload(filename, len(data), effective_type)
+        digest = hashlib.sha256(data).hexdigest()
         segment = KIND_TO_SEGMENT.get(kind, kind)
-        key = f"tenant/{tenant_id}/project/{project_id}/files/{segment}/{rel}"
-        meta = self._backend.write_bytes(key, data, media_type=effective_type, overwrite=True)
+        # A canonical ref is immutable once published into a workflow manifest.
+        # Re-uploading identical bytes is idempotent; different bytes receive a
+        # content-addressed sibling path instead of overwriting the old object.
+        requested_ref = build_ref("projects", project_id, kind, rel)
+        existing = session.execute(
+            select(CaliberWorkflowFile).where(
+                CaliberWorkflowFile.file_ref == requested_ref,
+                CaliberWorkflowFile.deleted_at.is_(None),
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.sha256 == digest and existing.size_bytes == len(data):
+                return CaliberFileRecord.from_row(existing)
+            path = PurePosixPath(rel)
+            rel = str(path.with_name(f"{path.stem}.sha256-{digest[:12]}{path.suffix}"))
+            versioned_ref = build_ref("projects", project_id, kind, rel)
+            existing_version = session.execute(
+                select(CaliberWorkflowFile).where(
+                    CaliberWorkflowFile.file_ref == versioned_ref,
+                    CaliberWorkflowFile.deleted_at.is_(None),
+                )
+            ).scalar_one_or_none()
+            if existing_version is not None:
+                if existing_version.sha256 == digest and existing_version.size_bytes == len(data):
+                    return CaliberFileRecord.from_row(existing_version)
+                raise StorageValidationError(
+                    "content-addressed project file path has conflicting bytes"
+                )
+        # Physical objects are content-addressed even when this caller wins the
+        # canonical logical ref. Concurrent uploads of different bytes can race
+        # on the DB ref, but can never overwrite the object pinned by the winner.
+        key = f"tenant/{tenant_id}/project/{project_id}/files/{segment}/.objects/{digest}/{rel}"
+        try:
+            meta = self._backend.write_bytes(
+                key,
+                data,
+                media_type=effective_type,
+                overwrite=False,
+            )
+        except StorageConflictError:
+            stored = self._backend.read_bytes(key)
+            if hashlib.sha256(stored).hexdigest() != digest:
+                raise StorageValidationError(
+                    "content-addressed project object has conflicting bytes"
+                ) from None
+            meta = replace(
+                self._backend.stat(key),
+                sha256=digest,
+                media_type=effective_type,
+            )
         file_ref = build_ref("projects", project_id, kind, rel)
         row = CaliberWorkflowFile(
             file_id=new_workflow_file_id(),
@@ -722,15 +863,24 @@ class WorkingDirectoryService:
         """
         bound: list[CaliberFileRecord] = []
         for item in input_files:
-            source: CaliberWorkflowFile | None = None
             if item.get("file_id"):
-                source = self.get_row(session, item["file_id"])
+                source = self.resolve_scoped_file(
+                    session,
+                    ctx,
+                    file_id=item["file_id"],
+                    allowed_kinds=frozenset({"input"}),
+                    allow_staged_or_dataset_input=True,
+                )
             elif item.get("file_ref"):
-                source = self.resolve_file_ref(session, item["file_ref"])
+                source = self.resolve_scoped_file(
+                    session,
+                    ctx,
+                    file_ref=item["file_ref"],
+                    allowed_kinds=frozenset({"input"}),
+                    allow_staged_or_dataset_input=True,
+                )
             else:
                 raise StorageValidationError("input_files entry needs 'file_id' or 'file_ref'")
-            if source is None:
-                raise StorageNotFoundError(f"input file not found: {item!r}")
             bound.append(self.bind_input_file(session, ctx, source, actor=actor))
         return bound
 

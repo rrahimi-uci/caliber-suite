@@ -222,7 +222,7 @@ considered configured.
 | Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
 | --- | --- | --- | --- | --- | --- |
 | **Start** | `start` | Entry point of the flow; can fire manually, on an event, or on a cron schedule. | — → `user_message` | `trigger` | — |
-| **File Input** | `file_input` | Read one local text file and publish its content into the graph. | `path` → `text`, `path`, `metadata` | `path`, `encoding`, `max_bytes` | Provide a file path |
+| **File Input** | `file_input` | Read one content-pinned managed project file, or an advanced legacy host path, and publish its content plus lineage. | `path` → `text`, `path`, `file_ref`, `metadata` | `file_ref` or `path`, `encoding`, `max_bytes` | Select a managed file or provide a legacy path |
 | **Input Folder** | `folder_input` | Read a bounded set of local text files from a folder. | `path` → `text`, `files`, `metadata` | `path`, `pattern`, `recursive`, `max_files`, `max_bytes_per_file`, `encoding` | Provide a folder path |
 | **Input Bucket** | `input_bucket` | Read a bounded set of text objects from an object-storage bucket. | `prefix` → `text`, `files`, `metadata` | `bucket`, `prefix`, `recursive`, `max_files`, `max_bytes_per_file`, `encoding` | Select an input bucket |
 | **Output Bucket** | `output_bucket` | Write the workflow's artifacts to an object-storage bucket. | `input` → `keys`, `metadata` | `bucket`, `prefix`, `overwrite` | Select an output bucket |

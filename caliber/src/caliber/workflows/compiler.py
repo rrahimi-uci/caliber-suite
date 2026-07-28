@@ -50,6 +50,7 @@ from caliber.workflows.ir import (
     IRKnowledgeBuild,
     IRKnowledgeQuery,
     IRLoop,
+    IRManagedFileReference,
     IRMcpResource,
     IRNode,
     IROutputBucket,
@@ -267,12 +268,18 @@ def _build_node(  # noqa: PLR0911, PLR0912 - per-node-type IR builder dispatch
     if isinstance(node, OutputNode):
         return IRNode(node.id, NodeType.OUTPUT, inputs, outputs, execution_policy)
     if isinstance(node, FileInputNode):
+        managed_ref = (
+            IRManagedFileReference(**node.file_ref.model_dump(mode="python"))
+            if node.file_ref is not None
+            else None
+        )
         return IRFileInput(
             node_id=node.id,
             node_type=NodeType.FILE_INPUT,
             inputs=inputs,
             outputs=outputs,
             execution_policy=execution_policy,
+            file_ref=managed_ref,
             path=node.path,
             encoding=node.encoding,
             max_bytes=node.max_bytes,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -46,15 +48,24 @@ class LocalSubprocessToolSandbox:
         *,
         default_timeout_seconds: float = 5.0,
         max_output_bytes: int = 65_536,
+        max_memory_bytes: int = 268_435_456,
+        max_file_bytes: int = 1_048_576,
+        max_open_files: int = 32,
     ) -> None:
         self.default_timeout_seconds = default_timeout_seconds
         self.max_output_bytes = max_output_bytes
+        self.max_memory_bytes = max_memory_bytes
+        self.max_file_bytes = max_file_bytes
+        self.max_open_files = max_open_files
 
     @classmethod
     def from_config(cls, config: CaliberConfig) -> LocalSubprocessToolSandbox:
         return cls(
             default_timeout_seconds=config.tool_sandbox_timeout_seconds,
             max_output_bytes=config.tool_sandbox_max_output_bytes,
+            max_memory_bytes=config.tool_sandbox_max_memory_bytes,
+            max_file_bytes=config.tool_sandbox_max_file_bytes,
+            max_open_files=config.tool_sandbox_max_open_files,
         )
 
     def run_tool(self, request: ToolSandboxRunRequest) -> ToolSandboxRunResult:
@@ -92,34 +103,43 @@ class LocalSubprocessToolSandbox:
         timeout_seconds: float | None,
     ) -> dict[str, object]:
         timeout = timeout_seconds or self.default_timeout_seconds
+        payload["_limits"] = {
+            "cpu_seconds": max(1, int(timeout) + 1),
+            "memory_bytes": self.max_memory_bytes,
+            "file_bytes": self.max_file_bytes,
+            "open_files": self.max_open_files,
+        }
         with tempfile.TemporaryDirectory(prefix="caliber-tool-sandbox-") as cwd:
+            process = subprocess.Popen(  # noqa: S603 - fixed interpreter + runner path.
+                [sys.executable, "-I", str(_RUNNER_PATH)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=cwd,
+                env={},
+                text=True,
+                start_new_session=os.name == "posix",
+            )
             try:
-                completed = subprocess.run(  # noqa: S603 - fixed interpreter + runner path.
-                    [sys.executable, "-I", str(_RUNNER_PATH)],
-                    input=json.dumps(payload),
-                    cwd=cwd,
-                    env={},
-                    text=True,
-                    capture_output=True,
-                    timeout=timeout,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
+                raw_stdout, raw_stderr = process.communicate(json.dumps(payload), timeout=timeout)
+            except subprocess.TimeoutExpired:
+                self._terminate_process_tree(process)
+                raw_stdout, raw_stderr = process.communicate()
                 return {
                     "status": "timed_out",
                     "error": f"tool sandbox timed out after {timeout:.2f}s",
-                    "stdout": self._clip(exc.stdout),
-                    "stderr": self._clip(exc.stderr),
+                    "stdout": self._clip(raw_stdout),
+                    "stderr": self._clip(raw_stderr),
                     "tests": [],
                     "duration_ms": round(timeout * 1000, 1),
                 }
 
-        stdout = self._clip(completed.stdout)
-        stderr = self._clip(completed.stderr)
-        if completed.returncode != 0:
+        stdout = self._clip(raw_stdout)
+        stderr = self._clip(raw_stderr)
+        if process.returncode != 0:
             return {
                 "status": "failed",
-                "error": f"runner exited with status {completed.returncode}",
+                "error": f"runner exited with status {process.returncode}",
                 "stdout": stdout,
                 "stderr": stderr,
                 "tests": [],
@@ -149,6 +169,27 @@ class LocalSubprocessToolSandbox:
             "tests": [],
             "duration_ms": 0.0,
         }
+
+    @staticmethod
+    def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+        """Kill the whole sandbox process group on POSIX after a timeout.
+
+        ``Popen.kill`` only targets the direct child.  Starting a fresh session
+        and killing its process group prevents an escaped grandchild from
+        surviving the request.  Windows falls back to terminating the child;
+        production-grade Windows isolation still requires a Job Object or an
+        external container/VM boundary.
+        """
+
+        if process.poll() is not None:
+            return
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                return
+            except ProcessLookupError:
+                return
+        process.kill()
 
     def _clip(self, value: str | bytes | None) -> str:
         if value is None:

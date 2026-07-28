@@ -109,6 +109,10 @@ function hasItems(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
 
+function hasObjectValue(value: unknown): boolean {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 const EXECUTABLE_ORCHESTRATION_TARGET_TYPES = new Set<WorkflowNodeType>([
   "agent",
   "subworkflow",
@@ -253,6 +257,7 @@ function evaluateComponentSetupCheck(
         return (
           hasText(value) ||
           hasItems(value) ||
+          hasObjectValue(value) ||
           satisfiesMappedInputSetup(node, field, manifest)
         );
       });
@@ -480,15 +485,16 @@ const NODE_GUIDANCE: Record<WorkflowNodeType, NodeGuideDefinition> = {
   },
   file_input: {
     summary:
-      "Loads one local file into the workflow context so downstream nodes can read its contents.",
+      "Loads one content-pinned project file, or a legacy mounted file, into the workflow context.",
     tips: [
-      "Use this for a single known file path or when an operator provides the file at run time.",
+      "Prefer a managed project file for deployable workflows; its bytes and ownership are verified before execution.",
     ],
     checks: [
       {
-        label: "Provide a file path",
-        help: "Set the file path directly or map one into the node's path input.",
+        label: "Select a managed file or provide a legacy path",
+        help: "Select a project file, set a host path, or map one into the node.",
         test: (node, manifest) =>
+          hasObjectValue(node.file_ref) ||
           hasText(node.path) ||
           satisfiesMappedInputSetup(node, "path", manifest),
       },
@@ -981,7 +987,7 @@ export function nodeSubtitle(node: ManifestNode): string {
     case "guardrail":
       return `${node.mode ?? "post_agent"} · ${node.checks?.length ?? 0} check(s)`;
     case "file_input":
-      return `${typeof node.path === "string" && node.path ? node.path : "path input"} · file`;
+      return `${node.file_ref?.name ?? (typeof node.path === "string" && node.path ? node.path : "file input")} · file`;
     case "folder_input": {
       const pattern =
         typeof node.pattern === "string" && node.pattern
@@ -2439,7 +2445,7 @@ const NODE_PALETTE_BY_TYPE: Record<WorkflowNodeType, NodePaletteItem> = {
     type: "file_input",
     label: "File Input",
     group: "Inputs & Outputs",
-    description: "Read one file into the flow",
+    description: "Read one pinned project file into the flow",
     docs: [],
   },
   folder_input: {

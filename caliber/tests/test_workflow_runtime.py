@@ -575,6 +575,95 @@ def test_file_input_node_reads_text(tmp_path) -> None:
     assert "hello from a file" in result.output
 
 
+def test_managed_file_input_uses_scoped_resolver_and_publishes_lineage() -> None:
+    managed_ref = {
+        "file_id": "FILE-managed",
+        "file_ref": "caliber://projects/PRJ-1/input/source.md",
+        "sha256": "c" * 64,
+        "name": "source.md",
+        "size_bytes": 19,
+        "media_type": "text/markdown",
+        "object_version_id": "v3",
+    }
+    data = make_manifest()
+    data["nodes"]["file_input"] = {
+        "id": "file_input",
+        "type": "file_input",
+        "file_ref": managed_ref,
+    }
+    data["edges"] = [
+        {
+            "id": "e_start_file",
+            "from": "start",
+            "to": "file_input",
+            "map": {"msg": "path"},
+        },
+        {"id": "e_file_agent", "from": "file_input", "to": "agent", "map": {"text": "input"}},
+        {
+            "id": "e_agent_final",
+            "from": "agent",
+            "to": "final",
+            "map": {"final_output": "response"},
+        },
+    ]
+    seen = []
+
+    def resolve(snapshot, encoding, max_bytes):
+        seen.append((snapshot, encoding, max_bytes))
+        return "managed document", {
+            "bytes": 16,
+            "sha256": snapshot.sha256,
+            "immutable": True,
+        }
+
+    result = execute(
+        _plan(data),
+        "ignored",
+        executor=FakeWorkflowExecutor(),
+        managed_file_resolver=resolve,
+    )
+
+    assert result.status == "completed"
+    assert len(seen) == 1
+    file_step = next(step for step in result.steps if step.node_id == "file_input")
+    assert file_step.output_by_port["path"] == managed_ref["file_ref"]
+    assert file_step.output_by_port["file_ref"] == managed_ref
+    assert file_step.output_by_port["metadata"]["immutable"] is True
+
+
+def test_managed_file_input_without_runtime_resolver_fails_clearly() -> None:
+    data = make_manifest()
+    data["nodes"]["file_input"] = {
+        "id": "file_input",
+        "type": "file_input",
+        "file_ref": {
+            "file_id": "FILE-managed",
+            "file_ref": "caliber://projects/PRJ-1/input/source.md",
+            "sha256": "c" * 64,
+            "name": "source.md",
+            "size_bytes": 19,
+        },
+    }
+    data["edges"] = [
+        {
+            "id": "e_start_file",
+            "from": "start",
+            "to": "file_input",
+            "map": {"msg": "path"},
+        },
+        {"id": "e_file_agent", "from": "file_input", "to": "agent", "map": {"text": "input"}},
+        {
+            "id": "e_agent_final",
+            "from": "agent",
+            "to": "final",
+            "map": {"final_output": "response"},
+        },
+    ]
+    result = execute(_plan(data), "ignored", executor=FakeWorkflowExecutor())
+    assert result.status == "error"
+    assert "scoped runtime file resolver" in (result.error or "")
+
+
 def test_file_input_node_reports_missing_file_at_workflow_runtime(tmp_path) -> None:
     missing = tmp_path / "missing.txt"
     data = make_manifest()

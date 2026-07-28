@@ -98,7 +98,14 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
     patch: 0,
     createWorkflow: 0,
     createVersion: 0,
+    previewImport: 0,
+    importWorkflow: 0,
     createdManifests: [] as WorkflowManifest[],
+    importPayloads: [] as Array<{
+      manifest?: WorkflowManifest;
+      manifest_yaml?: string;
+      name?: string;
+    }>,
     addWorkflow(workflow: Workflow) {
       state.list = [workflow, ...state.list];
     },
@@ -143,6 +150,100 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
           version_id: "V-NEW",
           workflow_id: "WF-NEW",
           version_number: 1,
+        }),
+      );
+    }),
+
+    http.get(`${API_BASE}/workflows/:id/versions`, ({ params }) => {
+      const source = state.list.find((workflow) => workflow.workflow_id === params.id);
+      const manifest = {
+        schema_version: 1,
+        workflow_id: String(params.id),
+        name: source?.name ?? "Source",
+        nodes: {},
+        edges: [],
+        tools: {
+          lookup: {
+            type: "registered_function",
+            registry_ref: "tool.lookup.v1",
+            version_constraint: "~=1.2",
+          },
+        },
+      } as WorkflowManifest;
+      return HttpResponse.json(
+        envelope([
+          {
+            version_id: `WFV-${String(params.id)}`,
+            workflow_id: String(params.id),
+            version_number: 3,
+            status: "published",
+            manifest,
+            manifest_hash: "hash",
+            compiler_version: null,
+            compiled_artifact_uri: null,
+            compiled_bundle: null,
+            validation_report: null,
+            created_by: "@owner",
+            created_at: "2025-01-01T00:00:00Z",
+            published_by: "@owner",
+            published_at: "2025-01-01T00:00:00Z",
+          },
+        ]),
+      );
+    }),
+
+    http.post(`${API_BASE}/workflows/import/preview`, async ({ request }) => {
+      calls.previewImport += 1;
+      const body = (await request.json()) as {
+        manifest?: WorkflowManifest;
+        manifest_yaml?: string;
+        name?: string;
+      };
+      calls.importPayloads.push(body);
+      return HttpResponse.json(
+        envelope({
+          source_workflow_id: body.manifest?.workflow_id ?? "uploaded-source",
+          name: body.name ?? body.manifest?.name ?? "Imported",
+          description: "",
+          node_count: 3,
+          edge_count: 2,
+          validation: { valid: true, errors: [], warnings: [] },
+          dependencies: [
+            {
+              kind: "tool",
+              reference: "tool.lookup.v1",
+              path: "tools.lookup",
+              status: "resolved",
+              version: "1.2.4",
+              detail: "Resolved to tool.lookup.v1 1.2.4.",
+            },
+          ],
+          ready_to_import: true,
+        }),
+      );
+    }),
+
+    http.post(`${API_BASE}/workflows/import`, async ({ request }) => {
+      calls.importWorkflow += 1;
+      const body = (await request.json()) as {
+        manifest?: WorkflowManifest;
+        manifest_yaml?: string;
+        name?: string;
+      };
+      calls.importPayloads.push(body);
+      const workflow = makeWorkflow({
+        workflow_id: "WF-IMPORTED",
+        name: body.name ?? "Imported",
+      });
+      state.list = [workflow, ...state.list];
+      return HttpResponse.json(
+        envelope({
+          workflow,
+          version: {
+            version_id: "WFV-IMPORTED",
+            workflow_id: workflow.workflow_id,
+            version_number: 1,
+          },
         }),
       );
     }),
@@ -815,6 +916,58 @@ describe("Workflows — template create flow", () => {
         },
       },
     });
+  });
+});
+
+describe("Workflows — clone and manifest import", () => {
+  it("preflights an uploaded manifest before importing it as a new workflow", async () => {
+    const calls = useWorkflowHandlers();
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByText("Customer Triage");
+
+    await user.click(screen.getByTestId("import-workflow"));
+    await user.type(
+      screen.getByTestId("workflow-import-manifest"),
+      "schema_version: 1\nworkflow_id: uploaded\nname: Uploaded Flow",
+    );
+    await user.type(screen.getByTestId("workflow-import-name"), "Imported Copy");
+    await user.click(screen.getByTestId("workflow-import-validate"));
+
+    expect(await screen.findByText("Preflight passed")).toBeInTheDocument();
+    expect(screen.getByText("tool.lookup.v1 @ 1.2.4")).toBeInTheDocument();
+    await user.click(screen.getByTestId("workflow-import-submit"));
+
+    expect(await screen.findByText("Editor Page")).toBeInTheDocument();
+    expect(calls.previewImport).toBe(1);
+    expect(calls.importWorkflow).toBe(1);
+    expect(calls.importPayloads.at(-1)).toMatchObject({ name: "Imported Copy" });
+  });
+
+  it("clones a selected version through preflight and preserves its dependency constraints", async () => {
+    const calls = useWorkflowHandlers();
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByText("Customer Triage");
+
+    await user.click(screen.getByTestId("clone-workflow-WF-1"));
+    expect(await screen.findByDisplayValue("Customer Triage Copy")).toBeInTheDocument();
+    await user.click(screen.getByTestId("workflow-import-validate"));
+    expect(await screen.findByText("Preflight passed")).toBeInTheDocument();
+    await user.click(screen.getByTestId("workflow-import-submit"));
+
+    expect(await screen.findByText("Editor Page")).toBeInTheDocument();
+    const importPayload = calls.importPayloads.at(-1);
+    expect(importPayload?.manifest).toMatchObject({
+      workflow_id: "WF-1",
+      tools: {
+        lookup: {
+          registry_ref: "tool.lookup.v1",
+          version_constraint: "~=1.2",
+        },
+      },
+    });
+    expect(importPayload?.name).toBe("Customer Triage Copy");
   });
 });
 

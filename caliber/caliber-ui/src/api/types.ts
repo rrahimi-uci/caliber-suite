@@ -783,7 +783,8 @@ export interface AgentRegisterPayload {
   agent_id: string;
   experiment_id: string;
   name: string;
-  owner: string;
+  /** Ownership is derived from the authenticated actor. */
+  owner?: string;
   artifact_types?: string[];
   eval_thresholds?: Record<string, unknown>;
   optimizer_config?: Record<string, unknown>;
@@ -1281,6 +1282,7 @@ export interface AriaPlanStep {
   capability_key: string;
   title: string;
   inputs: Record<string, unknown>;
+  input_schema?: Record<string, unknown>;
   depends_on: string[];
   status: AriaStepStatus;
   result: Record<string, unknown>;
@@ -1333,6 +1335,7 @@ export interface AriaInteractionAnswerPayload {
   approved?: boolean;
   choice?: string;
   value?: unknown;
+  inputs?: Record<string, unknown>;
 }
 
 export interface EvalDatasetUpdatePayload {

@@ -865,15 +865,18 @@ def _check_single_node_setup(
     outgoing_targets: dict[str, set[str]],
 ) -> None:
     if isinstance(node, FileInputNode):
-        _check_mapped_string_field(
-            report=report,
-            node_id=node_id,
-            field_name="path",
-            field_value=node.path,
-            incoming_ports=incoming_ports,
-            code="missing_file_path",
-            message="Provide a file path before this node can run.",
-        )
+        if node.file_ref is None:
+            _check_mapped_string_field(
+                report=report,
+                node_id=node_id,
+                field_name="path",
+                field_value=node.path,
+                incoming_ports=incoming_ports,
+                # Keep the established diagnostic code/path for API and UI
+                # compatibility; a managed ref now satisfies the same gate.
+                code="missing_file_path",
+                message="Select a managed file or provide a mapped legacy path.",
+            )
     elif isinstance(node, FolderInputNode):
         _check_mapped_string_field(
             report=report,

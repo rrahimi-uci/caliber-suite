@@ -215,13 +215,18 @@ test.describe("Build Section Advanced Journeys", () => {
     await expect(page.getByText("search_repositories")).toBeVisible();
     await page.getByRole("button").filter({ hasText: "search_repositories" }).click();
     await expect(page.getByText("Tool Policy")).toBeVisible();
+    await page.getByRole("checkbox", { name: "Allow tool" }).check();
+    await page.getByRole("button", { name: "Save Policy" }).click();
+    await expect(page.getByText("Policy saved")).toBeVisible();
     await page.getByRole("button", { name: "Invoke Tool" }).click();
     await expect(
       page.getByRole("button", { name: "Invoke Tool" }),
     ).toBeVisible({ timeout: 20000 });
     await expect(page.getByText(/^Failed$/)).toBeVisible();
     await expect(
-      page.getByText(/Invalid input|timed out|Request failed/),
+      page.getByText(
+        /Invalid input|timed out|Request failed|CALIBER_MCP_STDIO_COMMAND_ALLOWLIST|server status is/,
+      ),
     ).toBeVisible();
     await expect(page.getByText(/TaskGroup/)).toHaveCount(0);
   });

@@ -37,15 +37,34 @@ def _server(**overrides: Any) -> McpServerConfig:
         "name": "x",
         "transport": "stdio",
         "uri": "",
-        "command": "python",
-        "args": (),
+        "command": "${PYTHON}",
+        "args": ("-m", "caliber.mcp_servers.db", "--mode", "relational"),
         "env": {},
         "headers": {},
         "auth_type": "none",
         "auth_config": {},
+        "discovered_tools": ({"name": "t"}, {"name": "search"}),
+        "tool_policies": {
+            "t": {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            },
+            "search": {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            },
+        },
     }
     base.update(overrides)
     return McpServerConfig(**base)
+
+
+@pytest.fixture(autouse=True)
+def _allow_test_remote_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CALIBER_MCP_REMOTE_HOST_ALLOWLIST", "h")
+    monkeypatch.setenv("CALIBER_MCP_ALLOW_INSECURE_HTTP", "true")
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +107,20 @@ def test_resolve_env_value(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_resolved_stdio_env_skips_blank_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PG", "postgres://x")
+    monkeypatch.setenv("PATH", "/poisoned")
+    monkeypatch.setenv("SHELL", "/tmp/evil-shell")
     server = _server(env={"POSTGRES_URL": "${PG}", "": "ignored", "RAW": "v"})
-    assert gw._resolved_stdio_env(server) == {"POSTGRES_URL": "postgres://x", "RAW": "v"}
+    resolved = gw._resolved_stdio_env(
+        server,
+        working_directory="/private/mcp",
+        safe_path="/trusted/bin",
+    )
+    assert resolved["POSTGRES_URL"] == "postgres://x"
+    assert resolved["RAW"] == "v"
+    assert resolved["PATH"] == "/trusted/bin"
+    assert resolved["SHELL"] == ""
+    assert resolved["HOME"] == "/private/mcp"
+    assert resolved["TMPDIR"] == "/private/mcp"
 
 
 # ---------------------------------------------------------------------------

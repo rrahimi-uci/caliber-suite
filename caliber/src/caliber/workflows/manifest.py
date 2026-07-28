@@ -62,6 +62,7 @@ MAX_TOOLS = 200
 # name can't smuggle newlines into the generated module (ext A1, defense-in-depth
 # on top of codegen escaping).
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class WorkflowManifestError(ValueError):
@@ -79,6 +80,37 @@ class UnsupportedSchemaVersionError(WorkflowManifestError):
 # ---------------------------------------------------------------------------
 # Shared value objects
 # ---------------------------------------------------------------------------
+
+
+class ManagedFileReference(BaseModel):
+    """Content-pinned reference to a CALIBER-managed file record.
+
+    ``file_ref`` is the scoped logical address; ``file_id`` and ``sha256`` pin
+    the exact DB row and bytes selected by the author.  Runtime resolution must
+    verify all three before any content is exposed to a node or tool.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    file_id: str = Field(min_length=1, max_length=64)
+    file_ref: str = Field(min_length=1, max_length=1024)
+    sha256: str = Field(min_length=64, max_length=64)
+    name: str = Field(min_length=1, max_length=512)
+    size_bytes: int = Field(ge=0)
+    media_type: str | None = Field(default=None, max_length=255)
+    object_version_id: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def _valid_managed_ref(self) -> ManagedFileReference:
+        if not self.file_ref.startswith("caliber://"):
+            raise ValueError("managed file_ref must use the caliber:// scheme")
+        normalized = self.sha256.lower()
+        if not _SHA256_RE.fullmatch(normalized):
+            raise ValueError("managed file sha256 must be 64 lowercase hex characters")
+        if normalized != self.sha256:
+            raise ValueError("managed file sha256 must be lowercase")
+        return self
+
 
 # The node-port type vocabulary (plan §9.3).
 DataType = Literal["string", "structured", "messages", "boolean", "void"]
@@ -263,9 +295,10 @@ class OutputNode(_NodeBase):
 
 
 class FileInputNode(_NodeBase):
-    """Read one local text file and publish its content into the graph."""
+    """Read one content-pinned managed file or legacy local path."""
 
     type: Literal["file_input"]
+    file_ref: ManagedFileReference | None = None
     path: str = ""
     encoding: str = "utf-8"
     max_bytes: int = Field(default=200_000, ge=1, le=5_000_000)
@@ -274,9 +307,16 @@ class FileInputNode(_NodeBase):
         default_factory=lambda: {
             "text": PortSpec(type="string"),
             "path": PortSpec(type="string"),
+            "file_ref": PortSpec(type="structured"),
             "metadata": PortSpec(type="structured"),
         }
     )
+
+    @model_validator(mode="after")
+    def _one_file_source(self) -> FileInputNode:
+        if self.file_ref is not None and self.path.strip():
+            raise ValueError("file_input must use either file_ref or path, not both")
+        return self
 
 
 class FolderInputNode(_NodeBase):

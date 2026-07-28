@@ -15,20 +15,42 @@ from caliber.mcp_gateway import (
     invoke_tool_sync,
 )
 
+_FIXTURE = Path(__file__).with_name("fixtures") / "fake_mcp_server.py"
+
+
+@pytest.fixture(autouse=True)
+def _allow_fake_stdio_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real transport fixture is an explicitly allowlisted test script."""
+
+    monkeypatch.setenv("CALIBER_MCP_STDIO_COMMAND_ALLOWLIST", sys.executable)
+    monkeypatch.setenv("CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST", str(_FIXTURE))
+
 
 def _fake_stdio_server(command: str = sys.executable) -> McpServerConfig:
-    fixture = Path(__file__).with_name("fixtures") / "fake_mcp_server.py"
     return McpServerConfig(
         server_id="MCP-test",
         name="Fake",
         transport="stdio",
         uri="",
         command=command,
-        args=(str(fixture),),
+        args=(str(_FIXTURE),),
         env={},
         headers={},
         auth_type="none",
         auth_config={},
+        discovered_tools=(
+            {"name": "web_search"},
+            {"name": "read_file"},
+            {"name": "fail_tool"},
+        ),
+        tool_policies={
+            name: {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            }
+            for name in ("web_search", "read_file", "fail_tool")
+        },
     )
 
 

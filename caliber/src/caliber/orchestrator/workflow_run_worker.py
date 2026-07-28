@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from caliber.audit import record as audit_record
 from caliber.config import CaliberConfig
 from caliber.db.models import (
+    CaliberProject,
     CaliberRuntimeApprovalRequest,
     CaliberWorkflow,
     CaliberWorkflowRun,
@@ -27,9 +28,16 @@ from caliber.db.models import (
 )
 from caliber.events.bus import EventBus
 from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
+from caliber.mcp_policy import deployment_blockers
 from caliber.observability.trace import bind_trace_id
 from caliber.secrets import resolve_secret
+from caliber.storage import StorageError, WorkingDirectoryService, build_backend
 from caliber.workflows.compiler import CompileError
+from caliber.workflows.file_tools import (
+    bind_managed_file_runtime,
+    bind_run_read_tools,
+    managed_file_tool_aliases,
+)
 from caliber.workflows.manifest import WorkflowManifestError
 from caliber.workflows.memory_tools import bind_run_memory_tools
 from caliber.workflows.promoter import build_executor, build_plan, workflow_run_summary
@@ -1485,6 +1493,20 @@ class WorkflowRunWorker:
             run_summary = dict(run.summary or {})
             run_summary["input"] = input_text[:1000]
             run.summary = run_summary
+            exact_manifest = manifest_snapshot or getattr(version_for_plan, "manifest", {})
+            mcp_blockers = deployment_blockers(
+                session,
+                exact_manifest,
+                alias=run.deployment_alias or "manual",
+            )
+            if mcp_blockers:
+                self._mark_failed(
+                    session,
+                    run,
+                    error_code="mcp_policy_blocked",
+                    error_summary="MCP runtime preflight failed: " + "; ".join(mcp_blockers),
+                )
+                return
             requested_resume_checkpoint = run_summary.get("resume_checkpoint_id")
             resume_checkpoint = self._resume_checkpoint(session, run)
             if (
@@ -1547,6 +1569,94 @@ class WorkflowRunWorker:
                     ),
                 )
                 return
+
+            managed_snapshots = [
+                file_ref
+                for node in plan.ir.nodes.values()
+                if (file_ref := getattr(node, "file_ref", None)) is not None
+            ]
+            raw_input_files = run_summary.get("input_files")
+            if raw_input_files is not None and (
+                not isinstance(raw_input_files, list)
+                or any(not isinstance(item, dict) for item in raw_input_files)
+            ):
+                self._mark_failed(
+                    session,
+                    run,
+                    error_code="managed_file_preflight",
+                    error_summary="queued input_files snapshot is malformed",
+                )
+                return
+            requested_input_files = raw_input_files if isinstance(raw_input_files, list) else []
+            managed_file_resolver = None
+            runtime_file_tools: dict[str, Any] = {}
+            if managed_snapshots or requested_input_files:
+                if managed_snapshots and not run.project_id:
+                    self._mark_failed(
+                        session,
+                        run,
+                        error_code="managed_file_preflight",
+                        error_summary=(
+                            "managed file inputs require the workflow to belong to a project"
+                        ),
+                    )
+                    return
+                project = session.get(CaliberProject, run.project_id) if run.project_id else None
+                if run.project_id and project is None:
+                    self._mark_failed(
+                        session,
+                        run,
+                        error_code="managed_file_preflight",
+                        error_summary=f"workflow project {run.project_id!r} no longer exists",
+                    )
+                    return
+                try:
+                    wd_service = WorkingDirectoryService(
+                        build_backend(self._config.workflow_storage),
+                        self._config.workflow_storage,
+                    )
+                    if project is not None:
+                        wd_service = wd_service.for_backend(project.storage_backend)
+                    wd_ctx = wd_service.create_run_workspace(
+                        tenant_id=run.tenant_id or "local",
+                        project_id=run.project_id or "default",
+                        workflow_id=run.workflow_id,
+                        workflow_run_id=run.workflow_run_id,
+                    )
+                    if requested_input_files and not run_summary.get("input_files_bound"):
+                        bound_files = wd_service.materialize_input_files(
+                            session,
+                            wd_ctx,
+                            requested_input_files,
+                            actor="@workflow-run-worker",
+                        )
+                        run_summary["input_files_bound"] = True
+                        run_summary["bound_input_file_refs"] = [
+                            item.file_ref for item in bound_files
+                        ]
+                        run.summary = run_summary
+                        session.commit()
+                    runtime_file_tools = bind_run_read_tools(wd_service, session, wd_ctx)
+                    managed_file_resolver, managed_tools = bind_managed_file_runtime(
+                        wd_service,
+                        session,
+                        wd_ctx,
+                        managed_snapshots,
+                        extract_document_aliases=managed_file_tool_aliases(plan.ir),
+                    )
+                    if managed_file_resolver is not None:
+                        # Fail before emitting workflow.run.started when a pinned
+                        # row/object is missing, cross-project, or hash-mismatched.
+                        managed_file_resolver.verify_all()
+                    runtime_file_tools.update(managed_tools)
+                except (StorageError, ValueError, RuntimeError) as exc:
+                    self._mark_failed(
+                        session,
+                        run,
+                        error_code="managed_file_preflight",
+                        error_summary=f"managed file preflight failed: {exc}",
+                    )
+                    return
             try:
                 executor = build_executor(self._config, ir=plan.ir)
                 approved_nodes = self._approved_nodes(session, run.workflow_run_id)
@@ -1662,6 +1772,9 @@ class WorkflowRunWorker:
             heartbeat.start()
             result: WorkflowRunResult | None = None
             execution_exc: Exception | None = None
+            managed_execute_kwargs: dict[str, Any] = {}
+            if managed_file_resolver is not None:
+                managed_execute_kwargs["managed_file_resolver"] = managed_file_resolver.read_text
             try:
                 result = execute(
                     plan,
@@ -1678,7 +1791,11 @@ class WorkflowRunWorker:
                     resume_checkpoint=resume_checkpoint,
                     # Agent long-term memory (mem0), scoped to the workflow so it
                     # persists across runs. Empty dict when memory is disabled.
-                    extra_tools=bind_run_memory_tools(self._config, agent_id=run.workflow_id),
+                    extra_tools={
+                        **runtime_file_tools,
+                        **bind_run_memory_tools(self._config, agent_id=run.workflow_id),
+                    },
+                    **managed_execute_kwargs,
                 )
             except Exception as exc:
                 execution_exc = exc

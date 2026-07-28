@@ -59,6 +59,10 @@ from caliber.knowledge.schemas import KnowledgeBaseVersionCreateRequest, Knowled
 from caliber.knowledge.service import KnowledgeBaseService
 from caliber.secrets import resolve_secret
 from caliber.workflows.compiler import CompileError, CompileResult, compile_workflow
+from caliber.workflows.file_tools import (
+    bind_project_managed_file_runtime,
+    managed_file_tool_aliases,
+)
 from caliber.workflows.ir import IRWorkflow
 from caliber.workflows.manifest import (
     AgentNode,
@@ -975,8 +979,29 @@ def run_preview(
     ``manifest_override`` previews an unsaved in-memory manifest (the copilot
     iterate loop) instead of the stored version; the version is not mutated.
     """
-    plan = build_plan(session, version, manifest_override=manifest_override, config=config)
-    executor = build_executor(config, ir=plan.ir)
+    resolved_config = config or CaliberConfig()
+    plan = build_plan(
+        session,
+        version,
+        manifest_override=manifest_override,
+        config=resolved_config,
+    )
+    executor = build_executor(resolved_config, ir=plan.ir)
+    workflow = session.get(CaliberWorkflow, version.workflow_id)
+    managed_snapshots = [
+        file_ref
+        for node in plan.ir.nodes.values()
+        if (file_ref := getattr(node, "file_ref", None)) is not None
+    ]
+    managed_resolver, managed_tools = bind_project_managed_file_runtime(
+        session,
+        storage_config=resolved_config.workflow_storage,
+        project_id=(workflow.project_id if workflow is not None else None),
+        workflow_id=version.workflow_id,
+        runtime_id=f"preview-{version.version_id}",
+        snapshots=managed_snapshots,
+        extract_document_aliases=managed_file_tool_aliases(plan.ir),
+    )
     budget = TokenBudget(token_budget) if token_budget else TokenBudget()
     result = execute(
         plan,
@@ -985,6 +1010,8 @@ def run_preview(
         session_id=session_id,
         preview=True,
         token_budget=budget,
+        extra_tools=managed_tools,
+        managed_file_resolver=(managed_resolver.read_text if managed_resolver else None),
     )
     preview_manifest = (
         deepcopy(manifest_override) if manifest_override is not None else deepcopy(version.manifest)
@@ -1261,6 +1288,7 @@ def evaluate_deploy_gates(
     resolver: InMemoryToolResolver,
     executor: WorkflowExecutor,
     sample_size: int = DEPLOY_GATE_SAMPLE_SIZE,
+    config: CaliberConfig | None = None,
 ) -> GateResult:
     """Run the deploy gates relevant to ``alias`` against the eval datasets.
 
@@ -1275,6 +1303,7 @@ def evaluate_deploy_gates(
         return GateResult(has_gate=False, passed=True)
 
     compiled = compile_workflow(manifest, resolver=resolver, version="gate", use_cache=True)
+    resolved_config = config or CaliberConfig()
     workflow_identity = build_workflow_identity(
         session,
         manifest.workflow_id,
@@ -1283,6 +1312,40 @@ def evaluate_deploy_gates(
         session,
         identity=workflow_identity,
     )
+    workflow = session.get(CaliberWorkflow, manifest.workflow_id)
+    managed_snapshots = [
+        file_ref
+        for node in (compiled.ir.nodes.values() if compiled.ir is not None else [])
+        if (file_ref := getattr(node, "file_ref", None)) is not None
+    ]
+    try:
+        managed_resolver, managed_tools = bind_project_managed_file_runtime(
+            session,
+            storage_config=resolved_config.workflow_storage,
+            project_id=(workflow.project_id if workflow is not None else None),
+            workflow_id=manifest.workflow_id,
+            runtime_id=f"deploy-gate-{alias}",
+            snapshots=managed_snapshots,
+            extract_document_aliases=(
+                managed_file_tool_aliases(compiled.ir) if compiled.ir is not None else set()
+            ),
+        )
+    except (ValueError, RuntimeError) as exc:
+        return GateResult(
+            has_gate=True,
+            passed=False,
+            runs=[
+                GateRun(
+                    name=_gate_name(manifest, gate),
+                    dataset_ref=gate.dataset_ref,
+                    passed=False,
+                    pass_rate=0.0,
+                    n_examples=0,
+                    detail=f"managed file preflight failed: {exc}",
+                )
+                for gate in gates
+            ],
+        )
     runs: list[GateRun] = []
     all_passed = True
     for gate in gates:
@@ -1339,8 +1402,20 @@ def evaluate_deploy_gates(
             knowledge_build_runner=knowledge_build_runner,
         )
         completed = 0
+        managed_execute_kwargs: dict[str, Any] = {}
+        if managed_resolver is not None:
+            managed_execute_kwargs = {
+                "extra_tools": managed_tools,
+                "managed_file_resolver": managed_resolver.read_text,
+            }
         for example in examples:
-            run = execute(plan, _example_input(example), executor=executor, preview=True)
+            run = execute(
+                plan,
+                _example_input(example),
+                executor=executor,
+                preview=True,
+                **managed_execute_kwargs,
+            )
             if run.status == "completed":
                 completed += 1
         pass_rate = completed / len(examples)
@@ -1563,6 +1638,7 @@ def promote(
     actor: str,
     resolver: InMemoryToolResolver | None = None,
     executor: WorkflowExecutor | None = None,
+    config: CaliberConfig | None = None,
 ) -> PromotionResult:
     """Run deploy gates, then rotate (ungated) or request approval (gated).
 
@@ -1582,7 +1658,12 @@ def promote(
     manifest = parse_manifest(version.manifest)
 
     gate_result = evaluate_deploy_gates(
-        session, manifest, alias, resolver=resolver, executor=executor
+        session,
+        manifest,
+        alias,
+        resolver=resolver,
+        executor=executor,
+        config=config,
     )
     if alias in GATED_ALIASES and not gate_result.has_gate:
         raise DeployError(f"promoting to {alias!r} requires a deploy gate")

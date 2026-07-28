@@ -423,6 +423,28 @@ def test_create_workflow_run_persists_manifest_snapshot_and_serves_it_back(
     assert manifest_data["manifest_hash"]
 
 
+def test_create_workflow_run_rejects_deployed_alias_manifest_override(
+    client: TestClient,
+) -> None:
+    _enable_queue(client)
+    wid, vid = create_and_publish(client)
+    manifest = make_manifest(wid)
+    manifest["name"] = "Unreviewed production snapshot"
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={
+            "workflow_version_id": vid,
+            "alias": "prod",
+            "input": "hello",
+            "manifest": manifest,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "immutable saved version" in response.json()["detail"]
+
+
 def test_saved_version_runs_persist_manifest_copy_for_replay_and_survive_version_deletion(
     client: TestClient,
 ) -> None:

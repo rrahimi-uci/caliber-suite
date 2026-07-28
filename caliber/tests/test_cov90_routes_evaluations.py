@@ -305,7 +305,7 @@ def test_build_workflow_predict_success_scores_examples(
     monkeypatch.setattr(evaluations_route, "build_completion_fn", _echo_system_completion)
 
     def _fake_build_plan(session, version, **kwargs):  # type: ignore[no-untyped-def]
-        return SimpleNamespace(ir="fake-ir")
+        return SimpleNamespace(ir=SimpleNamespace(nodes={}))
 
     def _fake_build_executor(config, **kwargs):  # type: ignore[no-untyped-def]
         return SimpleNamespace()

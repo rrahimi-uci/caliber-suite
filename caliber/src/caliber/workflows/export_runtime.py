@@ -443,6 +443,12 @@ def execute_exported_workflow(
 ) -> WorkflowRunResult:
     """Execute an exported workflow IR through the full CALIBER interpreter."""
 
+    if any(getattr(node, "file_ref", None) is not None for node in ir.nodes.values()):
+        raise RuntimeError(
+            "standalone exported runtime cannot resolve managed file inputs; "
+            "execute this version through a project-scoped CALIBER runtime"
+        )
+
     resolved_config = config if config is not None else CaliberConfig.load()
     resolved_resolver = resolver if resolver is not None else InMemoryToolResolver()
     resolved_identity = identity or _default_identity(active_project_id=active_project_id)

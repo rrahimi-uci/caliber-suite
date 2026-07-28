@@ -229,10 +229,16 @@ async def answer_interaction(request: Request) -> JSONResponse:
     approved = (
         bool(payload.approved)
         if payload.approved is not None
-        else (payload.choice is not None or payload.value is not None)
+        else (payload.choice is not None or payload.value is not None or payload.inputs is not None)
     )
     extra = {
-        k: v for k, v in {"choice": payload.choice, "value": payload.value}.items() if v is not None
+        k: v
+        for k, v in {
+            "choice": payload.choice,
+            "value": payload.value,
+            "inputs": payload.inputs,
+        }.items()
+        if v is not None
     }
     try:
         result = _executor.answer(

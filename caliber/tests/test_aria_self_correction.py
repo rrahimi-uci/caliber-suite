@@ -25,6 +25,9 @@ def score_cap():
         description="returns a score",
         tier="mutate",
         handler=lambda _ctx, args: {"score": args.get("score")},
+        properties={"score": {"type": "number"}},
+        required=("score",),
+        result_properties=("score",),
     )
     caps.register(cap)
     try:

@@ -80,10 +80,10 @@ interfaces.
 | Boot and dependency graph | `server.py`, `config.py` | Load configuration, construct providers, wire `app.state`, and own process lifecycle. |
 | Transport and routing | `routes/__init__.py`, `routes/*.py` | Register HTTP endpoints, apply auth and request parsing, and translate errors to API responses. |
 | Persistence | `db/models.py`, `db/session.py` | Define relational state, session factories, and durable audit/reference entities. |
-| Feature modules | `routes/prompts.py`, `routes/tools.py`, `routes/skills.py`, `routes/mcp_servers.py`, `routes/workflows*.py`, `routes/assistant.py` | Implement domain-specific API behavior and orchestration. |
+| Feature modules | `routes/prompts.py`, `routes/tools.py`, `routes/skills.py`, `routes/agents.py`, `routes/mcp_servers.py`, `routes/workflows*.py`, `routes/assistant.py` | Implement domain-specific API behavior and orchestration. |
 | Async execution | `orchestrator/*.py`, `workflows/run_launch.py` | Run queued refinement and workflow execution off the request path. |
 | Shared subsystems | `auth.py`, `observability/*`, `storage/*`, `events/*`, `tool_sandbox/*` | Provide cross-cutting concerns used by multiple modules. |
-| Frontend shell | `caliber-ui/src/components/AppShell.tsx`, `TopBar.tsx`, `Sidebar.tsx` | Route users into page-level feature modules and keep shared chrome, state, and assistant panel behavior consistent. |
+| Frontend shell | `caliber-ui/src/components/AppShell.tsx`, `TopBar.tsx`, `Sidebar.tsx`, `WorkspaceSelector.tsx` | Route users into page-level feature modules, select or create the active project, and keep shared chrome, state, and assistant panel behavior consistent. |
 
 The architectural boundary that matters most is that feature modules do not own
 application bootstrapping. `server.py` constructs every long-lived dependency
@@ -214,6 +214,7 @@ than exhaustive:
 - `/tools`
 - `/skills`
 - `/mcp-servers`
+- `/agents`
 - `/workflows`
 - `/workflow-versions/*`
 - `/workflow-runs/*`
@@ -229,6 +230,8 @@ modules, each of which owns a single feature surface:
 - `caliber/caliber-ui/src/pages/ToolRegistry.tsx`
 - `caliber/caliber-ui/src/pages/Skills.tsx`
 - `caliber/caliber-ui/src/pages/McpServers.tsx`
+- `caliber/caliber-ui/src/pages/Agents.tsx`
+- `caliber/caliber-ui/src/pages/AgentDetail.tsx`
 - `caliber/caliber-ui/src/pages/Workflows.tsx`
 - `caliber/caliber-ui/src/pages/WorkflowEditor.tsx`
 - `caliber/caliber-ui/src/pages/Settings.tsx`
@@ -238,6 +241,11 @@ action routes through the CALIBER HTTP surface, even when the eventual effect is
 a provider call, an object-store mutation, or a workflow enqueue. Keeping the
 client behind a single API boundary is what allows authorization, scoping, and
 audit to be enforced uniformly in one place.
+
+The top bar exposes the active workspace rather than leaving project scoping as
+an API-only header. An operator can create and immediately select a project;
+the API client then sends its id as `X-CALIBER-Project`, invalidates scoped
+queries, and uses that project for newly created workflows and managed files.
 
 ## 6. Execution lifecycle
 
@@ -308,14 +316,20 @@ request path and the data it touches:
 - Secrets are referenced indirectly through `*_source` fields rather than
   carried as raw secret material.
 - Manifest validation rejects inline secrets in workflow definitions.
-- Tool sandbox runs execute in an isolated subprocess.
+- User-authored Python Code and Aria draft tests use a short-lived local
+  subprocess with an empty environment, private working directory, bounded
+  output, timeout/process-group termination, and best-effort POSIX resource
+  limits. This is process containment, not a container, VM, or kernel sandbox.
 
 The dominant trust boundary runs between control-plane state and code execution.
 Route handlers may accept user-authored manifests, prompt text, tool metadata,
 and skill content, but only specific runtime paths are permitted to execute code
-or make external calls. In particular, tool execution is isolated behind the
-sandbox/runtime path rather than executed inline in request handlers, so
-accepting untrusted content never implies running it in the server process.
+or make external calls. The local subprocess contains Python Code and Aria draft
+execution. Registered tool and external-app callables are still imported into a
+CALIBER process, so those extension points remain trusted-operator code and need
+a separate worker/container boundary before mutually untrusted authors can use
+them safely. MCP admission is separately mediated by command/host allowlists and
+deployment preflight; local stdio containment is likewise not an OS sandbox.
 
 ## 8. Observability and operations
 

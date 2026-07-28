@@ -7,7 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.assistant.executor import PlanExecutor, PlanForbiddenError, gate_decision
+from caliber.assistant.executor import (
+    PlanExecutionError,
+    PlanExecutor,
+    PlanForbiddenError,
+    gate_decision,
+)
 from caliber.assistant.plans import PlannedStep, PlanService
 from caliber.config import CaliberConfig
 from caliber.db.models import (
@@ -245,6 +250,160 @@ def test_execute_blocks_step_when_owner_lacks_capability_scope(session_factory) 
     with session_factory() as db:
         # The handler never ran, so no judge was created.
         assert db.execute(select(CaliberJudge)).scalars().first() is None
+
+
+def test_missing_capability_inputs_are_collected_and_typed(session_factory) -> None:
+    svc = PlanService()
+    plan_id = svc.create_plan(
+        session_factory=session_factory,
+        goal="create a judge",
+        owner="@reza",
+        autonomy="auto_guarded",
+    )["plan"]["plan_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
+    executor = PlanExecutor()
+
+    paused = executor.execute(
+        session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id
+    )
+    assert paused["plan"]["status"] == "paused"
+    interaction = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    assert interaction.kind == "input"
+    assert interaction.evidence["missing"] == ["name", "instructions"]
+    assert interaction.evidence["input_schema"]["properties"]["tags"]["type"] == "array"
+
+    completed = executor.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=interaction.interaction_id,
+        approved=True,
+        response={
+            "inputs": {
+                "name": "typed-input-judge",
+                "instructions": "Rate {{ outputs }}.",
+                "tags": ["production"],
+            }
+        },
+    )
+    assert completed["plan"]["status"] == "completed"
+    assert completed["steps"][0]["inputs"]["tags"] == ["production"]
+    with session_factory() as db:
+        assert (
+            db.execute(select(CaliberJudge).where(CaliberJudge.name == "typed-input-judge"))
+            .scalars()
+            .first()
+            is not None
+        )
+
+
+def test_missing_input_interaction_can_be_denied(session_factory) -> None:
+    svc = PlanService()
+    plan_id = svc.create_plan(
+        session_factory=session_factory,
+        goal="create a judge",
+        owner="@reza",
+        autonomy="auto_guarded",
+    )["plan"]["plan_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
+    executor = PlanExecutor()
+    executor.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
+    interaction = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    assert interaction.kind == "input"
+
+    completed = executor.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=interaction.interaction_id,
+        approved=False,
+    )
+
+    assert completed["plan"]["status"] == "completed"
+    assert completed["steps"][0]["status"] == "skipped"
+    with session_factory() as db:
+        assert db.execute(select(CaliberJudge)).scalars().first() is None
+
+
+def test_invalid_typed_input_does_not_answer_interaction(session_factory) -> None:
+    svc = PlanService()
+    plan_id = svc.create_plan(
+        session_factory=session_factory,
+        goal="create a judge",
+        owner="@reza",
+        autonomy="auto_guarded",
+    )["plan"]["plan_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
+    executor = PlanExecutor()
+    executor.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
+    interaction = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+
+    with pytest.raises(PlanExecutionError, match="name must be string"):
+        executor.answer(
+            session_factory=session_factory,
+            config=_CFG,
+            actor="@reza",
+            interaction_id=interaction.interaction_id,
+            approved=True,
+            response={"inputs": {"name": 7, "instructions": "Rate {{ outputs }}."}},
+        )
+    pending = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)
+    assert [item.interaction_id for item in pending] == [interaction.interaction_id]
+
+
+def test_planner_output_dependency_removes_redundant_queue_id_prompt(session_factory) -> None:
+    svc = PlanService()
+    detail = svc.create_plan(
+        session_factory=session_factory,
+        goal="create a review queue and add review items",
+        owner="@reza",
+        autonomy="auto_guarded",
+    )
+    plan_id = detail["plan"]["plan_id"]
+    create_step, add_step = detail["steps"]
+    assert add_step["depends_on"] == [create_step["step_id"]]
+    assert add_step["inputs"]["queue_id"] == {
+        "$from_step": create_step["step_id"],
+        "path": "queue_id",
+    }
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
+    executor = PlanExecutor()
+    executor.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
+    first = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    resumed = executor.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=first.interaction_id,
+        approved=True,
+        response={
+            "inputs": {
+                "name": "dependency queue",
+                "questions": [
+                    {
+                        "key": "quality",
+                        "title": "Is this correct?",
+                        "type": "pass_fail",
+                        "required": True,
+                        "target": "feedback",
+                    }
+                ],
+            }
+        },
+    )
+    assert resumed["plan"]["status"] == "paused"
+    second = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    assert second.step_id == add_step["step_id"]
+    assert second.evidence["missing"] == ["trace_ids"]
+    assert second.evidence["current_inputs"]["queue_id"]["$from_step"] == create_step["step_id"]
 
 
 # --- routes -----------------------------------------------------------------

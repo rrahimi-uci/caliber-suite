@@ -30,6 +30,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
 from caliber.db.models import (
     CaliberEvalDataset,
+    CaliberProject,
     CaliberSkill,
     CaliberToolRegistry,
     CaliberWorkflow,
@@ -45,6 +46,7 @@ from caliber.llm.provider import (
     WorkflowGenerationContext,
     build_provider,
 )
+from caliber.mcp_policy import deployment_blockers
 from caliber.observability import metrics
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import (
@@ -64,7 +66,11 @@ from caliber.schemas import (
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
 from caliber.workflows.compiler import CompileError, compile_workflow
 from caliber.workflows.diff import compute_graph_diff
-from caliber.workflows.file_tools import bind_run_read_tools
+from caliber.workflows.file_tools import (
+    bind_managed_file_runtime,
+    bind_run_read_tools,
+    managed_file_tool_aliases,
+)
 from caliber.workflows.manifest import (
     SubworkflowNode,
     WorkflowManifestError,
@@ -724,6 +730,15 @@ async def run_version_route(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = WorkflowRunRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    alias = payload.alias or "manual"
+    if payload.manifest is not None and alias != "manual":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "manifest overrides are preview/manual-run only; deployed aliases execute "
+                "their immutable saved version"
+            ),
+        )
     if payload.manifest is not None:
         _parse_manifest_or_400(payload.manifest)
     config = request.app.state.config
@@ -744,7 +759,7 @@ async def run_version_route(request: Request) -> JSONResponse:
     return envelope_response_dict(result)
 
 
-def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file workspace
+def _run_workflow_version_sync(  # noqa: PLR0912, PLR0915 - run orchestration + file workspace
     factory: Any,
     version_id: str,
     payload: WorkflowRunRequest,
@@ -770,6 +785,18 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
         if workflow.status == "archived":
             raise HTTPException(status_code=409, detail="archived workflows cannot be run")
 
+        manifest_snapshot = (
+            _clone_manifest(payload.manifest)
+            if payload.manifest is not None
+            else _clone_manifest(version.manifest)
+        )
+        mcp_blockers = deployment_blockers(
+            session,
+            manifest_snapshot,
+            alias=alias,
+        )
+        if mcp_blockers:
+            raise ValueError("MCP runtime preflight failed: " + "; ".join(mcp_blockers))
         plan = build_plan(
             session,
             version,
@@ -778,16 +805,22 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
             config=config,
             session_factory=factory,
         )
+        approval_nodes = _sync_approval_requirement_nodes(plan)
+        if approval_nodes:
+            raise ValueError(
+                "synchronous real runs cannot checkpoint runtime approvals required by "
+                + ", ".join(approval_nodes)
+                + "; submit through the queued /workflow-runs endpoint"
+            )
         executor = build_executor(config, ir=plan.ir)
+        project = session.get(CaliberProject, workflow.project_id) if workflow.project_id else None
+        tenant_id = project.tenant_id if project is not None else "local"
         manifest_metadata = _manifest_summary_metadata(version, payload.manifest)
-        manifest_snapshot = (
-            _clone_manifest(payload.manifest)
-            if payload.manifest is not None
-            else _clone_manifest(version.manifest)
-        )
         run = CaliberWorkflowRun(
             workflow_run_id=new_workflow_run_id(),
             workflow_id=workflow.workflow_id,
+            project_id=workflow.project_id,
+            tenant_id=tenant_id,
             workflow_version_id=version.version_id,
             deployment_alias=alias,
             trace_id=f"workflow-{version.workflow_id}-{started.timestamp():.0f}",
@@ -820,8 +853,13 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
         wd_service = WorkingDirectoryService(
             build_backend(config.workflow_storage), config.workflow_storage
         )
+        if project is not None:
+            wd_service = wd_service.for_backend(project.storage_backend)
         wd_ctx = wd_service.create_run_workspace(
-            workflow_id=workflow.workflow_id, workflow_run_id=run_id
+            tenant_id=tenant_id,
+            project_id=workflow.project_id or "default",
+            workflow_id=workflow.workflow_id,
+            workflow_run_id=run_id,
         )
         if payload.input_files:
             try:
@@ -834,10 +872,25 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
         # READ file tools, bound to this run, available to any agent that binds
         # them by name (storage doc §4.4). Injected via execute(extra_tools=...).
         extra_tools = bind_run_read_tools(wd_service, session, wd_ctx)
+        managed_snapshots = [
+            file_ref
+            for node in plan.ir.nodes.values()
+            if (file_ref := getattr(node, "file_ref", None)) is not None
+        ]
+        managed_resolver, managed_tools = bind_managed_file_runtime(
+            wd_service,
+            session,
+            wd_ctx,
+            managed_snapshots,
+            extract_document_aliases=managed_file_tool_aliases(plan.ir),
+        )
+        if managed_resolver is not None:
+            managed_resolver.verify_all()
         # Agent long-term memory (mem0), scoped to the workflow so it persists
         # across runs. Empty dict when memory is disabled, so this is a no-op.
         extra_tools = {
             **extra_tools,
+            **managed_tools,
             **bind_run_memory_tools(config, agent_id=wd_ctx.workflow_id),
         }
 
@@ -904,6 +957,9 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
                 },
             )
 
+        managed_execute_kwargs: dict[str, Any] = {}
+        if managed_resolver is not None:
+            managed_execute_kwargs["managed_file_resolver"] = managed_resolver.read_text
         result = execute(
             plan,
             input_text,
@@ -913,6 +969,7 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
             on_step=_on_step,
             on_node_start=_on_node_start,
             extra_tools=extra_tools,
+            **managed_execute_kwargs,
         )
         # Persist any named file artifacts the run produced (e.g. kg.json +
         # report.html from a python_code node's ``result.artifacts``) into the run
@@ -976,6 +1033,21 @@ def _run_workflow_version_sync(  # noqa: PLR0915 - run orchestration + file work
             },
         )
         return _run_result_payload(run_id, result, preview=False)
+
+
+def _sync_approval_requirement_nodes(plan: Any) -> list[str]:
+    """Approval-bearing IR nodes that require the checkpoint-capable queue."""
+
+    required: list[str] = []
+    for node_id, node in plan.ir.nodes.items():
+        node_type = getattr(getattr(node, "node_type", ""), "value", node.node_type)
+        if node_type == "human_approval":
+            required.append(f"human approval node {node_id!r}")
+            continue
+        binding = getattr(node, "binding", None)
+        if binding is not None and bool(getattr(binding, "requires_approval", False)):
+            required.append(f"approval-required tool at node {node_id!r}")
+    return required
 
 
 def _input_to_text(value: object) -> str:

@@ -40,6 +40,13 @@ from caliber.mcp_gateway import (
 from caliber.mcp_gateway import (
     invoke_tool as invoke_tool_via_gateway,
 )
+from caliber.mcp_policy import (
+    McpPolicyError,
+    effective_tool_policy,
+    execution_readiness,
+    extract_dependencies,
+    validate_tool_access,
+)
 from caliber.mcp_secrets import (
     MCP_SENSITIVE_CONFIG_FIELDS,
     InvalidWriteOnlySentinelError,
@@ -109,6 +116,7 @@ def _public_server_schema(server: CaliberMcpServer) -> McpServerSchema:
     data = McpServerSchema.model_validate(server).model_dump(mode="python")
     for field in MCP_SENSITIVE_CONFIG_FIELDS:
         data[field] = sanitize_mcp_config(data.get(field, {}))
+    data["execution"] = execution_readiness(server).to_dict()
     return McpServerSchema.model_validate(data)
 
 
@@ -136,12 +144,17 @@ def _updated_sensitive_mapping(
 
 
 def _effective_policy(server: CaliberMcpServer, tool_name: str) -> dict[str, Any]:
-    base = {"allowed": True, "side_effect_level": "read", "requires_approval": False}
-    raw = server.tool_policies or {}
-    override = raw.get(tool_name)
-    if isinstance(override, dict):
-        base.update({k: v for k, v in override.items() if v is not None})
-    return base
+    return effective_tool_policy(server, tool_name)
+
+
+def _tool_policy_is_classified(server: CaliberMcpServer, tool_name: str) -> bool:
+    policies = server.tool_policies or {}
+    policy = policies.get(tool_name) if isinstance(policies, dict) else None
+    return isinstance(policy, dict) and {
+        "allowed",
+        "side_effect_level",
+        "requires_approval",
+    }.issubset(policy)
 
 
 async def list_mcp_servers(request: Request) -> JSONResponse:
@@ -234,6 +247,34 @@ async def create_mcp_server(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=f"MCP server {payload.name!r} already registered",
             )
+        discovered_names = {
+            str(tool.get("name", "")).strip()
+            for tool in payload.discovered_tools
+            if str(tool.get("name", "")).strip()
+        }
+        unknown_policy_tools = sorted(set(payload.tool_policies) - discovered_names)
+        if unknown_policy_tools:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "tool policies reference tools outside discovered_tools: "
+                    + ", ".join(unknown_policy_tools)
+                ),
+            )
+        required_policy_fields = {"allowed", "side_effect_level", "requires_approval"}
+        incomplete_policy_tools = sorted(
+            name
+            for name, policy in payload.tool_policies.items()
+            if not required_policy_fields.issubset(policy.model_fields_set)
+        )
+        if incomplete_policy_tools:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "seeded tool policies must explicitly set allowed, side_effect_level, "
+                    "and requires_approval: " + ", ".join(incomplete_policy_tools)
+                ),
+            )
         server = CaliberMcpServer(
             server_id=new_mcp_server_id(),
             name=payload.name,
@@ -246,7 +287,10 @@ async def create_mcp_server(request: Request) -> JSONResponse:
             headers=_create_sensitive_mapping(dict(payload.headers), "headers"),
             auth_type=payload.auth_type,
             auth_config=_create_sensitive_mapping(dict(payload.auth_config), "auth_config"),
-            tool_policies={},
+            tool_policies={
+                name: policy.model_dump(exclude_none=True)
+                for name, policy in payload.tool_policies.items()
+            },
             icon=payload.icon,
             owner=payload.owner,
             discovered_tools=list(payload.discovered_tools),
@@ -323,10 +367,9 @@ def _deployments_referencing_server(session: Session, server_id: str) -> list[st
         version = session.get(CaliberWorkflowVersion, deployment.version_id)
         if version is None:
             continue
-        tools = (version.manifest or {}).get("tools", {})
         if any(
-            isinstance(binding, dict) and binding.get("server_id") == server_id
-            for binding in tools.values()
+            dependency.server_id == server_id
+            for dependency in extract_dependencies(version.manifest or {})
         ):
             blocking.append(f"{deployment.alias}@{deployment.workflow_id}")
     return blocking
@@ -500,6 +543,7 @@ async def list_tools(request: Request) -> JSONResponse:
                     {
                         **raw,
                         "policy": _effective_policy(server, name),
+                        "classified": _tool_policy_is_classified(server, name),
                     }
                 )
             )
@@ -578,13 +622,17 @@ async def _invoke_mcp_tool(
             "result": None,
             "duration_ms": 0,
         }
-    policy = _effective_policy(server, tool_name)
-    if not bool(policy.get("allowed", True)):
+    try:
+        # The gateway repeats this check and consumes the rate limit.  Doing a
+        # non-consuming admission check here keeps operator errors structured
+        # even when the transport function is substituted in tests.
+        validate_tool_access(server, tool_name, consume_rate=False)
+    except McpPolicyError as exc:
         return {
             "server_id": server_id,
             "tool_name": tool_name,
             "success": False,
-            "error": f"Tool {tool_name!r} is blocked by policy",
+            "error": str(exc),
             "result": None,
             "duration_ms": 0,
         }
@@ -705,6 +753,15 @@ async def calibrate_mcp_tool(request: Request) -> JSONResponse:
             raise HTTPException(
                 status_code=404,
                 detail=f"tool {tool_name!r} not found on MCP server {server_id!r}",
+            )
+        policy = _effective_policy(server, tool_name)
+        if bool(policy.get("requires_approval")):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"tool {tool_name!r} requires approval, but MCP calibration has no "
+                    "approval checkpoint; use a governed workflow run"
+                ),
             )
         saved_cases = list((server.tool_test_cases or {}).get(tool_name, []))
         if not saved_cases:

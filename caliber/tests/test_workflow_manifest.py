@@ -26,6 +26,46 @@ def test_valid_minimal_manifest_parses() -> None:
     assert set(manifest.nodes) == {"start", "agent", "final"}
 
 
+def test_file_input_accepts_one_content_pinned_managed_ref() -> None:
+    data = make_manifest()
+    data["nodes"]["file_input"] = {
+        "id": "file_input",
+        "type": "file_input",
+        "file_ref": {
+            "file_id": "FILE-1",
+            "file_ref": "caliber://projects/PRJ-1/input/source.md",
+            "sha256": "a" * 64,
+            "name": "source.md",
+            "size_bytes": 12,
+            "media_type": "text/markdown",
+            "object_version_id": "v1",
+        },
+    }
+    node = parse_manifest(data).nodes["file_input"]
+    assert isinstance(node, FileInputNode)
+    assert node.file_ref is not None
+    assert node.file_ref.sha256 == "a" * 64
+    assert node.outputs["file_ref"].type == "structured"
+
+
+def test_file_input_rejects_managed_ref_plus_legacy_path() -> None:
+    data = make_manifest()
+    data["nodes"]["file_input"] = {
+        "id": "file_input",
+        "type": "file_input",
+        "path": "/tmp/source.md",
+        "file_ref": {
+            "file_id": "FILE-1",
+            "file_ref": "caliber://projects/PRJ-1/input/source.md",
+            "sha256": "a" * 64,
+            "name": "source.md",
+            "size_bytes": 12,
+        },
+    }
+    with pytest.raises(ValidationError, match="either file_ref or path"):
+        parse_manifest(data)
+
+
 def test_missing_schema_version_rejected() -> None:
     data = make_manifest()
     del data["schema_version"]

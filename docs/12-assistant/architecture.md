@@ -400,8 +400,12 @@ assumption.
   and context blowup.
 - The registry tool dispatcher exposed to engines is **read-only**
   (`list_skills` / `get_skill` / `list_tools`).
-- Draft testing runs in the shared tool sandbox (subprocess isolation) rather
-  than in the request handler, so untrusted draft code never executes in-process.
+- Draft testing runs in the shared local tool containment process rather than
+  in the request handler. The runner uses Python isolated mode, an empty
+  environment, a private working directory, POSIX CPU/memory/file/open-file
+  limits where available, a wall timeout, and process-group termination. This
+  prevents in-process execution but is not a container/VM/kernel security
+  boundary; deployments that admit mutually untrusted authors still need one.
 - In the agentic orchestrator (§9), `gated`-tier capabilities are a
   **non-negotiable floor**: they always pause for a human regardless of autonomy,
   and the tool projection (`agent_tools.py`) refuses to expose them for

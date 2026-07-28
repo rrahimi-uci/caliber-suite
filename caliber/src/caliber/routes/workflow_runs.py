@@ -29,6 +29,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.ids import new_workflow_run_id
+from caliber.mcp_policy import deployment_blockers
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import (
     WorkflowRunApprovalDecisionRequest,
@@ -555,6 +556,14 @@ async def create_workflow_run(request: Request) -> JSONResponse:
     with factory() as session:
         workflow, version, alias = _workflow_and_version_for_run(session, payload)
         submitted_manifest = payload.manifest
+        if submitted_manifest is not None and alias != "manual":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "manifest overrides are preview/manual-run only; deployed aliases execute "
+                    "their immutable saved version"
+                ),
+            )
         manifest_metadata = _manifest_summary_metadata(version, submitted_manifest)
         manifest_snapshot = (
             _clone_manifest(submitted_manifest)
@@ -563,6 +572,12 @@ async def create_workflow_run(request: Request) -> JSONResponse:
         )
         if submitted_manifest is not None:
             _parse_manifest_or_400(manifest_snapshot)
+        mcp_blockers = deployment_blockers(session, manifest_snapshot, alias=alias)
+        if mcp_blockers:
+            raise HTTPException(
+                status_code=400,
+                detail="MCP runtime preflight failed: " + "; ".join(mcp_blockers),
+            )
         if workflow.status == "paused":
             raise HTTPException(
                 status_code=409, detail="workflow is paused; resume it before running"
@@ -609,6 +624,11 @@ async def create_workflow_run(request: Request) -> JSONResponse:
                 "preview": False,
                 "status": RUN_STATUS_QUEUED,
                 "input": _input_to_text(payload.input)[:1000],
+                **(
+                    {"input_files": [dict(item) for item in payload.input_files]}
+                    if payload.input_files
+                    else {}
+                ),
                 **manifest_metadata,
             },
         )
@@ -1190,6 +1210,9 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
             "retry_of": run.workflow_run_id,
             **retry_manifest_metadata,
         }
+        original_input_files = (run.summary or {}).get("input_files")
+        if isinstance(original_input_files, list):
+            retry_summary["input_files"] = deepcopy(original_input_files)
         if retry_checkpoint is not None:
             retry_summary["resume_checkpoint_id"] = retry_checkpoint.checkpoint_id
             retry_summary["resume_checkpoint_run_id"] = retry_checkpoint.workflow_run_id

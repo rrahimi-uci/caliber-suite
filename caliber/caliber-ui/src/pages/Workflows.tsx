@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { FilterSelect } from "@/components/FilterSelect";
 import { SearchInput } from "@/components/SearchInput";
 import { ViewToggle } from "@/components/ViewToggle";
+import { WorkflowImportDialog } from "@/components/workflows/WorkflowImportDialog";
 import type {
   Workflow,
   WorkflowManifest,
@@ -280,6 +281,10 @@ export function Workflows(): JSX.Element {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [importDialog, setImportDialog] = useState<{
+    mode: "import" | "clone";
+    source?: Workflow;
+  } | null>(null);
 
   const query = useApiQuery(["workflows"], (signal) =>
     caliberApi.listWorkflows(undefined, signal),
@@ -467,6 +472,23 @@ export function Workflows(): JSX.Element {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {importDialog && (
+        <WorkflowImportDialog
+          mode={importDialog.mode}
+          sourceWorkflow={importDialog.source}
+          onClose={() => setImportDialog(null)}
+          onImported={({ workflow, version }) => {
+            void invalidate(["workflows"]);
+            setImportDialog(null);
+            showToast.success(
+              importDialog.mode === "clone"
+                ? `Cloned as "${workflow.name}"`
+                : `Imported "${workflow.name}"`,
+            );
+            navigate(`/workflows/${workflow.workflow_id}/editor/${version.version_id}`);
+          }}
+        />
+      )}
       {/* ── Delete confirmation modal ── */}
       {deleteTarget && (
         <div
@@ -541,24 +563,38 @@ export function Workflows(): JSX.Element {
         title="Workflows"
         subtitle="Build, test, and publish agentic workflows"
         actions={
-          <button
-            type="button"
-            data-testid="new-workflow"
-            className="btn-primary flex items-center gap-2"
-            onClick={() => setCreating((v) => !v)}
-          >
-            <svg
-              className="w-4 h-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="import-workflow"
+              className="btn-secondary flex items-center gap-2"
+              onClick={() => setImportDialog({ mode: "import" })}
             >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            New Workflow
-          </button>
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 3v12m0 0l-4-4m4 4l4-4" />
+                <path d="M4 17v3h16v-3" />
+              </svg>
+              Import
+            </button>
+            <button
+              type="button"
+              data-testid="new-workflow"
+              className="btn-primary flex items-center gap-2"
+              onClick={() => setCreating((v) => !v)}
+            >
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              New Workflow
+            </button>
+          </div>
         }
       />
 
@@ -845,6 +881,21 @@ export function Workflows(): JSX.Element {
                   <>
                     <button
                       type="button"
+                      data-testid={`clone-workflow-${wf.workflow_id}`}
+                      title="Clone workflow as new"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-sky-50 hover:text-sky-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setImportDialog({ mode: "clone", source: wf });
+                      }}
+                    >
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="8" y="8" width="12" height="12" rx="2" />
+                        <path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
                       data-testid={`edit-workflow-${wf.workflow_id}`}
                       title="Rename workflow"
                       className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-caliber-purple/5 hover:text-caliber-purple"
@@ -980,6 +1031,21 @@ export function Workflows(): JSX.Element {
 
                   {/* Action buttons */}
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      data-testid={`clone-workflow-${wf.workflow_id}`}
+                      title="Clone workflow as new"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-sky-50 hover:text-sky-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setImportDialog({ mode: "clone", source: wf });
+                      }}
+                    >
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="8" y="8" width="12" height="12" rx="2" />
+                        <path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" />
+                      </svg>
+                    </button>
                     <button
                       type="button"
                       data-testid={`edit-workflow-${wf.workflow_id}`}

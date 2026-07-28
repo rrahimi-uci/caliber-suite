@@ -7,6 +7,8 @@
  * `@/api`; this module is presentation only.
  */
 
+import { useEffect, useMemo, useState } from "react";
+
 import type {
   AriaAutonomy,
   AriaInteraction,
@@ -94,6 +96,9 @@ export function StepStatusBadge({ status }: { status: AriaStepStatus }): JSX.Ele
 }
 
 export function PlanStepRow({ step }: { step: AriaPlanStep }): JSX.Element {
+  const requiredInputs = Array.isArray(step.input_schema?.required)
+    ? step.input_schema.required.filter((item): item is string => typeof item === "string")
+    : [];
   return (
     <li className="px-4 py-3 flex items-start gap-3">
       <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-100 text-xs font-mono text-gray-600">
@@ -111,11 +116,76 @@ export function PlanStepRow({ step }: { step: AriaPlanStep }): JSX.Element {
             depends on {step.depends_on.length} prior step(s)
           </div>
         )}
+        {requiredInputs.length > 0 && (
+          <div className="text-xs text-gray-400 mt-0.5">
+            inputs: {requiredInputs.join(", ")}
+          </div>
+        )}
         {step.error && <div className="text-xs text-red-600 mt-0.5">{step.error}</div>}
       </div>
       <StepStatusBadge status={step.status} />
     </li>
   );
+}
+
+type JsonSchemaProperty = {
+  type?: string;
+  title?: string;
+  description?: string;
+  enum?: unknown[];
+};
+
+type InputInteractionEvidence = {
+  input_schema?: {
+    properties?: Record<string, JsonSchemaProperty>;
+    required?: string[];
+  };
+  current_inputs?: Record<string, unknown>;
+  missing?: string[];
+};
+
+function isStepReference(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "$from_step" in (value as Record<string, unknown>),
+  );
+}
+
+function initialInputValue(value: unknown, schema: JsonSchemaProperty): string | boolean {
+  if (schema.type === "boolean") return value === true;
+  if (value === undefined || value === null) return "";
+  if (schema.type === "array" || schema.type === "object") {
+    return JSON.stringify(value, null, 2);
+  }
+  return String(value);
+}
+
+function parseInputValue(
+  name: string,
+  value: string | boolean,
+  schema: JsonSchemaProperty,
+): unknown {
+  if (schema.type === "boolean") return Boolean(value);
+  const text = String(value).trim();
+  if (schema.type === "integer") {
+    const parsed = Number(text);
+    if (!Number.isInteger(parsed)) throw new Error(`${name} must be an integer.`);
+    return parsed;
+  }
+  if (schema.type === "number") {
+    const parsed = Number(text);
+    if (!Number.isFinite(parsed)) throw new Error(`${name} must be a number.`);
+    return parsed;
+  }
+  if (schema.type === "array" || schema.type === "object") {
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`${name} must be valid JSON.`);
+    }
+  }
+  return text;
 }
 
 /**
@@ -133,13 +203,67 @@ export function PlanInteractionPrompt({
   onAnswer: (payload: AriaInteractionAnswerPayload) => void;
 }): JSX.Element {
   const isConfirm = interaction.kind === "confirm";
+  const isInput = interaction.kind === "input";
   const hasOptions = interaction.kind === "choice" && interaction.options.length > 0;
   const ev = interaction.evidence as { metric?: string; min?: number; value?: unknown };
   const hasGateEvidence = isConfirm && typeof ev.metric === "string" && ev.metric.length > 0;
+  const inputEvidence = interaction.evidence as InputInteractionEvidence;
+  const inputProperties = useMemo(
+    () => inputEvidence.input_schema?.properties ?? {},
+    [inputEvidence.input_schema?.properties],
+  );
+  const inputRequired = useMemo(
+    () => new Set(inputEvidence.input_schema?.required ?? []),
+    [inputEvidence.input_schema?.required],
+  );
+  const editableInputNames = useMemo(
+    () =>
+      Object.keys(inputProperties).filter(
+        (name) => !isStepReference(inputEvidence.current_inputs?.[name]),
+      ),
+    [inputEvidence.current_inputs, inputProperties],
+  );
+  const [inputValues, setInputValues] = useState<Record<string, string | boolean>>({});
+  const [inputError, setInputError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const next: Record<string, string | boolean> = {};
+    for (const name of editableInputNames) {
+      next[name] = initialInputValue(
+        inputEvidence.current_inputs?.[name],
+        inputProperties[name] ?? {},
+      );
+    }
+    setInputValues(next);
+    setInputError(null);
+  }, [editableInputNames, inputEvidence.current_inputs, inputProperties, interaction.interaction_id]);
+
+  const submitInputs = (): void => {
+    try {
+      const inputs: Record<string, unknown> = {};
+      for (const name of editableInputNames) {
+        const schema = inputProperties[name] ?? {};
+        const value = inputValues[name] ?? "";
+        if (schema.type !== "boolean" && String(value).trim() === "") {
+          if (inputRequired.has(name)) throw new Error(`${name} is required.`);
+          continue;
+        }
+        inputs[name] = parseInputValue(name, value, schema);
+      }
+      setInputError(null);
+      onAnswer({ inputs });
+    } catch (error) {
+      setInputError(error instanceof Error ? error.message : String(error));
+    }
+  };
   return (
     <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-caliber-purple">
-        {isConfirm ? "Aria needs you to confirm" : "Aria needs your approval"}
+        {isInput
+          ? "Aria needs information"
+          : isConfirm
+            ? "Aria needs you to confirm"
+            : "Aria needs your approval"}
         {interaction.required_scope && (
           <span className="font-mono normal-case text-[10px] bg-white/70 px-1.5 py-0.5 rounded">
             requires {interaction.required_scope}
@@ -166,7 +290,92 @@ export function PlanInteractionPrompt({
         </p>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      {isInput && (
+        <div className="mt-3 space-y-3">
+          {editableInputNames.map((name) => {
+            const schema = inputProperties[name] ?? {};
+            const value = inputValues[name] ?? "";
+            return (
+              <label key={name} className="block text-xs font-medium text-gray-700">
+                <span>
+                  {schema.title || name.replace(/_/g, " ")}
+                  {inputRequired.has(name) && <span className="text-red-500"> *</span>}
+                </span>
+                {schema.description && (
+                  <span className="ml-1 font-normal text-gray-400">{schema.description}</span>
+                )}
+                {Array.isArray(schema.enum) ? (
+                  <select
+                    className="mt-1 block w-full rounded-md border border-violet-200 bg-white px-2.5 py-1.5 text-sm"
+                    value={String(value)}
+                    onChange={(event) =>
+                      setInputValues((current) => ({ ...current, [name]: event.target.value }))
+                    }
+                  >
+                    <option value="">Select…</option>
+                    {schema.enum.map((option) => (
+                      <option key={String(option)} value={String(option)}>
+                        {String(option)}
+                      </option>
+                    ))}
+                  </select>
+                ) : schema.type === "boolean" ? (
+                  <input
+                    className="ml-2 align-middle"
+                    type="checkbox"
+                    checked={Boolean(value)}
+                    onChange={(event) =>
+                      setInputValues((current) => ({
+                        ...current,
+                        [name]: event.target.checked,
+                      }))
+                    }
+                  />
+                ) : schema.type === "array" || schema.type === "object" ? (
+                  <textarea
+                    className="mt-1 block min-h-20 w-full rounded-md border border-violet-200 bg-white px-2.5 py-1.5 font-mono text-xs"
+                    value={String(value)}
+                    placeholder={schema.type === "array" ? '["item"]' : '{"key":"value"}'}
+                    onChange={(event) =>
+                      setInputValues((current) => ({ ...current, [name]: event.target.value }))
+                    }
+                  />
+                ) : (
+                  <input
+                    className="mt-1 block w-full rounded-md border border-violet-200 bg-white px-2.5 py-1.5 text-sm"
+                    type={schema.type === "number" || schema.type === "integer" ? "number" : "text"}
+                    value={String(value)}
+                    onChange={(event) =>
+                      setInputValues((current) => ({ ...current, [name]: event.target.value }))
+                    }
+                  />
+                )}
+              </label>
+            );
+          })}
+          {inputError && <p className="text-xs text-red-600">{inputError}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={pending || editableInputNames.length === 0}
+              onClick={submitInputs}
+              className="text-sm font-medium text-white bg-caliber-purple px-3 py-1.5 rounded-md hover:bg-caliber-purple-dark disabled:opacity-50"
+            >
+              Continue plan
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => onAnswer({ approved: false })}
+              className="text-sm font-medium text-gray-700 bg-white border border-surface-200 px-3 py-1.5 rounded-md hover:bg-surface-50 disabled:opacity-50"
+            >
+              Skip step
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isInput && <div className="mt-3 flex flex-wrap gap-2">
         {hasOptions ? (
           interaction.options.map((opt, i) => (
             <button
@@ -199,7 +408,7 @@ export function PlanInteractionPrompt({
             </button>
           </>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

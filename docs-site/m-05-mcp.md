@@ -2,14 +2,14 @@
 
 ## At a glance
 
-| Dimension | MCP integration layer |
-| --- | --- |
-| **What it is** | A mediated layer that turns external MCP servers into governed, inspectable CALIBER runtime dependencies. |
-| **Where state lives** | A single `CaliberMcpServer` row carries connection metadata, `discovered_tools`, `tool_policies`, `tool_test_cases`, and `tool_calibrations`. |
-| **Key surfaces** | Routes under `/ajax-api/2.0/mlflow/caliber` (`routes/mcp_servers.py`), the `McpServers.tsx` UI, and the `mcp_gateway.py` transport gateway. |
-| **Runtime model** | One gateway serves both operator tooling and the workflow runtime; invoke and calibrate share the `_invoke_mcp_tool()` path over stdio, SSE, and streamable HTTP. |
-| **Trust / safety** | Boundary-crossing operations require the `admin` scope; policy overlays can block tools, and invocation runs under bounded timeouts. |
-| **Calibration** | Saved per-tool test cases and calibration summaries are CALIBER-local overlays kept on the server row, distinct from the remote tool implementation. |
+| Dimension                   | MCP integration layer                                                                                                                                                                                                                                                        |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What it is**        | A mediated layer that turns external MCP servers into governed, inspectable CALIBER runtime dependencies.                                                                                                                                                                    |
+| **Where state lives** | A single`CaliberMcpServer` row carries connection metadata, `discovered_tools`, `tool_policies`, `tool_test_cases`, and `tool_calibrations`.                                                                                                                       |
+| **Key surfaces**      | Routes under`/ajax-api/2.0/mlflow/caliber` (`routes/mcp_servers.py`), the `McpServers.tsx` UI, and the `mcp_gateway.py` transport gateway.                                                                                                                           |
+| **Runtime model**     | One gateway serves both operator tooling and the workflow runtime; invoke and calibrate share the`_invoke_mcp_tool()` path over stdio, SSE, and streamable HTTP.                                                                                                           |
+| **Trust / safety**    | Boundary-crossing operations require the`admin` scope. The central gateway enforces status, discovered-tool membership, allow/deny policy, command/host allowlists, executable availability, and process-local rate limits. Local stdio is containment, not an OS sandbox. |
+| **Calibration**       | Saved per-tool test cases and calibration summaries are CALIBER-local overlays kept on the server row, distinct from the remote tool implementation.                                                                                                                         |
 
 The sections below start from this picture and drill down into the scope, boundaries, data model, APIs, lifecycle, and trust posture in detail.
 
@@ -38,6 +38,7 @@ server, and the front end:
 
 - `caliber/src/caliber/routes/mcp_servers.py`
 - `caliber/src/caliber/mcp_gateway.py`
+- `caliber/src/caliber/mcp_policy.py`
 - `caliber/src/caliber/db/models.py` (`CaliberMcpServer`)
 - `caliber/src/caliber/mcp_servers/db/*`
 - `caliber/caliber-ui/src/pages/McpServers.tsx`
@@ -48,19 +49,29 @@ The module keeps persistence, transport, and runtime invocation in separate
 hands so that none of them has to reimplement the others. The table below
 records the owners:
 
-| Responsibility | Owner | Notes |
-| --- | --- | --- |
-| Server registry and policy storage | `CaliberMcpServer` | Canonical connection metadata, discovered tools, policies, test cases, and calibrations. |
-| Transport execution | `mcp_gateway.py` | Uses the official `mcp` Python SDK for stdio, SSE, and streamable HTTP. |
-| Operator CRUD and discovery | `routes/mcp_servers.py` | API surface for registry management, discovery, testing, and playground use. |
-| Runtime workflow invocation | `workflows/runtime.py` via sync gateway wrappers | Workflow execution can call MCP tools without reimplementing transport logic. |
-| Bundled first-party MCP server | `mcp_servers/db/*` | A CALIBER-hosted MCP server exposing relational (SQL), vector (pgvector), and graph (Apache AGE / openCypher) tools; runnable via `python -m caliber.mcp_servers.db --mode <relational\|vector\|graph>`. |
+| Responsibility                            | Owner                                              | Notes                                                                                                                                                                                                   |
+| ----------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server registry and policy storage        | `CaliberMcpServer`                               | Canonical connection metadata, discovered tools, policies, test cases, and calibrations.                                                                                                                |
+| Execution policy and deployment preflight | `mcp_policy.py`                                  | Computes runtime readiness, enforces tool access/rate policy, and validates every MCP dependency before promotion.                                                                                      |
+| Transport execution                       | `mcp_gateway.py`                                 | Uses the official`mcp` Python SDK for stdio, SSE, and streamable HTTP after central policy admission.                                                                                                 |
+| Operator CRUD and discovery               | `routes/mcp_servers.py`                          | API surface for registry management, discovery, testing, and playground use.                                                                                                                            |
+| Runtime workflow invocation               | `workflows/runtime.py` via sync gateway wrappers | Workflow execution can call MCP tools without reimplementing transport logic.                                                                                                                           |
+| Bundled first-party MCP server            | `mcp_servers/db/*`                               | A CALIBER-hosted MCP server exposing relational (SQL), vector (pgvector), and graph (Apache AGE / openCypher) tools; runnable via`python -m caliber.mcp_servers.db --mode <relational\|vector\|graph>`. |
+| Shipped isolated DB services              | `deploy/caliber/compose.yaml`                    | Three non-root, read-only, capability-dropped streamable-HTTP sidecars with no host-published ports.                                                                                                    |
 
-This split is explicit and intentional. The routes own persistence and policy
-enforcement; the gateway owns the network and transport mechanics; and the
+This split is explicit and intentional. The routes own persistence, the policy
+module owns admission and deployment preflight, the gateway owns network and
+transport mechanics; and the
 workflow runtime reaches MCP tools only through sync wrappers, so that the same
 tools are callable from the synchronous interpreter path without that path ever
 touching transport details directly.
+
+Discovery is inventory, not authorization. A newly discovered tool is denied
+until an administrator saves an explicit `allowed`, `side_effect_level`, and
+`requires_approval` classification. The same admission check protects
+Playground invocation, calibration, workflow runtime, and deployment; bundled
+database presets arrive with explicit policies rather than relying on a name
+heuristic.
 
 ## 3. Runtime architecture
 
@@ -74,6 +85,7 @@ flowchart LR
     UI[MCP Servers UI]:::ui
     API[routes/mcp_servers.py]:::ctrl
     DB[(CaliberMcpServer)]:::store
+    POL[mcp_policy.py]:::ctrl
     GW[mcp_gateway.py]:::ctrl
     SDK[Official MCP Python SDK]:::ext
     EXT[External MCP servers]:::ext
@@ -81,17 +93,19 @@ flowchart LR
 
     UI --> API
     API --> DB
-    API --> GW
+    API --> POL
+    POL --> GW
     GW --> SDK
     SDK --> EXT
-    WF --> GW
+    WF --> POL
+    POL --> GW
     GW --> DB
 ```
 
 ```legend
 ```
 
-A few structural properties make this layout work. The same gateway code path
+A few structural properties make this layout work. The same policy and gateway code paths
 serves both operator tooling and workflow runtime invocation, so transport
 behavior cannot drift between the two. Discovered tool metadata is cached on the
 `CaliberMcpServer` row rather than fetched on every UI render, which keeps the
@@ -107,15 +121,15 @@ implementation.
 All of this state lives on a single carrier, the `CaliberMcpServer` row, whose
 fields divide cleanly by purpose:
 
-| Field group | Purpose |
-| --- | --- |
-| `name`, `transport`, `uri`, `command`, `args` | Transport identity and connection shape. |
-| `env`, `headers`, `auth_type`, `auth_config` | Credential and transport parameterization. |
-| `discovered_tools` | Cached remote tool inventory from `tools/list`. |
-| `tool_policies` | CALIBER-local execution policy overlay keyed by tool name. |
-| `tool_test_cases` | Saved per-tool calibration fixtures. |
-| `tool_calibrations` | Latest aggregate calibration results per tool. |
-| `status`, `last_connected_at`, `connection_error` | Connection health and operator feedback. |
+| Field group                                             | Purpose                                                    |
+| ------------------------------------------------------- | ---------------------------------------------------------- |
+| `name`, `transport`, `uri`, `command`, `args` | Transport identity and connection shape.                   |
+| `env`, `headers`, `auth_type`, `auth_config`    | Credential and transport parameterization.                 |
+| `discovered_tools`                                    | Cached remote tool inventory from`tools/list`.           |
+| `tool_policies`                                       | CALIBER-local execution policy overlay keyed by tool name. |
+| `tool_test_cases`                                     | Saved per-tool calibration fixtures.                       |
+| `tool_calibrations`                                   | Latest aggregate calibration results per tool.             |
+| `status`, `last_connected_at`, `connection_error` | Connection health and operator feedback.                   |
 
 This division reflects a clear ownership split. Remote servers remain
 authoritative for the live tool implementation, so CALIBER never pretends to
@@ -197,8 +211,8 @@ sequenceDiagram
 
     U->>UI: Invoke or calibrate tool
     UI->>API: POST /invoke-tool or /calibrate
-    API->>DB: Check effective policy and saved cases
-    API->>GW: call_tool
+    API->>DB: Load effective policy and saved cases
+    API->>GW: call_tool through central admission
     GW->>MCP: tools/call
     API->>DB: Persist calibration aggregate if applicable
 ```
@@ -208,9 +222,11 @@ minimal configuration first and only then performs a real `tools/list` round
 trip, so misconfiguration is caught before any network cost is paid. Invocation
 and calibration both run through the same `_invoke_mcp_tool()` path, which keeps
 the known-tool checks, the policy checks, the timeouts, and the gateway behavior
-consistent regardless of which entry point triggered the call. And the workflow
-runtime reaches tools through the sync wrappers in `mcp_gateway.py`, so the
-synchronous interpreter never has to duplicate transport logic of its own.
+consistent regardless of which entry point triggered the call. The gateway
+rechecks status, discovered-tool membership, allow/deny policy, transport
+allowlists, and rate limits, so workflow runtime calls cannot bypass the route
+layer. The synchronous interpreter therefore never duplicates either policy or
+transport logic.
 
 ## 7. Security and trust boundaries
 
@@ -227,6 +243,39 @@ boundary. The following controls apply:
 - Only the saved test cases and calibration endpoints are `operator`-scoped.
 - Policy overlays can explicitly block a remote tool even when the remote server
   still advertises it.
+- Invocation is fail closed when the server is not active, discovery has not
+  established the tool inventory, the requested tool is outside that inventory,
+  or its policy blocks it. Per-tool minute limits are enforced in process; they
+  are not a distributed quota across replicas.
+- Stdio execution accepts only explicitly configured executables. The default
+  permits `${PYTHON}` only for allowlisted `-m` modules, rejects Python `-c` and
+  unlisted scripts, blocks process-injection environment variables, avoids a
+  shell, replaces every environment key the MCP SDK would otherwise inherit,
+  uses an operator-controlled safe `PATH`, resolves launchers to absolute paths,
+  and starts in a fresh private working directory.
+- Remote transports require an exact host allowlist. Non-loopback plain HTTP is
+  rejected unless an operator explicitly enables it; embedded URI credentials
+  are rejected.
+- The UI supports no authentication or an environment-backed bearer token.
+  Basic and custom-header auth remain API-configured for existing integrations;
+  OAuth is rejected because CALIBER does not implement a token exchange/refresh
+  flow. Terminate OAuth in an operator-managed proxy instead.
+- Workflow promotion and gated-promotion approval re-run MCP dependency
+  preflight. Missing/inactive servers, stale or absent live discovery, unknown
+  or blocked tools, tools without explicit `allowed`, `side_effect_level`, and
+  `requires_approval` classifications, under-classified side effects, and
+  missing approval bindings prevent alias rotation. Catalog seeds for the three
+  bundled database servers include those classifications; other servers must be
+  reviewed after live discovery.
+- Calibration rejects tools whose policy requires approval because that route
+  has no approval checkpoint. Approval-required calls belong in a governed
+  workflow run; the admin-only playground remains an intentional break-glass
+  surface.
+- Aliases in `CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ALIASES` (default:
+  `prod`) reject local stdio containment. A non-loopback HTTPS server or the
+  deployment operator's explicitly attested, separately isolated sidecar is
+  required. Local wrappers, including the recognized bubblewrap containment
+  profile, never count as a production boundary.
 - Deletion is not an unguarded hard delete: it is refused with 409 while an
   active deployment still references the server, and the full server definition
   is snapshotted into the delete audit row so the record is recoverable.
@@ -234,7 +283,14 @@ boundary. The following controls apply:
 - Connection configuration is validated against transport-specific minimums
   before use.
 
-These controls express a specific trust posture. CALIBER trusts the operator to
+These controls express a specific trust posture. Local stdio remains a child
+process on the CALIBER host. Command allowlisting, sanitized environment,
+private cwd, and timeouts reduce ambient authority but do **not** prevent an
+allowed executable from reading absolute filesystem paths or opening network
+connections. The recognized bubblewrap profile blocks network and host writes
+but still exposes the host root read-only, so it remains containment and cannot
+pass production preflight. Operators must use a managed sidecar/container/VM or
+a separately isolated remote HTTPS MCP service for production. CALIBER trusts the operator to
 register the correct server endpoint, but not to bypass the policy checks that
 sit in front of it. Remote MCP servers are external execution dependencies that
 may fail or return tool errors, and the module is built to surface those
@@ -263,6 +319,28 @@ sentinel for first-party Python MCP servers, so that those servers launch under
 the same interpreter as CALIBER rather than relying on whatever `python` happens
 to be on the path.
 
+The default compose deployment takes the stronger path for the bundled database
+integrations. It starts one streamable-HTTP process per database mode in a
+separate container, runs each as uid/gid 65532 with a read-only root, temporary
+`/tmp`, CPU/memory/process limits, all Linux capabilities dropped,
+`no-new-privileges`, and no published host port. The sidecars attach only to a
+dedicated Docker-internal network shared with CALIBER and PostgreSQL, which
+blocks ordinary external egress. The PostgreSQL, pgvector, and Apache AGE
+catalog presets point at those internal services. CALIBER allowlists and
+operator-attests only those three hostnames as managed sidecars. This is a
+shipped process/container boundary, but it is not end-to-end TLS or mutual
+isolation from the API/database peers on that internal network; deployments
+that change the compose topology must reassess that attestation.
+
+The shipped database credential is deliberately a development default, not a
+production-safe data boundary. Unless `CALIBER_MCP_POSTGRES_URL` is overridden,
+the sidecars connect to the same `caliber` database with the same privileged
+role used by the CALIBER metadata store. A write or DDL tool can therefore
+damage control-plane state even though its process is container-isolated. Before
+production use, provision a separate database/schema and least-privilege role,
+set `CALIBER_MCP_POSTGRES_URL` to it, and review the seeded write/external-action
+policies. Process isolation and data authorization are independent controls.
+
 ## 9. Extension points and current constraints
 
 The module is built to extend along clear lines. Its primary extension points
@@ -278,7 +356,17 @@ the tool inventory can become stale until it is explicitly refreshed. Policy is
 local to CALIBER and is not negotiated with the remote server. Workflow runtime
 invocation is synchronous from the interpreter's perspective even though the
 underlying transport is async. And the quality and safety of a remote server are
-ultimately outside CALIBER's control.
+ultimately outside CALIBER's control. Rate limits are process-local rather than
+Redis-backed, and the bubblewrap profile is Linux-specific. Managed-sidecar
+classification is deployment-operator attested because the gateway cannot
+inspect another container's live security policy. The UI's execution
+readiness panel reports these controls and blockers; it must not be interpreted
+as a claim that ordinary local stdio is sandboxed or that the backing service's
+data privileges are least-privilege. Deployment preflight currently validates
+MCP references in the selected workflow snapshot. It does not recursively
+expand separately published subworkflow snapshots before alias rotation; nested
+MCP calls still pass through the central runtime gateway and fail closed, but a
+nested policy failure can therefore surface only when the subworkflow executes.
 
 In sum, the MCP module is a mediated integration layer. It turns external MCP
 servers into policy-controlled, inspectable CALIBER runtime dependencies without

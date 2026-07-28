@@ -57,19 +57,43 @@ class HeuristicPlanner:
     key before the dot, e.g. ``judge`` in ``judge.create``) is mentioned in the
     goal. Registry-driven on purpose: registering a new capability extends what
     the planner can propose without touching this code. Steps run in registry
-    order with no inter-step dependencies (a real planner orders + links them).
+    order. Required inputs that are declared outputs of an earlier selected
+    capability are linked explicitly; remaining fields are collected through a
+    typed interaction before execution.
     """
 
     def plan(self, goal: str, *, capabilities: Sequence[Capability]) -> list[PlannedStep]:
         goal_l = goal.lower()
         steps: list[PlannedStep] = []
+        produced_by: dict[str, int] = {}
         for cap in capabilities:
             if cap.tier not in (TIER_SAFE, TIER_MUTATE):
                 continue
             domain = cap.key.split(".", 1)[0]
             needle = domain.replace("_", " ")
             if needle in goal_l or domain in goal_l or cap.key in goal_l:
-                steps.append(PlannedStep(capability_key=cap.key, title=cap.title))
+                inputs: dict[str, Any] = {}
+                dependencies: list[int] = []
+                for field_name in cap.required:
+                    producer_index = produced_by.get(field_name)
+                    if producer_index is None:
+                        continue
+                    inputs[field_name] = {
+                        "$from_step_index": producer_index,
+                        "path": field_name,
+                    }
+                    dependencies.append(producer_index)
+                step_index = len(steps)
+                steps.append(
+                    PlannedStep(
+                        capability_key=cap.key,
+                        title=cap.title,
+                        inputs=inputs,
+                        depends_on=sorted(set(dependencies)),
+                    )
+                )
+                for result_name in cap.result_properties:
+                    produced_by[result_name] = step_index
         return steps
 
 
@@ -120,6 +144,7 @@ class PlanService:
             step_ids: list[str] = [new_aria_plan_step_id() for _ in planned]
             steps: list[CaliberAriaPlanStep] = []
             for seq, (sid, ps) in enumerate(zip(step_ids, planned, strict=True)):
+                inputs = _translate_step_input_refs(ps.inputs, step_ids)
                 steps.append(
                     CaliberAriaPlanStep(
                         step_id=sid,
@@ -127,7 +152,7 @@ class PlanService:
                         seq=seq,
                         capability_key=ps.capability_key,
                         title=ps.title,
-                        inputs=dict(ps.inputs),
+                        inputs=inputs,
                         depends_on=[step_ids[i] for i in ps.depends_on if 0 <= i < len(step_ids)],
                         gate=dict(ps.gate) if ps.gate else None,
                         status="pending",
@@ -276,5 +301,30 @@ class PlanService:
         plan_schema.step_count = len(steps)
         return {
             "plan": plan_schema.model_dump(mode="json"),
-            "steps": [AriaPlanStepSchema.model_validate(s).model_dump(mode="json") for s in steps],
+            "steps": [_step_detail(s) for s in steps],
         }
+
+
+def _translate_step_input_refs(value: Any, step_ids: Sequence[str]) -> Any:
+    """Replace planner-local step indices with durable sibling step ids."""
+    if isinstance(value, list):
+        return [_translate_step_input_refs(item, step_ids) for item in value]
+    if not isinstance(value, dict):
+        return value
+    index = value.get("$from_step_index")
+    if isinstance(index, int) and 0 <= index < len(step_ids):
+        return {
+            "$from_step": step_ids[index],
+            "path": str(value.get("path") or ""),
+        }
+    return {key: _translate_step_input_refs(item, step_ids) for key, item in value.items()}
+
+
+def _step_detail(step: CaliberAriaPlanStep) -> dict[str, Any]:
+    schema = AriaPlanStepSchema.model_validate(step)
+    capability = next(
+        (item for item in registered_capabilities() if item.key == step.capability_key),
+        None,
+    )
+    schema.input_schema = capability.input_schema if capability is not None else {}
+    return schema.model_dump(mode="json")

@@ -16,6 +16,7 @@ import pytest
 import caliber.orchestrator.workflow_run_worker as workflow_run_worker_module
 from caliber.config import WorkflowStorageConfig
 from caliber.db.models import (
+    CaliberMcpServer,
     CaliberRuntimeApprovalRequest,
     CaliberWorkflow,
     CaliberWorkflowRun,
@@ -50,6 +51,7 @@ from tests.workflow_helpers import (
     create_and_publish,
     create_draft,
     create_workflow,
+    deploy_prod,
     make_manifest,
     make_support_manifest,
     register_demo_tools,
@@ -105,6 +107,30 @@ def _enable_queue(client) -> None:
     client.app.state.config = client.app.state.config.model_copy(
         update={"workflow_run_queue_enabled": True}
     )
+
+
+def _seed_ready_mcp_docs_server(client) -> None:
+    with client.app.state.session_factory() as session:
+        session.add(
+            CaliberMcpServer(
+                server_id="MCP-DOCS",
+                name="Worker MCP docs",
+                transport="stdio",
+                command="${PYTHON}",
+                args=["-m", "caliber.mcp_servers.db", "--mode", "relational"],
+                status="active",
+                discovered_tools=[{"name": "search_docs"}],
+                tool_policies={
+                    "search_docs": {
+                        "allowed": True,
+                        "side_effect_level": "read",
+                        "requires_approval": False,
+                    }
+                },
+                last_connected_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
 
 
 def _enable_runtime_approvals(client) -> None:
@@ -545,6 +571,21 @@ def _file_input_manifest(workflow_id: str) -> dict[str, object]:
         {"id": "e_start_file", "from": "start", "to": "file_input", "map": {"msg": "path"}},
         {"id": "e_file_final", "from": "file_input", "to": "final", "map": {"text": "response"}},
     ]
+    return manifest
+
+
+def _managed_file_input_manifest(
+    workflow_id: str, immutable_ref: dict[str, object]
+) -> dict[str, object]:
+    manifest = _file_input_manifest(workflow_id)
+    nodes = manifest["nodes"]
+    assert isinstance(nodes, dict)
+    file_node = nodes["file_input"]
+    assert isinstance(file_node, dict)
+    file_node["file_ref"] = immutable_ref
+    outputs = file_node["outputs"]
+    assert isinstance(outputs, dict)
+    outputs["file_ref"] = {"type": "structured"}
     return manifest
 
 
@@ -2466,6 +2507,34 @@ def test_worker_executes_start_to_output_passthrough_run(client) -> None:
         assert any(
             event.event_type == "workflow.run.step" and event.node_id == "final" for event in events
         )
+
+
+def test_worker_rechecks_mcp_policy_on_exact_snapshot_before_execution(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _enable_queue(client)
+    _wid, version_id = create_and_publish(client, workflow_name="MCP recheck")
+    created = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": version_id, "input": "hello"},
+    )
+    assert created.status_code == 202, created.text
+    run_id = created.json()["data"]["workflow_run_id"]
+    monkeypatch.setattr(
+        workflow_run_worker_module,
+        "deployment_blockers",
+        lambda _session, _manifest, *, alias: [f"{alias}: MCP server became disabled"],
+    )
+
+    _build_worker(client)._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert run.status == "failed"
+        assert run.error_code == "mcp_policy_blocked"
+        assert "MCP server became disabled" in (run.error_summary or "")
 
 
 def test_worker_executes_multi_hop_agent_handoff_path_to_completion(
@@ -6454,6 +6523,74 @@ def test_worker_executes_file_input_path_to_completion(client, tmp_path) -> None
         assert event_types.count("workflow.run.step") >= 2
 
 
+def test_worker_executes_content_pinned_project_file_to_completion(client) -> None:
+    _enable_queue(client)
+    project_response = client.post(f"{PREFIX}/projects", json={"name": "Managed worker files"})
+    assert project_response.status_code == 201, project_response.text
+    project_id = project_response.json()["data"]["project_id"]
+    project_headers = {"X-CALIBER-Project": project_id}
+    file_response = client.post(
+        f"{PREFIX}/projects/{project_id}/files",
+        headers=project_headers,
+        data={"kind": "input"},
+        files={"file": ("source.md", b"# Queue-safe managed file", "text/markdown")},
+    )
+    assert file_response.status_code == 201, file_response.text
+    immutable_ref = file_response.json()["data"]["immutable_ref"]
+
+    workflow_response = client.post(
+        f"{PREFIX}/workflows",
+        headers=project_headers,
+        json={"name": "Managed Queue Workflow", "owner": "@test"},
+    )
+    assert workflow_response.status_code == 201, workflow_response.text
+    workflow_id = workflow_response.json()["data"]["workflow_id"]
+    assert workflow_response.json()["data"]["project_id"] == project_id
+    manifest = _managed_file_input_manifest(workflow_id, immutable_ref)
+    version_id, _ = create_draft(client, workflow_id, manifest)
+    published = client.post(f"{PREFIX}/workflow-versions/{version_id}/publish")
+    assert published.status_code == 200, published.text
+
+    created = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": version_id, "input": "ignored"},
+    )
+    assert created.status_code == 202, created.text
+    run_id = created.json()["data"]["workflow_run_id"]
+    _build_worker(client)._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert run.status == "completed"
+        assert run.error_code is None
+        assert run.summary["output"] == "# Queue-safe managed file"
+        file_step = next(
+            step for step in run.summary["steps"] if step.get("node_id") == "file_input"
+        )
+        assert file_step["output_by_port"]["path"] == immutable_ref["file_ref"]
+        assert file_step["output_by_port"]["file_ref"] == immutable_ref
+        assert file_step["output_by_port"]["metadata"]["immutable"] is True
+
+    deploy_prod(client, workflow_id, version_id)
+    service = client.post(
+        f"{PREFIX}/workflows/{workflow_id}/service",
+        json={"auth_required": False},
+    )
+    assert service.status_code == 200, service.text
+    invoked = client.post(
+        f"{PREFIX}/services/{workflow_id}/invoke",
+        json={"input": {"ignored": True}},
+    )
+    assert invoked.status_code == 202, invoked.text
+    service_run_id = invoked.json()["data"]["run_id"]
+    _build_worker(client)._tick()
+    service_status = client.get(f"{PREFIX}/services/{workflow_id}/runs/{service_run_id}")
+    assert service_status.status_code == 200, service_status.text
+    assert service_status.json()["data"]["status"] == "completed"
+    assert service_status.json()["data"]["output"]["output"] == "# Queue-safe managed file"
+
+
 def test_worker_marks_file_input_directory_target_failures_as_runtime_errors(
     client,
     tmp_path,
@@ -7682,6 +7819,7 @@ def test_worker_marks_mcp_resource_gateway_failures_as_runtime_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _enable_queue(client)
+    _seed_ready_mcp_docs_server(client)
     workflow_id = "mcp-resource-failure-worker-wf"
     manifest = _mcp_resource_manifest(workflow_id)
     _wid, vid = create_and_publish(
@@ -7736,6 +7874,7 @@ def test_worker_executes_mcp_resource_path_to_completion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _enable_queue(client)
+    _seed_ready_mcp_docs_server(client)
     workflow_id = "mcp-resource-success-worker-wf"
     manifest = _mcp_resource_manifest(workflow_id)
     _wid, vid = create_and_publish(
@@ -8547,6 +8686,7 @@ def test_worker_completes_error_boundary_recovery_for_mcp_resource_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _enable_queue(client)
+    _seed_ready_mcp_docs_server(client)
     workflow_id = "error-boundary-mcp-recovery-worker-wf"
     manifest = _error_boundary_mcp_resource_recovery_manifest(workflow_id)
     _wid, vid = create_and_publish(

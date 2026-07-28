@@ -375,6 +375,32 @@ def test_evaluator_replays_baseline_once_for_multiple_candidates() -> None:
     assert result.passed is True
 
 
+def test_calibration_rejects_managed_file_replay_explicitly() -> None:
+    manifest = make_manifest("managed-calibration")
+    manifest["nodes"]["source"] = {
+        "id": "source",
+        "type": "file_input",
+        "file_ref": {
+            "file_id": "FILE-calibration",
+            "file_ref": "caliber://projects/PRJ-calibration/input/source.txt",
+            "sha256": "b" * 64,
+            "name": "source.txt",
+            "size_bytes": 7,
+        },
+    }
+
+    result = evaluate_workflow_calibration_candidates(
+        manifest,
+        [],
+        [_example()],
+        WorkflowCalibrationSpec(),
+        resolver=fake_resolver(),
+    )
+
+    assert result.passed is False
+    assert "does not yet support managed file inputs" in (result.error or "")
+
+
 def test_best_passing_candidate_wins_by_target_delta() -> None:
     baseline = make_manifest("wf")
     weak = make_manifest("wf")

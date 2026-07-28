@@ -250,3 +250,87 @@ def test_materialize_missing_raises(session: Session, tmp_path: Path) -> None:
     run = svc.create_run_workspace(workflow_id="WF-1", workflow_run_id="WR-9")
     with pytest.raises(StorageNotFoundError):
         svc.materialize_input_files(session, run, [{"file_id": "FILE-nope"}], actor="@me")
+
+
+@pytest.mark.parametrize(
+    ("target_tenant", "target_project"),
+    [("tenant-a", "PRJ-b"), ("tenant-b", "PRJ-a")],
+)
+def test_materialize_input_files_rejects_cross_project_or_tenant(
+    session: Session,
+    tmp_path: Path,
+    target_tenant: str,
+    target_project: str,
+) -> None:
+    svc = _service(tmp_path)
+    staging = svc.create_run_workspace(
+        tenant_id="tenant-a",
+        project_id="PRJ-a",
+        workflow_id="_staging",
+        workflow_run_id="staging-session",
+    )
+    staged = svc.register_upload(
+        session,
+        staging,
+        kind="input",
+        filename="private.txt",
+        data=b"private",
+        media_type="text/plain",
+        actor="@owner",
+    )
+    row = svc.get_row(session, staged.file_id)
+    assert row is not None
+    row.workflow_run_id = None
+    session.flush()
+    target = svc.create_run_workspace(
+        tenant_id=target_tenant,
+        project_id=target_project,
+        workflow_id="WF-target",
+        workflow_run_id="WR-target",
+    )
+
+    with pytest.raises(StoragePermissionError, match="tenant/project"):
+        svc.materialize_input_files(
+            session,
+            target,
+            [{"file_id": staged.file_id}],
+            actor="@attacker",
+        )
+
+
+def test_project_file_physical_object_is_content_addressed_and_never_overwritten(
+    session: Session,
+    tmp_path: Path,
+) -> None:
+    svc = _service(tmp_path)
+    first = svc.register_project_file(
+        session,
+        project_id="PRJ-race",
+        kind="input",
+        filename="source.txt",
+        data=b"first pinned bytes",
+        media_type="text/plain",
+        actor="@owner",
+    )
+    first_row = svc.get_row(session, first.file_id)
+    assert first_row is not None
+    first_key = first_row.object_key
+    # Simulate a stale concurrent DB lookup that did not observe the winner.
+    session.delete(first_row)
+    session.flush()
+
+    second = svc.register_project_file(
+        session,
+        project_id="PRJ-race",
+        kind="input",
+        filename="source.txt",
+        data=b"different concurrent bytes",
+        media_type="text/plain",
+        actor="@other",
+    )
+    second_row = svc.get_row(session, second.file_id)
+    assert second_row is not None
+
+    assert first_key != second_row.object_key
+    assert svc._backend.read_bytes(first_key) == b"first pinned bytes"
+    assert svc.read_bytes(second_row) == b"different concurrent bytes"

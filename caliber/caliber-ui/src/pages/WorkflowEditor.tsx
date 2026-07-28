@@ -1310,6 +1310,7 @@ export function newNode(
         outputs: {
           text: { type: "string" },
           path: { type: "string" },
+          file_ref: { type: "structured" },
           metadata: { type: "structured" },
         },
       };
@@ -5178,6 +5179,7 @@ export function WorkflowEditor(): JSX.Element {
           ) : (
             <Inspector
               manifest={editorManifest}
+              projectId={workflowQuery.data?.project_id ?? null}
               selectedNodeId={selected}
               focusFieldKey={selected ? inspectorFieldTarget : null}
               focusFieldSignal={inspectorFieldFocusSignal}

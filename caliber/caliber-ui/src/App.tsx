@@ -35,6 +35,8 @@ import { useDashboardSummary } from "@/hooks/useDashboardSummary";
 import { Login } from "@/pages/Login";
 
 const AuditLog = lazy(() => import("@/pages/AuditLog").then((m) => ({ default: m.AuditLog })));
+const Agents = lazy(() => import("@/pages/Agents").then((m) => ({ default: m.Agents })));
+const AgentDetail = lazy(() => import("@/pages/AgentDetail").then((m) => ({ default: m.AgentDetail })));
 const EvalDatasets = lazy(() => import("@/pages/EvalDatasets").then((m) => ({ default: m.EvalDatasets })));
 const EvalDatasetDetail = lazy(() => import("@/pages/EvalDatasetDetail").then((m) => ({ default: m.EvalDatasetDetail })));
 const Judges = lazy(() => import("@/pages/Judges").then((m) => ({ default: m.Judges })));
@@ -135,6 +137,8 @@ function AuthenticatedApp({
               <Route path="/observability" element={<Observability />} />
               <Route path="/knowledge-bases" element={<KnowledgeBases />} />
               <Route path="/workflows" element={<Workflows />} />
+              <Route path="/agents" element={<Agents />} />
+              <Route path="/agents/:agentId" element={<AgentDetail />} />
               <Route path="/workflows/:workflowId/editor/:versionId" element={<WorkflowEditor />} />
               <Route path="/workflows/:workflowId" element={<WorkflowDetail />} />
               <Route path="/workflow-runs/:runId" element={<WorkflowRunRedirect />} />

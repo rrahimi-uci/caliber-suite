@@ -1,13 +1,14 @@
 # Backing services for the CALIBER MCP catalog.
 #
-# Today: one Postgres with pgvector + Apache AGE, which backs the `postgres`,
-# `pgvector`, and `apache-age` catalog entries (all use the same
-# @modelcontextprotocol/server-postgres adapter via POSTGRES_URL).
+# Today: one Postgres with pgvector + Apache AGE backs the `postgres`,
+# `pgvector`, and `apache-age` catalog entries. CALIBER's first-party DB MCP
+# servers connect through POSTGRES_URL.
 #
 #   docker compose -f deploy/mcp/docker-compose.yml up -d --build
 #
-# Then connect any of those three catalog entries with:
-#   POSTGRES_URL=postgresql://caliber:caliber@localhost:5432/caliber
+# This file is a development backing store. Do not reuse its superuser-style
+# credential for a production MCP server; provision a separate least-privilege
+# role/database and point CALIBER_MCP_POSTGRES_URL at it.
 #
 # Ollama and MinIO can be added here later as additional backing services.
 
@@ -35,6 +36,9 @@ services:
       - "search_path=ag_catalog,public"
     ports:
       - "5432:5432"
+    networks:
+      - default
+      - mcp-db-internal
     volumes:
       - caliber_pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -45,3 +49,7 @@ services:
 
 volumes:
   caliber_pg_data:
+
+networks:
+  mcp-db-internal:
+    internal: true

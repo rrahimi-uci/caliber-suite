@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -235,5 +235,152 @@ describe("AriaPlans", () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByText("completed")).toBeInTheDocument();
+  });
+
+  it("renders schema-driven input fields and submits typed values", async () => {
+    let answered = false;
+    let answerBody: Record<string, unknown> | null = null;
+    const schema = {
+      type: "object",
+      properties: {
+        name: { type: "string", title: "Judge name" },
+        instructions: { type: "string", title: "Instructions" },
+        tags: { type: "array", items: { type: "string" }, title: "Tags" },
+      },
+      required: ["name", "instructions"],
+      additionalProperties: false,
+    };
+    const interaction = {
+      interaction_id: "ASK-input",
+      plan_id: "PLAN-1",
+      step_id: "PSTEP-1",
+      kind: "input" as const,
+      prompt: "Provide the required inputs for step 1: Create judge.",
+      options: [],
+      evidence: {
+        capability_key: "judge.create",
+        input_schema: schema,
+        missing: ["name", "instructions"],
+        current_inputs: {},
+      },
+      required_scope: null,
+      status: "pending" as const,
+      response: {},
+      responded_by: null,
+      responded_at: null,
+      created_at: NOW,
+    };
+    const detail = () =>
+      envelope({
+        plan: makePlan({ status: answered ? "completed" : "paused" }),
+        steps: [
+          makeStep({
+            status: answered ? "done" : "waiting_input",
+            input_schema: schema,
+          }),
+        ],
+      });
+    server.use(
+      http.get(`${API_BASE}/aria/plans`, () =>
+        HttpResponse.json(envelope([makePlan({ status: "paused" })])),
+      ),
+      http.get(`${API_BASE}/aria/plans/PLAN-1`, () => HttpResponse.json(detail())),
+      http.get(`${API_BASE}/aria/plans/PLAN-1/interactions`, () =>
+        HttpResponse.json(envelope(answered ? [] : [interaction])),
+      ),
+      http.post(`${API_BASE}/aria/interactions/ASK-input/answer`, async ({ request }) => {
+        answerBody = (await request.json()) as Record<string, unknown>;
+        answered = true;
+        return HttpResponse.json(detail());
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText("Create a faithfulness judge"));
+
+    expect(await screen.findByText("Aria needs information")).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Judge name/), "faithfulness-v2");
+    fireEvent.change(screen.getByLabelText(/Instructions/), {
+      target: { value: "Rate {{ outputs }}." },
+    });
+    fireEvent.change(screen.getByLabelText(/Tags/), {
+      target: { value: '["release","quality"]' },
+    });
+    await user.click(screen.getByRole("button", { name: "Continue plan" }));
+
+    await waitFor(() =>
+      expect(answerBody).toEqual({
+        inputs: {
+          name: "faithfulness-v2",
+          instructions: "Rate {{ outputs }}.",
+          tags: ["release", "quality"],
+        },
+      }),
+    );
+  });
+
+  it("lets an operator skip a step instead of supplying missing inputs", async () => {
+    let answerBody: Record<string, unknown> | null = null;
+    const interaction = {
+      interaction_id: "ASK-skip-input",
+      plan_id: "PLAN-1",
+      step_id: "PSTEP-1",
+      kind: "input" as const,
+      prompt: "Provide the trace IDs to add to the review queue.",
+      options: [],
+      evidence: {
+        capability_key: "review_queue.add_items",
+        input_schema: {
+          type: "object",
+          properties: {
+            trace_ids: { type: "array", items: { type: "string" } },
+          },
+          required: ["trace_ids"],
+        },
+        missing: ["trace_ids"],
+        current_inputs: {},
+      },
+      required_scope: null,
+      status: "pending" as const,
+      response: {},
+      responded_by: null,
+      responded_at: null,
+      created_at: NOW,
+    };
+    server.use(
+      http.get(`${API_BASE}/aria/plans`, () =>
+        HttpResponse.json(envelope([makePlan({ status: "paused" })])),
+      ),
+      http.get(`${API_BASE}/aria/plans/PLAN-1`, () =>
+        HttpResponse.json(
+          envelope({
+            plan: makePlan({ status: "paused" }),
+            steps: [makeStep({ status: "waiting_input" })],
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/aria/plans/PLAN-1/interactions`, () =>
+        HttpResponse.json(envelope([interaction])),
+      ),
+      http.post(
+        `${API_BASE}/aria/interactions/ASK-skip-input/answer`,
+        async ({ request }) => {
+          answerBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              plan: makePlan({ status: "completed" }),
+              steps: [makeStep({ status: "skipped" })],
+            }),
+          );
+        },
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText("Create a faithfulness judge"));
+
+    await user.click(await screen.findByRole("button", { name: "Skip step" }));
+
+    await waitFor(() => expect(answerBody).toEqual({ approved: false }));
   });
 });

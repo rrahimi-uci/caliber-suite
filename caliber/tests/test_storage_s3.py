@@ -162,7 +162,10 @@ def test_project_directory_files_over_s3_are_agent_readable() -> None:
             )
             assert rec.file_ref == "caliber://projects/PRJ-s3/input/datasets/raw/cases.csv"
             assert rec.storage_backend == "s3"
-            fh = svc.open_for_tool(s, rec.file_ref, run_id="WR-1", actor="@runtime")
+            ctx = svc.create_run_workspace(
+                project_id="PRJ-s3", workflow_id="WF-1", workflow_run_id="WR-1"
+            )
+            fh = svc.open_for_tool(s, rec.file_ref, ctx=ctx, actor="@runtime")
             try:
                 assert fh.read() == b"id,text\n1,hello\n"
             finally:

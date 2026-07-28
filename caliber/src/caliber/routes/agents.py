@@ -225,6 +225,7 @@ async def update_agent(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = AgentUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     # Pydantic ``exclude_unset=True`` is the difference between "field omitted
     # from the request" and "field explicitly set to its default value." We
@@ -235,7 +236,13 @@ async def update_agent(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        agent = session.get(CaliberAgentConfig, agent_id)
+        agent = get_visible(
+            session,
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id,
+            agent_id,
+            identity,
+        )
         if agent is None:
             raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
 
@@ -281,10 +288,17 @@ async def delete_agent(request: Request) -> JSONResponse:
     """
     agent_id = request.path_params["agent_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        agent = session.get(CaliberAgentConfig, agent_id)
+        agent = get_visible(
+            session,
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id,
+            agent_id,
+            identity,
+        )
         if agent is None:
             raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
         agent_name = agent.name
@@ -338,10 +352,17 @@ async def get_agent_skills(request: Request) -> JSONResponse:
     "broken reference" rather than silently dropping.
     """
     require_user(request)
+    identity = resolve_identity(request)
     agent_id = request.path_params["agent_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        agent = session.get(CaliberAgentConfig, agent_id)
+        agent = get_visible(
+            session,
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id,
+            agent_id,
+            identity,
+        )
         if agent is None:
             raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
         cited = _extract_skill_refs(agent.optimizer_config)

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.db.models import CaliberMcpServer
 from tests.workflow_helpers import (
     PREFIX,
     create_and_publish,
@@ -53,6 +56,73 @@ def test_promote_unpublished_400(client: TestClient) -> None:
     vid, _ = create_draft(client, wid, make_support_manifest(wid))
     r = client.post(f"{PREFIX}/workflows/{wid}/deployments/dev/promote", json={"version_id": vid})
     assert r.status_code == 400
+
+
+def _mcp_manifest(workflow_id: str) -> dict:
+    manifest = make_support_manifest(workflow_id)
+    manifest["tools"]["docs"] = {
+        "type": "mcp_tool",
+        "server_id": "MCP-docs",
+        "tool_name": "search_docs",
+        "side_effect_level": "read",
+    }
+    return manifest
+
+
+def test_promote_preflights_missing_mcp_dependency(client: TestClient) -> None:
+    wid, vid = create_and_publish(
+        client,
+        workflow_name="Missing MCP",
+        manifest=_mcp_manifest("missing_mcp"),
+    )
+    response = client.post(
+        f"{PREFIX}/workflows/{wid}/deployments/dev/promote",
+        json={"version_id": vid},
+    )
+    assert response.status_code == 400
+    assert "MCP server 'MCP-docs' does not exist" in response.json()["detail"]
+
+
+def test_promote_allows_ready_mcp_in_dev_but_requires_external_boundary_in_prod(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    db_session.add(
+        CaliberMcpServer(
+            server_id="MCP-docs",
+            name="Docs",
+            transport="stdio",
+            command="${PYTHON}",
+            args=["-m", "caliber.mcp_servers.db", "--mode", "relational"],
+            status="active",
+            discovered_tools=[{"name": "search_docs"}],
+            tool_policies={
+                "search_docs": {
+                    "allowed": True,
+                    "side_effect_level": "read",
+                    "requires_approval": False,
+                }
+            },
+            last_connected_at=datetime.now(timezone.utc),
+        )
+    )
+    db_session.commit()
+    wid, vid = create_and_publish(
+        client,
+        workflow_name="Ready MCP",
+        manifest=_mcp_manifest("ready_mcp"),
+    )
+    dev = client.post(
+        f"{PREFIX}/workflows/{wid}/deployments/dev/promote",
+        json={"version_id": vid},
+    )
+    assert dev.status_code == 200, dev.text
+    prod = client.post(
+        f"{PREFIX}/workflows/{wid}/deployments/prod/promote",
+        json={"version_id": vid},
+    )
+    assert prod.status_code == 400
+    assert "requires an external MCP isolation boundary" in prod.json()["detail"]
 
 
 def test_promote_prod_without_gate_400(client: TestClient, gated_prod: None) -> None:

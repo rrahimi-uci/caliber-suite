@@ -199,6 +199,68 @@ describe("Object Store file manager", () => {
     expect(screen.getByTestId("object-alpha.txt")).toHaveClass("object-store-open-row");
   });
 
+  it("imports an immutable project file and keeps clipboard denial non-fatal", async () => {
+    let body: { key?: string; expected_etag?: string } | null = null;
+    server.use(
+      ...reads(listing(FILES)),
+      http.post(`${OS}/buckets/reports/object/import`, async ({ request }) => {
+        body = (await request.json()) as { key?: string; expected_etag?: string };
+        return HttpResponse.json(
+          envelope({
+            file_id: "FILE-1",
+            file_ref: "caliber://projects/PRJ-1/input/alpha.txt",
+            name: "alpha.txt",
+            kind: "input",
+            relative_path: "alpha.txt",
+            media_type: "text/plain",
+            size_bytes: 10,
+            sha256: "a".repeat(64),
+            status: "attached",
+            producer_node_id: null,
+            created_at: NOW,
+            immutable_ref: {
+              file_id: "FILE-1",
+              file_ref: "caliber://projects/PRJ-1/input/alpha.txt",
+              sha256: "a".repeat(64),
+              name: "alpha.txt",
+              size_bytes: 10,
+              media_type: "text/plain",
+              object_version_id: null,
+            },
+          }),
+          { status: 201 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockRejectedValue(new Error("clipboard denied"));
+    render(<ObjectStore />);
+
+    await user.click(await screen.findByTestId("bucket-reports"));
+    await screen.findByText("alpha.txt");
+    await user.click(
+      screen.getAllByTitle("Add immutable copy to active project files")[0],
+    );
+
+    await waitFor(() =>
+      expect(body).toEqual({ key: "alpha.txt", expected_etag: "a" }),
+    );
+    expect(
+      await screen.findByText("alpha.txt", { selector: "strong" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("caliber://projects/PRJ-1/input/alpha.txt", {
+        selector: "code",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("clipboard denied")).not.toBeInTheDocument();
+    expect(writeText).toHaveBeenCalledWith(
+      "caliber://projects/PRJ-1/input/alpha.txt",
+    );
+  });
+
   it("uploads selected files into the current folder", async () => {
     let uploaded: { hasUpload: boolean; prefix: FormDataEntryValue | null } | null = null;
     server.use(

@@ -166,6 +166,7 @@ import type {
   WorkflowComponentCatalog,
   WorkflowCronPreview,
   WorkflowDeployment,
+  WorkflowImportPreview,
   WorkflowManifest,
   WorkflowPatch,
   WorkflowPromotion,
@@ -2430,6 +2431,16 @@ export const caliberApi = {
   },
 
   /** POST /workflows/import */
+  previewWorkflowImport(
+    payload: { manifest?: WorkflowManifest; manifest_yaml?: string; name?: string },
+  ): Promise<WorkflowImportPreview> {
+    return request<WorkflowImportPreview>("/workflows/import/preview", {
+      method: "POST",
+      body: payload,
+    });
+  },
+
+  /** POST /workflows/import — always creates a fresh workflow and draft version. */
   importWorkflow(
     payload: { manifest?: WorkflowManifest; manifest_yaml?: string; name?: string },
   ): Promise<{ workflow: Workflow; version: WorkflowVersion }> {
@@ -2781,6 +2792,16 @@ export const caliberApi = {
     return request<ObjectStoreExtract>(
       `/object-store/buckets/${encodeURIComponent(bucket)}/object/extract?${qs}`,
       { signal },
+    );
+  },
+  /** Copy an Object Store object into the active project's immutable file directory. */
+  importObjectStoreObject(
+    bucket: string,
+    payload: { key: string; expected_etag?: string; path?: string },
+  ): Promise<WorkflowFile> {
+    return request<WorkflowFile>(
+      `/object-store/buckets/${encodeURIComponent(bucket)}/object/import`,
+      { method: "POST", body: payload },
     );
   },
   /** Browser-navigable URL for the in-app Allure report served by the backend. */

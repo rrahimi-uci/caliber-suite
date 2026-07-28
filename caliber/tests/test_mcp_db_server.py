@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import sys
 
 import pytest
 
@@ -45,17 +44,71 @@ if POSTGRES_URL and not _postgres_reachable():
 
 
 def _cfg(mode: str) -> McpServerConfig:
+    discovered = {
+        "relational": (
+            "list_tables",
+            "describe_table",
+            "create_table",
+            "insert_rows",
+            "update_rows",
+            "delete_rows",
+            "run_query",
+            "execute_sql",
+        ),
+        "vector": (
+            "list_tables",
+            "describe_table",
+            "run_query",
+            "create_vector_table",
+            "upsert_vectors",
+            "similarity_search",
+        ),
+        "graph": (
+            "run_query",
+            "create_graph",
+            "drop_graph",
+            "create_vertex",
+            "create_edge",
+            "cypher_query",
+        ),
+    }[mode]
+    read_tools = {
+        "list_tables",
+        "describe_table",
+        "run_query",
+        "similarity_search",
+        "cypher_query",
+    }
+    external_action_tools = {"execute_sql"}
+    tool_policies = {
+        name: {
+            "allowed": True,
+            "side_effect_level": (
+                "read"
+                if name in read_tools
+                else "external_action"
+                if name in external_action_tools
+                else "write"
+            ),
+            # These isolated integration tests explicitly authorize their
+            # setup/round-trip/cleanup operations.
+            "requires_approval": False,
+        }
+        for name in discovered
+    }
     return McpServerConfig(
         server_id=f"test-db-{mode}",
         name=f"db-{mode}",
         transport="stdio",
         uri="",
-        command=sys.executable,
+        command="${PYTHON}",
         args=("-m", "caliber.mcp_servers.db", "--mode", mode),
         env={"POSTGRES_URL": POSTGRES_URL},
         headers={},
         auth_type="none",
         auth_config={},
+        discovered_tools=tuple({"name": name} for name in discovered),
+        tool_policies=tool_policies,
     )
 
 
