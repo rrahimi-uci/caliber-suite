@@ -115,6 +115,7 @@ jobs:
           # rather than the default coverage.xml (which is never written).
           path: caliber/.pytest_cache/coverage/coverage.*.xml
           if-no-files-found: warn
+          retention-days: 7
       - name: Upload Allure results (backend)
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -122,6 +123,7 @@ jobs:
           name: allure-results-backend
           path: caliber/allure-results
           if-no-files-found: warn
+          retention-days: 7
 
   integration:
     name: Integration (MLflow Prompt Registry + genai.evaluate)
@@ -152,6 +154,7 @@ jobs:
           name: allure-results-integration
           path: caliber/allure-results
           if-no-files-found: warn
+          retention-days: 7
 
   ui:
     name: UI (test + build)
@@ -190,6 +193,7 @@ jobs:
           name: allure-results-ui
           path: caliber/caliber-ui/allure-results
           if-no-files-found: warn
+          retention-days: 7
 
   allure-report:
     name: Allure report
