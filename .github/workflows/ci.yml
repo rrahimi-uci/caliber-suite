@@ -330,3 +330,11 @@ jobs:
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Don't upload the SARIF. Nothing consumes it: this workflow has no
+          # codeql-action/upload-sarif step and no security-events permission,
+          # so the report was written every run and never read. Worse, the
+          # action treats an upload failure as fatal, so a clean scan that
+          # logged "no leaks found" was still reported as a failed gate when
+          # artifact storage was unavailable. The scan's exit code is the
+          # signal we actually gate on.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
