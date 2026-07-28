@@ -18,6 +18,7 @@ fallback, matching :mod:`caliber.eval.predict`.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -42,8 +43,10 @@ from caliber.db.models import (
     CaliberEvalRun,
     CaliberJudge,
     CaliberSkill,
+    CaliberWorkflowVersion,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.eval.evidence import build_evidence, content_digest_of_text
 from caliber.eval.judge_scorer import JudgeError, build_judge, score_with_judge
 from caliber.eval.predict import (
     CompletionFn,
@@ -211,7 +214,9 @@ def _resolve_predict(
     return _llm_predict(complete)
 
 
-def _build_workflow_predict(session: Any, version_id: str, config: Any) -> PredictFn:
+def _build_workflow_predict(
+    session: Any, version_id: str, config: Any, identity: Any = None
+) -> PredictFn:
     """Build a predict_fn that scores a real workflow version.
 
     Compiles the version to a runtime plan + executor **once** (not per example)
@@ -220,6 +225,13 @@ def _build_workflow_predict(session: Any, version_id: str, config: Any) -> Predi
     returns the workflow's output. Runs synchronously, so the example count is
     capped tighter (``_WORKFLOW_MAX_EXAMPLES``). Raises 404 on an unknown version
     and 400 if the version won't compile.
+
+    The version's **parent workflow** is resolved through the caller's visibility.
+    Without that, an unscoped version id let an evaluation bind and read the
+    content of another project's managed files: the version lookup was a bare
+    primary-key fetch, and the managed-file binding then trusted that workflow's
+    ``project_id``. A version whose workflow is not visible 404s, matching how an
+    invisible resource behaves everywhere else.
     """
     from caliber.config import CaliberConfig  # noqa: PLC0415
     from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion  # noqa: PLC0415
@@ -233,6 +245,20 @@ def _build_workflow_predict(session: Any, version_id: str, config: Any) -> Predi
     version = session.get(CaliberWorkflowVersion, version_id)
     if version is None:
         raise HTTPException(status_code=404, detail=f"workflow version {version_id!r} not found")
+    if identity is not None:
+        parent = get_visible(
+            session,
+            CaliberWorkflow,
+            CaliberWorkflow.workflow_id,
+            version.workflow_id,
+            identity,
+        )
+        if parent is None:
+            # Deliberately the same 404 as an unknown version: "exists but
+            # forbidden" is itself a disclosure.
+            raise HTTPException(
+                status_code=404, detail=f"workflow version {version_id!r} not found"
+            )
     try:
         resolved_config = config or CaliberConfig()
         plan = build_plan(session, version, config=resolved_config)
@@ -285,7 +311,9 @@ def _make_judge_runner(judge_obj: Any) -> JudgeRunner:
     return runner
 
 
-def _hydrate_judge_runners(session: Any, scorer_names: list[str]) -> dict[str, JudgeRunner]:
+def _hydrate_judge_runners(
+    session: Any, scorer_names: list[str], identities: dict[str, Any] | None = None
+) -> dict[str, JudgeRunner]:
     """Build a ``JudgeRunner`` for every ``Judge.<judge_id>`` token in ``scorer_names``.
 
     Resolves each token against ``caliber_judges`` and builds the judge through
@@ -293,6 +321,11 @@ def _hydrate_judge_runners(session: Any, scorer_names: list[str]) -> dict[str, J
     operator-authored LLM judge now runs from the Evaluations scorecard, not just
     the optimization gate. 404s an unknown/archived judge; 400s a judge whose
     definition ``make_judge`` rejects.
+
+    ``identities`` collects a snapshot of each resolved judge — name, model, and a
+    digest of its instructions — for the run's evidence bundle. Judges are mutable
+    and unversioned, so a stored ``Judge.<id>`` token alone cannot prove which
+    definition actually graded a historical run.
     """
     runners: dict[str, JudgeRunner] = {}
     for name in scorer_names:
@@ -317,6 +350,14 @@ def _hydrate_judge_runners(session: Any, scorer_names: list[str]) -> dict[str, J
                 status_code=400, detail=f"failed to build judge {judge.name!r}: {exc}"
             ) from exc
         runners[name] = _make_judge_runner(judge_obj)
+        if identities is not None:
+            identities[name] = {
+                "judge_id": judge_id,
+                "name": judge.name,
+                "model": judge.model,
+                "feedback_value_type": judge.feedback_value_type,
+                "instructions_digest": content_digest_of_text(judge.instructions),
+            }
     return runners
 
 
@@ -373,8 +414,10 @@ async def create_evaluation(request: Request) -> JSONResponse:
     config = getattr(request.app.state, "config", None)
     factory = get_session_factory(request)
 
-    skill_content: str | None = None
-    workflow_predict: PredictFn | None = None
+    # Collected while the session is open, then folded into the run's immutable
+    # evidence bundle. A stored ``subject_ref`` / ``Judge.<id>`` token names an
+    # artifact but does not pin its *content*, and all of these are mutable.
+    judge_identities: dict[str, Any] = {}
     with factory() as session:
         dataset = session.get(CaliberEvalDataset, payload.dataset_id)
         if dataset is None:
@@ -400,22 +443,12 @@ async def create_evaluation(request: Request) -> JSONResponse:
         rows = _load_example_rows(session, payload.dataset_id, payload.dataset_version)
         # Hydrate any ``Judge.<id>`` scorers from the judge registry while the
         # session is open (404/400 here, before we touch the model).
-        judge_runners = _hydrate_judge_runners(session, list(payload.scorers or []))
-        # A ``skill`` target reads its content (the system instruction) now.
-        if payload.predict_target == "skill":
-            skill = session.get(CaliberSkill, (payload.subject_ref or "").strip())
-            if skill is None or skill.status != "active":
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"skill {payload.subject_ref!r} not found or not active",
-                )
-            skill_content = skill.content
-        # A ``workflow`` target compiles the version once here; the predict fn then
-        # executes that plan per example (preview mode → tools sandboxed).
-        elif payload.predict_target == "workflow":
-            workflow_predict = _build_workflow_predict(
-                session, (payload.subject_ref or "").strip(), config
-            )
+        judge_runners = _hydrate_judge_runners(
+            session, list(payload.scorers or []), judge_identities
+        )
+        skill_content, workflow_predict, resolved_subject = _resolve_subject(
+            session, payload=payload, config=config, identity=identity
+        )
 
     if not rows:
         suffix = "" if payload.dataset_version is None else f" at version {payload.dataset_version}"
@@ -429,6 +462,10 @@ async def create_evaluation(request: Request) -> JSONResponse:
         # Each example runs a full workflow (multiple model/tool calls), so bound
         # the synchronous run tighter than the generic completion cap.
         cap = min(cap, _WORKFLOW_MAX_EXAMPLES)
+    # Counted *before* truncation. A bounded run that cannot state how much it
+    # left out reads as exhaustive, which is the difference between evidence and
+    # an impression.
+    available_examples = len(rows)
     if len(rows) > cap:
         rows = rows[:cap]
 
@@ -452,6 +489,9 @@ async def create_evaluation(request: Request) -> JSONResponse:
         )
     model = getattr(config, "llm_diagnosis_model", None)
     predict = _resolve_predict(payload, complete, skill_content, workflow_predict)
+    resolved_subject = _pin_prompt_subject(payload, resolved_subject)
+    latencies_ms: list[float] = []
+    predict = _timed_predict(predict, latencies_ms)
 
     try:
         result = run_scorecard(
@@ -464,6 +504,26 @@ async def create_evaluation(request: Request) -> JSONResponse:
     except ScorecardInputError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    evidence = build_evidence(
+        scored_rows=rows,
+        result=result,
+        available_examples=available_examples,
+        sample_cap=cap,
+        scorers=list(result.scorers),
+        pass_threshold=payload.pass_threshold,
+        dataset_id=payload.dataset_id,
+        dataset_version=dataset_version,
+        predict_target=payload.predict_target,
+        subject_ref=payload.subject_ref,
+        model=model,
+        resolved={
+            "subject": resolved_subject or None,
+            "judges": judge_identities or None,
+            "llm_provider": str(getattr(config, "llm_provider", "") or ""),
+        },
+        latencies_ms=latencies_ms,
+    )
+
     return _persist_eval_run(
         factory,
         payload=payload,
@@ -472,7 +532,95 @@ async def create_evaluation(request: Request) -> JSONResponse:
         result=result,
         actor=actor,
         project_id=identity.active_project_id,
+        evidence=evidence,
     )
+
+
+def _resolve_subject(
+    session: Any,
+    *,
+    payload: EvalRunCreateRequest,
+    config: Any,
+    identity: Any,
+) -> tuple[str | None, PredictFn | None, dict[str, Any]]:
+    """Resolve the artifact under test while the session is open.
+
+    Returns ``(skill_content, workflow_predict, resolved_subject)``. The third
+    value is the identity snapshot for the run's evidence bundle: skills and
+    workflow versions are named by a mutable reference, so the body/manifest hash
+    is what makes a historical run interpretable.
+    """
+    if payload.predict_target == "skill":
+        skill = session.get(CaliberSkill, (payload.subject_ref or "").strip())
+        if skill is None or skill.status != "active":
+            raise HTTPException(
+                status_code=404,
+                detail=f"skill {payload.subject_ref!r} not found or not active",
+            )
+        return (
+            skill.content,
+            None,
+            {
+                "skill_id": skill.skill_id,
+                "skill_version": getattr(skill, "version", None),
+                "content_digest": content_digest_of_text(skill.content),
+            },
+        )
+    if payload.predict_target == "workflow":
+        # Compiled once here; the predict fn executes that plan per example in
+        # preview mode (tools sandboxed).
+        version_id = (payload.subject_ref or "").strip()
+        workflow_predict = _build_workflow_predict(session, version_id, config, identity)
+        version = session.get(CaliberWorkflowVersion, version_id)
+        resolved: dict[str, Any] = {}
+        if version is not None:
+            resolved = {
+                "workflow_id": version.workflow_id,
+                "workflow_version_id": version.version_id,
+                "workflow_version_number": version.version_number,
+                "manifest_hash": version.manifest_hash,
+            }
+        return None, workflow_predict, resolved
+    return None, None, {}
+
+
+def _pin_prompt_subject(
+    payload: EvalRunCreateRequest, resolved_subject: dict[str, Any]
+) -> dict[str, Any]:
+    """Add the prompt body's digest to the resolved-subject snapshot.
+
+    Prompt versions are loaded through the MLflow registry, whose template text can
+    be re-registered under the same ``name@version``, so the reference alone does
+    not identify what was scored. Not folded into ``_resolve_predict`` because that
+    function returns a callable, not identity.
+    """
+    if payload.predict_target != "prompt":
+        return resolved_subject
+    ref = (payload.subject_ref or "").strip()
+    return {
+        **resolved_subject,
+        "prompt_ref": ref,
+        "content_digest": content_digest_of_text(load_prompt_template(ref)),
+    }
+
+
+def _timed_predict(predict: PredictFn, latencies_ms: list[float]) -> PredictFn:
+    """Wrap ``predict`` to record per-example wall-clock duration.
+
+    Latency was measurable in observability but never joined to a scorecard, so a
+    run could not be gated — or even compared — on cost of any kind. Timed in a
+    ``finally`` so a failed prediction still contributes its duration: an
+    evaluation that is slow *because* it times out must not look fast.
+    """
+
+    def timed(inputs: Mapping[str, Any]) -> str:
+        started = time.monotonic()
+        try:
+            return predict(inputs)
+        finally:
+            latencies_ms.append((time.monotonic() - started) * 1000.0)
+
+    return timed
 
 
 def _persist_eval_run(
@@ -484,6 +632,7 @@ def _persist_eval_run(
     result: Any,
     actor: str,
     project_id: str | None,
+    evidence: dict[str, Any] | None = None,
 ) -> JSONResponse:
     """Persist a finished scorecard run + its audit row, returning the 201 envelope.
 
@@ -514,6 +663,7 @@ def _persist_eval_run(
             pass_rate=result.pass_rate,
             aggregate=dict(result.aggregate),
             results=[row.to_dict() for row in result.rows],
+            evidence=evidence,
             status=status,
             error_message=error_message,
             created_by=actor,

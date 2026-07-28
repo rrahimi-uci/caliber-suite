@@ -76,6 +76,15 @@ export function AgentDetail(): JSX.Element {
   const skillsQuery = useApiQuery(["agents", agentId, "skills"], (signal) =>
     caliberApi.getAgentSkills(agentId, signal),
   );
+  // A real registry lookup. The previous check only proved the stored string was
+  // non-empty, so a typo'd or deleted experiment passed a control labelled
+  // "experiment binding preflight".
+  const experimentQuery = useApiQuery(["agents", agentId, "experiment"], (signal) =>
+    caliberApi.getAgentExperiment(agentId, signal),
+  );
+  // The audit log is admin-only. This used to fire for every viewer and render
+  // the resulting 403 as if the *page* were broken; ``/me`` already tells us the
+  // answer, so don't ask a question we know will be refused.
   const historyQuery = useApiQuery(
     ["agents", agentId, "audit-history"],
     (signal) =>
@@ -83,7 +92,7 @@ export function AgentDetail(): JSX.Element {
         { entity_type: "agent", entity_id: agentId, limit: 100 },
         signal,
       ),
-    { retry: false },
+    { retry: false, enabled: isAdmin },
   );
 
   useEffect(() => {
@@ -181,8 +190,19 @@ export function AgentDetail(): JSX.Element {
   const preflightChecks = [
     {
       label: "MLflow experiment binding",
-      ok: Boolean(agent.experiment_id.trim()),
-      detail: agent.experiment_id,
+      // ``unverified`` is neither pass nor fail: the registry could not be
+      // reached, which is different information from "it is not there".
+      ok:
+        experimentQuery.data?.status === "reachable"
+          ? true
+          : experimentQuery.data?.status === "missing"
+            ? false
+            : null,
+      detail: experimentQuery.isLoading
+        ? `Resolving ${agent.experiment_id}…`
+        : experimentQuery.error
+          ? `Could not check ${agent.experiment_id}: ${experimentQuery.error.message}`
+          : (experimentQuery.data?.detail ?? agent.experiment_id),
     },
     {
       label: "Referenced skills resolve",
@@ -241,9 +261,10 @@ export function AgentDetail(): JSX.Element {
       />
 
       <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-relaxed text-sky-800">
-        Preflight checks stored configuration and skill references only. It does
-        not invoke a model, run tools, or prove end-to-end workflow behavior;
-        use a workflow preview or evaluation run for that.
+        Preflight checks stored configuration, resolves referenced skills within
+        your visibility, and asks MLflow whether the experiment binding actually
+        exists. It does not invoke a model, run tools, or prove end-to-end
+        workflow behavior; use a workflow preview or evaluation run for that.
       </div>
 
       {showPreflight && (
@@ -264,10 +285,19 @@ export function AgentDetail(): JSX.Element {
                   <p className="font-semibold text-slate-700">{check.label}</p>
                   <p className="mt-0.5 text-slate-500">{check.detail}</p>
                 </div>
+                {/* Three states, not two: ``null`` means the check could not be
+                    performed. Rendering that as "fail" would be as misleading as
+                    rendering it as "pass". */}
                 <span
-                  className={`rounded-full px-2 py-0.5 font-semibold ${check.ok ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
+                  className={`rounded-full px-2 py-0.5 font-semibold ${
+                    check.ok === true
+                      ? "bg-emerald-100 text-emerald-700"
+                      : check.ok === false
+                        ? "bg-red-100 text-red-700"
+                        : "bg-amber-100 text-amber-800"
+                  }`}
                 >
-                  {check.ok ? "pass" : "fail"}
+                  {check.ok === true ? "pass" : check.ok === false ? "fail" : "unverified"}
                 </span>
               </div>
             ))}
@@ -423,13 +453,21 @@ export function AgentDetail(): JSX.Element {
             Updated {relativeTime(agent.updated_at)}
           </span>
         </div>
-        {historyQuery.isLoading && (
+        {!isAdmin && (
+          <p
+            data-testid="agent-history-requires-admin"
+            className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-600"
+          >
+            Revision history requires audit-log access, which your account does
+            not have.
+          </p>
+        )}
+        {isAdmin && historyQuery.isLoading && (
           <p className="mt-4 text-xs text-slate-500">Loading history…</p>
         )}
-        {historyQuery.error && (
+        {isAdmin && historyQuery.error && (
           <p className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-            Revision history requires audit-log access:{" "}
-            {historyQuery.error.message}
+            Could not load revision history: {historyQuery.error.message}
           </p>
         )}
         {historyQuery.data && historyQuery.data.entries.length === 0 && (

@@ -91,7 +91,37 @@ describe("Releases", () => {
       http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
     );
     renderPage();
-    expect(await screen.findByText("Nothing deployed yet.")).toBeInTheDocument();
-    expect(screen.getByText("No promotions or rollbacks yet.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Nothing deployed yet in your visible projects."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("No promotions or rollbacks yet in your visible projects."),
+    ).toBeInTheDocument();
+  });
+
+  it("distinguishes a failed aggregate query from an empty release board", async () => {
+    // Regression: both aggregates can fail independently, and the page had no
+    // error state — a failed query rendered as "Nothing deployed yet.", so a
+    // broken release board was indistinguishable from an empty one. On this page
+    // that misreads as "nothing is in production".
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 }),
+      ),
+      http.get(`${API_BASE}/releases/timeline`, () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByTestId("releases-live-error")).toBeInTheDocument();
+    expect(await screen.findByTestId("releases-timeline-error")).toBeInTheDocument();
+    // The misleading empty-state copy must NOT appear alongside the error.
+    expect(
+      screen.queryByText("Nothing deployed yet in your visible projects."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No promotions or rollbacks yet in your visible projects."),
+    ).not.toBeInTheDocument();
   });
 });

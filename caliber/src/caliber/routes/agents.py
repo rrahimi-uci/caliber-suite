@@ -42,6 +42,7 @@ from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.prompt_targets import is_hidden_prompt_target
 from caliber.routes._deps import (
     envelope_response,
+    envelope_response_dict,
     get_session_factory,
     list_limit,
     parse_json_object,
@@ -59,6 +60,7 @@ from caliber.skill_targets import is_hidden_skill_target
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/agents"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/agents/{agent_id}"
 SKILLS_PATH = "/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/skills"
+EXPERIMENT_PATH = "/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/experiment"
 
 
 def _extract_skill_refs(optimizer_config: object) -> list[str]:
@@ -213,6 +215,25 @@ _UPDATABLE_FIELDS = (
     "required_approvals",
 )
 
+#: Updatable fields whose column is NOT NULL. Every field in the PATCH schema is
+#: ``X | None`` because ``None`` is how "omitted" is spelled there, but an
+#: *explicitly* supplied ``null`` used to be written straight onto a non-null
+#: column: SQLAlchemy raised at flush and the client got a 500. ``collaboration_mode``
+#: is deliberately absent — its column is nullable, so clearing it is meaningful.
+_NON_NULLABLE_FIELDS = frozenset(
+    {
+        "name",
+        "owner",
+        "artifact_types",
+        "eval_thresholds",
+        "optimizer_config",
+        "approval_policy",
+        "optimize_for",
+        "enabled",
+        "required_approvals",
+    }
+)
+
 
 async def update_agent(request: Request) -> JSONResponse:
     """Partial-update an agent. Pass only the fields you want to change.
@@ -233,6 +254,22 @@ async def update_agent(request: Request) -> JSONResponse:
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=400, detail="request body must include at least one field")
+
+    # An explicit ``null`` for a NOT NULL column is a client input error, not a
+    # server fault: writing it reached the flush and returned 500. Reject it with a
+    # 400 that names the fields, before anything is mutated.
+    nulled = sorted(
+        field for field in _NON_NULLABLE_FIELDS if field in changes and changes[field] is None
+    )
+    if nulled:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "these fields cannot be set to null: "
+                + ", ".join(nulled)
+                + "; omit a field to leave it unchanged"
+            ),
+        )
 
     factory = get_session_factory(request)
     with factory() as session:
@@ -350,6 +387,13 @@ async def get_agent_skills(request: Request) -> JSONResponse:
     also reports any *missing* references (names cited by the agent
     that don't resolve to a skill row) so the UI can flag them as
     "broken reference" rather than silently dropping.
+
+    Resolution is **visibility-scoped**. It previously matched skill names
+    globally, so an agent citing a common name (``tone``, ``formatting``) returned
+    another project's skill body through this endpoint. A name that exists but is
+    not visible to the caller is reported as ``missing`` rather than resolved:
+    that is the honest answer for this caller, and it does not disclose that a
+    skill of that name exists elsewhere.
     """
     require_user(request)
     identity = resolve_identity(request)
@@ -368,11 +412,13 @@ async def get_agent_skills(request: Request) -> JSONResponse:
         cited = _extract_skill_refs(agent.optimizer_config)
         if not cited:
             return envelope_response(AgentSkillsResponse(skills=[], missing=[]))
-        rows = (
-            session.execute(select(CaliberSkill).where(CaliberSkill.name.in_(cited)))
-            .scalars()
-            .all()
+        stmt = apply_visibility_filter(
+            select(CaliberSkill).where(CaliberSkill.name.in_(cited)),
+            CaliberSkill,
+            identity,
+            identity.active_project_id,
         )
+        rows = session.execute(stmt).scalars().all()
         found_by_name = {row.name: row for row in rows}
         missing = [name for name in cited if name not in found_by_name]
         skills = [
@@ -383,6 +429,94 @@ async def get_agent_skills(request: Request) -> JSONResponse:
     return envelope_response(AgentSkillsResponse(skills=skills, missing=missing))
 
 
+def resolve_experiment(experiment_id: str) -> dict[str, object]:
+    """Resolve an agent's ``experiment_id`` against the live MLflow registry.
+
+    Replaces a check that only proved the stored string was non-empty — which the
+    review correctly called an overclaim, since a typo'd or deleted experiment
+    passed it. Accepts either a numeric MLflow experiment ID or an experiment
+    *name*, matching how the tracking API itself resolves them.
+
+    Three honest outcomes, never a silent pass:
+
+    ``reachable``
+        MLflow returned the experiment. Its name and lifecycle stage come back so
+        a *deleted* (trashed) experiment is visibly not usable.
+    ``missing``
+        MLflow answered and does not have it.
+    ``unverified``
+        The registry could not be reached at all. Reported as its own state rather
+        than folded into either of the others: "we could not check" is different
+        information from "it is not there".
+
+    Module-level so tests can monkeypatch it without a tracking server.
+    """
+    value = str(experiment_id or "").strip()
+    if not value:
+        return {"status": "missing", "detail": "no experiment_id is configured"}
+    try:
+        import mlflow  # noqa: PLC0415
+
+        client_factory = getattr(mlflow, "MlflowClient", None)
+        if client_factory is None:  # pragma: no cover - ancient mlflow
+            return {"status": "unverified", "detail": "mlflow client API unavailable"}
+        client = client_factory()
+        experiment = None
+        if value.isdigit():
+            experiment = client.get_experiment(value)
+        else:
+            experiment = client.get_experiment_by_name(value)
+    except Exception as exc:
+        # A registry outage must not read as "your experiment is gone".
+        return {"status": "unverified", "detail": f"could not reach MLflow: {exc}"}
+    if experiment is None:
+        return {"status": "missing", "detail": f"MLflow has no experiment {value!r}"}
+    stage = str(getattr(experiment, "lifecycle_stage", "") or "")
+    resolved_id = str(getattr(experiment, "experiment_id", value) or value)
+    name = getattr(experiment, "name", None)
+    if stage and stage != "active":
+        return {
+            "status": "missing",
+            "detail": f"experiment {value!r} is {stage} (deleted experiments cannot receive runs)",
+            "experiment_id": resolved_id,
+            "name": name,
+            "lifecycle_stage": stage,
+        }
+    return {
+        "status": "reachable",
+        "detail": f"resolved to experiment {resolved_id}",
+        "experiment_id": resolved_id,
+        "name": name,
+        "lifecycle_stage": stage or "active",
+    }
+
+
+async def get_agent_experiment(request: Request) -> JSONResponse:
+    """``GET /caliber/agents/{agent_id}/experiment`` — is the binding real?
+
+    The Agent Detail page called its non-empty-string check "experiment binding
+    preflight"; this endpoint is what makes that label true.
+    """
+    require_user(request)
+    identity = resolve_identity(request)
+    agent_id = request.path_params["agent_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        agent = get_visible(
+            session,
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id,
+            agent_id,
+            identity,
+        )
+        if agent is None:
+            raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
+        configured = agent.experiment_id
+    return envelope_response_dict(
+        {"configured_experiment_id": configured, **resolve_experiment(configured)}
+    )
+
+
 def register(app: Starlette) -> None:
     """Add the agent routes to the given Starlette application."""
     app.routes.append(Route(LIST_PATH, list_agents, methods=["GET"]))
@@ -391,3 +525,4 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(DETAIL_PATH, update_agent, methods=["PATCH"]))
     app.routes.append(Route(DETAIL_PATH, delete_agent, methods=["DELETE"]))
     app.routes.append(Route(SKILLS_PATH, get_agent_skills, methods=["GET"]))
+    app.routes.append(Route(EXPERIMENT_PATH, get_agent_experiment, methods=["GET"]))

@@ -8,6 +8,8 @@ smoke tests all probe this endpoint, so its shape needs to be stable.
 
 from __future__ import annotations
 
+import os
+
 from sqlalchemy import text
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -15,6 +17,8 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 import caliber
+from caliber.observability.queue_health import collect_queue_health
+from caliber.observability.readiness import collect_readiness
 
 HEALTH_PATH = "/ajax-api/2.0/mlflow/caliber/health"
 READINESS_PATH = "/ajax-api/2.0/mlflow/caliber/readiness"
@@ -53,11 +57,23 @@ async def healthcheck(request: Request) -> JSONResponse:
 
 
 async def readiness(request: Request) -> JSONResponse:
-    """Report which providers are real vs simulated (``fake``) for the SPA banner.
+    """Report provider configuration **and** live dependency readiness.
 
-    Honesty surface (golden-path roadmap, Wave 3): exposes only provider-selector
-    enum values + observability flags — never secrets or keys. Public, matching the
-    health endpoint's posture. Enveloped (``{"data": ...}``) so the SPA unwraps it.
+    This endpoint used to return 200 unconditionally while reporting only
+    provider-selector enum values, so an orchestrator wired to it could never
+    depool or restart a broken instance. It now also probes the dependencies this
+    configuration actually needs — database, MLflow tracking, object storage,
+    event broker, and workflow queue/worker liveness — and returns **503** when a
+    required one is not ready (see :mod:`caliber.observability.readiness`).
+
+    The existing ``providers`` / ``simulated`` / ``all_real`` / tracing fields are
+    preserved unchanged: the SPA honesty banner reads them, and a probe surface
+    growing new fields must not break its consumers. Provider simulation
+    deliberately does **not** fail readiness — the deterministic fake provider is
+    a supported mode, and failing a probe an orchestrator acts on would take a
+    working development instance out of service.
+
+    Never exposes secrets or keys.
     """
     config = getattr(request.app.state, "config", None)
 
@@ -73,6 +89,26 @@ async def readiness(request: Request) -> JSONResponse:
     simulated = sorted(
         key for key, value in providers.items() if value not in _REAL_PROVIDER_VALUES
     )
+
+    factory = getattr(request.app.state, "session_factory", None)
+    queue_health = None
+    if factory is not None and bool(getattr(config, "workflow_run_queue_enabled", False)):
+        lease = float(getattr(config, "workflow_run_lease_seconds", 60.0) or 60.0)
+        max_age = float(getattr(config, "workflow_queue_max_age_seconds", 300.0) or 300.0)
+        try:
+            with factory() as session:
+                queue_health = collect_queue_health(
+                    session, lease_seconds=lease, max_queue_age_seconds=max_age
+                )
+        except Exception:
+            queue_health = None
+
+    report = await collect_readiness(
+        config=config,
+        session_factory=factory,
+        environ=dict(os.environ),
+        queue_health=queue_health,
+    )
     return JSONResponse(
         {
             "data": {
@@ -84,8 +120,10 @@ async def readiness(request: Request) -> JSONResponse:
                 "workflow_llm_judge_enabled": bool(
                     getattr(config, "workflow_llm_judge_enabled", False)
                 ),
+                **report.to_dict(),
             }
-        }
+        },
+        status_code=200 if report.ready else 503,
     )
 
 

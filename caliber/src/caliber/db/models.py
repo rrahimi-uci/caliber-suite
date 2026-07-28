@@ -807,6 +807,13 @@ class CaliberEvalRun(Base):
     # Full per-example array (example_id/input/expected/prediction/scores/
     # score/passed/error). Heavy — omitted from history summaries.
     results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    # Immutable evidence bundle: content/dataset digests, the pre-truncation
+    # sampling decision, per-scorer denominators, tag slices, and the resolved
+    # identity of the subject/judges/model that produced the predictions. Written
+    # once with the run. Without it a pinned run is reproducible by convention
+    # rather than by proof — see :mod:`caliber.eval.evidence`. Nullable so rows
+    # created before the column existed stay readable.
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
     status: Mapped[str] = mapped_column(String(24), default="completed")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str] = mapped_column(String(256), default="")
@@ -963,6 +970,40 @@ class CaliberWorkflowDeployment(Base):
     deployed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
     deployed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     rollback_checkpoint: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+
+
+class CaliberEffectLedger(Base):
+    """One external effect a workflow run performed, keyed for at-most-once replay.
+
+    Closes the review's "no platform effect ledger or per-node idempotency key, so
+    a mutation completed just before process failure can execute again". An expired
+    lease resets a run to ``queued`` and — without a wait/approval checkpoint — the
+    worker restarts it from the beginning, so every effectful node would re-fire.
+
+    ``effect_key`` is derived from ``(workflow_run_id, node_id, canonical inputs)``
+    and is deliberately *not* salted with the attempt number: a restarted run keeps
+    its run id and replays the same inputs, which is exactly the collision that
+    must be detected. It is the primary key, so the database — not application
+    ordering — arbitrates concurrent claims.
+
+    ``status`` is ``in_progress`` | ``completed`` | ``failed``. An ``in_progress``
+    row left behind by a dead process means the outcome is genuinely unknown; the
+    runtime surfaces that rather than guessing (see
+    :mod:`caliber.workflows.effect_ledger`).
+    """
+
+    __tablename__ = "caliber_effect_ledger"
+    __table_args__ = (Index("ix_effect_ledger_run", "workflow_run_id"),)
+
+    effect_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_run_id: Mapped[str] = mapped_column(String(64))
+    node_id: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(16), default="in_progress")
+    # The recorded outcome, replayed verbatim instead of re-performing the effect.
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class CaliberToolRegistry(Base):

@@ -15,6 +15,8 @@ per-artifact rollback endpoints from the UI.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import select
 from starlette.applications import Starlette
@@ -23,12 +25,15 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from caliber.auth import require_user
+from caliber.auth import SCOPE_ADMIN, CaliberIdentity, require_user, resolve_identity
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberKnowledgeBase,
+    CaliberSkill,
+    CaliberWorkflow,
     CaliberWorkflowDeployment,
 )
+from caliber.db.scoping import apply_visibility_filter
 from caliber.routes._deps import envelope_response_dict, get_session_factory
 
 logger = logging.getLogger("caliber.routes.releases")
@@ -51,6 +56,53 @@ _RELEASE_ACTIONS: tuple[str, ...] = (
 
 _TIMELINE_DEFAULT_LIMIT = 50
 _TIMELINE_MAX_LIMIT = 200
+
+# Audit ``entity_type`` values whose rows can be scoped against a local table
+# carrying ``owner``/``visibility``/``project_id``. ``prompt`` is deliberately
+# absent: prompt liveness lives in the MLflow registry, so there is no local row
+# to scope a prompt promotion against (see ``_visible_entity_ids``).
+_SCOPEABLE_ENTITY_MODELS: dict[str, tuple[type, object]] = {
+    "workflow": (CaliberWorkflow, CaliberWorkflow.workflow_id),
+    "knowledge_base": (CaliberKnowledgeBase, CaliberKnowledgeBase.knowledge_base_id),
+    "skill": (CaliberSkill, CaliberSkill.skill_id),
+}
+
+
+def _visible_ids(session: Any, model: type, pk: Any, identity: CaliberIdentity) -> set[str]:
+    """Primary keys of ``model`` rows visible to ``identity``.
+
+    Uses the same 3-tier predicate the artifact workspaces apply, so this
+    aggregate cannot show more than the pages it summarizes.
+    """
+    stmt = apply_visibility_filter(select(pk), model, identity, identity.active_project_id)
+    return set(session.execute(stmt).scalars().all())
+
+
+def _scope_timeline_rows(
+    session: Any, rows: Sequence[CaliberAuditLog], identity: CaliberIdentity
+) -> list[CaliberAuditLog]:
+    """Drop release events whose entity is not visible to ``identity``.
+
+    Before this, the timeline returned every release audit row in the database
+    while the artifact workspaces it summarizes scoped theirs, so a non-admin saw
+    other projects' promotion history. Admins keep the unfiltered view.
+
+    ``prompt`` rows are retained because prompt liveness lives in the MLflow
+    registry and there is no local row to scope them against; that is a known
+    residual rather than an oversight.
+    """
+    if identity.has_scope(SCOPE_ADMIN):
+        return list(rows)
+    needed = {row.entity_type for row in rows} & _SCOPEABLE_ENTITY_MODELS.keys()
+    visible: dict[str, set[str]] = {
+        entity_type: _visible_ids(session, *_SCOPEABLE_ENTITY_MODELS[entity_type], identity)
+        for entity_type in needed
+    }
+    return [
+        row
+        for row in rows
+        if row.entity_type not in visible or row.entity_id in visible[row.entity_type]
+    ]
 
 
 def _kb_live_entry(
@@ -85,6 +137,7 @@ async def timeline(request: Request) -> JSONResponse:
     ``entity_type`` (``prompt`` / ``workflow`` / ``knowledge_base`` / ``skill``).
     """
     require_user(request)
+    identity = resolve_identity(request)
     raw_limit = request.query_params.get("limit")
     limit = _TIMELINE_DEFAULT_LIMIT
     if raw_limit is not None:
@@ -107,6 +160,7 @@ async def timeline(request: Request) -> JSONResponse:
         if entity_type:
             stmt = stmt.where(CaliberAuditLog.entity_type == entity_type)
         rows = session.execute(stmt.limit(limit)).scalars().all()
+        rows = _scope_timeline_rows(session, rows, identity)
         data = [
             {
                 "log_id": row.log_id,
@@ -131,26 +185,30 @@ async def live(request: Request) -> JSONResponse:
     aggregate; the timeline still records prompt promotions.
     """
     require_user(request)
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
-        deployments = (
-            session.execute(
-                select(CaliberWorkflowDeployment).where(
-                    CaliberWorkflowDeployment.status == "active"
-                )
-            )
-            .scalars()
-            .all()
+        # Deployments carry no visibility columns of their own, so scope them
+        # through their parent workflow. Without this the aggregate exposed every
+        # project's live deployment to any signed-in user.
+        deployment_stmt = select(CaliberWorkflowDeployment).where(
+            CaliberWorkflowDeployment.status == "active"
         )
-        kbs = (
-            session.execute(
-                select(CaliberKnowledgeBase).where(
-                    CaliberKnowledgeBase.active_version_id.is_not(None)
-                )
+        if not identity.has_scope(SCOPE_ADMIN):
+            visible_workflows = _visible_ids(
+                session, CaliberWorkflow, CaliberWorkflow.workflow_id, identity
             )
-            .scalars()
-            .all()
+            deployment_stmt = deployment_stmt.where(
+                CaliberWorkflowDeployment.workflow_id.in_(visible_workflows)
+            )
+        deployments = session.execute(deployment_stmt).scalars().all()
+        kb_stmt = select(CaliberKnowledgeBase).where(
+            CaliberKnowledgeBase.active_version_id.is_not(None)
         )
+        kb_stmt = apply_visibility_filter(
+            kb_stmt, CaliberKnowledgeBase, identity, identity.active_project_id
+        )
+        kbs = session.execute(kb_stmt).scalars().all()
         # "since"/"by" for a KB must reflect when its *active version* went live
         # and who did it — NOT ``updated_at`` (bumped on any edit, e.g. a rename)
         # or ``owner`` (the KB's owner, not the activator). Derive them from the

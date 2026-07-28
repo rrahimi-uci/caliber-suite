@@ -15,6 +15,7 @@ from tests.workflow_helpers import (
     create_workflow,
     make_support_manifest,
     register_demo_tools,
+    relax_release_quality_gate,
     seed_eval_dataset,
 )
 
@@ -27,7 +28,11 @@ def _gated_manifest(workflow_id: str, **gate_overrides) -> dict:
         "type": "deploy_gate",
         "dataset_ref": "support_eval",
         "required_for_aliases": ["prod"],
-        "thresholds": {"min_pass_rate": 1.0},
+        # These tests exercise the promotion/approval lifecycle, not scoring, and
+        # their dataset carries no expected output. ``min_completion_rate`` is the
+        # honest assertion for that: ``min_pass_rate`` now means "completed AND met
+        # the scorer threshold" and fails closed without graded data.
+        "thresholds": {"min_completion_rate": 1.0},
     }
     gate.update(gate_overrides)
     return make_support_manifest(workflow_id, deploy_gates={"support_eval": gate})
@@ -132,10 +137,24 @@ def test_promote_prod_without_gate_400(client: TestClient, gated_prod: None) -> 
     assert "deploy gate" in r.json()["detail"].lower()
 
 
-def test_promote_prod_rotates_immediately_single_env(client: TestClient) -> None:
-    """v1 single-environment default: prod is ungated, so a publish goes live at
-    once — no deploy gate required and no promotion-approval queue."""
+def test_promote_prod_without_a_gate_is_refused_by_default(client: TestClient) -> None:
+    """Shipped default: a production promotion needs graded evidence.
+
+    Rotating the live alias onto a version no gate has scored is exactly the
+    false-release-evidence defect, so it fails closed with an actionable message.
+    """
     wid, vid = create_and_publish(client)  # no deploy gate
+    r = client.post(f"{PREFIX}/workflows/{wid}/deployments/prod/promote", json={"version_id": vid})
+    assert r.status_code == 400, r.text
+    assert "requires a deploy gate" in r.json()["detail"]
+    assert client.get(f"{PREFIX}/workflows/{wid}/deployments").json()["data"] == []
+
+
+def test_promote_prod_rotates_immediately_single_env(client: TestClient) -> None:
+    """With the quality-gate requirement relaxed, single-environment prod still
+    rotates at once — no promotion-approval queue."""
+    wid, vid = create_and_publish(client)  # no deploy gate
+    relax_release_quality_gate(client)
     r = client.post(f"{PREFIX}/workflows/{wid}/deployments/prod/promote", json={"version_id": vid})
     assert r.status_code == 200, r.text
     data = r.json()["data"]

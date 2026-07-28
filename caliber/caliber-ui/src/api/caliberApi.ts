@@ -21,6 +21,7 @@ import type {
 import type {
   AgentConfig,
   AgentRegisterPayload,
+  AgentExperimentBinding,
   AgentSkillsResponse,
   AgentUpdatePayload,
   ApiErrorBody,
@@ -884,6 +885,23 @@ export const caliberApi = {
   ): Promise<AgentSkillsResponse> {
     return request<AgentSkillsResponse>(
       `/agents/${encodeURIComponent(agentId)}/skills`,
+      { signal },
+    );
+  },
+
+  /**
+   * GET /agents/{id}/experiment — resolve the agent's MLflow experiment binding.
+   *
+   * A real registry lookup, not a non-empty-string check. `unverified` means the
+   * registry could not be reached, which the UI must not render as either pass or
+   * fail.
+   */
+  getAgentExperiment(
+    agentId: string,
+    signal?: AbortSignal,
+  ): Promise<AgentExperimentBinding> {
+    return request<AgentExperimentBinding>(
+      `/agents/${encodeURIComponent(agentId)}/experiment`,
       { signal },
     );
   },

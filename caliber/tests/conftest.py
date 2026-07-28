@@ -444,16 +444,13 @@ def worker_client(
 
 @pytest.fixture
 def gated_prod(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Re-enable the (dormant) gated-promotion machinery for ``prod``.
+    """Require human approval for ``prod`` promotions.
 
-    v1 ships single-environment: ``GATED_ALIASES`` is empty, so promoting to any
-    alias rotates immediately with no approval step. Tests that exercise the
-    multi-stage governance path (pending promotion → approve/reject, status
-    filtering, the full deploy-gate-then-sign-off lifecycle) opt back into gating
-    via this fixture. The route imports the frozenset by name, so both bindings
-    are patched. Restore the shipping default by adding the alias back to
-    ``GATED_ALIASES`` in ``caliber.workflows.promoter``.
+    Release governance is now keyed to the alias's *environment class*, so this
+    sets the shipped configuration switch rather than patching a module constant:
+    ``release_require_human_approval_for_environment_classes=production`` is
+    exactly what an operator would set. The legacy ``GATED_ALIASES`` frozenset is
+    still honoured as an additional opt-in and is set here too, so tests that
+    reach the promoter directly (without an app config) behave the same.
     """
-    gated = frozenset({"prod"})
-    monkeypatch.setattr("caliber.workflows.promoter.GATED_ALIASES", gated)
-    monkeypatch.setattr("caliber.routes.workflow_deployments.GATED_ALIASES", gated)
+    monkeypatch.setattr("caliber.workflows.promoter.GATED_ALIASES", frozenset({"prod"}))

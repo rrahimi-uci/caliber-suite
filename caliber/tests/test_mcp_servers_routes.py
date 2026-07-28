@@ -587,3 +587,94 @@ def test_calibrate_mcp_tool_viewer_forbidden(client: TestClient, db_session: Ses
         headers={"X-CALIBER-User": "@viewer"},
     )
     assert r.status_code == 403
+
+
+def test_delete_mcp_server_blocked_by_a_rollback_checkpoint_reference(
+    client: TestClient, db_session: Session
+) -> None:
+    """Regression: deletion checked only the alias's *current* target.
+
+    A rollback checkpoint is a promise that the alias can go back to that
+    version. Deleting a server that only an older checkpointed version depends on
+    silently converted a one-click rollback into a broken deployment discovered
+    at the next run.
+    """
+    _seed(db_session, server_id="MCP-ckpt")
+    # Current target: no MCP dependency at all.
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WFV-ckpt-new",
+            workflow_id="WF-ckpt",
+            version_number=2,
+            status="published",
+            manifest={"nodes": {}},
+        )
+    )
+    # Checkpointed predecessor: this is the one that binds the server.
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WFV-ckpt-old",
+            workflow_id="WF-ckpt",
+            version_number=1,
+            status="published",
+            manifest={"tools": {"db": {"server_id": "MCP-ckpt", "tool_name": "query"}}},
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="DEP-ckpt",
+            workflow_id="WF-ckpt",
+            alias="prod",
+            version_id="WFV-ckpt-new",
+            status="active",
+            rollback_checkpoint=[{"version_id": "WFV-ckpt-old", "deployed_by": "@ops"}],
+        )
+    )
+    db_session.commit()
+
+    resp = client.delete(f"{BASE}/MCP-ckpt")
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert "rollback checkpoint" in detail
+    assert "WFV-ckpt-old" in detail
+    assert db_session.get(CaliberMcpServer, "MCP-ckpt") is not None
+
+
+def test_delete_mcp_server_allowed_when_nothing_current_or_checkpointed_uses_it(
+    client: TestClient, db_session: Session
+) -> None:
+    """The checkpoint check must not become a blanket refusal: an unreferenced
+    server still deletes."""
+    _seed(db_session, server_id="MCP-free")
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WFV-free-new",
+            workflow_id="WF-free",
+            version_number=2,
+            status="published",
+            manifest={"nodes": {}},
+        )
+    )
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WFV-free-old",
+            workflow_id="WF-free",
+            version_number=1,
+            status="published",
+            manifest={"tools": {"other": {"server_id": "MCP-somewhere-else", "tool_name": "q"}}},
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="DEP-free",
+            workflow_id="WF-free",
+            alias="prod",
+            version_id="WFV-free-new",
+            status="active",
+            rollback_checkpoint=[{"version_id": "WFV-free-old"}],
+        )
+    )
+    db_session.commit()
+
+    assert client.delete(f"{BASE}/MCP-free").status_code == 204
+    assert db_session.get(CaliberMcpServer, "MCP-free") is None

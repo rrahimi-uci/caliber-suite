@@ -16,8 +16,12 @@ from caliber.mcp_servers.db import identifiers as ids
 
 
 def list_tables() -> dict[str, Any]:
-    """List the tables in the public schema."""
-    rows = conn.query(
+    """List the tables in the public schema.
+
+    Read-classified, so it runs in a database-enforced read-only transaction
+    (see :func:`run_query`).
+    """
+    rows = conn.read_only_query(
         "SELECT table_name FROM information_schema.tables "
         "WHERE table_schema = 'public' ORDER BY table_name"
     )
@@ -25,9 +29,13 @@ def list_tables() -> dict[str, Any]:
 
 
 def describe_table(table: str) -> dict[str, Any]:
-    """Return the columns (name, type, nullability, default) of a table."""
+    """Return the columns (name, type, nullability, default) of a table.
+
+    Read-classified, so it runs in a database-enforced read-only transaction
+    (see :func:`run_query`).
+    """
     ids.validate_identifier(table, kind="table")
-    rows = conn.query(
+    rows = conn.read_only_query(
         "SELECT column_name, data_type, is_nullable, column_default "
         "FROM information_schema.columns "
         "WHERE table_schema = 'public' AND table_name = %s "
@@ -103,9 +111,17 @@ def delete_rows(
 
 
 def run_query(sql: str, params: list[Any] | None = None) -> dict[str, Any]:
-    """Run a read-only query (SELECT/WITH/...) with optional bound parameters."""
+    """Run a read-only query (SELECT/WITH/...) with optional bound parameters.
+
+    CALIBER classifies this tool ``read`` with no approval, so the read-only
+    guarantee must be enforced by the **database**, not by inspecting the SQL:
+    the statement runs in a ``READ ONLY`` transaction so PostgreSQL refuses any
+    write reached through it — including one inside a called function, which no
+    parser can see. :func:`identifiers.assert_read_only` still runs first to
+    turn the recognisable cases into a clear tool error instead of a driver one.
+    """
     ids.assert_read_only(sql)
-    rows = conn.query(sql, params or [])
+    rows = conn.read_only_query(sql, params or [])
     return {"rows": rows, "row_count": len(rows)}
 
 

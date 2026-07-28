@@ -18,12 +18,15 @@ import sys
 import threading
 import time
 from collections import OrderedDict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from sqlalchemy import select
+
 from caliber.config import CaliberConfig
+from caliber.deployment_environments import requires_external_isolation
 
 
 class McpPolicyError(RuntimeError):
@@ -67,6 +70,10 @@ class McpDependency:
     tool_name: str
     requires_approval: bool
     declared_side_effect: str | None
+    #: A ``subworkflow`` node whose deployed target could not be resolved. It
+    #: carries no server/tool of its own; preflight turns it into a blocker so an
+    #: unresolvable child cannot pass by having nothing to inspect.
+    unresolved_subworkflow: bool = False
 
 
 @dataclass
@@ -435,17 +442,37 @@ def deployment_blockers(
     *,
     alias: str,
     config: CaliberConfig | None = None,
+    require_resolvable_subworkflows: bool = False,
 ) -> list[str]:
-    """Return deterministic MCP dependency blockers for a deployment."""
+    """Return deterministic MCP dependency blockers for a deployment.
+
+    ``require_resolvable_subworkflows`` distinguishes the two callers. An **alias
+    rotation** is a promise that the whole graph is deployable, so a subworkflow
+    whose target cannot be resolved is a blocker: its MCP dependencies cannot be
+    proven and the alias must not move. A **run submission** keeps the existing
+    contract, where an unresolvable child surfaces as a precise runtime error on
+    the run record rather than a submission rejection.
+    """
 
     from caliber.db.models import CaliberMcpServer  # noqa: PLC0415
 
     config = config or CaliberConfig.load()
-    require_external = alias in _csv_values(config.mcp_require_external_isolation_for_aliases)
+    # Keyed on the alias's *environment class*, not on the literal alias string:
+    # the previous alias-list match let ``production``/``prod-eu``/``PROD`` deploy
+    # with local containment and no blocker.
+    require_external = requires_external_isolation(alias, config)
     blockers: list[str] = []
-    for dependency in extract_dependencies(manifest):
-        server = session.get(CaliberMcpServer, dependency.server_id)
+    for dependency in extract_dependencies(manifest, session=session):
         prefix = dependency.label
+        if dependency.unresolved_subworkflow:
+            if not require_resolvable_subworkflows:
+                continue
+            blockers.append(
+                f"{prefix}: no active deployment, so its MCP dependencies cannot be "
+                "verified; deploy the subworkflow target first"
+            )
+            continue
+        server = session.get(CaliberMcpServer, dependency.server_id)
         if server is None:
             blockers.append(f"{prefix}: MCP server {dependency.server_id!r} does not exist")
             continue
@@ -495,7 +522,34 @@ def deployment_blockers(
     return list(dict.fromkeys(blockers))
 
 
-def extract_dependencies(manifest: dict[str, Any]) -> list[McpDependency]:
+#: Guard against a pathological subworkflow chain. The compiler rejects cycles,
+#: but preflight also runs on stored manifests that predate that check, and a
+#: bounded walk is cheaper to reason about than trusting the graph.
+_MAX_SUBWORKFLOW_DEPTH = 16
+
+
+def extract_dependencies(
+    manifest: dict[str, Any],
+    *,
+    session: Any | None = None,
+    _depth: int = 0,
+    _seen: set[tuple[str, str]] | None = None,
+) -> list[McpDependency]:
+    """MCP dependencies of ``manifest``, including its subworkflow targets.
+
+    When ``session`` is supplied the walk is **transitive**: every
+    ``subworkflow`` node's currently-deployed target manifest is resolved and its
+    MCP dependencies are inspected too. Without that, a parent whose own graph
+    declares no MCP tool passed preflight while the child it invokes at runtime
+    used a blocked server — the exact "child inspection is not transitive" gap.
+
+    Labels are prefixed with the subworkflow path (``via subworkflow 'x' →``) so
+    a blocker names the child that caused it rather than appearing to come from
+    the parent's own graph.
+
+    ``session=None`` keeps the previous root-only behaviour for callers that
+    genuinely only have a manifest (e.g. import preflight on an unsaved graph).
+    """
     dependencies: list[McpDependency] = []
     tools = manifest.get("tools", {})
     if isinstance(tools, dict):
@@ -533,7 +587,113 @@ def extract_dependencies(manifest: dict[str, Any]) -> list[McpDependency]:
                 declared_side_effect=None,
             )
         )
+    if session is not None and _depth < _MAX_SUBWORKFLOW_DEPTH:
+        dependencies.extend(
+            _subworkflow_dependencies(
+                node_items,
+                session=session,
+                depth=_depth,
+                seen=_seen if _seen is not None else set(),
+            )
+        )
     return dependencies
+
+
+def _subworkflow_dependencies(
+    node_items: list[tuple[str, object]],
+    *,
+    session: Any,
+    depth: int,
+    seen: set[tuple[str, str]],
+) -> list[McpDependency]:
+    """MCP dependencies reached *through* this manifest's subworkflow nodes.
+
+    ``seen`` is shared across the whole walk so a diamond or a cycle in the
+    subworkflow graph is visited once, not repeatedly.
+    """
+    found: list[McpDependency] = []
+    for node_id, raw in node_items:
+        if not isinstance(raw, dict) or raw.get("type") != "subworkflow":
+            continue
+        child_id = str(raw.get("workflow_id", ""))
+        child_alias = str(raw.get("alias", "prod"))
+        if not child_id or (child_id, child_alias) in seen:
+            continue
+        seen.add((child_id, child_alias))
+        child_manifest = _subworkflow_target_manifest(session, child_id, child_alias)
+        if child_manifest is None:
+            # A target that cannot be resolved must not pass preflight by having
+            # nothing to inspect; the caller turns this into a blocker.
+            found.append(
+                McpDependency(
+                    label=f"subworkflow node {node_id!r} target {child_id!r}@{child_alias!r}",
+                    server_id="",
+                    tool_name="",
+                    requires_approval=False,
+                    declared_side_effect=None,
+                    unresolved_subworkflow=True,
+                )
+            )
+            continue
+        prefix = f"via subworkflow {node_id!r} → "
+        found.extend(
+            replace(child_dependency, label=prefix + child_dependency.label)
+            for child_dependency in extract_dependencies(
+                child_manifest, session=session, _depth=depth + 1, _seen=seen
+            )
+        )
+    return found
+
+
+def _subworkflow_target_manifest(
+    session: Any, workflow_id: str, alias: str
+) -> dict[str, Any] | None:
+    """Manifest a ``subworkflow`` node will actually invoke, or ``None``.
+
+    Mirrors the runtime's own resolution in
+    :func:`caliber.workflows.promoter.build_plan` exactly — ``manual`` takes the
+    highest version number, any other alias takes the active deployment's target
+    — so preflight inspects the version that would really run. Resolving it any
+    other way would make preflight either miss a dependency or invent one.
+    """
+    from caliber.db.models import (  # noqa: PLC0415
+        CaliberWorkflowDeployment,
+        CaliberWorkflowVersion,
+    )
+
+    try:
+        if alias == "manual":
+            version = (
+                session.execute(
+                    select(CaliberWorkflowVersion)
+                    .where(CaliberWorkflowVersion.workflow_id == workflow_id)
+                    .order_by(CaliberWorkflowVersion.version_number.desc())
+                )
+                .scalars()
+                .first()
+            )
+        else:
+            deployment = (
+                session.execute(
+                    select(CaliberWorkflowDeployment)
+                    .where(
+                        CaliberWorkflowDeployment.workflow_id == workflow_id,
+                        CaliberWorkflowDeployment.alias == alias,
+                        CaliberWorkflowDeployment.status == "active",
+                    )
+                    .order_by(CaliberWorkflowDeployment.deployed_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            if deployment is None:
+                return None
+            version = session.get(CaliberWorkflowVersion, deployment.version_id)
+    except Exception:  # pragma: no cover - defensive: a broken session is a blocker
+        return None
+    if version is None or not isinstance(version.manifest, dict):
+        return None
+    return version.manifest
 
 
 def _consume_rate(server_id: str, tool_name: str, limit: int) -> None:

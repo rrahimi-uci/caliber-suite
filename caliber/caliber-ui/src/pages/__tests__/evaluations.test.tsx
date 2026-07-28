@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { EvaluationDetail } from "@/pages/EvaluationDetail";
 import { Evaluations } from "@/pages/Evaluations";
@@ -406,5 +406,89 @@ describe("EvaluationDetail page", () => {
     expect(context).toHaveTextContent(
       "Baseline: target prompt, subject support-greeting@3, model gpt-4.1-mini",
     );
+  });
+});
+
+describe("EvaluationDetail evidence panel", () => {
+  // Regression: a run persisted its rows but recorded no digests, no
+  // pre-truncation inventory, no per-scorer denominators, and no resolved subject
+  // identity — so a "pinned" run was reproducible by convention, not by proof, and
+  // a bounded sample was indistinguishable from an exhaustive one.
+  const EVIDENCE = {
+    schema_version: 1,
+    digests: { dataset: "sha256:dddd", content: "sha256:cccc" },
+    sampling: {
+      available_examples: 40,
+      evaluated_examples: 2,
+      cap: 2,
+      truncated: true,
+      order: "created_at asc, example_id asc",
+    },
+    denominators: { exact_match: { valid_rows: 2, weight_sum: 2.0 } },
+    slices: {
+      geo: {
+        n_examples: 1,
+        weight_sum: 1,
+        passed_count: 1,
+        errored_count: 0,
+        overall: 1,
+        pass_rate: 1,
+      },
+      math: {
+        n_examples: 1,
+        weight_sum: 1,
+        passed_count: 0,
+        errored_count: 0,
+        overall: 0,
+        pass_rate: 0,
+      },
+    },
+    policy: { scorers: ["exact_match"], pass_threshold: 0.5, incomplete_row_policy: "..." },
+    resolved: { dataset_id: "ED-1", dataset_version: 2, predict_target: "llm" },
+    cost: { avg_latency_ms: 120.4, max_latency_ms: 200.9, total_latency_ms: 240.8 },
+  };
+
+  beforeEach(() => {
+    useHandlers();
+    server.use(
+      http.get(`${API_BASE}/evaluations/:runId`, () =>
+        HttpResponse.json(envelope({ ...RUN_A_DETAIL, evidence: EVIDENCE })),
+      ),
+    );
+  });
+
+  it("says a bounded sample was bounded, and by how much", async () => {
+    renderDetail();
+    const panel = await screen.findByTestId("eval-evidence");
+    expect(screen.getByTestId("eval-evidence-truncated")).toBeInTheDocument();
+    expect(panel).toHaveTextContent("graded 2 of 40 active examples");
+    expect(panel).toHaveTextContent("cap 2");
+  });
+
+  it("shows both digests, the per-scorer denominator, and latency", async () => {
+    renderDetail();
+    const panel = await screen.findByTestId("eval-evidence");
+    expect(panel).toHaveTextContent("sha256:dddd");
+    expect(panel).toHaveTextContent("sha256:cccc");
+    expect(panel).toHaveTextContent("exact_match: 2 rows / 2 weight");
+    expect(panel).toHaveTextContent("avg 120ms");
+  });
+
+  it("groups results by dataset tag", async () => {
+    renderDetail();
+    await screen.findByTestId("eval-evidence-slices");
+    expect(screen.getByTestId("eval-evidence-slice-geo")).toHaveTextContent("100%");
+    expect(screen.getByTestId("eval-evidence-slice-math")).toHaveTextContent("0%");
+  });
+
+  it("omits the panel entirely for a run that predates the evidence contract", async () => {
+    server.use(
+      http.get(`${API_BASE}/evaluations/:runId`, () =>
+        HttpResponse.json(envelope({ ...RUN_A_DETAIL, evidence: null })),
+      ),
+    );
+    renderDetail();
+    await screen.findByTestId("eval-aggregate");
+    expect(screen.queryByTestId("eval-evidence")).not.toBeInTheDocument();
   });
 });

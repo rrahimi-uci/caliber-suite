@@ -664,7 +664,7 @@ def test_evaluate_deploy_gate_orders_bounded_sample_and_uses_preview(
     def _execute(plan, input_text, *, executor, preview=False):
         del plan, executor
         calls.append((input_text, preview))
-        return SimpleNamespace(status="completed")
+        return SimpleNamespace(status="completed", output=input_text, tokens=3, error=None)
 
     monkeypatch.setattr(promoter, "execute", _execute)
     manifest = parse_manifest(
@@ -675,7 +675,11 @@ def test_evaluate_deploy_gate_orders_bounded_sample_and_uses_preview(
                     "type": "deploy_gate",
                     "dataset_ref": "ordered",
                     "required_for_aliases": ["prod"],
-                    "thresholds": {"min_pass_rate": 1.0},
+                    # These examples carry no expected output, so the assertion
+                    # available here is completion, not quality. ``min_pass_rate``
+                    # now means "completed AND met the scorer threshold", so the
+                    # completion-only claim has its own explicit key.
+                    "thresholds": {"min_completion_rate": 1.0},
                 }
             },
         )
@@ -691,6 +695,16 @@ def test_evaluate_deploy_gate_orders_bounded_sample_and_uses_preview(
     )
 
     assert calls == [("first", True), ("second", True)]
+    # A bounded sample must disclose that it was bounded, and identify exactly
+    # which rows it graded.
+    run = result.runs[0]
+    assert run.n_examples == 2
+    assert run.available_examples == 3
+    assert run.sample_digest is not None and run.sample_digest.startswith("sha256:")
+    assert run.dataset_id == "eval-ordered"
+    assert run.dataset_version == 1
+    assert run.metrics["completion_rate"] == 1.0
+    assert run.metrics["total_tokens"] == 6.0
     assert result.passed is True
     assert result.runs[0].n_examples == 2
 

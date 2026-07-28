@@ -11,7 +11,7 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, FlaskConical } from "lucide-react";
 
 import { caliberApi } from "@/api/caliberApi";
-import type { EvalRun, EvalRunSummary, Judge } from "@/api/types";
+import type { EvalRun, EvalRunEvidence, EvalRunSummary, Judge } from "@/api/types";
 import { PageHeader } from "@/components/PageHeader";
 import { useApi } from "@/hooks/useApi";
 import { relativeTime } from "@/lib/time";
@@ -329,6 +329,12 @@ export function EvaluationDetail(): JSX.Element {
         ))}
       </div>
 
+      {/* Immutable evidence — the run's own proof of what it graded. Derived
+          server-side and written once, so this panel reports it rather than
+          recomputing it from the visible rows (which a truncated run would
+          under-report). */}
+      {run.evidence && <EvidencePanel evidence={run.evidence} />}
+
       {/* Per-example scorecard */}
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table className="w-full text-sm">
@@ -465,6 +471,106 @@ function ScoreCard({
         {delta !== null && delta !== undefined ? <DeltaChip delta={delta} /> : null}
       </div>
       {hint ? <div className="text-[10px] text-slate-400">{hint}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * The run's immutable evidence bundle.
+ *
+ * Exists because the scorecard above cannot honestly answer three questions on
+ * its own: how much of the dataset was graded (a bounded run looked exhaustive),
+ * how many rows each aggregate mean was computed over, and *which* artifact
+ * content produced the predictions (a `name@version` reference is mutable). All
+ * three are recorded with the run.
+ */
+function EvidencePanel({ evidence }: { evidence: EvalRunEvidence }): JSX.Element {
+  const { sampling, digests, denominators, slices, cost } = evidence;
+  const sliceEntries = Object.entries(slices);
+  return (
+    <div
+      data-testid="eval-evidence"
+      className="rounded-xl border border-slate-200 bg-white p-4 text-sm"
+    >
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold text-slate-900">Evidence</h2>
+        {sampling.truncated ? (
+          <span
+            data-testid="eval-evidence-truncated"
+            className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800"
+          >
+            bounded sample
+          </span>
+        ) : (
+          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-700">
+            full dataset
+          </span>
+        )}
+        <span className="text-xs text-slate-500">
+          graded {sampling.evaluated_examples} of {sampling.available_examples} active examples
+          {sampling.cap != null ? ` (cap ${sampling.cap})` : ""} · ordered by {sampling.order}
+        </span>
+      </div>
+
+      <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+        <div className="flex gap-2">
+          <dt className="text-slate-500">Dataset digest</dt>
+          <dd className="truncate font-mono text-slate-700" title={digests.dataset}>
+            {digests.dataset}
+          </dd>
+        </div>
+        <div className="flex gap-2">
+          <dt className="text-slate-500">Result digest</dt>
+          <dd className="truncate font-mono text-slate-700" title={digests.content}>
+            {digests.content}
+          </dd>
+        </div>
+        {cost.avg_latency_ms != null && (
+          <div className="flex gap-2">
+            <dt className="text-slate-500">Latency</dt>
+            <dd className="text-slate-700">
+              avg {Math.round(cost.avg_latency_ms)}ms
+              {cost.max_latency_ms != null ? ` · max ${Math.round(cost.max_latency_ms)}ms` : ""}
+            </dd>
+          </div>
+        )}
+        <div className="flex gap-2">
+          <dt className="text-slate-500">Denominators</dt>
+          <dd className="text-slate-700">
+            {Object.entries(denominators)
+              .map(([key, value]) => `${key}: ${value.valid_rows} rows / ${value.weight_sum} weight`)
+              .join(" · ") || "none"}
+          </dd>
+        </div>
+      </dl>
+
+      {sliceEntries.length > 0 && (
+        <div className="mt-3" data-testid="eval-evidence-slices">
+          <div className="text-xs font-medium text-slate-600">By tag</div>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {sliceEntries.map(([tag, slice]) => (
+              <span
+                key={tag}
+                data-testid={`eval-evidence-slice-${tag}`}
+                className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-700"
+              >
+                <span className="font-medium">{tag}</span>{" "}
+                <span className="tabular-nums">
+                  {slice.overall == null ? "—" : `${Math.round(slice.overall * 100)}%`}
+                </span>{" "}
+                <span className="text-slate-500">
+                  ({slice.passed_count}/{slice.n_examples}
+                  {slice.errored_count > 0 ? `, ${slice.errored_count} errored` : ""})
+                </span>
+              </span>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            A row with several tags counts in each slice, so slice weights do not sum to the run
+            total.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

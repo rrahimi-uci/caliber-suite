@@ -418,7 +418,10 @@ def test_run_evaluation_workflow_target(
 
     # Stub the compiled-workflow predict (the real compile+execute path is covered
     # by the workflow runtime/promoter suites); this asserts the eval-route wiring.
-    def fake_build_workflow_predict(_session, version_id, _config):  # type: ignore[no-untyped-def]
+    # ``identity`` is the fourth argument: the builder now resolves the version's
+    # parent workflow through the caller's visibility, so an unscoped version id
+    # can no longer bind another project's managed files.
+    def fake_build_workflow_predict(_session, version_id, _config, _identity=None):  # type: ignore[no-untyped-def]
         def predict(inputs):  # type: ignore[no-untyped-def]
             return f"workflow {version_id} ran on {inputs.get('question', '')}"
 

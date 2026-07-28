@@ -351,10 +351,29 @@ async def update_mcp_server(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
+def _version_references_server(session: Session, version_id: str, server_id: str) -> bool:
+    version = session.get(CaliberWorkflowVersion, version_id)
+    if version is None:
+        return False
+    return any(
+        dependency.server_id == server_id
+        for dependency in extract_dependencies(version.manifest or {}, session=session)
+    )
+
+
 def _deployments_referencing_server(session: Session, server_id: str) -> list[str]:
-    """``{alias}@{workflow_id}`` for every *active* deployment whose version
-    manifest binds a tool on ``server_id`` — used to block a destructive delete
-    that would silently orphan a live workflow's MCP binding."""
+    """Deployment references that a delete of ``server_id`` would orphan.
+
+    Covers both the alias's **current** target and every version still sitting on
+    its **rollback checkpoint stack**. Checking only the current target left a
+    real hole: deleting a server that an older checkpointed version depends on
+    turned a one-click rollback into a broken deployment discovered at the next
+    run. A checkpoint is a promise that the alias can go back; deleting its
+    dependency silently breaks that promise.
+
+    ``extract_dependencies`` is called with the session so a subworkflow's MCP
+    dependency counts as a reference too.
+    """
     deployments = (
         session.execute(
             select(CaliberWorkflowDeployment).where(CaliberWorkflowDeployment.status == "active")
@@ -364,15 +383,16 @@ def _deployments_referencing_server(session: Session, server_id: str) -> list[st
     )
     blocking: list[str] = []
     for deployment in deployments:
-        version = session.get(CaliberWorkflowVersion, deployment.version_id)
-        if version is None:
-            continue
-        if any(
-            dependency.server_id == server_id
-            for dependency in extract_dependencies(version.manifest or {})
-        ):
-            blocking.append(f"{deployment.alias}@{deployment.workflow_id}")
-    return blocking
+        target = f"{deployment.alias}@{deployment.workflow_id}"
+        if _version_references_server(session, deployment.version_id, server_id):
+            blocking.append(target)
+        for entry in deployment.rollback_checkpoint or []:
+            checkpoint_version = entry.get("version_id") if isinstance(entry, dict) else None
+            if not isinstance(checkpoint_version, str):
+                continue
+            if _version_references_server(session, checkpoint_version, server_id):
+                blocking.append(f"{target} (rollback checkpoint {checkpoint_version})")
+    return list(dict.fromkeys(blocking))
 
 
 async def delete_mcp_server(request: Request) -> JSONResponse:
@@ -390,8 +410,9 @@ async def delete_mcp_server(request: Request) -> JSONResponse:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"MCP server {server_id!r} is referenced by active deployment(s): "
-                    f"{', '.join(referencing)}; undeploy those workflows first"
+                    f"MCP server {server_id!r} is referenced by active deployment(s) "
+                    f"or their rollback checkpoints: {', '.join(referencing)}; "
+                    "undeploy those workflows first"
                 ),
             )
         # Keep the structural definition for diagnosis/recovery, but credentials

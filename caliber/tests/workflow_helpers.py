@@ -209,37 +209,64 @@ def seed_eval_dataset(
     session: Session,
     name: str = "support-eval-v3",
     inputs: list[str] | None = None,
+    expected: list[str] | None = None,
 ) -> str:
-    """Insert an eval dataset with example rows; returns the dataset_id."""
+    """Insert an eval dataset with example rows; returns the dataset_id.
+
+    ``expected`` supplies the graded answers a deploy gate or evaluation scores
+    against. Without it the examples carry no expectation, so quality is
+    *unmeasurable* — a gate configured with a quality threshold then fails closed
+    rather than reporting a meaningless 0.
+    """
     inputs = inputs or ["What is your refund policy?", "Can I return my laptop?"]
     dataset = CaliberEvalDataset(
         dataset_id=new_eval_dataset_id(), name=name, owner="@test", version=1, status="active"
     )
     session.add(dataset)
     session.flush()
-    for text in inputs:
+    for index, text in enumerate(inputs):
+        answers = expected or []
         session.add(
             CaliberEvalDatasetExample(
                 example_id=new_eval_example_id(),
                 dataset_id=dataset.dataset_id,
                 dataset_version=1,
                 input={"input": text},
-                expected={},
+                expected=({"expected": answers[index]} if index < len(answers) else {}),
             )
         )
     session.commit()
     return dataset.dataset_id
 
 
+def relax_release_quality_gate(client: TestClient) -> None:
+    """Allow a production promotion without an attached deploy gate.
+
+    The shipped default refuses one: rotating a production alias onto a version
+    with no graded evidence is the false-release-evidence defect. Tests whose
+    subject is something else (service publishing, run inspection, trace linkage)
+    reach ``prod`` only incidentally and should not have to build a scored eval
+    dataset, so they opt out explicitly here rather than having the product
+    default weakened for everyone. The default itself is covered by
+    ``tests/test_deploy_gate_evidence.py``.
+    """
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"release_require_quality_gate_for_environment_classes": ""}
+    )
+
+
 def deploy_prod(client: TestClient, workflow_id: str, version_id: str) -> str | None:
     """Deploy a version to the ``prod`` alias, leaving it rotated either way.
 
-    Works regardless of gating: when ``prod`` is gated (the ``gated_prod`` fixture
-    restores the multi-stage governance path) the promote returns a pending
-    promotion that we approve; in v1 single-environment mode (``GATED_ALIASES``
-    empty) it rotates immediately. Returns the promotion_id when one was created,
-    otherwise ``None``.
+    Works regardless of release policy: when ``prod`` requires human approval (the
+    ``gated_prod`` fixture) the promote returns a pending promotion that we
+    approve; otherwise it rotates immediately. Returns the promotion_id when one
+    was created, otherwise ``None``.
+
+    Relaxes the production quality-gate requirement first — see
+    :func:`relax_release_quality_gate`.
     """
+    relax_release_quality_gate(client)
     r = client.post(
         f"{PREFIX}/workflows/{workflow_id}/deployments/prod/promote",
         json={"version_id": version_id},

@@ -48,13 +48,14 @@ from caliber.schemas import (
     WorkflowPromotionSchema,
 )
 from caliber.workflows.promoter import (
-    GATED_ALIASES,
+    AliasPreflightError,
     DeployError,
     DeployGateFailedError,
     RollbackError,
     approve_promotion,
     promote,
     reject_promotion,
+    requires_human_approval,
     rollback,
 )
 
@@ -73,7 +74,9 @@ def _require_mcp_dependencies_ready(
     *,
     alias: str,
 ) -> None:
-    blockers = deployment_blockers(session, version.manifest or {}, alias=alias)
+    blockers = deployment_blockers(
+        session, version.manifest or {}, alias=alias, require_resolvable_subworkflows=True
+    )
     if blockers:
         raise HTTPException(
             status_code=400,
@@ -110,8 +113,11 @@ async def promote_deployment(request: Request) -> JSONResponse:
     alias = request.path_params["alias"]
     body = await parse_json_object(request)
     payload = PromoteRequest.model_validate(body)
-    # Gated aliases (prod) need admin; everything else operator.
-    required = SCOPE_ADMIN if alias in GATED_ALIASES else SCOPE_OPERATOR
+    # A promotion that pauses for human approval is an admin action; an
+    # immediate rotation stays operator-scoped. Resolved from release policy so the
+    # scope requirement and the approval requirement cannot disagree.
+    config = request.app.state.config
+    required = SCOPE_ADMIN if requires_human_approval(alias, config) else SCOPE_OPERATOR
     actor = require_scopes(request, [required])
 
     factory = get_session_factory(request)
@@ -162,6 +168,8 @@ async def promote_deployment(request: Request) -> JSONResponse:
                 config=request.app.state.config,
             )
         except DeployError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except AliasPreflightError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except DeployGateFailedError as exc:
             metrics.record_deploy_gate(alias, passed=False)
@@ -270,8 +278,12 @@ async def approve_promotion_route(request: Request) -> JSONResponse:
         except HTTPException as exc:
             raise HTTPException(status_code=409, detail=exc.detail) from exc
         try:
-            deployment = approve_promotion(session, promotion, actor=actor)
+            deployment = approve_promotion(
+                session, promotion, actor=actor, config=request.app.state.config
+            )
         except DeployError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AliasPreflightError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         metrics.record_workflow_promotion(promotion.alias)
         audit_record(
@@ -341,16 +353,26 @@ async def rollback_deployment(request: Request) -> JSONResponse:
         if session.get(CaliberWorkflow, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         try:
-            deployment = rollback(session, workflow_id, alias, actor=actor)
+            deployment = rollback(
+                session, workflow_id, alias, actor=actor, config=request.app.state.config
+            )
         except RollbackError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AliasPreflightError as exc:
+            # 409, not 404: the checkpoint exists and the request is well formed —
+            # the target's MCP dependencies are no longer deployable.
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         audit_record(
             session,
             actor=actor,
             action="rollback_workflow",
             entity_type="workflow",
             entity_id=workflow_id,
-            details={"alias": alias, "version_id": deployment.version_id},
+            details={
+                "alias": alias,
+                "version_id": deployment.version_id,
+                "environment": deployment.environment,
+            },
         )
         session.commit()
         data = WorkflowDeploymentSchema.model_validate(deployment)

@@ -2830,9 +2830,14 @@ class EvalRunSummarySchema(BaseModel):
 
 
 class EvalRunSchema(EvalRunSummarySchema):
-    """Detail form — adds the heavy per-example ``results`` array."""
+    """Detail form — adds the heavy per-example ``results`` array and evidence."""
 
     results: list[dict[str, object]] = Field(default_factory=list)
+    # Immutable evidence bundle: dataset/content digests, the pre-truncation
+    # sampling decision, per-scorer denominators, tag slices, and the resolved
+    # identity of the subject/judges/model. ``None`` for runs created before the
+    # contract existed — see caliber.eval.evidence for why it is not backfilled.
+    evidence: dict[str, object] | None = None
 
 
 # ---------------------------------------------------------------------------
