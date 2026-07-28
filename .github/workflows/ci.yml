@@ -123,7 +123,7 @@ jobs:
           name: allure-results-backend
           path: caliber/allure-results
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
   integration:
     name: Integration (MLflow Prompt Registry + genai.evaluate)
@@ -154,7 +154,7 @@ jobs:
           name: allure-results-integration
           path: caliber/allure-results
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
   ui:
     name: UI (test + build)
@@ -193,7 +193,7 @@ jobs:
           name: allure-results-ui
           path: caliber/caliber-ui/allure-results
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
   allure-report:
     name: Allure report
