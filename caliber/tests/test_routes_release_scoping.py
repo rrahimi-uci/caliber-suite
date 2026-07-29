@@ -242,3 +242,39 @@ def test_an_orphaned_child_fails_closed(client: TestClient, db_session: Session)
 
     response = client.get(f"{PREFIX}/workflow-versions/WFV-ORPHAN")
     assert response.status_code == 404, response.text
+
+
+def test_a_foreign_workflows_versions_cannot_be_listed_or_created(
+    client: TestClient, owned: tuple[str, str]
+) -> None:
+    """Scoping the version-*detail* chokepoint was not enough, and an independent probe
+    caught it: the by-parent families resolved the workflow id directly, so a foreign
+    operator was refused a specific version (404) yet still got **200** listing every
+    version of that workflow and **201** creating a new one under it.
+
+    That asymmetry is worse than a uniformly open route, because the 404 on detail
+    reads as evidence the boundary works.
+    """
+    wid, _vid = owned
+
+    listed = client.get(f"{PREFIX}/workflows/{wid}/versions", headers=OTHER)
+    assert listed.status_code == 404, listed.text
+
+    created = client.post(
+        f"{PREFIX}/workflows/{wid}/versions",
+        json={"manifest": make_support_manifest(wid)},
+        headers=OTHER,
+    )
+    assert created.status_code == 404, created.text
+
+
+def test_the_owner_can_still_list_and_create_versions(
+    client: TestClient, owned: tuple[str, str]
+) -> None:
+    """The guard must not lock out the legitimate owner."""
+    wid, _vid = owned
+    mine = {"X-CALIBER-Project": "PRJ-MINE"}
+
+    listed = client.get(f"{PREFIX}/workflows/{wid}/versions", headers=mine)
+    assert listed.status_code == 200, listed.text
+    assert any(v["version_id"] == "WFV-OWNED" for v in listed.json()["data"])

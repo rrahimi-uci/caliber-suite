@@ -265,3 +265,53 @@ def test_acknowledging_an_unknown_dead_letter_is_404(client: TestClient) -> None
 
 def test_dead_letters_require_operator_scope(client: TestClient) -> None:
     assert client.get(DEAD_LETTERS, headers={"X-CALIBER-User": "@viewer"}).status_code == 403
+
+
+def test_replaying_a_dead_letter_redelivers_and_marks_it(
+    client: TestClient, db_session: Session
+) -> None:
+    """Closes "no automatic redelivery from the durable record". Storing the full
+    event was pointless without something able to send it again."""
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    key = _dead_letter(db_session, "WDL-replay")
+    sent: list[tuple[str, dict]] = []
+
+    class _Dispatcher:
+        def replay_event(self, url, event):
+            sent.append((url, event))
+            return True, "delivered"
+
+    client.app.state.webhook_dispatcher = _Dispatcher()
+
+    response = client.post(f"{DEAD_LETTERS}/{key}/replay")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["delivered"] is True
+    assert sent and sent[0][1]["type"] == "run.completed"
+    db_session.expire_all()
+    row = db_session.get(CaliberWebhookDeadLetter, key)
+    assert row.status == "replayed"
+    assert "replay by @test" in row.reason
+
+
+def test_a_failed_replay_leaves_the_row_open(client: TestClient, db_session: Session) -> None:
+    """A failed recovery must never look like a completed one."""
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    key = _dead_letter(db_session, "WDL-badreplay")
+
+    class _Dispatcher:
+        def replay_event(self, url, event):
+            return False, "receiver returned HTTP 500"
+
+    client.app.state.webhook_dispatcher = _Dispatcher()
+
+    response = client.post(f"{DEAD_LETTERS}/{key}/replay")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["delivered"] is False
+    db_session.expire_all()
+    row = db_session.get(CaliberWebhookDeadLetter, key)
+    assert row.status == "open", "a failed replay must not clear the work item"
+    assert "HTTP 500" in row.reason

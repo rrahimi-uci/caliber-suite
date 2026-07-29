@@ -188,6 +188,9 @@ class WebhookDispatcher:
         self._delivered = 0
         self._retried = 0
         self._overflowed = 0
+        #: The event the delivery loop currently holds, or ``None``. Not in the queue
+        #: and not yet delivered, so ``stop()`` has to record it explicitly.
+        self._in_flight: dict[str, Any] | None = None
 
     def dead_letters(self) -> dict[str, Any]:
         """Events that were never delivered, by either loss mode.
@@ -234,6 +237,12 @@ class WebhookDispatcher:
             self._dead_letters.append(entry)
             if kind == KIND_OVERFLOW:
                 self._overflowed += 1
+        # Once an event has *any* dead-letter row it is accounted for, so shutdown
+        # must not add a second one. Without this, an event that exhausted its retries
+        # while still held by the delivery loop was recorded twice: once as
+        # ``exhausted`` and again as ``shutdown``.
+        if self._in_flight is event:
+            self._in_flight = None
         self._persist_dead_letter(entry, event)
 
     def _persist_dead_letter(self, entry: dict[str, Any], event: dict[str, object]) -> None:
@@ -344,15 +353,55 @@ class WebhookDispatcher:
         else:
             logger.info("webhook dispatcher stopped")
 
+    def replay_event(self, url: str, event: dict[str, Any]) -> tuple[bool, str]:
+        """Re-send one previously dead-lettered event. Returns ``(delivered, detail)``.
+
+        Signed fresh rather than replayed with the original signature: the timestamp is
+        part of the signed payload, and receivers reject stale ones as replay attacks.
+        A redelivery is a new legitimate request, so it gets a new timestamp — a
+        receiver deduplicating on event content still sees the same event.
+
+        Synchronous and bounded by the same per-attempt retry policy as first delivery,
+        so an operator gets a real answer instead of a queued promise. Never raises:
+        the caller records the outcome either way, and an exception here would leave
+        the dead letter in an unknown state.
+        """
+        payload = json.dumps(event, separators=(",", ":"), default=str)
+        timestamp = str(int(time.time()))
+        signature = compute_signature(self._secret, timestamp, payload)
+        body = payload.encode("utf-8")
+        try:
+            self._post(url, body, timestamp, signature)
+        except WebhookDeliveryError as exc:
+            return False, str(exc)
+        except Exception as exc:
+            return False, f"{type(exc).__name__}: {exc}"
+        self._delivered += 1
+        return True, "delivered"
+
     def _drain_pending_to_dead_letters(self) -> int:
         """Record every still-queued event as a ``shutdown`` dead letter. Returns the count.
 
         ``get_nowait`` in a loop rather than ``await get()``: the delivery task is
         already cancelled, nothing will refill the queue, and stopping must not block.
         """
-        if self._pending is None:
-            return 0
         drained = 0
+        # The in-flight event first: it was already removed from the queue, so a drain
+        # that only walked the queue would miss exactly the event most likely to be
+        # lost — the one being delivered when the stop arrived.
+        in_flight, self._in_flight = self._in_flight, None
+        if in_flight is not None:
+            drained += 1
+            for url in self._urls:
+                self._record_dead_letter(
+                    url,
+                    in_flight,
+                    "dispatcher stopped while this event was in flight; delivery outcome unknown",
+                    kind=KIND_SHUTDOWN,
+                    attempts=0,
+                )
+        if self._pending is None:
+            return drained
         while True:
             try:
                 event = self._pending.get_nowait()
@@ -427,6 +476,12 @@ class WebhookDispatcher:
         try:
             while True:
                 event = await self._pending.get()
+                # Recorded before the await below. ``get()`` removes the event from the
+                # queue, so between here and completion it exists *only* in this local
+                # — cancelling the task then dropped it with no durable trace, which is
+                # the in-flight half of N5 an independent probe reproduced
+                # (``pending_before_stop=0`` and zero dead-letter rows after stop()).
+                self._in_flight = event
                 try:
                     # Each dispatch runs under its own trace ID so a webhook
                     # POST and the originating state-change can be
@@ -434,13 +489,17 @@ class WebhookDispatcher:
                     with bind_trace_id():
                         await asyncio.to_thread(self._post_to_all, event)
                 except asyncio.CancelledError:
+                    # Deliberately leave ``_in_flight`` set: this is the shutdown path,
+                    # and ``stop()`` is about to record it. Clearing it in a ``finally``
+                    # (as a first attempt did) runs on cancellation too and erases the
+                    # event before the drain can see it.
                     raise
                 except Exception:
                     # A bug in delivery must not kill the loop and silently stop every
                     # future webhook; the event's own failure is already recorded.
                     logger.exception("webhook delivery raised; continuing")
-                finally:
-                    self._pending.task_done()
+                self._in_flight = None
+                self._pending.task_done()
         except asyncio.CancelledError:
             raise
 

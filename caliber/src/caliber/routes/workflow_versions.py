@@ -27,7 +27,7 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
     CaliberEvalDataset,
     CaliberProject,
@@ -39,6 +39,7 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import get_visible
 from caliber.ids import new_workflow_patch_id, new_workflow_run_id, new_workflow_version_id
 from caliber.llm.provider import (
     LLMProviderError,
@@ -371,6 +372,24 @@ def _manifest_parse_error_report(
     return {"valid": False, "errors": errors, "warnings": []}
 
 
+def _visible_workflow(session: Session, request: Request, workflow_id: str) -> Any:
+    """The parent workflow, only if the caller can see it; ``None`` otherwise.
+
+    Callers turn ``None`` into the same 404 a missing workflow produces. Scoping the
+    version-*detail* chokepoint was not enough: the by-parent families (list, create,
+    patch, run history) each resolved the workflow id directly, so a foreign operator
+    was refused a specific version yet could still list every version of that workflow
+    and create new ones under it.
+    """
+    return get_visible(
+        session,
+        CaliberWorkflow,
+        CaliberWorkflow.workflow_id,
+        workflow_id,
+        resolve_identity(request),
+    )
+
+
 def _get_version_or_404(
     session: Session, version_id: str, *, request: Request
 ) -> CaliberWorkflowVersion:
@@ -402,7 +421,7 @@ async def list_versions(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         rows = (
             session.execute(
@@ -506,7 +525,7 @@ async def create_version(request: Request) -> JSONResponse:
     _parse_manifest_or_400(payload.manifest)
 
     def _require_workflow(session: Session) -> None:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
 
     data = _insert_version_with_retry(
@@ -1416,7 +1435,7 @@ async def list_patches_route(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         rows = (
             session.execute(
@@ -1702,7 +1721,7 @@ async def list_runs_route(request: Request) -> JSONResponse:
     normalized_search, artifact_filter, limit, cursor = _parse_run_list_filters(request)
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         if normalized_search is None and artifact_filter is None:
             rows, next_cursor = _list_unfiltered_runs_page(
@@ -1731,7 +1750,7 @@ async def run_history_stats_route(request: Request) -> JSONResponse:
     normalized_search, artifact_filter = _parse_run_history_filters(request)
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         rows = cast(
             list[CaliberWorkflowRun],

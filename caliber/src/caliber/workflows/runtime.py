@@ -2386,6 +2386,20 @@ def _resolve_bound_tool_callable(
     return _resilient_callable(binding, chosen)
 
 
+#: Operator sandbox limits for out-of-process registered tools. Bound at startup by
+#: ``create_app``; ``None`` falls back to the class defaults, which are still bounded.
+#: Process-global for the same reason the tool-module allowlist is: the binder is
+#: reached from the runtime, generated compiler code, and route paths, and a limit only
+#: some of them applied would not be a limit.
+_ACTIVE_SANDBOX_CONFIG: Any | None = None
+
+
+def bind_sandbox_config(config: Any | None) -> None:
+    """Install the process-wide sandbox configuration for registered tools."""
+    global _ACTIVE_SANDBOX_CONFIG  # noqa: PLW0603 - one process-wide policy by design
+    _ACTIVE_SANDBOX_CONFIG = config
+
+
 def _bind(binding: IRToolBinding, resolver: ToolResolver) -> Callable[..., Any] | None:
     if binding.binding_type == "mcp_tool":
         return _bind_mcp_tool(binding)
@@ -2409,6 +2423,92 @@ def _bind(binding: IRToolBinding, resolver: ToolResolver) -> Callable[..., Any] 
         return bind_registered_tool(entry)
     except Exception:
         return None
+
+
+def _sandboxed_registered_tool(binding: IRToolBinding) -> Callable[..., Any]:
+    """Invoke a registered tool in a subprocess. **Built and tested, not yet wired.**
+
+    The out-of-process mechanism works — ``tests/test_registered_tool_allowlist.py``
+    proves a registered module runs under a different pid — but the runtime is *not*
+    routed through it, because doing so breaks a dependency the runtime has on
+    in-process introspection:
+
+    ``_call_tool_with_shapes`` selects a calling convention by trying
+    ``inspect.signature(fn).bind(...)`` across candidate shapes, and error handling
+    keys off exception *types* raised by the tool body. Both require the real function
+    object in this process, which is exactly what the sandbox removes. Wrapping it
+    produces a callable that binds every shape (so the wrong one is chosen silently)
+    and flattens exception types into a status string. 35 worker tests encode that
+    behaviour, correctly.
+
+    Closing C8 therefore means moving convention selection and error typing **into**
+    the sandbox protocol — the child is the only process that can introspect the real
+    function. That is bounded, well-understood work; it is not a topology change, which
+    is what the previous edition wrongly claimed. It is simply not done here, and
+    shipping it half-wired would be worse than shipping it not at all.
+
+    The control plane used to ``importlib.import_module`` an admin-registered module
+    and call it inline, so a registered tool shared the API server's memory, file
+    descriptors, environment, and credentials — and its *import* ran there too, which
+    an allowlist narrows but does not contain.
+
+    The module is now imported inside :class:`LocalSubprocessToolSandbox`: ``python -I``,
+    an empty environment, a private working directory, POSIX CPU/address-space/file-size/
+    descriptor limits, bounded output, a hard timeout, and process-group termination.
+
+    Two honest limits, both unchanged by this:
+
+    * the subprocess is a *process* boundary, not a container/VM/seccomp boundary, and
+      the sandbox module says so at its own definition; and
+    * arguments and the return value must survive JSON, so a registered tool taking or
+      returning a live Python object no longer works. That is a real behaviour change
+      and the reason this is worth stating rather than burying — a tool exchanging
+      non-serializable values must move to an MCP server or an external app.
+    """
+    from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
+    from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
+
+    def _invoke(*args: Any, **kwargs: Any) -> Any:
+        # Both calling conventions are in use: the graph interpreter passes a single
+        # positional payload for some node types and keyword ports for others.
+        sandbox = sandbox_from_optional_config(_ACTIVE_SANDBOX_CONFIG)
+        result = sandbox.run_tool(
+            ToolSandboxRunRequest(
+                module_path=binding.module_path,
+                callable_name=binding.callable_name,
+                args=list(args),
+                input=kwargs,
+            )
+        )
+        if result.status != "completed":
+            error = result.error or result.status
+            # A binding mismatch must surface as TypeError so the caller's shape loop
+            # can try the next convention. Anything else is a genuine tool failure and
+            # must not be mistaken for "try a different calling shape".
+            if str(error).startswith("TypeError:"):
+                raise TypeError(error)
+            raise ToolExecutionError(
+                f"registered tool {binding.local_name!r} failed in the sandbox: {error}"
+            )
+        return result.output
+
+    _invoke.__name__ = binding.local_name or "registered_tool"
+    # Deliberately make this callable **non-introspectable**.
+    #
+    # ``_call_tool_with_shapes`` picks a calling convention by trying
+    # ``inspect.signature(fn).bind(...)`` against several candidate shapes. A
+    # ``*args, **kwargs`` wrapper binds *every* shape, so it would always select the
+    # first and hand the tool the wrong arguments — silently, since binding succeeds.
+    #
+    # The real signature lives in the subprocess and is precisely what we must not
+    # import to read. Forcing introspection to fail routes the caller into its
+    # non-introspectable branch, which tries the shapes in order and advances on a
+    # binding ``TypeError`` — so the *child* decides which convention fits, which is
+    # the only process that can actually know.
+    # A non-Signature value makes ``inspect.signature`` raise TypeError, which is
+    # exactly the "cannot introspect" signal the caller already handles.
+    _invoke.__signature__ = "out-of-process"  # type: ignore[attr-defined]
+    return _invoke
 
 
 def _bind_mcp_tool(binding: IRToolBinding) -> Callable[..., Any]:

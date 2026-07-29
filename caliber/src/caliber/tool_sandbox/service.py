@@ -111,6 +111,9 @@ class LocalSubprocessToolSandbox:
             {
                 "mode": "run",
                 "source_code": request.source_code,
+                # Empty in source mode; the runner picks the branch off this.
+                "module_path": request.module_path,
+                "args": request.args,
                 "callable_name": request.callable_name,
                 "input": request.input,
             },

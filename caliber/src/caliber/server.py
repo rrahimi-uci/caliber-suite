@@ -64,6 +64,7 @@ from caliber.runtime_advisories import (
     get_runtime_dependency_advisories,
 )
 from caliber.trace_client import MLflowTraceClient
+from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
 
 if TYPE_CHECKING:
@@ -383,6 +384,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # runtime, generated compiler code, and two route paths, and an allowlist only
     # some of them honoured would read as enforced while leaving the rest open.
     bind_module_allowlist(resolved.registered_tool_module_allowlist)
+    # Registered tools execute out-of-process (C8); this gives that subprocess the
+    # operator's configured limits rather than the class defaults.
+    bind_sandbox_config(resolved)
     llm_provider = build_provider(resolved)
     artifact_store = build_store(
         resolved.artifact_store_provider,

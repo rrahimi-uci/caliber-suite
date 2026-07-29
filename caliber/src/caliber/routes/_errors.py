@@ -28,6 +28,11 @@ async def http_exception_handler(_request: Request, exc: Exception) -> JSONRespo
     return JSONResponse(
         {"detail": exc.detail, "status_code": exc.status_code},
         status_code=exc.status_code,
+        # ``HTTPException.headers`` was being dropped, which silently discarded
+        # protocol-significant headers: a 429 lost its ``Retry-After``, so a client
+        # had no way to know how long to back off and would simply retry immediately.
+        # Starlette's own handler forwards these; ours must too.
+        headers=exc.headers or None,
     )
 
 

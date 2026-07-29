@@ -3500,6 +3500,12 @@ class WorkflowServicePublishRequest(BaseModel):
     # New services default to Bearer-token auth. Set false only for an
     # intentionally public endpoint.
     auth_required: bool | None = None
+    #: Per-minute invocation ceiling; 0 = unlimited (the default, so an upgrade does
+    #: not begin refusing traffic). See routes/services.py for enforcement.
+    rate_limit_per_minute: int | None = Field(default=None, ge=0, le=1_000_000)
+    #: Comma-separated origins allowed to read responses in a browser. Empty emits no
+    #: CORS headers at all, which is the restrictive default.
+    cors_allowed_origins: str | None = Field(default=None, max_length=2048)
 
 
 class WorkflowServiceSchema(BaseModel):
@@ -3514,6 +3520,8 @@ class WorkflowServiceSchema(BaseModel):
     output_schema: dict[str, Any] = Field(default_factory=dict)
     enabled: bool
     auth_required: bool = True
+    rate_limit_per_minute: int = 0
+    cors_allowed_origins: str = ""
     endpoint: str
     created_by: str = ""
     created_at: datetime

@@ -17,8 +17,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
+import threading
+import time
 from datetime import datetime, timezone
-from typing import cast
+from typing import Any, cast
 
 import jsonschema
 from sqlalchemy import func, select
@@ -131,6 +133,8 @@ def _service_schema(service: CaliberWorkflowService, token_count: int) -> Workfl
         output_schema=dict(service.output_schema or {}),
         enabled=service.enabled,
         auth_required=service.auth_required,
+        rate_limit_per_minute=service.rate_limit_per_minute,
+        cors_allowed_origins=service.cors_allowed_origins,
         endpoint=INVOKE_PATH.format(workflow_id=service.workflow_id),
         created_by=service.created_by,
         created_at=service.created_at,
@@ -218,6 +222,8 @@ async def publish_service(request: Request) -> JSONResponse:
                 auth_required=(
                     payload.auth_required if payload.auth_required is not None else True
                 ),
+                rate_limit_per_minute=payload.rate_limit_per_minute or 0,
+                cors_allowed_origins=payload.cors_allowed_origins or "",
                 created_by=actor,
             )
             session.add(service)
@@ -230,6 +236,10 @@ async def publish_service(request: Request) -> JSONResponse:
                 service.enabled = payload.enabled
             if payload.auth_required is not None:
                 service.auth_required = payload.auth_required
+            if payload.rate_limit_per_minute is not None:
+                service.rate_limit_per_minute = payload.rate_limit_per_minute
+            if payload.cors_allowed_origins is not None:
+                service.cors_allowed_origins = payload.cors_allowed_origins
             action = "update_workflow_service"
         session.flush()
         audit_record(
@@ -539,9 +549,79 @@ def _as_aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
+#: Per-service invocation timestamps, newest last. Process-local by design: the
+#: shipped topology is a single app process, and a distributed counter would need
+#: shared state this product does not yet have. Stated rather than implied — behind
+#: several replicas the effective ceiling is per-replica, which an operator must know.
+#: One minute, named so the window is a stated policy rather than a literal.
+_RATE_WINDOW_SECONDS = 60.0
+_SERVICE_CALLS: dict[str, list[float]] = {}
+_SERVICE_CALLS_LOCK = threading.Lock()
+
+
+def _enforce_service_rate_limit(service: Any) -> None:
+    """Refuse an invocation that exceeds the service's per-minute budget.
+
+    A published service was authenticated but otherwise unbounded, so any token holder
+    could drive unlimited traffic through a workflow that calls paid model APIs. ``0``
+    means unlimited and remains the default, so this only ever refuses traffic an
+    operator has explicitly chosen to cap.
+
+    429 with ``Retry-After``, not 400: this is a temporary condition the caller should
+    retry, and saying so is the difference between a client backing off and a client
+    hammering.
+    """
+    limit = int(getattr(service, "rate_limit_per_minute", 0) or 0)
+    if limit <= 0:
+        return
+    now = time.time()
+    key = str(service.service_id)
+    with _SERVICE_CALLS_LOCK:
+        window = [t for t in _SERVICE_CALLS.get(key, []) if now - t < _RATE_WINDOW_SECONDS]
+        if len(window) >= limit:
+            oldest = min(window)
+            _SERVICE_CALLS[key] = window
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"service rate limit of {limit}/minute exceeded; "
+                    f"retry in {max(1, int(_RATE_WINDOW_SECONDS - (now - oldest)))}s"
+                ),
+                headers={"Retry-After": str(max(1, int(_RATE_WINDOW_SECONDS - (now - oldest))))},
+            )
+        window.append(now)
+        _SERVICE_CALLS[key] = window
+
+
+def _cors_headers(service: Any, request: Request) -> dict[str, str]:
+    """CORS headers for a browser caller, or ``{}``.
+
+    Empty configuration emits **nothing**, which is the restrictive answer: a wildcard
+    would let any site read a token-authorized response. Only an origin the operator
+    listed is echoed back, and the echo is exact rather than reflected blindly.
+    """
+    allowed = {
+        o.strip()
+        for o in str(getattr(service, "cors_allowed_origins", "") or "").split(",")
+        if o.strip()
+    }
+    origin = request.headers.get("Origin", "").strip()
+    if not allowed or not origin or origin not in allowed:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    }
+
+
 async def invoke_service(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     service = _load_enabled_service(request, workflow_id)
+    # Before authentication: a rate limit that only applies to *valid* tokens does not
+    # protect against a flood of invalid ones, and token verification is the expensive
+    # part of this path.
+    _enforce_service_rate_limit(service)
     actor = (
         _validate_service_token(request, workflow_id, INVOKE_SCOPE)
         if service.auth_required
@@ -599,7 +679,12 @@ async def invoke_service(request: Request) -> JSONResponse:
         )
         session.commit()
     data = ServiceInvokeResponse(run_id=run_id, status=RUN_STATUS_QUEUED)
-    return envelope_response(data, status_code=202)
+    response = envelope_response(data, status_code=202)
+    # Emitted only for an origin the operator listed; absent otherwise, so a browser
+    # cannot read a token-authorized response from an unapproved site.
+    for header, value in _cors_headers(service, request).items():
+        response.headers[header] = value
+    return response
 
 
 def _input_to_text(value: object) -> str:

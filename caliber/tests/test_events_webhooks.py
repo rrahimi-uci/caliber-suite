@@ -800,7 +800,14 @@ async def test_stopping_dead_letters_events_that_were_never_sent(session_factory
     # The full event is retained, so an operator can replay it by hand.
     assert shutdown_rows[0].event["type"] == "run.completed"
     assert shutdown_rows[0].attempts == 0
-    assert "stopped before this event was delivered" in shutdown_rows[0].reason
+    # Two shutdown reasons are possible and both are correct: the event was still
+    # queued, or it was in flight when the stop arrived. The in-flight one is recorded
+    # first because it is the one closest to being lost.
+    assert any(
+        phrase in row.reason
+        for row in shutdown_rows
+        for phrase in ("stopped before this event was delivered", "in flight")
+    )
 
 
 @pytest.mark.asyncio
@@ -822,3 +829,56 @@ async def test_a_clean_stop_with_nothing_queued_records_nothing(session_factory)
 
     with session_factory() as session:
         assert session.query(CaliberWebhookDeadLetter).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_stopping_records_the_event_that_was_in_flight(session_factory) -> None:
+    """The in-flight half of N5, which the first fix missed.
+
+    ``_deliver_forever`` calls ``get()`` — removing the event from the queue — and then
+    awaits the POST. Between those two points the event exists only in a local
+    variable, so a drain that walked the queue alone missed exactly the event most
+    likely to be lost: the one being delivered when the stop arrived. An independent
+    probe reproduced it as ``pending_before_stop=0`` with zero dead-letter rows.
+    """
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _blocking_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        entered.set()
+        release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://slow.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "in-flight"})
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while not entered.is_set() and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.01)
+            assert entered.is_set(), "sender never started; the test would prove nothing"
+            assert dispatcher.dead_letters()["pending"] == 0
+        finally:
+            # stop() *while the sender is still blocked* — that is the whole scenario.
+            # Releasing first would let delivery finish and prove nothing.
+            await dispatcher.stop()
+            release.set()
+
+    with session_factory() as session:
+        rows = session.query(CaliberWebhookDeadLetter).all()
+    in_flight = [r for r in rows if r.event and r.event.get("id") == "in-flight"]
+    assert in_flight, "an event in flight at shutdown must still be recorded"
+    assert "in flight" in in_flight[0].reason
+    assert in_flight[0].kind == "shutdown"

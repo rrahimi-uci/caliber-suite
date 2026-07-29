@@ -313,3 +313,87 @@ def test_delete_service_unpublishes(client: TestClient) -> None:
     r = client.get(f"{PREFIX}/workflows/{wid}/service/tokens")
     assert r.status_code == 200, r.text
     assert r.json()["data"] == []
+
+
+# ---------------------------------------------------------------------------
+# Published-service quotas and CORS
+# ---------------------------------------------------------------------------
+
+
+def test_a_service_rate_limit_refuses_excess_traffic_with_retry_after(
+    client: TestClient,
+) -> None:
+    """A published service was authenticated but otherwise unbounded, so any token
+    holder could drive unlimited traffic through a workflow that calls paid model APIs.
+
+    429 with ``Retry-After`` rather than 400: this is a temporary condition, and saying
+    so is the difference between a client backing off and a client hammering.
+    """
+    wid, _vid = _publish_service(client)
+    patched = client.post(f"{PREFIX}/workflows/{wid}/service", json={"rate_limit_per_minute": 2})
+    assert patched.status_code == 200, patched.text
+    token = _mint_token(client, wid)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    accepted = [
+        client.post(
+            f"{PREFIX}/services/{wid}/invoke",
+            json={"input": {"user_message": "hi"}},
+            headers=headers,
+        )
+        for _ in range(2)
+    ]
+    assert all(r.status_code == 202 for r in accepted), [r.status_code for r in accepted]
+
+    refused = client.post(
+        f"{PREFIX}/services/{wid}/invoke", json={"input": {"user_message": "hi"}}, headers=headers
+    )
+    assert refused.status_code == 429, refused.text
+    assert "rate limit" in refused.json()["detail"]
+    assert int(refused.headers["Retry-After"]) >= 1
+
+
+def test_the_default_service_has_no_rate_limit(client: TestClient) -> None:
+    """0 means unlimited and is the default, so an upgrade does not start refusing
+    traffic for services that worked yesterday. The ceiling is opt-in."""
+    wid, _vid = _publish_service(client)
+    body = client.get(f"{PREFIX}/workflows/{wid}/service").json()["data"]
+    assert body["rate_limit_per_minute"] == 0
+    assert body["cors_allowed_origins"] == ""
+
+
+def test_cors_headers_are_emitted_only_for_a_listed_origin(client: TestClient) -> None:
+    """Unset must mean *no* browser access, not all of it: a wildcard would let any
+    site read a token-authorized response."""
+    wid, _vid = _publish_service(client)
+    token = _mint_token(client, wid)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    # Nothing configured -> no CORS headers at all.
+    plain = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}},
+        headers={**auth, "Origin": "https://evil.example"},
+    )
+    assert plain.status_code == 202, plain.text
+    assert "Access-Control-Allow-Origin" not in plain.headers
+
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example,https://admin.example"},
+    )
+    allowed = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}},
+        headers={**auth, "Origin": "https://app.example"},
+    )
+    assert allowed.headers.get("Access-Control-Allow-Origin") == "https://app.example"
+    assert allowed.headers.get("Vary") == "Origin"
+
+    # An unlisted origin is not reflected back.
+    denied = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}},
+        headers={**auth, "Origin": "https://evil.example"},
+    )
+    assert "Access-Control-Allow-Origin" not in denied.headers

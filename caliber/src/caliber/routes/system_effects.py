@@ -62,6 +62,9 @@ from caliber.workflows.effect_ledger import (
 EFFECTS_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects"
 EFFECT_RESOLVE_PATH = "/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve"
 DEAD_LETTERS_PATH = "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters"
+DEAD_LETTER_REPLAY_PATH = (
+    "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/replay"
+)
 DEAD_LETTER_ACK_PATH = (
     "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/acknowledge"
 )
@@ -69,6 +72,10 @@ DEAD_LETTER_ACK_PATH = (
 _STATUS_ANY = "any"
 _DEAD_LETTER_OPEN = "open"
 _DEAD_LETTER_ACKNOWLEDGED = "acknowledged"
+#: A replay that actually reached the receiver. Distinct from "acknowledged":
+#: one means the event was delivered after all, the other means a human decided
+#: it no longer needs to be.
+_DEAD_LETTER_REPLAYED = "replayed"
 
 
 async def list_system_effects(request: Request) -> JSONResponse:
@@ -251,6 +258,68 @@ async def acknowledge_webhook_dead_letter(request: Request) -> JSONResponse:
     return envelope_response_dict(payload)
 
 
+async def replay_webhook_dead_letter(request: Request) -> JSONResponse:
+    """``POST .../webhook-dead-letters/{id}/replay`` — re-send one lost event.
+
+    The report recorded "no automatic redelivery from the durable record; replay is
+    manual" as an open gap, and manual meant *reconstruct the POST yourself*. Storing
+    the full event was pointless without something that could send it again.
+
+    Operator-triggered rather than automatic, deliberately. A dead letter reached this
+    table because delivery already failed, and a system that retries on its own
+    schedule re-sends into an outage it cannot see. The operator knows the receiver is
+    fixed; the product does not.
+
+    A replay that fails leaves the row **open** and records why, so a failed recovery
+    never looks like a completed one.
+    """
+    dead_letter_id = request.path_params["dead_letter_id"]
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+
+    dispatcher = getattr(request.app.state, "webhook_dispatcher", None)
+    if dispatcher is None or not hasattr(dispatcher, "replay_event"):
+        raise HTTPException(status_code=503, detail="no webhook dispatcher is configured")
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        row = session.get(CaliberWebhookDeadLetter, dead_letter_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"dead letter {dead_letter_id!r} not found")
+        if not isinstance(row.event, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"dead letter {dead_letter_id!r} has no stored event to replay "
+                    "(it predates event retention)"
+                ),
+            )
+        url, event = row.url, dict(row.event)
+
+    delivered, detail = dispatcher.replay_event(url, event)
+
+    with factory() as session:
+        row = session.get(CaliberWebhookDeadLetter, dead_letter_id)
+        if row is not None:
+            if delivered:
+                row.status = _DEAD_LETTER_REPLAYED
+                row.acknowledged_by = actor
+                row.acknowledged_at = datetime.now(timezone.utc)
+            row.reason = f"{row.reason} | replay by {actor}: {detail}"[:2000]
+        audit_record(
+            session,
+            actor=actor,
+            action="replay_webhook_dead_letter",
+            entity_type="webhook_dead_letter",
+            entity_id=dead_letter_id,
+            details={"delivered": delivered, "detail": detail, "url": url},
+        )
+        session.commit()
+
+    return envelope_response_dict(
+        {"dead_letter_id": dead_letter_id, "delivered": delivered, "detail": detail}
+    )
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(EFFECTS_PATH, list_system_effects, methods=["GET"]))
     app.routes.append(Route(EFFECT_RESOLVE_PATH, resolve_system_effect, methods=["POST"]))
@@ -258,3 +327,4 @@ def register(app: Starlette) -> None:
     app.routes.append(
         Route(DEAD_LETTER_ACK_PATH, acknowledge_webhook_dead_letter, methods=["POST"])
     )
+    app.routes.append(Route(DEAD_LETTER_REPLAY_PATH, replay_webhook_dead_letter, methods=["POST"]))

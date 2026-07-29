@@ -2309,6 +2309,14 @@ class CaliberWorkflowService(Base):
     # can still opt out, but an omitted API field must never publish an open
     # endpoint by accident.
     auth_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Per-service request budget. ``0`` means unlimited, which stays the default so an
+    #: upgrade does not start refusing traffic; a published endpoint with no ceiling is
+    #: a capacity risk an operator should choose, not inherit silently.
+    rate_limit_per_minute: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    #: Comma-separated allowed origins for browser callers. Empty means **no** CORS
+    #: headers are emitted at all — the safe default, because a wildcard would let any
+    #: site read a token-authorized response.
+    cors_allowed_origins: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_by: Mapped[str] = mapped_column(String(256), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

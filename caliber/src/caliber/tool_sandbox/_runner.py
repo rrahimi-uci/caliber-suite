@@ -216,14 +216,52 @@ def _namespace(source_code: str, callable_name: str) -> tuple[dict[str, Any], An
     return namespace, fn
 
 
-def _run_once(request: dict[str, Any]) -> dict[str, Any]:
+def _resolve_callable(request: dict[str, Any]) -> Any:
+    """Return the callable to invoke, from source **or** from an installed module.
+
+    Two modes, because registered tools and authored tools are different things:
+
+    ``source_code``
+        User-authored Python, exec'd in a restricted namespace. The original mode.
+    ``module_path``
+        An installed, admin-registered callable, imported **inside this subprocess**
+        (C8). Previously the control plane imported it into its own address space, so
+        a registered tool shared memory, file descriptors, and credentials with the API
+        server. Importing here means module-level code and the call itself run under
+        the same ``python -I``, empty environment, private working directory, POSIX
+        resource limits, and hard timeout as authored code.
+
+    The import happens after :func:`_apply_resource_limits`, so a module whose *import*
+    is the hostile part is already bounded.
+    """
+    module_path = request.get("module_path")
+    if module_path:
+        import importlib  # noqa: PLC0415 - only needed in module mode
+
+        module = importlib.import_module(str(module_path))
+        name = str(request["callable_name"])
+        fn = getattr(module, name, None)
+        if fn is None:
+            raise AttributeError(f"module {module_path!r} has no attribute {name!r}")
+        if not callable(fn):
+            raise TypeError(f"{module_path}.{name} is not callable")
+        return fn
     _namespace_obj, fn = _namespace(request["source_code"], request["callable_name"])
-    output = fn(**request.get("input", {}))
+    return fn
+
+
+def _run_once(request: dict[str, Any]) -> dict[str, Any]:
+    fn = _resolve_callable(request)
+    # Positional args are carried separately from keyword input: the runtime calls
+    # some tools positionally, and collapsing both into one dict would silently
+    # reorder or drop them.
+    args = request.get("args") or []
+    output = fn(*args, **request.get("input", {}))
     return {"status": "completed", "output": output}
 
 
 def _run_tests(request: dict[str, Any]) -> dict[str, Any]:
-    _namespace_obj, fn = _namespace(request["source_code"], request["callable_name"])
+    fn = _resolve_callable(request)
     results: list[dict[str, Any]] = []
     for test in request.get("tests", []):
         started = time.monotonic()

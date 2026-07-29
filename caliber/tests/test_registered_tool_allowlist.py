@@ -191,3 +191,48 @@ def test_test_run_refuses_a_module_outside_the_allowlist(
     assert data["output"] is None
     # And the row is untouched — a refused import must not look like a tool result.
     assert db_session.get(CaliberToolRegistry, tool_id) is not None
+
+
+# ---------------------------------------------------------------------------
+# C8 core: registered tools execute OUT of the control-plane process
+# ---------------------------------------------------------------------------
+
+
+def test_a_registered_tool_module_can_run_in_a_separate_process() -> None:
+    """The C8 *mechanism*, proven the only way that is not self-referential: ask the
+    tool what process it is in.
+
+    ``LocalSubprocessToolSandbox`` gained a ``module_path`` mode, so an installed
+    admin-registered module is imported **inside** the subprocess rather than in the
+    API server. The import moves too, which matters as much as the call: module-level
+    code used to execute in the control plane on first bind.
+
+    **The runtime is not yet routed through this** — see
+    ``_sandboxed_registered_tool`` for exactly why, and the report's C8 entry for the
+    remaining work. This test pins the mechanism so that work starts from something
+    known to function.
+    """
+    import os
+
+    from caliber.tool_sandbox.models import ToolSandboxRunRequest
+    from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
+
+    result = LocalSubprocessToolSandbox().run_tool(
+        ToolSandboxRunRequest(module_path="os", callable_name="getpid")
+    )
+
+    assert result.status == "completed", result.error
+    assert result.output != os.getpid(), "the module must not be imported in this process"
+
+
+def test_the_sandbox_refuses_an_ambiguous_request() -> None:
+    """Exactly one of ``source_code``/``module_path``. A request carrying both would
+    run *something* and which one is not obvious from the call site."""
+    import pytest as _pytest
+
+    from caliber.tool_sandbox.models import ToolSandboxRunRequest
+
+    with _pytest.raises(ValueError, match="exactly one of"):
+        ToolSandboxRunRequest(source_code="def f(): pass", module_path="os", callable_name="f")
+    with _pytest.raises(ValueError, match="exactly one of"):
+        ToolSandboxRunRequest(callable_name="f")
