@@ -351,14 +351,31 @@ async def update_mcp_server(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
-def _version_references_server(session: Session, version_id: str, server_id: str) -> bool:
+#: Appended to a blocking target when the inspection itself was incomplete, so the
+#: operator is told the delete was refused for lack of proof rather than for a
+#: reference we actually found.
+_UNINSPECTABLE_REASON = "nested subworkflows exceed the MCP inspection depth bound"
+
+
+def _version_reference_reason(session: Session, version_id: str, server_id: str) -> str | None:
+    """Why deleting ``server_id`` would affect ``version_id``, or ``None``.
+
+    A reason rather than a bool, because "we could not finish looking" has to be
+    reportable. A subworkflow chain deeper than the traversal bound means this
+    version cannot be *proved* free of the server, and a destructive delete must
+    treat that as a block — the previous boolean collapsed "no reference found" and
+    "inspection stopped early" into the same ``False``.
+    """
     version = session.get(CaliberWorkflowVersion, version_id)
     if version is None:
-        return False
-    return any(
-        dependency.server_id == server_id
-        for dependency in extract_dependencies(version.manifest or {}, session=session)
-    )
+        return None
+    incomplete = False
+    for dependency in extract_dependencies(version.manifest or {}, session=session):
+        if dependency.server_id == server_id:
+            return ""  # a real reference; the target alone is the message
+        if dependency.depth_exhausted:
+            incomplete = True
+    return _UNINSPECTABLE_REASON if incomplete else None
 
 
 def _deployments_referencing_server(session: Session, server_id: str) -> list[str]:
@@ -384,14 +401,17 @@ def _deployments_referencing_server(session: Session, server_id: str) -> list[st
     blocking: list[str] = []
     for deployment in deployments:
         target = f"{deployment.alias}@{deployment.workflow_id}"
-        if _version_references_server(session, deployment.version_id, server_id):
-            blocking.append(target)
+        reason = _version_reference_reason(session, deployment.version_id, server_id)
+        if reason is not None:
+            blocking.append(f"{target} ({reason})" if reason else target)
         for entry in deployment.rollback_checkpoint or []:
             checkpoint_version = entry.get("version_id") if isinstance(entry, dict) else None
             if not isinstance(checkpoint_version, str):
                 continue
-            if _version_references_server(session, checkpoint_version, server_id):
-                blocking.append(f"{target} (rollback checkpoint {checkpoint_version})")
+            reason = _version_reference_reason(session, checkpoint_version, server_id)
+            if reason is not None:
+                suffix = f"; {reason}" if reason else ""
+                blocking.append(f"{target} (rollback checkpoint {checkpoint_version}{suffix})")
     return list(dict.fromkeys(blocking))
 
 

@@ -797,12 +797,44 @@ class RouterNode(_NodeBase):
 
 
 class HumanApprovalNode(_NodeBase):
+    """A human decision gate.
+
+    Every field here is **enforced** at runtime (see
+    :mod:`caliber.workflows.approval_policy`): ``required_role`` gates the decision
+    endpoint, ``approval_count`` is a quorum of distinct approvers, and the run's
+    initiator cannot approve their own run by default.
+
+    ``timeout_behavior`` is restricted to ``block``. ``escalate`` has no escalation
+    target and ``auto_reject`` has no deadline enforcement, so accepting either would
+    leave a control that silently does nothing — which is the defect this node's
+    validation exists to prevent. They are rejected at authoring time instead.
+    """
+
     type: Literal["human_approval"]
     inputs: PortMap = Field(default_factory=dict)
     outputs: PortMap = Field(default_factory=dict)
     required_role: str = "caliber.approver"
     approval_count: int = Field(default=1, ge=1)
-    timeout_behavior: Literal["block", "escalate", "auto_reject"] = "block"
+    timeout_behavior: str = "block"
+
+    @model_validator(mode="after")
+    def _check_approval_policy(self) -> HumanApprovalNode:
+        from caliber.workflows.approval_policy import (  # noqa: PLC0415
+            VALID_ROLES,
+            ApprovalPolicyError,
+            validate_timeout_behavior,
+        )
+
+        if self.required_role not in VALID_ROLES:
+            raise ValueError(
+                f"required_role {self.required_role!r} is not a CALIBER scope; "
+                f"use one of {sorted(VALID_ROLES)}"
+            )
+        try:
+            validate_timeout_behavior(self.timeout_behavior)
+        except ApprovalPolicyError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
 
 class NoteNode(_NodeBase):

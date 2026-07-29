@@ -346,7 +346,16 @@ def test_an_unsupported_threshold_blocks_a_real_promotion(
     db_session.flush()
 
     with pytest.raises(promoter.DeployGateFailedError) as excinfo:
-        promote(db_session, "wf", "prod", version, actor="@ops", config=CaliberConfig())
+        promote(
+            db_session,
+            "wf",
+            "prod",
+            version,
+            actor="@ops",
+            # The threshold vocabulary is the subject; grading is stubbed, so the
+            # production graded-executor requirement is opted out of here.
+            config=CaliberConfig(release_require_graded_executor_for_environment_classes=""),
+        )
     assert "not supported" in str(excinfo.value.detail)
 
 
@@ -496,7 +505,13 @@ def test_human_approval_is_one_configuration_switch(
     )
     wid, vid = create_and_publish(client, workflow_name="Approval", manifest=manifest)
     client.app.state.config = client.app.state.config.model_copy(
-        update={"release_require_human_approval_for_environment_classes": "production"}
+        update={
+            "release_require_human_approval_for_environment_classes": "production",
+            # The subject here is the approval switch. The suite grades with the
+            # deterministic fake, which production otherwise refuses as release
+            # evidence — see tests/test_deploy_gate_executor.py for that default.
+            "release_require_graded_executor_for_environment_classes": "",
+        }
     )
 
     response = client.post(

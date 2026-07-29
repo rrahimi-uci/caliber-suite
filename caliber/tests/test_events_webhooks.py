@@ -19,6 +19,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import threading
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -180,6 +181,7 @@ def _build_dispatcher_with(
     secret: str = "topsecret",
     event_filter: frozenset[str] | None = None,
     max_attempts: int = 3,
+    pending_capacity: int = 4096,
 ) -> tuple[EventBus, WebhookDispatcher]:
     bus = EventBus()
     dispatcher = WebhookDispatcher(
@@ -188,6 +190,7 @@ def _build_dispatcher_with(
         secret=secret,
         event_filter=event_filter,
         max_attempts=max_attempts,
+        pending_capacity=pending_capacity,
         # Retry timing is asserted separately; keep these tests instant.
         backoff_seconds=0.0,
         sleep=lambda _seconds: None,
@@ -545,3 +548,208 @@ async def test_double_start_raises() -> None:
                 await dispatcher.start()
         finally:
             await dispatcher.stop()
+
+
+# ---------------------------------------------------------------------------
+# L6 — reception is decoupled from delivery, and the record is durable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_slow_receiver_does_not_make_the_bus_drop_later_events() -> None:
+    """The L6 regression, stated precisely.
+
+    The dispatcher used to run its retry loop *inside* the bus subscriber, and the bus
+    gives each subscriber a bounded queue that drops on overflow. A receiver slow
+    enough to hold the subscriber therefore caused later events to be discarded by the
+    bus before any delivery or dead-letter logic saw them.
+
+    Here the receiver blocks until released, and more events are published than the
+    bus's per-subscriber queue can hold. Every one must still reach delivery, because
+    the subscriber's only job is now a ``put_nowait``.
+    """
+    from caliber.events.bus import _SUBSCRIBER_QUEUE_MAX
+
+    total = _SUBSCRIBER_QUEUE_MAX + 40
+    release = threading.Event()
+    seen: list[str] = []
+    seen_lock = threading.Lock()
+
+    def _blocking_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        # The first delivery blocks, modelling a hung receiver, while the publisher
+        # keeps producing. Later deliveries pass straight through.
+        payload = json.loads(req.data.decode("utf-8"))
+        with seen_lock:
+            first = not seen
+            seen.append(payload["id"])
+        if first:
+            release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus, dispatcher = _build_dispatcher_with(urls=["https://slow.example/hook"])
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            for index in range(total):
+                bus.publish({"type": "run.completed", "id": str(index)})
+                # Yield so the subscriber drains into the dispatcher's own queue,
+                # which is the behaviour under test — the bus queue must not fill.
+                await asyncio.sleep(0)
+            release.set()
+            deadline = asyncio.get_running_loop().time() + 10.0
+            while len(seen) < total and asyncio.get_running_loop().time() < deadline:
+                await asyncio.sleep(0.01)
+        finally:
+            release.set()
+            await dispatcher.stop()
+
+    assert len(seen) == total, f"delivered {len(seen)} of {total}; events were dropped by the bus"
+    assert sorted(seen, key=int) == [str(index) for index in range(total)]
+
+
+@pytest.mark.asyncio
+async def test_overflowing_the_pending_queue_dead_letters_instead_of_dropping() -> None:
+    """A bound is necessary — an unbounded queue turns event loss into memory
+    exhaustion — but exhausting it must be *recorded*. Shedding load silently is the
+    failure; shedding it visibly is a capacity decision an operator can act on."""
+    release = threading.Event()
+
+    def _blocking_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://slow.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        pending_capacity=2,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            for index in range(12):
+                bus.publish({"type": "run.completed", "id": str(index)})
+                await asyncio.sleep(0)
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while (
+                dispatcher.dead_letters()["overflowed"] == 0
+                and asyncio.get_running_loop().time() < deadline
+            ):
+                await asyncio.sleep(0.01)
+        finally:
+            release.set()
+            await dispatcher.stop()
+
+    report = dispatcher.dead_letters()
+    assert report["overflowed"] > 0, "load shedding must be recorded, not silent"
+    overflow_entries = [e for e in report["entries"] if e["kind"] == "overflow"]
+    assert overflow_entries
+    assert "pending delivery queue full" in overflow_entries[0]["reason"]
+    # And the two loss modes stay distinguishable: they have different causes.
+    assert overflow_entries[0]["attempts"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_dead_letter_is_persisted_when_a_session_factory_is_bound(
+    session_factory,
+) -> None:
+    """Durability is the other half of L6: the in-memory ring lost the record of an
+    undelivered event exactly when an operator restarted to fix the receiver."""
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    def _always_500(req: Any, timeout: float = 0) -> _FakeResponse:
+        del req, timeout
+        return _FakeResponse(status=500)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://broken.example/hook"],
+        secret="topsecret",
+        max_attempts=2,
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _always_500):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "R-1"})
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while (
+                dispatcher.dead_letters()["count"] == 0
+                and asyncio.get_running_loop().time() < deadline
+            ):
+                await asyncio.sleep(0.01)
+        finally:
+            await dispatcher.stop()
+
+    assert dispatcher.dead_letters()["durable"] is True
+    with session_factory() as session:
+        rows = session.query(CaliberWebhookDeadLetter).all()
+    assert len(rows) == 1
+    assert rows[0].url == "https://broken.example/hook"
+    assert rows[0].event_type == "run.completed"
+    assert rows[0].kind == "exhausted"
+    assert rows[0].status == "open"
+    # The whole event is retained so a failure can be replayed by hand rather than
+    # only acknowledged.
+    assert rows[0].event == {"type": "run.completed", "id": "R-1"}
+
+
+@pytest.mark.asyncio
+async def test_a_failing_persist_does_not_break_delivery(session_factory) -> None:
+    """The dispatcher has already failed to deliver an event; raising while recording
+    that would lose both the event and the record of it."""
+
+    def _always_500(req: Any, timeout: float = 0) -> _FakeResponse:
+        del req, timeout
+        return _FakeResponse(status=500)
+
+    def _broken_factory():
+        raise RuntimeError("database is gone")
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://broken.example/hook"],
+        secret="topsecret",
+        max_attempts=1,
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=_broken_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _always_500):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "R-1"})
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while (
+                dispatcher.dead_letters()["count"] == 0
+                and asyncio.get_running_loop().time() < deadline
+            ):
+                await asyncio.sleep(0.01)
+        finally:
+            await dispatcher.stop()
+
+    # The in-memory record still holds it, so the failure is observable even with the
+    # durable store unavailable.
+    assert dispatcher.dead_letters()["count"] == 1
+
+
+def test_the_report_exposes_pending_depth_and_durability() -> None:
+    """``/system/queue`` renders this, and an operator needs to distinguish "queued
+    behind a slow receiver" from "already given up on"."""
+    _bus, dispatcher = _build_dispatcher_with(urls=["https://a.example/hook"])
+    report = dispatcher.dead_letters()
+    assert report["pending"] == 0
+    assert report["pending_capacity"] > 0
+    assert report["overflowed"] == 0
+    assert report["durable"] is False  # no session factory in this construction

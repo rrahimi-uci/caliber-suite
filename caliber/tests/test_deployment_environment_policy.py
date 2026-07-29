@@ -35,7 +35,11 @@ from caliber.deployment_environments import (
     environment_class,
     requires_external_isolation,
 )
-from caliber.mcp_policy import deployment_blockers, extract_dependencies
+from caliber.mcp_policy import (
+    _MAX_SUBWORKFLOW_DEPTH,
+    deployment_blockers,
+    extract_dependencies,
+)
 from caliber.workflows.promoter import AliasPreflightError, rollback
 from tests.workflow_helpers import make_manifest
 
@@ -503,3 +507,115 @@ def test_alias_rotation_refuses_a_version_whose_pinned_object_disappeared(
     with pytest.raises(AliasPreflightError) as excinfo:
         require_alias_target_ready(db_session, "prod", "wfv-toctou", config=config)
     assert any("managed file preflight failed" in blocker for blocker in excinfo.value.blockers)
+
+
+# ---------------------------------------------------------------------------
+# L5 — the traversal bound must block, not silently stop
+# ---------------------------------------------------------------------------
+
+
+def _deep_subworkflow_chain(
+    session: Session, length: int, *, leaf_server: str
+) -> dict[str, object]:
+    """Deploy ``wf-0 → wf-1 → … → wf-{length}``, the leaf using ``leaf_server``.
+
+    Returns the root manifest, which is *not* deployed: preflight is called on it
+    directly, exactly as a promotion would.
+    """
+    leaf_id = f"deep-wf-{length}"
+    _deploy(session, leaf_id, "prod", _manifest_with_mcp_node(leaf_id, leaf_server))
+    # Build upward from the leaf so each parent's child is already deployed.
+    for index in range(length - 1, 0, -1):
+        _deploy(
+            session,
+            f"deep-wf-{index}",
+            "prod",
+            _manifest_with_subworkflow(f"deep-wf-{index}", f"deep-wf-{index + 1}", "prod"),
+        )
+    return _manifest_with_subworkflow("deep-wf-0", "deep-wf-1", "prod")
+
+
+def test_a_chain_within_the_bound_is_still_fully_inspected(db_session: Session) -> None:
+    """The bound must not be so eager that a legitimately nested graph is refused."""
+    root = _deep_subworkflow_chain(db_session, 5, leaf_server="MCP-DEEP-OK")
+
+    dependencies = extract_dependencies(root, session=db_session)
+
+    assert [d.server_id for d in dependencies] == ["MCP-DEEP-OK"]
+    assert not any(d.depth_exhausted for d in dependencies)
+
+
+def test_exceeding_the_depth_bound_is_an_explicit_blocker(db_session: Session) -> None:
+    """L5: the walk recursed only ``while _depth < 16`` and then returned normally,
+    so a deeper chain hid the leaf's MCP dependency and preflight passed on a partial
+    inspection reported as a complete one."""
+    root = _deep_subworkflow_chain(db_session, _MAX_SUBWORKFLOW_DEPTH + 3, leaf_server="MCP-HIDDEN")
+
+    dependencies = extract_dependencies(root, session=db_session)
+
+    # The leaf is genuinely out of reach — that is what the bound means — so the
+    # requirement is that the walk *says so* rather than returning a clean result.
+    assert not any(d.server_id == "MCP-HIDDEN" for d in dependencies)
+    exhausted = [d for d in dependencies if d.depth_exhausted]
+    assert exhausted, "reaching the bound must be reported, not returned as success"
+    assert str(_MAX_SUBWORKFLOW_DEPTH) in exhausted[0].label
+
+    blockers = deployment_blockers(db_session, root, alias="dev", config=CaliberConfig())
+    assert any("inspection bound" in blocker for blocker in blockers), blockers
+
+
+def test_depth_exhaustion_blocks_even_where_unresolved_children_are_tolerated(
+    db_session: Session,
+) -> None:
+    """The two conditions must not share a switch.
+
+    ``require_resolvable_subworkflows=False`` exists for import preflight on a graph
+    whose children are not deployed yet — a state an operator can reason about.
+    "We stopped inspecting" is an unknown, and an unknown has to fail closed
+    regardless of that tolerance.
+    """
+    root = _deep_subworkflow_chain(
+        db_session, _MAX_SUBWORKFLOW_DEPTH + 2, leaf_server="MCP-HIDDEN2"
+    )
+
+    blockers = deployment_blockers(
+        db_session,
+        root,
+        alias="dev",
+        config=CaliberConfig(),
+        require_resolvable_subworkflows=False,
+    )
+    assert any("inspection bound" in blocker for blocker in blockers), blockers
+
+
+def test_an_uninspectable_chain_blocks_deleting_an_mcp_server(db_session: Session) -> None:
+    """The second half of L5: server deletion asked "does any deployed version
+    reference this?" and a depth-exhausted walk answered "no".
+
+    Deleting on the strength of an inspection that stopped early is how a
+    checkpointed rollback silently breaks, so an unprovable answer must block.
+    """
+    from caliber.routes.mcp_servers import _version_reference_reason
+
+    root = _deep_subworkflow_chain(db_session, _MAX_SUBWORKFLOW_DEPTH + 2, leaf_server="MCP-DEL")
+    root_version_id = _deploy(db_session, "deep-wf-0", "prod", root)
+
+    reason = _version_reference_reason(db_session, root_version_id, "MCP-DEL")
+
+    assert reason is not None, "an incomplete inspection must not read as 'no reference'"
+    assert "depth bound" in reason
+
+
+def test_a_shallow_version_that_does_not_reference_the_server_is_still_deletable(
+    db_session: Session,
+) -> None:
+    """The guard must stay narrow: a fully inspected version with no reference must
+    not be turned into a phantom blocker."""
+    from caliber.routes.mcp_servers import _version_reference_reason
+
+    root = _deep_subworkflow_chain(db_session, 3, leaf_server="MCP-OTHER")
+    root_version_id = _deploy(db_session, "deep-wf-0", "prod", root)
+
+    assert _version_reference_reason(db_session, root_version_id, "MCP-UNRELATED") is None
+    # And it correctly still reports the one it does reference.
+    assert _version_reference_reason(db_session, root_version_id, "MCP-OTHER") == ""

@@ -2132,6 +2132,14 @@ class RuntimePlan:
     # thread a config). Set on real runs so large node outputs aren't silently
     # truncated at the 64 KB class default.
     max_output_bytes: int | None = None
+    # The rest of the configured sandbox limits. Previously only ``max_output_bytes``
+    # reached the runtime, so ``tool_sandbox_max_memory_bytes`` /
+    # ``max_file_bytes`` / ``max_open_files`` were read by ``from_config`` alone —
+    # whose only caller is the standalone sandbox app — and every in-process
+    # construction silently used the class defaults instead of the operator's.
+    sandbox_max_memory_bytes: int | None = None
+    sandbox_max_file_bytes: int | None = None
+    sandbox_max_open_files: int | None = None
     # Bounded parallelism for a ForEach node whose target is an agent. 1 (default)
     # = sequential, byte-identical to pre-concurrency behavior. Set from
     # ``config.workflow_foreach_max_workers`` by ``build_plan``; other plan
@@ -2150,6 +2158,16 @@ class RuntimePlan:
     # outright, so there is nothing to deduplicate. Set by the queued run worker,
     # which is the only path that can be restarted after a lease expiry.
     effect_ledger: Any | None = None
+    # ``package.module:callable`` entrypoints an ``external_app`` node may invoke,
+    # from ``config.external_app_entrypoint_allowlist``. Empty means none: this node
+    # imports and calls installed Python in the control-plane process, and every
+    # other execution surface already shipped an allowlist.
+    external_app_entrypoint_allowlist: str = ""
+    # Outbound egress policy for webhook/api_request nodes. ``None`` means "apply the
+    # safe default" rather than "no policy": a preview/eval path that reaches an HTTP
+    # node should still be constrained, and defaulting to unconstrained would make the
+    # SSRF defence depend on which builder happened to construct the plan.
+    egress_policy: Any | None = None
 
 
 @dataclass
@@ -2547,7 +2565,11 @@ def _default_webhook_sender(request: dict[str, Any]) -> dict[str, Any]:
     elif body is not None:
         kwargs["content"] = body if isinstance(body, (bytes, str)) else str(body)
 
-    with httpx.Client(timeout=timeout) as client:
+    # ``follow_redirects=False`` is load-bearing, not a default being restated:
+    # egress policy checks the URL before the request, and a followed 302 would reach
+    # an address that check never saw — the classic SSRF bypass. A sender that needs
+    # redirects must re-check each hop with caliber.egress.check_url.
+    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
         response = client.request(method, url, **kwargs)
 
     parsed: Any = None
@@ -2638,10 +2660,59 @@ async def _await_external_app_result(result: Any) -> Any:
     return await result
 
 
-def _resolve_external_app_entrypoint(entrypoint: str) -> tuple[Callable[..., Any], str]:
+def external_app_entrypoint_allowed(spec: str, allowlist: str) -> bool:
+    """Whether ``spec`` is permitted by the configured entrypoint allowlist.
+
+    Fails closed on an empty allowlist. An ``external_app`` node imports and invokes
+    installed Python **in the control-plane process** from a string an operator types
+    into the Inspector, and configuration shipped allowlists for every other
+    execution surface (MCP commands, Python modules/scripts, remote hosts) but not
+    this one — so the default had to become "none permitted", not "any".
+
+    A trailing ``*`` allows a module prefix (``mycompany.integrations.*``), which is
+    what makes the allowlist usable for a team with many first-party entrypoints
+    without degenerating into "allow everything".
+    """
+    candidate = _normalize_external_app_spec(spec)
+    if not candidate:
+        return False
+    for raw in str(allowlist or "").split(","):
+        pattern = _normalize_external_app_spec(raw)
+        if not pattern:
+            continue
+        if pattern.endswith("*"):
+            prefix = pattern[:-1]
+            # A bare '*' would mean "allow everything", which defeats the control.
+            if prefix and candidate.startswith(prefix):
+                return True
+            continue
+        if candidate == pattern:
+            return True
+    return False
+
+
+def _normalize_external_app_spec(spec: str) -> str:
+    """Canonicalize to ``module:attr`` so ``a.b.c`` and ``a.b:c`` compare equal."""
+    text = (spec or "").strip()
+    if not text:
+        return ""
+    if ":" in text:
+        module, _, attr = text.partition(":")
+        return f"{module.strip()}:{attr.strip()}"
+    if text.endswith("*"):
+        return text
+    module, _, attr = text.rpartition(".")
+    return f"{module.strip()}:{attr.strip()}" if module else text
+
+
+def _resolve_external_app_entrypoint(
+    entrypoint: str, *, allowlist: str = ""
+) -> tuple[Callable[..., Any], str]:
     spec = (entrypoint or "").strip()
     if not spec:
         raise ToolExecutionError("external_app entrypoint must not be empty")
+    # Shape first: a malformed entrypoint deserves the shape error, which is the
+    # actionable one. The allowlist is checked next, still before any import.
     if ":" in spec:
         module_name, attr_path = spec.split(":", 1)
     elif "." in spec:
@@ -2650,6 +2721,13 @@ def _resolve_external_app_entrypoint(entrypoint: str) -> tuple[Callable[..., Any
         raise ToolExecutionError(
             "external_app entrypoint must use 'package.module:callable' "
             "or 'package.module.callable'"
+        )
+    if not external_app_entrypoint_allowed(spec, allowlist):
+        raise ToolExecutionError(
+            f"external_app entrypoint {spec!r} is not in "
+            "CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST; this node imports and invokes "
+            "installed Python in the CALIBER process, so it is allowlisted rather than "
+            "open by default"
         )
     module_name = module_name.strip()
     attr_path = attr_path.strip()
@@ -2751,8 +2829,11 @@ def _run_external_app_entrypoint(
     inputs: dict[str, Any],
     run_input: str,
     preview: bool,
+    entrypoint_allowlist: str = "",
 ) -> tuple[Any, dict[str, Any]]:
-    entrypoint, resolved_entrypoint = _resolve_external_app_entrypoint(node.entrypoint)
+    entrypoint, resolved_entrypoint = _resolve_external_app_entrypoint(
+        node.entrypoint, allowlist=entrypoint_allowlist
+    )
     run_ctx = current_run_context()
     payload = {
         "input": _select_input(inputs, run_input),
@@ -3798,6 +3879,25 @@ _PARALLEL_BRANCH_BATCH_TARGET_TYPES = (
 )
 
 
+def _check_egress(plan: RuntimePlan, request: Any) -> None:
+    """Apply outbound egress policy to a webhook/api_request destination.
+
+    Raises :class:`ToolExecutionError` so the node reports a normal runtime failure
+    with the reason, rather than an opaque connection error the operator has to guess
+    at.
+    """
+    url = request.get("url") if isinstance(request, dict) else None
+    if not isinstance(url, str) or not url:
+        return
+    from caliber.egress import EgressBlockedError, EgressPolicy, check_url  # noqa: PLC0415
+
+    policy = plan.egress_policy if plan.egress_policy is not None else EgressPolicy()
+    try:
+        check_url(url, policy)
+    except EgressBlockedError as exc:
+        raise ToolExecutionError(str(exc)) from exc
+
+
 def _perform_guarded_effect(
     plan: RuntimePlan,
     *,
@@ -3817,6 +3917,9 @@ def _perform_guarded_effect(
     system — deliberately leaves the claim ``in_progress``, so the next attempt
     reports it as indeterminate instead of silently repeating the effect.
     """
+    # Egress policy first: a blocked destination must not consume a ledger claim,
+    # or a refused request would look like an in-flight effect on the next attempt.
+    _check_egress(plan, request)
     ledger = plan.effect_ledger
     if ledger is None:
         return perform()
@@ -5840,8 +5943,15 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
     if isinstance(node, IRPythonCode):
         python_input = _select_input(inputs, run_input)
         sandbox_kwargs: dict[str, Any] = {"default_timeout_seconds": node.timeout_seconds}
-        if plan.max_output_bytes is not None:
-            sandbox_kwargs["max_output_bytes"] = plan.max_output_bytes
+        configured_limits: tuple[tuple[str, int | None], ...] = (
+            ("max_output_bytes", plan.max_output_bytes),
+            ("max_memory_bytes", plan.sandbox_max_memory_bytes),
+            ("max_file_bytes", plan.sandbox_max_file_bytes),
+            ("max_open_files", plan.sandbox_max_open_files),
+        )
+        for kwarg, limit in configured_limits:
+            if limit is not None:
+                sandbox_kwargs[kwarg] = limit
         sandbox = LocalSubprocessToolSandbox(**sandbox_kwargs)
         sandbox_request = ToolSandboxRunRequest(
             source_code=_python_node_source(node.code),
@@ -6145,6 +6255,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 inputs=inputs,
                 run_input=run_input,
                 preview=preview,
+                entrypoint_allowlist=plan.external_app_entrypoint_allowlist,
             )
         except ToolExecutionError:
             raise

@@ -472,6 +472,7 @@ class WorkflowRunWorker:
             with suppress(asyncio.CancelledError):
                 await self._task
         self._task = None
+        await asyncio.to_thread(self._deregister_liveness)
         logger.info("workflow-run worker stopped")
 
     async def _run(self) -> None:
@@ -488,6 +489,10 @@ class WorkflowRunWorker:
 
     def _tick(self) -> None:
         with bind_trace_id():
+            # First, and outside the work below: a heartbeat recorded only when there
+            # was something to do would reproduce the defect it closes — an idle
+            # worker must prove it is alive. Never raises (see worker_registry).
+            self._record_liveness()
             self._recover_expired_leases()
             self._expire_timed_out_wait_for_event_runs()
             self._resume_due_wait_until_runs()
@@ -495,6 +500,25 @@ class WorkflowRunWorker:
             if run_id is None:
                 return
             self._execute_run(run_id)
+
+    def _record_liveness(self) -> None:
+        """Write this worker's own heartbeat row for the queue-health signal."""
+        from caliber.observability.worker_registry import (  # noqa: PLC0415
+            KIND_WORKFLOW_RUN,
+            record_heartbeat,
+        )
+
+        with self._session_factory() as session:
+            record_heartbeat(session, worker_id=self._worker_id, kind=KIND_WORKFLOW_RUN)
+
+    def _deregister_liveness(self) -> None:
+        """Drop the heartbeat row on a clean stop, so a planned shutdown is not
+        reported as a dead worker. An unclean exit leaves the row to go stale, which
+        is the signal we want."""
+        from caliber.observability.worker_registry import deregister  # noqa: PLC0415
+
+        with self._session_factory() as session:
+            deregister(session, worker_id=self._worker_id)
 
     def _publish(self, payload: dict[str, Any]) -> None:
         if self._event_bus is None:
@@ -1932,6 +1956,12 @@ class WorkflowRunWorker:
         run.lease_expires_at = None
 
         approval_id = new_runtime_approval_id()
+        # Snapshot the node's ACTUAL policy. This was a hard-coded
+        # ``{"timeout_behavior": "block"}`` literal, so the configured
+        # ``required_role`` and ``approval_count`` never reached the decision path —
+        # the UI promised controls the server did not honour. Snapshotting also pins
+        # the policy at request time, so editing the manifest cannot retroactively
+        # change what an already-pending approval requires.
         session.add(
             CaliberRuntimeApprovalRequest(
                 runtime_approval_id=approval_id,
@@ -1939,7 +1969,7 @@ class WorkflowRunWorker:
                 project_id=run.project_id,
                 node_id=node_id,
                 status="pending",
-                policy_snapshot={"timeout_behavior": "block"},
+                policy_snapshot=self._approval_policy_snapshot(run, node_id),
             )
         )
 
@@ -1999,6 +2029,42 @@ class WorkflowRunWorker:
                 "runtime_approval_id": approval_id,
             }
         )
+
+    def _approval_policy_snapshot(self, run: CaliberWorkflowRun, node_id: str) -> dict[str, Any]:
+        """The approval policy for ``node_id``, read from the run's own version.
+
+        Falls back to the defaults when the node or manifest cannot be read: a run
+        that reached an approval gate must remain decidable, and a default of
+        "approver scope, quorum of one, no self-approval" is the safe reading.
+        """
+        from caliber.workflows.approval_policy import ApprovalPolicy  # noqa: PLC0415
+
+        allow_self = bool(getattr(self._config, "approval_allow_self_approval", False))
+        try:
+            with self._session_factory() as session:
+                version = (
+                    session.get(CaliberWorkflowVersion, run.workflow_version_id)
+                    if run.workflow_version_id
+                    else None
+                )
+                manifest = version.manifest if version is not None else None
+            nodes = (manifest or {}).get("nodes") or {}
+            raw = nodes.get(node_id) if isinstance(nodes, dict) else None
+            if isinstance(raw, dict):
+                return ApprovalPolicy(
+                    required_role=str(raw.get("required_role") or "caliber.approver"),
+                    approval_count=max(1, int(raw.get("approval_count") or 1)),
+                    timeout_behavior=str(raw.get("timeout_behavior") or "block"),
+                    allow_self_approval=allow_self,
+                ).to_snapshot()
+        except Exception:
+            logger.warning(
+                "could not read approval policy for run %s node %s; using defaults",
+                run.workflow_run_id,
+                node_id,
+                exc_info=True,
+            )
+        return ApprovalPolicy(allow_self_approval=allow_self).to_snapshot()
 
     def _mark_waiting_event(
         self,

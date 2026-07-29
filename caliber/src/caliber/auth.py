@@ -1,11 +1,33 @@
 """Current-user resolution + RBAC scopes.
 
-CALIBER inherits authentication from the MLflow server it's mounted on
-(or an upstream reverse proxy), so it never implements its own login
-flow. This module abstracts two things on top of that identity:
+This module owns **resolution order** — how a request's identity is established
+and in what precedence. :mod:`caliber.sessions` owns credential and session rules;
+:mod:`caliber.routes.auth` owns the HTTP endpoints.
 
-1. ``current_user(request) -> str`` — who the requester is. Reads the
-   ``X-CALIBER-User`` header, falls back to :data:`ANONYMOUS`.
+Resolution order (first match wins), closing C1:
+
+1. **A validated session** (``caliber_session`` cookie or ``Authorization: Bearer``).
+   The token is looked up in ``caliber_sessions``, so a revoked session, an expired
+   session, and a session whose account has since been disabled are all rejected.
+   Nothing here is client-asserted.
+2. **A trusted header**, only when ``auth_mode == "trusted_header"``. When
+   ``auth_trusted_proxy_secret_env`` is configured, the request must also carry the
+   matching ``X-CALIBER-Proxy-Secret``, so bypassing the proxy is not enough to
+   assert an identity.
+3. **The dev fallback**, only in ``trusted_header`` mode, only when
+   ``auth_dev_fallback_enabled`` is true, and only when the request carries no
+   identity header at all. Off by default — with the shipped admin lists it
+   previously turned an unauthenticated request into an admin.
+4. Otherwise :data:`ANONYMOUS`.
+
+The header path is now a deliberate, documented deployment mode rather than the
+unconditional behaviour. In the default ``session`` mode ``X-CALIBER-User`` is
+**ignored entirely**, which is what makes the authorization predicates elsewhere in
+this codebase enforce a real boundary.
+
+Two functions remain the public surface:
+
+1. ``current_user(request) -> str`` — who the requester is.
 2. ``current_scopes(request) -> frozenset[str]`` — what they're
    allowed to do. Resolves the user against the configured admin /
    approver / operator user lists and returns the union of granted
@@ -17,15 +39,17 @@ returning a ``frozenset`` rather than a list is intentional — it makes
 "this user has these scopes" comparable as a value, easy to test, and
 trivially serializable into an audit row.
 
-For Phase 5 the assignment surface is config-driven: a comma-separated
-list of user IDs per scope (see :class:`caliber.config.CaliberConfig`).
-A future milestone can swap the resolver for a DB-backed assignment
-table without changing any call site — the public signature stays
+Scope *assignment* remains config-driven: a comma-separated list of user IDs per
+scope (see :class:`caliber.config.CaliberConfig`). That is deliberate and separate
+from C1 — authentication answers "is this really them?", which is the question that
+was unanswered; moving authorization into a database table is its own change and can
+happen without touching any call site, because the public signature stays
 ``(Request) -> frozenset[str]``.
 """
 
 from __future__ import annotations
 
+import hmac
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Final
@@ -39,6 +63,17 @@ ANONYMOUS = "anonymous"
 _USER_HEADER = "X-CALIBER-User"
 # Active project for multi-user scoping, sent by the SPA on every request.
 _PROJECT_HEADER = "X-CALIBER-Project"
+# Shared secret a trusted proxy presents so a request that bypasses it is rejected.
+_PROXY_SECRET_HEADER = "X-CALIBER-Proxy-Secret"  # noqa: S105 - a header name, not a secret
+
+AUTH_MODE_SESSION = "session"
+AUTH_MODE_TRUSTED_HEADER = "trusted_header"
+
+# Resolved identity is cached on the request scope: several handlers call
+# current_user() and resolve_identity() in one request, and each session lookup is a
+# database round trip. Keyed per-request, so it cannot outlive the request or leak
+# across them.
+_SCOPE_CACHE_KEY = "caliber_resolved_user"
 
 # Scope vocabulary. Names match the implementation-parity checklist §11. Kept as module constants so a
 # typo in a route handler fails at import time rather than at request
@@ -64,28 +99,110 @@ _SCOPE_IMPLIES: Final[dict[str, frozenset[str]]] = {
 def current_user(request: Request) -> str:
     """Return the identifier of the current requester.
 
-    Falls back to :data:`ANONYMOUS` when no identity header is present
-    and only consults the configured local-dev fallback when the header
-    is truly absent. An explicitly empty or invalid ``X-CALIBER-User``
-    header remains anonymous so callers cannot bypass auth checks by
-    sending a blank value while a dev fallback user is configured.
-    Production deployments should use :func:`require_user` to reject
-    anonymous calls on mutating endpoints.
+    See the module docstring for resolution order. Returns :data:`ANONYMOUS` when no
+    identity can be established; :func:`require_user` turns that into a 401.
 
     A header value equal to the reserved :data:`ANONYMOUS` sentinel
-    (case-insensitive) is rejected as anonymous — otherwise a client
-    could pose as the sentinel and bypass auth checks that key off the
-    literal. Values containing ``,`` are also rejected because the
-    scope resolver parses user lists as comma-separated and would
-    otherwise admit list-bypass payloads like ``"@alice,@admin"``.
+    (case-insensitive) is rejected — otherwise a client could pose as the sentinel
+    and bypass checks that key off the literal. Values containing ``,`` are also
+    rejected because the scope resolver parses user lists as comma-separated and
+    would otherwise admit list-bypass payloads like ``"@alice,@admin"``.
     """
+    cached = request.scope.get(_SCOPE_CACHE_KEY)
+    if isinstance(cached, str):
+        return cached
+    resolved = _resolve_user(request)
+    request.scope[_SCOPE_CACHE_KEY] = resolved
+    return resolved
+
+
+def _resolve_user(request: Request) -> str:
+    config = _config_or_none(request)
+    mode = str(getattr(config, "auth_mode", AUTH_MODE_SESSION) or AUTH_MODE_SESSION)
+
+    # 1. A validated server-side session always wins, in every mode: a real
+    #    credential must not be overridable by a header.
+    session_user = _session_user(request, config)
+    if session_user is not None:
+        return session_user
+
     raw_header = request.headers.get(_USER_HEADER)
+
+    # 2/3. Header trust and the dev fallback are both *header-mode* mechanisms. In
+    # session mode neither applies: passwords are the configured mechanism, and
+    # manufacturing an identity from a header or from config would contradict that.
+    if mode != AUTH_MODE_TRUSTED_HEADER:
+        return ANONYMOUS
+    if not _proxy_secret_ok(request, config):
+        return ANONYMOUS
     actor = _identity_or_anonymous(raw_header)
     if actor != ANONYMOUS:
         return actor
-    if raw_header is None:
-        return _configured_dev_user(request)
+    # The fallback applies only when no header was sent at all, so an explicitly
+    # blank header cannot be used to pick up an ambient privileged identity.
+    if raw_header is None and bool(getattr(config, "auth_dev_fallback_enabled", False)):
+        return _identity_or_anonymous(getattr(config, "dev_user", ""))
     return ANONYMOUS
+
+
+def session_token_from_request(request: Request) -> str | None:
+    """Extract a session token from the cookie or an ``Authorization: Bearer`` header.
+
+    The header form exists for API clients and CLI use; the cookie form is what the
+    SPA uses, and being HttpOnly is why the SPA cannot leak it to injected script.
+    """
+    config = _config_or_none(request)
+    cookie_name = str(getattr(config, "auth_session_cookie_name", "caliber_session"))
+    # ``isinstance`` rather than truthiness: a non-string cookie value is not a
+    # token, and treating one as such would send junk to the session lookup.
+    cookie = request.cookies.get(cookie_name)
+    if isinstance(cookie, str) and cookie:
+        return cookie
+    header = request.headers.get("Authorization", "")
+    if isinstance(header, str) and header.lower().startswith("bearer "):
+        token = header[7:].strip()
+        return token or None
+    return None
+
+
+def _session_user(request: Request, config: Any) -> str | None:
+    """Resolve a session token against the database, or ``None``."""
+    del config
+    token = session_token_from_request(request)
+    if not token:
+        return None
+    factory = getattr(request.app.state, "session_factory", None)
+    if factory is None:
+        return None
+    from caliber.sessions import resolve_session  # noqa: PLC0415
+
+    try:
+        with factory() as db:
+            return resolve_session(db, token)
+    except Exception:  # a broken session store must not 500 every route
+        return None
+
+
+def _proxy_secret_ok(request: Request, config: Any) -> bool:
+    """Whether the trusted-proxy shared secret requirement is satisfied.
+
+    Unset means "not required", which preserves the behaviour of a deployment that
+    genuinely terminates all traffic at a proxy. Set means a request without the
+    matching header is rejected even in trusted_header mode, so an attacker who can
+    reach the app port directly cannot assert an identity.
+    """
+    source = str(getattr(config, "auth_trusted_proxy_secret_env", "") or "").strip()
+    if not source:
+        return True
+    from caliber.secrets import resolve_secret  # noqa: PLC0415
+
+    expected = resolve_secret(source) or ""
+    if not expected:
+        # Configured but unresolvable: fail closed. A missing secret must not
+        # silently downgrade to "no secret required".
+        return False
+    presented = request.headers.get(_PROXY_SECRET_HEADER, "")
+    return hmac.compare_digest(presented, expected)
 
 
 def require_user(request: Request) -> str:
@@ -224,15 +341,19 @@ def _identity_or_anonymous(raw: str | None) -> str:
     return value
 
 
-def _configured_dev_user(request: Request) -> str:
-    """Return configured local-dev identity, or anonymous when unset/invalid."""
-    try:
-        config = _get_config(request)
-    except (AttributeError, KeyError, RuntimeError):
-        return ANONYMOUS
-    return _identity_or_anonymous(config.dev_user)
-
-
 def _get_config(request: Request) -> CaliberConfig:
     config: CaliberConfig = request.app.state.config
     return config
+
+
+def _config_or_none(request: Request) -> Any:
+    """The app config, or ``None`` when the app is not fully wired.
+
+    Returning ``None`` rather than raising matters: identity resolution runs on every
+    request including error paths, and a half-built app must produce
+    :data:`ANONYMOUS` rather than a 500.
+    """
+    try:
+        return _get_config(request)
+    except (AttributeError, KeyError, RuntimeError):
+        return None

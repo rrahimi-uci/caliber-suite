@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 import caliber
-from caliber.observability.queue_health import collect_queue_health
+from caliber.observability.queue_health import collect_queue_health_for_config
 from caliber.observability.readiness import collect_readiness
 
 HEALTH_PATH = "/ajax-api/2.0/mlflow/caliber/health"
@@ -93,13 +93,9 @@ async def readiness(request: Request) -> JSONResponse:
     factory = getattr(request.app.state, "session_factory", None)
     queue_health = None
     if factory is not None and bool(getattr(config, "workflow_run_queue_enabled", False)):
-        lease = float(getattr(config, "workflow_run_lease_seconds", 60.0) or 60.0)
-        max_age = float(getattr(config, "workflow_queue_max_age_seconds", 300.0) or 300.0)
         try:
             with factory() as session:
-                queue_health = collect_queue_health(
-                    session, lease_seconds=lease, max_queue_age_seconds=max_age
-                )
+                queue_health = collect_queue_health_for_config(session, config)
         except Exception:
             queue_health = None
 

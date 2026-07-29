@@ -16,6 +16,7 @@ from caliber.routes import (
     aria_plans,
     assistant,
     audit,
+    auth,
     capabilities,
     csrf,
     dashboard,
@@ -45,6 +46,7 @@ from caliber.routes import (
     settings,
     skills,
     static,
+    system_effects,
     system_services,
     tools,
     workflow_calibration,
@@ -52,6 +54,9 @@ from caliber.routes import (
     workflow_runs,
     workflow_versions,
     workflows,
+)
+from caliber.routes import (
+    secrets as secrets_routes,
 )
 
 
@@ -65,6 +70,8 @@ def register_routes(app: Starlette) -> None:
     resolve to the same SPA shell with React Router taking over.
     """
     health.register(app)
+    auth.register(app)
+    secrets_routes.register(app)
     csrf.register(app)
     me.register(app)
     capabilities.register(app)
@@ -89,6 +96,7 @@ def register_routes(app: Starlette) -> None:
     observability.register(app)
     audit.register(app)
     gateway.register(app)
+    system_effects.register(app)
     system_services.register(app)
     # Workflow Studio (plan §15). Registered before the SPA catch-all so the
     # API paths resolve to handlers rather than the static shell.

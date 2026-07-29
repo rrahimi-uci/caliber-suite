@@ -83,7 +83,11 @@ describe("caliberApi", () => {
     const headers = init.headers as Record<string, string>;
     expect(headers["Content-Type"]).toBe("application/json");
     expect(headers["X-CALIBER-CSRF"]).toBe("csrf-1");
-    expect(headers["X-CALIBER-User"]).toBe("@local-admin");
+    // "@admin", not "@local-admin": identityForUsername no longer maps the old default
+    // username to a privileged identity, because there is no default credential.
+    // The header is still sent for trusted_header deployments; in the shipped session
+    // mode the backend ignores it entirely (C1).
+    expect(headers["X-CALIBER-User"]).toBe("@admin");
   });
 
   it("refreshes CSRF token and retries write requests after a CSRF-shaped 403", async () => {

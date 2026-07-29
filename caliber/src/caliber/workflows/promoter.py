@@ -52,6 +52,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.deployment_environments import environment_class
+from caliber.egress import EgressPolicy
 from caliber.eval.scorecard import expected_text, run_scorecard
 from caliber.ids import (
     new_workflow_deployment_id,
@@ -122,6 +123,23 @@ def requires_human_approval(alias: str, config: CaliberConfig | None = None) -> 
     if alias in GATED_ALIASES:
         return True
     raw = getattr(config, "release_require_human_approval_for_environment_classes", "") or ""
+    classes = {item.strip().casefold() for item in str(raw).split(",") if item.strip()}
+    return environment_class(alias, config) in classes
+
+
+def requires_graded_executor(alias: str, config: CaliberConfig | None = None) -> bool:
+    """Whether ``alias``'s deploy gate must be graded by a real configured model.
+
+    Defaults to the ``production`` class. The deterministic fake executor is the
+    right default for tests and local demos, but a gate verdict it produced proves
+    the graph and the dataset — not the model that will answer production traffic.
+    Publishing that as release evidence is the false-confidence failure this policy
+    exists to prevent, so a production promotion graded by the fake is refused and
+    says why.
+    """
+    raw = getattr(config, "release_require_graded_executor_for_environment_classes", None)
+    if raw is None:
+        raw = "production"
     classes = {item.strip().casefold() for item in str(raw).split(",") if item.strip()}
     return environment_class(alias, config) in classes
 
@@ -300,6 +318,39 @@ def build_executor(
             default_model=config.llm_diagnosis_model,
         )
     raise RuntimeError(f"unknown workflow LLM provider {provider!r}")
+
+
+#: Executor classes that answer from a deterministic script rather than a model.
+#: Named by class name so a test double registered elsewhere is classified the same
+#: way, and so this does not import the fake into a production import path.
+_DETERMINISTIC_EXECUTOR_CLASSES = frozenset({"FakeWorkflowExecutor", "ScriptedWorkflowExecutor"})
+
+
+def describe_executor(
+    executor: WorkflowExecutor, config: CaliberConfig | None = None
+) -> dict[str, Any]:
+    """Identify the executor that graded a gate, for the evidence record.
+
+    A gate verdict is only interpretable if you know what produced it. Before this,
+    a stored ``gate_result`` was silent about whether a real model answered or a
+    deterministic script did, so a passing production gate and a passing local demo
+    gate were indistinguishable in the audit trail.
+
+    ``deterministic`` is derived from the executor *class*, not from configuration:
+    the question is what actually ran, and a config-derived answer would be wrong
+    exactly when a caller passed an explicit executor that disagrees with config.
+    """
+    class_name = type(executor).__name__
+    deterministic = class_name in _DETERMINISTIC_EXECUTOR_CLASSES
+    provider = "fake" if deterministic else str(getattr(config, "llm_provider", "") or "unknown")
+    return {
+        "provider": provider.strip().lower(),
+        "executor": class_name,
+        "model": (
+            None if deterministic else (getattr(config, "llm_diagnosis_model", None) or None)
+        ),
+        "deterministic": deterministic,
+    }
 
 
 def _workflow_openai_override(
@@ -1012,6 +1063,21 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             if config is not None
             else DEFAULT_PARALLEL_BRANCH_MAX_WORKERS
         ),
+        # Empty when no config is threaded (preview/eval/calibration builders), which
+        # fails closed: an external_app node refuses rather than importing.
+        external_app_entrypoint_allowlist=(
+            config.external_app_entrypoint_allowlist if config is not None else ""
+        ),
+        # The operator's configured sandbox limits, not the class defaults.
+        sandbox_max_memory_bytes=(
+            config.tool_sandbox_max_memory_bytes if config is not None else None
+        ),
+        sandbox_max_file_bytes=(config.tool_sandbox_max_file_bytes if config is not None else None),
+        sandbox_max_open_files=(config.tool_sandbox_max_open_files if config is not None else None),
+        # Built here, from config, so CALIBER_EGRESS_* actually reaches the nodes it
+        # governs. ``from_config(None)`` returns the safe default rather than no
+        # policy, so a builder that threads no config still constrains egress.
+        egress_policy=EgressPolicy.from_config(config),
     )
 
 
@@ -1322,11 +1388,15 @@ class GateResult:
     has_gate: bool
     passed: bool
     runs: list[GateRun] = field(default_factory=list)
+    #: Which executor graded the replays — see :func:`describe_executor`. ``None``
+    #: only when no gate applied, so there was nothing to grade.
+    executor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "has_gate": self.has_gate,
             "passed": self.passed,
+            "executor": self.executor,
             "runs": [
                 {
                     "name": r.name,
@@ -1465,6 +1535,7 @@ def evaluate_deploy_gates(
                 )
                 for gate in gates
             ],
+            executor=describe_executor(executor, resolved_config),
         )
     runs: list[GateRun] = []
     all_passed = True
@@ -1585,7 +1656,12 @@ def evaluate_deploy_gates(
             )
         )
 
-    return GateResult(has_gate=True, passed=all_passed, runs=runs)
+    return GateResult(
+        has_gate=True,
+        passed=all_passed,
+        runs=runs,
+        executor=describe_executor(executor, resolved_config),
+    )
 
 
 def _replay_and_score(
@@ -1688,6 +1764,13 @@ def _baseline_overall(
     on the alias, when its version or manifest is unusable, or when replaying it
     raises — the threshold then fails closed rather than passing on absent
     evidence.
+
+    The baseline binds **its own** managed files, resolved from its own manifest.
+    Replaying it with no bindings at all (the previous behaviour) made a baseline
+    that reads a managed document score near zero, so the candidate's delta looked
+    like a large improvement when nothing had improved — a regression check that
+    systematically favours the candidate is worse than none. Binding each side to its
+    own documents is the comparison an operator means by "did this get worse?".
     """
     deployment = (
         session.execute(
@@ -1714,6 +1797,30 @@ def _baseline_overall(
         knowledge_query_runner, knowledge_build_runner = build_knowledge_runtime_runners(
             session, identity=workflow_identity
         )
+        workflow = session.get(CaliberWorkflow, workflow_id)
+        baseline_snapshots = [
+            file_ref
+            for node in (compiled.ir.nodes.values() if compiled.ir is not None else [])
+            if (file_ref := getattr(node, "file_ref", None)) is not None
+        ]
+        managed_execute_kwargs: dict[str, Any] = {}
+        if baseline_snapshots or compiled.ir is not None:
+            baseline_resolver, baseline_tools = bind_project_managed_file_runtime(
+                session,
+                storage_config=config.workflow_storage,
+                project_id=(workflow.project_id if workflow is not None else None),
+                workflow_id=workflow_id,
+                runtime_id=f"deploy-gate-baseline-{alias}",
+                snapshots=baseline_snapshots,
+                extract_document_aliases=(
+                    managed_file_tool_aliases(compiled.ir) if compiled.ir is not None else set()
+                ),
+            )
+            if baseline_resolver is not None:
+                managed_execute_kwargs = {
+                    "extra_tools": baseline_tools,
+                    "managed_file_resolver": baseline_resolver.read_text,
+                }
         return _replay_and_score(
             session,
             ir=compiled.ir,
@@ -1723,9 +1830,7 @@ def _baseline_overall(
             executor=executor,
             examples=examples,
             gate=gate,
-            # The baseline is scored for comparison only; it deliberately does not
-            # bind the candidate's managed files, whose refs may not exist in it.
-            managed_execute_kwargs={},
+            managed_execute_kwargs=managed_execute_kwargs,
         ).overall
     except Exception:
         logger.warning(
@@ -2072,8 +2177,25 @@ def promote(
         raise DeployError("only published versions can be promoted")
 
     resolver = resolver or resolver_from_session(session)
-    executor = executor or build_executor(None)
     manifest = parse_manifest(version.manifest)
+    if executor is None:
+        # ``build_executor(None)`` — the previous default — always returned the
+        # deterministic fake, so a real provider in application configuration never
+        # reached the normal deployment route and every route-driven gate graded a
+        # scripted answer. Passing ``config`` and the manifest is what makes the
+        # verdict about the model that will actually serve the alias, including its
+        # workflow-scoped OpenAI runtime overrides.
+        try:
+            executor = build_executor(config, manifest=manifest)
+        except RuntimeError as exc:
+            # A misconfigured provider must not silently downgrade to the fake: that
+            # would resurrect exactly the false-evidence defect. Surfaced as a
+            # DeployError so the route answers 400 with the reason rather than 500.
+            raise DeployError(
+                f"cannot grade the deploy gate for {alias!r}: {exc}. Fix the provider "
+                "configuration, or set CALIBER_LLM_PROVIDER=fake to grade "
+                "deterministically (which production classes refuse by default)"
+            ) from exc
 
     gate_result = evaluate_deploy_gates(
         session,
@@ -2087,6 +2209,21 @@ def promote(
         raise DeployError(
             f"promoting to {alias!r} ({environment_class(alias, config)}) requires a "
             "deploy gate; attach one whose required_for_aliases includes this alias"
+        )
+    # Checked only when a gate actually ran: with no gate there is no verdict to
+    # misrepresent, and the requires_quality_gate branch above already owns that case.
+    if (
+        gate_result.has_gate
+        and requires_graded_executor(alias, config)
+        and bool((gate_result.executor or {}).get("deterministic"))
+    ):
+        raise DeployError(
+            f"promoting to {alias!r} ({environment_class(alias, config)}) requires a "
+            "deploy gate graded by a real configured model, but it was graded by the "
+            f"deterministic {(gate_result.executor or {}).get('executor')}. Configure "
+            "CALIBER_LLM_PROVIDER, or set "
+            "CALIBER_RELEASE_REQUIRE_GRADED_EXECUTOR_FOR_ENVIRONMENT_CLASSES='' to "
+            "accept deterministic release evidence"
         )
     if not gate_result.passed:
         raise DeployGateFailedError(
@@ -2295,6 +2432,7 @@ __all__ = [
     "build_executor",
     "build_plan",
     "compile_version",
+    "describe_executor",
     "evaluate_deploy_gates",
     "promote",
     "promote_workflow_candidate",
@@ -2303,6 +2441,7 @@ __all__ = [
     "record_workflow_run",
     "reject_promotion",
     "require_alias_target_ready",
+    "requires_graded_executor",
     "requires_human_approval",
     "requires_quality_gate",
     "resolver_from_session",

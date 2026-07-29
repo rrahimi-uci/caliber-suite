@@ -23,7 +23,7 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 
 import {
   AUTH_CHANGED_EVENT,
-  clearLocalAuthSession,
+  signOut,
   getStoredAuthSession,
   type LocalAuthSession,
 } from "@/auth/localAuth";
@@ -91,7 +91,9 @@ export function App(): JSX.Element {
   }, []);
 
   const onLogout = useCallback(() => {
-    clearLocalAuthSession();
+    // Revokes the session server-side, not just locally: clearing only the cookie
+    // would leave a still-valid token in anything that captured it.
+    void signOut();
     setSession(null);
   }, []);
 

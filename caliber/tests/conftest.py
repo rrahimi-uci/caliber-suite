@@ -230,6 +230,38 @@ _PERMISSIVE_TEST_USERS = "@test,@admin,@reza,@sarah,@alex,@a,@b"
 
 
 @pytest.fixture(autouse=True)
+def _default_tests_to_trusted_header_auth(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Make every test app resolve identity from ``X-CALIBER-User``.
+
+    The shipped default is ``session``: CALIBER validates a password and issues a
+    revocable session, and ``X-CALIBER-User`` is ignored. That is the correct
+    production posture and is what closes C1 — but this suite's ~5,000 tests assert
+    *authorization*, and each sends an identity header rather than logging in.
+
+    Declaring ``trusted_header`` here is truthful, not a weakening: the test client
+    genuinely is the trusted caller. It is done in one visible place, as a wrapper
+    around ``CaliberConfig.load``, because tests build their own ``environ`` dicts
+    (which replace ``os.environ`` entirely), so an env-var fixture would not reach
+    them.
+
+    An explicit ``CALIBER_AUTH_MODE`` in a test's own environ always wins, which is
+    how ``tests/test_auth_sessions.py`` exercises the shipped session default.
+    """
+    original = CaliberConfig.load
+
+    def _load(environ: dict[str, str] | None = None) -> CaliberConfig:
+        # ``environ=None`` means "read os.environ", which several tests monkeypatch
+        # instead of passing a dict. Both shapes need the default, so materialize
+        # os.environ rather than special-casing one of them.
+        merged = dict(environ) if environ is not None else dict(os.environ)
+        merged.setdefault("CALIBER_AUTH_MODE", "trusted_header")
+        return original(merged)
+
+    monkeypatch.setattr(CaliberConfig, "load", staticmethod(_load))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_prompt_info_cache() -> Iterator[None]:
     """Reset the cross-request prompt-registry cache around every test.
 
@@ -344,6 +376,18 @@ def app_config(tmp_path: Path) -> CaliberConfig:
         environ={
             "CALIBER_DATABASE_URL": f"sqlite+pysqlite:///{db_path}",
             "CALIBER_ADMIN_USERS": _PERMISSIVE_TEST_USERS,
+            # Identity: the suite asserts authorization, not authentication, and
+            # sends X-CALIBER-User on every request. Declaring trusted_header here is
+            # truthful (the test client *is* the trusted caller) and keeps the
+            # shipped default — server-validated sessions — unweakened. The session
+            # boundary itself is covered by tests/test_auth_sessions.py.
+            "CALIBER_AUTH_MODE": "trusted_header",
+            # Human-approval gates now enforce separation of duties: the account that
+            # triggered a run cannot approve it. This suite is a single operator
+            # (@test creates the run and then decides it), which is precisely the
+            # single-operator case the escape hatch exists for. The SoD rule itself is
+            # covered by tests/test_approval_policy.py and the route tests below.
+            "CALIBER_APPROVAL_ALLOW_SELF_APPROVAL": "true",
             # The shared test venv currently carries flagged upstream versions in
             # the optional DSPy and local-embedding stacks. Keep the default app
             # fixture opted into those paths so unrelated route/runtime tests stay

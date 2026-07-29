@@ -23,6 +23,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -972,6 +973,119 @@ class CaliberWorkflowDeployment(Base):
     rollback_checkpoint: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
 
 
+class CaliberSecret(Base):
+    """A named secret whose value lives encrypted in ``caliber_secret_versions``.
+
+    Closes the durable half of C2. MCP ``env`` / ``headers`` / ``auth_config``
+    literals were read-contained but stored as ordinary JSON, so a database dump,
+    backup, or replica exposed them. Consumers now store a ``secret://name``
+    reference and the value exists in exactly one encrypted place.
+
+    ``current_version`` is what resolution reads, so writing a new value is a
+    rotation rather than a destructive edit. ``revoked_at`` stops resolution while
+    retaining history — deleting the row is a separate, explicit purge, because
+    "stop using this" and "destroy this" are different operator intents.
+    """
+
+    __tablename__ = "caliber_secrets"
+
+    name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    description: Mapped[str] = mapped_column(String(512), default="")
+    current_version: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
+class CaliberSecretVersion(Base):
+    """One AES-256-GCM encrypted secret value.
+
+    The nonce is per version and the secret *name* is bound in as additional
+    authenticated data, so ciphertext moved between rows fails to authenticate —
+    without that, write access to this table would let one secret's value be
+    substituted for another's.
+
+    ``key_id`` records which data-encryption key wrote the row, which is what makes
+    key rotation possible: an older version still decrypts under a retained key.
+    """
+
+    __tablename__ = "caliber_secret_versions"
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_secret_version"),
+        Index("ix_secret_versions_name", "name"),
+    )
+
+    secret_version_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128))
+    version: Mapped[int] = mapped_column(Integer)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary(32))
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
+    key_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberUserAccount(Base):
+    """A password account CALIBER itself validates (closes C1).
+
+    The prior login validated ``admin/admin`` in the browser and the backend trusted
+    the resulting ``X-CALIBER-User`` header, so identity was client-asserted. These
+    rows are the server-side source of truth.
+
+    ``password_hash`` is a self-describing scrypt string (see
+    :mod:`caliber.sessions`) so work factors can be raised later without
+    invalidating existing passwords. ``disabled`` is enforced at *session
+    resolution*, not only at login, so disabling an account takes effect
+    immediately rather than whenever its session happens to expire.
+
+    Scope assignment stays in configuration (``CALIBER_ADMIN_USERS`` and friends):
+    this table answers "is this really them?", which is the question that was
+    unanswered. Moving authorization into the database is a separate change.
+    """
+
+    __tablename__ = "caliber_user_accounts"
+
+    user_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_by: Mapped[str] = mapped_column(String(256), default="system")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    password_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaliberSession(Base):
+    """A revocable server-side session.
+
+    Deliberately a table rather than a stateless signed token: a signed token
+    cannot be revoked before it expires, which makes "disable this account now",
+    "log out everywhere", and "invalidate sessions on password change" impossible to
+    honour. Those are the operations that make an identity boundary usable.
+
+    Only ``token_hash`` (SHA-256 of the token) is stored, so reading this table does
+    not yield a usable credential.
+    """
+
+    __tablename__ = "caliber_sessions"
+    __table_args__ = (
+        Index("ix_sessions_token_hash", "token_hash", unique=True),
+        Index("ix_sessions_user", "user_id"),
+    )
+
+    session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(256))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
 class CaliberEffectLedger(Base):
     """One external effect a workflow run performed, keyed for at-most-once replay.
 
@@ -1004,6 +1118,69 @@ class CaliberEffectLedger(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     claimed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaliberWebhookDeadLetter(Base):
+    """An outbound event that was never delivered.
+
+    Durable rather than an in-memory ring: a delivery failure means a downstream
+    system was not told something happened, and that fact must survive the restart an
+    operator performs to fix the receiver. The ring lost the record precisely then.
+
+    ``kind`` separates the two ways an event is lost, because they have different
+    causes and different fixes: ``exhausted`` means every retry failed (the receiver
+    is broken or unreachable), while ``overflow`` means events arrived faster than
+    delivery drained them (CALIBER is shedding load). Overflow previously produced no
+    row at all — only a log line — so load shedding was invisible.
+    """
+
+    __tablename__ = "caliber_webhook_dead_letters"
+    __table_args__ = (Index("ix_webhook_dead_letters_status", "status", "failed_at"),)
+
+    dead_letter_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url: Mapped[str] = mapped_column(String(1024))
+    event_type: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
+    #: The full event, so a failure can be replayed by hand rather than only noted.
+    event: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
+    reason: Mapped[str] = mapped_column(Text, default="", server_default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    kind: Mapped[str] = mapped_column(String(16), default="exhausted", server_default="exhausted")
+    #: ``open`` or ``acknowledged``. Acknowledging keeps the evidence while clearing
+    #: the work queue, so the list does not become an ever-growing wall operators
+    #: learn to ignore.
+    status: Mapped[str] = mapped_column(String(16), default="open", server_default="open")
+    failed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    acknowledged_by: Mapped[str | None] = mapped_column(String(256), nullable=True, default=None)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+
+
+class CaliberWorkerHeartbeat(Base):
+    """A background worker's own liveness record, written whether or not it is busy.
+
+    Worker liveness was previously *inferred* from ``running`` run rows, so an idle
+    dead worker and a healthy idle worker were indistinguishable: with nothing
+    claimed there were no rows to infer from, and ``(queued=0, running=0,
+    workers_alive=0)`` was encoded as healthy. The failure only became visible once
+    a backlog built up — which is exactly when it is most expensive to discover.
+
+    One row per worker identity, rewritten on every poll cycle, so an absent or
+    stale row is positive evidence that nothing is consuming the queue.
+    """
+
+    __tablename__ = "caliber_worker_heartbeats"
+    __table_args__ = (Index("ix_worker_heartbeats_kind", "kind", "last_heartbeat_at"),)
+
+    worker_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    #: Which queue this worker serves (``workflow_run``, ``knowledge_build``, …), so
+    #: one worker kind being down does not read as every worker being down.
+    kind: Mapped[str] = mapped_column(String(32), default="workflow_run")
+    #: Host/process hint for an operator reading the row directly. Not an identity.
+    hostname: Mapped[str | None] = mapped_column(String(256), nullable=True, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    #: Cumulative poll cycles. A row whose timestamp advances but whose tick count
+    #: does not is a worker whose loop is wedged rather than merely idle.
+    ticks: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class CaliberToolRegistry(Base):
@@ -1085,6 +1262,10 @@ class CaliberWorkflowRun(Base):
     session_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="completed")
     source: Mapped[str] = mapped_column(String(32), default="manual")
+    # Who started the run. Needed for two things the review flagged: separation of
+    # duties on human-approval gates (the initiator cannot approve their own run) and
+    # simply answering "who ran this?", which nothing recorded on the run itself.
+    created_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
     queued_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

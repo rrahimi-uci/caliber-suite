@@ -799,7 +799,105 @@ class CaliberConfig(BaseModel):
         default="",
         description=(
             "Optional development user identity used when no upstream "
-            "``X-CALIBER-User`` header is present."
+            "``X-CALIBER-User`` header is present. Honoured ONLY when "
+            "auth_dev_fallback_enabled is true, which is off by default: with the "
+            "shipped Compose values this fallback made an unauthenticated request an "
+            "admin."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Identity boundary (C1)
+    # ------------------------------------------------------------------
+    # ``session`` is the default: CALIBER validates a password against
+    # caliber_user_accounts and issues a revocable session. ``trusted_header``
+    # restores the previous posture for deployments that genuinely sit behind an
+    # identity proxy — now an explicit, documented choice rather than the
+    # unconditional behaviour.
+
+    # ------------------------------------------------------------------
+    # Encrypted secret store (C2)
+    # ------------------------------------------------------------------
+    # Without a key the store refuses to operate rather than storing plaintext
+    # under an "encrypted" name — a silent downgrade would look fixed while
+    # reproducing the original defect.
+
+    secret_encryption_key_source: str = Field(
+        default="",
+        description=(
+            "Env var or caliber.secrets URI holding the 32-byte AES-256 data-encryption "
+            "key (base64 or hex) for caliber_secret_versions. Empty disables the secret "
+            "store: 'secret://name' references then resolve to nothing, which callers "
+            "treat as unresolved rather than falling back to plaintext. Generate one "
+            'with: python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"'
+        ),
+    )
+    secret_encryption_additional_keys: str = Field(
+        default="",
+        description=(
+            "Comma-separated additional key sources retained so secret versions written "
+            "before a key rotation still decrypt. Encryption always uses the primary key."
+        ),
+    )
+
+    auth_mode: str = Field(
+        default="session",
+        pattern="^(session|trusted_header)$",
+        description=(
+            "How request identity is established. 'session' validates credentials "
+            "server-side and issues a revocable session (default). 'trusted_header' "
+            "trusts X-CALIBER-User and is only safe behind a proxy that sets it; "
+            "combine it with auth_trusted_proxy_secret_env so a request that bypasses "
+            "the proxy is rejected."
+        ),
+    )
+    auth_dev_fallback_enabled: bool = Field(
+        default=False,
+        description=(
+            "Honour dev_user when a request carries no identity at all. OFF by "
+            "default: with the shipped admin lists this turned an unauthenticated "
+            "request into an admin. Never enable on a reachable deployment."
+        ),
+    )
+    auth_trusted_proxy_secret_env: str = Field(
+        default="",
+        description=(
+            "Env var or caliber.secrets URI holding a shared secret the trusted proxy "
+            "must send in X-CALIBER-Proxy-Secret. When set, trusted_header mode "
+            "rejects any request without it, so bypassing the proxy is not enough to "
+            "assert an identity."
+        ),
+    )
+    auth_session_ttl_seconds: float = Field(
+        default=43200.0,
+        gt=0,
+        description="Session lifetime in seconds (default 12 hours).",
+    )
+    auth_session_cookie_name: str = Field(
+        default="caliber_session",
+        description="Name of the HttpOnly cookie carrying the session token.",
+    )
+    auth_session_cookie_secure: bool = Field(
+        default=True,
+        description=(
+            "Mark the session cookie Secure. Default true; set false only for plain "
+            "HTTP local development, where the browser would otherwise drop it."
+        ),
+    )
+    auth_bootstrap_admin_user: str = Field(
+        default="",
+        description=(
+            "User id to create on startup when no account exists yet, so a fresh "
+            "session-mode deployment is reachable. Requires "
+            "auth_bootstrap_admin_password_env; the password must pass the same "
+            "strength rules as any other, so a well-known default cannot be seeded."
+        ),
+    )
+    auth_bootstrap_admin_password_env: str = Field(
+        default="",
+        description=(
+            "Env var or caliber.secrets URI holding the bootstrap admin's password. "
+            "Never the password itself, so it cannot land in a config dump."
         ),
     )
 
@@ -939,6 +1037,77 @@ class CaliberConfig(BaseModel):
             "as a production isolation boundary."
         ),
     )
+    # ------------------------------------------------------------------
+    # Outbound egress policy (SSRF defence)
+    # ------------------------------------------------------------------
+    # A webhook/api_request URL comes from a manifest and CALIBER runs inside the
+    # deployment's network, so without this a workflow could reach the cloud
+    # instance-metadata endpoint, CALIBER's own API on loopback, or anything in the
+    # VPC. Checked against the RESOLVED address, because a hostname allowlist alone
+    # does not stop a name that resolves to 169.254.169.254.
+
+    approval_allow_self_approval: bool = Field(
+        default=False,
+        description=(
+            "Allow the account that triggered a run to approve its own human-approval "
+            "gate. Off by default: that is the one separation-of-duties rule that is "
+            "meaningful without a role hierarchy. Enable it for a single-operator "
+            "install, which would otherwise deadlock on its own approval gates."
+        ),
+    )
+
+    egress_policy_enabled: bool = Field(
+        default=True,
+        description=(
+            "Enforce outbound egress policy on workflow webhook/api_request nodes. "
+            "Disabling it removes the SSRF defence entirely; prefer adding specific "
+            "hosts to egress_allowed_hosts."
+        ),
+    )
+    egress_blocked_categories: str = Field(
+        default="link_local,loopback,private,other_reserved",
+        description=(
+            "Address categories workflow HTTP nodes may not reach: link_local "
+            "(includes the cloud metadata endpoint), loopback (CALIBER's own API and "
+            "MCP sidecars), private (RFC1918/unique-local), other_reserved "
+            "(multicast/unspecified/reserved). Empty falls back to all four."
+        ),
+    )
+    egress_allowed_hosts: str = Field(
+        default="",
+        description=(
+            "Comma-separated hostnames or literal addresses always permitted, even if "
+            "they resolve into a blocked category. This is how an internal service "
+            "stays reachable without reopening the metadata endpoint."
+        ),
+    )
+
+    external_app_entrypoint_allowlist: str = Field(
+        default="",
+        description=(
+            "Comma-separated 'package.module:callable' entrypoints an external_app node "
+            "may invoke. Empty means NONE are permitted: the node imports and calls "
+            "installed Python in the control-plane process, and configuration shipped "
+            "allowlists for every other execution surface (MCP commands, Python "
+            "modules/scripts, remote hosts) but not this one. Entries may end in '*' to "
+            "allow a module prefix, e.g. 'mycompany.integrations.*'."
+        ),
+    )
+
+    registered_tool_module_allowlist: str = Field(
+        default="",
+        description=(
+            "Comma-separated module prefixes a registered tool may be imported from, e.g. "
+            "'caliber.*,mycompany.tools.*'. A registered tool's module_path is imported "
+            "and invoked IN-PROCESS, so this is the defence-in-depth boundary on that "
+            "path. Empty means unrestricted, which is the shipped default because tool "
+            "registration already requires the admin scope and a fail-closed default "
+            "would break every existing install on upgrade — but an unset allowlist is "
+            "reported by /readiness as an unset control rather than passing silently. "
+            "Entries may end in '*' to allow a prefix."
+        ),
+    )
+
     mcp_require_external_isolation_for_aliases: str = Field(
         default="prod",
         description=(
@@ -972,6 +1141,17 @@ class CaliberConfig(BaseModel):
             "Environment classes whose promotions must have a passing deploy gate. "
             "Rotating a production alias onto a version with no graded evidence is "
             "refused; set to '' to allow it (development installs, migrations)."
+        ),
+    )
+    release_require_graded_executor_for_environment_classes: str = Field(
+        default="production",
+        description=(
+            "Environment classes whose deploy gate must be graded by a real configured "
+            "model rather than the deterministic fake executor. A production verdict "
+            "produced by the fake proves the graph and the data, not the model that "
+            "will serve traffic, so presenting it as release evidence is false "
+            "confidence; set to '' for installs that deliberately run CALIBER with "
+            "CALIBER_LLM_PROVIDER=fake."
         ),
     )
     release_require_human_approval_for_environment_classes: str = Field(
@@ -1505,6 +1685,24 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_SHUTDOWN_GRACE_SECONDS", "shutdown_grace_seconds", float),
     ("CALIBER_BACKGROUND_TASKS_ENABLED", "background_tasks_enabled", _flag),
     ("CALIBER_DEV_USER", "dev_user", str),
+    ("CALIBER_AUTH_MODE", "auth_mode", str),
+    ("CALIBER_SECRET_ENCRYPTION_KEY_SOURCE", "secret_encryption_key_source", str),
+    (
+        "CALIBER_SECRET_ENCRYPTION_ADDITIONAL_KEYS",
+        "secret_encryption_additional_keys",
+        str,
+    ),
+    ("CALIBER_AUTH_DEV_FALLBACK_ENABLED", "auth_dev_fallback_enabled", _flag),
+    ("CALIBER_AUTH_TRUSTED_PROXY_SECRET_ENV", "auth_trusted_proxy_secret_env", str),
+    ("CALIBER_AUTH_SESSION_TTL_SECONDS", "auth_session_ttl_seconds", float),
+    ("CALIBER_AUTH_SESSION_COOKIE_NAME", "auth_session_cookie_name", str),
+    ("CALIBER_AUTH_SESSION_COOKIE_SECURE", "auth_session_cookie_secure", _flag),
+    ("CALIBER_AUTH_BOOTSTRAP_ADMIN_USER", "auth_bootstrap_admin_user", str),
+    (
+        "CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV",
+        "auth_bootstrap_admin_password_env",
+        str,
+    ),
     ("CALIBER_ASSISTANT_ENABLED", "assistant_enabled", _flag),
     (
         "CALIBER_ASSISTANT_SKILL_RUNTIME_ENABLED",
@@ -1549,6 +1747,20 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         str,
     ),
     ("CALIBER_MCP_REMOTE_HOST_ALLOWLIST", "mcp_remote_host_allowlist", str),
+    (
+        "CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST",
+        "external_app_entrypoint_allowlist",
+        str,
+    ),
+    (
+        "CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST",
+        "registered_tool_module_allowlist",
+        str,
+    ),
+    ("CALIBER_APPROVAL_ALLOW_SELF_APPROVAL", "approval_allow_self_approval", _flag),
+    ("CALIBER_EGRESS_POLICY_ENABLED", "egress_policy_enabled", _flag),
+    ("CALIBER_EGRESS_BLOCKED_CATEGORIES", "egress_blocked_categories", str),
+    ("CALIBER_EGRESS_ALLOWED_HOSTS", "egress_allowed_hosts", str),
     ("CALIBER_MCP_MANAGED_SIDECAR_HOSTS", "mcp_managed_sidecar_hosts", str),
     ("CALIBER_MCP_ALLOW_INSECURE_HTTP", "mcp_allow_insecure_http", _flag),
     ("CALIBER_MCP_STDIO_ISOLATED_WORKDIR", "mcp_stdio_isolated_workdir", _flag),
@@ -1568,6 +1780,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     (
         "CALIBER_RELEASE_REQUIRE_QUALITY_GATE_FOR_ENVIRONMENT_CLASSES",
         "release_require_quality_gate_for_environment_classes",
+        str,
+    ),
+    (
+        "CALIBER_RELEASE_REQUIRE_GRADED_EXECUTOR_FOR_ENVIRONMENT_CLASSES",
+        "release_require_graded_executor_for_environment_classes",
         str,
     ),
     (

@@ -22,17 +22,36 @@ Receivers should:
 Delivery is **bounded retry with a dead-letter**, not fire-and-forget. A
 receiver restart or a brief network blip used to drop the event silently, which
 made the webhook stream unusable as an operational signal: an operator could not
-tell "nothing happened" from "we failed to tell you". Each POST is now retried
+tell "nothing happened" from "we failed to tell you". Each POST is retried
 with exponential backoff up to a configured attempt limit; a 4xx is treated as
 permanent (retrying a rejected payload cannot help) while a 5xx, a timeout, or a
-connection error is retried. Anything still failing after the last attempt lands
-in a bounded in-memory dead-letter ring, exposed through
-:meth:`WebhookDispatcher.dead_letters` so operations can see exactly which events
-were lost rather than discovering it from a receiver-side gap.
+connection error is retried.
 
-The ring is in-memory on purpose: a durable delivery queue is a schema change and
-a separate milestone. What this closes is the silent part of the loss — an
-operator can now observe it.
+## Reception is decoupled from delivery (closes L6)
+
+The dispatcher used to retry **inside its bus subscriber**, and the bus gives each
+subscriber a bounded 128-entry queue whose overflow behaviour is to drop. A slow or
+unavailable receiver therefore occupied the subscriber long enough for later events to
+be discarded by the bus before any delivery logic saw them — events lost *before* the
+retry/dead-letter machinery could record them, which is the one failure the machinery
+existed to prevent.
+
+Now the subscriber does nothing but move events onto the dispatcher's **own** bounded
+queue, which it drains in microseconds, so the bus queue does not back up behind a
+receiver. A separate delivery task owns the retry loop and the blocking sleeps.
+
+The dispatcher's queue is bounded too — an unbounded one merely converts event loss
+into memory exhaustion — but its overflow is **recorded as a dead letter** rather than
+logged and forgotten. Shedding load is sometimes unavoidable; doing it silently is
+not, and that distinction is the actual closure.
+
+## The dead-letter record is durable
+
+Failures are written to ``caliber_webhook_dead_letters`` when a session factory is
+supplied, with the in-memory ring retained as a cache for the operations endpoint and
+as the only store when no database is bound (unit tests, a bus with no app). A restart
+used to erase the failure record exactly when an operator rebooted to fix the
+receiver.
 
 We use ``urllib.request`` (stdlib) rather than ``httpx`` to keep the
 runtime dependency set tight. The synchronous POST is run on a thread
@@ -76,8 +95,16 @@ _DEFAULT_MAX_ATTEMPTS: Final[int] = 3
 _DEFAULT_BACKOFF_SECONDS: Final[float] = 0.5
 #: Bounded so a long outage cannot grow memory without limit. Oldest entries are
 #: evicted, and the eviction count is reported so the surface never implies it is
-#: complete when it is not.
+#: complete when it is not. With a session factory bound, the durable table is the
+#: real record and this is a cache of the newest entries.
 _DEAD_LETTER_CAPACITY: Final[int] = 200
+#: Pending events held between the bus subscriber and the delivery loop. Deep enough
+#: to ride out a receiver outage of a few minutes at normal event rates, bounded so a
+#: permanent outage cannot exhaust memory. Overflow is dead-lettered, not dropped.
+_DEFAULT_PENDING_CAPACITY: Final[int] = 2048
+#: Kinds of loss, kept distinct because they have different causes and fixes.
+KIND_EXHAUSTED: Final[str] = "exhausted"
+KIND_OVERFLOW: Final[str] = "overflow"
 
 
 class WebhookDeliveryError(Exception):
@@ -125,6 +152,8 @@ class WebhookDispatcher:
         max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
         backoff_seconds: float = _DEFAULT_BACKOFF_SECONDS,
         sleep: Callable[[float], None] | None = None,
+        session_factory: Any | None = None,
+        pending_capacity: int = _DEFAULT_PENDING_CAPACITY,
     ) -> None:
         self._bus = bus
         self._urls = list(urls)
@@ -137,19 +166,31 @@ class WebhookDispatcher:
         # dispatch path already runs on a worker thread, so a blocking sleep here
         # does not stall the event loop.
         self._sleep = sleep if sleep is not None else time.sleep
+        # ``None`` keeps the ring as the only store, which is correct for unit tests
+        # and any bus with no app behind it. When present, the table is the record.
+        self._session_factory = session_factory
         self._task: asyncio.Task[None] | None = None
+        self._delivery_task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
+        # Between the bus subscriber and the delivery loop. The subscriber's only job
+        # is to move events here, so the bus's own bounded queue never backs up behind
+        # a slow receiver — that backpressure was L6's event loss.
+        self._pending_capacity = max(1, int(pending_capacity))
+        self._pending: asyncio.Queue[dict[str, Any]] | None = None
         self._dead_letters: deque[dict[str, Any]] = deque(maxlen=_DEAD_LETTER_CAPACITY)
         self._dead_letter_lock = threading.Lock()
         self._dropped_dead_letters = 0
         self._delivered = 0
         self._retried = 0
+        self._overflowed = 0
 
     def dead_letters(self) -> dict[str, Any]:
-        """Events that exhausted every delivery attempt.
+        """Events that were never delivered, by either loss mode.
 
-        ``dropped`` counts entries evicted by the ring's capacity, so a caller
-        can never mistake a truncated list for the whole failure history.
+        ``dropped`` counts entries evicted by the in-memory ring's capacity, so a
+        caller can never mistake a truncated list for the whole failure history. With
+        a session factory bound the durable table holds the complete record; this
+        surface stays a fast, allocation-free read for the operations endpoint.
         """
         with self._dead_letter_lock:
             return {
@@ -159,21 +200,68 @@ class WebhookDispatcher:
                 "capacity": _DEAD_LETTER_CAPACITY,
                 "delivered": self._delivered,
                 "retried": self._retried,
+                "overflowed": self._overflowed,
+                "pending": self._pending.qsize() if self._pending is not None else 0,
+                "pending_capacity": self._pending_capacity,
+                "durable": self._session_factory is not None,
             }
 
-    def _record_dead_letter(self, url: str, event: dict[str, object], reason: str) -> None:
+    def _record_dead_letter(
+        self,
+        url: str,
+        event: dict[str, object],
+        reason: str,
+        *,
+        kind: str = KIND_EXHAUSTED,
+        attempts: int | None = None,
+    ) -> None:
+        entry = {
+            "url": url,
+            "event_type": event.get("type"),
+            "reason": reason,
+            "kind": kind,
+            "attempts": self._max_attempts if attempts is None else attempts,
+            "failed_at_ms": int(time.time() * 1000),
+        }
         with self._dead_letter_lock:
             if len(self._dead_letters) == _DEAD_LETTER_CAPACITY:
                 self._dropped_dead_letters += 1
-            self._dead_letters.append(
-                {
-                    "url": url,
-                    "event_type": event.get("type"),
-                    "reason": reason,
-                    "attempts": self._max_attempts,
-                    "failed_at_ms": int(time.time() * 1000),
-                }
-            )
+            self._dead_letters.append(entry)
+            if kind == KIND_OVERFLOW:
+                self._overflowed += 1
+        self._persist_dead_letter(entry, event)
+
+    def _persist_dead_letter(self, entry: dict[str, Any], event: dict[str, object]) -> None:
+        """Write the failure to ``caliber_webhook_dead_letters``.
+
+        Swallows its own errors: the caller has already failed to deliver an event,
+        and raising here would replace a recorded delivery failure with an unhandled
+        exception in the delivery loop — losing both the event and the record of it.
+        """
+        if self._session_factory is None:
+            return
+        try:
+            from caliber.db.models import CaliberWebhookDeadLetter  # noqa: PLC0415
+            from caliber.ids import new_webhook_dead_letter_id  # noqa: PLC0415
+
+            with self._session_factory() as session:
+                session.add(
+                    CaliberWebhookDeadLetter(
+                        dead_letter_id=new_webhook_dead_letter_id(),
+                        url=entry["url"][:1024],
+                        event_type=(
+                            str(entry["event_type"])[:128] if entry["event_type"] else None
+                        ),
+                        event=event if isinstance(event, dict) else None,
+                        reason=str(entry["reason"])[:2000],
+                        attempts=int(entry["attempts"]),
+                        kind=str(entry["kind"]),
+                        status="open",
+                    )
+                )
+                session.commit()
+        except Exception:
+            logger.warning("could not persist webhook dead letter", exc_info=True)
 
     @property
     def is_enabled(self) -> bool:
@@ -195,27 +283,48 @@ class WebhookDispatcher:
             )
             return
         self._stopped.clear()
+        self._pending = asyncio.Queue(maxsize=self._pending_capacity)
         self._task = asyncio.create_task(self._run(), name="caliber.webhook_dispatcher")
+        # A second task so the retry loop's blocking waits never hold up bus
+        # consumption. One task doing both was L6.
+        self._delivery_task = asyncio.create_task(
+            self._deliver_forever(), name="caliber.webhook_delivery"
+        )
         logger.info(
-            "webhook dispatcher started (urls=%d, events=%s)",
+            "webhook dispatcher started (urls=%d, events=%s, pending_capacity=%d)",
             len(self._urls),
             sorted(self._event_filter) if self._event_filter else "*",
+            self._pending_capacity,
         )
 
     async def stop(self) -> None:
-        """Stop the subscription. Cheap operation — no graceful drain
-        needed because each POST is bounded by ``timeout_seconds``."""
-        if self._task is None:
+        """Stop the subscription and the delivery loop.
+
+        Events still pending are **not** drained: a stop is either a shutdown or a
+        restart, and blocking either on a receiver that is already failing is how a
+        deploy hangs. Anything undelivered stays in the durable dead-letter record via
+        the overflow/exhaustion paths, so it is not silently discarded.
+        """
+        if self._task is None and self._delivery_task is None:
             return
         self._stopped.set()
-        self._task.cancel()
-        with suppress(asyncio.CancelledError):
-            await self._task
+        for task in (self._task, self._delivery_task):
+            if task is None:
+                continue
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         self._task = None
+        self._delivery_task = None
         logger.info("webhook dispatcher stopped")
 
     async def _run(self) -> None:
-        """Subscribe to the bus and dispatch matching events until stopped.
+        """Subscribe to the bus and hand matching events to the delivery loop.
+
+        This coroutine must stay fast. The bus gives each subscriber a bounded queue
+        that *drops* on overflow, so any time spent here — a retry backoff, a slow
+        POST — is time during which the bus discards later events with no record.
+        Enqueueing is the only work done per event.
 
         The subscription is typed as :class:`AsyncGenerator` so we can
         call ``aclose()`` in the ``finally`` block — :class:`AsyncIterator`
@@ -229,15 +338,61 @@ class WebhookDispatcher:
                     return
                 if not self._should_dispatch(event):
                     continue
-                # Each dispatch runs under its own trace ID so a webhook
-                # POST and the originating state-change can be
-                # correlated in the JSON-log stream.
-                with bind_trace_id():
-                    await asyncio.to_thread(self._post_to_all, event)
+                self._enqueue(event)
         except asyncio.CancelledError:
             raise
         finally:
             await subscription.aclose()
+
+    def _enqueue(self, event: dict[str, Any]) -> None:
+        """Queue an event for delivery, dead-lettering it if there is no room.
+
+        ``put_nowait`` rather than ``await put``: awaiting would apply backpressure to
+        the bus subscriber, which is exactly the coupling being removed — the bus
+        would then drop events with only a log line to show for it. Overflow here is
+        recorded instead, so shedding load is visible.
+        """
+        if self._pending is None:  # pragma: no cover - start() always creates it
+            return
+        try:
+            self._pending.put_nowait(event)
+        except asyncio.QueueFull:
+            logger.error(
+                "webhook pending queue full (capacity=%d); dead-lettering event=%r",
+                self._pending_capacity,
+                event.get("type"),
+            )
+            for url in self._urls:
+                self._record_dead_letter(
+                    url,
+                    event,
+                    f"pending delivery queue full at {self._pending_capacity} events",
+                    kind=KIND_OVERFLOW,
+                    attempts=0,
+                )
+
+    async def _deliver_forever(self) -> None:
+        """Own the retry loop, off the bus subscriber's critical path."""
+        assert self._pending is not None
+        try:
+            while True:
+                event = await self._pending.get()
+                try:
+                    # Each dispatch runs under its own trace ID so a webhook
+                    # POST and the originating state-change can be
+                    # correlated in the JSON-log stream.
+                    with bind_trace_id():
+                        await asyncio.to_thread(self._post_to_all, event)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # A bug in delivery must not kill the loop and silently stop every
+                    # future webhook; the event's own failure is already recorded.
+                    logger.exception("webhook delivery raised; continuing")
+                finally:
+                    self._pending.task_done()
+        except asyncio.CancelledError:
+            raise
 
     def _should_dispatch(self, event: dict[str, object]) -> bool:
         if event.get("_caliber_remote") is True:
@@ -354,6 +509,7 @@ def build_dispatcher(
     secret_env_var: str,
     event_filter_csv: str,
     environ: dict[str, str] | None = None,
+    session_factory: Any | None = None,
 ) -> WebhookDispatcher:
     """Construct a dispatcher from CALIBER config + the live environment.
 
@@ -363,6 +519,10 @@ def build_dispatcher(
     :func:`resolve_secret`. The secret value never lands on the
     config object so it can't leak into a serialized config dump or
     an audit log.
+
+    ``session_factory`` makes the dead-letter record durable. Optional so a caller
+    with no database (tests, an embedded bus) still gets a working dispatcher with the
+    in-memory ring rather than an error.
     """
     # Lazy import — same reason as in caliber.csrf.build_token_manager.
     from caliber.secrets import resolve_secret  # noqa: PLC0415
@@ -375,6 +535,7 @@ def build_dispatcher(
         urls=urls,
         secret=secret,
         event_filter=event_filter,
+        session_factory=session_factory,
     )
 
 

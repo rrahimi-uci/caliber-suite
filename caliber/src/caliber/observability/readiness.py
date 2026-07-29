@@ -56,6 +56,10 @@ _HTTP_SERVER_ERROR_FLOOR = 500
 #: dependency rather than a local filesystem path.
 _REMOTE_STORAGE_SCHEMES = frozenset({"s3", "gs", "az", "azure"})
 
+#: Explicit ``WorkflowStorageConfig.backend`` values that mean "off this host".
+#: This is the authoritative signal — see :func:`_plan_object_store`.
+_REMOTE_STORAGE_BACKENDS = frozenset({"s3", "gs", "az", "azure"})
+
 
 @dataclass(frozen=True)
 class Check:
@@ -232,14 +236,44 @@ def _plan_mlflow(config: Any, environ: dict[str, str]) -> _Plan:
 
 
 def _plan_object_store(config: Any) -> _Plan:
-    """Required only when workflow storage is remote."""
-    storage_uri = str(getattr(getattr(config, "workflow_storage", None), "base_uri", "") or "")
+    """Required only when workflow storage is remote.
+
+    Keyed to the **explicit** ``WorkflowStorageConfig.backend``, not to the scheme of
+    ``base_uri``. That inversion was a real misclassification: ``base_uri`` is
+    documented as *ignored* when the backend is ``s3``, so the shipped S3/MinIO
+    topology — ``backend="s3"``, a bucket, and the default ``file://`` base URI —
+    made this planner report ``required=false, ready=null, "local storage backend"``.
+    Readiness then returned 200 while object storage was unreachable, which is the
+    one outcome a readiness probe must never produce.
+
+    The URI scheme is still honoured as an *additional* trigger, so a deployment that
+    points ``base_uri`` at a remote scheme is probed too rather than skipped. Both
+    signals can only ever add a probe, never suppress one.
+    """
+    storage = getattr(config, "workflow_storage", None)
+    backend = str(getattr(storage, "backend", "") or "").strip().lower()
+    storage_uri = str(getattr(storage, "base_uri", "") or "")
     # Report the *scheme* only. ``/readiness`` is unauthenticated, and the full URI
     # would disclose a server filesystem path or a bucket name — neither is a
     # secret, but neither belongs in a public response either.
     scheme = storage_uri.split("://", 1)[0].lower() if "://" in storage_uri else ""
-    if scheme not in _REMOTE_STORAGE_SCHEMES:
-        return _Plan(check=_skipped("object_store", f"local storage backend ({scheme or 'unset'})"))
+    if backend not in _REMOTE_STORAGE_BACKENDS and scheme not in _REMOTE_STORAGE_SCHEMES:
+        return _Plan(
+            check=_skipped(
+                "object_store", f"local storage backend ({backend or scheme or 'unset'})"
+            )
+        )
+    if backend == "s3" and not str(getattr(storage, "bucket", "") or "").strip():
+        # Fail closed without probing: ``build_backend`` would raise on this, and a
+        # thrown probe reads as "the bucket is down" rather than "no bucket is named".
+        return _Plan(
+            check=Check(
+                name="object_store",
+                ready=False,
+                required=True,
+                detail="storage backend is 's3' but no bucket is configured",
+            )
+        )
     return _Plan(
         awaitable=_timed("object_store", True, asyncio.to_thread(_probe_object_store_sync, config))
     )
@@ -270,6 +304,51 @@ def _plan_event_bus(config: Any) -> _Plan:
         )
     return _Plan(
         awaitable=_timed("event_bus", True, _probe_tcp(parsed.hostname, parsed.port, "NATS"))
+    )
+
+
+def _code_execution_allowlist_check(config: Any) -> Check:
+    """Report which in-process code-execution allowlists are unset.
+
+    Not required, deliberately: an unset allowlist is a legitimate configuration for a
+    single-operator install, and failing readiness on it would make an orchestrator
+    refuse to route traffic to a working deployment.
+
+    But it must not be *invisible*. ``registered_tool_module_allowlist`` defaults to
+    unrestricted so upgrades do not break, and a control that is off by default with no
+    surface is indistinguishable from a control that does not exist — which is the
+    "decorative control" pattern this codebase has been removing. Naming it here is
+    what makes the default an operator decision instead of an accident.
+    """
+    unset = [
+        name
+        for name, attr in (
+            ("registered_tool_module_allowlist", "registered_tool_module_allowlist"),
+            ("external_app_entrypoint_allowlist", "external_app_entrypoint_allowlist"),
+        )
+        if not str(getattr(config, attr, "") or "").strip()
+    ]
+    if not unset:
+        return Check(
+            name="code_execution_allowlists",
+            ready=True,
+            required=False,
+            detail="all in-process code-execution allowlists are configured",
+        )
+    # ``external_app_entrypoint_allowlist`` unset means *no* entrypoint is permitted
+    # (fail-closed), whereas ``registered_tool_module_allowlist`` unset means
+    # unrestricted. Opposite meanings, so the detail says which is which rather than
+    # lumping them together as "unset".
+    parts = []
+    if "registered_tool_module_allowlist" in unset:
+        parts.append("registered tool modules are unrestricted (any module may be imported)")
+    if "external_app_entrypoint_allowlist" in unset:
+        parts.append("external_app entrypoints are all refused (fail-closed)")
+    return Check(
+        name="code_execution_allowlists",
+        ready=False,
+        required=False,
+        detail="; ".join(parts),
     )
 
 
@@ -357,6 +436,8 @@ async def collect_readiness(
         )
     )
 
+    checks.append(_code_execution_allowlist_check(config))
+
     order = {
         "database": 0,
         "mlflow": 1,
@@ -364,6 +445,7 @@ async def collect_readiness(
         "event_bus": 3,
         "workflow_queue": 4,
         "providers": 5,
+        "code_execution_allowlists": 6,
     }
     checks.sort(key=lambda check: order.get(check.name, 99))
     return ReadinessReport(checks=checks)

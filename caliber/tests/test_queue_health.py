@@ -47,17 +47,52 @@ def _run(
     session.commit()
 
 
-def _collect(session: Session):
+def _collect(session: Session, *, require_worker: bool = False):
+    """Collect with the run-derived signals only, by default.
+
+    ``require_worker=False`` keeps these cases about queue *depth* and lease
+    staleness. The worker-registration signal is a separate property with its own
+    tests below (and in ``tests/test_worker_registry.py``); mixing it in here would
+    make every depth assertion also depend on a heartbeat row.
+    """
     return collect_queue_health(
-        session, lease_seconds=LEASE, max_queue_age_seconds=MAX_AGE, now=NOW
+        session,
+        lease_seconds=LEASE,
+        max_queue_age_seconds=MAX_AGE,
+        now=NOW,
+        worker_interval_seconds=5.0,
+        require_worker=require_worker,
     )
 
 
-def test_empty_queue_is_healthy(db_session: Session) -> None:
+def test_empty_queue_with_no_work_reports_no_backlog(db_session: Session) -> None:
     h = _collect(db_session)
-    assert h.healthy is True
-    assert (h.queued, h.running, h.workers_alive, h.stale_leases) == (0, 0, 0, 0)
+    assert (h.queued, h.running, h.stale_leases) == (0, 0, 0)
     assert h.oldest_queued_age_seconds is None
+    # Nothing is backlogged, so nothing about *depth* is degraded.
+    assert not [reason for reason in h.degraded_reasons if "queued" in reason]
+
+
+def test_an_empty_queue_with_no_registered_worker_is_degraded(db_session: Session) -> None:
+    """L3: this reading used to be reported as healthy.
+
+    With ``(queued=0, running=0)`` there are no claimed rows to infer liveness from,
+    so a dead idle worker and a healthy idle worker produced the identical verdict.
+    A queue-backed deployment with no worker reporting is now degraded *before* a
+    backlog forms, which is the only time the signal is cheap to act on.
+    """
+    h = _collect(db_session, require_worker=True)
+    assert h.healthy is False
+    assert h.workers_alive == 0
+    assert any("has registered" in reason for reason in h.degraded_reasons), h.degraded_reasons
+
+
+def test_synchronous_execution_does_not_report_a_missing_worker(db_session: Session) -> None:
+    """With the queue disabled there is deliberately no worker, so demanding one
+    would be a permanent false alarm rather than a signal."""
+    h = _collect(db_session, require_worker=False)
+    assert h.healthy is True
+    assert h.workers == []
 
 
 def test_counts_queued_and_running_separately(db_session: Session) -> None:
@@ -160,6 +195,8 @@ def test_to_dict_is_json_safe_and_complete(db_session: Session) -> None:
         "queued",
         "running",
         "workers_alive",
+        "workers_stale",
+        "workers",
         "stale_leases",
         "oldest_queued_age_seconds",
         "newest_heartbeat_age_seconds",

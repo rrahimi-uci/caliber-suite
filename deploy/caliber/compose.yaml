@@ -109,7 +109,32 @@ services:
       # Metadata store → the Postgres container (psycopg v3 driver).
       CALIBER_DATABASE_URL: ${CALIBER_DATABASE_URL:-postgresql+psycopg://caliber:caliber@postgres:5432/caliber}
 
-      # Local dev identity / RBAC (override for real auth).
+      # Identity. The default mode is 'session': CALIBER verifies a password
+      # server-side and issues a revocable session, and X-CALIBER-User is IGNORED.
+      # This stack previously trusted that header AND defaulted the dev fallback to
+      # @local-admin, so an unauthenticated request to the published port was an
+      # admin. The fallback is now off by default and is not enabled here.
+      CALIBER_AUTH_MODE: ${CALIBER_AUTH_MODE:-session}
+      # This stack publishes plain HTTP on localhost, where a Secure cookie would be
+      # dropped by the browser. Overridden here rather than in the product default,
+      # which stays Secure.
+      CALIBER_AUTH_SESSION_COOKIE_SECURE: ${CALIBER_AUTH_SESSION_COOKIE_SECURE:-false}
+      # Seeds a usable account on first boot ONLY while the account table is empty,
+      # so a fresh stack is reachable without a well-known credential. The password
+      # is read from CALIBER_BOOTSTRAP_PASSWORD and must pass the same strength rules
+      # as any other, so 'admin' cannot be seeded. Set it in .env; with no password
+      # set, no account is created and the startup log says so.
+      CALIBER_AUTH_BOOTSTRAP_ADMIN_USER: ${CALIBER_AUTH_BOOTSTRAP_ADMIN_USER:-@local-admin}
+      CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV: CALIBER_BOOTSTRAP_PASSWORD
+      CALIBER_BOOTSTRAP_PASSWORD: ${CALIBER_BOOTSTRAP_PASSWORD:-}
+
+      # Encrypted secret store. Optional: with no key, 'secret://' references resolve
+      # to nothing and their consumers fail closed rather than reading plaintext.
+      CALIBER_SECRET_ENCRYPTION_KEY_SOURCE: ${CALIBER_SECRET_ENCRYPTION_KEY_SOURCE:-}
+      CALIBER_SECRET_KEY: ${CALIBER_SECRET_KEY:-}
+
+      # Scope assignment stays config-driven and is separate from authentication:
+      # these lists say what @local-admin may do once it has proved it is @local-admin.
       CALIBER_DEV_USER: ${CALIBER_DEV_USER:-@local-admin}
       CALIBER_ADMIN_USERS: ${CALIBER_ADMIN_USERS:-@local-admin}
       CALIBER_APPROVER_USERS: ${CALIBER_APPROVER_USERS:-@local-admin}

@@ -105,7 +105,14 @@ def _starter_manifest(
 
 def _enable_queue(client) -> None:
     client.app.state.config = client.app.state.config.model_copy(
-        update={"workflow_run_queue_enabled": True}
+        update={
+            "workflow_run_queue_enabled": True,
+            # ``external_app`` entrypoints fail closed by default (C8) because the
+            # node imports and invokes installed Python in the CALIBER process. The
+            # worker tests define their targets as ``workflow_external_*`` modules;
+            # the allowlist itself is covered in tests/test_workflow_runtime.py.
+            "external_app_entrypoint_allowlist": "workflow_external_*",
+        }
     )
 
 
@@ -738,7 +745,7 @@ def _external_app_invalid_manifest(workflow_id: str) -> dict[str, object]:
     manifest["nodes"]["external"] = {
         "id": "external",
         "type": "external_app",
-        "entrypoint": "missing-module:handle",
+        "entrypoint": "workflow_external_missing_module:handle",
         "inputs": {"input": {"type": "string"}},
         "outputs": {
             "text": {"type": "string"},

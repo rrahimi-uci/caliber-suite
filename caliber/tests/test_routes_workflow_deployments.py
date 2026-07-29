@@ -15,6 +15,7 @@ from tests.workflow_helpers import (
     create_workflow,
     make_support_manifest,
     register_demo_tools,
+    relax_release_graded_executor,
     relax_release_quality_gate,
     seed_eval_dataset,
 )
@@ -170,6 +171,7 @@ def test_promote_prod_with_passing_gate_creates_pending(
     client: TestClient, db_session: Session, gated_prod: None
 ) -> None:
     seed_eval_dataset(db_session)
+    relax_release_graded_executor(client)
     wid, vid = create_and_publish(
         client, workflow_name="Gated", manifest=_gated_manifest("gated_wf")
     )
@@ -187,6 +189,7 @@ def test_approve_prod_promotion_rotates(
     client: TestClient, db_session: Session, gated_prod: None
 ) -> None:
     seed_eval_dataset(db_session)
+    relax_release_graded_executor(client)
     wid, vid = create_and_publish(
         client, workflow_name="GatedApprove", manifest=_gated_manifest("gated_approve_wf")
     )
@@ -204,6 +207,7 @@ def test_reject_prod_promotion_does_not_rotate(
     client: TestClient, db_session: Session, gated_prod: None
 ) -> None:
     seed_eval_dataset(db_session)
+    relax_release_graded_executor(client)
     wid, vid = create_and_publish(
         client, workflow_name="GatedReject", manifest=_gated_manifest("gated_reject_wf")
     )
@@ -220,6 +224,7 @@ def test_reject_prod_promotion_does_not_rotate(
 
 def test_promote_prod_operator_forbidden(client: TestClient, db_session: Session) -> None:
     seed_eval_dataset(db_session)
+    relax_release_graded_executor(client)
     wid, vid = create_and_publish(
         client, workflow_name="GatedRbac", manifest=_gated_manifest("gated_rbac_wf")
     )
@@ -233,6 +238,7 @@ def test_promote_prod_operator_forbidden(client: TestClient, db_session: Session
 
 def test_list_promotions(client: TestClient, db_session: Session, gated_prod: None) -> None:
     seed_eval_dataset(db_session)
+    relax_release_graded_executor(client)
     wid, vid = create_and_publish(
         client, workflow_name="GatedList", manifest=_gated_manifest("gated_list_wf")
     )
@@ -245,6 +251,7 @@ def test_list_promotions(client: TestClient, db_session: Session, gated_prod: No
 
 def test_promote_prod_with_failing_gate_400(client: TestClient, db_session: Session) -> None:
     seed_eval_dataset(db_session)
+    relax_release_graded_executor(client)
     # A guardrail that always blocks (the fake executor output always contains "processed").
     manifest = _gated_manifest("failgate_wf")
     manifest["nodes"]["policy_guardrail"]["checks"] = [
@@ -253,6 +260,11 @@ def test_promote_prod_with_failing_gate_400(client: TestClient, db_session: Sess
     wid, vid = create_and_publish(client, workflow_name="FailGate", manifest=manifest)
     r = client.post(f"{PREFIX}/workflows/{wid}/deployments/prod/promote", json={"version_id": vid})
     assert r.status_code == 400
+    # Assert *why* it was refused. Several release policies now answer 400, so a bare
+    # status check would keep passing if the gate stopped being evaluated at all.
+    body = r.json()
+    assert body["gate"]["passed"] is False, body
+    assert body["gate"]["has_gate"] is True, body
 
 
 def test_rollback(client: TestClient) -> None:

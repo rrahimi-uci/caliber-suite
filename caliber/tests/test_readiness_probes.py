@@ -142,6 +142,94 @@ def test_object_storage_is_skipped_for_a_local_backend_and_required_for_s3(
     assert remote.ready is False
 
 
+def test_the_explicit_s3_backend_is_probed_even_with_a_local_base_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L2: this is the shipped S3/MinIO topology, and it used to report ready.
+
+    ``base_uri`` is documented as *ignored* when the backend is ``s3``, so a real
+    deployment has ``backend="s3"``, a bucket, and the default ``file://`` base URI.
+    Inferring the backend from the URI scheme classified that as local storage and
+    returned ``required=false, ready=null`` — readiness answered 200 while object
+    storage was unreachable.
+    """
+
+    def _broken(_config: object) -> str:
+        raise RuntimeError("NoSuchBucket")
+
+    monkeypatch.setattr(readiness_mod, "_probe_object_store_sync", _broken)
+    report = _run(
+        config=CaliberConfig(
+            workflow_storage=WorkflowStorageConfig(
+                backend="s3",
+                bucket="caliber-workspaces",
+                # Left at the shipped default on purpose: that is the exact
+                # configuration the old classifier mistook for local storage.
+                base_uri="file://./caliber-workspaces",
+            )
+        ),
+        session_factory=_working_factory,
+        environ={},
+    )
+    store = next(check for check in report.checks if check.name == "object_store")
+    assert store.required is True, "an explicit s3 backend is a required dependency"
+    assert store.ready is False
+    assert "NoSuchBucket" in store.detail
+    assert report.ready is False
+
+
+def test_an_s3_backend_with_no_bucket_fails_closed_without_probing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing bucket is a configuration error, and must read as one.
+
+    Letting the probe run would raise inside ``build_backend`` and report the failure
+    as if the bucket were unreachable, sending the operator to look at the network.
+    """
+
+    def _must_not_run(_config: object) -> str:  # pragma: no cover - asserted by absence
+        raise AssertionError("the probe must not run when no bucket is configured")
+
+    monkeypatch.setattr(readiness_mod, "_probe_object_store_sync", _must_not_run)
+    report = _run(
+        config=CaliberConfig(workflow_storage=WorkflowStorageConfig(backend="s3", bucket=None)),
+        session_factory=_working_factory,
+        environ={},
+    )
+    store = next(check for check in report.checks if check.name == "object_store")
+    assert store.required is True
+    assert store.ready is False
+    assert "no bucket is configured" in store.detail
+    assert report.ready is False
+
+
+def test_a_remote_base_uri_still_triggers_a_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The URI scheme remains an *additional* trigger, never a suppressor.
+
+    A deployment that points ``base_uri`` at a remote scheme without setting
+    ``backend`` should be probed rather than skipped, so neither signal can turn a
+    required check off.
+    """
+    probed: list[bool] = []
+
+    def _ok(_config: object) -> str:
+        probed.append(True)
+        return "bucket listable"
+
+    monkeypatch.setattr(readiness_mod, "_probe_object_store_sync", _ok)
+    report = _run(
+        config=CaliberConfig(
+            workflow_storage=WorkflowStorageConfig(backend="local", base_uri="s3://bucket/prefix")
+        ),
+        session_factory=_working_factory,
+        environ={},
+    )
+    store = next(check for check in report.checks if check.name == "object_store")
+    assert probed == [True]
+    assert store.required is True
+    assert store.ready is True
+
+
 def test_the_event_bus_is_only_probed_for_an_external_broker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -315,3 +403,35 @@ def test_readiness_does_not_disclose_server_paths_or_bucket_names(client: TestCl
     body = client.get(READINESS_PATH).json()["data"]
     store = next(check for check in body["checks"] if check["name"] == "object_store")
     assert "/" not in store["detail"]
+
+
+def test_unset_code_execution_allowlists_are_reported_but_not_blocking() -> None:
+    """A control that is off by default with no surface is indistinguishable from a
+    control that does not exist — the "decorative control" pattern being removed.
+
+    Not required, though: an unset allowlist is legitimate for a single-operator
+    install, and failing readiness on it would make an orchestrator refuse traffic to a
+    working deployment.
+    """
+    report = _run(config=CaliberConfig(), session_factory=_working_factory, environ={})
+
+    check = next(c for c in report.checks if c.name == "code_execution_allowlists")
+    assert check.required is False
+    assert check.ready is False
+    assert report.ready is True, "a reported-but-unset control must not block readiness"
+    # The two defaults mean *opposite* things, so the detail must not lump them together.
+    assert "unrestricted" in check.detail
+    assert "fail-closed" in check.detail
+
+
+def test_configured_allowlists_report_clean() -> None:
+    report = _run(
+        config=CaliberConfig(
+            registered_tool_module_allowlist="mycompany.tools.*",
+            external_app_entrypoint_allowlist="mycompany.apps:run",
+        ),
+        session_factory=_working_factory,
+        environ={},
+    )
+    check = next(c for c in report.checks if c.name == "code_execution_allowlists")
+    assert check.ready is True
