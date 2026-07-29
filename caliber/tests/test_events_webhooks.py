@@ -753,3 +753,72 @@ def test_the_report_exposes_pending_depth_and_durability() -> None:
     assert report["pending_capacity"] > 0
     assert report["overflowed"] == 0
     assert report["durable"] is False  # no session factory in this construction
+
+
+@pytest.mark.asyncio
+async def test_stopping_dead_letters_events_that_were_never_sent(session_factory) -> None:
+    """N5: a graceful stop must not silently discard accepted events.
+
+    ``stop()`` cancelled the delivery task and dropped whatever was queued, while its
+    docstring claimed the overflow/exhaustion paths covered it. They do not — those
+    cover events that overflowed the queue or exhausted their retries, not ones merely
+    waiting. So a routine restart lost accepted events with no record anywhere.
+    """
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    release = threading.Event()
+
+    def _blocking_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://slow.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            # One event occupies the (blocked) delivery task; the rest sit in the queue.
+            for index in range(4):
+                bus.publish({"type": "run.completed", "id": str(index)})
+                await asyncio.sleep(0)
+        finally:
+            release.set()
+            await dispatcher.stop()
+
+    with session_factory() as session:
+        rows = session.query(CaliberWebhookDeadLetter).all()
+    shutdown_rows = [r for r in rows if r.kind == "shutdown"]
+    assert shutdown_rows, "queued-but-unsent events must be recorded, not discarded"
+    # The full event is retained, so an operator can replay it by hand.
+    assert shutdown_rows[0].event["type"] == "run.completed"
+    assert shutdown_rows[0].attempts == 0
+    assert "stopped before this event was delivered" in shutdown_rows[0].reason
+
+
+@pytest.mark.asyncio
+async def test_a_clean_stop_with_nothing_queued_records_nothing(session_factory) -> None:
+    """The drain must stay narrow: a quiet shutdown is not a delivery failure, and
+    inventing dead letters for it would make the queue useless as a work list."""
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://a.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+    )
+    await dispatcher.start()
+    await _await_subscription(bus)
+    await dispatcher.stop()
+
+    with session_factory() as session:
+        assert session.query(CaliberWebhookDeadLetter).count() == 0

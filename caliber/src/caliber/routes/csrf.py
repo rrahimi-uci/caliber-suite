@@ -24,7 +24,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from caliber.auth import require_user
+from caliber.auth import current_user
 from caliber.csrf import CSRFTokenManager
 from caliber.routes._deps import envelope_response
 from caliber.schemas import CSRFTokenResponse
@@ -40,9 +40,25 @@ def _get_manager(request: Request) -> CSRFTokenManager:
 async def issue_token(request: Request) -> JSONResponse:
     """Hand the caller a fresh CSRF token bound to their identity.
 
-    Requires authentication so the token is tied to a known user; an
-    anonymous caller can't get a token (and wouldn't be able to use one
-    for a write anyway, since RBAC rejects anonymous writes with 401).
+    **Issued to anonymous callers too, and that is load-bearing.** This endpoint used
+    to require authentication, on the reasoning that "an anonymous caller ... wouldn't
+    be able to use one for a write anyway, since RBAC rejects anonymous writes with
+    401". That was true while identity arrived in a header — every caller was already
+    identified. Session authentication (C1) falsified it: ``POST /auth/login`` *is* an
+    anonymous state-changing write, and it must succeed.
+
+    With the old rule the two controls deadlocked and login was impossible whenever
+    CSRF was enabled — the production posture:
+
+        POST /auth/login -> 403 "CSRF check failed: missing CSRF token"
+        GET  /csrf       -> 401 "authentication required"
+
+    Issuing an anonymous-bound token is the fix that keeps **both** controls rather
+    than exempting login from CSRF. The token is bound to the caller's current
+    identity, so a pre-login token authorizes only pre-login requests; after signing
+    in, the client must fetch a new token bound to the authenticated user, which the
+    SPA does. Login therefore remains CSRF-protected instead of becoming an
+    unprotected hole in the middleware.
     """
     manager = _get_manager(request)
     if not manager.is_enabled:
@@ -51,8 +67,9 @@ async def issue_token(request: Request) -> JSONResponse:
         # signal is "enabled=false".
         return envelope_response(CSRFTokenResponse(enabled=False, token=None, ttl_seconds=0))
 
-    user = require_user(request)
-    token = manager.issue(user)
+    # ``current_user`` not ``require_user``: anonymous is a legitimate caller here
+    # (see the docstring). The token is bound to whatever identity that is.
+    token = manager.issue(current_user(request))
     return envelope_response(
         CSRFTokenResponse(enabled=True, token=token, ttl_seconds=manager.ttl_seconds)
     )

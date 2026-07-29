@@ -27,6 +27,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import (
     SCOPE_ADMIN,
     SCOPE_OPERATOR,
+    CaliberIdentity,
     require_scopes,
     require_user,
     resolve_identity,
@@ -272,9 +273,28 @@ def _folders_from_rows(project_id: str, rows: list[CaliberWorkflowFile]) -> list
     return [folders[key] for key in sorted(folders)]
 
 
-def _require_project(session: Session, project_id: str) -> CaliberProject:
+def _require_project(
+    session: Session, project_id: str, *, identity: CaliberIdentity
+) -> CaliberProject:
+    """Resolve a project, applying the **same owner rule its list sibling applies**.
+
+    Closes the C3 instance the review named first: "project lists are owner-filtered,
+    but ``_require_project()`` is a bare ``session.get``", which detail, update, list
+    files, create folder, and upload all funnelled through -- so a known project id read
+    and mutated another owner's project even though listing hid it.
+
+    Projects have no visibility tiers, only an owner, so the predicate is owner equality
+    with an admin bypass -- copied deliberately from ``list_projects`` rather than
+    reinvented, because a detail rule that disagrees with its list rule is how this
+    class of defect appears in the first place.
+
+    A project owned by someone else 404s rather than 403s: "exists but forbidden"
+    confirms the id is real.
+    """
     project = session.get(CaliberProject, project_id)
     if project is None:
+        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+    if not identity.has_scope(SCOPE_ADMIN) and project.owner != identity.user_id:
         raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
     return project
 
@@ -376,7 +396,7 @@ async def get_project(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        project = _require_project(session, project_id)
+        project = _require_project(session, project_id, identity=resolve_identity(request))
         count = _project_file_count(session, project_id)
         payload = _project_to_dict(
             project,
@@ -391,7 +411,7 @@ async def update_project(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        project = _require_project(session, project_id)
+        project = _require_project(session, project_id, identity=resolve_identity(request))
         if isinstance(body.get("name"), str) and body["name"].strip():
             project.name = body["name"].strip()
         if isinstance(body.get("description"), str):
@@ -422,7 +442,7 @@ async def list_project_files(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        _require_project(session, project_id)
+        _require_project(session, project_id, identity=resolve_identity(request))
         rows = _visible_project_rows(session, project_id)
         items = [
             CaliberFileRecord.from_row(r).to_api()
@@ -443,7 +463,7 @@ async def create_project_folder(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            project = _require_project(session, project_id)
+            project = _require_project(session, project_id, identity=resolve_identity(request))
             service = _project_storage_service(request, project)
             rec = service.create_project_folder(
                 session,
@@ -475,7 +495,7 @@ async def upload_project_file(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            project = _require_project(session, project_id)
+            project = _require_project(session, project_id, identity=resolve_identity(request))
             service = _project_storage_service(request, project)
             rec = service.register_project_file(
                 session,

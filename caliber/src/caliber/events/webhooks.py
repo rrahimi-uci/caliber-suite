@@ -105,6 +105,11 @@ _DEFAULT_PENDING_CAPACITY: Final[int] = 2048
 #: Kinds of loss, kept distinct because they have different causes and fixes.
 KIND_EXHAUSTED: Final[str] = "exhausted"
 KIND_OVERFLOW: Final[str] = "overflow"
+#: Accepted but still queued when the process stopped. A third kind because the
+#: operator action differs again: the receiver was fine and CALIBER was not
+#: overloaded — the event simply had not been sent yet, so it is a replay candidate
+#: rather than a capacity or receiver problem.
+KIND_SHUTDOWN: Final[str] = "shutdown"
 
 
 class WebhookDeliveryError(Exception):
@@ -298,12 +303,23 @@ class WebhookDispatcher:
         )
 
     async def stop(self) -> None:
-        """Stop the subscription and the delivery loop.
+        """Stop the subscription and the delivery loop, **recording what was queued**.
 
-        Events still pending are **not** drained: a stop is either a shutdown or a
-        restart, and blocking either on a receiver that is already failing is how a
-        deploy hangs. Anything undelivered stays in the durable dead-letter record via
-        the overflow/exhaustion paths, so it is not silently discarded.
+        Pending events are deliberately not *delivered* on the way out: a stop is a
+        shutdown or a restart, and blocking either on a receiver that is already failing
+        is how a deploy hangs.
+
+        They are, however, **dead-lettered**. An earlier version of this method claimed
+        undelivered events "stay in the durable dead-letter record via the
+        overflow/exhaustion paths", and that was wrong — an independent review caught it.
+        Those paths only cover events that overflowed the queue or exhausted their
+        retries; anything merely *sitting* in the queue was discarded on cancellation
+        with no record at all, so a graceful restart silently lost accepted events.
+
+        Draining to the durable record costs one database write per queued event and no
+        network calls, so it keeps shutdown fast while making the loss observable and
+        replayable. That is the whole point of the dead-letter table: an event a
+        downstream system was never told about must not vanish quietly.
         """
         if self._task is None and self._delivery_task is None:
             return
@@ -316,7 +332,41 @@ class WebhookDispatcher:
                 await task
         self._task = None
         self._delivery_task = None
-        logger.info("webhook dispatcher stopped")
+        abandoned = self._drain_pending_to_dead_letters()
+        self._pending = None
+        if abandoned:
+            logger.warning(
+                "webhook dispatcher stopped with %d undelivered event(s); "
+                "recorded as %r dead letters for replay",
+                abandoned,
+                KIND_SHUTDOWN,
+            )
+        else:
+            logger.info("webhook dispatcher stopped")
+
+    def _drain_pending_to_dead_letters(self) -> int:
+        """Record every still-queued event as a ``shutdown`` dead letter. Returns the count.
+
+        ``get_nowait`` in a loop rather than ``await get()``: the delivery task is
+        already cancelled, nothing will refill the queue, and stopping must not block.
+        """
+        if self._pending is None:
+            return 0
+        drained = 0
+        while True:
+            try:
+                event = self._pending.get_nowait()
+            except asyncio.QueueEmpty:
+                return drained
+            drained += 1
+            for url in self._urls:
+                self._record_dead_letter(
+                    url,
+                    event,
+                    "dispatcher stopped before this event was delivered",
+                    kind=KIND_SHUTDOWN,
+                    attempts=0,
+                )
 
     async def _run(self) -> None:
         """Subscribe to the bus and hand matching events to the delivery loop.

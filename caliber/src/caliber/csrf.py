@@ -155,8 +155,8 @@ class CSRFMiddleware:
       missing or invalid token produces a 403 with a structured
       response body.
 
-    Identity is read from the same ``X-CALIBER-User`` header
-    :func:`caliber.auth.current_user` uses, so tokens issued during
+    Identity is resolved by delegating to :func:`caliber.auth.current_user` — session
+    cookie first, then the trusted header — so tokens issued during
     auth flow A can't be replayed by user B even if a header is
     stripped or rewritten.
     """
@@ -193,7 +193,7 @@ class CSRFMiddleware:
             return
 
         token = _read_header(scope, b"x-caliber-csrf")
-        user = _read_user_header(scope, fallback_user=self._dev_user)
+        user = self._identity(scope)
         try:
             self._manager.validate(token, user)
         except CSRFValidationError as exc:
@@ -201,6 +201,33 @@ class CSRFMiddleware:
             return
 
         await self._app(scope, receive, send)  # type: ignore[operator]
+
+    def _identity(self, scope: dict[str, object]) -> str:
+        """Resolve the caller the **same way the routes do**, sessions included.
+
+        This used to read ``X-CALIBER-User`` directly, and its docstring claimed that
+        matched :func:`caliber.auth.current_user`. Session authentication (C1) broke
+        that equivalence: in the default ``session`` mode the routes *ignore* that
+        header and resolve a server-side session, so the middleware bound tokens to
+        ``anonymous`` while ``/csrf`` bound them to the signed-in user — and every
+        authenticated write failed with "invalid CSRF token signature".
+
+        Delegating is what keeps the two aligned by construction rather than by comment.
+        ``current_user`` caches its result on the request scope, so the handler's later
+        call reuses this lookup instead of repeating it.
+
+        Falls back to the header reader when the app is not wired far enough for
+        identity resolution (a bare middleware unit test), because a CSRF check must
+        never be the reason a request 500s.
+        """
+        try:
+            from starlette.requests import Request  # noqa: PLC0415
+
+            from caliber.auth import current_user  # noqa: PLC0415
+
+            return _normalize_user(current_user(Request(scope)))  # type: ignore[arg-type]
+        except Exception:
+            return _read_user_header(scope, fallback_user=self._dev_user)
 
 
 def _read_header(scope: dict[str, object], name: bytes) -> str | None:

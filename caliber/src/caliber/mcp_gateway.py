@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import os
 import re
 import sys
@@ -530,13 +531,63 @@ def _resolved_stdio_env(
     return resolved
 
 
+#: URI schemes :func:`caliber.secrets.resolve_secret` understands. Matched explicitly
+#: rather than by "contains ://" so an ordinary value that happens to look like a URL
+#: (an endpoint, a webhook target) is never mistaken for a secret reference.
+logger = logging.getLogger("caliber.mcp_gateway")
+
+_SECRET_REF_SCHEMES = ("secret://", "env://", "file://")
+
+
+def _resolve_secret_ref(raw: object) -> str:
+    """Resolve one MCP configuration value, honouring secret references.
+
+    Closes N2. ``env``, ``headers``, and ``auth_config`` were resolved by three
+    different code paths, and **none** consulted :mod:`caliber.secrets`: this function
+    handled only ``${VAR}``, headers were stringified verbatim, and the token reader
+    took an env var or a literal. So the encrypted store shipped in §0.9.2 could not be
+    *consumed* by the very surface C2 was about — an operator who dutifully replaced a
+    literal with ``secret://stripe-key`` sent the **string**
+    ``secret://stripe-key`` to the remote server as their credential.
+
+    Resolution order, and why:
+
+    1. ``${VAR}`` — the long-standing placeholder form, preserved exactly so existing
+       server rows keep working.
+    2. A ``caliber.secrets`` URI (``secret://``, ``env://``, ``file://``) — resolved
+       through the shared resolver, which is what makes one encrypted value usable
+       everywhere instead of each consumer inventing its own lookup.
+    3. Anything else is returned unchanged, because MCP deliberately still accepts
+       literal values for runtime compatibility.
+
+    An unresolvable reference yields the empty string rather than the reference text.
+    Sending a credential the operator did not intend is worse than sending none: the
+    request fails cleanly instead of leaking the shape of your secret store to a remote
+    service.
+    """
+    if not isinstance(raw, str):
+        return str(raw)
+    text = raw.strip()
+    match = _ENV_PLACEHOLDER_RE.match(text)
+    if match is not None:
+        return os.environ.get(match.group(1), "")
+    if text.startswith(_SECRET_REF_SCHEMES):
+        from caliber.secrets import resolve_secret  # noqa: PLC0415 - avoids import cycle
+
+        resolved = resolve_secret(text)
+        if not resolved:
+            logger.warning(
+                "MCP secret reference %r resolved to nothing; sending an empty value "
+                "rather than the reference itself",
+                text.split("://", 1)[0] + "://...",
+            )
+        return resolved or ""
+    return raw
+
+
 def _resolve_env_value(raw: object) -> str:
-    if isinstance(raw, str):
-        match = _ENV_PLACEHOLDER_RE.match(raw.strip())
-        if match is not None:
-            return os.environ.get(match.group(1), "")
-        return raw
-    return str(raw)
+    """Backwards-compatible alias; every caller now resolves secret references."""
+    return _resolve_secret_ref(raw)
 
 
 def _resolved_http_headers(server: McpServerConfig) -> dict[str, str]:
@@ -545,7 +596,9 @@ def _resolved_http_headers(server: McpServerConfig) -> dict[str, str]:
         key_name = str(key).strip()
         if not key_name:
             continue
-        headers[key_name] = str(raw)
+        # Resolved, not stringified: a header is one of the three places an MCP
+        # credential lives, and ``str(raw)`` sent ``secret://...`` to the remote server.
+        headers[key_name] = _resolve_secret_ref(raw)
 
     auth_type = server.auth_type.strip().lower()
     auth_config = server.auth_config
@@ -556,7 +609,7 @@ def _resolved_http_headers(server: McpServerConfig) -> dict[str, str]:
             headers.setdefault("Authorization", f"Bearer {token}")
     elif auth_type == "basic":
         user = str(auth_config.get("username", "")).strip()
-        password = str(auth_config.get("password", ""))
+        password = _resolve_secret_ref(auth_config.get("password", ""))
         if user:
             value = f"{user}:{password}".encode()
             headers.setdefault("Authorization", f"Basic {base64.b64encode(value).decode('ascii')}")
@@ -567,7 +620,7 @@ def _resolved_http_headers(server: McpServerConfig) -> dict[str, str]:
                 key_name = str(key).strip()
                 if not key_name:
                     continue
-                headers[key_name] = str(raw)
+                headers[key_name] = _resolve_secret_ref(raw)
 
     return headers
 
@@ -578,7 +631,8 @@ def _resolve_token(auth_config: dict[str, object]) -> str:
         return os.environ.get(env_key, "")
     token = auth_config.get("token")
     if isinstance(token, str):
-        return token
+        # A stored token may be a literal (still supported) or a secret reference.
+        return _resolve_secret_ref(token)
     return ""
 
 

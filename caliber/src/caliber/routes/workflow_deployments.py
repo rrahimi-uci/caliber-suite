@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -31,6 +32,7 @@ from caliber.auth import (
     SCOPE_OPERATOR,
     require_scopes,
     require_user,
+    resolve_identity,
 )
 from caliber.db.models import (
     CaliberWorkflow,
@@ -38,6 +40,7 @@ from caliber.db.models import (
     CaliberWorkflowPromotion,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import get_visible
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability import metrics
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
@@ -88,12 +91,43 @@ def _envelope(payload: dict[str, Any], status_code: int = 200) -> JSONResponse:
     return JSONResponse({"data": payload}, status_code=status_code)
 
 
+def _visible_workflow(session: Session, request: Request, workflow_id: str) -> Any:
+    """The workflow, only if visible to the caller; ``None`` otherwise.
+
+    Callers turn ``None`` into the same 404 a missing workflow produces, so "exists but
+    forbidden" is never distinguishable from "does not exist" -- the distinction is
+    itself a disclosure.
+    """
+    return get_visible(
+        session,
+        CaliberWorkflow,
+        CaliberWorkflow.workflow_id,
+        workflow_id,
+        resolve_identity(request),
+    )
+
+
+def _visible_promotion(session: Session, request: Request, promotion_id: str) -> Any:
+    """A promotion, only if its parent workflow is visible.
+
+    Promotion approve/reject previously fetched by promotion id with no project scoping
+    at all, so a known id could approve a rotation in another project -- a release
+    decision made by someone with no access to the thing being released.
+    """
+    promotion = session.get(CaliberWorkflowPromotion, promotion_id)
+    if promotion is None:
+        return None
+    if _visible_workflow(session, request, promotion.workflow_id) is None:
+        return None
+    return promotion
+
+
 async def list_deployments(request: Request) -> JSONResponse:
     require_user(request)
     workflow_id = request.path_params["workflow_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         rows = (
             session.execute(
@@ -122,7 +156,7 @@ async def promote_deployment(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         version = session.get(CaliberWorkflowVersion, payload.version_id)
         if version is None or version.workflow_id != workflow_id:
@@ -242,7 +276,7 @@ async def list_promotions(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         stmt = (
             select(CaliberWorkflowPromotion)
@@ -264,7 +298,7 @@ async def approve_promotion_route(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_APPROVER])
     factory = get_session_factory(request)
     with factory() as session:
-        promotion = session.get(CaliberWorkflowPromotion, promotion_id)
+        promotion = _visible_promotion(session, request, promotion_id)
         if promotion is None:
             raise HTTPException(status_code=404, detail=f"promotion {promotion_id!r} not found")
         version = session.get(CaliberWorkflowVersion, promotion.version_id)
@@ -320,7 +354,7 @@ async def reject_promotion_route(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_APPROVER])
     factory = get_session_factory(request)
     with factory() as session:
-        promotion = session.get(CaliberWorkflowPromotion, promotion_id)
+        promotion = _visible_promotion(session, request, promotion_id)
         if promotion is None:
             raise HTTPException(status_code=404, detail=f"promotion {promotion_id!r} not found")
         try:
@@ -350,7 +384,7 @@ async def rollback_deployment(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         try:
             deployment = rollback(

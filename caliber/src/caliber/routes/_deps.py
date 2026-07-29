@@ -197,3 +197,46 @@ __all__ = [
     "get_session_factory",
     "parse_json_object",
 ]
+
+
+def scoped_child_or_404(
+    session: Session,
+    request: Request,
+    *,
+    child: Any,
+    child_id: str,
+    child_label: str,
+    parent_model: Any,
+    parent_pk: Any,
+    parent_id_attr: str = "workflow_id",
+) -> Any:
+    """Fetch ``child`` by id, but only if its **parent** is visible to the caller.
+
+    Closes the C3 pattern for nested resources. A version, deployment, promotion, or
+    dataset example carries no visibility columns of its own — its access rules live on
+    the parent workflow/dataset — so a bare ``session.get(Child, id)`` silently skips
+    the predicate its list sibling enforces, and a guessed id crosses a project
+    boundary.
+
+    Two deliberate choices:
+
+    * **A forbidden parent 404s, identically to a missing one.** "Exists but you may
+      not see it" is itself a disclosure — it confirms the id is real — so the two
+      cases are indistinguishable to the caller.
+    * **An orphaned child (no resolvable parent) 404s too**, rather than being allowed
+      through as "unscoped". Failing open on a dangling foreign key would make data
+      corruption an access-control bypass.
+    """
+    row = session.get(child, child_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"{child_label} {child_id!r} not found")
+    parent_id = getattr(row, parent_id_attr, None)
+    if not parent_id:
+        raise HTTPException(status_code=404, detail=f"{child_label} {child_id!r} not found")
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+    from caliber.db.scoping import get_visible  # noqa: PLC0415
+
+    parent = get_visible(session, parent_model, parent_pk, parent_id, resolve_identity(request))
+    if parent is None:
+        raise HTTPException(status_code=404, detail=f"{child_label} {child_id!r} not found")
+    return row

@@ -1389,7 +1389,13 @@ async def list_workflow_run_approvals(request: Request) -> JSONResponse:
 
 
 async def approve_workflow_run_approval(request: Request) -> JSONResponse:
-    actor = require_scopes(request, [SCOPE_OPERATOR])
+    # ``require_user``, not ``require_scopes([SCOPE_OPERATOR])``. The node's own
+    # ``required_role`` is the authorization rule, and ``record_approval`` enforces it
+    # below with a message naming the missing scope. Pre-requiring operator broke the
+    # documented case: ``caliber.approver`` does not imply ``caliber.operator``, so a
+    # deployment that granted someone exactly the approver scope — the role the field
+    # is named after — could not approve anything.
+    actor = require_user(request)
     _ensure_queue_enabled(request)
     _ensure_runtime_approvals_enabled(request)
     _ensure_checkpointing_enabled(request)
@@ -1553,7 +1559,11 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
 
 
 async def reject_workflow_run_approval(request: Request) -> JSONResponse:
-    actor = require_scopes(request, [SCOPE_OPERATOR])
+    # Same rule as approve: the node decides who may decide. This route previously
+    # checked only the global operator scope and never read the node policy at all, so
+    # a gate configured for ``caliber.admin`` was rejectable by any operator. Refusing
+    # a release is a governance decision as much as permitting one.
+    actor = require_user(request)
     _ensure_queue_enabled(request)
     _ensure_runtime_approvals_enabled(request)
     run_id = request.path_params["run_id"]
@@ -1577,6 +1587,20 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
         )
         approval_id = approval.runtime_approval_id
         approval_node_id = approval.node_id
+        # The node's required_role, enforced before the decision is written. Quorum and
+        # the self-decision rule deliberately do NOT apply to a rejection: one
+        # authorized reviewer refusing is a complete answer, and requiring a second
+        # person to agree before a release can be *stopped* would be a safety
+        # regression dressed up as consistency.
+        reject_policy = ApprovalPolicy.from_snapshot(approval.policy_snapshot)
+        if reject_policy.required_role not in current_scopes(request):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"rejecting this approval requires the {reject_policy.required_role!r} "
+                    f"scope; you hold {sorted(current_scopes(request))}"
+                ),
+            )
         approval.status = "rejected"
         approval.decided_at = now
         approval.decided_by = actor
