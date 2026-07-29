@@ -53,6 +53,9 @@ const Dashboard = lazy(() => import("@/pages/Overview").then((m) => ({ default: 
 const Prompts = lazy(() => import("@/pages/Prompts").then((m) => ({ default: m.Prompts })));
 const Releases = lazy(() => import("@/pages/Releases").then((m) => ({ default: m.Releases })));
 const Settings = lazy(() => import("@/pages/Settings").then((m) => ({ default: m.Settings })));
+const Administration = lazy(() =>
+  import("@/pages/Administration").then((m) => ({ default: m.Administration })),
+);
 const Skills = lazy(() => import("@/pages/Skills").then((m) => ({ default: m.Skills })));
 const SkillDetail = lazy(() => import("@/pages/SkillDetail").then((m) => ({ default: m.SkillDetail })));
 const ToolRegistry = lazy(() => import("@/pages/ToolRegistry").then((m) => ({ default: m.ToolRegistry })));
@@ -132,6 +135,7 @@ function AuthenticatedApp({
               <Route path="/login" element={<Navigate to="/" replace />} />
               <Route path="/prompts" element={<Prompts />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/administration" element={<Administration />} />
               <Route path="/tools" element={<ToolRegistry />} />
               <Route path="/tools/:toolId" element={<ToolDetail />} />
               <Route path="/mcp-servers" element={<McpServers />} />

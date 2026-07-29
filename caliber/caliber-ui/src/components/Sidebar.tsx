@@ -25,6 +25,7 @@ import {
   Settings2,
   Workflow,
   Wrench,
+  ShieldCheck,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 
@@ -312,6 +313,12 @@ export function Sidebar({
             to="/gateway"
             icon={<Network className={NAV_ICON_CLASS} strokeWidth={1.85} />}
             label="LLM Gateway"
+            onNavigate={onNavigate}
+          />
+          <NavItem
+            to="/administration"
+            icon={<ShieldCheck className={NAV_ICON_CLASS} strokeWidth={1.85} />}
+            label="Administration"
             onNavigate={onNavigate}
           />
           <NavItem

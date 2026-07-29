@@ -1766,3 +1766,39 @@ export interface ProviderReadiness {
   tracing_autolog_enabled: boolean;
   workflow_llm_judge_enabled: boolean;
 }
+
+/** One row of `GET /auth/accounts`. Never carries a password or hash. */
+export interface AuthAccount {
+  user_id: string;
+  disabled: boolean;
+  created_at: string | null;
+  password_updated_at: string | null;
+  last_login_at: string | null;
+}
+
+export interface AuthAccountList {
+  accounts: AuthAccount[];
+  total: number;
+}
+
+/**
+ * One row of `GET /secrets` — **metadata only**.
+ *
+ * The API deliberately never returns a value, so this type has no field for one.
+ * Modelling it as optional would invite a component to try rendering it.
+ */
+export interface SecretSummary {
+  name: string;
+  current_version: number | null;
+  versions: number;
+  revoked: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export interface SecretList {
+  secrets: SecretSummary[];
+  total: number;
+  enabled: boolean;
+  reference_scheme: string;
+}

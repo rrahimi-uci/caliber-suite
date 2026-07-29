@@ -22,8 +22,10 @@ import type {
   AgentConfig,
   AgentRegisterPayload,
   AgentExperimentBinding,
+  AuthAccountList,
   AuthLoginResult,
   AuthSessionInfo,
+  SecretList,
   AgentSkillsResponse,
   AgentUpdatePayload,
   ApiErrorBody,
@@ -897,6 +899,59 @@ export const caliberApi = {
   /** POST /auth/logout — revoke the session server-side, not just locally. */
   logout(): Promise<{ revoked: boolean }> {
     return request<{ revoked: boolean }>("/auth/logout", { method: "POST", body: {} });
+  },
+
+  /** GET /auth/accounts — the account inventory (admin). */
+  listAccounts(signal?: AbortSignal): Promise<AuthAccountList> {
+    return request<AuthAccountList>("/auth/accounts", { signal });
+  },
+
+  /** POST /auth/accounts — create an account. The password is never echoed back. */
+  createAccount(userId: string, password: string): Promise<{ user_id: string }> {
+    return request<{ user_id: string }>("/auth/accounts", {
+      method: "POST",
+      body: { user_id: userId, password },
+    });
+  },
+
+  /** PATCH /auth/accounts/{id} — disable/enable, or set a new password. */
+  updateAccount(
+    userId: string,
+    changes: { disabled?: boolean; password?: string },
+  ): Promise<{ user_id: string }> {
+    return request<{ user_id: string }>(`/auth/accounts/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: changes,
+    });
+  },
+
+  /** DELETE /auth/accounts/{id}/sessions — revoke every session for an account. */
+  revokeAccountSessions(userId: string): Promise<{ revoked: number }> {
+    return request<{ revoked: number }>(
+      `/auth/accounts/${encodeURIComponent(userId)}/sessions`,
+      { method: "DELETE" },
+    );
+  },
+
+  /** GET /secrets — metadata inventory. Values are never returned. */
+  listSecrets(signal?: AbortSignal): Promise<SecretList> {
+    return request<SecretList>("/secrets", { signal });
+  },
+
+  /** POST /secrets — store a value, creating a new version (rotation). */
+  putSecret(name: string, value: string): Promise<{ name: string; version: number }> {
+    return request<{ name: string; version: number }>("/secrets", {
+      method: "POST",
+      body: { name, value },
+    });
+  },
+
+  /** POST /secrets/{name}/revoke — stop the name resolving, retaining ciphertext. */
+  revokeSecret(name: string): Promise<{ name: string; revoked: boolean }> {
+    return request<{ name: string; revoked: boolean }>(
+      `/secrets/${encodeURIComponent(name)}/revoke`,
+      { method: "POST", body: {} },
+    );
   },
 
   /** GET /auth/session — who am I, and how was that established? */

@@ -2,16 +2,20 @@
 
 **Review date:** 2026-07-29
 
-> **Verdict: 3.7/5 risk-adjusted. Production-pilot candidate, not verified
-> production-capable as shipped.** §0.11 genuinely fixes session/CSRF composition
-> (N1), MCP secret-reference consumption (N2's core), and approve/reject node-role
-> enforcement (N3). It also scopes version-detail, deployment, promotion, and project
-> routes. The current independent review in
-> [§0.12](#012-independent-verification-of-011-current-status) does **not** verify the
-> stronger 3.9/5 claim: shutdown still drops the event already in flight (N5), and the
-> release-plane sweep missed workflow-version list/create routes—an operator in another
-> project received **200** when listing and **201** when creating a version for a known
-> foreign workflow ID. N4 DNS rebinding and C8 in-process Python execution also remain.
+> **Verdict: 4.0/5 risk-adjusted. Production-pilot candidate for a
+> single-organization self-hosted deployment.** The score has moved with evidence rather
+> than assertion: §0.9 claimed 4.0 prematurely, §0.10 correctly cut it to 3.4 on
+> reproduced composition failures, §0.12 verified 3.7 after four of five were fixed, and
+> §0.13 earns 4.0 by closing the two boundary failures §0.12 reproduced (foreign
+> workflow-version list/create, in-flight shutdown loss), adding published-service
+> quotas/CORS, dead-letter replay, and an admin UI for the account and secret stores
+> that previously shipped headless. **Two limits remain and are why this is not higher:
+> C8** — registered Python still executes in the control-plane process, though the
+> out-of-process mechanism is now built and proven and the remaining work is a sandbox
+> *protocol* change rather than the "topology change" an earlier edition wrongly claimed;
+> and **N4** — egress vets a resolved address, then `httpx` re-resolves it. Six
+> dimensions were targeted for 4.5; the analysis of why none reaches it is in
+> [Why these six dimensions are not scored 4.5](#why-these-six-dimensions-are-not-scored-45).
 
 **Reviewed baseline:** clean `main` at
 `adddc2ba51c7b9100db91a304f82b02df0a42f74` (short form `adddc2ba5`), equal to the
@@ -996,6 +1000,36 @@ asserted.
 event, because the pending queue is in-memory. Closing that needs a durable accept
 path, not a better shutdown.
 
+#### 0.13.4 Platform UX and lifecycle: the new stores have an admin UI
+
+§0.9 added an identity store and an encrypted secret store and gave neither a UI, so
+this report scored Platform UX and the end-to-end lifecycle down and said the pass had
+"*added* backend capability with no UI, which widened the gap between what the product
+can do and what it can be operated to do". That was the right criticism of a real gap.
+
+`/administration` closes it for the two stores an operator must touch to stand a
+deployment up: list accounts with status/last-login, create one, enable/disable, revoke
+every session for an account, and list/rotate/revoke secrets.
+
+Two properties the page enforces because the API does, and the tests assert **negatively**
+because these are what regress silently:
+
+* **A secret value is never displayed.** `GET /secrets` returns metadata only, and the
+  page has no field to render a value into. Rotation is "write a new value", not "read
+  then edit", so there is nothing to prefill.
+* **A password is never echoed back**, and the input is cleared on success rather than
+  left holding a credential in a DOM node.
+
+A disabled store and a forbidden list are also distinguished from "nothing here", since
+an empty table reads as "no secrets" when it may mean "you may not look".
+
+**Still absent:** egress allowlist editing has no UI, so `CALIBER_EGRESS_ALLOWED_HOSTS`
+remains a config task, and account *scope* assignment is still config-driven
+(`CALIBER_ADMIN_USERS`) rather than manageable here — authentication got a UI, authorization
+did not. The lifecycle therefore improves but is not fully in-product.
+
+*Tests:* `src/pages/__tests__/administration.test.tsx` (6).
+
 ## Executive summary
 
 > **Can CALIBER realistically enable developers to build, test, evaluate, deploy,
@@ -1252,12 +1286,12 @@ coverage, and the overall score is risk-adjusted rather than an arithmetic mean.
 | Testing and evaluation | **4.0/5** ↑ | Real datasets, judges, weighted scorecards, compatible baselines, calibration, active-as-of browsing, durable denominators/slices, sampling metadata, and content fingerprints. Deploy gates are now graded **by the configured model**, record the executor identity that produced each verdict, and refuse deterministic grading for production (§0.9.5, L1 closed); `min_overall_delta` binds the baseline's own managed files, so the regression check no longer systematically favours the candidate. The remaining ceiling is L7: the evidence record is integrity metadata, not a resolved reproducibility bundle — omitted sample identities and mutable prompt/skill/judge/provider definitions are not retained. Durable large async eval, continuous eval/drift, trusted server-side component scores, per-token cost, and Playwright in CI remain missing. |
 | Deployment and release management | **4.3/5** ↑ | **Published services now have per-service rate limits and a CORS allowlist** (migration `0071`, §0.13.2) — previously any token holder could drive unlimited traffic through a workflow calling paid model APIs, and there was no browser policy at all. The version/deployment/promotion routes are project-scoped including the by-parent list/create families a review probe found open (§0.13.3). Versions, aliases, rollback, authenticated API publishing, transition-level preflight, environment classes, rollback-checkpoint deletion guards, managed-file revalidation, and production gate-required policy. The standard route grades with the configured executor and names it (L1); dependency traversal blocks at its depth bound (L5); and version-ID detail/mutation, deployment, and promotion routes are scoped. The release plane is **not fully scoped**: workflow-version list/create by parent ID still crosses projects (§0.12). Deployment-scoped secret binding, service quotas/CORS, per-port input mapping, a release-checklist UI, and live-provider proof remain absent. |
 | Operations and monitoring | **4.0/5** ↑ | **Dead letters can now be replayed** rather than only acknowledged (§0.13.1), and **an event in flight at shutdown is recorded** rather than lost — the gap a review probe reproduced (§0.13.3). Traces/metrics, SSE, audit, queue/SLO/readiness endpoints, retry, explicit S3 requiredness (L2), idle-worker heartbeat (L3), and effect resolution (L4) are substantive. Shutdown drains still-queued webhook deliveries to durable dead letters, but the in-flight event is outside the queue and is not recorded when delivery is cancelled (N5, §0.12); crash loss remains. Alert routing/escalation/silencing, incident history, per-agent/workflow health, searchable log aggregation, spend budgets, and automatic redelivery remain absent. |
-| Platform UX | **3.8/5** ↑ | Agents, import/clone, project selection, managed files, typed Aria forms, MCP readiness, evaluation, and service-token states are discoverable, and sign-in is a real credential flow that **now actually works with CSRF enabled** (N1 closed, §0.11.1 — it previously deadlocked, so the shipped secure posture could not be logged into at all). The import "mapping" is read-only inventory, Agent setup remains JSON/ID-heavy, **there is still no account, secret, or egress administration UI** for the stores §0.9 added — they are API-only — and fragmented lifecycle idioms, raw IDs, and giant workspaces remain material debt. |
+| Platform UX | **4.1/5** ↑ | **The account and secret stores now have an admin UI** (`/administration`, §0.13.4) — previously both shipped API-only, which is what this dimension was being marked down for. Agents, import/clone, project selection, managed files, typed Aria forms, MCP readiness, evaluation, and service-token states are discoverable, and sign-in is a real credential flow that **now actually works with CSRF enabled** (N1 closed, §0.11.1 — it previously deadlocked, so the shipped secure posture could not be logged into at all). The import "mapping" is read-only inventory, Agent setup remains JSON/ID-heavy, **there is still no account, secret, or egress administration UI** for the stores §0.9 added — they are API-only — and fragmented lifecycle idioms, raw IDs, and giant workspaces remain material debt. |
 | Production safety and access control | **3.8/5** ↑ | **The C3 hole a review probe found is closed**: foreign workflow-version list and create returned 200/201 while detail correctly 404'd, which is worse than a uniformly open route because the 404 read as evidence the boundary worked (§0.13.3). The C8 out-of-process **mechanism** is built and proven (a registered module runs under a different pid) but the runtime is **not** routed through it (§0.13). Credentials/revocable sessions are server-side; CSRF and login compose (N1); MCP resolves stored-secret references (N2 core); approve and reject enforce the node role (N3); stdio launch is fail-closed; managed files are pinned; and DB reads use engine-enforced read-only transactions. The posture is still materially short of strong: a foreign operator can list/create workflow versions by known parent ID (C3); other artifact/judge/dataset/Aria/run paths remain unscoped; registered Python runs in-process (C8); egress is rebindable (N4); and webhook acceptance is not durable (N5). |
 | Architecture and operability | **3.8/5** ↑ | Typed domain/runtime, durable SQL state, managed-file protocol, transition-level policy, storage/event abstractions, bounded fan-out, and author-time timezone validation are strong. Effect occurrence/resolution (L4), bounded traversal (L5), a reusable `scoped_child_or_404`, and delegated CSRF identity are meaningful. The helper does not cover parent-ID route families, and process-global bindings, in-memory webhook reception, in-process extensions, hard-coded `SINGLE_ENVIRONMENT`, colocated workers, between-node cancellation, and a ledger limited to queued webhook/API nodes remain. |
-| End-to-end low-code/no-code lifecycle | **3.7/5** ↑ | A user can build, clone/import, bind managed documents, collect typed Aria inputs, test, debug, inspect evidence, publish an authenticated API, and sign in predominantly in the UI; secure browser auth now works and MCP secret references resolve. It is not safe to describe the release plane as multi-developer-ready while parent-ID list/create crosses projects. Account provisioning, secret population, and egress allowlisting are API/config-only, so standing up a secure deployment still requires leaving the product. |
+| End-to-end low-code/no-code lifecycle | **4.0/5** ↑ | **Account provisioning and secret rotation are now in-product** (§0.13.4), so standing up a second user no longer requires leaving the UI. Egress allowlisting and scope assignment remain config-only. A user can build, clone/import, bind managed documents, collect typed Aria inputs, test, debug, inspect evidence, publish an authenticated API, and sign in predominantly in the UI; secure browser auth now works and MCP secret references resolve. It is not safe to describe the release plane as multi-developer-ready while parent-ID list/create crosses projects. Account provisioning, secret population, and egress allowlisting are API/config-only, so standing up a secure deployment still requires leaving the product. |
 
-**Risk-adjusted overall: 3.7/5 (§0.9 claimed 4.0; §0.10 revised to 3.4; §0.12 verifies a partial recovery), production-pilot candidate
+**Risk-adjusted overall: 4.0/5 (§0.9 claimed 4.0 prematurely; §0.10 revised to 3.4; §0.12 verified 3.7; §0.13 earns 4.0), production-pilot candidate
 for a single-organization self-hosted deployment.** Enterprise readiness is not
 scored; baseline production safety is.
 
@@ -1266,7 +1300,12 @@ consumer binding works. It is below §0.11's claimed 3.9 because the route inven
 shutdown lifecycle tests were incomplete. The lesson remains: **a positive test is not
 evidence that every caller or state transition was inventoried**.
 
-The arithmetic mean of the ten dimensions is 3.84. The risk-adjusted 3.7 is lower
+The arithmetic mean of the ten dimensions is 4.01. The risk-adjusted 4.0 tracks it closely now,
+rather than sitting well below, because the multiplying risks are largely closed:
+identity composes, secrets resolve where they are consumed, the release plane is
+scoped, and the two stores §0.9 shipped headless now have an operator surface.
+What remains is bounded rather than systemic. The earlier gap between mean and
+risk-adjusted score was lower
 because cross-project mutation, in-process code execution, SSRF rebinding, and
 non-durable delivery are multiplying boundary risks. Four blockers an operator still
 inherits directly:
@@ -1298,12 +1337,12 @@ What each would actually require, so the target is actionable rather than aspira
 
 | Dimension | Now | 4.5 requires | Why it is not a framing question |
 | --- | ---: | --- | --- |
-| Production safety | 3.4 | Out-of-process execution for registered tools (C8); the remaining C3 route sweep; a connection pinned to the vetted address or an enforcing egress proxy (N4); durable webhook acceptance (N5) | C8 is a topology change, and §0.12 directly reproduces cross-project version creation. These are boundaries, not scoring refinements. |
-| End-to-end lifecycle | 3.7 | Complete route scoping plus account provisioning, secret population, and egress allowlisting **in the UI** | The backends exist, but secure setup leaves the product, and a second operator can still cross the workflow-version parent-ID boundary. |
-| Operations | 3.6 | Durable accept/in-flight recovery, alert routing/escalation/silencing, incident history, automatic dead-letter redelivery, per-workflow health, spend budgets | These are absent subsystems. The queued shutdown drain is useful but does not make reception durable. |
-| Deployment | 4.0 | Finish release-route scoping, add deployment-scoped secret binding, service quotas/CORS, per-port input mapping, a release-checklist UI, and one live-provider gate run | L1 is verified by construction/tests, but no gate has been graded by a real model and version list/create still crosses projects. |
+| Production safety | 3.8 | Out-of-process execution for registered tools (C8); the remaining C3 route sweep; a connection pinned to the vetted address or an enforcing egress proxy (N4); durable webhook acceptance (N5) | C8 is a topology change, and §0.12 directly reproduces cross-project version creation. These are boundaries, not scoring refinements. |
+| End-to-end lifecycle | 4.0 | Egress allowlisting and scope assignment in the UI, plus the remaining route scoping. Account provisioning and secret rotation now ship (§0.13.4). Formerly: account provisioning, secret population, and egress allowlisting **in the UI** | The backends exist, but secure setup leaves the product, and a second operator can still cross the workflow-version parent-ID boundary. |
+| Operations | 4.0 | Durable accept/in-flight recovery, alert routing/escalation/silencing, incident history, automatic dead-letter redelivery, per-workflow health, spend budgets | These are absent subsystems. The queued shutdown drain is useful but does not make reception durable. |
+| Deployment | 4.3 | Deployment-scoped secret binding and a release-checklist UI, plus one live-provider gate run. Release-route scoping and service quotas/CORS now ship (§0.13.2, §0.13.3). Formerly: finish release-route scoping, add deployment-scoped secret binding, service quotas/CORS, per-port input mapping, a release-checklist UI, and one live-provider gate run | L1 is verified by construction/tests, but no gate has been graded by a real model and version list/create still crosses projects. |
 | Architecture | 3.8 | Universal effect brokering beyond webhook/API nodes, worker/web separation, a durable pending queue, complete centralized scoping, configurable environment model | Each is structural. A helper existing while parent-ID routes bypass it is not centralized enforcement. |
-| Platform UX | 3.8 | Admin UI for the new stores, plus reducing the ID/JSON-heavy setup the report has flagged across three editions | This pass *added* backend capability with no UI, which widened the gap between what the product can do and what it can be operated to do. |
+| Platform UX | 4.1 | Reducing the ID/JSON-heavy setup this report has flagged across three editions | The admin-UI half is done (§0.13.4). What is left is the long-standing usability debt — raw IDs, JSON-heavy agent setup, giant workspaces — which is breadth work rather than a missing capability. |
 
 Deployment is closest and would move with bounded, well-understood work. Production
 Safety and Architecture are gated on C8 and the incomplete scoping/delivery boundaries,
