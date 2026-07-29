@@ -138,6 +138,7 @@ def enqueue_workflow_run(
         session_id=session_id,
         status=RUN_STATUS_QUEUED,
         source=source,
+        created_by=actor,
         priority=priority,
         queued_at=now,
         started_at=None,

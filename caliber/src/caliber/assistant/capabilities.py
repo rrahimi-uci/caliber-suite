@@ -52,6 +52,23 @@ class CapabilityContext:
     actor: str
     project_id: str | None = None
 
+    def identity(self) -> Any:
+        """The acting identity, resolved for visibility filtering.
+
+        Capability handlers run without a Starlette ``Request``, so they cannot use
+        ``resolve_identity``. Building the same :class:`~caliber.auth.CaliberIdentity`
+        here is what lets them apply the *same* visibility predicate the REST routes
+        do — the review found these handlers listing judges and review queues
+        globally, so Aria could enumerate another project's artifacts.
+        """
+        from caliber.auth import CaliberIdentity, scopes_for_user  # noqa: PLC0415
+
+        return CaliberIdentity(
+            user_id=self.actor,
+            scopes=scopes_for_user(self.config, self.actor),
+            active_project_id=self.project_id,
+        )
+
 
 @dataclass(frozen=True)
 class Capability:
@@ -139,17 +156,20 @@ def _judge_list(ctx: CapabilityContext, _args: dict[str, Any]) -> Any:
     from sqlalchemy import select  # noqa: PLC0415
 
     from caliber.db.models import CaliberJudge  # noqa: PLC0415
+    from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
 
+    identity = ctx.identity()
     with ctx.session_factory() as session:
-        rows = (
-            session.execute(
-                select(CaliberJudge)
-                .where(CaliberJudge.status == "active")
-                .order_by(CaliberJudge.name)
-            )
-            .scalars()
-            .all()
-        )
+        # Visibility-scoped: this listed every active judge in the database, so Aria
+        # could enumerate another project's judges (including their names and models)
+        # through a capability the REST route would have filtered.
+        stmt = apply_visibility_filter(
+            select(CaliberJudge).where(CaliberJudge.status == "active"),
+            CaliberJudge,
+            identity,
+            identity.active_project_id,
+        ).order_by(CaliberJudge.name)
+        rows = session.execute(stmt).scalars().all()
         return [
             {"judge_id": r.judge_id, "name": r.name, "model": r.model, "description": r.description}
             for r in rows
@@ -173,17 +193,18 @@ def _review_queue_list(ctx: CapabilityContext, _args: dict[str, Any]) -> Any:
     from sqlalchemy import select  # noqa: PLC0415
 
     from caliber.db.models import CaliberReviewQueue  # noqa: PLC0415
+    from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
 
+    identity = ctx.identity()
     with ctx.session_factory() as session:
-        rows = (
-            session.execute(
-                select(CaliberReviewQueue)
-                .where(CaliberReviewQueue.status == "active")
-                .order_by(CaliberReviewQueue.name)
-            )
-            .scalars()
-            .all()
-        )
+        # Same defect as the judge list: globally unscoped.
+        stmt = apply_visibility_filter(
+            select(CaliberReviewQueue).where(CaliberReviewQueue.status == "active"),
+            CaliberReviewQueue,
+            identity,
+            identity.active_project_id,
+        ).order_by(CaliberReviewQueue.name)
+        rows = session.execute(stmt).scalars().all()
         return [
             {"queue_id": r.queue_id, "name": r.name, "questions": len(r.questions or [])}
             for r in rows
@@ -219,13 +240,26 @@ def _eval_dataset_create(ctx: CapabilityContext, args: dict[str, Any]) -> Any:
 
 
 def _review_queue_add_items(ctx: CapabilityContext, args: dict[str, Any]) -> Any:
+    from caliber.db.models import CaliberReviewQueue  # noqa: PLC0415
+    from caliber.db.scoping import get_visible  # noqa: PLC0415
     from caliber.routes.review_queues import add_review_items_records  # noqa: PLC0415
 
     queue_id = str(args.get("queue_id") or "")
     trace_ids = [str(t) for t in (args.get("trace_ids") or []) if str(t).strip()]
     if not queue_id or not trace_ids:
         raise ValueError("queue_id and a non-empty trace_ids list are required")
+    identity = ctx.identity()
     with ctx.session_factory() as session:
+        # Resolve the queue through the caller's visibility before writing to it: the
+        # handler accepted an unscoped queue id, so Aria could add items to another
+        # project's review queue.
+        if (
+            get_visible(
+                session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
+            )
+            is None
+        ):
+            raise ValueError(f"review queue {queue_id!r} not found")
         created = add_review_items_records(
             session,
             queue_id=queue_id,

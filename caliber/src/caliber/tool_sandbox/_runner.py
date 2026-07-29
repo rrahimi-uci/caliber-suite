@@ -59,11 +59,63 @@ SAFE_BUILTINS = {
 }
 
 
+class _BoundedWriter(io.TextIOBase):
+    """Capture at most ``limit`` characters, counting everything written.
+
+    The runner previously accumulated an unbounded ``StringIO`` and the *parent*
+    clipped the result afterwards, so a tool printing megabytes both ballooned the
+    child's memory and produced a JSON envelope larger than any bound the parent
+    could safely apply — truncating it mid-string.
+
+    Writes past the limit are counted and dropped rather than raising: a tool must
+    not fail *because* it was chatty, and the counter is what lets the report say how
+    much was omitted instead of silently presenting a prefix as the whole output.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._limit = max(int(limit), 0)
+        self._parts: list[str] = []
+        self._kept = 0
+        self.dropped = 0
+
+    def write(self, text: str) -> int:
+        chunk = str(text)
+        room = self._limit - self._kept
+        if room > 0:
+            keep = chunk[:room]
+            self._parts.append(keep)
+            self._kept += len(keep)
+            self.dropped += len(chunk) - len(keep)
+        else:
+            self.dropped += len(chunk)
+        return len(chunk)
+
+    def writable(self) -> bool:
+        return True
+
+    def getvalue(self) -> str:
+        text = "".join(self._parts)
+        if self.dropped:
+            text += f"\n... [{self.dropped} more characters omitted by the sandbox output limit]"
+        return text
+
+
+#: Fallback when the parent sends no limit (older payloads / direct invocation).
+_DEFAULT_CAPTURE_LIMIT = 65_536
+
+
 def main() -> None:
     request = json.loads(sys.stdin.read() or "{}")
-    _apply_resource_limits(request.get("_limits"))
-    stdout = io.StringIO()
-    stderr = io.StringIO()
+    limits = request.get("_limits")
+    _apply_resource_limits(limits)
+    capture_limit = _DEFAULT_CAPTURE_LIMIT
+    if isinstance(limits, dict):
+        raw_limit = limits.get("output_chars")
+        if isinstance(raw_limit, int) and raw_limit > 0:
+            capture_limit = raw_limit
+    # Bounded in the child, so the JSON envelope the parent parses is bounded too.
+    stdout = _BoundedWriter(capture_limit)
+    stderr = _BoundedWriter(capture_limit)
     start = time.monotonic()
     result: dict[str, Any]
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):

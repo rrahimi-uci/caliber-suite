@@ -65,7 +65,7 @@ from caliber.schemas import (
 from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.ir import IRToolBinding
 from caliber.workflows.sandbox import make_preview_callable, should_mock_in_preview
-from caliber.workflows.tools import family_name
+from caliber.workflows.tools import family_name, registered_tool_module_allowed
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/tools"
 # Durable tool-test-run history. Registered BEFORE ``DETAIL_PATH`` so the
@@ -398,14 +398,30 @@ def _referencing_deployments(session: Session, tool_name: str) -> list[str]:
     return blocking
 
 
-def _invoke_tool_in_sandbox(tool_data: ToolSchema, tool_input: dict[str, Any]) -> dict[str, Any]:
-    """Run one tool invocation through the preview sandbox.
+def _invoke_tool_under_preview_policy(
+    tool_data: ToolSchema, tool_input: dict[str, Any]
+) -> dict[str, Any]:
+    """Run one tool invocation under **preview effect policy**.
 
-    Shared by the one-off ``test-run`` endpoint and the scored ``calibrate``
-    endpoint so both go through the identical sandbox path:
-    ``write``/``external_action`` tools are always mocked, ``read`` tools run
-    live only when ``allow_in_preview`` is True. Returns
-    ``{output, mocked, duration_ms, error}``.
+    Named for what it does. This was called ``_invoke_tool_in_sandbox`` and both its
+    callers described themselves as "sandbox-isolated", but it imports the tool's
+    module and calls the callable in the web process — there is no subprocess here.
+    The review flagged exactly that: "the Tool test-run path describes itself as
+    sandbox-isolated, but imports the module and invokes ``wrapped(**tool_input)`` in
+    the web process". An overstated boundary is worse than a stated-narrow one,
+    because an operator relies on it.
+
+    What it *does* enforce, which is real and worth having:
+
+    * **effect policy** — ``write``/``external_action`` tools are always mocked, and
+      ``read`` tools run live only when ``allow_in_preview`` is True; and
+    * **the module allowlist** — the import is refused unless the tool's module is
+      permitted, so an operator who has declared their tool modules is protected on
+      this path too.
+
+    Process isolation for registered tool callables remains open, and the response
+    says so via ``isolation`` rather than leaving the caller to assume.
+    Returns ``{output, mocked, duration_ms, error, isolation}``.
     """
     binding = IRToolBinding(
         local_name=tool_data.name,
@@ -422,18 +438,27 @@ def _invoke_tool_in_sandbox(tool_data: ToolSchema, tool_input: dict[str, Any]) -
         else None,
     )
 
-    # Attempt to import the real callable.
+    # Attempt to import the real callable — but only from a permitted module. The
+    # allowlist is checked before the import, not after, because the import itself is
+    # the effect being guarded: module-level code runs on import.
     real_callable = None
     import_error: str | None = None
-    try:
-        mod = importlib.import_module(binding.module_path)
-        real_callable = getattr(mod, binding.callable_name, None)
-        if real_callable is None:
-            import_error = (
-                f"module '{binding.module_path}' has no attribute '{binding.callable_name}'"
-            )
-    except ImportError as exc:
-        import_error = f"cannot import module '{binding.module_path}': {exc}"
+    if not registered_tool_module_allowed(binding.module_path):
+        import_error = (
+            f"module '{binding.module_path}' is not in "
+            "CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST; it is imported and invoked in "
+            "the CALIBER process"
+        )
+    else:
+        try:
+            mod = importlib.import_module(binding.module_path)
+            real_callable = getattr(mod, binding.callable_name, None)
+            if real_callable is None:
+                import_error = (
+                    f"module '{binding.module_path}' has no attribute '{binding.callable_name}'"
+                )
+        except ImportError as exc:
+            import_error = f"cannot import module '{binding.module_path}': {exc}"
 
     mocked = should_mock_in_preview(binding)
     wrapped = make_preview_callable(binding, real_callable)
@@ -449,15 +474,29 @@ def _invoke_tool_in_sandbox(tool_data: ToolSchema, tool_input: dict[str, Any]) -
             error = f"{type(exc).__name__}: {exc}"
 
     duration_ms = round((time.monotonic() - start_time) * 1000, 1)
-    return {"output": output, "mocked": mocked, "duration_ms": duration_ms, "error": error}
+    return {
+        "output": output,
+        "mocked": mocked,
+        "duration_ms": duration_ms,
+        "error": error,
+        # Stated, not implied. A client that renders "sandboxed" next to a result this
+        # endpoint produced would be telling the operator something untrue.
+        "isolation": "in_process",
+    }
 
 
 async def test_run_tool(request: Request) -> JSONResponse:
-    """``POST /caliber/tools/{tool_id}/test-run`` — sandbox-isolated test invocation.
+    """``POST /caliber/tools/{tool_id}/test-run`` — test invocation under preview policy.
 
-    Accepts ``{"input": {...}}`` and executes the tool through the sandbox.
-    ``write``/``external_action`` tools are always mocked.
-    ``read`` tools run live only when ``allow_in_preview`` is True.
+    Accepts ``{"input": {...}}`` and invokes the tool with preview effect policy
+    applied: ``write``/``external_action`` tools are always mocked, and ``read`` tools
+    run live only when ``allow_in_preview`` is True.
+
+    **Not** process-isolated: a registered tool's module is imported and called in this
+    process, and the response reports ``isolation: "in_process"`` so a client cannot
+    present it as sandboxed. This docstring used to claim "sandbox-isolated", which the
+    review correctly flagged as an overstated boundary. See
+    :func:`_invoke_tool_under_preview_policy`.
     """
     tool_id = request.path_params["tool_id"]
     body = await parse_json_object(request)
@@ -477,7 +516,7 @@ async def test_run_tool(request: Request) -> JSONResponse:
             raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
         tool_data = ToolSchema.model_validate(tool)
 
-    invocation = _invoke_tool_in_sandbox(tool_data, tool_input)
+    invocation = _invoke_tool_under_preview_policy(tool_data, tool_input)
     return JSONResponse({"data": {"tool_id": tool_id, **invocation}})
 
 
@@ -535,7 +574,7 @@ async def calibrate_tool(request: Request) -> JSONResponse:
             name = str(case.get("name", "")) or "case"
             raw_input = case.get("input")
             case_input: dict[str, Any] = dict(raw_input) if isinstance(raw_input, dict) else {}
-            invocation = _invoke_tool_in_sandbox(tool_data, case_input)
+            invocation = _invoke_tool_under_preview_policy(tool_data, case_input)
             passed = evaluate_assertion(
                 case.get("assertion"), invocation["output"], invocation["error"]
             )

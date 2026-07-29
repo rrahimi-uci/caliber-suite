@@ -1375,6 +1375,30 @@ export interface EvalExampleFromTracePayload {
 }
 
 /** One scored example within an evaluation run's scorecard. */
+/** POST /auth/login */
+export interface AuthLoginResult {
+  user_id: string;
+  expires_at: string;
+  /** Returned once for non-browser clients; the SPA relies on the HttpOnly cookie. */
+  token: string;
+}
+
+/**
+ * GET /auth/session — the caller's identity and **how** it was established.
+ *
+ * `auth_mode` and `authenticated_by` exist so the SPA does not have to guess whether
+ * to show a login form, and so an operator can see at a glance whether a deployment
+ * is trusting a header rather than validating a password.
+ */
+export interface AuthSessionInfo {
+  user_id: string;
+  scopes: string[];
+  is_admin: boolean;
+  auth_mode: "session" | "trusted_header";
+  authenticated_by: "session" | "trusted_header" | "dev_fallback" | "none";
+  login_required: boolean;
+}
+
 /**
  * GET /agents/{id}/experiment — whether the agent's MLflow experiment binding
  * actually resolves.

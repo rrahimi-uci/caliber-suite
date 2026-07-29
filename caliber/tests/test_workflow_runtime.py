@@ -80,6 +80,10 @@ from tests.workflow_helpers import fake_resolver, make_manifest, make_support_ma
 def _plan(manifest_dict, **plan_kwargs) -> RuntimePlan:
     resolver = fake_resolver()
     ir = build_ir(parse_manifest(manifest_dict), resolver, version="7")
+    # ``external_app`` entrypoints are allowlisted and fail closed by default (C8).
+    # These tests exercise node behaviour, so permit the test modules by prefix; the
+    # allowlist itself is covered by its own tests.
+    plan_kwargs.setdefault("external_app_entrypoint_allowlist", "workflow_external_*")
     return RuntimePlan(ir=ir, resolver=resolver, **plan_kwargs)
 
 
@@ -2127,15 +2131,27 @@ def test_python_code_node_honors_raised_max_output_bytes() -> None:
 
 
 def test_python_code_node_falls_back_to_default_cap_without_config() -> None:
-    """When no cap is threaded onto the plan (preview / eval-replay paths),
-    the sandbox uses its 64 KB class default — so a >64 KB output is truncated
-    and the node fails on invalid JSON. This guards the threading in
-    ``build_plan`` from silently regressing to a no-op."""
+    """With no cap threaded onto the plan (preview / eval-replay paths), the sandbox
+    applies its class default.
+
+    This previously asserted that the node *failed* on a >64 KB output — because the
+    oversized value truncated the runner's JSON envelope. That was the C8 bounding
+    defect, not intended behaviour: the child now bounds its own capture, so the
+    envelope always parses and the node reports a clipped result instead of an error.
+    The property still worth guarding is that the cap is applied at all, which the
+    raised-cap test above pins from the other direction.
+    """
     data = _big_python_code_manifest(100_000)
 
     result = execute(_plan(data), "go", executor=FakeWorkflowExecutor())
 
-    assert result.status == "error"
+    # The node's *return value* is not what ``max_output_bytes`` bounds — that setting
+    # caps captured stdout/stderr. The old assertion only passed because an oversized
+    # return value overflowed the clip applied to the JSON envelope, which is the
+    # transport, and produced a parse error. With the envelope bounded in the child and
+    # parsed unclipped, a large return value now arrives intact.
+    assert result.status == "completed"
+    assert len(result.output) == 100_000
 
 
 def test_wait_until_node_blocks_until_resume_boundary() -> None:
@@ -4208,7 +4224,11 @@ def test_external_app_node_invokes_async_entrypoint_and_publishes_outputs(
         _, step = _run_node(
             node,
             ir,
-            RuntimePlan(ir=ir, resolver=InMemoryToolResolver([])),
+            RuntimePlan(
+                ir=ir,
+                resolver=InMemoryToolResolver([]),
+                external_app_entrypoint_allowlist="workflow_external_*",
+            ),
             executor=FakeWorkflowExecutor(),
             preview=True,
             inputs={"input": "approve", "context": {"ticket_id": "T-100"}},
@@ -4314,7 +4334,11 @@ def test_runtime_human_passthrough_then_external_app_executes(
     )
 
     result = execute(
-        RuntimePlan(ir=ir, resolver=InMemoryToolResolver([])),
+        RuntimePlan(
+            ir=ir,
+            resolver=InMemoryToolResolver([]),
+            external_app_entrypoint_allowlist="workflow_external_*",
+        ),
         "approve",
         executor=FakeWorkflowExecutor(),
     )
@@ -4460,7 +4484,11 @@ def test_external_app_node_reports_invalid_entrypoint() -> None:
         _run_node(
             node,
             ir,
-            RuntimePlan(ir=ir, resolver=InMemoryToolResolver([])),
+            RuntimePlan(
+                ir=ir,
+                resolver=InMemoryToolResolver([]),
+                external_app_entrypoint_allowlist="workflow_external_*",
+            ),
             executor=FakeWorkflowExecutor(),
             preview=False,
             inputs={"input": "approve"},
@@ -4997,7 +5025,10 @@ def test_resolve_external_app_entrypoint_supports_nested_attributes() -> None:
     sys.modules[module_name] = module
 
     try:
-        fn, resolved = _resolve_external_app_entrypoint(f"{module_name}:handlers.sync_handler")
+        fn, resolved = _resolve_external_app_entrypoint(
+            f"{module_name}:handlers.sync_handler",
+            allowlist=f"{module_name}:handlers.sync_handler",
+        )
     finally:
         sys.modules.pop(module_name, None)
 
@@ -5018,8 +5049,58 @@ def test_resolve_external_app_entrypoint_reports_configuration_errors(
     entrypoint: str,
     message: str,
 ) -> None:
+    # Allowlisted, so each case exercises its own configuration error rather than
+    # the allowlist refusal (which has its own tests below).
     with pytest.raises(ToolExecutionError, match=message):
-        _resolve_external_app_entrypoint(entrypoint)
+        _resolve_external_app_entrypoint(entrypoint, allowlist=entrypoint or "x:y")
+
+
+# ── external_app entrypoint allowlist (C8) ─────────────────────────────────
+
+
+def test_an_external_app_entrypoint_is_refused_without_an_allowlist() -> None:
+    """Regression (C8): an operator could type any ``package.module:callable`` into
+    the Inspector and CALIBER imported and invoked it in the control-plane process.
+    Every other execution surface shipped an allowlist; this one did not."""
+    with pytest.raises(ToolExecutionError, match="EXTERNAL_APP_ENTRYPOINT_ALLOWLIST"):
+        _resolve_external_app_entrypoint("json:dumps")
+    with pytest.raises(ToolExecutionError, match="EXTERNAL_APP_ENTRYPOINT_ALLOWLIST"):
+        _resolve_external_app_entrypoint("json:dumps", allowlist="other.module:handler")
+
+
+def test_the_allowlist_accepts_an_exact_entry_in_either_spelling() -> None:
+    """``a.b.c`` and ``a.b:c`` name the same callable and must compare equal."""
+    fn, resolved = _resolve_external_app_entrypoint("json:dumps", allowlist="json:dumps")
+    assert callable(fn)
+    assert resolved == "json:dumps"
+    fn2, _ = _resolve_external_app_entrypoint("json.dumps", allowlist="json:dumps")
+    assert fn2 is fn
+
+
+def test_the_allowlist_supports_a_module_prefix_wildcard() -> None:
+    """A team with many first-party entrypoints needs a prefix, or the allowlist
+    becomes unusable and gets set to something permissive."""
+    fn, _ = _resolve_external_app_entrypoint("json:dumps", allowlist="json:*")
+    assert callable(fn)
+
+
+def test_a_bare_wildcard_does_not_allow_everything() -> None:
+    """``*`` would silently restore the original defect."""
+    with pytest.raises(ToolExecutionError, match="EXTERNAL_APP_ENTRYPOINT_ALLOWLIST"):
+        _resolve_external_app_entrypoint("json:dumps", allowlist="*")
+
+
+def test_allowlist_matching_helper_is_directly_testable() -> None:
+    from caliber.workflows.runtime import external_app_entrypoint_allowed
+
+    assert external_app_entrypoint_allowed("a.b:c", "a.b:c") is True
+    assert external_app_entrypoint_allowed("a.b.c", "a.b:c") is True
+    assert external_app_entrypoint_allowed("a.b:c", " a.b:c , x:y ") is True
+    assert external_app_entrypoint_allowed("a.b:c", "a.b:d") is False
+    assert external_app_entrypoint_allowed("a.b:c", "") is False
+    assert external_app_entrypoint_allowed("", "a.b:c") is False
+    assert external_app_entrypoint_allowed("a.b:c", "a.*") is True
+    assert external_app_entrypoint_allowed("zzz:c", "a.*") is False
 
 
 def test_invoke_external_app_callable_adapts_supported_function_shapes() -> None:
@@ -5085,6 +5166,7 @@ def test_run_external_app_entrypoint_enforces_timeout() -> None:
                 inputs={"input": "approve"},
                 run_input="approve",
                 preview=False,
+                entrypoint_allowlist=f"{module_name}:handle",
             )
     finally:
         sys.modules.pop(module_name, None)

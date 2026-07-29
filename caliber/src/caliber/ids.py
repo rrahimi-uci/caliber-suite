@@ -86,6 +86,7 @@ ASSISTANT_ATTACHMENT_PREFIX = "AATT-"
 ASSISTANT_QUEUED_MESSAGE_PREFIX = "QMSG-"
 GATE_VERDICT_PREFIX = "GV-"
 SKILL_VERSION_PREFIX = "SKV-"
+WEBHOOK_DEAD_LETTER_PREFIX = "WDL-"
 
 _ID_SUFFIX_LEN = 8
 
@@ -347,3 +348,8 @@ def new_skill_test_run_id() -> str:
 def new_knowledge_base_test_run_id() -> str:
     """Return a fresh knowledge-base calibration-run ID, e.g. ``KBTR-3a8f2c7e``."""
     return f"{KNOWLEDGE_BASE_TEST_RUN_PREFIX}{_suffix()}"
+
+
+def new_webhook_dead_letter_id() -> str:
+    """Return a fresh webhook dead-letter ID, e.g. ``WDL-3a8f2c7e``."""
+    return f"{WEBHOOK_DEAD_LETTER_PREFIX}{_suffix()}"

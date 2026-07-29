@@ -15,6 +15,7 @@ from tests.workflow_helpers import (
     PREFIX,
     create_and_publish,
     make_support_manifest,
+    relax_release_graded_executor,
     seed_eval_dataset,
 )
 
@@ -36,6 +37,10 @@ def _deploy_prod(
 ) -> tuple[str, str, str]:
     """Create a gated workflow, publish, promote to prod, approve. Returns (wid, vid, promo_id)."""
     seed_eval_dataset(db_session)
+    # The subject of these tests is promotion-approval state transitions. The suite
+    # grades with the deterministic fake, which production release policy otherwise
+    # refuses as evidence — see tests/test_deploy_gate_executor.py for that default.
+    relax_release_graded_executor(client)
     wid, vid = create_and_publish(
         client, workflow_name=workflow_name, manifest=_gated_manifest(workflow_name + "_wf")
     )

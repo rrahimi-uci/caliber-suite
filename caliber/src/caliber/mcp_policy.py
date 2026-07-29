@@ -74,6 +74,12 @@ class McpDependency:
     #: carries no server/tool of its own; preflight turns it into a blocker so an
     #: unresolvable child cannot pass by having nothing to inspect.
     unresolved_subworkflow: bool = False
+    #: The traversal hit :data:`_MAX_SUBWORKFLOW_DEPTH` with subworkflow nodes still
+    #: uninspected. Distinct from ``unresolved_subworkflow``: that one means "this
+    #: child is not deployed yet", which import preflight legitimately tolerates,
+    #: while this means "we stopped looking", which nothing may tolerate. Kept
+    #: separate so the tolerant flag cannot suppress it.
+    depth_exhausted: bool = False
 
 
 @dataclass
@@ -464,6 +470,16 @@ def deployment_blockers(
     blockers: list[str] = []
     for dependency in extract_dependencies(manifest, session=session):
         prefix = dependency.label
+        if dependency.depth_exhausted:
+            # Always a blocker, including where unresolved children are tolerated:
+            # "not deployed yet" is a state an operator can reason about, whereas
+            # "we stopped inspecting" is an unknown, and an unknown must fail closed.
+            blockers.append(
+                f"{prefix}: subworkflow nesting exceeds the {_MAX_SUBWORKFLOW_DEPTH}-level "
+                "inspection bound, so its MCP dependencies cannot be verified; flatten "
+                "the chain or deploy the nested workflow independently"
+            )
+            continue
         if dependency.unresolved_subworkflow:
             if not require_resolvable_subworkflows:
                 continue
@@ -525,6 +541,12 @@ def deployment_blockers(
 #: Guard against a pathological subworkflow chain. The compiler rejects cycles,
 #: but preflight also runs on stored manifests that predate that check, and a
 #: bounded walk is cheaper to reason about than trusting the graph.
+#:
+#: Reaching this bound is an **explicit blocker**, not a quiet stop. The walk
+#: previously recursed only ``while _depth < _MAX_SUBWORKFLOW_DEPTH`` and returned
+#: normally at the bound, so a deep enough chain hid an MCP dependency from alias
+#: rotation and server-deletion checks — a partial inspection reported as a complete
+#: one. A bound is necessary; treating its exhaustion as success is not.
 _MAX_SUBWORKFLOW_DEPTH = 16
 
 
@@ -587,16 +609,55 @@ def extract_dependencies(
                 declared_side_effect=None,
             )
         )
-    if session is not None and _depth < _MAX_SUBWORKFLOW_DEPTH:
-        dependencies.extend(
-            _subworkflow_dependencies(
-                node_items,
-                session=session,
-                depth=_depth,
-                seen=_seen if _seen is not None else set(),
+    if session is not None:
+        seen = _seen if _seen is not None else set()
+        if _depth < _MAX_SUBWORKFLOW_DEPTH:
+            dependencies.extend(
+                _subworkflow_dependencies(
+                    node_items,
+                    session=session,
+                    depth=_depth,
+                    seen=seen,
+                )
+            )
+        else:
+            # At the bound. Report each still-uninspected subworkflow node as
+            # uninspectable rather than returning as though the walk was complete.
+            # Only nodes not already visited elsewhere in the graph count: a diamond
+            # whose child was inspected at a shallower depth is genuinely covered.
+            dependencies.extend(_depth_exhausted_dependencies(node_items, seen=seen, depth=_depth))
+    return dependencies
+
+
+def _depth_exhausted_dependencies(
+    node_items: list[tuple[str, object]],
+    *,
+    seen: set[tuple[str, str]],
+    depth: int,
+) -> list[McpDependency]:
+    """One uninspectable marker per subworkflow node left unvisited at the bound."""
+    found: list[McpDependency] = []
+    for node_id, raw in node_items:
+        if not isinstance(raw, dict) or raw.get("type") != "subworkflow":
+            continue
+        child_id = str(raw.get("workflow_id", ""))
+        child_alias = str(raw.get("alias", "prod"))
+        if not child_id or (child_id, child_alias) in seen:
+            continue
+        found.append(
+            McpDependency(
+                label=(
+                    f"subworkflow node {node_id!r} target {child_id!r}@{child_alias!r} "
+                    f"at depth {depth}"
+                ),
+                server_id="",
+                tool_name="",
+                requires_approval=False,
+                declared_side_effect=None,
+                depth_exhausted=True,
             )
         )
-    return dependencies
+    return found
 
 
 def _subworkflow_dependencies(

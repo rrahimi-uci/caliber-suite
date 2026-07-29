@@ -255,6 +255,22 @@ def relax_release_quality_gate(client: TestClient) -> None:
     )
 
 
+def relax_release_graded_executor(client: TestClient) -> None:
+    """Accept a production deploy gate graded by the deterministic fake executor.
+
+    The whole test suite runs with ``CALIBER_LLM_PROVIDER=fake``, so every gate it
+    builds is graded deterministically. The shipped default refuses that for a
+    production alias — a scripted verdict is not evidence about the model that will
+    serve traffic — which is the point of the policy, so tests whose subject is gate
+    *grading* (thresholds, evidence, sampling) opt out here instead of the default
+    being softened. The default itself is covered by
+    ``tests/test_deploy_gate_executor.py``.
+    """
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"release_require_graded_executor_for_environment_classes": ""}
+    )
+
+
 def deploy_prod(client: TestClient, workflow_id: str, version_id: str) -> str | None:
     """Deploy a version to the ``prod`` alias, leaving it rotated either way.
 
@@ -263,10 +279,13 @@ def deploy_prod(client: TestClient, workflow_id: str, version_id: str) -> str | 
     approve; otherwise it rotates immediately. Returns the promotion_id when one
     was created, otherwise ``None``.
 
-    Relaxes the production quality-gate requirement first — see
-    :func:`relax_release_quality_gate`.
+    Relaxes both production release policies first — see
+    :func:`relax_release_quality_gate` and :func:`relax_release_graded_executor`.
+    A caller of this helper is reaching ``prod`` incidentally; whether release policy
+    is enforced correctly is the subject of the dedicated deploy-gate suites.
     """
     relax_release_quality_gate(client)
+    relax_release_graded_executor(client)
     r = client.post(
         f"{PREFIX}/workflows/{workflow_id}/deployments/prod/promote",
         json={"version_id": version_id},

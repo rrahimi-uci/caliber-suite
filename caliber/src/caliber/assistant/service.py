@@ -119,7 +119,7 @@ from caliber.tool_sandbox.models import (
     ToolSandboxTestSuiteRequest,
     ToolSandboxTestSuiteResult,
 )
-from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
+from caliber.tool_sandbox.service import sandbox_from_optional_config
 from caliber.workflows.compiler import CompileError, compile_workflow
 from caliber.workflows.manifest import parse_manifest
 from caliber.workflows.tools import InMemoryToolResolver
@@ -2561,7 +2561,10 @@ class AssistantService:
             tests=tests,
             timeout_seconds=self._tool_sandbox_timeout_seconds(),
         )
-        result = LocalSubprocessToolSandbox().run_tests(request)
+        result = sandbox_from_optional_config(
+            self._runtime_config,
+            default_timeout_seconds=self._tool_sandbox_timeout_seconds(),
+        ).run_tests(request)
         return self._tool_sandbox_report(result)
 
     def _execute_create_skill(  # noqa: PLR0912, PLR0915

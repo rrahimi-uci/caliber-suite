@@ -22,6 +22,8 @@ import type {
   AgentConfig,
   AgentRegisterPayload,
   AgentExperimentBinding,
+  AuthLoginResult,
+  AuthSessionInfo,
   AgentSkillsResponse,
   AgentUpdatePayload,
   ApiErrorBody,
@@ -876,6 +878,30 @@ export const caliberApi = {
         body: checkpointId ? { checkpoint_id: checkpointId } : {},
       },
     );
+  },
+
+  /**
+   * POST /auth/login — verify credentials server-side.
+   *
+   * Replaces the browser-side `admin`/`admin` check (C1). On success the server sets
+   * an HttpOnly session cookie, which is why nothing here stores the returned token:
+   * a token in JavaScript-readable storage is what HttpOnly avoids.
+   */
+  login(userId: string, password: string): Promise<AuthLoginResult> {
+    return request<AuthLoginResult>("/auth/login", {
+      method: "POST",
+      body: { user_id: userId, password },
+    });
+  },
+
+  /** POST /auth/logout — revoke the session server-side, not just locally. */
+  logout(): Promise<{ revoked: boolean }> {
+    return request<{ revoked: boolean }>("/auth/logout", { method: "POST", body: {} });
+  },
+
+  /** GET /auth/session — who am I, and how was that established? */
+  getAuthSession(signal?: AbortSignal): Promise<AuthSessionInfo> {
+    return request<AuthSessionInfo>("/auth/session", { signal });
   },
 
   /** GET /agents/{id}/skills */

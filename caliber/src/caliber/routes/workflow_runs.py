@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import SCOPE_OPERATOR, current_scopes, require_scopes, require_user
 from caliber.db.models import (
     CaliberProject,
     CaliberRuntimeApprovalRequest,
@@ -30,7 +30,12 @@ from caliber.db.models import (
 )
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
-from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
+from caliber.routes._deps import (
+    envelope_response,
+    envelope_response_dict,
+    get_session_factory,
+    parse_json_object,
+)
 from caliber.schemas import (
     WorkflowRunApprovalDecisionRequest,
     WorkflowRunCancelRequest,
@@ -48,6 +53,11 @@ from caliber.schemas import (
     WorkflowTriggerRequest,
 )
 from caliber.trace_client import fetch_trace_spans
+from caliber.workflows.approval_policy import (
+    ApprovalPolicy,
+    ApprovalPolicyError,
+    record_approval,
+)
 from caliber.workflows.manifest import (
     StartNode,
     StartTrigger,
@@ -611,6 +621,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:
             session_id=payload.session_id,
             status=RUN_STATUS_QUEUED,
             source=payload.source,
+            created_by=actor,
             priority=payload.priority,
             queued_at=now,
             started_at=None,
@@ -1227,6 +1238,9 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
             session_id=run.session_id,
             status=RUN_STATUS_QUEUED,
             source=run.source or "manual",
+            # The retrying actor, not the original: they are the one who caused this
+            # attempt, so they are the one who must not also approve it.
+            created_by=actor,
             priority=int(run.priority or 0),
             queued_at=now,
             started_at=None,
@@ -1428,6 +1442,73 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
             runtime_approval_id=payload.runtime_approval_id,
         )
         approval_id = approval.runtime_approval_id
+        # Enforce the node's OWN policy (C6): this endpoint previously required only
+        # the global operator scope, so a node configured for ``caliber.admin`` with a
+        # quorum of two was approvable by any operator, once. ``record_approval``
+        # applies the required role, distinct-approver quorum, and the
+        # initiator-cannot-approve rule.
+        policy = ApprovalPolicy.from_snapshot(approval.policy_snapshot)
+        recorded = list((approval.policy_snapshot or {}).get("approvals") or [])
+        try:
+            quorum = record_approval(
+                policy=policy,
+                existing_approvals=recorded,
+                actor=actor,
+                actor_scopes=current_scopes(request),
+                initiated_by=run.created_by,
+            )
+        except ApprovalPolicyError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+        # Persist the accumulated approvers alongside the snapshot so a quorum
+        # survives a restart and cannot be satisfied by one person twice.
+        approval.policy_snapshot = {
+            **(approval.policy_snapshot or {}),
+            **policy.to_snapshot(),
+            "approvals": list(quorum.approvals),
+        }
+        if not quorum.satisfied:
+            # Still short of the quorum: record the partial decision and leave the run
+            # waiting. Returning 200 with the remaining count is what lets the UI show
+            # "1 of 2 approvals".
+            audit_record(
+                session,
+                actor=actor,
+                action="record_workflow_run_partial_approval",
+                entity_type="runtime_approval",
+                entity_id=approval.runtime_approval_id,
+                details={
+                    "workflow_run_id": run.workflow_run_id,
+                    "approvals": len(quorum.approvals),
+                    "required": quorum.required,
+                },
+            )
+            _append_run_event(
+                session,
+                workflow_run_id=run.workflow_run_id,
+                project_id=run.project_id,
+                event_type="workflow.run.approval.partial",
+                payload={
+                    "runtime_approval_id": approval.runtime_approval_id,
+                    "node_id": approval.node_id,
+                    "decided_by": actor,
+                    "approvals": len(quorum.approvals),
+                    "required": quorum.required,
+                },
+                node_id=approval.node_id,
+            )
+            session.commit()
+            return envelope_response_dict(
+                {
+                    "workflow_run_id": run.workflow_run_id,
+                    "runtime_approval_id": approval.runtime_approval_id,
+                    "status": "pending",
+                    "approvals": len(quorum.approvals),
+                    "required_approvals": quorum.required,
+                    "remaining_approvals": quorum.remaining,
+                }
+            )
+
         approval.status = "approved"
         approval.decided_at = now
         approval.decided_by = actor
@@ -1441,6 +1522,7 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
                 "runtime_approval_id": approval.runtime_approval_id,
                 "node_id": approval.node_id,
                 "decided_by": actor,
+                "approvals": list(quorum.approvals),
                 "reason": payload.reason,
             },
             node_id=approval.node_id,

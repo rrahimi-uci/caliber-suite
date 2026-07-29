@@ -51,11 +51,17 @@ def _stub_request(user: str | None, config: CaliberConfig) -> MagicMock:
 
 
 def _config(**overrides: str) -> CaliberConfig:
-    """Build a config with empty user-list defaults plus overrides."""
+    """Build a config with empty user-list defaults plus overrides.
+
+    ``auth_mode="trusted_header"`` because these tests drive the *scope resolver*
+    from a header. The shipped default is ``session``, where ``X-CALIBER-User`` is
+    ignored entirely — see ``tests/test_auth_sessions.py`` for that boundary.
+    """
     base: dict[str, object] = {
         "admin_users": "",
         "approver_users": "",
         "operator_users": "",
+        "auth_mode": "trusted_header",
     }
     base.update(overrides)
     return CaliberConfig(**base)

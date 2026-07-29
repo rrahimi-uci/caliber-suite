@@ -190,6 +190,53 @@ class InMemoryToolResolver:
         return ToolResolution(entry=best, warnings=warnings)
 
 
+#: Process-wide allowlist of module prefixes a registered tool may be imported from.
+#:
+#: Bound at app startup from ``config.registered_tool_module_allowlist`` rather than
+#: threaded through every call site: a registered tool is imported from the runtime,
+#: the compiler's generated code, and two route paths, and an allowlist that only some
+#: of them consulted would be worse than none — it would read as enforced while
+#: leaving the unthreaded paths open. ``None`` means unrestricted (see the config
+#: field for why that is the shipped default, and how it is surfaced).
+_MODULE_ALLOWLIST: str | None = None
+
+
+def bind_module_allowlist(allowlist: str | None) -> None:
+    """Install the process-wide registered-tool module allowlist."""
+    global _MODULE_ALLOWLIST  # noqa: PLW0603 - one process-wide policy by design
+    text = (allowlist or "").strip()
+    _MODULE_ALLOWLIST = text or None
+
+
+def registered_tool_module_allowed(module_path: str, allowlist: str | None = None) -> bool:
+    """Whether ``module_path`` may be imported as a registered tool.
+
+    An unset allowlist permits everything, which is the documented default. When set,
+    a module must match an entry exactly or fall under a ``prefix.*`` entry — the same
+    semantics as the external-app entrypoint allowlist, so an operator learns one rule
+    rather than two.
+    """
+    patterns = _MODULE_ALLOWLIST if allowlist is None else allowlist
+    if not patterns:
+        return True
+    candidate = (module_path or "").strip()
+    if not candidate:
+        return False
+    for raw in str(patterns).split(","):
+        pattern = raw.strip()
+        if not pattern:
+            continue
+        if pattern.endswith("*"):
+            prefix = pattern[:-1]
+            # A bare '*' would mean "allow everything", which defeats the control.
+            if prefix and candidate.startswith(prefix):
+                return True
+            continue
+        if candidate == pattern:
+            return True
+    return False
+
+
 def bind_registered_tool(
     entry: ToolRegistryEntry,
     *,
@@ -202,12 +249,23 @@ def bind_registered_tool(
     imported. Wrapping as an Agents SDK ``function_tool`` is deferred to the
     runtime executor that actually needs the SDK object — keeping this module
     importable without the ``[llm]`` extra.
+
+    The import is checked against :func:`registered_tool_module_allowed` first. This
+    path imports and invokes installed Python **in the control-plane process**, so
+    when an operator has declared which modules are legitimate, a registry row naming
+    anything else is refused before the import rather than after.
     """
     if callable_override is not None:
         return callable_override
     if entry.module_path == "<in-memory>":
         raise ToolBindingError(
             f"tool {entry.registry_ref!r} has no importable module and no override callable"
+        )
+    if not registered_tool_module_allowed(entry.module_path):
+        raise ToolBindingError(
+            f"tool {entry.registry_ref!r} module {entry.module_path!r} is not in "
+            "CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST; this module is imported and "
+            "invoked in the CALIBER process"
         )
     import importlib  # noqa: PLC0415
 
@@ -234,6 +292,8 @@ __all__ = [
     "ToolResolution",
     "ToolResolutionError",
     "ToolResolver",
+    "bind_module_allowlist",
     "bind_registered_tool",
     "family_name",
+    "registered_tool_module_allowed",
 ]

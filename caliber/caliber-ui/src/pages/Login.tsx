@@ -1,12 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import {
-  DEFAULT_LOGIN_PASSWORD,
-  DEFAULT_LOGIN_USERNAME,
-  createLocalAuthSession,
-  isDefaultCredential,
-  saveLocalAuthSession,
-} from "@/auth/localAuth";
+import { signIn } from "@/auth/localAuth";
 import { BrandAcronym } from "@/components/BrandAcronym";
 
 interface LoginProps {
@@ -101,23 +95,38 @@ const FEATURES: Feature[] = [
 /* ── Login component ──────────────────────────────────────────────── */
 
 export function Login({ onLogin }: LoginProps): JSX.Element {
-  const [username, setUsername] = useState(DEFAULT_LOGIN_USERNAME);
-  const [password, setPassword] = useState(DEFAULT_LOGIN_PASSWORD);
+  // No prefilled credentials: the form used to arrive with admin/admin already
+  // typed, which is the posture C1 removed.
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const staticPrefix =
     (typeof window !== "undefined" && window.__CALIBER_STATIC_PREFIX__) || "";
   const logoSrc = `${staticPrefix}/caliber/caliber.png`;
   const iconSrc = `${staticPrefix}/caliber/caliber-icon.png`;
 
-  const submit = (event: FormEvent<HTMLFormElement>): void => {
+  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (!isDefaultCredential(username, password)) {
-      setError("Invalid username or password.");
-      return;
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      // Verified by the server, not here. The generic failure message matches the
+      // server's, so the form cannot be used to enumerate accounts.
+      await signIn(username, password);
+      onLogin();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setError(
+        message.includes("too many")
+          ? "Too many failed sign-in attempts. Wait a few minutes and try again."
+          : "Invalid username or password.",
+      );
+    } finally {
+      setSubmitting(false);
     }
-    saveLocalAuthSession(createLocalAuthSession(DEFAULT_LOGIN_USERNAME));
-    onLogin();
   };
 
   return (
@@ -271,9 +280,10 @@ export function Login({ onLogin }: LoginProps): JSX.Element {
 
                 <button
                   type="submit"
-                  className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-caliber-600 to-blue-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-caliber-600/25 transition-all hover:shadow-xl hover:shadow-caliber-600/30 hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-caliber-500/50 focus:ring-offset-2 focus:ring-offset-slate-950 active:scale-[0.98]"
+                  disabled={submitting}
+                  className="group flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-caliber-600 to-blue-600 px-4 py-3.5 text-sm font-semibold text-white shadow-lg shadow-caliber-600/25 transition-all hover:shadow-xl hover:shadow-caliber-600/30 hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-caliber-500/50 focus:ring-offset-2 focus:ring-offset-slate-950 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Sign in
+                  {submitting ? "Signing in…" : "Sign in"}
                   <svg className="w-4 h-4 transition-transform group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M5 12h14M12 5l7 7-7 7" />
                   </svg>

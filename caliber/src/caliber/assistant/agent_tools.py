@@ -963,7 +963,7 @@ class AssistantAgentToolset:
 
     def _t_run_tool_sandbox(self, a: dict[str, Any]) -> str:
         from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
-        from caliber.tool_sandbox.service import LocalSubprocessToolSandbox  # noqa: PLC0415
+        from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
         draft = self._deps.get_draft(
             str(a.get("draft_id", "")), session_factory=self._deps.session_factory, user=self._user
@@ -978,7 +978,7 @@ class AssistantAgentToolset:
         if not source or not callable_name:
             return _err("tool draft is missing source or a callable name")
         tool_input = a.get("input") or {}
-        sandbox = LocalSubprocessToolSandbox()
+        sandbox = sandbox_from_optional_config(self._deps.config)
         run = sandbox.run_tool(
             ToolSandboxRunRequest(
                 source_code=source,
@@ -1076,7 +1076,7 @@ class AssistantAgentToolset:
     def _t_evaluate_tool_draft(self, a: dict[str, Any]) -> str:
         from caliber.eval.scorecard import ScorecardInputError, run_scorecard  # noqa: PLC0415
         from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
-        from caliber.tool_sandbox.service import LocalSubprocessToolSandbox  # noqa: PLC0415
+        from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
         draft = self._deps.get_draft(
             str(a.get("draft_id", "")), session_factory=self._deps.session_factory, user=self._user
@@ -1096,7 +1096,7 @@ class AssistantAgentToolset:
             examples = self._load_dataset_examples(db, str(a.get("dataset_id", "")), cap)
         if not examples:
             return _err("dataset has no examples")
-        sandbox = LocalSubprocessToolSandbox()
+        sandbox = sandbox_from_optional_config(self._deps.config)
 
         def predict(inputs: Mapping[str, Any]) -> str:
             run = sandbox.run_tool(

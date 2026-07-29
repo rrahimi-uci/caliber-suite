@@ -1,4 +1,11 @@
-"""Tests for the current-user resolver."""
+"""Tests for the current-user resolver.
+
+Identity resolution order (see :mod:`caliber.auth`): a validated session wins, then
+the trusted header *only* in ``trusted_header`` mode, then the dev fallback *only*
+when explicitly enabled. The header tests below therefore declare
+``trusted_header`` — under the shipped ``session`` default the header is ignored
+entirely, which is asserted at the bottom of this file.
+"""
 
 from __future__ import annotations
 
@@ -31,15 +38,22 @@ def _make_request(
     """
     headers = headers or {}
     raw_headers = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
-    scope = {
+    scope: dict[str, object] = {
         "type": "http",
         "method": "GET",
         "path": "/",
         "headers": raw_headers,
     }
-    if config is not None:
-        scope["app"] = SimpleNamespace(state=SimpleNamespace(config=config))
+    # Header-driven tests need a config that says the header is trusted. Defaulting
+    # it here keeps each test about the resolver rather than about the mode; the
+    # session-default behaviour is asserted explicitly below.
+    resolved = config if config is not None else _trusted_header_config()
+    scope["app"] = SimpleNamespace(state=SimpleNamespace(config=resolved))
     return Request(scope)
+
+
+def _trusted_header_config(**overrides: str) -> CaliberConfig:
+    return CaliberConfig.load(environ={"CALIBER_AUTH_MODE": "trusted_header", **overrides})
 
 
 def test_current_user_returns_anonymous_when_no_header() -> None:
@@ -65,8 +79,23 @@ def test_require_user_returns_identity_when_present() -> None:
 
 
 def test_current_user_uses_configured_dev_user_when_header_missing() -> None:
-    request = _make_request(config=CaliberConfig.load(environ={"CALIBER_DEV_USER": "@local-admin"}))
+    """The dev fallback must be opted into: with the shipped admin lists it turned
+    an unauthenticated request into an admin, which is half of C1."""
+    request = _make_request(
+        config=_trusted_header_config(
+            CALIBER_DEV_USER="@local-admin",
+            CALIBER_AUTH_DEV_FALLBACK_ENABLED="true",
+        )
+    )
     assert current_user(request) == "@local-admin"
+
+
+def test_the_dev_fallback_is_off_by_default() -> None:
+    """Regression (C1): a request with *no* identity header was an admin in the
+    shipped Compose stack, because dev_user defaulted to @local-admin and every
+    privileged list contained it."""
+    request = _make_request(config=_trusted_header_config(CALIBER_DEV_USER="@local-admin"))
+    assert current_user(request) == ANONYMOUS
 
 
 def test_current_user_keeps_explicit_empty_header_anonymous_even_with_dev_user() -> None:
@@ -80,13 +109,20 @@ def test_current_user_keeps_explicit_empty_header_anonymous_even_with_dev_user()
 def test_current_user_prefers_header_over_configured_dev_user() -> None:
     request = _make_request(
         {"X-CALIBER-User": "@sarah"},
-        config=CaliberConfig.load(environ={"CALIBER_DEV_USER": "@local-admin"}),
+        config=_trusted_header_config(
+            CALIBER_DEV_USER="@local-admin",
+            CALIBER_AUTH_DEV_FALLBACK_ENABLED="true",
+        ),
     )
     assert current_user(request) == "@sarah"
 
 
 def test_current_user_ignores_invalid_configured_dev_user() -> None:
-    request = _make_request(config=CaliberConfig.load(environ={"CALIBER_DEV_USER": "anonymous"}))
+    request = _make_request(
+        config=_trusted_header_config(
+            CALIBER_DEV_USER="anonymous", CALIBER_AUTH_DEV_FALLBACK_ENABLED="true"
+        )
+    )
     assert current_user(request) == ANONYMOUS
 
 
@@ -132,3 +168,42 @@ def test_resolve_identity_anonymous_has_no_scopes() -> None:
     assert identity.user_id == ANONYMOUS
     assert identity.scopes == frozenset()
     assert identity.has_scope(SCOPE_VIEWER) is False
+
+
+# ── The shipped default: session mode ignores the header (C1) ───────────────
+
+
+def test_session_mode_ignores_the_identity_header() -> None:
+    """The core of C1: any client could assert any identity. Under the shipped
+    default the header is not consulted at all, so it cannot."""
+    request = _make_request(
+        {"X-CALIBER-User": "@attacker"},
+        config=CaliberConfig.load(environ={"CALIBER_AUTH_MODE": "session"}),
+    )
+    assert current_user(request) == ANONYMOUS
+    with pytest.raises(HTTPException) as exc_info:
+        require_user(request)
+    assert exc_info.value.status_code == 401
+
+
+def test_session_mode_ignores_the_dev_fallback_header_absence_too() -> None:
+    request = _make_request(
+        config=CaliberConfig.load(
+            environ={
+                "CALIBER_AUTH_MODE": "session",
+                "CALIBER_DEV_USER": "@local-admin",
+                "CALIBER_AUTH_DEV_FALLBACK_ENABLED": "true",
+            }
+        )
+    )
+    # The dev fallback is a *header-mode* convenience; it must not manufacture an
+    # identity when passwords are the configured mechanism.
+    assert current_user(request) == ANONYMOUS
+
+
+def test_a_request_with_no_config_resolves_anonymous() -> None:
+    """A half-built app must fail closed rather than trusting a header it cannot
+    validate against any policy."""
+    raw_headers = [(b"x-caliber-user", b"@someone")]
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": raw_headers})
+    assert current_user(request) == ANONYMOUS

@@ -33,7 +33,7 @@ from starlette.routing import Route
 
 from caliber.auth import require_user
 from caliber.observability import slo
-from caliber.observability.queue_health import collect_queue_health
+from caliber.observability.queue_health import collect_queue_health_for_config
 from caliber.observability.readiness import collect_readiness
 from caliber.routes._deps import envelope_response_dict, get_session_factory
 from caliber.schemas import SystemServiceSchema
@@ -285,7 +285,7 @@ async def get_queue(request: Request) -> JSONResponse:
     max_age = float(getattr(config, "workflow_queue_max_age_seconds", 300.0) or 300.0)
     factory = get_session_factory(request)
     with factory() as session:
-        health = collect_queue_health(session, lease_seconds=lease, max_queue_age_seconds=max_age)
+        health = collect_queue_health_for_config(session, config)
     # Outbound webhook delivery failures belong on the same operations surface: an
     # event that exhausted every retry is a *lost notification*, which reads as
     # "nothing happened" to whoever depends on the webhook stream.
@@ -319,8 +319,6 @@ async def get_alerts(request: Request) -> JSONResponse:
     """
     require_user(request)
     config = getattr(request.app.state, "config", None)
-    lease = float(getattr(config, "workflow_run_lease_seconds", 60.0) or 60.0)
-    max_age = float(getattr(config, "workflow_queue_max_age_seconds", 300.0) or 300.0)
     window = float(getattr(config, "slo_window_minutes", slo.DEFAULT_WINDOW_MINUTES) or 60.0)
 
     dispatcher = getattr(request.app.state, "webhook_dispatcher", None)
@@ -332,9 +330,7 @@ async def get_alerts(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        queue_health = collect_queue_health(
-            session, lease_seconds=lease, max_queue_age_seconds=max_age
-        )
+        queue_health = collect_queue_health_for_config(session, config)
         readiness = await collect_readiness(
             config=config,
             session_factory=factory,

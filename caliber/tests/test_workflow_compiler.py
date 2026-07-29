@@ -443,7 +443,10 @@ def test_build_ir_handles_non_agent_nodes_and_orphan_edge_source() -> None:
                 "type": "human_approval",
                 "required_role": "caliber.admin",
                 "approval_count": 2,
-                "timeout_behavior": "escalate",
+                # "block" rather than "escalate": the manifest now rejects unimplemented
+                # timeout behaviours at parse time, because accepting one would leave a
+                # control that silently does nothing. See test_approval_policy.py.
+                "timeout_behavior": "block",
             },
             "external": {
                 "id": "external",

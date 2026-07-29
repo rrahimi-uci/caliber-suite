@@ -153,13 +153,24 @@ def _seed_waiting_approval(
                 )
             )
         run.summary = summary
+        # Built through ApprovalPolicy rather than hand-written, so the seeded row has
+        # the same shape the worker actually writes. A bare
+        # ``{"timeout_behavior": "block"}`` omits ``allow_self_approval``, which
+        # ``from_snapshot`` then reads as False (fail-closed, and correct for a legacy
+        # row) — so the seed, not the product, decided the outcome.
+        from caliber.workflows.approval_policy import ApprovalPolicy
+
         approval = CaliberRuntimeApprovalRequest(
             runtime_approval_id=approval_id,
             workflow_run_id=run.workflow_run_id,
             project_id=run.project_id,
             node_id=node_id,
             status=approval_status,
-            policy_snapshot={"timeout_behavior": "block"},
+            policy_snapshot=ApprovalPolicy(
+                allow_self_approval=bool(
+                    getattr(client.app.state.config, "approval_allow_self_approval", False)
+                )
+            ).to_snapshot(),
         )
         if approval_status in {"approved", "rejected"}:
             approval.decided_at = now

@@ -121,10 +121,17 @@ afterAll(() => {
 });
 
 describe("App shell end-to-end journeys", () => {
-  it("shows the local login page and signs in with the default credentials", async () => {
+  it("shows the login page and signs in against the server", async () => {
     server.use(
       http.get(`${API_BASE}/health`, () =>
         HttpResponse.json(envelope({ status: "ok", version: "test" })),
+      ),
+      // Credentials are verified server-side (C1). There is no default credential and
+      // no browser-synthesised identity, so this journey needs the real endpoint.
+      http.post(`${API_BASE}/auth/login`, () =>
+        HttpResponse.json(
+          envelope({ user_id: "@local-admin", expires_at: "2026-12-31T00:00:00Z" }),
+        ),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -156,10 +163,16 @@ describe("App shell end-to-end journeys", () => {
         /Design, evaluate, and refine prompts, tools, skills, and multi-agent workflows/i,
       ),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Sign in/ }));
+    // Typed, not prefilled: the form used to arrive with admin/admin already in it.
+    await userEvent.type(screen.getByLabelText(/username/i), "@local-admin");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "correct-horse-battery");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/ }));
     expect(await screen.findByLabelText("CALIBER navigation")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("current-path")).toHaveTextContent("/"));
+    // Local storage holds display state only. The session is an HttpOnly cookie the
+    // browser cannot read, which is the point — so no token may appear here.
     expect(window.localStorage.getItem("caliber.auth.session")).toContain("@local-admin");
+    expect(window.localStorage.getItem("caliber.auth.session")).not.toContain("token");
   });
 
   it("logs out and clears the local session", async () => {
@@ -187,13 +200,26 @@ describe("App shell end-to-end journeys", () => {
       ),
     );
 
+    // Logging out must revoke the session on the SERVER. Clearing local state alone
+    // left the cookie valid, so "log out" did not end the session.
+    let revoked = false;
+    server.use(
+      http.post(`${API_BASE}/auth/logout`, () => {
+        revoked = true;
+        return HttpResponse.json(envelope({ revoked: true }));
+      }),
+    );
+
     renderApp("/");
 
     expect(await screen.findByLabelText("CALIBER navigation")).toBeInTheDocument();
-    expect(window.localStorage.getItem("caliber.auth.session")).toContain("@local-admin");
+    // "@admin", not "@local-admin": identityForUsername no longer special-cases the
+    // old default username, because there is no default credential to special-case.
+    expect(window.localStorage.getItem("caliber.auth.session")).toContain("@admin");
 
     await userEvent.click(screen.getByRole("button", { name: /Log out/i }));
 
+    await waitFor(() => expect(revoked).toBe(true));
     await waitFor(() => expect(screen.getByTestId("current-path")).toHaveTextContent("/login"));
     expect(window.localStorage.getItem("caliber.auth.session")).toBeNull();
   });

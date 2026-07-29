@@ -545,8 +545,13 @@ def _install_fake_httpx(
     captured: dict[str, Any] = {}
 
     class FakeClient:
-        def __init__(self, timeout: Any = None) -> None:
+        def __init__(self, timeout: Any = None, follow_redirects: Any = None) -> None:
             captured["timeout"] = timeout
+            # Captured, not ignored: ``follow_redirects=False`` is an SSRF control, not
+            # a restated default. Egress policy checks the URL *before* the request, so
+            # a followed 302 would reach an address that check never saw. A double that
+            # silently accepted any value here would let that regress unnoticed.
+            captured["follow_redirects"] = follow_redirects
 
         def __enter__(self) -> Any:
             return self
@@ -591,6 +596,9 @@ def test_default_webhook_sender_posts_json_body(monkeypatch: pytest.MonkeyPatch)
     assert captured["kwargs"]["json"] == {"event": "created"}
     assert captured["kwargs"]["headers"] == {"X-Api": "7"}
     assert captured["timeout"] == 12.0
+    # The SSRF control: egress policy vets the URL before the request, so a followed
+    # redirect would reach an address it never checked.
+    assert captured["follow_redirects"] is False
 
 
 def test_default_webhook_sender_get_uses_params(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1376,11 +1384,13 @@ def test_resolve_bound_tool_callable_required_vs_optional() -> None:
 
 
 def test_resolve_external_app_entrypoint_dotted_and_invalid() -> None:
-    fn, resolved = _resolve_external_app_entrypoint("json.dumps")
+    # Allowlisted (C8): entrypoints fail closed by default, so pass the allowlist to
+    # keep this test about spec parsing.
+    fn, resolved = _resolve_external_app_entrypoint("json.dumps", allowlist="json:dumps")
     assert resolved == "json:dumps"
     assert callable(fn)
     with pytest.raises(ToolExecutionError, match="is invalid"):
-        _resolve_external_app_entrypoint(":dumps")
+        _resolve_external_app_entrypoint(":dumps", allowlist=":dumps")
 
 
 def test_handoff_input_items_converts_and_skips_failures() -> None:

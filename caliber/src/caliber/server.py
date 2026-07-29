@@ -64,6 +64,7 @@ from caliber.runtime_advisories import (
     get_runtime_dependency_advisories,
 )
 from caliber.trace_client import MLflowTraceClient
+from caliber.workflows.tools import bind_module_allowlist
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -211,6 +212,87 @@ def _build_lifespan(
     return lifespan
 
 
+def _build_secret_store(config: CaliberConfig, session_factory: Any) -> Any:
+    """Build the encrypted secret store and enable ``secret://`` resolution.
+
+    Returns ``None`` when no encryption key is configured. That is a supported
+    state — an operator who has not adopted the store keeps using ``env://`` and
+    ``file://`` sources — and it is *not* a silent downgrade: with no store bound,
+    a ``secret://`` reference resolves to nothing and its consumer fails closed
+    rather than reading a plaintext fallback.
+    """
+    from caliber.secret_store import SecretNotConfiguredError, SecretStore  # noqa: PLC0415
+    from caliber.secrets import bind_secret_store, unbind_secret_store  # noqa: PLC0415
+
+    try:
+        store = SecretStore.from_config(config)
+    except SecretNotConfiguredError:
+        unbind_secret_store()
+        logger.info(
+            "encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); "
+            "secret:// references will not resolve"
+        )
+        return None
+    except Exception:
+        unbind_secret_store()
+        logger.warning(
+            "encrypted secret store could not be initialized; secret:// references will "
+            "not resolve",
+            exc_info=True,
+        )
+        return None
+    bind_secret_store(store, session_factory)
+    logger.info("encrypted secret store enabled")
+    return store
+
+
+def _bootstrap_admin_account(config: CaliberConfig, session_factory: Any) -> None:
+    """Create the configured bootstrap admin when no account exists yet.
+
+    Only when the account table is **empty**: this seeds a reachable deployment, it
+    does not reset a password on every restart. The password is read from an env var
+    or ``caliber.secrets`` URI and is validated by the same strength rules as any
+    other account, so a well-known default cannot be seeded — which is the specific
+    thing the previous ``admin/admin`` login did.
+
+    Failures are logged and swallowed. A control plane that cannot seed an optional
+    convenience account must still start; the operator sees the warning and can create
+    the account explicitly.
+    """
+    user_id = str(getattr(config, "auth_bootstrap_admin_user", "") or "").strip()
+    secret_source = str(getattr(config, "auth_bootstrap_admin_password_env", "") or "").strip()
+    if not user_id or not secret_source:
+        return
+    from caliber.secrets import resolve_secret  # noqa: PLC0415
+    from caliber.sessions import AccountError, account_count, create_account  # noqa: PLC0415
+
+    password = resolve_secret(secret_source) or ""
+    if not password:
+        logger.warning(
+            "auth bootstrap admin %r is configured but %s resolved no password; "
+            "no account was created",
+            user_id,
+            secret_source,
+        )
+        return
+    try:
+        with session_factory() as session:
+            if account_count(session) > 0:
+                return
+            create_account(session, user_id=user_id, password=password, actor="bootstrap")
+            session.commit()
+    except AccountError as exc:
+        logger.warning("auth bootstrap admin %r was not created: %s", user_id, exc)
+    except Exception:  # pragma: no cover - a seeding failure must not block startup
+        logger.warning("auth bootstrap admin %r could not be created", user_id, exc_info=True)
+    else:
+        logger.info(
+            "created bootstrap admin account %r (no accounts existed); grant it scopes via "
+            "CALIBER_ADMIN_USERS",
+            user_id,
+        )
+
+
 def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     """Build and return the CALIBER ASGI application.
 
@@ -289,9 +371,18 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
 
     engine = create_engine_from_config(resolved)
     session_factory = sessionmaker_from_engine(engine)
+    # A fresh session-mode deployment has no accounts, so nobody could sign in.
+    # Seeded here rather than by a migration because the password comes from the
+    # environment at boot and must never be written into a migration file.
+    _bootstrap_admin_account(resolved, session_factory)
     # Let cost attribution resolve operator-configured per-model pricing
     # (caliber_llm_model_pricing) over the built-in defaults.
     register_pricing_source(session_factory)
+    secret_store = _build_secret_store(resolved, session_factory)
+    # Bound process-wide rather than threaded: a registered tool is imported from the
+    # runtime, generated compiler code, and two route paths, and an allowlist only
+    # some of them honoured would read as enforced while leaving the rest open.
+    bind_module_allowlist(resolved.registered_tool_module_allowlist)
     llm_provider = build_provider(resolved)
     artifact_store = build_store(
         resolved.artifact_store_provider,
@@ -342,6 +433,10 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         urls_csv=resolved.webhook_urls,
         secret_env_var=resolved.webhook_signing_secret_env,
         event_filter_csv=resolved.webhook_event_filter,
+        # Makes the dead-letter record survive a restart. Without it the record of an
+        # undelivered event was lost exactly when an operator rebooted to fix the
+        # receiver that dropped it.
+        session_factory=session_factory,
     )
     csrf_manager = build_token_manager(
         enabled=resolved.csrf_enabled,
@@ -411,6 +506,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     app.state.config = resolved
     app.state.engine = engine
     app.state.session_factory = session_factory
+    app.state.secret_store = secret_store
     app.state.worker = worker
     app.state.workflow_run_worker = workflow_run_worker
     app.state.aria_plan_worker = aria_plan_worker
