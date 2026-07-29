@@ -258,15 +258,28 @@ def test_csrf_endpoint_issues_token_when_enabled(
     assert data["ttl_seconds"] == 3600
 
 
-def test_csrf_endpoint_requires_auth_when_enabled(
+def test_csrf_endpoint_issues_an_identity_bound_token_to_anonymous_callers(
     csrf_enabled_client: TestClient,
 ) -> None:
-    """Token issuance is tied to identity; anonymous gets 401."""
+    """Anonymous issuance is required, not a relaxation (N1).
+
+    This test previously asserted 401 for an anonymous caller, on the reasoning that
+    such a caller could not perform a write anyway. Session authentication falsified
+    that: ``POST /auth/login`` *is* an anonymous state-changing write, so requiring a
+    token to obtain a token made login impossible whenever CSRF was enabled.
+
+    The token stays **bound to the caller's identity**, which is what keeps this safe —
+    a pre-login token does not authorize a post-login write. That property is asserted
+    in ``tests/test_auth_csrf_composition.py`` against the real middleware stack.
+    """
     response = csrf_enabled_client.get(
         "/ajax-api/2.0/mlflow/caliber/csrf",
         headers={"X-CALIBER-User": ""},
     )
-    assert response.status_code == 401
+    assert response.status_code == 200, response.text
+    body = response.json()["data"]
+    assert body["enabled"] is True
+    assert body["token"]
 
 
 def test_writes_without_csrf_token_are_rejected_when_enabled(

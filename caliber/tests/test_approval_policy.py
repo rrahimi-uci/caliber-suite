@@ -239,3 +239,43 @@ def test_the_role_check_precedes_the_self_approval_check() -> None:
             actor_scopes=OPERATOR,
             initiated_by="@alice",
         )
+
+
+# ---------------------------------------------------------------------------
+# N3 — approve and reject must both honour the node's required_role
+# ---------------------------------------------------------------------------
+
+
+def test_the_approver_scope_is_sufficient_for_an_approver_node() -> None:
+    """N3a: the approve route pre-required ``caliber.operator`` before reading the node
+    policy, and ``caliber.approver`` does not imply operator — so granting someone
+    exactly the scope the ``required_role`` field names left them unable to approve
+    anything. The policy layer must accept the role the node actually asked for."""
+    policy = ApprovalPolicy(required_role="caliber.approver", approval_count=1)
+
+    quorum = record_approval(
+        policy=policy,
+        existing_approvals=[],
+        actor="@reviewer",
+        actor_scopes=frozenset({"caliber.approver", "caliber.viewer"}),
+        initiated_by="@someone-else",
+    )
+
+    assert quorum.satisfied is True
+
+
+def test_a_node_requiring_admin_refuses_a_mere_operator() -> None:
+    """The converse, and the reason the reject route needed the same check: a gate
+    configured for ``caliber.admin`` must not be decidable by any operator."""
+    policy = ApprovalPolicy(required_role="caliber.admin", approval_count=1)
+
+    with pytest.raises(ApprovalPolicyError) as excinfo:
+        record_approval(
+            policy=policy,
+            existing_approvals=[],
+            actor="@operator",
+            actor_scopes=frozenset({"caliber.operator", "caliber.viewer"}),
+            initiated_by="@someone-else",
+        )
+    # The message names the missing scope; "you may not" without a reason is unusable.
+    assert "caliber.admin" in str(excinfo.value)
