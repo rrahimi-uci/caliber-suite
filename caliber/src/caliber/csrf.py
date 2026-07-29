@@ -225,7 +225,7 @@ class CSRFMiddleware:
 
             from caliber.auth import current_user  # noqa: PLC0415
 
-            return _normalize_user(current_user(Request(scope)))  # type: ignore[arg-type]
+            return _normalize_user(current_user(Request(scope)))
         except Exception:
             return _read_user_header(scope, fallback_user=self._dev_user)
 

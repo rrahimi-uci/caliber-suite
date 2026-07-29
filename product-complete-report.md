@@ -597,6 +597,18 @@ comment as proof. A claim is **verified** only when the relevant controls compos
 the public route/runtime boundary. A unit test of an isolated helper is supporting
 evidence, not proof that every caller uses it correctly.
 
+Current disposition, resolved in [§0.11](#011-closing-the-composed-control-defects-n1n5-and-the-release-scoping-gap):
+
+| ID | Then | Now |
+| --- | --- | --- |
+| N1 | Session auth and CSRF could not both be enabled — login was a deadlock | **Closed** (§0.11.1) — `/csrf` issues identity-bound tokens to anonymous callers and the middleware delegates identity resolution to `caliber.auth`; login stays CSRF-protected |
+| N2 | MCP consumers sent `secret://…` to remote servers as the credential | **Closed** (§0.11.2) — one `_resolve_secret_ref` serves env/headers/auth_config; an unresolvable reference yields empty, never the reference text |
+| N3 | Approve pre-required operator; reject ignored the node policy entirely | **Closed** (§0.11.3) — both enforce the node's `required_role`; quorum/self-decision deliberately do not gate a rejection |
+| N4 | Egress vets a resolved address, then `httpx` re-resolves at connect time | **Open, by decision** (§0.11.6) — a TLS-safe address pin is required; a partial fix risks weakening certificate validation |
+| N5 | `stop()` discarded queued events despite a docstring claiming otherwise | **Closed** (§0.11.4) — pending events drain to the durable dead-letter table as a distinct `shutdown` kind |
+
+The original verdicts follow.
+
 | Claim | Verdict | Reviewer rationale |
 | --- | --- | --- |
 | Default session identity ignores self-asserted `X-CALIBER-User`; password sessions are server-validated and revocable (C1 core) | **Verified, with a production-auth blocker below** | `auth._resolve_user()` ignores the user header in `session` mode, resolves a hashed server-side session row, and disabled/revoked/expired sessions fail resolution. The adversarial header test is representative. This closes the original client-asserted-identity defect, but it does not make the composed browser-auth profile production-ready while N1 remains. |
@@ -828,6 +840,17 @@ artifact is missing rather than skipping the wheel entirely.
 **No test or build step was made non-fatal.** The absence of an artifact remains the
 signal that evidence is missing — which the report continues to record as an open item,
 because the evidence genuinely is missing.
+
+**Observed working, and worth stating precisely.** On run `30428556614` the UI job's two
+uploads *still failed* with the quota error and the job was nevertheless **green**, with
+`total_count=0` artifacts for the run. That is the whole design: tests, type check, and
+build determine the verdict; the evidence remains absent and observable as absent.
+
+One trap for anyone reading these runs through the API: `continue-on-error` rewrites a
+step's **`conclusion`** to `success` while the real result lives in `outcome`, which the
+jobs endpoint does not expose. Reading `conclusion` alone makes a failed upload look
+like a successful one — it briefly misled this review into thinking the quota had
+cleared. The run log and the artifact count are the reliable evidence.
 
 ## Executive summary
 
@@ -1347,7 +1370,7 @@ release-proof item in the roadmap).
 | --- | --- | --- |
 | Full backend suite | **5,556 passed / 7 skipped / 0 failed** in ~13 min (`pytest tests/ --no-cov -p no:randomly`) | All-green on this interpreter. The 7 skips are the `CALIBER_INTEGRATION_TESTS` gate (6) and one Postgres-unreachable MCP test. Coverage was disabled for this run; the gate is exercised separately in CI. One intermediate run failed `test_packaged_ui_index_matches_current_dist_when_built` — a *self-inflicted* artifact staleness after this pass ran `npm run build`, which re-hashed `caliber-ui/dist` without re-copying it to the gitignored `src/caliber/ui`. Resolved by `make ui`'s copy step; no repository file was involved, and the test was correct to fail |
 | Backend lint | `ruff check src/ tests/` **clean** | Static only |
-| Backend types (new modules) | `mypy` **clean** on `worker_registry`, `system_effects`, `webhooks`, `effect_ledger`, `tools` | Scoped to the modules this pass added or reworked |
+| Backend types | `mypy src` **clean across 295 source files** | Run over the **whole tree**, matching CI. An earlier pass checked only the modules it had touched and CI then failed on an unused `type: ignore` elsewhere — a scoped type check is not evidence that the tree type-checks, for the same reason a helper test is not evidence that its callers are correct |
 | Frontend suite | **1,500 passed / 110 files / 0 failed** in 136.82s (`vitest run`) | An earlier run reported one failure that was a vitest worker-startup timeout under CPU contention with the backend suite, not an assertion; re-run uncontended it is clean |
 | Frontend type/lint/build | `tsc --noEmit` **clean**, `eslint .` **clean**, production Vite build **passed** | The build emits an existing `INEFFECTIVE_DYNAMIC_IMPORT` advisory for `caliberApi`, unchanged by this pass |
 | New/changed regression suites | `test_auth_sessions` (24), `test_secret_store` (27), `test_egress_policy` (23), `test_approval_policy` (14), `test_deploy_gate_executor` (13), `test_worker_registry` (11), `test_effect_ledger` (22), `test_routes_system_effects` (15), `test_registered_tool_allowlist` (12), `test_events_webhooks` (26), `test_queue_health` (12), `test_readiness_probes` (21), `test_deployment_environment_policy` (22) | These are the tests the §0.9 claims rest on |
