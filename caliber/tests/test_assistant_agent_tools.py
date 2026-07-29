@@ -46,7 +46,17 @@ _FAKE_TOOL = {
 
 @pytest.fixture
 def svc() -> AssistantService:
-    return AssistantService(engine=FakeAssistantEngine(), runtime_config=CaliberConfig())
+    # A generous sandbox timeout, because these tests are about *what the sandbox
+    # does*, not how fast it does it. The 5s product default is a sensible ceiling for
+    # a production request but is decided by machine load in a 5,500-test run: a cold
+    # `python -I` start plus imports, on a box already running the rest of the suite,
+    # can exceed it and turn "completed" into "timed_out". That made this file pass in
+    # isolation and fail under load — a test asserting the wrong thing, not a product
+    # defect. Latency limits are covered in tests/test_tool_sandbox_service.py.
+    return AssistantService(
+        engine=FakeAssistantEngine(),
+        runtime_config=CaliberConfig(tool_sandbox_timeout_seconds=60.0),
+    )
 
 
 def _session(svc: AssistantService, factory: sessionmaker[Session]) -> str:
