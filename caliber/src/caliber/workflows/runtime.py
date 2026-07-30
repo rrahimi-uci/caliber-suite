@@ -1958,6 +1958,14 @@ def _call_tool(fn: Callable[..., Any], arguments: dict[str, Any], *, fallback_in
     shapes.append(((fallback_input,), {}))  # fn(fallback_input) — legacy single input
     shapes.append(((), {}))  # fn()
 
+    # An out-of-process tool selects its own convention: the signature needed to choose
+    # lives in the child, which is the point of the sandbox. Checked before introspection
+    # rather than after it fails, so the out-of-process case is explicit here instead of
+    # being a side effect of ``inspect.signature`` raising.
+    selector = getattr(fn, "caliber_shape_selector", None)
+    if callable(selector):
+        return selector(shapes)
+
     try:
         sig: inspect.Signature | None = inspect.signature(fn)
     except (TypeError, ValueError):
@@ -2412,6 +2420,13 @@ def _bind(binding: IRToolBinding, resolver: ToolResolver) -> Callable[..., Any] 
         return override
     if binding.module_path == "<in-memory>":
         return None
+    # C8: a registered module is imported and executed in a subprocess, never in the
+    # control plane. This used to call ``bind_registered_tool`` unconditionally, which does
+    # ``importlib.import_module`` *here* — so an admin-registered module shared the API
+    # server's memory, descriptors, environment, and credentials, and its import ran in
+    # this process too.
+    if _registered_tool_sandbox_enabled():
+        return _sandboxed_registered_tool(binding)
     try:
         from caliber.workflows.tools import ToolRegistryEntry  # noqa: PLC0415
 
@@ -2426,27 +2441,30 @@ def _bind(binding: IRToolBinding, resolver: ToolResolver) -> Callable[..., Any] 
         return None
 
 
+def _registered_tool_sandbox_enabled() -> bool:
+    """Whether registered tools run out of process. Defaults to **on**.
+
+    ``None`` config means on, not off: an unconfigured process must get the containment
+    boundary rather than silently fall back to importing user modules into the control
+    plane. A control that needs discovering before it applies is not a control.
+    """
+    return bool(getattr(_ACTIVE_SANDBOX_CONFIG, "registered_tool_sandbox_enabled", True))
+
+
 def _sandboxed_registered_tool(binding: IRToolBinding) -> Callable[..., Any]:
-    """Invoke a registered tool in a subprocess. **Built and tested, not yet wired.**
+    """Invoke a registered tool in a subprocess. **Wired — this closes C8.**
 
-    The out-of-process mechanism works — ``tests/test_registered_tool_allowlist.py``
-    proves a registered module runs under a different pid — but the runtime is *not*
-    routed through it, because doing so breaks a dependency the runtime has on
-    in-process introspection:
+    Convention selection and error typing now live in the sandbox protocol, which is what
+    previously blocked this. ``ToolSandboxRunRequest.shapes`` carries the candidate calling
+    conventions and the child picks the first that binds, because the child is the only
+    process holding the real function object — and the whole point of the sandbox is that
+    the control plane never imports it. The child reports ``selected_shape`` so the choice
+    is observable rather than inferred, and ``error_type`` so a tool's own ``TypeError`` is
+    distinguishable from a binding failure without sniffing message prefixes.
 
-    ``_call_tool_with_shapes`` selects a calling convention by trying
-    ``inspect.signature(fn).bind(...)`` across candidate shapes, and error handling
-    keys off exception *types* raised by the tool body. Both require the real function
-    object in this process, which is exactly what the sandbox removes. Wrapping it
-    produces a callable that binds every shape (so the wrong one is chosen silently)
-    and flattens exception types into a status string. 35 worker tests encode that
-    behaviour, correctly.
-
-    Closing C8 therefore means moving convention selection and error typing **into**
-    the sandbox protocol — the child is the only process that can introspect the real
-    function. That is bounded, well-understood work; it is not a topology change, which
-    is what the previous edition wrongly claimed. It is simply not done here, and
-    shipping it half-wired would be worse than shipping it not at all.
+    That last distinction is the load-bearing one. Selecting by trial-invocation in the
+    parent would re-run a tool whose *body* raised ``TypeError``, repeating its side
+    effects — a tool that charges a card must not be called twice because it raised.
 
     The control plane used to ``importlib.import_module`` an admin-registered module
     and call it inline, so a registered tool shared the API server's memory, file
@@ -2466,49 +2484,56 @@ def _sandboxed_registered_tool(binding: IRToolBinding) -> Callable[..., Any]:
       and the reason this is worth stating rather than burying — a tool exchanging
       non-serializable values must move to an MCP server or an external app.
     """
-    from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
+    from caliber.tool_sandbox.models import ToolCallShape, ToolSandboxRunRequest  # noqa: PLC0415
     from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
-    def _invoke(*args: Any, **kwargs: Any) -> Any:
-        # Both calling conventions are in use: the graph interpreter passes a single
-        # positional payload for some node types and keyword ports for others.
+    def _run(*, args: list[Any], kwargs: dict[str, Any], shapes: list[Any]) -> Any:
         sandbox = sandbox_from_optional_config(_ACTIVE_SANDBOX_CONFIG)
         result = sandbox.run_tool(
             ToolSandboxRunRequest(
                 module_path=binding.module_path,
                 callable_name=binding.callable_name,
-                args=list(args),
+                args=args,
                 input=kwargs,
+                shapes=shapes,
             )
         )
         if result.status != "completed":
             error = result.error or result.status
-            # A binding mismatch must surface as TypeError so the caller's shape loop
-            # can try the next convention. Anything else is a genuine tool failure and
-            # must not be mistaken for "try a different calling shape".
-            if str(error).startswith("TypeError:"):
-                raise TypeError(error)
             raise ToolExecutionError(
                 f"registered tool {binding.local_name!r} failed in the sandbox: {error}"
             )
         return result.output
 
+    def _invoke(*args: Any, **kwargs: Any) -> Any:
+        # Direct call from the graph interpreter: the shape is whatever the caller used —
+        # a single positional payload for some node types, keyword ports for others — so
+        # there is nothing to select.
+        return _run(args=list(args), kwargs=kwargs, shapes=[])
+
+    def _invoke_with_shapes(shapes: list[tuple[tuple[Any, ...], dict[str, Any]]]) -> Any:
+        """Hand the candidate conventions to the child and let it choose.
+
+        Used by :func:`_call_tool`, which cannot introspect this callable — the signature
+        it would need lives in another process by design.
+        """
+        return _run(
+            args=[],
+            kwargs={},
+            shapes=[ToolCallShape(args=list(a), kwargs=dict(k)) for a, k in shapes],
+        )
+
+    # Advertised on the callable so ``_call_tool`` can detect the out-of-process case
+    # explicitly, rather than inferring it from introspection failing.
+    _invoke.caliber_shape_selector = _invoke_with_shapes  # type: ignore[attr-defined]
+
     _invoke.__name__ = binding.local_name or "registered_tool"
-    # Deliberately make this callable **non-introspectable**.
-    #
-    # ``_call_tool_with_shapes`` picks a calling convention by trying
-    # ``inspect.signature(fn).bind(...)`` against several candidate shapes. A
-    # ``*args, **kwargs`` wrapper binds *every* shape, so it would always select the
-    # first and hand the tool the wrong arguments — silently, since binding succeeds.
-    #
-    # The real signature lives in the subprocess and is precisely what we must not
-    # import to read. Forcing introspection to fail routes the caller into its
-    # non-introspectable branch, which tries the shapes in order and advances on a
-    # binding ``TypeError`` — so the *child* decides which convention fits, which is
-    # the only process that can actually know.
-    # A non-Signature value makes ``inspect.signature`` raise TypeError, which is
-    # exactly the "cannot introspect" signal the caller already handles.
-    _invoke.__signature__ = "out-of-process"  # type: ignore[attr-defined]
+    # An earlier revision set ``__signature__`` to a non-Signature value here, to force
+    # ``inspect.signature`` to raise and push ``_call_tool`` down its trial-invocation
+    # branch. That worked by accident and was unsafe: the trial branch advances on
+    # ``TypeError``, so a tool whose *body* raised ``TypeError`` was called again. The
+    # explicit ``caliber_shape_selector`` above replaces the trick, and the signature is
+    # left alone.
     return _invoke
 
 

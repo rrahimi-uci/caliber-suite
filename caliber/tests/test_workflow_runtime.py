@@ -4610,7 +4610,15 @@ def test_resilient_callable_retries_failures_and_times_out() -> None:
         _resilient_callable(timeout_binding, slow)()
 
 
-def test_bind_returns_none_for_in_memory_or_unimportable_tools() -> None:
+def test_bind_returns_none_for_in_memory_tools() -> None:
+    """An ``<in-memory>`` binding has no module to load, so it binds to nothing.
+
+    Previously this test also covered an *unimportable* module path and expected the same
+    ``None``. That contract changed when registered tools moved out of process (C8):
+    deciding at bind time whether ``caliber.nope`` imports would mean importing it in the
+    control plane, which is precisely what the sandbox exists to prevent. The unimportable
+    case is now asserted separately, at call time.
+    """
     string = IRType("string")
     agent = IRAgent(
         node_id="agent",
@@ -4627,6 +4635,49 @@ def test_bind_returns_none_for_in_memory_or_unimportable_tools() -> None:
                 module_path="<in-memory>",
                 callable_name="preview_only",
             ),
+        ],
+        inputs={"input": string},
+        outputs={"final_output": string},
+    )
+    plan = RuntimePlan(
+        ir=IRWorkflow(
+            workflow_id="wf",
+            version="1",
+            nodes={
+                "start": IRNode("start", NodeType.START, outputs={"msg": string}),
+                "agent": agent,
+            },
+            edges=[IREdge("e1", "start", "msg", "agent", "input", string)],
+            entry_node_id="start",
+            output_node_id="",
+        ),
+        resolver=InMemoryToolResolver([]),
+    )
+
+    result = execute(plan, "hello", executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed"
+    assert result.steps[0].tool_calls == []
+
+
+def test_an_unimportable_registered_module_fails_at_call_time_not_bind_time() -> None:
+    """C8 moves the import into the subprocess, which moves *when* the failure appears.
+
+    A missing module used to be detected by ``_bind`` — via ``importlib.import_module`` in
+    the control plane — and the binding was dropped. That check cannot survive the sandbox:
+    knowing whether the module imports requires importing it, in this process, which is the
+    exact exposure the boundary removes.
+
+    So the binding now succeeds optimistically and the import failure surfaces from the
+    child on invocation. What matters is that it degrades *legibly* rather than silently:
+    the run is not reported as completed, and the error names the missing module.
+    """
+    string = IRType("string")
+    agent = IRAgent(
+        node_id="agent",
+        node_type=NodeType.AGENT,
+        name="agent",
+        tools=[
             IRToolBinding(
                 local_name="missing_module",
                 registry_ref="tool.missing.v1",
@@ -4658,8 +4709,10 @@ def test_bind_returns_none_for_in_memory_or_unimportable_tools() -> None:
 
     result = execute(plan, "hello", executor=FakeWorkflowExecutor())
 
-    assert result.status == "completed"
-    assert result.steps[0].tool_calls == []
+    # Not "completed": a tool the author declared could not be run, and saying otherwise
+    # would hide a broken registration behind a green run.
+    assert result.status == "error"
+    assert "caliber.nope" in (result.error or "")
 
 
 def test_run_node_guardrail_warn_output_and_note_branches() -> None:

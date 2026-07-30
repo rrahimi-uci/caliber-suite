@@ -962,6 +962,17 @@ class CaliberConfig(BaseModel):
     # Tool sandbox
     # ------------------------------------------------------------------
 
+    #: Run admin-registered Python tools in a subprocess instead of importing them into
+    #: the control plane (C8). **Default on**, because the alternative is that a registered
+    #: module shares the API server's memory, descriptors, environment, and credentials —
+    #: and its *import* runs there too, which an allowlist narrows but does not contain.
+    #:
+    #: Turning this off restores in-process execution. The only intended use is a test that
+    #: needs to monkeypatch a tool's module attribute, which cannot work across a process
+    #: boundary; production deployments should leave it on. It is deliberately not
+    #: off-by-default: a containment boundary that an operator has to discover and enable is
+    #: the "decorative control" this codebase has repeatedly been audited for.
+    registered_tool_sandbox_enabled: bool = True
     tool_sandbox_timeout_seconds: float = Field(default=5.0, gt=0)
     # Caps a sandboxed node's serialized return. 64 KiB was too small for nodes
     # that emit data/HTML (e.g. a KG report); 1 MiB is a safer default, and big
@@ -1729,6 +1740,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ),
     ("CALIBER_ASSISTANT_TOOL_SOURCE_MAX_BYTES", "assistant_tool_source_max_bytes", int),
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
+    ("CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED", "registered_tool_sandbox_enabled", bool),
     ("CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS", "tool_sandbox_timeout_seconds", float),
     ("CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES", "tool_sandbox_max_output_bytes", int),
     ("CALIBER_TOOL_SANDBOX_MAX_MEMORY_BYTES", "tool_sandbox_max_memory_bytes", int),

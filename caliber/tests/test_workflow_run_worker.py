@@ -7,6 +7,7 @@ import json
 import sys
 import time
 import types
+from collections.abc import Iterator
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -14,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 import caliber.orchestrator.workflow_run_worker as workflow_run_worker_module
+import caliber.workflows.runtime as runtime_module
 from caliber.config import WorkflowStorageConfig
 from caliber.db.models import (
     CaliberMcpServer,
@@ -2055,6 +2057,34 @@ def _router_without_branches_manifest(workflow_id: str) -> dict[str, object]:
         {"id": "e_router_final", "from": "router", "to": "final", "map": {"route": "response"}},
     ]
     return manifest
+
+
+@pytest.fixture(autouse=True)
+def _tools_in_process_for_monkeypatching(client) -> Iterator[None]:
+    """Run registered tools in-process for this module only.
+
+    These tests inject tool behaviour with
+    ``monkeypatch.setattr("caliber.workflows.demo_tools.lookup_policy", ...)``, and a
+    parent-process monkeypatch cannot reach a subprocess — the child imports the real
+    module and gets the real function. With C8's sandbox on (the production default) the
+    fake silently never applies and a test asserting "the tool failed" sees a clean run.
+
+    So the opt-out is here rather than in ``conftest``: the global default must keep
+    matching production, and a file that needs in-process execution should say so and say
+    why. What these tests are actually about is worker semantics — retry, fail-soft, error
+    boundaries, approval resume — not how a tool module is loaded. The sandbox boundary
+    itself is covered by ``test_registered_tool_allowlist.py`` and
+    ``test_tool_sandbox_service.py``, including a test that the runtime routes through it
+    by default.
+    """
+    from caliber.workflows.runtime import bind_sandbox_config
+
+    previous = runtime_module._ACTIVE_SANDBOX_CONFIG
+    bind_sandbox_config(SimpleNamespace(registered_tool_sandbox_enabled=False))
+    try:
+        yield
+    finally:
+        bind_sandbox_config(previous)
 
 
 def _build_worker(client) -> WorkflowRunWorker:

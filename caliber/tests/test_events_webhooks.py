@@ -214,19 +214,36 @@ async def _await_subscription(bus: EventBus, timeout: float = 1.0) -> None:
         await asyncio.sleep(0.01)
 
 
-async def _await_captures(captured: list[Any], expected: int, timeout: float = 5.0) -> None:
+async def _await_condition(predicate: Any, timeout: float = 30.0) -> None:
+    """Poll ``predicate`` until it is true or the deadline passes.
+
+    The deadline is deliberately large, and the reason is worth recording because two
+    smaller values were tried first and both flaked.
+
+    Retry backoff is already stubbed to zero in ``_build_dispatcher_with``, so this is not
+    waiting on backoff. Delivery runs via ``asyncio.to_thread``, i.e. on the event loop's
+    **default ThreadPoolExecutor** — and under the full suite other async tests sharing the
+    same xdist worker can occupy those threads, so the delivery thread queues. Pure CPU
+    saturation does *not* reproduce it (checked with 12 spinners; the test still passed in
+    0.08s), which is what points at executor contention rather than raw load.
+
+    A large ceiling is free when the condition holds, because this returns as soon as it
+    does. It is only paid on a genuine regression, where waiting 30s before failing is a
+    fine trade for not failing spuriously.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        if asyncio.get_running_loop().time() > deadline:
+            return  # let the caller's assertion report the actual state
+        await asyncio.sleep(0.01)
+
+
+async def _await_captures(captured: list[Any], expected: int, timeout: float = 30.0) -> None:
     """Wait until ``captured`` has at least ``expected`` entries.
 
     Used after a publish so the test asserts on the dispatch *result*
     rather than racing the event loop with a hard-coded sleep.
-
-    The deadline is generous on purpose. Retry backoff is already stubbed to zero in
-    ``_build_dispatcher_with``, so what this actually waits on is the dispatcher task being
-    *scheduled* — and under the full suite with ``-n auto`` every core is saturated, so a
-    multi-attempt test could exceed a 1s budget and fail as if delivery had broken. It was
-    observed exactly once in a 5634-test run and never in isolation, which is the signature
-    of a scheduling budget rather than a defect. Raising the ceiling costs nothing when
-    things pass, because the loop returns as soon as the condition holds.
+    See :func:`_await_condition` for why the deadline is what it is.
     """
     deadline = asyncio.get_running_loop().time() + timeout
     while len(captured) < expected:
@@ -391,7 +408,12 @@ async def test_dispatch_retries_a_5xx_then_dead_letters(
             with caplog.at_level("WARNING", logger="caliber.events.webhooks"):
                 await _await_subscription(bus)
                 bus.publish({"type": "approval.promoted"})
-                await _await_captures(captured_requests, expected=3)
+                # Wait for the *terminal* state, not the attempt count. Polling for
+                # "3 captures" cannot tell "the third attempt has not happened yet" from
+                # "delivery stalled", so it can time out mid-retry and report a count that
+                # was always going to arrive. The dead letter is written only after the
+                # attempts are exhausted, so it is the condition this test actually means.
+                await _await_condition(lambda: dispatcher.dead_letters()["count"] >= 1)
         finally:
             await dispatcher.stop()
 
@@ -890,6 +912,71 @@ async def test_stopping_records_the_event_that_was_in_flight(session_factory) ->
     assert in_flight, "an event in flight at shutdown must still be recorded"
     assert "in flight" in in_flight[0].reason
     assert in_flight[0].kind == "shutdown"
+
+
+@pytest.mark.asyncio
+async def test_a_target_is_recorded_once_when_delivery_and_shutdown_race(
+    session_factory,
+) -> None:
+    """One event, one target, one row — even when both writers reach it.
+
+    Cancelling ``asyncio.to_thread`` does **not** stop the worker thread: the ``await``
+    raises immediately while the POST keeps running to completion. So at shutdown two
+    writers can settle the same target — the delivery thread finishing
+    ``_deliver_with_retry``, and ``stop()``'s drain walking ``_in_flight`` — and the event
+    was dead-lettered twice, once ``exhausted`` and once ``shutdown``. An operator saw two
+    rows for one delivery and would double-count it on replay.
+
+    This surfaced as an intermittent failure in an unrelated assertion
+    (``letters["count"] == 1`` seeing ``2``) and moved between tests run to run, which is
+    what a race looks like from the outside. Reproduced deterministically here by holding
+    the sender inside the POST, stopping while it is held, and only then releasing it — so
+    the drain runs first and the thread finishes second, which is the losing order.
+    """
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _blocking_then_failing(req: Any, timeout: float = 0) -> _FakeResponse:
+        entered.set()
+        release.wait(timeout=5.0)
+        # 422 is permanent, so the thread goes straight to its own dead-letter record.
+        return _FakeResponse(status=422)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://picky.example/hook"],
+        secret="topsecret",
+        max_attempts=1,
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_then_failing):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "raced"})
+            await _await_condition(entered.is_set, timeout=5.0)
+            assert entered.is_set(), "sender never started; the test would prove nothing"
+        finally:
+            await dispatcher.stop()
+            # Released only now, so the thread records *after* the drain already has.
+            release.set()
+            # Give the detached thread time to finish and attempt its own record.
+            await _await_condition(lambda: False, timeout=0.5)
+
+    with session_factory() as session:
+        rows = [
+            r
+            for r in session.query(CaliberWebhookDeadLetter).all()
+            if r.event and r.event.get("id") == "raced"
+        ]
+    assert len(rows) == 1, f"one target must yield one row, got {[r.kind for r in rows]}"
+    # Either writer winning is acceptable; recording twice is not.
+    assert rows[0].kind in {"shutdown", "exhausted"}
 
 
 @pytest.mark.asyncio

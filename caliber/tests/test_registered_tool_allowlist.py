@@ -27,6 +27,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+import caliber.workflows.runtime as runtime_module
 from caliber.config import CaliberConfig
 from caliber.db.models import CaliberToolRegistry
 from caliber.workflows.tools import (
@@ -207,10 +208,11 @@ def test_a_registered_tool_module_can_run_in_a_separate_process() -> None:
     API server. The import moves too, which matters as much as the call: module-level
     code used to execute in the control plane on first bind.
 
-    **The runtime is not yet routed through this** — see
-    ``_sandboxed_registered_tool`` for exactly why, and the report's C8 entry for the
-    remaining work. This test pins the mechanism so that work starts from something
-    known to function.
+    This pins the *mechanism*. That the runtime actually routes through it — and does so
+    by default rather than on request — is pinned separately by
+    ``test_the_runtime_binds_registered_tools_out_of_process_by_default`` below, because
+    a working mechanism nothing calls is the exact defect this repository has been
+    audited for.
     """
     import os
 
@@ -227,6 +229,53 @@ def test_a_registered_tool_module_can_run_in_a_separate_process() -> None:
 
     assert result.status == "completed", result.error
     assert result.output != os.getpid(), "the module must not be imported in this process"
+
+
+def test_the_runtime_binds_registered_tools_out_of_process_by_default() -> None:
+    """C8's closure: ``_bind`` must hand back a sandboxed callable, with nothing enabled.
+
+    The mechanism test above proves the sandbox can run a module elsewhere. This proves
+    the runtime *uses* it — the step that was missing for three editions of the review,
+    during which the boundary existed, passed its own tests, and enforced nothing because
+    no caller reached it.
+
+    Asked the only non-self-referential way: bind ``os.getpid`` as a registered tool
+    through the real binder and compare the answer with this process. Deliberately with a
+    ``None`` sandbox config, because an unconfigured process must get containment by
+    default; a boundary you have to switch on is not a boundary.
+    """
+    import os
+
+    from caliber.workflows.ir import IRToolBinding
+    from caliber.workflows.runtime import _bind, bind_sandbox_config
+    from caliber.workflows.tools import InMemoryToolResolver
+
+    binding = IRToolBinding(
+        local_name="getpid",
+        registry_ref="tool.getpid.v1",
+        version_constraint=">=1",
+        requires_approval=False,
+        side_effect_level="read",
+        allow_in_preview=True,
+        module_path="os",
+        callable_name="getpid",
+    )
+    previous = runtime_module._ACTIVE_SANDBOX_CONFIG
+    bind_sandbox_config(None)
+    try:
+        fn = _bind(binding, InMemoryToolResolver([]))
+        assert fn is not None, "a registered tool must bind"
+        assert fn() != os.getpid(), "the runtime bound an in-process callable, so C8 is open"
+    finally:
+        bind_sandbox_config(previous)
+
+
+def test_disabling_the_sandbox_is_possible_but_not_the_default() -> None:
+    """The escape hatch exists for tests that monkeypatch a tool's module attribute, which
+    cannot work across a process boundary. It must stay opt-*out*, never opt-in."""
+    from caliber.config import CaliberConfig
+
+    assert CaliberConfig().registered_tool_sandbox_enabled is True
 
 
 def test_the_sandbox_refuses_an_ambiguous_request() -> None:

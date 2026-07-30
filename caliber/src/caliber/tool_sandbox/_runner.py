@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast as _ast
 import contextlib
 import datetime as _datetime
+import inspect
 import io
 import json
 import math as _math
@@ -125,6 +126,12 @@ def main() -> None:
             result = {
                 "status": "failed",
                 "error": f"{type(exc).__name__}: {exc}",
+                # Carried separately from the message so the parent can branch on the
+                # kind of failure. Across a process boundary the exception object is
+                # gone, and string-sniffing a prefix is fragile — a tool whose message
+                # happens to start with "TypeError:" would be misread as a binding
+                # problem and its call retried.
+                "error_type": type(exc).__name__,
                 "traceback": traceback.format_exc(limit=5),
             }
     result["stdout"] = stdout.getvalue()
@@ -252,12 +259,63 @@ def _resolve_callable(request: dict[str, Any]) -> Any:
 
 def _run_once(request: dict[str, Any]) -> dict[str, Any]:
     fn = _resolve_callable(request)
+    shapes = request.get("shapes") or []
+    if shapes:
+        return _run_selected_shape(fn, shapes)
     # Positional args are carried separately from keyword input: the runtime calls
     # some tools positionally, and collapsing both into one dict would silently
     # reorder or drop them.
     args = request.get("args") or []
     output = fn(*args, **request.get("input", {}))
     return {"status": "completed", "output": output}
+
+
+def _run_selected_shape(fn: Any, shapes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pick the first calling convention that binds, then invoke **exactly once**.
+
+    This is the half of C8 that could not live in the parent. Selection needs
+    ``inspect.signature(fn)``, and the whole point of the sandbox is that the parent never
+    imports ``fn`` — so the choice has to be made here, where the real function object is.
+
+    Binding is checked *without* calling the tool, which is what keeps a ``TypeError``
+    raised inside the tool body from being mistaken for "wrong convention, try the next
+    one". That mistake would re-invoke the tool and repeat its side effects; a tool that
+    charges a card or sends a message must not run twice because its body raised.
+    """
+    try:
+        signature: Any = inspect.signature(fn)
+    except (TypeError, ValueError):
+        signature = None
+
+    candidates = [(list(s.get("args") or []), dict(s.get("kwargs") or {})) for s in shapes]
+
+    if signature is not None:
+        for index, (args, kwargs) in enumerate(candidates):
+            try:
+                signature.bind(*args, **kwargs)
+            except TypeError:
+                continue
+            # Exceptions from the body propagate to ``main``, which labels them with
+            # ``error_type``. Deliberately not caught here: the tool ran, so retrying a
+            # different convention would repeat whatever it already did.
+            return {"status": "completed", "output": fn(*args, **kwargs), "selected_shape": index}
+        # Nothing bound, which is unusual. Surface the natural error from the first shape
+        # rather than inventing one.
+        args, kwargs = candidates[0]
+        return {"status": "completed", "output": fn(*args, **kwargs), "selected_shape": 0}
+
+    # A genuinely non-introspectable callable (builtin, C extension, some partials). No
+    # binding check is possible, so trial-invocation is the only option left. Advancing on
+    # TypeError here *can* re-run a body that itself raised TypeError — unavoidable without
+    # a signature, and narrow enough to state plainly rather than paper over.
+    last = len(candidates) - 1
+    for index, (args, kwargs) in enumerate(candidates):
+        try:
+            return {"status": "completed", "output": fn(*args, **kwargs), "selected_shape": index}
+        except TypeError:
+            if index == last:
+                raise
+    raise RuntimeError("tool callable accepted no supported argument shape")
 
 
 def _run_tests(request: dict[str, Any]) -> dict[str, Any]:

@@ -10,6 +10,15 @@ RunStatus = Literal["completed", "failed", "timed_out"]
 TestSuiteStatus = Literal["passed", "failed", "timed_out"]
 
 
+class ToolCallShape(BaseModel):
+    """One candidate calling convention for a sandboxed callable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    args: list[Any] = Field(default_factory=list)
+    kwargs: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolSandboxRunRequest(BaseModel):
     """Execute one user-authored Python callable in the sandbox."""
 
@@ -25,6 +34,17 @@ class ToolSandboxRunRequest(BaseModel):
     input: dict[str, Any] = Field(default_factory=dict)
     #: Positional arguments, kept separate from ``input`` so ordering survives.
     args: list[Any] = Field(default_factory=list)
+    #: Candidate calling conventions, tried in order; the **child** picks the first that
+    #: binds and invokes exactly once. Empty means "use ``args``/``input`` directly".
+    #:
+    #: This exists because convention selection cannot be done by the caller once the
+    #: tool runs out of process (C8). The parent used to choose by
+    #: ``inspect.signature(fn).bind(...)``, which needs the real function object — the
+    #: very thing a sandbox exists to keep out of the control plane. Selecting here is
+    #: not a convenience: the child is the only process that can introspect the callable,
+    #: and doing it by trial-invocation in the parent would re-run a tool whose body
+    #: raised ``TypeError``, repeating side effects.
+    shapes: list[ToolCallShape] = Field(default_factory=list, max_length=8)
     timeout_seconds: float | None = Field(default=None, gt=0, le=120)
 
     @model_validator(mode="after")
@@ -49,6 +69,15 @@ class ToolSandboxRunResult(BaseModel):
     stdout: str = ""
     stderr: str = ""
     duration_ms: float
+    #: Index into the request's ``shapes`` that actually bound, or ``None`` when shapes
+    #: were not used. Reported so the caller can log/assert which convention was chosen
+    #: instead of inferring it — an invisible selection is how the wrong one goes unnoticed.
+    selected_shape: int | None = None
+    #: Exception class name from the tool body, when the failure came from the tool rather
+    #: than from binding. The parent cannot see the exception object across the process
+    #: boundary, so the type is carried explicitly: callers that branch on error kind
+    #: would otherwise have only a flattened string.
+    error_type: str | None = None
 
 
 class ToolSandboxTestCase(BaseModel):

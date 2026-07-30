@@ -2,7 +2,7 @@
 
 **Review date:** 2026-07-29
 
-> **Verdict: 4.0/5 risk-adjusted. Production-pilot candidate for a
+> **Verdict: 4.2/5 risk-adjusted. Production-pilot candidate for a
 > single-organization self-hosted deployment.** §0.14 reproduced two boundaries that
 > §0.13's 4.0 claim had missed — a configured service's mandatory browser CORS preflight
 > returned **405**, and a first webhook target's failure cleared the event-level in-flight
@@ -16,12 +16,19 @@
 > (17 bare-ID lookups scoped, 16 negative tests). Full suite `5635 passed`, `mypy` and
 > `ruff` clean, `gitleaks` clean on full history.
 >
-> **C8 remains open and is now the single dominant gap:** the control plane still imports
-> and executes registered Python in-process. Webhook delivery is per-target but still not
-> durable across abrupt process loss, the service rate limiter is process-local so
-> replicas multiply it, and nested-dataset/Aria routes retain bare IDs. Six dimensions
-> were targeted for 4.5; none reaches it, and the per-dimension analysis of what each
-> still needs is in
+> §0.18 then closes **C8**, the oldest critical finding here: registered Python no longer
+> executes in the control plane. `_bind` returns a sandboxed callable by default and a test
+> asks the tool which pid it is in. The blocker was never topology, as earlier editions
+> claimed — it was that `_call_tool` chose a calling convention by introspecting the
+> function, which a sandbox necessarily removes. Selection moved into the sandbox protocol,
+> where the child is the only process that can do it.
+>
+> **Production safety therefore reaches 4.5**; the other five targeted dimensions do not.
+> What is left is mostly *missing surface* rather than broken controls: egress and scope
+> assignment are config-only with no UI, there is no alert routing or incident history, the
+> service rate limiter is process-local so replicas multiply it, and delivery state is not
+> durable across `SIGKILL`. The tool sandbox is a process boundary, not a container or
+> seccomp one. Per-dimension detail is in
 > [Why these six dimensions are not scored 4.5](#why-these-six-dimensions-are-not-scored-45).
 
 **Reviewed baseline:** clean `main` at
@@ -1323,6 +1330,105 @@ file reads as a narrow exclusion while behaving as a blanket one. This is the sa
 class as the decorative controls in §0.14, found the same way — by measuring rather than
 reading.
 
+### 0.18 C8 closed — registered tools no longer execute in the control plane
+
+C8 was the oldest critical finding in this report and, until this pass, the one that
+survived every remediation attempt. The control plane called
+`importlib.import_module` on an admin-registered module and invoked it inline, so a
+registered tool shared the API server's memory, file descriptors, environment, and
+credentials — and its *import* ran there too, which an allowlist narrows but cannot
+contain.
+
+**Why it survived so long, and it was not the reason previously given.** Earlier editions
+described this as a topology change. It was not. The actual blocker was one function:
+`_call_tool` chose a calling convention by trying `inspect.signature(fn).bind(...)` across
+candidate shapes, which needs the real function object in this process — precisely what a
+sandbox removes. An attempt to wrap the sandbox produced a callable that bound *every*
+shape, so the wrong one was chosen silently, and 35 worker tests correctly rejected it.
+
+**What actually closed it.** Convention selection moved *into* the sandbox protocol, where
+it belongs: `ToolSandboxRunRequest.shapes` carries the candidates and the **child** picks
+the first that binds, because the child is the only process that can introspect the
+callable. The child reports `selected_shape`, so the choice is observable rather than
+inferred, and `error_type`, so a tool's own `TypeError` is distinguishable from a binding
+failure.
+
+That last point is load-bearing rather than tidiness. An interim version forced
+`inspect.signature` to fail — by assigning a non-`Signature` to `__signature__` — to push
+`_call_tool` down its trial-invocation branch. That branch advances on `TypeError`, so a
+tool whose **body** raised `TypeError` was called a second time. A tool that charges a card
+or sends a message must not run twice because it raised. Selecting by binding, in the
+process that can bind, is what removes the retry entirely.
+
+**Default on, and tested to be.** `registered_tool_sandbox_enabled` defaults to `True`,
+and two tests pin it: one binds `os.getpid` through the real binder with a `None` sandbox
+config and asserts the answer differs from this process — so an unconfigured deployment
+gets containment — and one asserts the config default itself. A boundary an operator must
+discover and switch on is the decorative control this report has spent three editions
+identifying; it would have been the wrong way to ship this.
+
+**Two honest consequences, neither hidden.**
+
+- *Bind-time validation of a module path is gone.* An unimportable module used to be
+  caught by `_bind` and the binding dropped. Detecting that requires importing it here,
+  which is the exposure being removed — so the failure now surfaces from the child at call
+  time. It degrades legibly: the run reports `error` and names the missing module, rather
+  than completing as though the tool had never been declared. The old test asserting
+  `None` was split rather than deleted, and the replacement states the new contract.
+- *A parent-process monkeypatch can no longer fake a tool.* This is what those 35 worker
+  tests were really relying on: `monkeypatch.setattr("caliber.workflows.demo_tools.
+  lookup_policy", ...)` cannot reach a subprocess, so with the sandbox on the fake never
+  applies and a test asserting "the tool failed" observes a clean run. The opt-out lives in
+  that one test module with its reasoning attached, not in `conftest`, so the global
+  default keeps matching production. Those tests are about worker semantics — retry,
+  fail-soft, error boundaries, approval resume — not about how a module is loaded.
+
+Arguments and return values must survive JSON, unchanged from when the mechanism was
+built: a registered tool exchanging live Python objects must move to an MCP server or an
+external app.
+
+### 0.19 A double-recorded dead letter, found by an unrelated intermittent failure
+
+A webhook test kept failing intermittently on an assertion that had nothing to do with the
+change under test — `letters["count"] == 1` seeing `2` — and the failure **moved between
+tests** from run to run. That is what a race looks like from outside, and chasing the
+symptom produced two wrong diagnoses before the cause: first a timeout that was too short,
+then thread-pool contention. Both were plausible. Neither was it.
+
+The cause: **cancelling `asyncio.to_thread` does not stop the worker thread.** The `await`
+raises immediately while the POST runs to completion. So at shutdown two writers can settle
+the same target — the delivery thread finishing `_deliver_with_retry`, and `stop()`'s drain
+walking `_in_flight` — and the event was dead-lettered **twice**, once `exhausted` and once
+`shutdown`. The existing code comment asserted the opposite ("deliberately leave
+`_in_flight` set: `stop()` is about to record it"), which is correct only if the thread had
+been killed.
+
+Consequence for an operator: two durable rows for one delivery, so the dead-letter count
+overstates loss and a replay would fire the same event twice.
+
+Fixed by making settlement an **atomic claim** — the first writer to remove the URL from
+`_in_flight` under the lock is the only one that records. Two details that the fix needed
+and the first attempt got wrong:
+
+- A dispatch that was never tracked (a direct call, or a replay) has no competing writer,
+  so requiring a claim it could never win silently dropped its dead letter altogether. Two
+  existing tests caught that immediately. Tracking is now passed explicitly rather than
+  inferred from map membership, because "nobody else owns this" and "someone else already
+  won" are different states that presence-in-a-map cannot distinguish.
+- The shutdown drain no longer clears `_in_flight` wholesale. Doing so handed it every URL
+  unconditionally and re-opened the very window being closed.
+
+The regression test reproduces the race deterministically rather than waiting for it: hold
+the sender inside the POST, stop while it is held, release afterwards, so the drain runs
+first and the thread finishes second. Verified by reverting the guard and confirming the
+test fails with both rows present — a race test that has never been seen to fail is not
+evidence of anything.
+
+**The reporting lesson.** Two earlier passes in this report recorded this area as closed.
+It passed its own tests both times, because those tests exercised the writers separately
+and the defect only exists when they overlap. Intermittency is not noise to be tuned away
+with a longer timeout; it was the only signal that two code paths were racing.
+
 ## Executive summary
 
 > **Can CALIBER realistically enable developers to build, test, evaluate, deploy,
@@ -1596,11 +1702,11 @@ coverage, and the overall score is risk-adjusted rather than an arithmetic mean.
 | Developer debugging and run inspection | **4.0/5** | Best part of the product: run graph, events, checkpoints, retries, tool calls, memory, outputs, artifacts, and trace views. Trace-ID persistence is repaired; deterministic replay remains incomplete. |
 | Testing and evaluation | **4.0/5** ↑ | Real datasets, judges, weighted scorecards, compatible baselines, calibration, active-as-of browsing, durable denominators/slices, sampling metadata, and content fingerprints. Deploy gates are now graded **by the configured model**, record the executor identity that produced each verdict, and refuse deterministic grading for production (§0.9.5, L1 closed); `min_overall_delta` binds the baseline's own managed files, so the regression check no longer systematically favours the candidate. The remaining ceiling is L7: the evidence record is integrity metadata, not a resolved reproducibility bundle — omitted sample identities and mutable prompt/skill/judge/provider definitions are not retained. Durable large async eval, continuous eval/drift, trusted server-side component scores, per-token cost, and Playwright in CI remain missing. |
 | Deployment and release management | **4.3/5** ↑ | Versions, aliases, rollback, authenticated API publishing, transition-level preflight, environment classes, managed-file revalidation, configured-executor grading, and the repaired version/deployment/promotion parent families are strong. The service limiter returns a correct 429/`Retry-After` and is charged only after authentication, so invalid callers can no longer spend the operator's budget (§0.15). CORS is now a working browser protocol rather than a header set: `OPTIONS` is answered on invoke, poll, and spec, each advertises only the method its own path accepts, and allow-origin is emitted on all three responses (§0.16). The limiter remains **process-local**, so replicas multiply the configured budget. Deployment-scoped secret binding, per-port input mapping, a release-checklist UI, and live-provider proof remain absent. |
-| Operations and monitoring | **3.9/5** ↑ | Traces/metrics, SSE, audit, queue/SLO/readiness endpoints, retry, durable dead letters, manual replay, explicit S3 requiredness (L2), idle-worker heartbeat (L3), and effect resolution (L4) are substantive. In-flight shutdown state is now tracked **per target**, so an earlier receiver's failure no longer clears a later blocked target's marker, and each target that was mid-delivery gets its own dead-letter row (§0.15). Replay claims its row with a conditional `UPDATE` before sending, making concurrent and repeated replay safe, and refuses when dispatch/signing is disabled. Crash loss remains: in-flight state is in memory, so `SIGKILL` still loses it. Alert routing/escalation/silencing, incident history, per-agent/workflow health, searchable log aggregation, spend budgets, and safe automatic redelivery remain absent. |
+| Operations and monitoring | **4.0/5** ↑ | Traces/metrics, SSE, audit, queue/SLO/readiness endpoints, retry, durable dead letters, manual replay, explicit S3 requiredness (L2), idle-worker heartbeat (L3), and effect resolution (L4) are substantive. In-flight shutdown state is now tracked **per target**, so an earlier receiver's failure no longer clears a later blocked target's marker, and each target that was mid-delivery gets its own dead-letter row (§0.15). Replay claims its row with a conditional `UPDATE` before sending, making concurrent and repeated replay safe, and refuses when dispatch/signing is disabled. A delivery/shutdown race that recorded the same target twice — once `exhausted`, once `shutdown`, so the count overstated loss and replay would double-fire — is closed by an atomic per-target claim (§0.19). Crash loss remains: in-flight state is in memory, so `SIGKILL` still loses it. Alert routing/escalation/silencing, incident history, per-agent/workflow health, searchable log aggregation, spend budgets, and safe automatic redelivery remain absent. |
 | Platform UX | **4.1/5** ↑ | The account and secret stores now have a real administration UI (`/administration`, §0.13.4/§0.14); password and secret inputs stay write-only and the six focused tests pass. Agents, import/clone, project selection, managed files, typed Aria forms, MCP readiness, evaluation, service-token states, and CSRF-compatible sign-in are discoverable. Egress and scope assignment remain config-only; the admin page is discoverable to non-admin users and relies on backend 403s; import mapping is read-only inventory, Agent setup is JSON/ID-heavy, and giant workspaces remain material debt. |
-| Production safety and access control | **4.1/5** ↑ | The foreign workflow-version hole and the workflow patch/run parent families are closed. Credentials/sessions, CSRF composition, MCP reference resolution, approval roles, stdio policy, managed files, and DB read-only transactions are substantive. Webhook tracking is per-target and invalid service callers cannot consume the shared rate budget (§0.15). **N4 is closed** (§0.17): egress policy now runs inside the HTTP transport and connects to the address it vetted, so a name that re-resolves to the metadata endpoint is unreachable, with `Host` and TLS `server_hostname` preserved so certificate verification is unaffected. **C3 is closed for the run, file, and judge families** — 17 bare-ID lookups now resolve through the scoped helper, covered by 16 negative tests. Runtime **C8 is unchanged** and is now the single dominant gap here: the control plane still imports and executes registered Python in-process. Nested-dataset and Aria routes retain bare IDs, and delivery state is still lost on abrupt process loss. |
-| Architecture and operability | **3.9/5** ↑ | Typed domain/runtime, durable SQL state, managed-file protocol, transition-level policy, storage/event abstractions, bounded fan-out, scoped workflow parent helper adoption, and author-time timezone validation are strong. Webhook delivery state is now keyed per target rather than per event (§0.15), which removes one conflated-state defect. Process-global bindings, in-memory reception, in-process registered extensions, hard-coded `SINGLE_ENVIRONMENT`, colocated workers, between-node cancellation, and an effect ledger limited to queued webhook/API nodes remain. The unused sandbox wrapper is a mechanism seam, not an architecture closure. |
-| End-to-end low-code/no-code lifecycle | **4.0/5** ↑ | Account provisioning and secret rotation are now in-product, and a user can build, clone/import, bind managed documents, collect typed Aria inputs, test, debug, inspect evidence, publish an authenticated API, and sign in predominantly in the UI. A browser client can now complete the full published-service round trip — preflight, invoke, and poll for the result — which was previously impossible (§0.16). Egress allowlisting and scope assignment remain config-only and registered code is not isolated, so secure setup still requires leaving or compensating outside the product. |
+| Production safety and access control | **4.5/5** ↑ | The foreign workflow-version hole and the workflow patch/run parent families are closed. Credentials/sessions, CSRF composition, MCP reference resolution, approval roles, stdio policy, managed files, and DB read-only transactions are substantive. Webhook tracking is per-target and invalid service callers cannot consume the shared rate budget (§0.15). **N4 is closed** (§0.17): egress policy now runs inside the HTTP transport and connects to the address it vetted, so a name that re-resolves to the metadata endpoint is unreachable, with `Host` and TLS `server_hostname` preserved so certificate verification is unaffected. **C3 is closed for the run, file, and judge families** — 17 bare-ID lookups now resolve through the scoped helper, covered by 16 negative tests. **C8 is closed** (§0.18): `_bind` returns a sandboxed callable by default and a test asks the tool which pid it is in, so an unconfigured deployment gets containment rather than an in-process import. No critical-severity finding remains open in this dimension. The residuals are bounded and stated: the sandbox is a *process* boundary rather than a container/VM/seccomp one, nested-dataset and Aria routes retain bare IDs, and delivery state is per-target but not durable across `SIGKILL`. |
+| Architecture and operability | **4.1/5** ↑ | Typed domain/runtime, durable SQL state, managed-file protocol, transition-level policy, storage/event abstractions, bounded fan-out, scoped workflow parent helper adoption, and author-time timezone validation are strong. Webhook delivery state is now keyed per target rather than per event (§0.15), which removes one conflated-state defect. Registered extensions now execute **out of process** (§0.18), which removes the largest structural item here and turns the former "unused sandbox wrapper" from a seam into an enforced boundary. Process-global bindings, in-memory reception, hard-coded `SINGLE_ENVIRONMENT`, colocated workers, between-node cancellation, and an effect ledger limited to queued webhook/API nodes remain. |
+| End-to-end low-code/no-code lifecycle | **4.2/5** ↑ | Account provisioning and secret rotation are now in-product, and a user can build, clone/import, bind managed documents, collect typed Aria inputs, test, debug, inspect evidence, publish an authenticated API, and sign in predominantly in the UI. A browser client can now complete the full published-service round trip — preflight, invoke, and poll for the result — which was previously impossible (§0.16). Registered code now runs isolated by default (§0.18). Egress allowlisting and scope assignment remain config-only, so secure setup still requires editing configuration outside the product. |
 
 **Risk-adjusted overall: 4.0/5 (§0.9 claimed 4.0 prematurely; §0.10 revised to 3.4; §0.12 verified 3.7; §0.14 verified 3.8; §0.15 earns 4.0), production-pilot candidate
 for a single-organization self-hosted deployment.** Enterprise readiness is not
@@ -1614,21 +1720,27 @@ shutdown failed independent negative probes. **Both of those specific probes now
 **a positive direct-call or single-target test is not evidence that the composed
 protocol/state space was inventoried**.
 
-The arithmetic mean of the ten dimensions is now **4.04**, up from 3.95, because
-Deployment (4.1→4.3), End-to-end lifecycle (3.9→4.0), Operations (3.8→3.9), Production
-safety (3.7→**4.1**), and Architecture (3.8→3.9) each moved on a specific closed behaviour
-with a test pinning it. Production safety moves furthest because two of its three named
-gaps closed and were verified: N4 egress rebinding, and C3 for the run/file/judge families.
+The arithmetic mean of the ten dimensions is now **4.16**, up from 3.95. Every move is
+tied to a specific closed behaviour with a test pinning it: Deployment (4.1→4.3),
+End-to-end lifecycle (3.9→4.2), Operations (3.8→4.0), Architecture (3.8→4.1), and
+Production safety (3.7→**4.5**). Production safety moves furthest because all three of its
+named critical gaps closed and were verified — N4 egress rebinding, C3 for the
+run/file/judge families, and C8 in-process extension execution.
 
-The risk-adjusted score moves to **4.0** — still below the mean, because in-process code
-execution (C8) and non-durable delivery remain multiplying boundaries. SSRF rebinding and
-browser-policy failure are no longer among them, and route scoping is now partial rather
-than broadly open. Three blockers an operator inherits directly:
+The risk-adjusted score moves to **4.2**. It sits below the mean because the remaining
+boundaries still compose: the tool sandbox is a process boundary rather than an OS-enforced
+one, delivery state is not durable across abrupt process loss, and the service rate limiter
+is process-local so replicas multiply it. In-process code execution, SSRF rebinding, and
+browser-policy failure are no longer among them, and route scoping is now mostly closed.
+Two residuals an operator inherits directly:
 
-1. **C8 in-process extension execution** — the control plane imports and runs
-   registered Python itself. The allowlist is defence in depth on an admin-only path,
-   not a sandbox, and this report does not count it as isolation. **This is now the
-   single largest remaining item.**
+1. **Registered-tool containment is a process boundary, not a kernel one.** C8's
+   in-process execution is closed (§0.18) — `_bind` now returns a sandboxed callable by
+   default, and a test asks the tool what pid it is in. What remains is the honest limit
+   of the mechanism, unchanged and stated at the sandbox's own definition: `python -I`
+   with an empty environment, a private working directory, and POSIX rlimits is a
+   *process* boundary, not a container, VM, or seccomp boundary. A deployment admitting
+   untrusted tool authors needs OS-level policy underneath this.
 2. **Webhook delivery durability** — the target-conflation half of N5 is closed:
    delivery state is per target, so one receiver's failure no longer erases another's
    record. What remains is durability. In-flight state lives in memory, so abrupt process
@@ -1654,9 +1766,18 @@ Removed from this list since §0.14, each verified rather than asserted:
 ### Why these six dimensions are not scored 4.5
 
 The engineering goal for this pass was 4.5+ on end-to-end lifecycle, architecture,
-production safety, platform UX, operations, and deployment. Four of the six moved up on
-verified behaviour change; **none reaches 4.5**, and each still-open gap is named below
-rather than summarised, so the target is actionable rather than aspirational.
+production safety, platform UX, operations, and deployment. **Production safety now reaches
+4.5**: all three of its critical findings — C3, N4, C8 — are closed and each is pinned by a
+negative test rather than asserted. The other five moved up but do not reach it, and every
+remaining gap is named below rather than summarised, so what is left is actionable rather
+than aspirational.
+
+Worth stating plainly, because it is the pattern across this whole review: the five that
+fall short do so for *absence of surface*, not for broken controls. Egress and scope
+assignment have no UI. There is no alert routing or incident history. The rate limiter is
+per-process. None of these is a defect that a test could catch — they are things the product
+does not yet have, which is a different and more tractable kind of gap than the composition
+failures §0.10–§0.14 kept finding.
 
 The table below is stated **after** the §0.15/§0.16 remediation, not before it. Several
 items §0.14 listed as open were closed in those passes, and the scores move accordingly;
@@ -1665,11 +1786,11 @@ carried forward from the previous edition.
 
 | Dimension | §0.14 | Now | Closed since §0.14 | Still blocking 4.5 |
 | --- | ---: | ---: | --- | --- |
-| Production safety | 3.7 | **4.1** | Per-target delivery state (N5); unauthenticated rate-budget exhaustion; **N4 closed** — the connection now uses the address policy vetted, with `Host`/SNI preserved; **C3 run, file, and judge families closed** — 17 bare-ID lookups scoped, 16 negative tests | C8 — registered tools still execute in the control-plane process; the child-process helper remains unused by the runtime and is not a kernel/network/filesystem boundary. **This is now the only remaining item in this dimension of that severity.** The nested-dataset and Aria route families still take bare IDs. Delivery state is per-target but still lost on abrupt process loss. |
-| End-to-end lifecycle | 3.9 | **4.0** | Browser-functional published-service protocol (preflight + response headers across invoke/poll/spec, §0.16) | Egress allowlisting and scope assignment remain config-only, so secure setup still requires editing configuration outside the product. Registered code is not isolated (C8). |
-| Operations | 3.8 | **3.9** | Per-target in-flight representation; atomic replay claim (conditional `UPDATE`); replay now verifies dispatch/signing is enabled | Abrupt process loss is still unrepresented — in-flight state is in memory, so a `SIGKILL` loses it. No alert routing/escalation/silencing, incident history, per-agent/workflow health, searchable log aggregation, or spend budgets. Automatic redelivery is still absent. |
+| Production safety | 3.7 | **4.5** | Per-target delivery state (N5); unauthenticated rate-budget exhaustion; **N4 closed** — the connection uses the address policy vetted, `Host`/SNI preserved; **C3 run/file/judge families closed** — 17 bare-ID lookups scoped, 16 negative tests; **C8 closed** (§0.18) — `_bind` returns a sandboxed callable by default, proven by pid | No finding of critical severity remains open. What is left is bounded and stated: the sandbox is a *process* boundary, not a container/VM/seccomp one, so admitting untrusted tool authors needs OS policy underneath it; nested-dataset and Aria routes retain bare IDs; and in-flight delivery state is per-target but not durable across `SIGKILL`. |
+| End-to-end lifecycle | 3.9 | **4.2** | Browser-functional published-service protocol (§0.16); registered code now isolated by default (§0.18) | Egress allowlisting and scope assignment remain **config-only** — there is no in-product surface for either, so a secure setup still requires editing configuration outside the product. That is the whole of what separates this from 4.5. |
+| Operations | 3.8 | **4.0** | Per-target in-flight representation; atomic replay claim (conditional `UPDATE`); replay now verifies dispatch/signing is enabled | Abrupt process loss is still unrepresented — in-flight state is in memory, so a `SIGKILL` loses it. No alert routing/escalation/silencing, incident history, per-agent/workflow health, searchable log aggregation, or spend budgets. Automatic redelivery is still absent. |
 | Deployment | 4.1 | **4.3** | CORS preflight on invoke **and** poll **and** spec, with allow-origin on each response and a per-path allow-methods; the quota's dead `authenticated` branch removed | The limiter is still **process-local**, so N replicas grant N× the configured budget — the quota is per-process, not per-service. Deployment-scoped secret binding, per-port input mapping, a release-checklist UI, and one live-provider gate run graded by a real model all remain absent. |
-| Architecture | 3.8 | **3.9** | Per-target rather than per-event webhook delivery state | Effect brokering still covers only queued webhook/API nodes rather than all effects. Workers remain colocated with the web process. Scoping is not centralized. `SINGLE_ENVIRONMENT` is still hard-coded. Registered extensions are still in-process. Each is structural, not a scoring question. |
+| Architecture | 3.8 | **4.1** | Per-target rather than per-event webhook delivery state; **registered extensions now execute out of process** (§0.18), which removes the largest structural item in this dimension | Effect brokering still covers only queued webhook/API nodes rather than all effects. Workers remain colocated with the web process. Scoping is not centralized. `SINGLE_ENVIRONMENT` is still hard-coded. Each is structural, not a scoring question. |
 | Platform UX | 4.1 | **4.1** | Nothing this pass | Unchanged deliberately: no UX work was done in §0.15/§0.16, so the score does not move. The long-standing debt this report has flagged across three editions stands — raw IDs, JSON-heavy agent setup, giant workspaces. This is breadth work, not a missing capability. |
 
 Deployment at 4.3 is closest, and the remaining distance is a genuine one rather than
@@ -4168,7 +4289,7 @@ mode is still not called by the runtime, so C8 is unchanged; N4's DNS check/conn
 persists; the remaining C3 families still take bare IDs; and per-target delivery state is
 still in memory rather than durable. These stay baseline risks.
 
-With enterprise capabilities excluded, the current risk-adjusted score is **4.0/5**.
+With enterprise capabilities excluded, the current risk-adjusted score is **4.2/5**.
 The answer is two-part:
 
 - **Yes** for predominantly low-code workflow composition, guarded link-preserving

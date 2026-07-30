@@ -98,6 +98,9 @@ _DEFAULT_BACKOFF_SECONDS: Final[float] = 0.5
 #: complete when it is not. With a session factory bound, the durable table is the
 #: real record and this is a cache of the newest entries.
 _DEAD_LETTER_CAPACITY: Final[int] = 200
+#: Distinguishes "was not in the map" from "mapped to None" when atomically claiming an
+#: in-flight target, so the claim cannot be won twice.
+_UNSET: Any = object()
 #: Pending events held between the bus subscriber and the delivery loop. Deep enough
 #: to ride out a receiver outage of a few minutes at normal event rates, bounded so a
 #: permanent outage cannot exhaust memory. Overflow is dead-lettered, not dropped.
@@ -227,7 +230,27 @@ class WebhookDispatcher:
         *,
         kind: str = KIND_EXHAUSTED,
         attempts: int | None = None,
-    ) -> None:
+        settles_in_flight: bool = False,
+    ) -> bool:
+        # ``settles_in_flight`` closes a double-record race. Two writers can be settling
+        # the same (url, event) at once:
+        #
+        #   * the delivery thread, finishing ``_deliver_with_retry``; and
+        #   * ``stop()``'s drain, walking ``_in_flight``.
+        #
+        # They race because cancelling ``asyncio.to_thread`` does **not** stop the worker
+        # thread — the ``await`` raises immediately while the thread runs to completion.
+        # So the drain could see ``_in_flight`` still populated, record ``shutdown``, and
+        # the still-live thread would then record ``exhausted`` for the same event. An
+        # operator saw two rows for one delivery and would double-count it on replay.
+        #
+        # Claiming the URL *atomically* makes the first writer the only writer. Callers
+        # whose rows were never in-flight (overflow, and events still sitting in the
+        # queue) pass ``False`` and are unaffected — they have no claim to win.
+        if settles_in_flight:
+            with self._dead_letter_lock:
+                if self._in_flight.pop(url, _UNSET) is _UNSET:
+                    return False  # another writer already settled this target
         entry = {
             "url": url,
             "event_type": event.get("type"),
@@ -242,12 +265,13 @@ class WebhookDispatcher:
             self._dead_letters.append(entry)
             if kind == KIND_OVERFLOW:
                 self._overflowed += 1
-        # This *target* is now accounted for, so the shutdown drain must not add a
-        # second row for it. Scoped to the URL: clearing the whole event here was the
-        # multi-target defect — one target's dead letter silently discharged every other
-        # target's obligation.
-        self._in_flight.pop(url, None)
+        # Non-settling callers still discharge the target's obligation. Scoped to the URL:
+        # clearing the whole event here was the multi-target defect — one target's dead
+        # letter silently discharged every other target's obligation.
+        if not settles_in_flight:
+            self._in_flight.pop(url, None)
         self._persist_dead_letter(entry, event)
+        return True
 
     def _persist_dead_letter(self, entry: dict[str, Any], event: dict[str, object]) -> None:
         """Write the failure to ``caliber_webhook_dead_letters``.
@@ -395,16 +419,25 @@ class WebhookDispatcher:
         # be lost — the one in progress when the stop arrived. One row per *target* still
         # owed an outcome; targets already delivered or already dead-lettered have been
         # removed from the map and are correctly skipped.
-        in_flight, self._in_flight = self._in_flight, {}
+        # Snapshot under the lock, but do **not** clear the map: each row below claims its
+        # own URL via ``settles_in_flight``, which is what makes the delivery thread and
+        # this drain mutually exclusive per target. Clearing here instead would hand the
+        # drain every URL unconditionally and re-open the double-record window.
+        with self._dead_letter_lock:
+            in_flight = dict(self._in_flight)
         for url, event in in_flight.items():
-            drained += 1
-            self._record_dead_letter(
+            # Counted only when the row was actually written: a target the delivery thread
+            # settled first is not an abandoned event, and reporting it as one would
+            # overstate shutdown loss in the operator-facing log line.
+            if self._record_dead_letter(
                 url,
                 event,
                 "dispatcher stopped while this event was in flight; delivery outcome unknown",
                 kind=KIND_SHUTDOWN,
                 attempts=0,
-            )
+                settles_in_flight=True,
+            ):
+                drained += 1
         if self._pending is None:
             return drained
         while True:
@@ -492,7 +525,7 @@ class WebhookDispatcher:
                     # POST and the originating state-change can be
                     # correlated in the JSON-log stream.
                     with bind_trace_id():
-                        await asyncio.to_thread(self._post_to_all, event)
+                        await asyncio.to_thread(self._post_to_all, event, True)
                 except asyncio.CancelledError:
                     # Deliberately leave ``_in_flight`` set: this is the shutdown path,
                     # and ``stop()`` is about to record it. Clearing it in a ``finally``
@@ -516,7 +549,7 @@ class WebhookDispatcher:
         event_type = event.get("type")
         return isinstance(event_type, str) and event_type in self._event_filter
 
-    def _post_to_all(self, event: dict[str, object]) -> None:
+    def _post_to_all(self, event: dict[str, object], tracked: bool = False) -> None:
         """POST a single event to every configured URL.
 
         Synchronous: this method runs on a thread via
@@ -529,7 +562,7 @@ class WebhookDispatcher:
         signature = compute_signature(self._secret, timestamp, payload)
         body = payload.encode("utf-8")
         for url in self._urls:
-            self._deliver_with_retry(url, body, timestamp, signature, event)
+            self._deliver_with_retry(url, body, timestamp, signature, event, tracked)
 
     def _deliver_with_retry(
         self,
@@ -538,8 +571,15 @@ class WebhookDispatcher:
         timestamp: str,
         signature: str,
         event: dict[str, object],
+        tracked: bool = False,
     ) -> None:
         """POST with exponential backoff; dead-letter after the last attempt.
+
+        ``tracked`` says whether this dispatch is registered in ``_in_flight``, i.e.
+        whether ``stop()``'s drain could also be trying to settle the same target. Only a
+        tracked dispatch claims the target before recording; an untracked one (a direct
+        call, or a replay) has no competing writer, so requiring a claim it could never win
+        would silently drop its dead letter entirely.
 
         The signature is computed once and reused across attempts: re-signing with
         a fresh timestamp on each retry would look like a distinct event to a
@@ -551,8 +591,11 @@ class WebhookDispatcher:
                 self._post(url, body, timestamp, signature)
                 self._delivered += 1
                 # Delivered: this target is settled and must not be dead-lettered by a
-                # later shutdown drain.
-                self._in_flight.pop(url, None)
+                # concurrent shutdown drain. Claimed under the same lock the drain uses,
+                # because "succeeded" and "abandoned at shutdown" would otherwise both be
+                # recorded for one delivery that actually went through.
+                with self._dead_letter_lock:
+                    self._in_flight.pop(url, None)
                 return
             except WebhookDeliveryError as exc:
                 last_reason = str(exc)
@@ -577,7 +620,7 @@ class WebhookDispatcher:
             event.get("type"),
             last_reason,
         )
-        self._record_dead_letter(url, event, last_reason)
+        self._record_dead_letter(url, event, last_reason, settles_in_flight=tracked)
 
     def _post(self, url: str, body: bytes, timestamp: str, signature: str) -> None:
         req = urllib.request.Request(  # noqa: S310 — URL comes from operator config
