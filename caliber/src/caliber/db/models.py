@@ -1120,6 +1120,45 @@ class CaliberEffectLedger(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class CaliberIncident(Base):
+    """An SLO objective that started breaching, and what happened next.
+
+    Detection already existed in ``observability/slo.py``; this is the memory it lacked. A
+    breach used to be visible only to whoever polled ``/system/slo`` while it was still
+    true, so "when did this start", "how long did it last", and "has it happened before"
+    had no answer.
+
+    At most one ``open`` incident per objective. That invariant is enforced in the service
+    rather than by a partial unique index, because SQLite and PostgreSQL disagree on those
+    and the transition is already serialised in one place.
+    """
+
+    __tablename__ = "caliber_incidents"
+    __table_args__ = (
+        Index("ix_caliber_incidents_objective_status", "objective", "status"),
+        Index("ix_caliber_incidents_opened_at", "opened_at"),
+    )
+
+    incident_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    objective: Mapped[str] = mapped_column(String(256))
+    signal: Mapped[str] = mapped_column(String(64))
+    severity: Mapped[str] = mapped_column(String(16), default="warning", server_default="warning")
+    status: Mapped[str] = mapped_column(String(16), default="open", server_default="open")
+    detail: Mapped[str] = mapped_column(Text, default="", server_default="")
+    observed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    target: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opened_at: Mapped[datetime] = mapped_column(DateTime)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    acknowledged_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    #: Set by an operator to stop routing while they work the problem. Deliberately stored
+    #: rather than configured: an incident is the worst moment to require a redeploy.
+    silenced_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: When this incident was routed. Null means never notified, which is what makes
+    #: delivery idempotent across evaluator ticks.
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaliberWebhookAcceptedEvent(Base):
     """An accepted-but-unsettled webhook delivery, so a crash is still observable.
 

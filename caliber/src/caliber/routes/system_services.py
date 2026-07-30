@@ -27,20 +27,29 @@ from urllib.parse import urlparse
 import httpx
 from sqlalchemy import text
 from starlette.applications import Starlette
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from caliber.auth import require_user
-from caliber.observability import slo
+from caliber.audit import record as audit_record
+from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.observability import incidents, slo
 from caliber.observability.queue_health import collect_queue_health_for_config
 from caliber.observability.readiness import collect_readiness
-from caliber.routes._deps import envelope_response_dict, get_session_factory
+from caliber.routes._deps import (
+    envelope_response_dict,
+    get_session_factory,
+    parse_json_object,
+)
 from caliber.schemas import SystemServiceSchema
 
 SERVICES_PATH = "/ajax-api/2.0/mlflow/caliber/system/services"
 QUEUE_PATH = "/ajax-api/2.0/mlflow/caliber/system/queue"
 ALERTS_PATH = "/ajax-api/2.0/mlflow/caliber/system/alerts"
+INCIDENTS_PATH = "/ajax-api/2.0/mlflow/caliber/system/incidents"
+INCIDENT_SILENCE_PATH = INCIDENTS_PATH + "/{incident_id}/silence"
+INCIDENT_ACK_PATH = INCIDENTS_PATH + "/{incident_id}/acknowledge"
 
 _HTTP_TIMEOUT_SECONDS = 2.5
 _TCP_TIMEOUT_SECONDS = 2.0
@@ -345,10 +354,98 @@ async def get_alerts(request: Request) -> JSONResponse:
             webhook_delivery=webhook_delivery,
             readiness=readiness,
         )
-    return envelope_response_dict({**report, "checked_at_ms": int(time.time() * 1000)})
+        # Detection without memory was the gap: a breach used to be visible only to
+        # whoever polled while it was still true. Reconciling here means every evaluation
+        # updates the durable record, and routing rides the event bus so it inherits the
+        # dispatcher's retry, dead-lettering, and crash recovery rather than growing a
+        # second delivery path.
+        publish = getattr(getattr(request.app.state, "event_bus", None), "publish", None)
+        changed = incidents.reconcile(
+            session,
+            [slo.AlertState(**a) if isinstance(a, dict) else a for a in report.get("alerts", [])],
+            severities=incidents.parse_severities(getattr(config, "slo_severities", "")),
+            publish=publish if callable(publish) else None,
+        )
+    return envelope_response_dict(
+        {**report, "incidents": changed, "checked_at_ms": int(time.time() * 1000)}
+    )
+
+
+async def get_incidents(request: Request) -> JSONResponse:
+    """``GET /system/incidents`` — incident history, newest first.
+
+    The question ``/system/slo`` cannot answer: what happened *before* now.
+    """
+    require_user(request)
+    limit = int(request.query_params.get("limit", "50") or 50)
+    status = request.query_params.get("status") or None
+    factory = get_session_factory(request)
+    with factory() as session:
+        rows = incidents.history(session, limit=limit, status=status)
+    return envelope_response_dict({"incidents": rows, "total": len(rows)})
+
+
+async def silence_incident(request: Request) -> JSONResponse:
+    """``POST /system/incidents/{incident_id}/silence`` — mute routing, keep the record."""
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    incident_id = request.path_params["incident_id"]
+    body = await parse_json_object(request, allow_empty=True)
+    minutes = int(body.get("minutes", 60) or 60)
+    factory = get_session_factory(request)
+    with factory() as session:
+        incident = incidents.silence(session, incident_id, minutes=minutes)
+        if incident is None:
+            raise HTTPException(status_code=404, detail=f"incident {incident_id!r} not found")
+        audit_record(
+            session,
+            actor=actor,
+            action="silence_incident",
+            entity_type="incident",
+            entity_id=incident_id,
+            details={"minutes": minutes},
+        )
+        session.commit()
+        silenced_until = incident.silenced_until
+    return envelope_response_dict(
+        {
+            "incident_id": incident_id,
+            "silenced_until": silenced_until.isoformat() if silenced_until else None,
+        }
+    )
+
+
+async def acknowledge_incident(request: Request) -> JSONResponse:
+    """``POST /system/incidents/{incident_id}/acknowledge`` — take ownership.
+
+    Deliberately not the same as resolving: "someone is looking at this" and "it stopped"
+    are different facts, and merging them would drop an ongoing incident off the open list.
+    """
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    incident_id = request.path_params["incident_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        incident = incidents.acknowledge(session, incident_id, actor=actor)
+        if incident is None:
+            raise HTTPException(status_code=404, detail=f"incident {incident_id!r} not found")
+        audit_record(
+            session,
+            actor=actor,
+            action="acknowledge_incident",
+            entity_type="incident",
+            entity_id=incident_id,
+            details={},
+        )
+        session.commit()
+        status = incident.status
+    return envelope_response_dict(
+        {"incident_id": incident_id, "acknowledged_by": actor, "status": status}
+    )
 
 
 def register(app: Starlette) -> None:
     app.routes.append(Route(SERVICES_PATH, get_services, methods=["GET"]))
     app.routes.append(Route(QUEUE_PATH, get_queue, methods=["GET"]))
     app.routes.append(Route(ALERTS_PATH, get_alerts, methods=["GET"]))
+    app.routes.append(Route(INCIDENTS_PATH, get_incidents, methods=["GET"]))
+    app.routes.append(Route(INCIDENT_SILENCE_PATH, silence_incident, methods=["POST"]))
+    app.routes.append(Route(INCIDENT_ACK_PATH, acknowledge_incident, methods=["POST"]))

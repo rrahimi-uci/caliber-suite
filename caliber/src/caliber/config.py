@@ -609,6 +609,17 @@ class CaliberConfig(BaseModel):
         gt=0,
         description="Claim-lease duration for running workflow runs before recovery.",
     )
+    slo_severities: str = Field(
+        default="",
+        description=(
+            "Comma-separated 'objective=severity' pairs, e.g. "
+            "'success_ratio>=0.95=critical,queue_depth<=100=warning'. Severity is operator "
+            "configuration rather than something inferred from how far past target an "
+            "observation is: how bad a breach is depends on the service, not the number. "
+            "Unlisted objectives open at 'warning'. An unrecognised severity is ignored so "
+            "one typo cannot stop the other objectives being evaluated."
+        ),
+    )
     slo_objectives: str = Field(
         default="",
         description=(
@@ -1661,6 +1672,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_WORKFLOW_RUN_LEASE_SECONDS", "workflow_run_lease_seconds", float),
     ("CALIBER_WORKFLOW_QUEUE_MAX_AGE_SECONDS", "workflow_queue_max_age_seconds", float),
     ("CALIBER_SLO_OBJECTIVES", "slo_objectives", str),
+    ("CALIBER_SLO_SEVERITIES", "slo_severities", str),
     ("CALIBER_SLO_WINDOW_MINUTES", "slo_window_minutes", float),
     (
         "CALIBER_KNOWLEDGE_BUILD_QUEUE_ENABLED",

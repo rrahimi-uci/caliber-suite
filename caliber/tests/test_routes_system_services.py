@@ -116,3 +116,50 @@ def test_graph_console_omitted_when_unconfigured(
     )
     by_key = {s["key"]: s for s in client.get(SERVICES).json()["data"]["services"]}
     assert "graph_console" not in by_key
+
+
+def test_the_slo_endpoint_records_and_routes_an_incident(client) -> None:
+    """Detection already worked; this pins that evaluating also *remembers*.
+
+    A breach used to be visible only to whoever polled `/system/alerts` while it was still
+    true. Reconciling on evaluation is what gives `/system/incidents` anything to show, and routing rides the
+    event bus so alert delivery inherits the webhook dispatcher's retry, dead-lettering and
+    crash recovery instead of growing a second delivery path.
+    """
+    published: list[dict] = []
+    bus = getattr(client.app.state, "event_bus", None)
+    if bus is not None:
+        original = bus.publish
+
+        def _spy(payload: dict) -> None:
+            published.append(payload)
+            original(payload)
+
+        bus.publish = _spy  # type: ignore[method-assign]
+
+    # An objective that cannot hold: no runs in the window means no success ratio, so pick
+    # a queue-depth bound of -1, which any real depth breaches.
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"slo_objectives": "queue_depth<=-1", "slo_severities": "queue_depth<=-1=critical"}
+    )
+
+    response = client.get("/ajax-api/2.0/mlflow/caliber/system/alerts")
+    assert response.status_code == 200, response.text
+    body = response.json()["data"]
+    assert "incidents" in body, "evaluation must reconcile the durable record"
+
+    history = client.get("/ajax-api/2.0/mlflow/caliber/system/incidents")
+    assert history.status_code == 200, history.text
+    rows = history.json()["data"]["incidents"]
+    if body["incidents"]["opened"]:
+        assert rows, "an opened incident must appear in history"
+        assert rows[0]["severity"] == "critical", "severity comes from operator config"
+        assert any(e.get("type") == "slo.incident.opened" for e in published)
+
+
+def test_silencing_an_unknown_incident_is_404(client) -> None:
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/system/incidents/INC-nope/silence",
+        json={"minutes": 30},
+    )
+    assert response.status_code == 404, response.text

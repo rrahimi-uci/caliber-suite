@@ -1744,6 +1744,69 @@ implementation's honesty about being per-process is what made it fixable.
 | Local CI | all seven jobs green in the prior run; re-run after this change |
 | Unchanged boundary | Python 3.14.4 (outside supported 3.10–3.12), no live sidecars, and GitHub Actions still will not start jobs on the account budget |
 
+### 0.26 Alert routing, silencing, and incident history
+
+The last operability item every review has recorded as open. It turned out to be smaller
+than its description suggested, and worth saying why: **detection already existed.**
+`observability/slo.py` evaluated objectives and returned an `AlertState` for each, rendered
+by `/system/alerts`. What was missing was not a second evaluator but *memory and delivery* —
+a breach was visible only to whoever polled while it was still true, so "when did this
+start", "how long did it last", and "has this happened before" had no answer at all.
+
+`caliber_incidents` (migration `0074`) plus `observability/incidents.py` supply the
+lifecycle: an incident opens the first time an objective fires, resolves when it stops, and
+records duration, severity, acknowledgement, and silence. `/system/alerts` reconciles on
+every evaluation, so the record cannot drift from the gauge, and three routes expose the
+history and the two operator actions.
+
+**Routing reuses the event bus rather than adding a delivery path.** An incident publishes
+`slo.incident.opened` / `slo.incident.resolved`, which the webhook dispatcher already
+delivers — inheriting bounded retry, the durable dead-letter record, per-target settlement,
+and the crash recovery added in §0.25. An alert that vanishes silently is precisely the
+failure several passes were spent eliminating on that path; building a second one would
+have re-earned it.
+
+Four decisions worth recording, because each is the difference between alerting that is
+present and alerting that is usable:
+
+- **Notification is at-most-once per transition.** The evaluator is meant to run
+  repeatedly, so without `notified_at` a breach lasting an hour would page on every tick.
+- **Silencing suppresses routing, not the record.** Dropping the row would hide the
+  incident from the history that exists to be reviewed afterwards — and an operator
+  silencing an alert usually already knows about it.
+- **A resolution routes even when the open was silenced.** "All clear" is the one message
+  that is never noise.
+- **Acknowledgement is not resolution.** "Someone is looking at this" and "it stopped" are
+  different facts; merging them drops an ongoing incident off the open list.
+
+Severity is operator configuration (`CALIBER_SLO_SEVERITIES`) rather than inferred from how
+far past target an observation sits, because how bad a breach is depends on the service and
+not on the number. An unrecognised severity is ignored so one typo cannot stop the other
+objectives from being evaluated.
+
+**A defect the tests caught during construction.** `parse_severities` split on the first
+`=`, but an objective label *contains* one — `success_ratio>=0.9` — so
+`a>=1=critical` parsed as label `a>` with severity `1=critical`, and every configured
+severity was silently discarded. Fixed to split on the last field. Worth recording because
+it would have degraded quietly: alerting would have run at the default severity forever
+with no error anywhere.
+
+**Still open: durable asynchronous calibration.** §0.23 fixed the real defect — waits
+blocking the event loop, a session held across execution. What remains is turning a long
+calibration into queued work with a job record and a poll endpoint, which needs a
+background drain plus lifecycle and configuration wiring. That is a feature of comparable
+size to this section, and it is not started. Recording it as open is more useful than a
+half-durable version that would claim more than it delivers.
+
+#### Evidence
+
+| Check | Result |
+| --- | --- |
+| Full suite | **5676 passed, 7 skipped** (`-n auto --dist loadscope`, coverage on) |
+| Incident lifecycle | 10 focused tests: repeat suppression, silence-but-record, resolve-through-silence, ack-is-not-resolve, routing-failure-preserves-record, severity parsing, history filtering, and the end-to-end route reconcile |
+| Static checks | `ruff check`, `ruff format --check`, `mypy src` across 300 files — clean |
+| Unchanged boundary | Python 3.14.4 (outside supported 3.10–3.12), no live sidecars, GitHub Actions still refuses to start jobs on the account budget |
+
 ## Executive summary
 
 CALIBER is a credible, broad low-code agent engineering studio and lifecycle control
