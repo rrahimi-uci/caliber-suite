@@ -1120,6 +1120,40 @@ class CaliberEffectLedger(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class CaliberCalibrationJob(Base):
+    """A queued or completed tool calibration.
+
+    Calibration scores every saved test case through the sandbox; with up to 200 cases each
+    paying a cold subprocess start, that is minutes of work that used to be one synchronous
+    HTTP request. The job row makes it durable and the result addressable.
+
+    ``test_cases`` snapshots the cases at submission: calibrating against a moving target
+    would make the result unattributable, which is why the synchronous path already refused
+    a run whose cases changed underneath it.
+    """
+
+    __tablename__ = "caliber_calibration_jobs"
+    __table_args__ = (
+        Index("ix_caliber_calibration_jobs_status_created", "status", "created_at"),
+        Index("ix_caliber_calibration_jobs_tool", "tool_id"),
+    )
+
+    job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tool_id: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default="queued", server_default="queued")
+    requested_by: Mapped[str] = mapped_column(String(256), default="", server_default="")
+    test_cases: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    #: Claimed by a conditional UPDATE on ``status`` so two drains cannot run one job —
+    #: the same arbitration the dead-letter replay uses, rather than a lock held across
+    #: execution that a crash would strand.
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaliberIncident(Base):
     """An SLO objective that started breaching, and what happened next.
 

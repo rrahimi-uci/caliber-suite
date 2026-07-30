@@ -45,6 +45,7 @@ from caliber.llm.provider import LLMProvider, build_provider
 from caliber.observability.logging import configure_logging
 from caliber.observability.mlflow_tracing import configure_tracing, register_pricing_source
 from caliber.observability.trace import TraceIdMiddleware
+from caliber.orchestrator.calibration_drain import CalibrationDrain
 from caliber.orchestrator.janitor import JanitorTask
 from caliber.orchestrator.scheduler import WorkflowSchedulerTask
 from caliber.orchestrator.worker import RefinementWorker
@@ -151,6 +152,7 @@ def _build_lifespan(
     knowledge_build_worker: KnowledgeBaseWorker | None,
     scheduler: WorkflowSchedulerTask | None,
     janitor: JanitorTask,
+    calibration_drain_task: CalibrationDrain,
     webhooks: WebhookDispatcher,
     grace_seconds: float,
     _llm: LLMProvider,  # held in the closure so it lives as long as the worker
@@ -190,6 +192,7 @@ def _build_lifespan(
             if scheduler is not None:
                 await scheduler.start()
             await janitor.start()
+            await calibration_drain_task.start()
             await webhooks.start()
         try:
             yield
@@ -204,6 +207,7 @@ def _build_lifespan(
             if workflow_run_worker is not None:
                 await workflow_run_worker.stop(grace_seconds=grace_seconds)
             await worker.stop(grace_seconds=grace_seconds)
+            await calibration_drain_task.stop()
             await janitor.stop()
             stop_bus = getattr(_event_bus, "stop", None)
             if callable(stop_bus):
@@ -436,6 +440,10 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         stale_threshold_seconds=resolved.janitor_stale_threshold_seconds,
         workflow_run_retention_days=resolved.workflow_run_retention_days,
     )
+    calibration_drain_task = CalibrationDrain(
+        session_factory=session_factory,
+        config=resolved,
+    )
     webhooks = build_dispatcher(
         bus=event_bus,
         urls_csv=resolved.webhook_urls,
@@ -467,6 +475,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             knowledge_build_worker if resolved.knowledge_build_worker_enabled else None,
             scheduler if resolved.workflow_scheduler_enabled else None,
             janitor,
+            calibration_drain_task,
             webhooks,
             resolved.shutdown_grace_seconds,
             llm_provider,

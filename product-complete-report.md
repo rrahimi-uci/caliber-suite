@@ -1807,6 +1807,79 @@ half-durable version that would claim more than it delivers.
 | Static checks | `ruff check`, `ruff format --check`, `mypy src` across 300 files — clean |
 | Unchanged boundary | Python 3.14.4 (outside supported 3.10–3.12), no live sidecars, GitHub Actions still refuses to start jobs on the account budget |
 
+### 0.27 The intermittent, root-caused — and durable calibration
+
+Two items §0.26 left open. Both are closed.
+
+#### The unexplained intermittent was a real product defect
+
+Three `test_workflow_runtime` tests failed together on one xdist worker in a local CI run.
+The previous pass could not explain it, made the assertions report `result.error`, and
+recorded it as open rather than dismissing it as flaky. That was the right call: it was not
+flaky.
+
+**A caller's timeout was being charged for interpreter startup.** The `python_code` node
+builds its sandbox with the manifest's `timeout_seconds` — the test manifest says 5 — and
+that number was the entire wall-clock budget, including a cold `python -I` start. Measured
+idle, startup is ~0.05s for a trivial module and ~0.55s for one importing the caliber
+package: small, and not small on a saturated host. Since C8 the whole suite spawns far more
+subprocesses, so under `-n auto` a spawn storm let startup consume the budget and a working
+node was reported as a product failure.
+
+Two earlier guesses were wrong and are worth keeping:
+
+- Setting `CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS` did not reproduce it, because this node
+  takes its timeout from the *manifest*, not config.
+- "Subprocess exhaustion after C8" was not supported by the code: the sandbox cleans up
+  with a `TemporaryDirectory` context manager, `finally` blocks closing streams, and
+  process-tree termination.
+
+`timeout_seconds: 5` means "my node may take five seconds", not "five seconds including a
+cold Python start" — and the caller neither asked for the subprocess nor can influence how
+long it takes to begin. The wall-clock wait is now the caller's timeout plus a startup
+allowance, while the CPU rlimit stays derived from the caller's timeout alone, because the
+rlimit is what stops a runaway loop and should measure the work rather than the overhead.
+
+Telling detail: the existing `_sandbox()` test helper already carried a comment about
+cold-start flakes under full-suite load. The phenomenon was known and worked around in a
+test rather than fixed in the product.
+
+#### Calibration is durable queued work
+
+`caliber_calibration_jobs` (migration `0075`), a drain modelled on `JanitorTask`, and
+submit/poll/list routes. Submitting returns `202` with a job id; the drain claims a job,
+runs it off the event loop, and records the outcome. The synchronous route remains for
+small calibrations.
+
+- **Claiming, not locking.** A conditional `UPDATE ... WHERE status = 'queued'`, the same
+  arbitration the dead-letter replay uses. A lock held across execution would be stranded
+  by exactly the crash this durability exists to survive.
+- **A crashed drain leaves a claimed job on purpose.** Nothing re-queues a `running` job:
+  calibration invokes tools, and silently re-running one after an ambiguous failure is the
+  wrong default — the same reasoning the effect ledger applies to webhook and API nodes.
+- **Cases are snapshotted at submission**, and the tool's `last_calibration` is only
+  updated when its cases still match. A pass rate must not be attached to a definition that
+  never produced it.
+
+**Two of this section's own tests proved nothing before they proved something**, and the
+sequence is the useful part. Version one called `claim_next_job` twice in sequence — useless,
+because the second drain's `SELECT` already excludes the row. Version two issued the
+`UPDATE` directly from the test — worse, because it hardcoded the predicate in the test and
+so passed even with production's removed. Both survived deleting the `status` predicate from
+the production code. Version three drives the real function and lets a competitor claim the
+row in the window between this drain's `SELECT` and its `UPDATE`; it fails when the
+predicate is removed. **A concurrency test that has never been seen to fail is not
+evidence** — and two of three attempts here were exactly that.
+
+#### Evidence
+
+| Check | Result |
+| --- | --- |
+| Full suite | **5688 passed, 7 skipped** (`-n auto --dist loadscope`, coverage on) |
+| Verified by reverting the fix | The race test fails without the `status` predicate; the startup-grace test fails without the allowance |
+| Static checks | `ruff check`, `ruff format --check`, `mypy src` across 302 files — clean |
+| Unchanged boundary | Python 3.14.4 (outside supported 3.10–3.12), no live sidecars, GitHub Actions still refuses to start jobs on the account budget |
+
 ## Executive summary
 
 CALIBER is a credible, broad low-code agent engineering studio and lifecycle control

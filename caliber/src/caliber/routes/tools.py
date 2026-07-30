@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,6 +34,7 @@ from caliber.auth import (
 )
 from caliber.calibration import aggregate, evaluate_assertion
 from caliber.db.models import (
+    CaliberCalibrationJob,
     CaliberToolRegistry,
     CaliberToolTestRun,
     CaliberWorkflow,
@@ -41,8 +43,10 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_tool_id, new_tool_test_run_id
+from caliber.orchestrator import calibration_drain
 from caliber.routes._deps import (
     envelope_response,
+    envelope_response_dict,
     get_session_factory,
     parse_json_object,
     visibility_param,
@@ -76,6 +80,8 @@ ARCHIVE_PATH = DETAIL_PATH + "/archive"
 TEST_RUN_PATH = DETAIL_PATH + "/test-run"
 TEST_CASES_PATH = DETAIL_PATH + "/test-cases"
 CALIBRATE_PATH = DETAIL_PATH + "/calibrate"
+CALIBRATION_JOBS_PATH = DETAIL_PATH + "/calibration-jobs"
+CALIBRATION_JOB_DETAIL_PATH = CALIBRATION_JOBS_PATH + "/{job_id}"
 SOURCE_PATH = DETAIL_PATH + "/source"
 WORKSPACE_PATH = DETAIL_PATH + "/workspace"
 BASELINE_PATH = DETAIL_PATH + "/baseline"
@@ -641,6 +647,117 @@ def _score_tool_cases(
     return scored
 
 
+async def submit_calibration(request: Request) -> JSONResponse:
+    """``POST /caliber/tools/{tool_id}/calibration-jobs`` — queue a calibration.
+
+    The durable form of ``calibrate_tool``. That route runs every saved case inline and
+    returns the aggregate, which is fine for a handful of cases and wrong for two hundred:
+    the client holds a connection open for minutes, a proxy timeout or a closed lid loses
+    the result, and nothing records that the work happened.
+
+    Returns ``202`` with a job id. The cases are snapshotted here rather than read at
+    execution time, because scoring against a definition the author has since edited would
+    produce a pass rate that belongs to no version of the tool.
+    """
+    tool_id = request.path_params["tool_id"]
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        tool = _visible_tool_or_404(session, request, tool_id)
+        saved_cases = list(tool.test_cases or [])
+        if not saved_cases:
+            raise HTTPException(
+                status_code=400,
+                detail=f"tool {tool_id!r} has no saved test cases to calibrate against",
+            )
+        job = CaliberCalibrationJob(
+            job_id=f"CAL-{uuid.uuid4().hex[:12]}",
+            tool_id=tool_id,
+            status=calibration_drain.STATUS_QUEUED,
+            requested_by=actor,
+            test_cases=saved_cases,
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        session.add(job)
+        audit_record(
+            session,
+            actor=actor,
+            action="submit_calibration",
+            entity_type="tool",
+            entity_id=tool_id,
+            details={"job_id": job.job_id, "cases": len(saved_cases)},
+        )
+        session.commit()
+        job_id = job.job_id
+
+    return envelope_response_dict(
+        {"job_id": job_id, "tool_id": tool_id, "status": calibration_drain.STATUS_QUEUED},
+        status_code=202,
+    )
+
+
+async def get_calibration_job(request: Request) -> JSONResponse:
+    """``GET /caliber/tools/{tool_id}/calibration-jobs/{job_id}`` — poll one job.
+
+    Scoped through the tool, like every other child in this family: a job id must not be a
+    way to read a calibration for a tool the caller cannot see.
+    """
+    tool_id = request.path_params["tool_id"]
+    job_id = request.path_params["job_id"]
+    require_user(request)
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        _visible_tool_or_404(session, request, tool_id)
+        job = session.get(CaliberCalibrationJob, job_id)
+        if job is None or job.tool_id != tool_id:
+            raise HTTPException(status_code=404, detail=f"calibration job {job_id!r} not found")
+        payload = {
+            "job_id": job.job_id,
+            "tool_id": job.tool_id,
+            "status": job.status,
+            "requested_by": job.requested_by,
+            "result": job.result,
+            "error": job.error,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        }
+    return envelope_response_dict(payload)
+
+
+async def list_calibration_jobs(request: Request) -> JSONResponse:
+    """``GET /caliber/tools/{tool_id}/calibration-jobs`` — recent jobs, newest first."""
+    tool_id = request.path_params["tool_id"]
+    require_user(request)
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        _visible_tool_or_404(session, request, tool_id)
+        rows = (
+            session.execute(
+                select(CaliberCalibrationJob)
+                .where(CaliberCalibrationJob.tool_id == tool_id)
+                .order_by(CaliberCalibrationJob.created_at.desc())
+                .limit(50)
+            )
+            .scalars()
+            .all()
+        )
+        items = [
+            {
+                "job_id": r.job_id,
+                "status": r.status,
+                "requested_by": r.requested_by,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "pass_rate": (r.result or {}).get("pass_rate") if r.result else None,
+            }
+            for r in rows
+        ]
+    return envelope_response_dict({"jobs": items, "total": len(items)})
+
+
 async def calibrate_tool(request: Request) -> JSONResponse:
     """``POST /caliber/tools/{tool_id}/calibrate`` — score saved test cases.
 
@@ -1058,6 +1175,10 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(TEST_RUN_PATH, test_run_tool, methods=["POST"]))
     app.routes.append(Route(TEST_CASES_PATH, save_tool_test_cases, methods=["PUT"]))
     app.routes.append(Route(CALIBRATE_PATH, calibrate_tool, methods=["POST"]))
+    # Durable form of the same work: submit returns 202 and the drain executes it.
+    app.routes.append(Route(CALIBRATION_JOBS_PATH, submit_calibration, methods=["POST"]))
+    app.routes.append(Route(CALIBRATION_JOBS_PATH, list_calibration_jobs, methods=["GET"]))
+    app.routes.append(Route(CALIBRATION_JOB_DETAIL_PATH, get_calibration_job, methods=["GET"]))
     app.routes.append(Route(WORKSPACE_PATH, get_tool_workspace, methods=["GET"]))
     app.routes.append(Route(BASELINE_PATH, set_tool_baseline, methods=["POST"]))
     app.routes.append(Route(VERSIONS_PATH, list_tool_versions, methods=["GET"]))
