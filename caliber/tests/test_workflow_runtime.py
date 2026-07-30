@@ -1821,7 +1821,7 @@ def test_knowledge_build_node_accepts_runtime_field_overrides() -> None:
         executor=FakeWorkflowExecutor(),
     )
 
-    assert result.status == "completed"
+    assert result.status == "completed", result.error
     assert captured["chunking_strategy"] == "semantic"
     assert captured["embedding_model"] == "intfloat/e5-large-v2"
 
@@ -1883,7 +1883,7 @@ def test_python_code_node_executes_in_runtime() -> None:
 
     result = execute(_plan(data), "refund", executor=FakeWorkflowExecutor())
 
-    assert result.status == "completed"
+    assert result.status == "completed", result.error
     python_step = next(s for s in result.steps if s.node_id == "python")
     assert python_step.output == "REFUND"
     assert result.output == "REFUND"
@@ -2089,7 +2089,7 @@ def test_python_code_node_runtime_failure_is_reported() -> None:
 
     result = execute(_plan(data), "refund", executor=FakeWorkflowExecutor())
 
-    assert result.status == "error"
+    assert result.status == "error", result.error
     assert "python_code node 'python' failed" in (result.error or "")
 
 
