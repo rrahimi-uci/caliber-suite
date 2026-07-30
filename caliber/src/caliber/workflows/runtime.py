@@ -2466,6 +2466,54 @@ def _bind_in_process(binding: IRToolBinding) -> Callable[..., Any] | None:
         return None
 
 
+def bind_exported_tool(entry: Any) -> Callable[..., Any]:
+    """Bind a registered tool for a **generated standalone export**.
+
+    Compiled exports used to emit ``bind_registered_tool(...)`` directly, which imports and
+    calls the module in whatever process runs the script. That is not the control-plane
+    exposure C8 was about — an export runs in the developer's own process — but it made the
+    export *behave differently from the platform*: sandboxed and allowlist-checked here,
+    in-process and unchecked there. A workflow validated on CALIBER could then execute
+    differently once exported, which is a fidelity bug even where it is not a privilege one.
+
+    So an export takes the same decision the runtime takes, from the same configuration:
+    subprocess by default, honouring the module allowlist, and in-process only where an
+    operator has explicitly disabled the sandbox.
+
+    Raises ``ToolBindingError`` rather than returning ``None``. A generated script binds at
+    import time and has no fallback path, so a refused module must fail loudly at startup
+    instead of yielding a null that surfaces as a confusing error mid-run.
+    """
+    from caliber.workflows.tools import (  # noqa: PLC0415
+        ToolBindingError,
+        registered_tool_module_allowed,
+    )
+
+    module_path = getattr(entry, "module_path", "") or ""
+    if module_path == "<in-memory>":
+        # No module to load in either mode. Delegated so the existing, specific
+        # ToolBindingError is raised rather than a confusing import failure for a literal
+        # ``<in-memory>`` module name inside the sandbox child.
+        return bind_registered_tool(entry)
+    if _registered_tool_sandbox_enabled():
+        if not registered_tool_module_allowed(module_path):
+            raise ToolBindingError(
+                f"tool module {module_path!r} is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
+            )
+        binding = IRToolBinding(
+            local_name=getattr(entry, "name", "") or "tool",
+            registry_ref=getattr(entry, "registry_ref", "") or "",
+            version_constraint="",
+            requires_approval=False,
+            side_effect_level=getattr(entry, "side_effect_level", "read"),
+            allow_in_preview=bool(getattr(entry, "allow_in_preview", True)),
+            module_path=module_path,
+            callable_name=getattr(entry, "callable_name", "") or "",
+        )
+        return _sandboxed_registered_tool(binding)
+    return bind_registered_tool(entry)
+
+
 def _registered_tool_sandbox_enabled() -> bool:
     """Whether registered tools run out of process. Defaults to **on**.
 

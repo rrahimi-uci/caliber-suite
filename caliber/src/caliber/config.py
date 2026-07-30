@@ -988,6 +988,21 @@ class CaliberConfig(BaseModel):
     #: per-call startup cost is a real consequence of running registered tools out of
     #: process rather than importing them into the control plane.
     registered_tool_sandbox_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    tool_sandbox_backend: str = Field(
+        default="",
+        description=(
+            "Optional 'package.module:Factory' implementing the ToolSandbox protocol, "
+            "called with the config. Empty uses the built-in subprocess sandbox, which is "
+            "a process boundary — separate interpreter, empty environment, private working "
+            "directory, POSIX rlimits — and NOT a container, VM, or seccomp boundary: the "
+            "child keeps ambient filesystem and network access on the host. That is "
+            "appropriate for trusted tool authors and is not isolation for untrusted ones. "
+            "Portable Python cannot provide OS-enforced isolation (namespaces are "
+            "Linux-only and privileged, seccomp needs a native binding, containers are "
+            "infrastructure), so a deployment that needs it supplies a Docker/gVisor/"
+            "Firecracker-backed factory here instead of forking."
+        ),
+    )
     # Caps a sandboxed node's serialized return. 64 KiB was too small for nodes
     # that emit data/HTML (e.g. a KG report); 1 MiB is a safer default, and big
     # document pipelines raise it via CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES.
@@ -1773,6 +1788,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         "registered_tool_sandbox_timeout_seconds",
         float,
     ),
+    ("CALIBER_TOOL_SANDBOX_BACKEND", "tool_sandbox_backend", str),
     ("CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES", "tool_sandbox_max_output_bytes", int),
     ("CALIBER_TOOL_SANDBOX_MAX_MEMORY_BYTES", "tool_sandbox_max_memory_bytes", int),
     ("CALIBER_TOOL_SANDBOX_MAX_FILE_BYTES", "tool_sandbox_max_file_bytes", int),

@@ -563,6 +563,57 @@ def test_the_poll_response_carries_the_allow_origin_header(client: TestClient) -
     assert polled.headers["Access-Control-Allow-Origin"] == "https://app.example"
 
 
+def test_the_rate_budget_is_shared_not_per_process(client: TestClient, db_session) -> None:
+    """The ceiling belongs to the service, not to whichever replica served the call.
+
+    The budget used to be a module-level dict, so `rate_limit_per_minute` was enforced per
+    process: three replicas granted three times the configured limit. Every review since
+    the limiter landed recorded that as open.
+
+    A second replica cannot be started in-process, so the property is asserted where it
+    actually lives — the shared table. Charges must be durable rows, not memory, because
+    that is the only thing another replica could possibly observe.
+    """
+    from caliber.db.models import CaliberServiceRateCall
+
+    wid, _vid = _publish_service(client)
+    client.post(f"{PREFIX}/workflows/{wid}/service", json={"rate_limit_per_minute": 2})
+    token = _mint_token(client, wid)
+    auth = {"Authorization": f"Bearer {token}"}
+    body = {"input": {"user_message": "hi"}}
+
+    assert (
+        client.post(f"{PREFIX}/services/{wid}/invoke", json=body, headers=auth).status_code == 202
+    )
+    assert (
+        client.post(f"{PREFIX}/services/{wid}/invoke", json=body, headers=auth).status_code == 202
+    )
+
+    # Durable, so a different replica counts the same charges rather than starting at zero.
+    charges = db_session.query(CaliberServiceRateCall).all()
+    assert len(charges) == 2, "charges must be recorded in shared storage, not in memory"
+
+    throttled = client.post(f"{PREFIX}/services/{wid}/invoke", json=body, headers=auth)
+    assert throttled.status_code == 429, throttled.text
+    assert throttled.headers["Retry-After"]
+
+
+def test_an_unlimited_service_records_no_rate_rows(client: TestClient, db_session) -> None:
+    """``0`` is the default and means unlimited, so the common case must cost no writes —
+    otherwise every invocation of every service would pay for a table nobody consults."""
+    from caliber.db.models import CaliberServiceRateCall
+
+    wid, _vid = _publish_service(client)
+    token = _mint_token(client, wid)
+    client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert db_session.query(CaliberServiceRateCall).count() == 0
+
+
 def test_error_responses_also_carry_the_allow_origin_header(client: TestClient) -> None:
     """A browser must be able to read *why* a call failed, not only a success.
 

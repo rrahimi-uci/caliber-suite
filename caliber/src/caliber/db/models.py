@@ -1120,6 +1120,28 @@ class CaliberEffectLedger(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class CaliberWebhookAcceptedEvent(Base):
+    """An accepted-but-unsettled webhook delivery, so a crash is still observable.
+
+    Written per (event, url) **before** the event is queued and deleted when that target
+    settles. Rows surviving a restart are events the previous process accepted and never
+    finished; the dispatcher sweeps them into the dead-letter record on boot.
+
+    The graceful-shutdown drain already covered queued and in-flight events. This covers
+    the case that skips it entirely — ``SIGKILL``, OOM, eviction — which is the one where
+    losing the record silently matters most.
+    """
+
+    __tablename__ = "caliber_webhook_accepted_events"
+    __table_args__ = (Index("ix_caliber_webhook_accepted_events_accepted_at", "accepted_at"),)
+
+    accepted_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    url: Mapped[str] = mapped_column(String(1024))
+    event_type: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
+    event: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class CaliberWebhookDeadLetter(Base):
     """An outbound event that was never delivered.
 
@@ -2282,6 +2304,25 @@ class CaliberMcpServer(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class CaliberServiceRateCall(Base):
+    """One charged invocation of a published service, for the shared rate limit.
+
+    The budget used to live in a process-local dict, so ``rate_limit_per_minute`` meant
+    *per replica* and N replicas granted N times the ceiling. Rows are written only for
+    services with a configured limit and deleted once they leave the 60-second window, so
+    an unlimited service (the default) costs no writes.
+    """
+
+    __tablename__ = "caliber_service_rate_calls"
+    __table_args__ = (
+        Index("ix_caliber_service_rate_calls_service_time", "service_id", "called_at"),
+    )
+
+    call_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    service_id: Mapped[str] = mapped_column(String(64))
+    called_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class CaliberWorkflowService(Base):

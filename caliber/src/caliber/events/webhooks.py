@@ -70,9 +70,11 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections import deque
 from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
+from datetime import datetime, timezone
 from typing import Any, Final
 
 from caliber.events.bus import EventBus
@@ -199,6 +201,9 @@ class WebhookDispatcher:
         #: target had already *succeeded* could be dead-lettered against that delivered
         #: target on the way out.
         self._in_flight: dict[str, dict[str, Any]] = {}
+        #: event object id -> durable accept marker, so a settle can find the row the
+        #: accept wrote without threading an ID through every delivery path.
+        self._event_markers: dict[int, str] = {}
 
     def dead_letters(self) -> dict[str, Any]:
         """Events that were never delivered, by either loss mode.
@@ -276,6 +281,8 @@ class WebhookDispatcher:
         # Only the owner settles its own marker: the delivery path (via
         # ``settles_in_flight``) or the in-flight branch of the drain.
         self._persist_dead_letter(entry, event)
+        # Settled one way or another, so the accept row has served its purpose.
+        self._clear_accepted(url, event)
         return True
 
     def _persist_dead_letter(self, entry: dict[str, Any], event: dict[str, object]) -> None:
@@ -322,6 +329,10 @@ class WebhookDispatcher:
         if not self._urls:
             logger.info("webhook dispatcher disabled (no URLs configured)")
             return
+        # Before accepting anything new, account for what the previous process accepted and
+        # never finished. Abrupt loss skips the graceful drain entirely, so this boot sweep
+        # is the only thing that turns a SIGKILL from silent loss into a replayable record.
+        self.recover_accepted_events()
         if not self._secret:
             logger.warning(
                 "webhook dispatcher has URLs but no signing secret; "
@@ -496,6 +507,9 @@ class WebhookDispatcher:
         """
         if self._pending is None:  # pragma: no cover - start() always creates it
             return
+        # Durable accept record first. Written after the queue put, a crash in between
+        # would leave the event in flight with no trace — the case this exists to remove.
+        self._persist_accepted(event)
         try:
             self._pending.put_nowait(event)
         except asyncio.QueueFull:
@@ -512,6 +526,117 @@ class WebhookDispatcher:
                     kind=KIND_OVERFLOW,
                     attempts=0,
                 )
+
+    def _accepted_row_id(self, url: str, event: dict[str, Any]) -> str:
+        """Stable per (event, url) so the settle can find the row the accept wrote.
+
+        Derived from the event's identity rather than random, because the accept and the
+        settle happen in different call stacks (and, for the in-flight case, different
+        threads) and passing an ID through every path would be one more thing to forget.
+        """
+        marker = self._event_markers.get(id(event))
+        return f"{marker}:{hashlib.sha256(url.encode()).hexdigest()[:16]}" if marker else ""
+
+    def _persist_accepted(self, event: dict[str, Any]) -> None:
+        """Record the accept **before** queueing, one row per target.
+
+        Ordering is the whole point: written afterwards, a crash in between would leave
+        the event in flight with no durable trace, which is the case this removes.
+        """
+        if self._session_factory is None:
+            return
+        marker = uuid.uuid4().hex
+        self._event_markers[id(event)] = marker
+        try:
+            from caliber.db.models import CaliberWebhookAcceptedEvent  # noqa: PLC0415
+
+            with self._session_factory() as session:
+                for url in self._urls:
+                    session.add(
+                        CaliberWebhookAcceptedEvent(
+                            accepted_id=self._accepted_row_id(url, event),
+                            url=url[:1024],
+                            event_type=(
+                                str(event.get("type"))[:128] if event.get("type") else None
+                            ),
+                            event=event,
+                            accepted_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                        )
+                    )
+                session.commit()
+        except Exception:
+            # Never fail dispatch because bookkeeping failed; the event still goes out.
+            logger.warning("could not persist webhook accept record", exc_info=True)
+
+    def _clear_accepted(self, url: str, event: dict[str, Any]) -> None:
+        """Drop the accept row for one settled target."""
+        if self._session_factory is None:
+            return
+        row_id = self._accepted_row_id(url, event)
+        if not row_id:
+            return
+        try:
+            from sqlalchemy import delete as _delete  # noqa: PLC0415
+
+            from caliber.db.models import CaliberWebhookAcceptedEvent  # noqa: PLC0415
+
+            with self._session_factory() as session:
+                session.execute(
+                    _delete(CaliberWebhookAcceptedEvent).where(
+                        CaliberWebhookAcceptedEvent.accepted_id == row_id
+                    )
+                )
+                session.commit()
+        except Exception:
+            logger.warning("could not clear webhook accept record", exc_info=True)
+
+    def recover_accepted_events(self) -> int:
+        """Sweep accept rows left by a previous process into the dead-letter record.
+
+        Anything still present at startup was accepted and never settled, so the process
+        that owned it died without running the graceful drain. Recording it as a
+        ``shutdown`` dead letter is what makes an abrupt loss observable and replayable
+        instead of silent. Returns the number of rows recovered.
+        """
+        if self._session_factory is None:
+            return 0
+        try:
+            from sqlalchemy import delete as _delete  # noqa: PLC0415
+            from sqlalchemy import select as _select  # noqa: PLC0415
+
+            from caliber.db.models import CaliberWebhookAcceptedEvent  # noqa: PLC0415
+
+            with self._session_factory() as session:
+                rows = session.execute(_select(CaliberWebhookAcceptedEvent)).scalars().all()
+                recovered = [(r.url, r.event, r.accepted_id) for r in rows]
+                if recovered:
+                    session.execute(
+                        _delete(CaliberWebhookAcceptedEvent).where(
+                            CaliberWebhookAcceptedEvent.accepted_id.in_(
+                                [row_id for _u, _e, row_id in recovered]
+                            )
+                        )
+                    )
+                    session.commit()
+        except Exception:
+            logger.warning("could not read webhook accept records", exc_info=True)
+            return 0
+        for url, event, _row_id in recovered:
+            self._record_dead_letter(
+                url,
+                event if isinstance(event, dict) else {},
+                "the process accepted this event and stopped before delivering it",
+                kind=KIND_SHUTDOWN,
+                attempts=0,
+            )
+        if recovered:
+            logger.warning(
+                "recovered %d webhook event(s) accepted by a previous process; "
+                "recorded as %r dead letters for replay",
+                len(recovered),
+                KIND_SHUTDOWN,
+            )
+        return len(recovered)
 
     async def _deliver_forever(self) -> None:
         """Own the retry loop, off the bus subscriber's critical path."""
@@ -601,6 +726,7 @@ class WebhookDispatcher:
                 # recorded for one delivery that actually went through.
                 with self._dead_letter_lock:
                     self._in_flight.pop(url, None)
+                self._clear_accepted(url, event)
                 return
             except WebhookDeliveryError as exc:
                 last_reason = str(exc)

@@ -951,14 +951,17 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
         lines.append(
             "from caliber.workflows.runtime import run_with_caliber_context, workflow_model"
         )
-    lines.append("from caliber.workflows.tools import ToolRegistryEntry, bind_registered_tool")
+    # The export binds tools the same way the platform does — subprocess by default,
+    # allowlist enforced — so a workflow does not change behaviour by being exported.
+    lines.append("from caliber.workflows.runtime import bind_exported_tool")
+    lines.append("from caliber.workflows.tools import ToolRegistryEntry")
     lines.append("")
     if registry_tool_bindings:
         lines.append("# Tool bindings (resolved from the CALIBER tool registry).")
         for local_name in sorted(registry_tool_bindings):
             var = _py_identifier(local_name)
             binding = registry_tool_bindings[local_name]
-            lines.append(f"{var} = bind_registered_tool({_tool_registry_entry_literal(binding)})")
+            lines.append(f"{var} = bind_exported_tool({_tool_registry_entry_literal(binding)})")
         lines.append("")
     if mcp_tool_refs:
         lines.append("# MCP tool bindings call the shared CALIBER MCP gateway directly.")

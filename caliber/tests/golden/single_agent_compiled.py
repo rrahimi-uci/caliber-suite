@@ -11,7 +11,8 @@ import mlflow
 
 from caliber.workflows.guardrails import enforce_guardrails
 from caliber.workflows.runtime import run_with_caliber_context, workflow_model
-from caliber.workflows.tools import ToolRegistryEntry, bind_registered_tool
+from caliber.workflows.runtime import bind_exported_tool
+from caliber.workflows.tools import ToolRegistryEntry
 
 # node: agent
 agent = Agent(

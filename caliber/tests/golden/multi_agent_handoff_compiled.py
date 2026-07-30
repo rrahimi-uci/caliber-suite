@@ -11,11 +11,12 @@ import mlflow
 
 from caliber.workflows.guardrails import enforce_guardrails
 from caliber.workflows.runtime import run_with_caliber_context, workflow_model
-from caliber.workflows.tools import ToolRegistryEntry, bind_registered_tool
+from caliber.workflows.runtime import bind_exported_tool
+from caliber.workflows.tools import ToolRegistryEntry
 
 # Tool bindings (resolved from the CALIBER tool registry).
-get_order = bind_registered_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
-lookup_policy = bind_registered_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
+get_order = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
+lookup_policy = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
 
 # node: billing
 billing = Agent(

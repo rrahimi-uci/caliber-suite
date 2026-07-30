@@ -144,7 +144,10 @@ def test_generated_code_loads_prompt_and_binds_tools() -> None:
     code = compile_workflow(manifest, resolver=fake_resolver(), version="7").generated_python
     assert 'mlflow.genai.load_prompt("prompts:/support-agent@prod")' in code
     assert "ToolRegistryEntry(**{" in code
-    assert 'bind_registered_tool(ToolRegistryEntry(**{"allow_in_preview": False' in code
+    # ``bind_exported_tool``, not ``bind_registered_tool``: a generated export takes the
+    # same sandbox/allowlist decision the platform takes, so a workflow does not change
+    # behaviour by being exported.
+    assert 'bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False' in code
 
 
 def test_generated_code_executes_with_importable_registered_tools(

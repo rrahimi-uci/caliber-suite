@@ -987,6 +987,78 @@ async def test_a_target_is_recorded_once_when_delivery_and_shutdown_race(
 
 
 @pytest.mark.asyncio
+async def test_an_abruptly_killed_process_leaves_a_recoverable_record(
+    session_factory,
+) -> None:
+    """The half of durability the graceful drain cannot cover.
+
+    ``stop()`` drains queued and in-flight events, but ``SIGKILL``, an OOM kill, and a
+    container eviction never run it — and both the queue and the in-flight map are memory
+    only. An operator could still not tell "nothing happened" from "we failed to tell you"
+    for precisely the failure where it matters most.
+
+    A killed process cannot be simulated by calling ``stop()``, because that is the path
+    under test being absent. So the crash is modelled the only faithful way: hold the
+    sender inside the POST so the event is genuinely accepted-but-unsettled, then abandon
+    the dispatcher without stopping it — leaving exactly the durable state a killed process
+    would leave — and start a fresh dispatcher against the same database.
+    """
+    from caliber.db.models import CaliberWebhookAcceptedEvent, CaliberWebhookDeadLetter
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _blocking(req: Any, timeout: float = 0) -> _FakeResponse:
+        entered.set()
+        release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    doomed = WebhookDispatcher(
+        bus=bus,
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking):
+        await doomed.start()
+        await _await_subscription(bus)
+        bus.publish({"type": "run.completed", "id": "killed-mid-flight"})
+        await _await_condition(entered.is_set, timeout=5.0)
+        assert entered.is_set(), "the event never reached the sender"
+
+        # The accept must already be durable at this point — that is what makes the crash
+        # recoverable rather than silent.
+        with session_factory() as session:
+            assert session.query(CaliberWebhookAcceptedEvent).count() == 1
+
+        # Abandon without stop(): the process "died" here.
+        doomed._task.cancel() if doomed._task else None
+        doomed._delivery_task.cancel() if doomed._delivery_task else None
+        release.set()
+
+    # A fresh process starts against the same database.
+    survivor = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+    )
+    recovered = survivor.recover_accepted_events()
+
+    assert recovered == 1, "the accepted event was not recovered after an abrupt loss"
+    with session_factory() as session:
+        rows = session.query(CaliberWebhookDeadLetter).all()
+        # Recorded as replayable, and the accept row is consumed so a second boot does not
+        # report the same loss again.
+        assert [r.kind for r in rows] == ["shutdown"]
+        assert rows[0].event and rows[0].event.get("id") == "killed-mid-flight"
+        assert session.query(CaliberWebhookAcceptedEvent).count() == 0
+
+
+@pytest.mark.asyncio
 async def test_overflow_does_not_erase_a_different_events_in_flight_marker(
     session_factory,
 ) -> None:

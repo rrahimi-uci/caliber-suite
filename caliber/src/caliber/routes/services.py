@@ -17,14 +17,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import secrets
-import threading
-import time
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 import jsonschema
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -35,6 +34,7 @@ from starlette.routing import Route
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
+    CaliberServiceRateCall,
     CaliberServiceToken,
     CaliberWorkflow,
     CaliberWorkflowDeployment,
@@ -551,52 +551,81 @@ def _as_aware(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
-#: Per-service invocation timestamps, newest last. Process-local by design: the
-#: shipped topology is a single app process, and a distributed counter would need
-#: shared state this product does not yet have. Stated rather than implied — behind
-#: several replicas the effective ceiling is per-replica, which an operator must know.
-#: One minute, named so the window is a stated policy rather than a literal.
+#: One minute, named so the window is a stated policy rather than a literal. Counted in
+#: ``caliber_service_rate_calls`` rather than in this process, so the ceiling is the
+#: service's and not each replica's.
 _RATE_WINDOW_SECONDS = 60.0
-_SERVICE_CALLS: dict[str, list[float]] = {}
-_SERVICE_CALLS_LOCK = threading.Lock()
 
 
-def _enforce_service_rate_limit(service: Any) -> None:
+def _enforce_service_rate_limit(service: Any, session: Session) -> None:
     """Refuse an invocation that exceeds the service's per-minute budget.
 
     A published service was authenticated but otherwise unbounded, so any token holder
     could drive unlimited traffic through a workflow that calls paid model APIs. ``0``
-    means unlimited and remains the default, so this only ever refuses traffic an
-    operator has explicitly chosen to cap.
+    means unlimited and remains the default, so this only ever refuses traffic an operator
+    has explicitly chosen to cap.
 
-    429 with ``Retry-After``, not 400: this is a temporary condition the caller should
-    retry, and saying so is the difference between a client backing off and a client
-    hammering.
+    **Counted in the database, not in this process.** The previous implementation used a
+    module-level dict, which meant ``rate_limit_per_minute`` was enforced per replica: three
+    replicas granted three times the configured ceiling. Every review since the limiter
+    landed recorded that as open.
+
+    Sliding 60-second window, kept rather than switching to a cheaper fixed window, because
+    a fixed window permits up to twice the limit across a boundary and the configuration
+    says "per minute".
+
+    Not a distributed lock: two replicas can both observe a count under the ceiling and both
+    insert, so a burst may exceed the limit by roughly the replica count. This is a spend
+    guard, not an authorization boundary, and a row lock on every invocation is the wrong
+    trade for it. 429 with ``Retry-After``, not 400, because this is temporary and a client
+    should back off rather than hammer.
     """
     limit = int(getattr(service, "rate_limit_per_minute", 0) or 0)
     if limit <= 0:
         return
-    now = time.time()
-    # One bucket, and only authenticated invocations reach it — see the call site. An
-    # earlier revision carried an ``authenticated`` flag and a second bucket key for a
-    # meter that no caller ever set to ``False``. That is the exact shape of defect this
-    # codebase has been audited for: an unexercised branch that reads as a control.
-    key = str(service.service_id)
-    with _SERVICE_CALLS_LOCK:
-        window = [t for t in _SERVICE_CALLS.get(key, []) if now - t < _RATE_WINDOW_SECONDS]
-        if len(window) >= limit:
-            oldest = min(window)
-            _SERVICE_CALLS[key] = window
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"service rate limit of {limit}/minute exceeded; "
-                    f"retry in {max(1, int(_RATE_WINDOW_SECONDS - (now - oldest)))}s"
-                ),
-                headers={"Retry-After": str(max(1, int(_RATE_WINDOW_SECONDS - (now - oldest))))},
+    service_id = str(service.service_id)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    window_start = now - timedelta(seconds=_RATE_WINDOW_SECONDS)
+
+    # Aged-out rows first, so the count below reflects the window and the table stays
+    # bounded by the limit itself rather than growing forever.
+    session.execute(
+        delete(CaliberServiceRateCall).where(
+            CaliberServiceRateCall.service_id == service_id,
+            CaliberServiceRateCall.called_at < window_start,
+        )
+    )
+    rows = (
+        session.execute(
+            select(CaliberServiceRateCall.called_at)
+            .where(
+                CaliberServiceRateCall.service_id == service_id,
+                CaliberServiceRateCall.called_at >= window_start,
             )
-        window.append(now)
-        _SERVICE_CALLS[key] = window
+            .order_by(CaliberServiceRateCall.called_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+    if len(rows) >= limit:
+        oldest = rows[0]
+        retry_after = max(1, int(_RATE_WINDOW_SECONDS - (now - oldest).total_seconds()))
+        session.commit()  # keep the pruning above; the refusal is not a rollback-worthy error
+        raise HTTPException(
+            status_code=429,
+            detail=(f"service rate limit of {limit}/minute exceeded; retry in {retry_after}s"),
+            headers={"Retry-After": str(retry_after)},
+        )
+    session.add(
+        CaliberServiceRateCall(
+            call_id=uuid.uuid4().hex,
+            service_id=service_id,
+            called_at=now,
+        )
+    )
+    # Committed immediately so a concurrent request in another replica sees this charge
+    # rather than counting a window that silently excludes in-flight work.
+    session.commit()
 
 
 def _cors_headers(service: Any, request: Request) -> dict[str, str]:
@@ -642,7 +671,8 @@ async def invoke_service(request: Request) -> JSONResponse:
         if service.auth_required
         else f"anonymous_service:{workflow_id}"
     )
-    _enforce_service_rate_limit(service)
+    with get_session_factory(request)() as rate_session:
+        _enforce_service_rate_limit(service, rate_session)
     body = await parse_json_object(request, allow_empty=True)
     payload = ServiceInvokeRequest.model_validate(body)
     try:

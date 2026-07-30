@@ -12,7 +12,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from caliber.config import CaliberConfig
 from caliber.tool_sandbox.models import (
@@ -47,9 +47,30 @@ class ToolSandbox(Protocol):
         """Run an example-based tool test suite."""
 
 
+def _load_backend_factory(dotted: str) -> Any:
+    """Resolve ``package.module:attribute`` to an operator-supplied sandbox factory.
+
+    Imported in the control plane, and that is safe in a way user tool code is not: this
+    path comes from an environment variable an operator set, exactly like the MCP stdio
+    command allowlist. It is deployment configuration, not workflow content.
+    """
+    module_path, _, attribute = dotted.partition(":")
+    if not module_path or not attribute:
+        raise ValueError(
+            f"CALIBER_TOOL_SANDBOX_BACKEND must look like 'package.module:Factory', got {dotted!r}"
+        )
+    import importlib  # noqa: PLC0415
+
+    module = importlib.import_module(module_path)
+    factory = getattr(module, attribute, None)
+    if factory is None:
+        raise ValueError(f"{module_path!r} has no attribute {attribute!r}")
+    return factory
+
+
 def sandbox_from_optional_config(
     config: Any | None, *, default_timeout_seconds: float | None = None
-) -> LocalSubprocessToolSandbox:
+) -> ToolSandbox:
     """Build a sandbox honouring the operator's configured limits when available.
 
     ``LocalSubprocessToolSandbox.from_config`` existed but its only caller was the
@@ -62,6 +83,32 @@ def sandbox_from_optional_config(
     genuinely have no config (a few test helpers) should still get a bounded sandbox
     rather than an exception.
     """
+    # An operator-supplied backend takes precedence, because the shipped one cannot be
+    # made into what some deployments need. ``LocalSubprocessToolSandbox`` is a *process*
+    # boundary: separate interpreter, empty environment, private working directory, POSIX
+    # rlimits. It is not a container, VM, or seccomp boundary, so the child keeps ambient
+    # filesystem and network authority on the host — which is fine for trusted authors and
+    # is not isolation for untrusted ones.
+    #
+    # Portable Python cannot close that: namespaces are Linux-only and privileged, seccomp
+    # needs a native binding, and containers are infrastructure. So rather than pretend, the
+    # boundary is pluggable — a deployment that needs OS-enforced isolation points
+    # ``CALIBER_TOOL_SANDBOX_BACKEND`` at a factory implementing :class:`ToolSandbox`
+    # (Docker, gVisor, Firecracker) without forking the product.
+    backend = str(getattr(config, "tool_sandbox_backend", "") or "").strip() if config else ""
+    if backend:
+        factory = _load_backend_factory(backend)
+        sandbox_obj: Any = factory(config)
+        for method in ("run_tool", "inspect_tool", "run_tests"):
+            if not callable(getattr(sandbox_obj, method, None)):
+                raise TypeError(
+                    f"tool sandbox backend {backend!r} does not implement {method}(); "
+                    "it must satisfy caliber.tool_sandbox.service.ToolSandbox"
+                )
+        if default_timeout_seconds is not None:
+            with contextlib.suppress(AttributeError):
+                sandbox_obj.default_timeout_seconds = default_timeout_seconds
+        return cast("ToolSandbox", sandbox_obj)
     if config is None:
         kwargs: dict[str, Any] = {}
         if default_timeout_seconds is not None:

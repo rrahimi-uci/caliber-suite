@@ -1705,6 +1705,45 @@ evidence boundary in any other direction: unsupported interpreter, no live depen
 and GitHub Actions still refuses to start jobs on the account's budget, so there remains
 no exact-HEAD CI evidence.
 
+### 0.25 Closing the remaining operability and boundary items
+
+Four of the residuals §0.20–§0.24 left open are closed here. Two others are assessed
+honestly rather than half-built.
+
+| Item | Status | What changed |
+| --- | --- | --- |
+| Compiler exports used the legacy in-process binder | **Closed** | Generated scripts now call `bind_exported_tool`, taking the same decision the runtime takes: subprocess by default, module allowlist enforced. Not primarily a privilege fix — an export runs in the developer's own process — but a **fidelity** one: a workflow validated on the platform executed differently once exported. |
+| Service rate limit was process-local | **Closed** | Counted in `caliber_service_rate_calls` (migration `0072`), so `rate_limit_per_minute` is the service's ceiling rather than each replica's. Sliding 60s window kept, because a cheaper fixed window permits ~2x across a boundary. Unlimited services (the default) write nothing. |
+| Delivery state lost on abrupt process loss | **Closed** | A durable accept row per (event, url) written **before** queueing and deleted on settle (migration `0073`). Rows surviving a restart are swept into the dead-letter record at boot, so `SIGKILL`/OOM/eviction becomes replayable instead of silent. |
+| Sandbox is a process boundary, not OS-enforced | **Assessed; made pluggable** | Portable Python cannot provide this: namespaces are Linux-only and privileged, seccomp needs a native binding, containers are infrastructure. Rather than claim isolation it does not have, `CALIBER_TOOL_SANDBOX_BACKEND` accepts an operator factory implementing `ToolSandbox`, validated at construction. A deployment needing Docker/gVisor/Firecracker plugs one in without forking. |
+| Alert routing, escalation, silencing, incident history | **Open — not started** | A genuine subsystem (rules, targets, escalation policy, silences, incident records), not a defect to repair. Building a partial version would produce exactly the decorative surface this report exists to find. |
+| Large calibration is one long synchronous request | **Open — narrower defect already fixed** | §0.23 moved the waits off the event loop and stopped holding a session across execution, which was the starvation bug. Making it durable queued work is a feature change reusing the run-queue pattern, and is not done. |
+
+**On the durability fix, the ordering is the design.** The accept row is committed *before*
+the event is queued. Written afterwards, a crash in the window between would leave the
+event in flight with no trace — precisely the case being removed — so the write order is
+the property, not an implementation detail. The regression test models the crash the only
+faithful way available: hold the sender inside the POST so the event is genuinely
+accepted-but-unsettled, abandon the dispatcher without calling `stop()` (since `stop()` is
+the path whose absence is under test), and boot a fresh dispatcher against the same
+database. Verified by removing the accept write and confirming the test fails.
+
+**On the rate limiter, an honest limit.** Two replicas can both read a count under the
+ceiling and both insert, so a burst may exceed the limit by roughly the replica count. This
+is a spend guard on paid model calls, not an authorization boundary, and a row lock on
+every invocation is the wrong trade. Stated rather than implied — the previous
+implementation's honesty about being per-process is what made it fixable.
+
+#### Evidence
+
+| Check | Result |
+| --- | --- |
+| Full suite | **5666 passed, 7 skipped** (`-n auto --dist loadscope`, coverage on) |
+| Static checks | `ruff check`, `ruff format --check`, `mypy src` across 298 files — clean |
+| Secret scan | `gitleaks`, full history — no leaks |
+| Local CI | all seven jobs green in the prior run; re-run after this change |
+| Unchanged boundary | Python 3.14.4 (outside supported 3.10–3.12), no live sidecars, and GitHub Actions still will not start jobs on the account budget |
+
 ## Executive summary
 
 CALIBER is a credible, broad low-code agent engineering studio and lifecycle control

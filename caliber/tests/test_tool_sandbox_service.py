@@ -315,3 +315,80 @@ def test_build_plan_threads_every_configured_sandbox_limit() -> None:
     assert plan.sandbox_max_memory_bytes == 99_000_000
     assert plan.sandbox_max_file_bytes == 4096
     assert plan.sandbox_max_open_files == 9
+
+
+def test_an_operator_can_supply_a_container_backed_sandbox() -> None:
+    """OS-enforced isolation is a deployment concern, so the boundary is pluggable.
+
+    The shipped ``LocalSubprocessToolSandbox`` is a *process* boundary — separate
+    interpreter, empty environment, private working directory, POSIX rlimits — and not a
+    container, VM, or seccomp boundary: the child keeps ambient filesystem and network
+    authority on the host. Portable Python cannot close that (namespaces are Linux-only and
+    privileged, seccomp needs a native binding, containers are infrastructure), so rather
+    than claim isolation it does not have, a deployment points
+    ``CALIBER_TOOL_SANDBOX_BACKEND`` at its own factory.
+    """
+    from types import SimpleNamespace
+
+    from caliber.tool_sandbox.service import sandbox_from_optional_config
+
+    config = SimpleNamespace(
+        tool_sandbox_backend="tests.test_tool_sandbox_service:_FakeContainerSandbox",
+    )
+    sandbox = sandbox_from_optional_config(config)
+
+    assert isinstance(sandbox, _FakeContainerSandbox)
+    assert sandbox.received_config is config
+
+
+def test_a_backend_missing_a_protocol_method_is_refused_at_construction() -> None:
+    """A partial backend must fail where an operator can see it, not on the first tool
+    call in production — the whole point is that this path executes untrusted code."""
+    from types import SimpleNamespace
+
+    import pytest as _pytest
+
+    from caliber.tool_sandbox.service import sandbox_from_optional_config
+
+    config = SimpleNamespace(
+        tool_sandbox_backend="tests.test_tool_sandbox_service:_IncompleteSandbox",
+    )
+    with _pytest.raises(TypeError, match="does not implement"):
+        sandbox_from_optional_config(config)
+
+
+def test_the_default_backend_is_the_built_in_subprocess_one() -> None:
+    """Unset must keep the shipped behaviour: an operator who configures nothing still
+    gets the process boundary rather than nothing at all."""
+    from caliber.tool_sandbox.service import (
+        LocalSubprocessToolSandbox,
+        sandbox_from_optional_config,
+    )
+
+    assert isinstance(sandbox_from_optional_config(None), LocalSubprocessToolSandbox)
+
+
+class _FakeContainerSandbox:
+    """Stands in for a Docker/gVisor-backed implementation."""
+
+    def __init__(self, config: object) -> None:
+        self.received_config = config
+
+    def run_tool(self, request: object) -> object:  # pragma: no cover - not invoked
+        raise NotImplementedError
+
+    def inspect_tool(self, request: object) -> object:  # pragma: no cover - not invoked
+        raise NotImplementedError
+
+    def run_tests(self, request: object) -> object:  # pragma: no cover - not invoked
+        raise NotImplementedError
+
+
+class _IncompleteSandbox:
+    """Implements only part of the protocol, which must be refused."""
+
+    def __init__(self, config: object) -> None:
+        self.received_config = config
+
+    def run_tool(self, request: object) -> object:  # pragma: no cover - not invoked
+        raise NotImplementedError
