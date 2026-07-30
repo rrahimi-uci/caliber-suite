@@ -20,6 +20,19 @@ from caliber.tool_sandbox.server import RUN_PATH, TESTS_PATH, create_app
 from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
 
 
+def _instant_timeout_sandbox() -> LocalSubprocessToolSandbox:
+    """A sandbox with no startup grace, for the tests that *want* to hit the timeout.
+
+    The shipped grace exists so a caller's ``timeout_seconds`` budgets their code rather
+    than the interpreter start they neither asked for nor can influence. A test asserting
+    the timeout mechanism must not wait for it, so it opts out explicitly — which also
+    keeps the grace itself visible rather than something a reader has to infer.
+    """
+    return LocalSubprocessToolSandbox(
+        default_timeout_seconds=30.0, max_output_bytes=4_000, startup_grace_seconds=0.0
+    )
+
+
 def _sandbox() -> LocalSubprocessToolSandbox:
     # A generous default so a cold ``python -I`` subprocess start doesn't flake
     # under full-suite load (the machine is busy spawning/importing across ~1800
@@ -66,7 +79,7 @@ def cwd():
 
 
 def test_local_subprocess_sandbox_times_out() -> None:
-    result = _sandbox().run_tool(
+    result = _instant_timeout_sandbox().run_tool(
         ToolSandboxRunRequest(
             source_code="""
 def loop():
@@ -232,7 +245,9 @@ def test_a_hung_tool_still_times_out_with_bounded_reads() -> None:
     from caliber.tool_sandbox.models import ToolSandboxRunRequest
     from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
 
-    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=0.2)
+    # No startup grace: this asserts the timeout mechanism, so waiting out the
+    # platform's interpreter-start allowance would only make the test slow.
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=0.2, startup_grace_seconds=0.0)
     # Imports are blocked by design, so a busy loop stands in for time.sleep.
     source = "def hang():\n    while True:\n        pass\n"
     result = sandbox.run_tool(
@@ -392,3 +407,41 @@ class _IncompleteSandbox:
 
     def run_tool(self, request: object) -> object:  # pragma: no cover - not invoked
         raise NotImplementedError
+
+
+def test_interpreter_startup_is_not_charged_to_the_callers_timeout() -> None:
+    """A caller's ``timeout_seconds`` budgets their code, not the cold start.
+
+    This is the fix for an intermittent that reported a working node as a product failure.
+    Three `test_workflow_runtime` tests failed together on one xdist worker in a local CI
+    run: the python_code node builds its sandbox with the manifest's `timeout_seconds: 5`,
+    and under a suite-wide `python -I` spawn storm the interpreter start alone consumed
+    that budget. Measured idle, startup is ~0.05s for a trivial module and ~0.55s for one
+    importing the caliber package — small, but not small compared to a saturated host.
+
+    So the wall-clock wait is the caller's timeout *plus* a startup allowance, while the
+    CPU rlimit stays derived from the caller's timeout alone: the rlimit is what stops a
+    runaway loop and should measure the work, not the overhead.
+    """
+    from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
+
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=5.0)
+
+    assert sandbox.startup_grace_seconds > 0, "startup must not be charged to the caller"
+
+    # A tool that sleeps just past a tiny budget still times out: the grace covers startup,
+    # it does not extend how long the caller's code may run.
+    result = LocalSubprocessToolSandbox(
+        default_timeout_seconds=0.2, startup_grace_seconds=0.0
+    ).run_tool(
+        ToolSandboxRunRequest(
+            # A busy loop rather than a sleep: source mode restricts imports, so
+            # ``import time`` fails as an ImportError long before any timeout.
+            source_code="def slow():\n    while True:\n        pass\n",
+            callable_name="slow",
+            timeout_seconds=0.2,
+        )
+    )
+    assert result.status == "timed_out"
+    # The message reports the configured budget, not the internal allowance.
+    assert "0.20s" in (result.error or "")

@@ -30,6 +30,11 @@ _RUNNER_PATH = Path(__file__).with_name("_runner.py")
 #: Read headroom over ``max_output_bytes`` before a stream is drained-and-dropped.
 #: Enough that a legitimate result plus its JSON envelope is never cut mid-parse.
 _OUTPUT_READ_HEADROOM = 4
+#: Wall-clock added on top of the caller's timeout to cover interpreter start and module
+#: import. Not a fudge factor: it is the cost of running out of process at all, which the
+#: caller neither asked for nor can influence. Generous because it is only ever paid when
+#: something is genuinely stuck — a healthy start costs well under a second.
+_DEFAULT_STARTUP_GRACE_SECONDS = 15.0
 _MIN_OUTPUT_READ_CAP = 262_144
 _READ_CHUNK = 8192
 
@@ -140,8 +145,10 @@ class LocalSubprocessToolSandbox:
         max_memory_bytes: int = 268_435_456,
         max_file_bytes: int = 1_048_576,
         max_open_files: int = 32,
+        startup_grace_seconds: float = _DEFAULT_STARTUP_GRACE_SECONDS,
     ) -> None:
         self.default_timeout_seconds = default_timeout_seconds
+        self.startup_grace_seconds = max(0.0, float(startup_grace_seconds))
         self.max_output_bytes = max_output_bytes
         self.max_memory_bytes = max_memory_bytes
         self.max_file_bytes = max_file_bytes
@@ -223,6 +230,17 @@ class LocalSubprocessToolSandbox:
         timeout_seconds: float | None,
     ) -> dict[str, object]:
         timeout = timeout_seconds or self.default_timeout_seconds
+        # The caller's timeout is a budget for *their code*, so interpreter startup is not
+        # charged to it. A manifest saying ``timeout_seconds: 5`` means "my node may take
+        # five seconds", not "five seconds including a cold Python start" — and the two are
+        # not close under load. Measured idle: ~0.05s for a trivial module, ~0.55s for one
+        # importing the caliber package. Under a suite-wide spawn storm a legitimate node
+        # exceeded a 5s budget on startup alone and was reported as a product failure.
+        #
+        # ``cpu_seconds`` stays derived from the caller's timeout, not the extended wall
+        # clock: the rlimit is what stops a runaway loop, and it should still measure the
+        # work rather than the overhead.
+        wall_timeout = timeout + self.startup_grace_seconds
         payload["_limits"] = {
             "cpu_seconds": max(1, int(timeout) + 1),
             "memory_bytes": self.max_memory_bytes,
@@ -245,11 +263,13 @@ class LocalSubprocessToolSandbox:
                 start_new_session=os.name == "posix",
             )
             raw_stdout, raw_stderr, timed_out = self._communicate_bounded(
-                process, json.dumps(payload), timeout
+                process, json.dumps(payload), wall_timeout
             )
             if timed_out:
                 return {
                     "status": "timed_out",
+                    # Reports the caller's budget, which is the number they configured;
+                    # the grace is overhead the platform added, not part of their contract.
                     "error": f"tool sandbox timed out after {timeout:.2f}s",
                     "stdout": self._clip(raw_stdout),
                     "stderr": self._clip(raw_stderr),
