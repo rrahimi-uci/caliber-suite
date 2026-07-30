@@ -80,6 +80,32 @@ class ToolSandboxRunResult(BaseModel):
     error_type: str | None = None
 
 
+class ToolSandboxInspectRequest(BaseModel):
+    """Inspect an installed callable without importing it in the control plane."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    module_path: str = Field(min_length=1, max_length=512)
+    callable_name: str = Field(min_length=1, max_length=128)
+    timeout_seconds: float | None = Field(default=None, gt=0, le=120)
+
+
+class ToolSandboxInspectResult(BaseModel):
+    """Source metadata returned by the child-process inspector."""
+
+    status: RunStatus
+    module_path: str = ""
+    callable_name: str = ""
+    available: bool = False
+    signature: str = ""
+    doc: str = ""
+    source: str = ""
+    error: str | None = None
+    stdout: str = ""
+    stderr: str = ""
+    duration_ms: float
+
+
 class ToolSandboxTestCase(BaseModel):
     """One example-based test for a tool callable."""
 
@@ -127,6 +153,9 @@ class ToolSandboxTestSuiteResult(BaseModel):
 __all__ = [
     "RunStatus",
     "TestSuiteStatus",
+    "ToolCallShape",
+    "ToolSandboxInspectRequest",
+    "ToolSandboxInspectResult",
     "ToolSandboxRunRequest",
     "ToolSandboxRunResult",
     "ToolSandboxTestCase",

@@ -448,7 +448,14 @@ async def test_dispatch_does_not_retry_a_4xx(
         try:
             await _await_subscription(bus)
             bus.publish({"type": "approval.promoted"})
-            await _await_captures(captured_requests, expected=1)
+            # Wait for the *settled* outcome, not the captured request. The POST is
+            # recorded before the delivery thread writes its dead letter, so stopping
+            # at the capture let ``stop()``'s drain win the atomic claim and record
+            # ``shutdown`` where this test asserts ``exhausted``. Waiting on the kind
+            # under test removes the race rather than widening a timeout.
+            await _await_condition(
+                lambda: any(e["kind"] == "exhausted" for e in dispatcher.dead_letters()["entries"])
+            )
         finally:
             await dispatcher.stop()
 

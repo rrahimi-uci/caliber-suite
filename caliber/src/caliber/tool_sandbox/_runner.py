@@ -121,7 +121,13 @@ def main() -> None:
     result: dict[str, Any]
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
         try:
-            result = _run_tests(request) if request.get("mode") == "tests" else _run_once(request)
+            mode = request.get("mode")
+            if mode == "tests":
+                result = _run_tests(request)
+            elif mode == "inspect":
+                result = _inspect_callable(request, max_source_chars=capture_limit)
+            else:
+                result = _run_once(request)
         except Exception as exc:
             result = {
                 "status": "failed",
@@ -268,6 +274,41 @@ def _run_once(request: dict[str, Any]) -> dict[str, Any]:
     args = request.get("args") or []
     output = fn(*args, **request.get("input", {}))
     return {"status": "completed", "output": output}
+
+
+def _inspect_callable(request: dict[str, Any], *, max_source_chars: int) -> dict[str, Any]:
+    """Inspect an installed callable after importing it inside this child.
+
+    Importing for source metadata is still execution: a module's top level can read
+    credentials, mutate process state, or perform I/O. Keeping inspection here applies
+    the same empty environment, private cwd, limits, timeout, and process teardown as a
+    real call instead of granting a metadata route an in-process escape hatch.
+    """
+    fn = _resolve_callable(request)
+    callable_name = str(request.get("callable_name") or "")
+    result: dict[str, Any] = {
+        "status": "completed",
+        "module_path": str(request.get("module_path") or ""),
+        "callable_name": callable_name,
+        "available": False,
+        "signature": callable_name,
+        "doc": inspect.getdoc(fn) or "",
+        "source": "",
+        "error": None,
+    }
+    with contextlib.suppress(TypeError, ValueError):
+        result["signature"] = f"{callable_name}{inspect.signature(fn)}"
+    try:
+        source = inspect.getsource(fn)
+        limit = max(int(max_source_chars), 1)
+        if len(source) > limit:
+            omitted = len(source) - limit
+            source = source[:limit] + f"\n... [{omitted} source characters omitted]"
+        result["source"] = source
+        result["available"] = True
+    except (OSError, TypeError) as exc:
+        result["error"] = f"source unavailable: {exc}"
+    return result
 
 
 def _run_selected_shape(fn: Any, shapes: list[dict[str, Any]]) -> dict[str, Any]:

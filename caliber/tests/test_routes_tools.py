@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
+import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberToolRegistry, CaliberToolTestRun
+from caliber.db.models import (
+    CaliberToolRegistry,
+    CaliberToolTestRun,
+    CaliberWorkflow,
+    CaliberWorkflowVersion,
+)
 from tests.workflow_helpers import (
     PREFIX,
     create_and_publish,
@@ -118,17 +125,26 @@ def test_list_tool_versions_does_not_leak_other_scopes(client: TestClient) -> No
         headers={"X-CALIBER-Project": "PRJ-1"},
     )
 
-    # A non-admin viewer with no active project can't see project-scoped versions.
+    # A non-admin viewer with no active project cannot see the parent at all. Returning an
+    # empty 200 would distinguish "real but hidden family" from a missing tool id.
     resp = client.get(f"{PREFIX}/tools/{tid}/versions", headers={"X-CALIBER-User": "@viewer"})
-    assert resp.status_code == 200
-    assert resp.json()["data"] == []
+    assert resp.status_code == 404
 
 
-def test_get_tool_source_available(client: TestClient) -> None:
+def test_get_tool_source_available(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # lookup_policy is a real callable in caliber.workflows.demo_tools.
     tid = client.post(f"{PREFIX}/tools", json=make_tool_payload("lookup_policy")).json()["data"][
         "tool_id"
     ]
+
+    # Import is execution. If the route still reflects in the API process, this fails;
+    # the child interpreter does not inherit the monkeypatch and can inspect normally.
+    import importlib
+
+    def _parent_import_forbidden(_name: str, *_args: object, **_kwargs: object) -> object:
+        raise AssertionError("source inspection imported registered Python in the API process")
+
+    monkeypatch.setattr(importlib, "import_module", _parent_import_forbidden)
     r = client.get(f"{PREFIX}/tools/{tid}/source")
     assert r.status_code == 200
     data = r.json()["data"]
@@ -136,6 +152,35 @@ def test_get_tool_source_available(client: TestClient) -> None:
     assert "def lookup_policy" in data["source"]
     assert data["signature"].startswith("lookup_policy(")
     assert data["error"] is None
+
+
+def test_get_tool_source_wait_runs_outside_the_async_event_loop(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tid = client.post(f"{PREFIX}/tools", json=make_tool_payload("source_offload")).json()["data"][
+        "tool_id"
+    ]
+
+    def _blocking_inspection(*_args: object, **_kwargs: object) -> dict[str, Any]:
+        # A synchronous sandbox wait called directly by the async route has a running
+        # event loop here. The worker-thread path deliberately has none.
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        return {
+            "module_path": "caliber.workflows.demo_tools",
+            "callable_name": "source_offload",
+            "available": False,
+            "signature": "source_offload",
+            "doc": "",
+            "source": "",
+            "error": "source unavailable in probe",
+        }
+
+    monkeypatch.setattr("caliber.routes.tools._resolve_tool_source", _blocking_inspection)
+    response = client.get(f"{PREFIX}/tools/{tid}/source")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["error"] == "source unavailable in probe"
 
 
 def test_get_tool_source_unavailable_for_missing_callable(client: TestClient) -> None:
@@ -225,6 +270,75 @@ def test_tool_usage_empty_for_unreferenced_tool(client: TestClient) -> None:
     r = client.get(f"{PREFIX}/tools/{tid}/usage")
     assert r.status_code == 200
     assert r.json()["data"]["usage"] == []
+
+
+def test_public_tool_usage_does_not_leak_foreign_private_workflows(
+    client: TestClient, db_session: Session
+) -> None:
+    """A shared tool's usage is still scoped by each referencing workflow.
+
+    Scoping only the parent tool is insufficient: public tools are deliberately visible
+    across projects, while the workflow/version ids that reference one may be private.
+    Include one owned row as a positive control so an implementation that simply returns
+    no usage cannot satisfy the test.
+    """
+    tool_id = "TL-PUBLIC-USAGE"
+    tool_name = "public_usage_probe"
+    db_session.add(
+        CaliberToolRegistry(
+            tool_id=tool_id,
+            name=tool_name,
+            version="1.0",
+            module_path="caliber.workflows.demo_tools",
+            callable_name="lookup_policy",
+            owner="@system",
+            visibility="public",
+        )
+    )
+    for workflow_id, owner, project_id in (
+        ("WF-USAGE-MINE", "@operator", "PRJ-MINE"),
+        ("WF-USAGE-SECRET", "@secret", "PRJ-SECRET"),
+    ):
+        db_session.add(
+            CaliberWorkflow(
+                workflow_id=workflow_id,
+                name=workflow_id,
+                owner=owner,
+                project_id=project_id,
+                visibility="project",
+            )
+        )
+        db_session.add(
+            CaliberWorkflowVersion(
+                version_id=f"WFV-{workflow_id}",
+                workflow_id=workflow_id,
+                version_number=1,
+                status="published",
+                manifest=make_support_manifest(
+                    workflow_id,
+                    tools={
+                        tool_name: {
+                            "registry_ref": f"tool.{tool_name}.v1",
+                            "version_constraint": ">=1.0,<2.0",
+                        }
+                    },
+                ),
+                manifest_hash=f"hash-{workflow_id}",
+            )
+        )
+    db_session.commit()
+
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test", "operator_users": "@operator"}
+    )
+    response = client.get(
+        f"{PREFIX}/tools/{tool_id}/usage",
+        headers={"X-CALIBER-User": "@operator", "X-CALIBER-Project": "PRJ-MINE"},
+    )
+
+    assert response.status_code == 200, response.text
+    usage = response.json()["data"]["usage"]
+    assert {item["workflow_id"] for item in usage} == {"WF-USAGE-MINE"}
 
 
 def test_list_tools_by_status(client: TestClient) -> None:
@@ -329,7 +443,9 @@ def test_test_run_read_tool_executes_when_preview_allowed(client: TestClient) ->
     assert "policy" in data["output"]
 
 
-def test_test_run_side_effect_tool_is_mocked(client: TestClient) -> None:
+def test_test_run_side_effect_tool_is_mocked_without_importing_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     tid = client.post(
         f"{PREFIX}/tools",
         json=make_tool_payload(
@@ -339,11 +455,62 @@ def test_test_run_side_effect_tool_is_mocked(client: TestClient) -> None:
             allow_in_preview=True,
         ),
     ).json()["data"]["tool_id"]
+
+    # Module top-level code is execution. The old path imported first and decided to mock
+    # second, so "always mocked" still gave unsafe tools a control-plane effect surface.
+    import importlib
+
+    def _import_must_not_happen(_name: str, *_args: object, **_kwargs: object) -> object:
+        raise AssertionError("a mocked tool was imported in the API process")
+
+    monkeypatch.setattr(importlib, "import_module", _import_must_not_happen)
     r = client.post(f"{PREFIX}/tools/{tid}/test-run", json={"input": {"reason": "help"}})
     assert r.status_code == 200
     data = r.json()["data"]
     assert data["mocked"] is True
+    assert data["isolation"] == "mocked"
     assert data["output"]["_preview_mock"] is True
+
+
+def test_test_and_calibration_waits_run_outside_the_async_event_loop(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tid = _calibratable_tool(client)
+    calls: list[str] = []
+
+    def _blocking_invocation(
+        _tool: object,
+        tool_input: dict[str, Any],
+        *,
+        config: object | None = None,
+    ) -> dict[str, Any]:
+        del config
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        calls.append(str(tool_input.get("query", "")))
+        return {
+            "output": {"query": tool_input.get("query")},
+            "mocked": False,
+            "duration_ms": 0.1,
+            "error": None,
+            "isolation": "subprocess",
+        }
+
+    monkeypatch.setattr(
+        "caliber.routes.tools._invoke_tool_under_preview_policy", _blocking_invocation
+    )
+
+    tested = client.post(f"{PREFIX}/tools/{tid}/test-run", json={"input": {"query": "one"}})
+    assert tested.status_code == 200, tested.text
+    saved = client.put(
+        f"{PREFIX}/tools/{tid}/test-cases",
+        json={"test_cases": [{"name": "two", "input": {"query": "two"}}]},
+    )
+    assert saved.status_code == 200, saved.text
+    calibrated = client.post(f"{PREFIX}/tools/{tid}/calibrate")
+
+    assert calibrated.status_code == 200, calibrated.text
+    assert calls == ["one", "two"]
 
 
 def test_test_run_requires_object_input(client: TestClient) -> None:
@@ -490,6 +657,49 @@ def test_calibrate_tool_equals_assertion(client: TestClient) -> None:
     assert r.json()["data"]["passed"] == 0
 
 
+def test_calibrate_tool_refuses_to_persist_against_changed_cases(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tid = _calibratable_tool(client)
+    original = {"name": "original", "input": {"query": "one"}}
+    changed = {"name": "changed", "input": {"query": "two"}}
+    saved = client.put(f"{PREFIX}/tools/{tid}/test-cases", json={"test_cases": [original]})
+    assert saved.status_code == 200, saved.text
+
+    def _score_after_concurrent_change(
+        _tool: object,
+        _cases: list[dict[str, Any]],
+        *,
+        config: object | None,
+    ) -> list[dict[str, Any]]:
+        del config
+        # The scoring phase runs after the route's read session has closed. Simulate a
+        # second operator replacing fixtures before this calibration can persist.
+        with client.app.state.session_factory() as session:
+            row = session.get(CaliberToolRegistry, tid)
+            assert row is not None
+            row.test_cases = [changed]
+            session.commit()
+        return [
+            {
+                "name": "original",
+                "passed": True,
+                "output": {"query": "one"},
+                "error": None,
+                "duration_ms": 0.1,
+            }
+        ]
+
+    monkeypatch.setattr("caliber.routes.tools._score_tool_cases", _score_after_concurrent_change)
+    response = client.post(f"{PREFIX}/tools/{tid}/calibrate")
+
+    assert response.status_code == 409, response.text
+    assert "test cases changed" in response.json()["detail"]
+    tool = client.get(f"{PREFIX}/tools/{tid}").json()["data"]
+    assert tool["test_cases"] == [changed]
+    assert tool["last_calibration"] is None
+
+
 def test_calibrate_tool_no_cases_400(client: TestClient) -> None:
     tid = _calibratable_tool(client)
     r = client.post(f"{PREFIX}/tools/{tid}/calibrate")
@@ -600,6 +810,80 @@ def test_create_list_and_get_tool_test_run_roundtrip(
     assert detail_data["results"][0]["name"] == "case-1"
     assert detail_data["results"][2]["verdict"] == "fail"
     assert detail_data["results"][2]["error"] == "ValueError: boom"
+
+
+def test_foreign_tool_and_test_run_families_are_scoped(client: TestClient) -> None:
+    """Every child route must enforce the visibility used by the tool list.
+
+    Before the shared parent lookup, a foreign operator could not list this tool but could
+    fetch its source, execute it, replace its fixtures, calibrate it, inspect its workspace
+    and run history, or pin a baseline by supplying the id directly.
+    """
+    created = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("foreign_tool", allow_in_preview=True),
+        headers={"X-CALIBER-Project": "PRJ-SECRET"},
+    )
+    assert created.status_code == 201, created.text
+    tool_id = created.json()["data"]["tool_id"]
+    run = client.post(f"{PREFIX}/tools/test-runs", json=_tool_run_body(tool_id))
+    assert run.status_code == 201, run.text
+    test_run_id = run.json()["data"]["test_run_id"]
+
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test", "operator_users": "@operator"}
+    )
+    foreign = {
+        "X-CALIBER-User": "@operator",
+        "X-CALIBER-Project": "PRJ-OTHER",
+    }
+
+    listed = client.get(f"{PREFIX}/tools", headers=foreign)
+    assert listed.status_code == 200
+    assert tool_id not in {item["tool_id"] for item in listed.json()["data"]}
+
+    reads = [
+        f"{PREFIX}/tools/{tool_id}",
+        f"{PREFIX}/tools/{tool_id}/versions",
+        f"{PREFIX}/tools/{tool_id}/source",
+        f"{PREFIX}/tools/{tool_id}/usage",
+        f"{PREFIX}/tools/{tool_id}/workspace",
+    ]
+    for path in reads:
+        response = client.get(path, headers=foreign)
+        assert response.status_code == 404, f"GET {path} -> {response.text}"
+
+    mutations = [
+        ("post", f"{PREFIX}/tools/{tool_id}/test-run", {"input": {"query": "refund"}}),
+        ("put", f"{PREFIX}/tools/{tool_id}/test-cases", {"test_cases": []}),
+        ("post", f"{PREFIX}/tools/{tool_id}/calibrate", None),
+        (
+            "post",
+            f"{PREFIX}/tools/{tool_id}/baseline",
+            {"test_run_id": test_run_id},
+        ),
+    ]
+    for method, path, body in mutations:
+        response = getattr(client, method)(path, json=body, headers=foreign)
+        assert response.status_code == 404, f"{method.upper()} {path} -> {response.text}"
+
+    create_run = client.post(
+        f"{PREFIX}/tools/test-runs",
+        json=_tool_run_body(tool_id),
+        headers=foreign,
+    )
+    assert create_run.status_code == 404, create_run.text
+
+    filtered_runs = client.get(
+        f"{PREFIX}/tools/test-runs", params={"tool_id": tool_id}, headers=foreign
+    )
+    assert filtered_runs.status_code == 404, filtered_runs.text
+    all_runs = client.get(f"{PREFIX}/tools/test-runs", headers=foreign)
+    assert all_runs.status_code == 200
+    assert test_run_id not in {item["test_run_id"] for item in all_runs.json()["data"]}
+    detail = client.get(f"{PREFIX}/tools/test-runs/{test_run_id}", headers=foreign)
+    assert detail.status_code == 404, detail.text
+    assert tool_id not in detail.text
 
 
 def test_create_tool_test_run_recomputes_and_ignores_client_aggregates(
@@ -809,6 +1093,52 @@ def test_tool_set_baseline_wrong_tool_returns_400(client: TestClient) -> None:
     run = client.post(f"{PREFIX}/tools/test-runs", json=_tool_run_body(owner)).json()["data"]
     r = client.post(f"{PREFIX}/tools/{other}/baseline", json={"test_run_id": run["test_run_id"]})
     assert r.status_code == 400
+
+
+def test_tool_set_baseline_does_not_reveal_a_hidden_run(
+    client: TestClient, db_session: Session
+) -> None:
+    hidden_tool = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("hidden_baseline_tool"),
+        headers={"X-CALIBER-Project": "PRJ-SECRET"},
+    ).json()["data"]["tool_id"]
+    hidden_run = client.post(f"{PREFIX}/tools/test-runs", json=_tool_run_body(hidden_tool)).json()[
+        "data"
+    ]["test_run_id"]
+
+    visible_tool = "TL-VISIBLE-BASELINE"
+    db_session.add(
+        CaliberToolRegistry(
+            tool_id=visible_tool,
+            name="visible_baseline_tool",
+            version="1.0",
+            module_path="caliber.workflows.demo_tools",
+            callable_name="lookup_policy",
+            owner="@system",
+            visibility="public",
+        )
+    )
+    db_session.commit()
+
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test", "operator_users": "@operator"}
+    )
+    operator = {"X-CALIBER-User": "@operator", "X-CALIBER-Project": "PRJ-OTHER"}
+
+    hidden = client.post(
+        f"{PREFIX}/tools/{visible_tool}/baseline",
+        json={"test_run_id": hidden_run},
+        headers=operator,
+    )
+    missing = client.post(
+        f"{PREFIX}/tools/{visible_tool}/baseline",
+        json={"test_run_id": "TTR-DOES-NOT-EXIST"},
+        headers=operator,
+    )
+
+    assert hidden.status_code == missing.status_code == 404
+    assert hidden.text.replace(hidden_run, "X") == missing.text.replace("TTR-DOES-NOT-EXIST", "X")
 
 
 def test_tool_set_baseline_missing_run_returns_404(client: TestClient) -> None:

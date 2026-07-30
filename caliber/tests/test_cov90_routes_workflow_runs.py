@@ -262,7 +262,14 @@ def test_create_run_version_with_missing_workflow_404(
     db_session.commit()
     r = client.post(f"{PREFIX}/workflow-runs", json={"workflow_version_id": "V-orphan"})
     assert r.status_code == 404
-    assert "WF-ghost-owner" in r.json()["detail"]
+    # Names only the caller-supplied version, never its parent workflow. This asserted the
+    # parent ID until the workflow read became visibility-scoped: once a *forbidden* parent
+    # also 404s, echoing its ID would disclose an identifier from a project the caller
+    # cannot see — and missing-versus-forbidden has to be indistinguishable. The orphan
+    # here is genuinely missing, but the response cannot depend on which case it is.
+    detail = r.json()["detail"]
+    assert "V-orphan" in detail
+    assert "WF-ghost-owner" not in detail
 
 
 def test_create_run_workflow_id_mismatch_with_version_400(client: TestClient) -> None:

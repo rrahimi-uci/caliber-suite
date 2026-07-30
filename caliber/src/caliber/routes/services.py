@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 import jsonschema
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
@@ -49,6 +50,7 @@ from caliber.routes._deps import (
     get_session_factory,
     parse_json_object,
 )
+from caliber.routes._errors import validation_error_handler
 from caliber.schemas import (
     ServiceInvokeRequest,
     ServiceInvokeResponse,
@@ -960,46 +962,60 @@ async def preflight_service(request: Request) -> Response:
 def _with_cors_on_errors(handler: Any) -> Any:
     """Attach the service's CORS headers to error responses, not just successful ones.
 
-    Every failure on these routes — 401, 400 schema, 404 missing run, 409 disabled, 429
-    quota — is raised as an ``HTTPException`` and rendered by the global handler, which
-    knows nothing about a per-service origin allowlist. So the route-local headers were
-    only ever on the happy path, and a browser client on a listed origin could invoke a
-    service but **not read why a call failed**: an independent probe saw a 429 with a
-    correct ``Retry-After`` and no ``Access-Control-Allow-Origin``, so the response was
-    unreadable to JavaScript.
+    Operational failures on these routes — 401, 404 missing run, 409 disabled, 429 quota
+    — are raised as ``HTTPException``; malformed Pydantic request bodies raise
+    ``ValidationError``. Both are normally rendered by global handlers that know nothing
+    about a per-service origin allowlist. So route-local headers were only on the happy
+    path, and a browser client on a listed origin could invoke a service but **not read
+    why a call failed**.
 
-    Wrapping once here rather than at each ``raise`` keeps the two from drifting: a new
-    error path added later is covered without anyone remembering to.
+    Wrapping once here rather than at each known client-error raise keeps the policy from
+    drifting. Unexpected server exceptions still follow the application's normal 500
+    handling and deliberately do not trigger a second database lookup here.
 
     The lookup is unauthenticated, like the preflight's, and discloses nothing — headers are
     emitted only for an origin the operator listed, and an unknown service yields none.
     """
 
+    def error_headers(request: Request) -> dict[str, str]:
+        workflow_id = request.path_params.get("workflow_id", "")
+        try:
+            factory = get_session_factory(request)
+            with factory() as session:
+                service = (
+                    session.execute(
+                        select(CaliberWorkflowService).where(
+                            CaliberWorkflowService.workflow_id == workflow_id
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+            return _cors_headers(service, request) if service is not None else {}
+        except Exception:
+            # Never turn one error into a worse one: if the lookup fails, the caller
+            # should still get its original status, just without CORS headers.
+            return {}
+
     async def wrapped(request: Request) -> Any:
         try:
             return await handler(request)
         except HTTPException as exc:
-            workflow_id = request.path_params.get("workflow_id", "")
-            try:
-                factory = get_session_factory(request)
-                with factory() as session:
-                    service = (
-                        session.execute(
-                            select(CaliberWorkflowService).where(
-                                CaliberWorkflowService.workflow_id == workflow_id
-                            )
-                        )
-                        .scalars()
-                        .first()
-                    )
-                headers = _cors_headers(service, request) if service is not None else {}
-            except Exception:
-                # Never turn one error into a worse one: if the lookup fails, the caller
-                # should still get its original status, just without CORS headers.
-                headers = {}
+            headers = error_headers(request)
             if headers:
                 exc.headers = {**(exc.headers or {}), **headers}
             raise
+        except ValidationError as exc:
+            # Pydantic request validation has its own global exception handler and never
+            # enters the HTTPException branch above. Render it through that same handler
+            # so the established structured 400 body remains byte-for-byte compatible,
+            # then apply the service origin policy to the response. Without this branch,
+            # an approved browser origin could read operational 4xx failures but not a
+            # malformed request — an ordinary client error became an opaque CORS failure.
+            response = await validation_error_handler(request, exc)
+            for header, value in error_headers(request).items():
+                response.headers[header] = value
+            return response
 
     # Starlette derives the endpoint name for diagnostics; keep the real one.
     wrapped.__name__ = getattr(handler, "__name__", "wrapped")

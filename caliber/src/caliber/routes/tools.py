@@ -8,9 +8,6 @@ returned — only ``secret_refs`` (names).
 
 from __future__ import annotations
 
-import contextlib
-import importlib
-import inspect
 import re
 import time
 from datetime import datetime, timezone
@@ -20,6 +17,7 @@ from sqlalchemy import String, cast, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -37,10 +35,11 @@ from caliber.calibration import aggregate, evaluate_assertion
 from caliber.db.models import (
     CaliberToolRegistry,
     CaliberToolTestRun,
+    CaliberWorkflow,
     CaliberWorkflowDeployment,
     CaliberWorkflowVersion,
 )
-from caliber.db.scoping import apply_visibility_filter
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_tool_id, new_tool_test_run_id
 from caliber.routes._deps import (
     envelope_response,
@@ -136,24 +135,69 @@ async def list_tools(request: Request) -> JSONResponse:
     return envelope_response(items)
 
 
+def _visible_tool_or_404(session: Session, request: Request, tool_id: str) -> CaliberToolRegistry:
+    """Resolve one tool through the same visibility policy as the registry list.
+
+    Tool list was scoped while most nested routes used bare primary-key reads. Knowing a
+    tool id therefore unlocked detail/source, live test execution, fixture mutation,
+    calibration, usage, workspace, and baseline changes even when the caller could not
+    list the parent. A shared parent lookup keeps every verb on one authorization rule and
+    returns 404 so a forbidden id is indistinguishable from a missing one.
+    """
+    row: CaliberToolRegistry | None = get_visible(
+        session,
+        CaliberToolRegistry,
+        CaliberToolRegistry.tool_id,
+        tool_id,
+        resolve_identity(request),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+    return row
+
+
+def _visible_tool_test_run_or_404(
+    session: Session, request: Request, test_run_id: str
+) -> CaliberToolTestRun:
+    """Resolve a durable test run through its visible parent tool.
+
+    The run table has no visibility columns of its own. A bare child lookup is still
+    useful to find its parent, but the row is not returnable until that parent passes
+    the registry visibility policy. Both a missing child and a child of a hidden tool
+    therefore produce the same child-level 404 without disclosing the parent id.
+    """
+    run = session.get(CaliberToolTestRun, test_run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found")
+    try:
+        _visible_tool_or_404(session, request, run.tool_id)
+    except HTTPException as exc:
+        raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found") from exc
+    return run
+
+
 async def get_tool(request: Request) -> JSONResponse:
     require_user(request)
     tool_id = request.path_params["tool_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberToolRegistry, tool_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        row = _visible_tool_or_404(session, request, tool_id)
         data = ToolSchema.model_validate(row)
     return envelope_response(data)
 
 
-def _resolve_tool_source(module_path: str, callable_name: str) -> dict[str, Any]:
+def _resolve_tool_source(
+    module_path: str,
+    callable_name: str,
+    *,
+    config: Any | None = None,
+) -> dict[str, Any]:
     """Best-effort source/signature/doc for a registered tool's callable.
 
-    Imports the tool's module (operator-registered, first-party) and reflects on
-    the callable. Returns ``available=False`` with an ``error`` when the module
-    can't be imported or the source isn't on disk (e.g. a C builtin).
+    The module is imported and reflected **inside the sandbox child**. Importing for
+    metadata is still execution, so doing it in this API process would bypass the
+    registered-tool boundary before the tool ever ran. Returns ``available=False`` with
+    an error when policy refuses the module, import fails, or source is unavailable.
     """
     result: dict[str, Any] = {
         "module_path": module_path,
@@ -164,20 +208,32 @@ def _resolve_tool_source(module_path: str, callable_name: str) -> dict[str, Any]
         "source": "",
         "error": None,
     }
-    try:
-        module = importlib.import_module(module_path)
-        fn = getattr(module, callable_name)
-    except (ImportError, AttributeError) as exc:
-        result["error"] = f"could not import {module_path}.{callable_name}: {exc}"
+    if not registered_tool_module_allowed(module_path):
+        result["error"] = (
+            f"module '{module_path}' is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
+        )
         return result
-    with contextlib.suppress(TypeError, ValueError):
-        result["signature"] = f"{callable_name}{inspect.signature(fn)}"
-    result["doc"] = inspect.getdoc(fn) or ""
-    try:
-        result["source"] = inspect.getsource(fn)
-        result["available"] = True
-    except (OSError, TypeError) as exc:
-        result["error"] = f"source unavailable: {exc}"
+
+    from caliber.tool_sandbox.models import ToolSandboxInspectRequest  # noqa: PLC0415
+    from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
+
+    sandbox = sandbox_from_optional_config(config)
+    inspected = sandbox.inspect_tool(
+        ToolSandboxInspectRequest(
+            module_path=module_path,
+            callable_name=callable_name,
+            timeout_seconds=float(getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)),
+        )
+    )
+    result.update(
+        {
+            "available": inspected.available,
+            "signature": inspected.signature or callable_name,
+            "doc": inspected.doc,
+            "source": inspected.source,
+            "error": inspected.error,
+        }
+    )
     return result
 
 
@@ -216,9 +272,7 @@ async def list_tool_versions(request: Request) -> JSONResponse:
     tool_id = request.path_params["tool_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
         stmt = select(CaliberToolRegistry).where(CaliberToolRegistry.name == tool.name)
         stmt = apply_visibility_filter(
             stmt,
@@ -239,12 +293,16 @@ async def get_tool_source(request: Request) -> JSONResponse:
     tool_id = request.path_params["tool_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberToolRegistry, tool_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        row = _visible_tool_or_404(session, request, tool_id)
         module_path = row.module_path
         callable_name = row.callable_name
-    return JSONResponse({"data": _resolve_tool_source(module_path, callable_name)})
+    source = await run_in_threadpool(
+        _resolve_tool_source,
+        module_path,
+        callable_name,
+        config=getattr(request.app.state, "config", None),
+    )
+    return JSONResponse({"data": source})
 
 
 async def register_tool(request: Request) -> JSONResponse:
@@ -285,7 +343,21 @@ async def register_tool(request: Request) -> JSONResponse:
             # Owner is the authenticated actor (payload.owner is ignored).
             owner=actor,
             project_id=identity.active_project_id,
-            visibility="project" if identity.active_project_id else "user",
+            # ``public`` — not ``user`` — when no project is active, and the distinction
+            # matters once the Tool family is visibility-scoped.
+            #
+            # Tool creation is admin-gated and a tool is shared catalog infrastructure: a
+            # name, a module path, and a callable that workflow authors reference. ``user``
+            # visibility means "only the admin who registered it may use it", and combined
+            # with scoping that made the operator test-run path unreachable for the role it
+            # exists for — a non-admin operator can never own a tool, so it could never see
+            # one. A full-suite run caught it as a 404 in ``test_rbac_enforcement``.
+            #
+            # An active project still yields ``project`` visibility, so deliberate
+            # per-project tools keep isolating. This only changes the no-project case, and
+            # for a single-organization deployment "registered by an admin, outside any
+            # project" means an org-wide tool rather than a private one.
+            visibility="project" if identity.active_project_id else "public",
             status="active",
         )
         session.add(tool)
@@ -318,9 +390,7 @@ async def update_tool(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
             if field not in changes:
@@ -352,9 +422,7 @@ async def archive_tool(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_ADMIN])
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
         blocking = _referencing_deployments(session, tool.name)
         if blocking:
             raise HTTPException(
@@ -399,28 +467,19 @@ def _referencing_deployments(session: Session, tool_name: str) -> list[str]:
 
 
 def _invoke_tool_under_preview_policy(
-    tool_data: ToolSchema, tool_input: dict[str, Any]
+    tool_data: ToolSchema,
+    tool_input: dict[str, Any],
+    *,
+    config: Any | None = None,
 ) -> dict[str, Any]:
-    """Run one tool invocation under **preview effect policy**.
+    """Run one tool invocation under preview policy and process isolation.
 
-    Named for what it does. This was called ``_invoke_tool_in_sandbox`` and both its
-    callers described themselves as "sandbox-isolated", but it imports the tool's
-    module and calls the callable in the web process — there is no subprocess here.
-    The review flagged exactly that: "the Tool test-run path describes itself as
-    sandbox-isolated, but imports the module and invokes ``wrapped(**tool_input)`` in
-    the web process". An overstated boundary is worse than a stated-narrow one,
-    because an operator relies on it.
+    Live read tools use the registered-module sandbox; their module import and callable
+    body never enter the API process. Unsafe tools are mocked *without importing their
+    module at all*. Importing first and deciding to mock second was itself an execution
+    bug: module-level code runs on import, so a tool described as "always mocked" could
+    still perform arbitrary effects in the control plane.
 
-    What it *does* enforce, which is real and worth having:
-
-    * **effect policy** — ``write``/``external_action`` tools are always mocked, and
-      ``read`` tools run live only when ``allow_in_preview`` is True; and
-    * **the module allowlist** — the import is refused unless the tool's module is
-      permitted, so an operator who has declared their tool modules is protected on
-      this path too.
-
-    Process isolation for registered tool callables remains open, and the response
-    says so via ``isolation`` rather than leaving the caller to assume.
     Returns ``{output, mocked, duration_ms, error, isolation}``.
     """
     binding = IRToolBinding(
@@ -438,40 +497,47 @@ def _invoke_tool_under_preview_policy(
         else None,
     )
 
-    # Attempt to import the real callable — but only from a permitted module. The
-    # allowlist is checked before the import, not after, because the import itself is
-    # the effect being guarded: module-level code runs on import.
-    real_callable = None
+    mocked = should_mock_in_preview(binding)
     import_error: str | None = None
     if not registered_tool_module_allowed(binding.module_path):
         import_error = (
-            f"module '{binding.module_path}' is not in "
-            "CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST; it is imported and invoked in "
-            "the CALIBER process"
+            f"module '{binding.module_path}' is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
         )
-    else:
-        try:
-            mod = importlib.import_module(binding.module_path)
-            real_callable = getattr(mod, binding.callable_name, None)
-            if real_callable is None:
-                import_error = (
-                    f"module '{binding.module_path}' has no attribute '{binding.callable_name}'"
-                )
-        except ImportError as exc:
-            import_error = f"cannot import module '{binding.module_path}': {exc}"
-
-    mocked = should_mock_in_preview(binding)
-    wrapped = make_preview_callable(binding, real_callable)
 
     start_time = time.monotonic()
     error: str | None = import_error
     output: Any = None
+    isolation = "not_run"
 
     if error is None:
-        try:
-            output = wrapped(**tool_input)
-        except Exception as exc:
-            error = f"{type(exc).__name__}: {exc}"
+        if mocked:
+            # No import is necessary for a deterministic preview mock. This ordering is
+            # security-significant: importing an unsafe tool merely to avoid calling it
+            # still executes arbitrary module initialization in the control plane.
+            output = make_preview_callable(binding, None)(**tool_input)
+            isolation = "mocked"
+        else:
+            from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
+            from caliber.tool_sandbox.service import (  # noqa: PLC0415
+                sandbox_from_optional_config,
+            )
+
+            isolation = "subprocess"
+            sandbox = sandbox_from_optional_config(config)
+            result = sandbox.run_tool(
+                ToolSandboxRunRequest(
+                    module_path=binding.module_path,
+                    callable_name=binding.callable_name,
+                    input=tool_input,
+                    timeout_seconds=float(
+                        getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)
+                    ),
+                )
+            )
+            if result.status == "completed":
+                output = result.output
+            else:
+                error = result.error or result.status
 
     duration_ms = round((time.monotonic() - start_time) * 1000, 1)
     return {
@@ -479,9 +545,7 @@ def _invoke_tool_under_preview_policy(
         "mocked": mocked,
         "duration_ms": duration_ms,
         "error": error,
-        # Stated, not implied. A client that renders "sandboxed" next to a result this
-        # endpoint produced would be telling the operator something untrue.
-        "isolation": "in_process",
+        "isolation": isolation,
     }
 
 
@@ -492,11 +556,9 @@ async def test_run_tool(request: Request) -> JSONResponse:
     applied: ``write``/``external_action`` tools are always mocked, and ``read`` tools
     run live only when ``allow_in_preview`` is True.
 
-    **Not** process-isolated: a registered tool's module is imported and called in this
-    process, and the response reports ``isolation: "in_process"`` so a client cannot
-    present it as sandboxed. This docstring used to claim "sandbox-isolated", which the
-    review correctly flagged as an overstated boundary. See
-    :func:`_invoke_tool_under_preview_policy`.
+    Live read tools are imported and called in the registered-module subprocess. Unsafe
+    tools are mocked without importing their module. The response reports the path as
+    ``subprocess``, ``mocked``, or ``not_run``.
     """
     tool_id = request.path_params["tool_id"]
     body = await parse_json_object(request)
@@ -511,12 +573,15 @@ async def test_run_tool(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
         tool_data = ToolSchema.model_validate(tool)
 
-    invocation = _invoke_tool_under_preview_policy(tool_data, tool_input)
+    invocation = await run_in_threadpool(
+        _invoke_tool_under_preview_policy,
+        tool_data,
+        tool_input,
+        config=getattr(request.app.state, "config", None),
+    )
     return JSONResponse({"data": {"tool_id": tool_id, **invocation}})
 
 
@@ -530,9 +595,7 @@ async def save_tool_test_cases(request: Request) -> JSONResponse:
     cases = [case.model_dump() for case in payload.test_cases]
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
         tool.test_cases = cases
         audit_record(
             session,
@@ -544,6 +607,38 @@ async def save_tool_test_cases(request: Request) -> JSONResponse:
         )
         session.commit()
     return envelope_response(ToolTestCasesResponse(tool_id=tool_id, test_cases=payload.test_cases))
+
+
+def _score_tool_cases(
+    tool_data: ToolSchema,
+    saved_cases: list[dict[str, Any]],
+    *,
+    config: Any | None,
+) -> list[dict[str, Any]]:
+    """Execute a calibration snapshot outside the ASGI event loop."""
+    scored: list[dict[str, Any]] = []
+    for case in saved_cases:
+        name = str(case.get("name", "")) or "case"
+        raw_input = case.get("input")
+        case_input: dict[str, Any] = dict(raw_input) if isinstance(raw_input, dict) else {}
+        invocation = _invoke_tool_under_preview_policy(
+            tool_data,
+            case_input,
+            config=config,
+        )
+        passed = evaluate_assertion(
+            case.get("assertion"), invocation["output"], invocation["error"]
+        )
+        scored.append(
+            {
+                "name": name,
+                "passed": passed,
+                "output": invocation["output"],
+                "error": invocation["error"],
+                "duration_ms": invocation["duration_ms"],
+            }
+        )
+    return scored
 
 
 async def calibrate_tool(request: Request) -> JSONResponse:
@@ -558,9 +653,7 @@ async def calibrate_tool(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
         saved_cases = list(tool.test_cases or [])
         if not saved_cases:
             raise HTTPException(
@@ -569,27 +662,25 @@ async def calibrate_tool(request: Request) -> JSONResponse:
             )
         tool_data = ToolSchema.model_validate(tool)
 
-        scored: list[dict[str, Any]] = []
-        for case in saved_cases:
-            name = str(case.get("name", "")) or "case"
-            raw_input = case.get("input")
-            case_input: dict[str, Any] = dict(raw_input) if isinstance(raw_input, dict) else {}
-            invocation = _invoke_tool_under_preview_policy(tool_data, case_input)
-            passed = evaluate_assertion(
-                case.get("assertion"), invocation["output"], invocation["error"]
-            )
-            scored.append(
-                {
-                    "name": name,
-                    "passed": passed,
-                    "output": invocation["output"],
-                    "error": invocation["error"],
-                    "duration_ms": invocation["duration_ms"],
-                }
-            )
+    # Spawning and waiting on child processes is blocking I/O. Run the whole snapshot in
+    # the bounded Starlette worker pool and, critically, do not hold a database session
+    # while as many as 200 cases execute.
+    scored = await run_in_threadpool(
+        _score_tool_cases,
+        tool_data,
+        saved_cases,
+        config=getattr(request.app.state, "config", None),
+    )
+    result = aggregate(scored)
+    result["ran_at"] = datetime.now(timezone.utc).isoformat()
 
-        result = aggregate(scored)
-        result["ran_at"] = datetime.now(timezone.utc).isoformat()
+    with factory() as session:
+        tool = _visible_tool_or_404(session, request, tool_id)
+        if list(tool.test_cases or []) != saved_cases:
+            raise HTTPException(
+                status_code=409,
+                detail=f"tool {tool_id!r} test cases changed while calibration was running",
+            )
         tool.last_calibration = result
         audit_record(
             session,
@@ -616,12 +707,11 @@ async def tool_usage(request: Request) -> JSONResponse:
     and warn before deprecate/archive.
     """
     require_user(request)
+    identity = resolve_identity(request)
     tool_id = request.path_params["tool_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
         # ``family_name(ref) == tool.name`` implies ``tool.name`` is a substring
         # of the serialized manifest (it's embedded in the registry_ref), so a
         # coarse SQL ``contains`` prefilter is a correctness-preserving superset
@@ -629,17 +719,32 @@ async def tool_usage(request: Request) -> JSONResponse:
         # This avoids hydrating every workflow version (full manifests) just to
         # find the handful that reference one tool. Only the display columns are
         # loaded, not the ORM entity.
-        rows = session.execute(
+        stmt = (
             select(
                 CaliberWorkflowVersion.workflow_id,
                 CaliberWorkflowVersion.version_id,
                 CaliberWorkflowVersion.version_number,
                 CaliberWorkflowVersion.status,
                 CaliberWorkflowVersion.manifest,
-            ).where(
+            )
+            .join(
+                CaliberWorkflow,
+                CaliberWorkflow.workflow_id == CaliberWorkflowVersion.workflow_id,
+            )
+            .where(
                 cast(CaliberWorkflowVersion.manifest, String).contains(tool.name, autoescape=True)
             )
-        ).all()
+        )
+        # A visible/shared tool can be referenced by private workflows. Usage is a child
+        # view of those workflows, so filter the parent before returning workflow/version
+        # ids; scoping only the tool would still leak other projects' release inventory.
+        stmt = apply_visibility_filter(
+            stmt,
+            CaliberWorkflow,
+            identity,
+            identity.active_project_id,
+        )
+        rows = session.execute(stmt).all()
         usage: list[dict[str, object]] = []
         for workflow_id, version_id, version_number, status, manifest in rows:
             tools = (manifest or {}).get("tools", {})
@@ -726,9 +831,7 @@ async def create_tool_test_run(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, payload.tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {payload.tool_id!r} not found")
+        _visible_tool_or_404(session, request, payload.tool_id)
 
         run = CaliberToolTestRun(
             test_run_id=new_tool_test_run_id(),
@@ -779,6 +882,7 @@ async def list_tool_test_runs(request: Request) -> JSONResponse:
     per-case ``results`` array is omitted.
     """
     require_user(request)
+    identity = resolve_identity(request)
     tool_id = request.query_params.get("tool_id")
     kind = request.query_params.get("kind")
 
@@ -793,15 +897,22 @@ async def list_tool_test_runs(request: Request) -> JSONResponse:
             raise HTTPException(status_code=400, detail="'limit' must be >= 1")
     limit = min(limit, _TEST_RUNS_MAX_LIMIT)
 
-    stmt = select(CaliberToolTestRun)
-    if tool_id:
-        stmt = stmt.where(CaliberToolTestRun.tool_id == tool_id)
-    if kind:
-        stmt = stmt.where(CaliberToolTestRun.kind == kind)
-    stmt = stmt.order_by(CaliberToolTestRun.created_at.desc()).limit(limit)
-
     factory = get_session_factory(request)
     with factory() as session:
+        if tool_id:
+            _visible_tool_or_404(session, request, tool_id)
+        visible_tool_ids = apply_visibility_filter(
+            select(CaliberToolRegistry.tool_id),
+            CaliberToolRegistry,
+            identity,
+            identity.active_project_id,
+        )
+        stmt = select(CaliberToolTestRun).where(CaliberToolTestRun.tool_id.in_(visible_tool_ids))
+        if tool_id:
+            stmt = stmt.where(CaliberToolTestRun.tool_id == tool_id)
+        if kind:
+            stmt = stmt.where(CaliberToolTestRun.kind == kind)
+        stmt = stmt.order_by(CaliberToolTestRun.created_at.desc()).limit(limit)
         rows = session.execute(stmt).scalars().all()
         summaries = [ToolTestRunSummary.model_validate(row).model_dump(mode="json") for row in rows]
 
@@ -815,9 +926,7 @@ async def get_tool_test_run(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        run = session.get(CaliberToolTestRun, test_run_id)
-        if run is None:
-            raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found")
+        run = _visible_tool_test_run_or_404(session, request, test_run_id)
         detail = ToolTestRunDetail.model_validate(run)
 
     return JSONResponse({"data": detail.model_dump(mode="json")})
@@ -836,9 +945,7 @@ async def get_tool_workspace(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
 
         latest_run = (
             session.execute(
@@ -913,15 +1020,9 @@ async def set_tool_baseline(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = session.get(CaliberToolRegistry, tool_id)
-        if tool is None:
-            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        tool = _visible_tool_or_404(session, request, tool_id)
 
-        run = session.get(CaliberToolTestRun, payload.test_run_id)
-        if run is None:
-            raise HTTPException(
-                status_code=404, detail=f"test run {payload.test_run_id!r} not found"
-            )
+        run = _visible_tool_test_run_or_404(session, request, payload.test_run_id)
         if run.tool_id != tool_id:
             raise HTTPException(
                 status_code=400,

@@ -987,7 +987,7 @@ class CaliberConfig(BaseModel):
     #: interpreter start plus import plus execution. It still bounds a runaway tool, and the
     #: per-call startup cost is a real consequence of running registered tools out of
     #: process rather than importing them into the control plane.
-    registered_tool_sandbox_timeout_seconds: float = Field(default=30.0, gt=0)
+    registered_tool_sandbox_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     # Caps a sandboxed node's serialized return. 64 KiB was too small for nodes
     # that emit data/HTML (e.g. a KG report); 1 MiB is a safer default, and big
     # document pipelines raise it via CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES.

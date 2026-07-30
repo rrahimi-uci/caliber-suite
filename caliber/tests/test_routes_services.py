@@ -618,6 +618,39 @@ def test_an_unauthenticated_error_also_carries_the_allow_origin_header(
     assert response.headers["Access-Control-Allow-Origin"] == "https://app.example"
 
 
+def test_request_validation_errors_also_carry_the_allow_origin_header(
+    client: TestClient,
+) -> None:
+    """Pydantic validation is handled separately from ``HTTPException``.
+
+    The route wrapper originally caught only ``HTTPException``. An extra request field
+    raises ``pydantic.ValidationError`` instead, so Starlette sent it through the global
+    400 handler after the wrapper had already been bypassed. The browser then received a
+    valid structured error that JavaScript on an approved origin was forbidden to read.
+    Error-path CORS is complete only if both exception families preserve the same origin
+    policy and the existing validation-error body.
+    """
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+    token = _mint_token(client, wid)
+
+    response = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}, "unexpected": True},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Origin": "https://app.example",
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "request body validation failed"
+    assert response.headers["Access-Control-Allow-Origin"] == "https://app.example"
+
+
 def test_invalid_tokens_do_not_consume_the_service_budget(
     client: TestClient,
 ) -> None:

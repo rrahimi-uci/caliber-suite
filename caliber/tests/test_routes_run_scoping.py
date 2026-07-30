@@ -28,11 +28,19 @@ Conventions, both deliberate and both mirroring the release-scoping suite:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberWorkflow, CaliberWorkflowRun, CaliberWorkflowVersion
+from caliber.db.models import (
+    CaliberWorkflow,
+    CaliberWorkflowDeployment,
+    CaliberWorkflowRun,
+    CaliberWorkflowVersion,
+)
 from tests.workflow_helpers import PREFIX, make_support_manifest
 
 # A second developer: operator scope so no scope check short-circuits the request, but
@@ -299,6 +307,21 @@ def test_a_foreign_workflow_cannot_be_queued_for_a_run(
     )
     assert by_version.status_code == 404, by_version.text
 
+    missing_version = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": "WFV-DOES-NOT-EXIST", "input": "hi"},
+        headers=OTHER,
+    )
+    assert missing_version.status_code == 404, missing_version.text
+    # A bare version lookup is used only to locate the parent for visibility checking.
+    # If that parent is forbidden, naming it in the response confirms the version exists
+    # and reveals a second foreign identifier. Forbidden and missing versions must have
+    # the same response shape, differing only in the caller-supplied version id.
+    assert "WF-RUNS" not in by_version.text
+    assert by_version.text.replace("WFV-RUNS", "X") == missing_version.text.replace(
+        "WFV-DOES-NOT-EXIST", "X"
+    )
+
 
 def test_an_event_cannot_resume_a_foreign_waiting_run(client: TestClient, foreign_run: str) -> None:
     """Resume-by-event scanned every waiting run in the database.
@@ -324,6 +347,69 @@ def test_an_event_cannot_resume_a_foreign_waiting_run(client: TestClient, foreig
 
     # Whatever the outcome, no foreign run id may appear in the body.
     assert foreign_run not in response.text, "resume-by-event enumerated a foreign run"
+
+
+@pytest.mark.parametrize("body", [{"event_name": "secret.event"}, {"alias": "prod"}])
+def test_an_event_trigger_cannot_start_a_foreign_workflow(
+    client: TestClient, db_session: Session, body: dict[str, str]
+) -> None:
+    """Both trigger resolver branches must scope the workflow before deployment reads.
+
+    Omitting ``alias`` scans active deployments; providing it goes through the general
+    run-creation resolver. The remediation changed both branches but originally added no
+    foreign-workflow regression for this route, so either one could drift back to the old
+    bare lookup while the other stayed green.
+    """
+    manifest = make_support_manifest("WF-EVENT-SECRET")
+    manifest["nodes"]["start"]["trigger"] = {
+        "mode": "event",
+        "event_name": "secret.event",
+        "alias": "prod",
+    }
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id="WF-EVENT-SECRET",
+            name="Foreign event workflow",
+            owner="@dev3",
+            project_id="PRJ-MINE",
+            visibility="project",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WFV-EVENT-SECRET",
+            workflow_id="WF-EVENT-SECRET",
+            version_number=1,
+            status="published",
+            manifest=manifest,
+            manifest_hash="hash-event-secret",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="WFD-EVENT-SECRET",
+            workflow_id="WF-EVENT-SECRET",
+            alias="prod",
+            version_id="WFV-EVENT-SECRET",
+            status="active",
+            deployed_at=datetime.now(timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        f"{PREFIX}/workflows/WF-EVENT-SECRET/trigger",
+        json=body,
+        headers=OTHER,
+    )
+
+    assert response.status_code == 404, response.text
+    run_count = db_session.scalar(
+        select(func.count())
+        .select_from(CaliberWorkflowRun)
+        .where(CaliberWorkflowRun.workflow_id == "WF-EVENT-SECRET")
+    )
+    assert run_count == 0, "a foreign event trigger created a run before authorization"
 
 
 def test_a_playground_runs_files_are_private_to_their_uploader(client: TestClient) -> None:

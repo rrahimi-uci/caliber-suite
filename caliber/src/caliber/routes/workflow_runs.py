@@ -137,9 +137,13 @@ def _workflow_and_version_for_run(
             )
         workflow = _visible_workflow_for_run(session, request, version.workflow_id)
         if workflow is None:
+            # Do not reveal the foreign version's parent workflow. A caller supplied the
+            # version id, but not its parent; naming ``version.workflow_id`` here both
+            # confirms that the version exists and hands out another protected id. Keep a
+            # forbidden version indistinguishable from a missing one.
             raise HTTPException(
                 status_code=404,
-                detail=f"workflow {version.workflow_id!r} not found",
+                detail=f"workflow version {payload.workflow_version_id!r} not found",
             )
         if payload.workflow_id and payload.workflow_id != workflow.workflow_id:
             raise HTTPException(

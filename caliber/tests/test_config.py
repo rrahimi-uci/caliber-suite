@@ -21,6 +21,7 @@ def test_defaults() -> None:
     assert config.dev_user == ""
     assert config.builtin_skills_auto_seed is False
     assert config.tool_sandbox_timeout_seconds == 5.0
+    assert config.registered_tool_sandbox_timeout_seconds == 30.0
     assert config.tool_sandbox_max_output_bytes == 1_048_576
     assert config.tool_sandbox_max_memory_bytes == 268_435_456
     assert config.mcp_stdio_command_allowlist == "${PYTHON}"
@@ -76,6 +77,14 @@ def test_tool_sandbox_settings_from_env() -> None:
     assert config.tool_sandbox_max_memory_bytes == 67_108_864
     assert config.tool_sandbox_max_file_bytes == 2048
     assert config.tool_sandbox_max_open_files == 24
+
+
+def test_registered_tool_timeout_matches_the_request_contract() -> None:
+    config = CaliberConfig(registered_tool_sandbox_timeout_seconds=120.0)
+    assert config.registered_tool_sandbox_timeout_seconds == 120.0
+
+    with pytest.raises(ValueError, match="less than or equal to 120"):
+        CaliberConfig(registered_tool_sandbox_timeout_seconds=120.1)
 
 
 def test_mcp_containment_settings_from_env() -> None:

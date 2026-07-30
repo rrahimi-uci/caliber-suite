@@ -186,13 +186,9 @@ def _resolve_addresses(host: str) -> list[str]:
     link-local record would otherwise pass or fail depending on resolver ordering,
     which is not a security property.
 
-    A resolution failure is deliberately **not** a policy violation. The property
-    being enforced is "do not reach internal addresses", and a name that does not
-    resolve reaches nothing — the request fails at connect time on its own. Blocking
-    here would instead break the legitimate case where DNS resolves in an outbound
-    proxy's network but not in this process. A deployment that routes egress through
-    such a proxy should enforce policy at the proxy too; that residual is stated
-    rather than papered over.
+    Resolution failure is returned as an empty list so the caller can apply policy.
+    The default caller fails closed; deployments whose outbound proxy performs DNS
+    may opt in to unresolved hosts explicitly with ``allow_unresolvable_hosts``.
     """
     try:
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)

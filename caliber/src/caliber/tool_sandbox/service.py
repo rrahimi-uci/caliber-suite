@@ -16,6 +16,8 @@ from typing import Any, Protocol
 
 from caliber.config import CaliberConfig
 from caliber.tool_sandbox.models import (
+    ToolSandboxInspectRequest,
+    ToolSandboxInspectResult,
     ToolSandboxRunRequest,
     ToolSandboxRunResult,
     ToolSandboxTestSuiteRequest,
@@ -37,6 +39,9 @@ class ToolSandbox(Protocol):
 
     def run_tool(self, request: ToolSandboxRunRequest) -> ToolSandboxRunResult:
         """Run one tool invocation."""
+
+    def inspect_tool(self, request: ToolSandboxInspectRequest) -> ToolSandboxInspectResult:
+        """Inspect one installed callable without importing it in the caller."""
 
     def run_tests(self, request: ToolSandboxTestSuiteRequest) -> ToolSandboxTestSuiteResult:
         """Run an example-based tool test suite."""
@@ -129,6 +134,26 @@ class LocalSubprocessToolSandbox:
         )
         raw["duration_ms"] = round((time.monotonic() - started) * 1000, 1)
         return ToolSandboxRunResult.model_validate(raw)
+
+    def inspect_tool(self, request: ToolSandboxInspectRequest) -> ToolSandboxInspectResult:
+        """Return signature/doc/source from the child process.
+
+        Source inspection used to import the registered module in the API process. That
+        made a supposedly read-only metadata endpoint execute module-level Python with
+        the control plane's credentials. Inspection belongs behind the same boundary as
+        invocation because import is execution.
+        """
+        started = time.monotonic()
+        raw = self._run_payload(
+            {
+                "mode": "inspect",
+                "module_path": request.module_path,
+                "callable_name": request.callable_name,
+            },
+            timeout_seconds=request.timeout_seconds,
+        )
+        raw["duration_ms"] = round((time.monotonic() - started) * 1000, 1)
+        return ToolSandboxInspectResult.model_validate(raw)
 
     def run_tests(self, request: ToolSandboxTestSuiteRequest) -> ToolSandboxTestSuiteResult:
         started = time.monotonic()

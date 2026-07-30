@@ -1,27 +1,17 @@
-"""Registered tool modules are allowlistable, and the test-run path stops overclaiming.
+"""Registered tool modules are allowlistable and execute out of process.
 
-Two C8 residuals are covered here. Both are about the *in-process* import of a
-registered tool's ``module_path``:
+These tests cover the allowlist and the process boundary around a registered tool's
+``module_path``. The route and workflow runtime used to import registered Python in the
+control plane; both now bind through the local subprocess sandbox.
 
-    The workflow runtime resolves a registered tool by importing its Python module and
-    returning the callable for direct execution. … an explicit allowlisted entrypoint
-    registry is absent.
-
-    The Tool test-run path describes itself as sandbox-isolated, but imports the module
-    and invokes ``wrapped(**tool_input)`` in the web process.
-
-So: (1) an operator can declare which modules are legitimate and everything else is
-refused *before* the import — module-level code runs on import, so checking afterwards
-would be too late; and (2) the endpoint no longer claims a boundary it does not have,
-and reports ``isolation: "in_process"`` explicitly.
-
-**What this does not claim.** Registered tool callables still execute in the
-control-plane process. Process/container isolation for them remains open, and the
-honest statement of that is exactly why the response field exists. An allowlist is
-defence in depth on an admin-only registration path, not a sandbox.
+The module allowlist is enforced before child import, and the endpoint reports whether a
+call was subprocess-executed, mocked without import, or not run. This remains a same-host
+process/resource boundary, not container/seccomp isolation.
 """
 
 from __future__ import annotations
+
+import os
 
 import pytest
 from sqlalchemy.orm import Session
@@ -162,16 +152,42 @@ def _register_tool(client: TestClient, module_path: str = "caliber.workflows.dem
     return response.json()["data"]["tool_id"]
 
 
-def test_test_run_reports_that_it_is_not_process_isolated(client: TestClient) -> None:
-    """The endpoint used to call itself "sandbox-isolated" while importing and calling
-    the module in the web process. A client rendering that claim would tell the
-    operator something untrue, so the response now states the boundary."""
+def test_test_run_reports_its_subprocess_boundary(client: TestClient) -> None:
+    """The route uses the same child boundary as normal registered-tool execution."""
     tool_id = _register_tool(client)
 
     response = client.post(f"{PREFIX}/tools/{tool_id}/test-run", json={"input": {}})
 
     assert response.status_code == 200, response.text
-    assert response.json()["data"]["isolation"] == "in_process"
+    assert response.json()["data"]["isolation"] == "subprocess"
+
+
+def test_test_run_imports_and_executes_the_module_outside_the_api_process(
+    client: TestClient,
+) -> None:
+    """Ask the route's tool for its PID; labels alone cannot prove isolation."""
+    response = client.post(
+        f"{PREFIX}/tools",
+        json={
+            "name": "route_pid_probe",
+            "version": "1.0",
+            "description": "prove the test route process boundary",
+            "module_path": "os",
+            "callable_name": "getpid",
+            "side_effect_level": "read",
+            "allow_in_preview": True,
+        },
+    )
+    assert response.status_code == 201, response.text
+    tool_id = response.json()["data"]["tool_id"]
+
+    invoked = client.post(f"{PREFIX}/tools/{tool_id}/test-run", json={"input": {}})
+
+    assert invoked.status_code == 200, invoked.text
+    data = invoked.json()["data"]
+    assert data["error"] is None
+    assert data["isolation"] == "subprocess"
+    assert data["output"] != os.getpid()
 
 
 def test_test_run_refuses_a_module_outside_the_allowlist(
