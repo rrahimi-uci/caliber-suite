@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from caliber.egress import EgressPolicy
 from caliber.workflows import component_catalog as cc
 from caliber.workflows.compiler import build_ir, compile_workflow
 from caliber.workflows.manifest import WebhookNode, parse_manifest
@@ -22,6 +23,15 @@ from caliber.workflows.runtime import (
 )
 from caliber.workflows.tools import InMemoryToolResolver
 from caliber.workflows.validation import validate_manifest
+
+#: The egress pre-check now fails closed on a host this process cannot resolve, because a
+#: policy-time DNS failure followed by a successful connect-time lookup would reach an
+#: address nothing vetted. These tests use RFC 2606 reserved names (``*.example``), which
+#: never resolve, and inject a fake sender — so no request leaves the process and DNS
+#: vetting is not the property under test. Opting in locally keeps the fail-closed default
+#: in force everywhere else; it is pinned by tests/test_egress_policy.py and
+#: tests/test_egress_rebinding.py.
+_ALLOW_UNRESOLVABLE = EgressPolicy(allow_unresolvable_hosts=True)
 
 
 def _manifest(url: str = "https://example.test/notify") -> dict[str, Any]:
@@ -123,6 +133,7 @@ def test_webhook_runs_with_injected_sender() -> None:
         }
 
     plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE,
         ir=build_ir(manifest, resolver, version="1"),
         resolver=resolver,
         webhook_sender=fake_sender,
@@ -150,6 +161,7 @@ def test_webhook_runtime_error_surfaces_in_result() -> None:
         raise RuntimeError("connection refused")
 
     plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE,
         ir=build_ir(manifest, resolver, version="1"),
         resolver=resolver,
         webhook_sender=boom_sender,
@@ -164,6 +176,7 @@ def test_webhook_empty_url_fails_the_run() -> None:
     manifest = parse_manifest(_manifest(url=""))
     resolver = InMemoryToolResolver({})
     plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE,
         ir=build_ir(manifest, resolver, version="1"),
         resolver=resolver,
         webhook_sender=lambda _r: {"status_code": 200, "text": "", "json": None},

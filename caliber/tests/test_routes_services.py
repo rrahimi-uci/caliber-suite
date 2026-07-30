@@ -563,6 +563,61 @@ def test_the_poll_response_carries_the_allow_origin_header(client: TestClient) -
     assert polled.headers["Access-Control-Allow-Origin"] == "https://app.example"
 
 
+def test_error_responses_also_carry_the_allow_origin_header(client: TestClient) -> None:
+    """A browser must be able to read *why* a call failed, not only a success.
+
+    Found by an independent probe. Failures are raised as `HTTPException` and rendered by
+    the global handler, which knows nothing about a per-service origin allowlist — so the
+    route-local headers only ever covered the happy path. The 429 arrived with a correct
+    `Retry-After` and no `Access-Control-Allow-Origin`, leaving the documented error
+    contract unreadable to JavaScript on an approved origin.
+    """
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example", "rate_limit_per_minute": 1},
+    )
+    token = _mint_token(client, wid)
+    auth = {"Authorization": f"Bearer {token}", "Origin": "https://app.example"}
+    body = {"input": {"user_message": "hi"}}
+
+    client.post(f"{PREFIX}/services/{wid}/invoke", json=body, headers=auth)
+    throttled = client.post(f"{PREFIX}/services/{wid}/invoke", json=body, headers=auth)
+
+    assert throttled.status_code == 429, throttled.text
+    assert throttled.headers["Retry-After"]
+    assert throttled.headers["Access-Control-Allow-Origin"] == "https://app.example"
+
+    # Still an allowlist, not a wildcard: an unlisted origin gets nothing on errors either.
+    denied = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json=body,
+        headers={"Authorization": f"Bearer {token}", "Origin": "https://evil.example"},
+    )
+    assert "Access-Control-Allow-Origin" not in denied.headers
+
+
+def test_an_unauthenticated_error_also_carries_the_allow_origin_header(
+    client: TestClient,
+) -> None:
+    """The 401 path matters most: it is the first error a misconfigured browser client
+    hits, and an opaque one gives the developer nothing to debug with."""
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+
+    response = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}},
+        headers={"Authorization": "Bearer not-a-real-token", "Origin": "https://app.example"},
+    )
+
+    assert response.status_code == 401, response.text
+    assert response.headers["Access-Control-Allow-Origin"] == "https://app.example"
+
+
 def test_invalid_tokens_do_not_consume_the_service_budget(
     client: TestClient,
 ) -> None:

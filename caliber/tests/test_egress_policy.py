@@ -138,15 +138,29 @@ def test_every_resolved_address_is_checked_not_just_the_first(
         check_url("https://mixed.example.com/hook", DEFAULT)
 
 
-def test_an_unresolvable_host_is_not_a_policy_violation(
+def test_an_unresolvable_host_is_blocked_unless_explicitly_permitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A name that does not resolve reaches nothing, so blocking adds no security and
-    would break the case where DNS resolves in an egress proxy's network."""
+    """This asserted the opposite until an independent probe showed the reasoning was wrong.
+
+    The old claim — "a name that does not resolve reaches nothing, so blocking adds no
+    security" — assumed one lookup. There are two: the policy check here, and the one the
+    connection makes. A name that fails here can succeed at connect time and answer
+    ``169.254.169.254``, which made the one case with no vetted address the one case that
+    skipped vetting.
+
+    The proxy deployment that motivated the old behaviour is real and still supported,
+    explicitly, so that an operator declares policy lives at the proxy instead of
+    inheriting a silent fail-open.
+    """
     from caliber import egress
+    from caliber.egress import EgressPolicy
 
     monkeypatch.setattr(egress, "_resolve_addresses", lambda host: [])
-    check_url("https://nowhere.invalid/hook", DEFAULT)
+    with pytest.raises(EgressBlockedError, match="could not resolve"):
+        check_url("https://nowhere.invalid/hook", DEFAULT)
+
+    check_url("https://nowhere.invalid/hook", EgressPolicy(allow_unresolvable_hosts=True))
 
 
 # ---------------------------------------------------------------------------

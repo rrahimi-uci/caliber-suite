@@ -217,13 +217,34 @@ def test_a_redirect_hop_is_re_checked_because_each_hop_is_its_own_request(
     assert len(inner.hops) == 1
 
 
-def test_resolve_pinned_returns_none_when_a_name_does_not_resolve(
+def test_an_unresolvable_host_is_blocked_by_default(sequence_resolver) -> None:
+    """A resolution failure fails **closed**, and this test previously asserted the
+    opposite.
+
+    The old reasoning was "a name that does not resolve reaches nothing, so this is not a
+    policy violation". That is wrong, and an independent probe caught it: the policy check
+    and the connection perform *independent* lookups, so a name that fails here can succeed
+    at connect time and answer ``169.254.169.254``. Failing open made the one case with no
+    vetted address the one case that skipped vetting — the exact inversion of the property
+    this module exists to enforce.
+    """
+    sequence_resolver([])
+    with pytest.raises(EgressBlockedError, match="could not resolve"):
+        resolve_pinned("https://nowhere.example/", EgressPolicy())
+
+
+def test_an_unresolvable_host_is_permitted_only_when_explicitly_allowed(
     sequence_resolver,
 ) -> None:
-    """A resolution failure is not a policy violation — a name that does not resolve
-    reaches nothing, and blocking here would break the outbound-proxy deployment."""
+    """The outbound-proxy deployment stays supported, but as an opt-in.
+
+    DNS resolving inside a proxy's network and not in this process is a real pattern. It
+    keeps working — deliberately via configuration, so the operator states that egress
+    policy lives at the proxy, rather than inheriting a silent fail-open.
+    """
     sequence_resolver([])
-    assert resolve_pinned("https://nowhere.example/", EgressPolicy()) is None
+    policy = EgressPolicy(allow_unresolvable_hosts=True)
+    assert resolve_pinned("https://nowhere.example/", policy) is None
 
 
 def test_a_non_http_scheme_is_still_refused() -> None:

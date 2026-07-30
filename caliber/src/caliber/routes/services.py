@@ -957,6 +957,55 @@ async def preflight_service(request: Request) -> Response:
     return Response(status_code=204, headers=headers)
 
 
+def _with_cors_on_errors(handler: Any) -> Any:
+    """Attach the service's CORS headers to error responses, not just successful ones.
+
+    Every failure on these routes — 401, 400 schema, 404 missing run, 409 disabled, 429
+    quota — is raised as an ``HTTPException`` and rendered by the global handler, which
+    knows nothing about a per-service origin allowlist. So the route-local headers were
+    only ever on the happy path, and a browser client on a listed origin could invoke a
+    service but **not read why a call failed**: an independent probe saw a 429 with a
+    correct ``Retry-After`` and no ``Access-Control-Allow-Origin``, so the response was
+    unreadable to JavaScript.
+
+    Wrapping once here rather than at each ``raise`` keeps the two from drifting: a new
+    error path added later is covered without anyone remembering to.
+
+    The lookup is unauthenticated, like the preflight's, and discloses nothing — headers are
+    emitted only for an origin the operator listed, and an unknown service yields none.
+    """
+
+    async def wrapped(request: Request) -> Any:
+        try:
+            return await handler(request)
+        except HTTPException as exc:
+            workflow_id = request.path_params.get("workflow_id", "")
+            try:
+                factory = get_session_factory(request)
+                with factory() as session:
+                    service = (
+                        session.execute(
+                            select(CaliberWorkflowService).where(
+                                CaliberWorkflowService.workflow_id == workflow_id
+                            )
+                        )
+                        .scalars()
+                        .first()
+                    )
+                headers = _cors_headers(service, request) if service is not None else {}
+            except Exception:
+                # Never turn one error into a worse one: if the lookup fails, the caller
+                # should still get its original status, just without CORS headers.
+                headers = {}
+            if headers:
+                exc.headers = {**(exc.headers or {}), **headers}
+            raise
+
+    # Starlette derives the endpoint name for diagnostics; keep the real one.
+    wrapped.__name__ = getattr(handler, "__name__", "wrapped")
+    return wrapped
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(SERVICE_PATH, publish_service, methods=["POST"]))
     app.routes.append(Route(SERVICE_PATH, get_service, methods=["GET"]))
@@ -965,9 +1014,13 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(SERVICE_TOKENS_PATH, list_service_tokens, methods=["GET"]))
     app.routes.append(Route(SERVICE_TOKEN_DETAIL_PATH, revoke_service_token, methods=["DELETE"]))
     app.routes.append(Route(INTERNAL_OPENAPI_PATH, get_service_openapi, methods=["GET"]))
-    app.routes.append(Route(OPENAPI_PATH, service_openapi, methods=["GET"]))
-    app.routes.append(Route(INVOKE_PATH, invoke_service, methods=["POST"]))
-    app.routes.append(Route(RUN_STATUS_PATH, get_service_run_status, methods=["GET"]))
+    # The three browser-reachable routes carry CORS on failures too, so a listed origin can
+    # read the error contract rather than only the happy path.
+    app.routes.append(Route(OPENAPI_PATH, _with_cors_on_errors(service_openapi), methods=["GET"]))
+    app.routes.append(Route(INVOKE_PATH, _with_cors_on_errors(invoke_service), methods=["POST"]))
+    app.routes.append(
+        Route(RUN_STATUS_PATH, _with_cors_on_errors(get_service_run_status), methods=["GET"])
+    )
     # Registered separately so a browser preflight is answered rather than 405ing, which
     # made the CORS allowlist unusable from a browser at all. All three of the endpoints a
     # browser client touches need one, because a bearer-token GET is preflighted too.

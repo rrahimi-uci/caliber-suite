@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from caliber.egress import EgressPolicy
 from caliber.workflows import component_catalog as cc
 from caliber.workflows.compiler import build_ir, compile_workflow
 from caliber.workflows.manifest import ApiRequestNode, parse_manifest
@@ -29,6 +30,16 @@ _BASE_OUT = {
     "response": {"type": "structured"},
     "metadata": {"type": "structured"},
 }
+
+
+#: The egress pre-check now fails closed on a host this process cannot resolve, because a
+#: policy-time DNS failure followed by a successful connect-time lookup would reach an
+#: address nothing vetted. These tests use RFC 2606 reserved names (``*.example``), which
+#: never resolve, and inject a fake sender — so no request leaves the process and DNS
+#: vetting is not the property under test. Opting in locally keeps the fail-closed default
+#: in force everywhere else; it is pinned by tests/test_egress_policy.py and
+#: tests/test_egress_rebinding.py.
+_ALLOW_UNRESOLVABLE = EgressPolicy(allow_unresolvable_hosts=True)
 
 
 def _manifest(hook: dict[str, Any]) -> dict[str, Any]:
@@ -165,6 +176,7 @@ def _run(hook: dict[str, Any], sender: Any, run_input: str = "hello") -> Any:
     manifest = parse_manifest(_manifest(hook))
     resolver = InMemoryToolResolver({})
     plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE,
         ir=build_ir(manifest, resolver, version="1"),
         resolver=resolver,
         webhook_sender=sender,

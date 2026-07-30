@@ -265,11 +265,16 @@ class WebhookDispatcher:
             self._dead_letters.append(entry)
             if kind == KIND_OVERFLOW:
                 self._overflowed += 1
-        # Non-settling callers still discharge the target's obligation. Scoped to the URL:
-        # clearing the whole event here was the multi-target defect — one target's dead
-        # letter silently discharged every other target's obligation.
-        if not settles_in_flight:
-            self._in_flight.pop(url, None)
+        # A non-settling caller must **not** touch ``_in_flight``, and this too was a
+        # defect an independent probe found. Both non-settling callers — queue overflow and
+        # the stop-time queue drain — concern events that never left the queue, so they
+        # never had a marker of their own. Popping by URL therefore discharged whichever
+        # *other* event happened to be in flight at that URL: with event 1 blocked in
+        # delivery and event 3 overflowing at the same URL, recording event 3 erased event
+        # 1's marker and event 1 got no durable outcome at all.
+        #
+        # Only the owner settles its own marker: the delivery path (via
+        # ``settles_in_flight``) or the in-flight branch of the drain.
         self._persist_dead_letter(entry, event)
         return True
 

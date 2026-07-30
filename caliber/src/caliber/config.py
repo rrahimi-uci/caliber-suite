@@ -1093,6 +1093,18 @@ class CaliberConfig(BaseModel):
         ),
     )
 
+    egress_allow_unresolvable_hosts: bool = Field(
+        default=False,
+        description=(
+            "Permit an outbound host this process cannot resolve. Off by default: the "
+            "policy check and the connection perform independent DNS lookups, so a name "
+            "that fails here can succeed at connect time and return the metadata "
+            "address — meaning the one case with no vetted address would be the one case "
+            "that skipped vetting. Enable only when egress is routed through a proxy that "
+            "enforces policy itself, because this process then has nothing to check."
+        ),
+    )
+
     external_app_entrypoint_allowlist: str = Field(
         default="",
         description=(
@@ -1773,6 +1785,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_EGRESS_POLICY_ENABLED", "egress_policy_enabled", _flag),
     ("CALIBER_EGRESS_BLOCKED_CATEGORIES", "egress_blocked_categories", str),
     ("CALIBER_EGRESS_ALLOWED_HOSTS", "egress_allowed_hosts", str),
+    ("CALIBER_EGRESS_ALLOW_UNRESOLVABLE_HOSTS", "egress_allow_unresolvable_hosts", _flag),
     ("CALIBER_MCP_MANAGED_SIDECAR_HOSTS", "mcp_managed_sidecar_hosts", str),
     ("CALIBER_MCP_ALLOW_INSECURE_HTTP", "mcp_allow_insecure_http", _flag),
     ("CALIBER_MCP_STDIO_ISOLATED_WORKDIR", "mcp_stdio_isolated_workdir", _flag),

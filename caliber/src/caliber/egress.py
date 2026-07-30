@@ -123,6 +123,20 @@ class EgressPolicy:
     #: Hostnames or literal addresses always permitted, even if they resolve into a
     #: blocked category. This is how an internal service stays reachable.
     allowed_hosts: frozenset[str] = frozenset()
+    #: Permit a host this process cannot resolve. **Off by default, and that default is
+    #: a correction.**
+    #:
+    #: The original reasoning was "a name that does not resolve reaches nothing, so a
+    #: resolution failure is not a policy violation". That is wrong, and an independent
+    #: probe said so: the two resolutions are independent lookups, so a name that fails
+    #: *here* can succeed at connect time and return ``169.254.169.254``. Failing open
+    #: meant the one case with no vetted address was the one case that skipped vetting.
+    #:
+    #: The deployment that motivated the old behaviour is real — DNS resolving inside an
+    #: outbound proxy's network but not in this process — so it keeps an explicit opt-in
+    #: rather than being silently the default. Such a deployment must enforce policy at
+    #: the proxy, because this process then has nothing to check.
+    allow_unresolvable_hosts: bool = False
 
     @classmethod
     def from_config(cls, config: Any) -> EgressPolicy:
@@ -143,6 +157,9 @@ class EgressPolicy:
             block_private=PRIVATE in categories,
             block_other_reserved=OTHER_RESERVED in categories,
             allowed_hosts=hosts,
+            allow_unresolvable_hosts=bool(
+                getattr(config, "egress_allow_unresolvable_hosts", False)
+            ),
         )
 
     def blocked_category(self, address: str) -> str | None:
@@ -256,6 +273,14 @@ def resolve_pinned(url: str, policy: EgressPolicy | None) -> PinnedTarget | None
         if category is not None:
             raise EgressBlockedError(_describe(host, address, category))
     if not addresses:
+        if not resolved_policy.allow_unresolvable_hosts:
+            raise EgressBlockedError(
+                f"outbound request to {host!r} is blocked: this process could not resolve "
+                "it, so no address could be checked, and the connection would resolve the "
+                "name again — an answer this policy never saw. Set "
+                "CALIBER_EGRESS_ALLOW_UNRESOLVABLE_HOSTS=true only if egress is routed "
+                "through a proxy that enforces policy itself."
+            )
         return None
     return PinnedTarget(
         url=_replace_host(parts, addresses[0]),

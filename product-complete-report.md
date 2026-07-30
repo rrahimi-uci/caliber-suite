@@ -2,41 +2,32 @@
 
 **Review date:** 2026-07-29
 
-> **Verdict: 4.2/5 risk-adjusted. Production-pilot candidate for a
-> single-organization self-hosted deployment.** §0.14 reproduced two boundaries that
-> §0.13's 4.0 claim had missed — a configured service's mandatory browser CORS preflight
-> returned **405**, and a first webhook target's failure cleared the event-level in-flight
-> marker, so shutdown while a second target was blocked recorded no row for it. Both are
-> closed and pinned by tests (§0.15, §0.16).
+> **Independent verdict: 4.0/5 risk-adjusted. Production-pilot candidate for a
+> trusted, single-organization self-hosted deployment.** The implementation in
+> §§0.15–0.19 contains real improvements, but this review does **not** verify the
+> report author's 4.2/5 score, the 4.5/5 Production Safety score, or the claims that
+> N4, C8, and the complete C3 run/file/judge families are closed.
 >
-> §0.17 then closes two of the report's longest-standing critical findings, both verified
-> rather than asserted: **N4** (egress policy now runs inside the HTTP transport and
-> connects to the address it vetted, so a rebinding name cannot reach the metadata
-> endpoint, with `Host`/SNI preserved) and **C3** for the run, file, and judge families
-> (17 bare-ID lookups scoped, 16 negative tests). Full suite `5635 passed`, `mypy` and
-> `ruff` clean, `gitleaks` clean on full history.
+> The narrow verified changes are useful: successful browser invoke/poll/spec paths
+> now implement preflight and response CORS, the service work budget is charged only
+> after bearer authentication, normal dead-letter replay is conditionally claimed,
+> successful DNS resolutions are pinned, selected run/file/judge handlers now scope
+> their parent resources, and registered workflow tools default to a child process.
+> The broader closures fail on omitted branches: CORS is absent from ordinary error
+> responses; DNS-resolution failure falls back to a later unvetted resolution; other
+> run/file/judge entry points still accept or disclose foreign IDs; sandbox call shapes
+> are dropped before the child, the runtime path bypasses the module allowlist, and
+> source/test routes still import Python in-process; webhook overflow can remove the
+> marker for a different event at the same URL.
 >
-> §0.18 then closes **C8**, the oldest critical finding here: registered Python no longer
-> executes in the control plane. `_bind` returns a sandboxed callable by default and a test
-> asks the tool which pid it is in. The blocker was never topology, as earlier editions
-> claimed — it was that `_call_tool` chose a calling convention by introspecting the
-> function, which a sandbox necessarily removes. Selection moved into the sandbox protocol,
-> where the child is the only process that can do it.
->
-> **Production safety therefore reaches 4.5**; the other five targeted dimensions do not.
-> What is left is mostly *missing surface* rather than broken controls: egress and scope
-> assignment are config-only with no UI, there is no alert routing or incident history, the
-> service rate limiter is process-local so replicas multiply it, and delivery state is not
-> durable across `SIGKILL`. The tool sandbox is a process boundary, not a container or
-> seccomp one. Per-dimension detail is in
-> [Why these six dimensions are not scored 4.5](#why-these-six-dimensions-are-not-scored-45).
+> [§0.20](#020-independent-verification-of-015019-current-status) is the current
+> claim-by-claim review and is authoritative wherever this historical report disagrees.
 
 **Reviewed baseline:** clean `main` at
-`d447e4312c223f305495e9266aa5bdbe76c064e1` (short form `d447e4312`), locally one
-commit ahead of the recorded `origin/main` at review start. It includes boundary-fix
-commit `bc40e4253`, test-stability commit `891fa728b`, and the administration UI in
-`d447e4312`. Exact-commit GitHub Actions evidence is recorded in §0.14; local
-remote-tracking state is not treated as publication proof.
+`effc61568686dfd863b60fa1b2e79ab705f66940` (short form `effc61568`), equal to the
+locally recorded `origin/main` at review start. It includes the N4/C3 implementation
+commit `e560ae04d` and the C8 implementation commit `effc61568`. Local equality is not
+publication proof; exact-commit Actions evidence is recorded in §0.20.
 
 **Reading order for the four most recent passes.** §0.1–§0.7 record the *first*
 remediation's intended closures. [§0.8](#08-post-merge-independent-validation) is the
@@ -45,13 +36,14 @@ because the defects it found were real and the record of them is what made the n
 pass targetable. [§0.9](#09-identity-secrets-approval-egress-and-the-l-series) records
 the implementation author's claimed closures. §0.10 reopened the composed defects;
 §0.11 records the attempted fixes; §0.12 independently reviewed them; §0.13 records
-the next implementation pass. [§0.14](#014-independent-verification-of-013-current-status)
-is the **current authoritative review**. Scores, status, and roadmap below use §0.14.
+the next implementation pass; §§0.14–0.19 alternate review and implementation-author
+responses. [§0.20](#020-independent-verification-of-015019-current-status) is the
+**current authoritative review**. Scores, status, and roadmap below use §0.20.
 
 **This edition is review-only.** Product source was not changed. It reviews the
-already-committed §0.13 implementation, adds temporary independent negative probes
-where its tests omit relevant branches, removes those probes after execution, and
-changes this report only.
+already-committed §§0.15–0.19 implementation, adds temporary independent negative
+probes where its tests omit relevant branches, removes those probes after execution,
+and changes this report only.
 
 **Product target used for scoring:** a self-hosted, single-organization platform
 for trusted developers and technical operators. Enterprise-suite requirements are
@@ -80,23 +72,23 @@ cannot be mistaken for current behavior.
 
 | If you want | Read |
 | --- | --- |
-| **What is true now** | [§0.14](#014-independent-verification-of-013-current-status) — authoritative verification of the §0.13 claims |
+| **What is true now** | [§0.20](#020-independent-verification-of-015019-current-status) — authoritative verification of the §§0.15–0.19 claims |
 | The verdict and why | [Executive summary](#executive-summary), [Overall maturity assessment](#overall-maturity-assessment) |
-| What is still open, in order | [Remaining gaps after §0.14](#remaining-gaps-after-014) |
+| What is still open, in order | [Remaining gaps after §0.20](#remaining-gaps-after-020) |
 | What was actually run, and what that proves | [Verification](#verification) |
 | How the earlier passes got here | [§0.1–§0.7](#0-remediation-pass-2026-07-28) then [§0.8](#08-post-merge-independent-validation) (the L-series diagnosis) |
 | The findings themselves | [§1 Critical correctness and security findings](#critical-correctness-and-security-findings) (C1–C11) and §2–§11 |
 | Cookbook-by-cookbook status | [Appendix A](#appendix-a--cookbook-continuity) |
 | Superseded verification history | [Appendix B](#appendix-b--verification-history-and-superseded-passes) |
 
-Findings carry an explicit state: **[Verified in §0.14]**, **[Partly verified in
-§0.14]**, **[Not verified in §0.14]**, **[Remediated in §0.9.x]**, **[Remediated in the
+Findings carry an explicit state: **[Verified in §0.20]**, **[Partly verified in
+§0.20]**, **[Not verified in §0.20]**, **[Remediated in §0.9.x]**, **[Remediated in the
 reviewed baseline]**, **[Remediated in §0]**, **[Narrowed]**, **[Partly remediated]**,
 or no marker for open. Scores are risk-adjusted reviewer judgements, not test coverage.
 
-**Where sections disagree, §0.14 wins.** §0.1–§0.13 are retained as implementation and
+**Where sections disagree, §0.20 wins.** §§0.1–0.19 are retained as implementation and
 audit history. §2–§13 contain older diagnostic/planning material; read them for detail
-but use §0.14, the executive summary, and the current-gap list for present status.
+but use §0.20, the executive summary, and the current-gap list for present status.
 
 ## 0. Remediation pass (2026-07-28)
 
@@ -1054,7 +1046,7 @@ did not. The lifecycle therefore improves but is not fully in-product.
 
 *Tests:* `src/pages/__tests__/administration.test.tsx` (6).
 
-### 0.14 Independent verification of §0.13 (current status)
+### 0.14 Independent verification of §0.13 (historical status)
 
 **This section supersedes §0.13 for current status.** The review used clean product
 code at `d447e4312`, traced the new claims through their runtime callers, ran the six
@@ -1079,7 +1071,7 @@ hole, admin-store UX, manual replay, and some service limiting are real improvem
 below 4.0 because two newly claimed boundaries fail under ordinary multi-target/browser
 composition.
 
-### 0.15 Responses to §0.14
+### 0.15 Responses to §0.14 (implementation-author account)
 
 §0.14's four findings were all real and reproducible, and this section records what was
 done about each. Three are fixed; the fourth was fixed in a way §0.14 did not propose,
@@ -1200,7 +1192,7 @@ refuse to start when a suite is already running: two concurrent runs starve the 
 subprocesses and produce timeout failures that look like product defects, which cost a
 diagnosis cycle before the guard existed.
 
-### 0.16 Completing the browser service protocol
+### 0.16 Completing the browser service protocol (implementation-author account)
 
 Re-reading §0.14's six-dimension analysis against HEAD surfaced that its Deployment row
 was **partly stale and partly still correct**, and separating the two mattered.
@@ -1229,7 +1221,7 @@ Five tests pin the new behaviour, including the negative ones that matter: an un
 origin gets no allow-origin header on any of the three paths, and the poll path never
 advertises POST.
 
-### 0.17 N4 and the C3 run/file/judge families — verified
+### 0.17 N4 and the C3 run/file/judge families — implementation-author claim
 
 **Status: executed and green.** `5635 passed, 7 skipped` on the full suite (93.72%
 coverage, gate 80%), `ruff check` clean, `ruff format` clean, `mypy src` clean across 296
@@ -1330,7 +1322,7 @@ file reads as a narrow exclusion while behaving as a blanket one. This is the sa
 class as the decorative controls in §0.14, found the same way — by measuring rather than
 reading.
 
-### 0.18 C8 closed — registered tools no longer execute in the control plane
+### 0.18 C8 closed — implementation-author claim
 
 C8 was the oldest critical finding in this report and, until this pass, the one that
 survived every remediation attempt. The control plane called
@@ -1387,7 +1379,7 @@ Arguments and return values must survive JSON, unchanged from when the mechanism
 built: a registered tool exchanging live Python objects must move to an MCP server or an
 external app.
 
-### 0.19 A double-recorded dead letter, found by an unrelated intermittent failure
+### 0.19 A double-recorded dead letter (implementation-author account)
 
 A webhook test kept failing intermittently on an assertion that had nothing to do with the
 change under test — `letters["count"] == 1` seeing `2` — and the failure **moved between
@@ -1429,7 +1421,169 @@ It passed its own tests both times, because those tests exercised the writers se
 and the defect only exists when they overlap. Intermittency is not noise to be tuned away
 with a longer timeout; it was the only signal that two code paths were racing.
 
+### 0.20 Independent verification of §§0.15–0.19 (current status)
+
+**This section supersedes §§0.14–0.19 for current status.** The implementation-author
+sections are retained because they explain intent and the fixes that landed; their closure
+labels and scores are not reviewer findings. This review used clean product code at
+`effc61568`, equal to the locally recorded `origin/main`, traced claims from routes through
+runtime/transport/storage callers, inspected their tests, ran the affected suites, and
+added two temporary negative probes for omitted composed branches. The probes were removed
+after execution; only this report is changed.
+
+#### Claim-by-claim verdict
+
+| §§0.15–0.19 claim | Verdict | Independent reviewer rationale |
+| --- | --- | --- |
+| Browser service CORS is complete across invoke, poll, and OpenAPI | **Partly verified** | Listed-origin preflight and successful invoke/poll/spec responses are implemented and the committed tests pass (`routes/services.py:600-619`, `717-750`, `880-975`). Ordinary failures are raised before those route-local headers are attached, while the global HTTP exception handler does not reconstruct service CORS. A listed-origin invoke that exhausted its service quota returned **429 without `Access-Control-Allow-Origin`** in the independent probe. The same design affects authentication, schema, disabled-service, missing-run, conflict, and other exception paths. A browser can complete the happy path but cannot reliably read the error contract. |
+| Invalid bearer tokens no longer consume the configured service work budget | **Verified narrowly** | Token authentication now precedes `_enforce_service_rate_limit`, so rejected tokens do not spend the service's paid-work budget. The accompanying rationale that flood protection already exists “per caller” is not verified: `RateLimitMiddleware` is disabled by default (`config.py:1396-1404`), external service bearer calls reach its identity function as one shared `anonymous` caller (`rate_limit.py:255-264`), and both limits are process-local. The work-budget repair is real; pre-auth abuse protection still belongs to an operator gateway or a redesigned shared/IP-aware limiter. |
+| Dead-letter replay is concurrency-safe and unavailable when dispatch is disabled | **Verified for normal completion; recovery remains partial** | The route checks dispatcher enablement and uses a conditional `open → replaying` update before sending (`routes/system_effects.py:284-365`), so two ordinary replay requests cannot both claim an open row. A process death after the claim strands the durable row in `replaying`; there is no lease, stale-claim recovery, or external idempotency key. A remote success before local settlement also leaves an indeterminate state. This is concurrency-safe manual replay under normal completion, not a complete recovery protocol. |
+| Per-target webhook tracking and the atomic settlement change close N5 | **Not verified as a generalized settlement invariant** | URL-keyed in-flight state and the failure-versus-shutdown atomic claim fix the committed single-event cases. But `_record_dead_letter(..., settles_in_flight=False)` unconditionally removes `_in_flight[url]` (`events/webhooks.py:250-272`), and queue overflow uses that path (`496-509`). In the independent three-event probe, event 1 was blocked in delivery, event 2 queued, and event 3 overflowed; recording event 3 removed event 1's marker. Shutdown persisted event 3 and event 2 but **no row for the still-running event 1**. Accepted queue/in-flight state also remains memory-only, and persistence failure is swallowed after ownership is removed. N5 is narrowed, not closed. |
+| N4 is closed by `EgressGuardTransport` address pinning | **Not verified** | Successful policy-time resolutions are pinned and preserve the original `Host`/SNI; the public-then-private rebinding test is meaningful. DNS failure, however, becomes an empty address list (`egress.py:165-184`), `resolve_pinned()` returns `None` (`251-259`), and the transport gives httpx the original hostname (`342-349`), permitting a fresh connection-time resolution that was never vetted. The committed test at `tests/test_egress_rebinding.py:220-226` explicitly expects this fail-open behavior, and its rebinding test consumes only one policy lookup. N4 remains open for resolution failure followed by an unsafe connect-time answer. |
+| C3 is closed for the run, file, and judge route families | **Partly verified for named helper callers, false for the families** | The 12 `_get_run_or_404` callers, five `_require_run` callers, and judge test/alignment paths now resolve through scoped helpers; their negative tests pass. Other entry points in the same families do not: queued run creation uses bare workflow/version reads (`routes/workflow_runs.py:103-176`), trigger paths resolve workflow/deployments without visibility enforcement (`746-868`), resume-by-event scans globally (`2139-2273`), playground file upload/list/download scope only the caller-supplied run ID (`routes/files.py:426-493`), and judge duplicate-name validation discloses a foreign judge ID (`routes/judges.py:131-177`). Independent HTTP probes observed foreign run creation **202**, foreign playground list/download **200**, and the judge ID in a **409** body. Verify the repaired handlers, not the route families. |
+| C8 is closed because `_bind` defaults registered tools to a child process and call-shape selection moved into the sandbox | **Not verified** | `_bind` does default normal registered workflow calls to `LocalSubprocessToolSandbox`, and the child PID test proves a process boundary. The claimed protocol is disconnected: the runtime supplies candidate shapes (`workflows/runtime.py:2490-2528`) but `tool_sandbox/service.py:108-123` omits `shapes` from the child payload. A direct call to `lookup_policy(query="refund policy")` completed with `query: ""` and `selected_shape=None`; a valid shaped `json.loads` call failed for a missing argument. The new runtime branch also bypasses `registered_tool_module_allowed`: with an allowlist limited to `caliber.workflows.*`, `os.getcwd` still executed in the child. Source inspection and tool test/calibration routes continue to import/call registered Python in-process (`routes/tools.py:151-180`, `400-608`), and generated compiler exports still use the legacy in-process binder (`workflows/compiler.py:922-962`). The process has resource limits but no filesystem/network/container/seccomp isolation. C8 is narrowed for the default workflow path and remains open as a product boundary. |
+| The local CI runner is an exact mirror and the recorded full suite proves current HEAD | **Not verified** | The parity test compares job names and function presence, not each job's commands. CI security runs dependency audit plus gitleaks while local `job_security` runs only gitleaks; `CI_EXTRAS` is compared as text but not installed; package mode can reuse an existing `caliber-ui/dist` without binding it to current HEAD. The implementation author records a large local run, but it used unsupported Python 3.14 and preceded `effc61568`. It is useful historical evidence, not exact-current release proof. |
+
+#### Independent adversarial probes
+
+Both temporary tests were intentionally written as closure tests, failed, and were
+deleted after their evidence was captured:
+
+1. **Allowed-origin 429:** exhaust the authenticated service work budget, then invoke
+   again with an allowed `Origin`. The route returned the expected 429 and `Retry-After`
+   but no allow-origin header, so browser JavaScript cannot inspect the documented error.
+2. **Overflow versus another event in flight:** block event 1 at a URL, queue event 2,
+   overflow event 3 at the same URL, then stop. The non-settling overflow record removed
+   the URL marker belonging to event 1. The drain persisted event 2 and event 3, but event
+   1 had no durable outcome. This is a distinct interleaving from the same-event double
+   writer race fixed in §0.19.
+
+#### Evidence and score
+
+| Check | Result | Evidence boundary |
+| --- | --- | --- |
+| Current git baseline | Clean product code at `effc61568686dfd863b60fa1b2e79ab705f66940`, equal to locally recorded `origin/main` before this report edit | Confirms the reviewed checkout; local remote-tracking equality is not publication proof. |
+| Consolidated claim-relevant suites | **282 passed in 25.99s** across webhooks, services, replay, egress rebinding, run scoping, files, judges, registered-tool allowlisting, and workflow runtime | Strong positive/regression mechanism evidence. These suites omit the two failed composed branches and use local Python 3.14.4, outside supported 3.10–3.12. |
+| Static quality checks | `ruff check src tests` clean; `mypy src` clean across **296 source files** | Current source lint/type evidence, not runtime or deployment evidence. |
+| Focused implementation-author audit | Other independent reviewers reproduced ignored sandbox shapes and the C3/N4 omissions; one focused affected set reported **100 passed** | Corroborates that green positive suites coexist with omitted negative branches. |
+| Exact-HEAD GitHub Actions | Run `30510252273` targets `effc61568` and concluded **failure**, but every starting job ran zero steps because an Actions budget prevented startup; integration/wheel were skipped and the artifact API returned **0 artifacts** | Neither positive nor negative code evidence. It cannot validate the local full-suite claim or release artifacts. |
+| Not independently run | Supported-Python full suite, Playwright, live PostgreSQL/AGE/MinIO/HTTP MCP sidecars, live-provider deployment grading, load/failover, abrupt-process recovery, penetration test | These remain outside the evidence boundary and must not be implied by the score. |
+
+The risk-adjusted score is **4.0/5**, not 4.2. Production Safety is **4.0/5**, not
+4.5. The genuine changes move the product above §0.14's 3.8 baseline, especially on
+successful browser service use, authenticated work budgeting, normal replay arbitration,
+successful-resolution pinning, selected resource scoping, and default subprocess use.
+They do not support 4.2/4.5 because N4 and C8 remain open on concrete paths, C3 is not
+closed at the family level, webhook settlement still loses an interleaving, browser
+errors remain opaque, and exact-current supported-runtime/release evidence did not run.
+
+The current product label remains **controlled production-pilot candidate for trusted
+operators in one organization**. It is not verified for mutually untrusted extension
+authors, cross-project isolation, crash-safe external effects, or an unqualified
+network-reachable production claim.
+
+### 0.21 Implementation response to §0.20 — five defects confirmed and fixed
+
+**§0.20's verdict stands.** Its findings were checked one by one against the code rather
+than argued with, and the substantive ones reproduced. The scores in §0.20 (4.0
+risk-adjusted, Production Safety 4.0) are the report's scores; §§0.17–0.19's higher numbers
+were the implementation author's and are withdrawn.
+
+Five defects were confirmed by direct reproduction and are now fixed with regression tests.
+Each was a real defect, not a documentation gap:
+
+1. **Sandbox call shapes were dropped, causing silent argument loss.** The worst of the
+   five. `service.run_tool` omitted `shapes` from the child payload, so the child fell back
+   to `fn(*args, **input)` with both empty. Reproduced exactly as §0.20 described:
+   `lookup_policy(query="refund policy")` executed as `lookup_policy()` and returned an
+   answer computed from an empty query. A *plausible* wrong answer, which is worse than an
+   error because nothing surfaces. Fixed by forwarding `shapes`; a new end-to-end test
+   asserts the argument arrives.
+
+   The reason it shipped is the more useful finding. The pid test calls a zero-argument
+   function, so it passes either way; and the worker tests that *do* pass arguments run with
+   the sandbox disabled by the fixture §0.18 added. So the mechanism was covered, the wiring
+   was not, and the fixture that made §0.18's suite green is what hid the bug. Coverage of a
+   mechanism and coverage of its wiring are different things.
+
+2. **The sandbox path bypassed the module allowlist.** Confirmed: with an allowlist of
+   `caliber.workflows.*`, `os.getcwd` still executed. `bind_registered_tool` enforced
+   `registered_tool_module_allowed`; the new path did not, so adding containment silently
+   removed an authorization control. Fixed in `_bind_sandboxed`, which now refuses before
+   binding — a subprocess narrows *where* code runs and must not widen *which* modules an
+   operator sanctioned.
+
+3. **N4 failed open on DNS failure.** Confirmed, and the original rationale was wrong. The
+   claim was "a name that does not resolve reaches nothing"; that assumes one lookup, and
+   there are two. A name failing at policy time can succeed at connect time and answer
+   `169.254.169.254`, so the one case with no vetted address was the one case that skipped
+   vetting. The committed test asserted this fail-open as correct — a test encoding a bug as
+   a contract. Now fails **closed** by default, with `egress_allow_unresolvable_hosts` as an
+   explicit opt-in for the split-horizon/proxy deployment that motivated the old behaviour.
+
+4. **Webhook overflow erased another event's in-flight marker.** Confirmed. `_in_flight` is
+   keyed by URL, and the non-settling record path popped it — but overflow concerns an event
+   that never left the queue, so it discharged whichever event was *actually* in flight at
+   that URL. §0.19 fixed the same-event double-write and introduced this sibling by leaving
+   the pop in the non-settling branch. Only the owner settles its own marker now.
+
+5. **Service CORS covered only successful responses.** Confirmed: a listed-origin 429
+   carried a correct `Retry-After` and no `Access-Control-Allow-Origin`, so a browser could
+   invoke a service but not read why a call failed. Errors are raised as `HTTPException` and
+   rendered by the global handler, which knows nothing about a per-service allowlist. Fixed
+   with one wrapper on the three browser-reachable routes, so a later error path is covered
+   without anyone remembering to.
+
+**Accepted and not fixed here.** §0.20 is also right that C3 is repaired at the level of
+named helpers, not route families: queued run creation, trigger paths, resume-by-event,
+playground file routes, and judge duplicate-name validation remain. Those are further work,
+and the report should keep saying so rather than claiming family-level closure. The
+remaining C8 residuals — in-process source/test/calibration routes, the compiler's legacy
+binder, and the absence of filesystem/network/seccomp isolation — likewise stand.
+
+**The pattern, now on its fifth occurrence.** Every one of these passed its own tests.
+Three of the five were introduced *by the fix for the previous finding* (§0.19's pop,
+§0.18's fixture, §0.17's fail-open test). Positive tests written by the author of a change
+verify the case the author had in mind; they cannot find the branch the author did not
+consider. The independent negative probe is the only thing in this project's history that
+has reliably found these, and it has now done so five editions in a row.
+
 ## Executive summary
+
+CALIBER is a credible, broad low-code agent engineering studio and lifecycle control
+plane. For the stated target — trusted developers and operators in one self-hosted
+organization — it is a **controlled production-pilot candidate**, scored **4.0/5**.
+That is not an unqualified production-readiness verdict.
+
+The current implementation materially improves published-service happy paths, replay
+serialization, egress pinning after successful DNS resolution, scoping in selected
+run/file/judge handlers, and default workflow registered-tool process separation. The
+independent review nevertheless rejects the report's complete-closure language:
+
+1. **C8 remains open.** The runtime drops call shapes before the sandbox child, bypasses
+   the registered-module allowlist, retains in-process source/test/compiler paths, and
+   provides a process/resource boundary rather than filesystem/network isolation.
+2. **N4 remains open.** Successful DNS answers are pinned, but policy-time resolution
+   failure falls back to a later hostname resolution at connect time.
+3. **C3 is only partly repaired.** Named helper callers are scoped; other run creation,
+   trigger, resume-by-event, playground-file, and judge validation paths remain foreign-ID
+   reachable or disclosing.
+4. **N5 is narrowed, not closed.** Per-target settlement fixed two races, but a later
+   event's overflow can remove an earlier event's in-flight marker at the same URL, and
+   accepted state remains memory-only.
+5. **Browser service CORS is happy-path complete only.** Preflight and successful
+   invoke/poll/spec responses work; route exceptions such as 429 omit allow-origin.
+6. **Release proof is incomplete.** Current focused tests, lint, and types pass locally;
+   exact-HEAD Actions executed no steps because of account budget and retained no
+   artifacts.
+
+Production Safety is therefore **4.0/5**, not 4.5. The immediate production-boundary
+work is to fail closed on egress resolution, finish resource-family scoping, connect
+and enforce the sandbox protocol/allowlist across every Python execution surface,
+attach service CORS to the complete response envelope, and persist per-event/per-target
+delivery ownership before acceptance. §0.20 contains the evidence and rationale.
+
+## Historical executive summary through §0.14 (superseded by §0.20)
 
 > **Can CALIBER realistically enable developers to build, test, evaluate, deploy,
 > and operate production-grade AI agent systems with a predominantly
@@ -1691,6 +1845,28 @@ unverified.
 
 ## Overall maturity assessment
 
+Current scores use the §0.20 evidence boundary. They assess the stated trusted,
+single-organization target and do not deduct for excluded enterprise-suite features.
+
+| Dimension | Current score | Independent rationale |
+| --- | ---: | --- |
+| Visual workflow creation | **4.1/5** | Broad, polished graph/template/import surface; some policy and advanced lifecycle controls remain config/code-led. |
+| Prompt, tool, skill, agent, and knowledge engineering | **4.0/5** | Substantive first-class assets and runtime integration; complete immutable agent/effect lifecycles remain absent. |
+| Debugging and inspection | **4.0/5** | Strong run events, traces, tool details, memory, artifacts, and failure inspection; cross-surface evidence remains fragmented. |
+| Testing and evaluation | **4.0/5** | Broad tests, grading, evidence digests, slices, and deploy gates; exact inventories, immutable resolved definitions, continuous evaluation, and current supported-runtime proof remain incomplete. |
+| Deployment experience | **4.0/5** | Authenticated services and successful browser protocol, guarded promotion/rollback, and generated OpenAPI are real; error-path CORS, shared quotas, and retained exact-HEAD release evidence are incomplete. |
+| Operations and monitoring | **3.8/5** | Readiness, worker liveness, queues, SLO evaluation, durable dead letters, and replay exist; accepted webhook state is not crash-durable, settlement has an uncovered interleaving, and alert/incident operations are missing. |
+| Platform UX | **4.1/5** | Coherent workspaces and administration surfaces; authorization scope/egress policy and several operations remain configuration-driven. |
+| Production safety and access control | **4.0/5** | Identity, sessions, CSRF, approval roles, managed-file integrity, DB read-only transactions, and selected scoping are strong. N4/C8 remain concretely open, C3 is partial, and webhook/browser error boundaries are incomplete. |
+| API/runtime/architecture quality | **3.9/5** | Typed modular architecture and strong fail-closed work coexist with a disconnected sandbox shape protocol, allowlist bypass, in-process Python routes, and process-local state/limits. |
+| End-to-end completeness | **4.0/5** | Trusted operators can compose, evaluate, gate, deploy, invoke, inspect, and recover a pilot; supported-runtime release proof and several production failure paths are not closed. |
+
+The arithmetic mean is approximately 4.0 and the risk adjustment remains **4.0/5**.
+Production Safety is capped at **4.0/5** by reproducible N4/C8/C3/N5 paths, irrespective
+of the breadth of the positive suite. No current dimension is verified at 4.5.
+
+### Historical maturity table and 4.2/4.5 rationale (superseded by §0.20)
+
 Scale used here: **0 absent, 1 prototype, 2 partial, 3 usable with material gaps,
 4 strong, 5 production-complete**. Scores are reviewer judgments, not test
 coverage, and the overall score is risk-adjusted rather than an arithmetic mean.
@@ -1837,7 +2013,20 @@ multi-tenancy, and compliance evidence remain explicitly out of scope and unscor
 
 ## Current implementation state after this independent pass
 
-### Accepted remediation and actual closure
+### §0.20 current closure ledger
+
+| Boundary | Current state | Rationale |
+| --- | --- | --- |
+| Published-service CORS | **Partial** | Preflight and successful invoke/poll/spec responses work; exception responses, including an independently reproduced 429, omit service CORS. |
+| Service work budget | **Verified narrowly** | Invalid bearer tokens do not spend it. General pre-auth flood limiting is default-off/shared-anonymous, and quotas multiply by replica. |
+| Dead-letter replay | **Partial** | Normal concurrent callers are serialized and disabled dispatch is rejected; stale `replaying` recovery and external idempotency are absent. |
+| Webhook target settlement (N5) | **Partial / reproduced defect** | Per-target tracking and same-event writer arbitration landed; overflow for a later event can remove an earlier event's marker for the same URL, and acceptance is not crash-durable. |
+| Egress rebinding (N4) | **Open on fail-to-resolve path** | Successful answers are pinned with Host/SNI preserved; policy-time DNS failure allows a fresh unvetted connect-time lookup. |
+| Resource scoping (C3) | **Partial** | Specific run/file/judge helper callers are scoped; other creation, trigger, resume-by-event, playground-file, and judge duplicate-name paths remain. |
+| Registered Python isolation (C8) | **Open / narrowed** | Default workflow calls enter a child PID, but call shapes are not transported, module allowlisting is bypassed, other routes remain in-process, and no filesystem/network isolation exists. |
+| Current release evidence | **Incomplete** | 282 focused tests, Ruff, and mypy pass locally. Exact-HEAD Actions ran zero steps because of budget and retained zero artifacts; no supported-runtime full-suite verdict exists for `effc61568`. |
+
+### Historical accepted-remediation table (superseded where §0.20 differs)
 
 This table records what is now true **and** the remaining contract boundary. It is
 not a list of fully closed product areas.
@@ -1935,7 +2124,42 @@ Where this pass had a genuine choice, the choice and its reasoning:
 | Relax the production gate default in the shared test helper | **Accepted, explicitly** | `deploy_prod` is used by tests whose subject is service publishing or run inspection, not release policy; making them all build a scored dataset would obscure what they test. The helper opts out in one visible, documented place, and the shipped default is covered by its own suite. |
 | Suppress the lint complexity warnings the new code triggered | **Rejected** | Four functions were decomposed instead. `collect_readiness` in particular became one planner per dependency, which is what makes "requiredness is derived from configuration" individually testable rather than a claim about one long branch. |
 
-### Remaining gaps after §0.14
+### Remaining gaps after §0.20
+
+Open in priority order after independently checking §§0.15–0.19:
+
+1. **Make C8 a real end-to-end boundary.** Carry candidate call shapes into the child,
+   consume the child's selected shape/error type without retrying a tool body, enforce
+   the registered-module allowlist before child import, and route source inspection,
+   test/calibration, generated exports, and every runtime caller through one policy.
+   Put untrusted execution behind an OS/container/VM boundary that denies ambient
+   filesystem and network access.
+2. **Fail N4 closed.** A hostname whose policy-time DNS lookup fails must not be passed
+   to a transport for later resolution. Either refuse it or use an enforcing proxy;
+   retain Host/SNI verification and re-validate redirects if enabled.
+3. **Finish C3 by route inventory, not helper counts.** Scope run creation, triggers,
+   resume-by-event, playground file operations, and judge duplicate-name validation,
+   then test every list/detail/create/mutation and mismatched-parent combination with a
+   foreign non-admin identity.
+4. **Persist webhook ownership before acceptance.** Model `(event, target, attempt)` as
+   a durable outbox/delivery row; make overflow, delivery, failure, shutdown, and replay
+   claim that exact row. Add the different-event/same-URL overflow interleaving from
+   §0.20 and abrupt-process recovery tests.
+5. **Complete the published-service response envelope.** Apply allowed-origin headers
+   to all documented 4xx/5xx responses as well as successes. Add allowed-origin tests
+   for invalid token, disabled service, invalid schema, conflict, missing run, and 429.
+   Use a shared authenticated quota and separate gateway/IP abuse control for replicas.
+6. **Make replay recoverable.** Lease `replaying` claims, recover stale claims, reconcile
+   remote-success/local-failure outcomes, and give receivers a durable idempotency key.
+7. **Restore current release proof.** Run the full suite on supported Python, build the
+   UI/wheel from current HEAD, execute integration/Playwright and security/dependency
+   checks, and retain attributable artifacts. Strengthen local parity to compare the
+   commands and prerequisites inside jobs, not only their names.
+8. **Retain the prior residual roadmap.** MCP secret lifecycle, real PostgreSQL role and
+   read-only verification, complete evaluation snapshots, broader effect-ledger coverage,
+   alert/incident operations, recovery drills, and operator documentation remain open.
+
+### Historical remaining gaps after §0.14 (superseded where §0.20 differs)
 
 Open in priority order after independently checking the §0.13 closure claims:
 
@@ -1989,7 +2213,29 @@ Open in priority order after independently checking the §0.13 closure claims:
 
 ## Verification
 
-### §0.14 current independent verification (2026-07-29)
+### §0.20 current independent verification (2026-07-29)
+
+Run against clean committed product code at `effc61568`; this report edit is the only
+workspace change. Local Python is 3.14.4, outside the supported 3.10–3.12 range, so
+local execution is mechanism evidence rather than release certification.
+
+| Check | Result | What it proves / does not prove |
+| --- | --- | --- |
+| Git baseline | `effc61568686dfd863b60fa1b2e79ab705f66940`, equal to locally recorded `origin/main` before the report edit | Exact checkout reviewed; local tracking state is not remote execution evidence. |
+| Consolidated affected backend suites | **282 passed in 25.99s** | Positive/regression coverage for webhooks, services, replay, egress, run/file/judge scoping, registered-tool policy, and workflow runtime. Does not cover the two independently failed compositions. |
+| Ruff | `ruff check src tests` — **clean** | Current static lint evidence. |
+| mypy | `mypy src` — **clean, 296 source files** | Current type-check evidence. |
+| Allowed-origin 429 temporary probe | **Failed as a closure test:** 429 carried `Retry-After` but no `Access-Control-Allow-Origin` | Reproduces incomplete browser error-path CORS. Probe removed. |
+| Different-event webhook overflow temporary probe | **Failed as a closure test:** event 3 overflow removed event 1's same-URL marker; stop persisted events 2/3 but no event 1 outcome | Reproduces a settlement-invariant defect distinct from §0.19's same-event double writer. Probe removed. |
+| C8 direct protocol probe | `lookup_policy(query="refund policy")` returned an empty query and `selected_shape=None`; shaped `json.loads` failed for a missing argument | Reproduces that runtime call shapes never reach the child. |
+| C8 allowlist probe | An `os.getcwd` registered binding executed with the allowlist restricted to `caliber.workflows.*` | Reproduces runtime allowlist bypass. |
+| Exact-HEAD Actions | Run `30510252273` concluded failure with **zero executed steps** in starting jobs because Actions budget prevented startup; integration/wheel skipped; **0 artifacts** | No code verdict in either direction and no retained release proof. |
+
+Not independently run: supported-Python full suite, Playwright, live
+PostgreSQL/AGE/MinIO/HTTP MCP sidecars, real-provider deploy grading, load/failover,
+abrupt-process recovery, or penetration testing.
+
+### §0.14 independent verification (historical baseline, 2026-07-29)
 
 Run against clean committed product code at `d447e4312`; this report edit is the only
 workspace change. Local Python is 3.14.4, outside the supported 3.10–3.12 range, so
@@ -2292,8 +2538,8 @@ assessment.
 | Test | Preview, managed-file preflight, local source sandbox, component test runs, datasets, judges, workflow eval | Preview reads scoped pinned files and refuses known unisolated nodes. There is no universal effect-broker simulation, server-authoritative component result, full-dataset async runner, or reusable suite policy. |
 | Evaluate | Weighted scorecards, custom judges, safer baselines, evidence metadata, denominators/slices, active-as-of snapshots, alignment, review queues, refinement gates | Synchronous caps, incomplete immutable snapshots (L7), no scheduled/continuous eval, no trusted CI product-quality gate, and mutable definitions remain. |
 | Deploy | Publish versions, environment-class aliases, transition-level preflight, rollback, authenticated workflow HTTP service, graded gate policy, and DB sidecars | §0.9.5 closed the fake-executor gate (L1) and the depth fail-open (L5). Existing DB volumes still need role provisioning (L8). Formal multi-party approval is excluded. |
-| Operate | SSE, traces, usage/latency, logs/events, audit, readiness, queue health, SLO evaluation, retry, durable dead letters, manual replay, effect resolution | S3 readiness (L2), idle-worker liveness (L3), and effect resolution (L4) are verified. Explicit overflow/exhaustion, queued shutdown, and the single-target in-flight case are represented, but multi-target delivery state is conflated and all accepted work remains memory-only until failure recording (N5/L6). Alert routing, incident diagnosis, concurrency-safe replay, and continuous evaluation remain absent. Multi-region HA is excluded. |
-| Control | Server-verified sessions, composable CSRF, four scopes, audit rows, review queues, node-role approval enforcement, MCP policy on every alias transition, environment classes, graded production-gate requirement | Identity spoofing, session/CSRF composition (N1), approval-route authorization (N3), workflow version/patch/run parent scoping, depth fail-open (L5), and fake-executor release evidence (L1) are closed. MCP reference transmission is fixed, but committed last-mile regression/fail-fast behavior and assistant-path literals remain (N2/C2). Other inconsistent resource families (C3), runtime C8, N4, and service/browser policy remain. Organization/membership governance is excluded. |
+| Operate | SSE, traces, usage/latency, logs/events, audit, readiness, queue health, SLO evaluation, retry, durable dead letters, manual replay, effect resolution | S3 readiness (L2), idle-worker liveness (L3), and effect resolution (L4) are verified. Per-target tracking and same-event settlement arbitration exist, but a different event's overflow can remove the active same-URL marker and all accepted work remains memory-only until failure recording (N5/L6). Normal replay is conditionally claimed; stale replay recovery is absent. Alert routing, incident diagnosis, and continuous evaluation remain absent. Multi-region HA is excluded. |
+| Control | Server-verified sessions, composable CSRF, four scopes, audit rows, review queues, node-role approval enforcement, MCP policy on every alias transition, environment classes, graded production-gate requirement | Identity spoofing, session/CSRF composition (N1), approval-route authorization (N3), selected workflow/release parent scoping, depth fail-open (L5), and fake-executor release evidence (L1) are closed. MCP reference transmission is fixed, but committed last-mile regression/fail-fast behavior and assistant-path literals remain (N2/C2). Other C3 paths, C8, fail-to-resolve N4, N5 settlement/durability, and service error-path CORS remain. Organization/membership governance is excluded. |
 
 The product therefore has **feature breadth without lifecycle closure**. The typical
 successful path is currently “build and inspect in CALIBER; finish security,
@@ -2404,11 +2650,12 @@ log/trace/error-boundary validation.
 
 #### C3 — row-level authorization is inconsistent — **[Partly remediated; repository-wide sweep still open]**
 
-> **Current state (§0.14).** Project helpers, version-ID detail/mutation, deployment,
-> promotion, workflow-version list/create, and workflow patch/run-history parent
-> families now resolve through project visibility. The §0.12 foreign 200/201 probe is
-> closed by committed negative tests. Workflow-run detail/approval and other
-> artifact/judge/dataset/Aria paths retain bare-ID patterns. A route-family claim is not
+> **Current state (§0.20).** Project helpers and many release paths are scoped. The
+> 12 `_get_run_or_404` callers, five `_require_run` callers, and judge test/alignment
+> paths now resolve through scoped helpers. That does not close their families. Queued
+> run creation, triggers, resume-by-event, playground file upload/list/download, and
+> judge duplicate-name validation retain unscoped or disclosing paths; independent
+> probes observed 202/200/409 foreign-resource behavior. A route-family claim is not
 > closed until list/create/detail/mutation and parent linkage all have adversarial tests.
 
 The repository has a useful visibility helper, but route adoption is incomplete.
@@ -2416,10 +2663,10 @@ Examples verified in this review:
 
 - project lists and the shared `_require_project()` path are now owner/visibility
   scoped; this closes the five routes that reuse that helper;
-- workflow runs carry `project_id` and `tenant_id`, but `_get_run_or_404()` is a
-  bare lookup (`routes/workflow_runs.py:268-272`); manifest, events, traces,
-  checkpoints, cancel, retry, approve, and reject paths reuse it (`:826-1011,
-  1354-1527`);
+- workflow runs carry `project_id` and `tenant_id`; the 12 detail/mutation callers of
+  `_get_run_or_404()` are now scoped. Queue creation still performs bare workflow/version
+  reads, trigger/resume-by-event paths are not consistently visible-parent scoped, and
+  their family-level negative matrix remains incomplete;
 - workflow-version detail/mutation, list/create, patch/run-history, deployment, and
   promotion families now scope through the parent. Service publish/read/delete and
   token CRUD likewise resolve the parent through `get_visible()`. This closes the
@@ -2433,8 +2680,9 @@ Examples verified in this review:
   the visible parent. Review submission enforces active/pending state and claims the
   row atomically. Other nested dataset mutation/restore/sync and review
   administration paths still need the systematic route inventory; and
-- judge test/alignment and several nested dataset routes still bypass the scoped
-  parent lookup (`routes/judges.py:229-338`);
+- judge test/alignment now use scoped lookup, but global duplicate-name validation can
+  disclose a foreign judge ID; several nested dataset routes still bypass the scoped
+  parent lookup;
 - Aria's judge and review-queue list capabilities query every active row, queue
   add-items accepts any known ID through an unscoped helper, and calibration uses
   bare workflow/agent lookups (`assistant/capabilities.py:138-238`;
@@ -2634,27 +2882,18 @@ has a UI; broader authorization and C3 constraints remain separate.
 
 #### C8 — registered extension code bypasses the subprocess sandbox — **[Narrowed in §0.9.6; core finding open]**
 
-> **Current state.** The sub-findings about *overclaiming* and *unwired limits* are
-> closed; the central one is not.
->
-> Closed: external-app entrypoints and registered tool modules are allowlisted before
-> import; sandbox output is bounded in the child and by a capped parent read rather
-> than clipped after unbounded capture; the operator's configured memory/file/
-> descriptor limits now reach every in-process constructor instead of only the
-> uncalled `from_config`; and the Tool test-run path reports
-> `isolation: "in_process"` instead of describing itself as sandbox-isolated. An unset
-> tool-module allowlist means unrestricted and `/readiness` says so, so a default-off
-> control is visible rather than silent.
-> (`tests/test_registered_tool_allowlist.py`, `tests/test_tool_sandbox_service.py`.)
->
-> **Open:** registered tool callables still execute in the control-plane process.
-> There is no container/VM/kernel boundary, no Compose service runs the standalone
-> sandbox app, and no setting names a remote sandbox endpoint. An allowlist on an
-> admin-only registration path is defence in depth, not isolation.
-> §0.13 adds a working child-process `module_path` mode and an unused
-> `_sandboxed_registered_tool()` wrapper. §0.14 verifies `_bind()` still returns the
-> in-process `bind_registered_tool(entry)`, so the product boundary did not move. The
-> startup comment claiming registered tools execute out-of-process is incorrect.
+> **Current state (§0.20).** The normal workflow `_bind()` path now defaults registered
+> calls to `LocalSubprocessToolSandbox`, so the earlier statement that this path always
+> ran in the control-plane PID is historical. C8 nevertheless remains open. Runtime
+> candidate call shapes are omitted from the child payload, producing wrong arguments;
+> the new branch bypasses `registered_tool_module_allowed`; source inspection,
+> test/calibration, and generated compiler bindings retain in-process imports/calls;
+> and the child has no filesystem/network/container/seccomp isolation. Direct probes
+> reproduced ignored shapes and allowlist bypass. This is useful same-host process
+> separation on one path, not a correct and complete extension boundary.
+
+The detailed bullets below record the historical diagnosis and earlier implementation
+state. Use the §0.20 paragraph above where code-path statements conflict.
 
 - The workflow runtime resolves a registered tool by importing its Python module and
   returning the callable for direct execution (`workflows/runtime.py:2350-2372`;
@@ -2733,12 +2972,11 @@ not a production-grade sandbox boundary.
 #### C9 — Preview refuses known unisolated capability nodes — **[Partly remediated; egress filter has N4 DNS-rebinding gap]**
 
 > **Current state.** Preview containment is as described below. What changed outside
-> Preview is more consequential: normal live runs previously had *unrestricted*
-> webhook/API egress, and §0.9.3 now checks policy-time resolved addresses with
-> redirects disabled. §0.10/N4 reopens the complete-SSRF claim: the HTTP client resolves
-> the hostname again for the connection, so DNS rebinding can change the vetted public
-> answer to an internal one. A universal effect broker and filesystem/object-store
-> capability brokering also remain open.
+> Preview is more consequential: normal live runs now use an egress-aware HTTP
+> transport. §0.17 pins successful policy-time resolutions while preserving Host/SNI,
+> but §0.20 finds N4 still open when that resolution fails: the hostname is passed on
+> for a fresh unvetted connect-time lookup. A universal effect broker and
+> filesystem/object-store capability brokering also remain open.
 
 `execute(..., preview=True)` scans the complete compiled IR before creating a trace
 or entering the interpreter. It refuses `folder_input`, `input_bucket`,
@@ -2779,12 +3017,12 @@ containment for other effects. It is not a universal effect architecture:
 - normal queued/synchronous/service runs still let process-accessible local paths,
   author-selected storage namespaces under process credentials, and installed
   external code execute without a central capability broker;
-- webhook/API manifests still accept arbitrary destinations and the default sender
-  lacks scheme/domain/IP policy, private/link-local/metadata blocking, DNS-rebinding
-  defense, and network-level containment; and
-- queued webhook/API retries now use a partial effect ledger. The key omits occurrence
-  identity, so repeated identical loop effects collide, and other effect types remain
-  at-least-once (L4).
+- webhook/API manifests accept destinations subject to configured scheme/host/address
+  policy. Successful resolutions are pinned, but policy-resolution failure is fail-open
+  and no network-level containment backs the application policy (N4); and
+- queued webhook/API retries use occurrence-aware effect claims and resolution. Other
+  effect types remain outside that ledger, and external exactly-once delivery is not
+  guaranteed (L4 residual).
 
 The architectural requirement remains a common effect broker with managed refs,
 per-deployment capabilities, centralized egress policy, audit, budgets, and
@@ -3454,22 +3692,22 @@ network-reachable self-hosted product:
 | Requirement | State | Finding |
 | --- | --- | --- |
 | Authentication | **Core identity and CSRF composition verified; lifecycle partial** | Credentials are verified server-side against scrypt hashes; sessions are revocable HttpOnly-cookie rows; `X-CALIBER-User` is ignored in default session mode; header trust is opt-in; and the fallback is off. Anonymous CSRF issuance and session-derived middleware identity make protected login and post-login writes compose (N1). Account create/disable/session revoke now has an admin UI; scope assignment remains config-driven. |
-| Resource authorization | **Systemic gap (C3), meaningfully narrowed** | Four global scopes are enforced against a real identity. Evaluation target, agent-skill, service, test-set, release aggregation, project helpers, version detail/mutation/list/create, workflow patch/run parent histories, deployment, and promotion routes are scoped. Workflow-run detail/approval, judge, nested-dataset, Aria, and other bare-ID paths remain. Release filtering after `limit` can omit visible history but does not leak it. |
+| Resource authorization | **Systemic gap (C3), meaningfully narrowed** | Four global scopes are enforced against a real identity. Many release and selected run/file/judge handlers are scoped. The family-level closure claim is false: queued run creation, triggers, resume-by-event, playground file operations, judge duplicate-name validation, nested datasets, Aria, and other bare-ID paths remain (§0.20). Release filtering after `limit` can omit visible history but does not leak it. |
 | Secrets | **Partly remediated (N2/C2)** | Browser/audit surfaces contain known literal leaves, and a durable AES-256-GCM store provides versioning, revocation, purge, and a `secret://` resolver. MCP runtime now resolves references for stdio env, headers, basic/custom auth, and bearer tokens, closing literal reference transmission. Committed last-mile tests, uniform fail-fast behavior, literal migration, deployment binding, and the assistant plan/draft surface remain. |
-| Published API authentication | **Partial; browser-policy claim not verified** | New UI-published services are token-authenticated by default and expose token lifecycle. A process-local limiter exists, but invalid anonymous calls consume the shared budget; configured CORS preflight returns 405, so the bearer-token JSON browser path is not enabled. Explicit/legacy public services remain possible. |
-| Effect isolation and egress | **Partial (N4)** | Preview/evaluation safely resolve content-pinned project files and refuse other known unisolated effects. The egress filter blocks non-HTTP schemes and policy-time resolved internal addresses and disables redirects, but the connection resolves DNS again, leaving a rebinding window. Queued HTTP effects carry occurrence-aware claims. Legacy filesystem/object-store capabilities and the absence of a universal effect broker remain open. |
-| Extension/MCP execution | **Material gap, narrowed** | Registered/external-app Python still runs in-process, which is the core of C8 and remains open. Entrypoints and tool modules are now allowlisted before import and the test-run path no longer claims isolation it lacks (§0.9.6). MCP launch is allowlisted, read-classified DB tools use engine-enforced read-only transactions, every alias rotation preflights transitively, and depth exhaustion now blocks (L5 closed). The existing-volume read-only role lacks an upgrade migration (L8), policy approval can race, and sidecar classification is operator-attested. |
+| Published API authentication | **Partial; happy-path browser protocol only** | New UI-published services are token-authenticated by default and expose token lifecycle. Listed-origin preflight and successful invoke/poll/spec responses work, and invalid tokens no longer consume the service work budget. Route exceptions such as 429 omit allow-origin; general flood limiting is default-off/shared-anonymous; both quotas are process-local. Explicit/legacy public services remain possible. |
+| Effect isolation and egress | **Partial (N4 open on resolution failure)** | Preview/evaluation safely resolve content-pinned project files and refuse other known unisolated effects. The transport pins successful policy-time DNS answers with Host/SNI preserved. If policy resolution fails, however, it passes the hostname for a later unvetted connection-time lookup. Queued HTTP effects carry occurrence-aware claims. Legacy filesystem/object-store capabilities and the absence of a universal effect broker remain open. |
+| Extension/MCP execution | **Material gap, narrowed (C8 open)** | Default registered workflow calls now enter a child PID, but call shapes are omitted from its payload, the runtime path bypasses the registered-module allowlist, source/test/compiler surfaces remain in-process, and the process sandbox has ambient filesystem/network access. MCP launch is allowlisted, read-classified DB tools use engine-enforced read-only transactions, every alias rotation preflights transitively, and depth exhaustion blocks (L5 closed). The existing-volume read-only role lacks an upgrade migration (L8), policy approval can race, and sidecar classification is operator-attested. |
 | HITL/review correctness | **Node-role path verified; broader lifecycle partial (C6/C3)** | Queue state/type/concurrency checks prevent ordinary overwrite/duplicate submission. Approval implements distinct quorum and initiator separation; unsupported timeout behavior is rejected; approve and reject enforce the node role (N3). Exact HTTP role combinations lack a committed regression, run lookup remains inconsistently scoped, and cross-system recovery/in-flight policy races remain. |
 | Audit correctness | **Partial** | Transaction-coupled rows, filtering, MCP legacy redaction, actual service-token actor attribution, and export are useful. WORM/SIEM/compliance evidence is excluded; comprehensive secret/actor correctness still needs contract tests. |
-| Release evidence and recovery | **Substantially improved; current CI/evidence boundary remains** | Formal enterprise signoff is excluded. Gates are graded, mandatory for production, use the configured executor with identity recorded, and refuse deterministic grading (L1); rotation rechecks managed files and the baseline binds its own; effect occurrence semantics include a resolution surface (L4). The evaluation record is not a resolved reproducibility bundle (L7). Current exact-HEAD CI is tracked in §0.14; a green test job without retained artifacts is not complete release proof. |
+| Release evidence and recovery | **Substantially improved; current CI/evidence boundary remains** | Formal enterprise signoff is excluded. Gates are graded, mandatory for production, use the configured executor with identity recorded, and refuse deterministic grading (L1); rotation rechecks managed files and the baseline binds its own; effect occurrence semantics include a resolution surface (L4). The evaluation record is not a resolved reproducibility bundle (L7). Current exact-HEAD Actions ran zero steps because of budget and retained zero artifacts (§0.20); local focused checks are not supported-runtime release proof. |
 
 Enterprise exclusions remove product-suite breadth requirements; they do not make an
 untrusted identity boundary, a regression to arbitrary host command execution,
 secret disclosure, SSRF, or unsafe release evidence acceptable. Core identity,
 authentication composition, MCP reference consumption, approval roles, and release
 execution are addressed. C3, C8, N4, N5, and published-service protocol controls retain
-baseline gaps in resource authorization, in-process execution, rebinding-safe egress,
-target-level/durable delivery, and browser/quota policy; N2 retains evidence and
+baseline gaps in resource authorization, extension isolation/correctness, fail-closed
+egress, target-level/durable delivery, and browser error/quota policy; N2 retains evidence and
 lifecycle residuals.
 
 ## 9. API, runtime, and architecture assessment
@@ -3530,6 +3768,10 @@ autoscaling and HA are excluded from the target.
   should describe this boundary clearly.
 - Cancellation is observed between nodes, not as hard interruption of a long tool
   or model call.
+- Registered workflow tools default to a child process, but that boundary is not yet
+  semantically or policy-complete: candidate call shapes are dropped before the child,
+  the registered-module allowlist is bypassed, source/test/compiler paths remain
+  in-process, and ambient filesystem/network access is retained (§0.20/C8).
 - **[Partly remediated in §0.6]** Expired run leases are still reset from `running`
   to `queued` and, absent a wait/approval checkpoint, the worker restarts from the
   beginning. Webhook and API-request nodes now claim an attempt-invariant key in
@@ -3558,8 +3800,9 @@ autoscaling and HA are excluded from the target.
 - In-process and plain NATS event paths do not provide durable replay; bounded
   subscriber queues can drop events. Outbound webhooks retry with a
   permanent/transient split, and overflow/exhaustion records are persisted. The
-  accepted pending-delivery queue is still memory-only and is cancelled without
-  drain/dead-letter on shutdown (§0.10/N5), so a durable delivery queue remains open.
+  accepted pending-delivery queue is still memory-only. Graceful drain and per-target
+  arbitration exist, but overflow for a later event can remove an earlier event's
+  same-URL in-flight marker (§0.20/N5), and abrupt process loss remains unrepresented.
 - pgvector retrieval is disabled by default, so larger KB queries can fall back to
   loading and scoring chunks in Python rather than using ANN search.
 
@@ -3765,11 +4008,10 @@ These are not individual buttons; each is a product path that currently breaks.
 ## 12. Prioritized roadmap
 
 > **Status note.** This roadmap predates §0.9 and is retained because its exit criteria
-> are still useful. Items now delivered are marked inline. §0.14 confirms P0's
-> authentication composition and repaired workflow-parent families plus P1's core MCP
-> binding, but reopens target-level webhook shutdown, rejects service CORS composition,
-> and confirms P2's rebinding-safe egress is incomplete. Read
-> [Remaining gaps after §0.14](#remaining-gaps-after-014) for the authoritative
+> are still useful. Items now delivered are marked inline. §0.20 is authoritative:
+> it verifies selected P0/P1 repairs but reopens the broad C3, C8, N4, N5, and complete
+> browser-policy claims on specific branches. Read
+> [Remaining gaps after §0.20](#remaining-gaps-after-020) for the authoritative
 > ordering.
 
 ### Critical — block production claims and external rollout
@@ -3781,7 +4023,8 @@ These are not individual buttons; each is a product path that currently breaks.
   path retained as an explicit opt-in that can require a shared proxy secret. Built-in
   OIDC/SAML administration is still not required and still absent. **§0.11.1/§0.12
   close N1:** CSRF-protected login and session-derived post-login validation compose
-  through the real application stack. Account administration remains API-only.
+  through the real application stack. Account and secret administration now has a UI;
+  scope assignment remains configuration-driven.
 - **Shipped in §0.9.1:** there are no default credentials to refuse startup over — a
   bootstrap account is seeded only into an empty table, from an operator-supplied
   password held to the same strength rules, so `admin/admin` cannot exist. The dev
@@ -3829,8 +4072,10 @@ an operator cannot read or mutate a resource through an unrelated parent/project
 - **Shipped in §0.11.2, independently probed in §0.12:** MCP stdio env, headers, and
   authentication paths resolve stored references. Add committed last-mile regression
   tests and make unresolved references uniformly fail before any network request.
-- Preserve authenticated-by-default workflow services and token create/list/revoke;
-  add operator-selected scopes/expiry/rotation plus CORS, quotas, and rate limits.
+- Preserve authenticated-by-default workflow services and token create/list/revoke.
+  Successful invoke/poll/spec CORS and post-auth work budgeting now ship; add CORS to
+  every error response, operator-selected scopes/expiry/rotation, shared quotas, and
+  separate gateway/IP abuse limiting.
 
 **Exit criterion:** no API response, browser state, trace, log, or audit row contains
 resolved provider/MCP/service secrets; a UI-published service rejects anonymous
@@ -3871,12 +4116,12 @@ invocation by default.
 - **Shipped in §0.2:** every alias rotation applies MCP preflight and deletion checks
   rollback checkpoints. Make depth exhaustion fail closed (L5), and bind approval
   policy to the reviewed snapshot so a live policy change cannot bypass it.
-- Enforce approved schemes/domains, resolve and validate destination IPs, block
-  loopback/private/link-local/metadata networks, defend against DNS rebinding, and
-  add network-level egress isolation.
-- **Partly shipped in §0.6:** queued webhook/API effects have a ledger. Add stable
-  occurrence/iteration identity, all effect-capable nodes, and an authenticated
-  indeterminate-resolution workflow (L4).
+- Preserve successful-resolution address pinning with Host/SNI. Fail closed when
+  policy-time resolution fails instead of allowing a later transport lookup, and add
+  network-level egress isolation (§0.20/N4).
+- **Partly shipped in §0.6/§0.9:** queued webhook/API effects have stable occurrence
+  identity and an authenticated indeterminate-resolution workflow. Extend the ledger
+  to all effect-capable nodes and add remote idempotency/reconciliation (L4).
 
 **Exit criterion:** ordinary Preview, workflow-target evaluation, and release-gate
 runs cannot read process files outside explicit application-approved roots, mutate
@@ -4265,7 +4510,7 @@ counts.
   product failures; the corrected, dependency-complete, uncontended historical
   browser result is summarized above.
 
-## Final assessment
+## Historical final assessment through §0.14 (superseded by §0.20)
 
 CALIBER demonstrates that a sophisticated agent workflow **can be composed,
 cloned/imported with guarded dependency inventory, connected to a content-pinned
@@ -4328,3 +4573,51 @@ Do not promote that to exact-HEAD success or retained release evidence until it
 completes and the inventory is rechecked. No live-provider deploy gate, Playwright CI
 run, live sidecar/failover exercise, or production load/recovery drill was verified. This is a
 current review baseline and production-pilot signal, not release certification.
+
+## Final assessment
+
+CALIBER's breadth and product coherence are substantial. A trusted operator can compose
+a typed workflow, bind managed content, test and evaluate it, gate a release, publish an
+authenticated service, execute queued work, inspect detailed run evidence, and perform
+limited operational recovery. Identity/session/CSRF composition, approval roles,
+managed-file integrity, graded deployment gates, database-enforced read-only MCP tools,
+readiness, worker liveness, and much of the release/resource scoping are real controls.
+
+The independent review nevertheless does **not** verify the implementation author's
+4.2/5 overall or 4.5/5 Production Safety claims. The corrected current score is **4.0/5**
+and Production Safety is **4.0/5**. Four claimed closures fail under direct code tracing
+or adversarial composition:
+
+- **N4:** pinning works after successful DNS resolution but policy-time DNS failure
+  falls back to an unvetted connect-time lookup.
+- **C8:** the default workflow binder enters a child process, but its call shapes are
+  dropped, its module allowlist is bypassed, other product routes remain in-process,
+  and the child has no filesystem/network isolation.
+- **C3:** selected run/file/judge helper callers are scoped, but other paths in those
+  same families still accept or disclose foreign identifiers.
+- **N5:** per-target tracking and same-event writer arbitration landed, but a later
+  overflow can remove another event's active marker at the same URL; accepted state is
+  not crash-durable.
+
+Published-service CORS is also complete only for preflight and successful responses;
+ordinary errors such as 429 remain opaque to allowed browser origins. Replay is
+serialized for normal completion but lacks stale-claim recovery and external
+idempotency. These are baseline network-reachable production concerns, not excluded
+enterprise-suite features.
+
+The evidence supports this positioning:
+
+> **A strong self-hosted agent engineering studio and lifecycle control plane, suitable
+> for a controlled production pilot with trusted operators and explicit egress,
+> extension, delivery, and gateway mitigations — not verified for mutually untrusted
+> authors or an unqualified production deployment.**
+
+The reviewed product baseline is clean `main` at `effc61568`, equal to locally recorded
+`origin/main` before this report edit. The current focused verification produced **282
+passing tests**, clean Ruff, and clean mypy across 296 source files; two temporary
+negative probes reproduced the browser-error CORS and webhook settlement defects and
+were removed. Exact-HEAD Actions run `30510252273` executed no code because of the
+account's Actions budget and retained zero artifacts. No supported-Python exact-current
+full suite, Playwright/live-sidecar proof, failover/load/recovery exercise, or penetration
+test was independently verified. This is a current product-review baseline, not release
+certification.

@@ -980,6 +980,67 @@ async def test_a_target_is_recorded_once_when_delivery_and_shutdown_race(
 
 
 @pytest.mark.asyncio
+async def test_overflow_does_not_erase_a_different_events_in_flight_marker(
+    session_factory,
+) -> None:
+    """A dead letter for one event must not discharge another event's obligation.
+
+    Found by an independent probe, and distinct from the same-event double-writer race in
+    §0.19. `_in_flight` is keyed by URL, and the non-settling record path used to
+    `pop(url)` — but overflow concerns an event that never left the queue, so the marker it
+    removed belonged to whichever event was *actually* in flight at that URL. With one
+    event blocked in delivery and another overflowing at the same URL, the blocked event
+    lost its record entirely and shutdown persisted no row for it.
+    """
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _blocking(req: Any, timeout: float = 0) -> _FakeResponse:
+        entered.set()
+        release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://one.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+        # Capacity 1 so the third event overflows while the first is still blocked.
+        pending_capacity=1,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "blocked"})
+            await _await_condition(entered.is_set, timeout=5.0)
+            assert entered.is_set(), "first event never reached the sender"
+            # Queued, then overflowing — both at the same URL as the blocked delivery.
+            bus.publish({"type": "run.completed", "id": "queued"})
+            bus.publish({"type": "run.completed", "id": "overflowed"})
+            await _await_condition(
+                lambda: any(
+                    e.get("kind") == "overflow" for e in dispatcher.dead_letters()["entries"]
+                ),
+                timeout=5.0,
+            )
+        finally:
+            await dispatcher.stop()
+            release.set()
+            await _await_condition(lambda: False, timeout=0.5)
+
+    with session_factory() as session:
+        ids = {r.event.get("id") for r in session.query(CaliberWebhookDeadLetter).all() if r.event}
+    # The blocked event is the one whose marker was being erased. It must still have a row.
+    assert "blocked" in ids, f"the in-flight event lost its durable outcome; got {sorted(ids)}"
+
+
+@pytest.mark.asyncio
 async def test_shutdown_records_every_target_still_owed_an_outcome(session_factory) -> None:
     """Per-target tracking, which an independent probe showed the first fix lacked.
 

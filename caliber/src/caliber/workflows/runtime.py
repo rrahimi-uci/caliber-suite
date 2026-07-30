@@ -2426,7 +2426,32 @@ def _bind(binding: IRToolBinding, resolver: ToolResolver) -> Callable[..., Any] 
     # server's memory, descriptors, environment, and credentials, and its import ran in
     # this process too.
     if _registered_tool_sandbox_enabled():
-        return _sandboxed_registered_tool(binding)
+        return _bind_sandboxed(binding)
+    return _bind_in_process(binding)
+
+
+def _bind_sandboxed(binding: IRToolBinding) -> Callable[..., Any] | None:
+    """Bind a registered tool to a subprocess, subject to the operator allowlist.
+
+    The allowlist still applies here. Routing execution into a subprocess narrows *where*
+    a module runs; it does not change *which* modules an operator sanctioned, and an
+    independent probe showed this path had dropped the check — with an allowlist of
+    ``caliber.workflows.*``, ``os.getcwd`` still executed. Enforcing it keeps the two
+    binder paths agreeing on admissibility, so containment and authorization do not trade
+    off against each other.
+    """
+    from caliber.workflows.tools import registered_tool_module_allowed  # noqa: PLC0415
+
+    if not registered_tool_module_allowed(binding.module_path):
+        return None
+    return _sandboxed_registered_tool(binding)
+
+
+def _bind_in_process(binding: IRToolBinding) -> Callable[..., Any] | None:
+    """The legacy in-process binder, reached only when the sandbox is disabled.
+
+    ``bind_registered_tool`` enforces the same allowlist before importing.
+    """
     try:
         from caliber.workflows.tools import ToolRegistryEntry  # noqa: PLC0415
 

@@ -270,6 +270,91 @@ def test_the_runtime_binds_registered_tools_out_of_process_by_default() -> None:
         bind_sandbox_config(previous)
 
 
+def test_a_sandboxed_tool_actually_receives_its_arguments() -> None:
+    """The end-to-end assertion whose absence let a silent-argument-loss bug ship.
+
+    `_call_tool` handed candidate shapes to the sandbox and `service.run_tool` dropped
+    `shapes` from the child payload, so the child fell back to `fn(*args, **input)` with
+    both empty. `lookup_policy(query="refund policy")` executed as `lookup_policy()` and
+    returned an answer computed from an empty query — a plausible-looking result, which is
+    worse than an error because nothing surfaces.
+
+    Every existing test missed it, and the combination is the lesson: the pid test calls a
+    zero-argument function, so it passes either way, and the worker tests that *do* pass
+    arguments run with the sandbox disabled by their own fixture. Coverage of the mechanism
+    and coverage of the wiring are different things.
+    """
+    from caliber.workflows.ir import IRToolBinding
+    from caliber.workflows.runtime import _bind, _call_tool, bind_sandbox_config
+    from caliber.workflows.tools import InMemoryToolResolver
+
+    binding = IRToolBinding(
+        local_name="lookup_policy",
+        registry_ref="tool.lookup_policy.v1",
+        version_constraint=">=1",
+        requires_approval=False,
+        side_effect_level="read",
+        allow_in_preview=True,
+        module_path="caliber.workflows.demo_tools",
+        callable_name="lookup_policy",
+    )
+    previous = runtime_module._ACTIVE_SANDBOX_CONFIG
+    bind_sandbox_config(None)
+    try:
+        fn = _bind(binding, InMemoryToolResolver([]))
+        assert fn is not None
+        result = _call_tool(fn, {"query": "refund policy"}, fallback_input="refund policy")
+    finally:
+        bind_sandbox_config(previous)
+
+    assert isinstance(result, dict), result
+    assert result.get("query") == "refund policy", (
+        f"the tool ran but its arguments were dropped: {result}"
+    )
+
+
+def test_the_sandbox_path_still_enforces_the_module_allowlist() -> None:
+    """Routing execution into a subprocess must not quietly widen *which* modules run.
+
+    `bind_registered_tool` refuses a module outside
+    `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST`; the sandbox path had dropped that check, so
+    with an allowlist of `caliber.workflows.*` an independent probe still executed
+    `os.getcwd`. The subprocess narrows *where* code runs — it does not decide what an
+    operator sanctioned, and containment should not silently cost authorization.
+    """
+    from caliber.workflows.ir import IRToolBinding
+    from caliber.workflows.runtime import _bind, bind_sandbox_config
+    from caliber.workflows.tools import InMemoryToolResolver, bind_module_allowlist
+
+    def _binding(module_path: str, callable_name: str) -> IRToolBinding:
+        return IRToolBinding(
+            local_name=callable_name,
+            registry_ref=f"tool.{callable_name}.v1",
+            version_constraint=">=1",
+            requires_approval=False,
+            side_effect_level="read",
+            allow_in_preview=True,
+            module_path=module_path,
+            callable_name=callable_name,
+        )
+
+    previous = runtime_module._ACTIVE_SANDBOX_CONFIG
+    bind_sandbox_config(None)
+    bind_module_allowlist("caliber.workflows.*")
+    try:
+        resolver = InMemoryToolResolver([])
+        assert _bind(_binding("os", "getcwd"), resolver) is None, (
+            "a module outside the allowlist must not bind, sandboxed or not"
+        )
+        # The guard has to stay narrow: an allowlisted module must still bind.
+        assert (
+            _bind(_binding("caliber.workflows.demo_tools", "lookup_policy"), resolver) is not None
+        )
+    finally:
+        bind_module_allowlist("")
+        bind_sandbox_config(previous)
+
+
 def test_disabling_the_sandbox_is_possible_but_not_the_default() -> None:
     """The escape hatch exists for tests that monkeypatch a tool's module attribute, which
     cannot work across a process boundary. It must stay opt-*out*, never opt-in."""

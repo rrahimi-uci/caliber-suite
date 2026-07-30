@@ -116,6 +116,14 @@ class LocalSubprocessToolSandbox:
                 "args": request.args,
                 "callable_name": request.callable_name,
                 "input": request.input,
+                # Forwarded, and this omission was a real defect: the runtime sent
+                # candidate call shapes and this method dropped them, so the child fell
+                # back to ``fn(*args, **input)`` with both empty. A model tool call for
+                # ``lookup_policy(query="refund policy")`` executed as ``lookup_policy()``
+                # and returned an answer computed from an empty query — silent argument
+                # loss, which is worse than an error because the caller sees a plausible
+                # result. Serialized by ``mode="json"`` so the payload stays JSON-safe.
+                "shapes": [s.model_dump(mode="json") for s in request.shapes],
             },
             timeout_seconds=request.timeout_seconds,
         )

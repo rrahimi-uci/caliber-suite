@@ -23,6 +23,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberEffectLedger
+from caliber.egress import EgressPolicy
 from caliber.workflows.effect_ledger import (
     COMPLETED,
     FAILED,
@@ -41,6 +42,16 @@ from caliber.workflows.runtime import RuntimePlan, _perform_guarded_effect
 # ---------------------------------------------------------------------------
 # Key derivation
 # ---------------------------------------------------------------------------
+
+
+#: The egress pre-check now fails closed on a host this process cannot resolve, because a
+#: policy-time DNS failure followed by a successful connect-time lookup would reach an
+#: address nothing vetted. These tests use RFC 2606 reserved names (``*.example``), which
+#: never resolve, and inject a fake sender — so no request leaves the process and DNS
+#: vetting is not the property under test. Opting in locally keeps the fail-closed default
+#: in force everywhere else; it is pinned by tests/test_egress_policy.py and
+#: tests/test_egress_rebinding.py.
+_ALLOW_UNRESOLVABLE = EgressPolicy(allow_unresolvable_hosts=True)
 
 
 def test_the_key_is_stable_across_attempts_of_the_same_run() -> None:
@@ -167,7 +178,7 @@ def test_without_a_ledger_the_effect_is_performed_plainly() -> None:
     """Preview, evaluation, and deploy-gate paths refuse unisolated effect nodes
     outright, so there is nothing to deduplicate and no ledger is attached."""
     calls: list[int] = []
-    plan = RuntimePlan(ir=None, resolver=None)  # type: ignore[arg-type]
+    plan = RuntimePlan(egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None)  # type: ignore[arg-type]
 
     def _perform() -> dict[str, str]:
         calls.append(1)
@@ -185,7 +196,9 @@ def test_a_restarted_run_replays_rather_than_re_performing_the_effect(
     """The concrete regression: the same node, same run, same inputs — as after a
     lease expiry — must not fire the effect twice."""
     calls: list[int] = []
-    plan = RuntimePlan(ir=None, resolver=None, effect_ledger=ledger)  # type: ignore[arg-type]
+    plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None, effect_ledger=ledger
+    )  # type: ignore[arg-type]
     request = {"url": "https://x.example/pay", "method": "POST", "body": {"amount": 10}}
 
     def _perform() -> dict[str, object]:
@@ -195,7 +208,9 @@ def test_a_restarted_run_replays_rather_than_re_performing_the_effect(
     first = _perform_guarded_effect(plan, node_id="charge", request=request, perform=_perform)
     # A restart rebuilds the plan and the ledger, which is what makes the second
     # claim collide with the first rather than counting as a second occurrence.
-    resumed = RuntimePlan(ir=None, resolver=None, effect_ledger=restart())  # type: ignore[arg-type]
+    resumed = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None, effect_ledger=restart()
+    )  # type: ignore[arg-type]
     second = _perform_guarded_effect(resumed, node_id="charge", request=request, perform=_perform)
 
     assert len(calls) == 1  # performed once...
@@ -209,7 +224,9 @@ def test_the_guard_surfaces_an_indeterminate_effect_as_a_runtime_error(
 
     request = {"url": "https://x.example/pay"}
     ledger.claim(node_id="charge", payload=request)  # abandoned by a dead attempt
-    plan = RuntimePlan(ir=None, resolver=None, effect_ledger=restart())  # type: ignore[arg-type]
+    plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None, effect_ledger=restart()
+    )  # type: ignore[arg-type]
 
     with pytest.raises(ToolExecutionError, match="unknown"):
         _perform_guarded_effect(
@@ -223,7 +240,9 @@ def test_a_connection_failure_is_retryable_but_a_timeout_is_not(
     """A refused connection proves the request never went out. A timeout does not:
     the remote system may already have processed it, so the claim is kept and the
     next attempt reports it as indeterminate rather than repeating the effect."""
-    plan = RuntimePlan(ir=None, resolver=None, effect_ledger=ledger)  # type: ignore[arg-type]
+    plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None, effect_ledger=ledger
+    )  # type: ignore[arg-type]
 
     def _refused() -> dict[str, str]:
         raise ConnectionRefusedError("nothing listening")
@@ -261,7 +280,9 @@ def test_a_loop_repeating_the_same_request_performs_it_every_time(
     suppressed as a replay. Dropping a real effect is as wrong as duplicating one.
     """
     calls: list[dict[str, object]] = []
-    plan = RuntimePlan(ir=None, resolver=None, effect_ledger=ledger)  # type: ignore[arg-type]
+    plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None, effect_ledger=ledger
+    )  # type: ignore[arg-type]
     request = {"url": "https://x.example/notify", "method": "POST", "body": {"msg": "same"}}
 
     def _perform() -> dict[str, object]:
