@@ -134,7 +134,12 @@ def create_judge_record(
         .first()
     )
     if existing is not None:
-        raise ValueError(f"judge name {payload.name!r} is already in use by {existing.judge_id!r}")
+        # Deliberately does not name the conflicting row. ``uq_judge_name`` is global, so a
+        # caller in one project can collide with a judge in another — and echoing
+        # ``existing.judge_id`` handed them that project's identifier, which is then usable
+        # against any route that still takes a bare ID. The caller needs to know the name is
+        # taken, which this says; it does not need to know whose.
+        raise ValueError(f"judge name {payload.name!r} is already in use")
     judge = CaliberJudge(
         judge_id=new_judge_id(),
         name=payload.name,

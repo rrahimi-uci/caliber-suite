@@ -100,8 +100,33 @@ TRIGGER_PATH = PREFIX + "/workflows/{workflow_id}/trigger"
 logger = logging.getLogger("caliber.routes.workflow_runs")
 
 
+def _visible_workflow_for_run(session: Session, request: Request, workflow_id: str) -> Any:
+    """The caller's view of a workflow, or ``None``.
+
+    Every workflow read reached from a run-creation or trigger path goes through here. They
+    were bare primary-key lookups, so a caller could queue a run against another project's
+    workflow — an independent probe observed **202 Accepted**, which is worse than a read:
+    it executes someone else's graph and bills their providers.
+
+    A forbidden parent 404s exactly like a missing one, so "exists but you may not see it"
+    is never disclosed.
+    """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+    from caliber.db.scoping import get_visible  # noqa: PLC0415
+
+    if not workflow_id:
+        return None
+    return get_visible(
+        session,
+        CaliberWorkflow,
+        CaliberWorkflow.workflow_id,
+        workflow_id,
+        resolve_identity(request),
+    )
+
+
 def _workflow_and_version_for_run(
-    session: Session, payload: WorkflowRunCreateRequest
+    session: Session, payload: WorkflowRunCreateRequest, *, request: Request
 ) -> tuple[CaliberWorkflow, CaliberWorkflowVersion, str]:
     if payload.workflow_version_id:
         version = session.get(CaliberWorkflowVersion, payload.workflow_version_id)
@@ -110,7 +135,7 @@ def _workflow_and_version_for_run(
                 status_code=404,
                 detail=f"workflow version {payload.workflow_version_id!r} not found",
             )
-        workflow = session.get(CaliberWorkflow, version.workflow_id)
+        workflow = _visible_workflow_for_run(session, request, version.workflow_id)
         if workflow is None:
             raise HTTPException(
                 status_code=404,
@@ -125,7 +150,7 @@ def _workflow_and_version_for_run(
 
     workflow_id = payload.workflow_id or ""
     alias = payload.alias or "manual"
-    workflow_row = session.get(CaliberWorkflow, workflow_id)
+    workflow_row = _visible_workflow_for_run(session, request, workflow_id)
     if workflow_row is None:
         raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
 
@@ -586,7 +611,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:
     payload = WorkflowRunCreateRequest.model_validate(body)
     factory = get_session_factory(request)
     with factory() as session:
-        workflow, version, alias = _workflow_and_version_for_run(session, payload)
+        workflow, version, alias = _workflow_and_version_for_run(session, payload, request=request)
         submitted_manifest = payload.manifest
         if submitted_manifest is not None and alias != "manual":
             raise HTTPException(
@@ -746,13 +771,20 @@ def _start_trigger(version: CaliberWorkflowVersion) -> StartTrigger | None:
 def _resolve_event_trigger_target(
     session: Session,
     *,
+    request: Request,
     workflow_id: str,
     requested_alias: str | None,
 ) -> tuple[CaliberWorkflow, CaliberWorkflowVersion, str, StartTrigger]:
+    """Resolve the deployment an event trigger fires, scoped to the caller.
+
+    The trigger paths resolved workflows and deployments with bare reads, so an event
+    posted with a foreign workflow ID started that workflow's run.
+    """
     if requested_alias:
         workflow, version, alias = _workflow_and_version_for_run(
             session,
             WorkflowRunCreateRequest(workflow_id=workflow_id, alias=requested_alias),
+            request=request,
         )
         trigger = _start_trigger(version)
         if trigger is None or trigger.mode != "event":
@@ -771,7 +803,7 @@ def _resolve_event_trigger_target(
             )
         return workflow, version, alias, trigger
 
-    workflow_row = session.get(CaliberWorkflow, workflow_id)
+    workflow_row = _visible_workflow_for_run(session, request, workflow_id)
     if workflow_row is None:
         raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
 
@@ -836,6 +868,7 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
     with factory() as session:
         workflow, version, alias, trigger = _resolve_event_trigger_target(
             session,
+            request=request,
             workflow_id=workflow_id,
             requested_alias=payload.alias,
         )
@@ -2146,10 +2179,28 @@ async def resume_workflow_run_by_event(  # noqa: PLR0912, PLR0915
     payload = WorkflowRunResumeByEventRequest.model_validate(body)
     factory = get_session_factory(request)
     with factory() as session:
+        # Restricted to runs whose parent workflow the caller can see. This scanned every
+        # waiting run in the database, so an external event could resume another project's
+        # run — and the 409 diagnostics below echo run IDs, so even a non-matching event
+        # enumerated foreign runs. A run carries no visibility of its own, hence the
+        # subquery against the workflows the caller may actually see.
+        from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+        identity = resolve_identity(request)
+        visible_workflow_ids = apply_visibility_filter(
+            select(CaliberWorkflow.workflow_id),
+            CaliberWorkflow,
+            identity,
+            identity.active_project_id,
+        )
         rows = (
             session.execute(
                 select(CaliberWorkflowRun)
-                .where(CaliberWorkflowRun.status == RUN_STATUS_WAITING_EVENT)
+                .where(
+                    CaliberWorkflowRun.status == RUN_STATUS_WAITING_EVENT,
+                    CaliberWorkflowRun.workflow_id.in_(visible_workflow_ids),
+                )
                 .order_by(CaliberWorkflowRun.queued_at.asc())
             )
             .scalars()

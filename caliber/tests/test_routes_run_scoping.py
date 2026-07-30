@@ -268,6 +268,121 @@ def test_a_foreign_judge_cannot_be_run_or_aligned(
     assert "proprietary rubric" not in response.text
 
 
+def test_a_foreign_workflow_cannot_be_queued_for_a_run(
+    client: TestClient, foreign_run: str
+) -> None:
+    """Queueing is worse than reading: it executes someone else's graph on their providers.
+
+    `_workflow_and_version_for_run` used bare primary-key reads for both the version's
+    parent and the direct workflow lookup, and an independent probe observed **202
+    Accepted** for a foreign workflow ID.
+    """
+    client.app.state.config = client.app.state.config.model_copy(
+        update={
+            "operator_users": "@dev2,@dev3",
+            "approver_users": "@dev2,@dev3",
+            "workflow_run_queue_enabled": True,
+        }
+    )
+
+    by_workflow = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_id": "WF-RUNS", "input": "hi"},
+        headers=OTHER,
+    )
+    assert by_workflow.status_code == 404, by_workflow.text
+
+    by_version = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": "WFV-RUNS", "input": "hi"},
+        headers=OTHER,
+    )
+    assert by_version.status_code == 404, by_version.text
+
+
+def test_an_event_cannot_resume_a_foreign_waiting_run(client: TestClient, foreign_run: str) -> None:
+    """Resume-by-event scanned every waiting run in the database.
+
+    Two problems, not one: an external event could resume another project's run, and the
+    409 diagnostics echo run IDs, so even a non-matching event enumerated foreign runs. The
+    query is now restricted to workflows the caller can see.
+    """
+    client.app.state.config = client.app.state.config.model_copy(
+        update={
+            "operator_users": "@dev2,@dev3",
+            "approver_users": "@dev2,@dev3",
+            "workflow_run_queue_enabled": True,
+            "workflow_run_checkpointing_enabled": True,
+        }
+    )
+
+    response = client.post(
+        f"{PREFIX}/workflow-runs/resume-by-event",
+        json={"event_name": "anything", "event_payload": {}},
+        headers=OTHER,
+    )
+
+    # Whatever the outcome, no foreign run id may appear in the body.
+    assert foreign_run not in response.text, "resume-by-event enumerated a foreign run"
+
+
+def test_a_playground_runs_files_are_private_to_their_uploader(client: TestClient) -> None:
+    """A playground run has no parent workflow, so it is scoped by uploader.
+
+    The list and download routes filtered on nothing but the caller-supplied
+    `playground_run_id`, so any authenticated caller who knew or guessed one could read
+    another user's files — an independent probe observed 200 on both. `project_id` cannot
+    carry this: playground uploads default it to `'default'`, so it isolates nobody.
+    """
+    upload = client.post(
+        f"{PREFIX}/playground-runs/PG-secret/files",
+        files={"file": ("notes.txt", b"my private scratch", "text/plain")},
+        data={"kind": "input"},
+    )
+    assert upload.status_code == 201, upload.text
+    file_id = upload.json()["data"]["file_id"]
+
+    # The uploader still sees it — the guard must not block the legitimate caller.
+    mine = client.get(f"{PREFIX}/playground-runs/PG-secret/files")
+    assert mine.status_code == 200
+    assert [i["file_id"] for i in mine.json()["data"]["items"]] == [file_id]
+
+    # A different developer, knowing the run ID, must see nothing and download nothing.
+    listed = client.get(f"{PREFIX}/playground-runs/PG-secret/files", headers=OTHER)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["data"]["items"] == [], "another user's playground files leaked"
+
+    content = client.get(
+        f"{PREFIX}/playground-runs/PG-secret/files/{file_id}/content", headers=OTHER
+    )
+    assert content.status_code == 404, content.text
+    assert b"private scratch" not in content.content
+
+
+def test_a_duplicate_judge_name_does_not_disclose_the_conflicting_id(
+    client: TestClient, foreign_judge: str
+) -> None:
+    """`uq_judge_name` is global, so a name collision can cross a project boundary.
+
+    The 409 used to echo the conflicting `judge_id`, handing the caller an identifier from
+    a project they cannot see — which is then usable against any route still taking a bare
+    ID. The caller needs to know the name is taken, not whose it is.
+    """
+    response = client.post(
+        f"{PREFIX}/judges",
+        json={
+            "name": "secret-judge",
+            "instructions": "Grade {{ inputs }} somehow.",
+            "model": "openai:/gpt-4o-mini",
+        },
+        headers=OTHER,
+    )
+
+    assert response.status_code == 409, response.text
+    assert "already in use" in response.text
+    assert foreign_judge not in response.text, "the 409 disclosed a foreign judge id"
+
+
 def test_an_unknown_run_id_is_also_404_and_indistinguishable(
     client: TestClient, foreign_run: str
 ) -> None:

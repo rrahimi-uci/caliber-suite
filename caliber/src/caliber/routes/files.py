@@ -414,9 +414,33 @@ async def register_artifact(request: Request) -> JSONResponse:
     return envelope_response_dict(payload, status_code=201)
 
 
-def _pg_file_or_404(session: Session, run_id: str, file_id: str) -> CaliberWorkflowFile:
+def _pg_file_or_404(
+    session: Session, run_id: str, file_id: str, *, actor: str
+) -> CaliberWorkflowFile:
+    """Fetch a playground file, but only the caller's own.
+
+    A playground run has no parent workflow to scope through, and this previously matched
+    on nothing but the caller-supplied ``playground_run_id`` — so any authenticated caller
+    who knew or guessed a run ID could download another user's files. An independent probe
+    observed **200**.
+
+    ``created_by`` is the scope because it is the only ownership a playground row has:
+    ``project_id`` defaults to ``'default'`` for these uploads, so it isolates nobody. The
+    column was already being written by ``_write_and_record`` — the routes simply never
+    consulted it, which is why this was a filtering bug rather than a missing-data one.
+
+    A row whose ``created_by`` is empty (the column default) matches **no** caller rather
+    than every caller. That is the safe direction for a gap that was a disclosure, and it
+    only affects rows that never recorded an uploader.
+    """
     row = session.get(CaliberWorkflowFile, file_id)
-    if row is None or row.playground_run_id != run_id or row.deleted_at is not None:
+    if (
+        row is None
+        or row.playground_run_id != run_id
+        or row.deleted_at is not None
+        or not row.created_by
+        or row.created_by != actor
+    ):
         raise HTTPException(
             status_code=404, detail=f"file {file_id!r} not found in playground run {run_id!r}"
         )
@@ -462,7 +486,7 @@ async def pg_upload(request: Request) -> JSONResponse:
 
 async def pg_list_files(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
-    require_user(request)
+    actor = require_user(request)
     kind = request.query_params.get("kind")
     if kind and kind not in FILE_KINDS:
         raise HTTPException(status_code=400, detail=f"invalid kind {kind!r}")
@@ -471,6 +495,9 @@ async def pg_list_files(request: Request) -> JSONResponse:
         stmt = select(CaliberWorkflowFile).where(
             CaliberWorkflowFile.playground_run_id == run_id,
             CaliberWorkflowFile.deleted_at.is_(None),
+            # Own files only — see ``_pg_file_or_404``. The list route mattered as much as
+            # the download: it handed a caller the file IDs to download in the first place.
+            CaliberWorkflowFile.created_by == actor,
         )
         if kind:
             stmt = stmt.where(CaliberWorkflowFile.kind == kind)
@@ -489,7 +516,7 @@ async def pg_get_file_content(request: Request) -> Response:
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            row = _pg_file_or_404(session, run_id, file_id)
+            row = _pg_file_or_404(session, run_id, file_id, actor=actor)
             data = service.read_bytes(row)
             service.record_event(
                 session,

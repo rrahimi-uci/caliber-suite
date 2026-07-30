@@ -2521,6 +2521,16 @@ def _sandboxed_registered_tool(binding: IRToolBinding) -> Callable[..., Any]:
                 args=args,
                 input=kwargs,
                 shapes=shapes,
+                # The registered-module budget, not the source-snippet one: this run pays
+                # for a cold interpreter plus the module's imports before the tool body
+                # starts. See the config field for the measured startup cost.
+                timeout_seconds=float(
+                    getattr(
+                        _ACTIVE_SANDBOX_CONFIG,
+                        "registered_tool_sandbox_timeout_seconds",
+                        30.0,
+                    )
+                ),
             )
         )
         if result.status != "completed":

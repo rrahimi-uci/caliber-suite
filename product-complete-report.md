@@ -1548,6 +1548,65 @@ verify the case the author had in mind; they cannot find the branch the author d
 consider. The independent negative probe is the only thing in this project's history that
 has reliably found these, and it has now done so five editions in a row.
 
+### 0.22 Closing the accepted-open C3 and C8 items
+
+§0.21 accepted §0.20's finding that C3 was repaired at helper level and not at family
+level, and left it open. This pass closes the named entry points. Each was reproduced
+before being changed, and each fix was verified by reverting it and confirming the new
+test fails.
+
+| Entry point | What it allowed | Fix |
+| --- | --- | --- |
+| Queued run creation (`_workflow_and_version_for_run`) | Two bare workflow reads, so a caller could queue a run on another project's workflow. Reproduced as **202 Accepted** — worse than a read, because it executes someone else's graph and bills their providers | All three workflow reads (here and in the trigger resolver) go through `_visible_workflow_for_run` |
+| Event trigger resolution (`_resolve_event_trigger_target`) | Workflow/deployment resolved unscoped, so an event naming a foreign workflow started its run | `request` threaded through; same scoped helper |
+| Resume-by-event | Scanned **every** waiting run in the database. Two defects, not one: an event could resume another project's run, and the 409 diagnostics echo run IDs, so even a non-matching event enumerated foreign runs | Query restricted to runs whose parent workflow the caller can see, via a visibility subquery |
+| Playground file list/download | Filtered on nothing but the caller-supplied `playground_run_id`. Probes saw **200** on both | Scoped to `created_by`. That column already existed and was already being written — the routes never consulted it, so this was a filtering bug, not missing data |
+| Judge duplicate-name validation | The 409 echoed the conflicting `judge_id`, and `uq_judge_name` is global, so a name collision handed the caller an identifier from a project they cannot see | The message says the name is taken without naming whose |
+
+**A correction worth recording.** The playground fix was nearly a schema migration. Having
+read only the first columns of `CaliberWorkflowFile`, this pass concluded there was no
+ownership column, wrote migration `0072` to add `created_by`, and added the field to the
+model — producing a *duplicate* definition of a column that had existed all along and was
+already populated. A `SyntaxError` on the repeated keyword argument caught it, and both
+were reverted. The lesson is narrow and practical: confirm a column is absent by reading
+the whole model, not the part that fits on screen.
+
+**Playground scoping is by owner, deliberately.** A playground run has no parent workflow to
+scope through, and `project_id` defaults to `'default'` for these uploads, so project-based
+filtering would have isolated nobody. A row with an empty `created_by` now matches no
+caller rather than every caller — the safe direction for what was a disclosure, affecting
+only rows that never recorded an uploader.
+
+#### The C8 closure has a measured latency cost
+
+Running registered tools out of process is not free, and the suite surfaced it as a timeout
+rather than a slowdown: a working tool was reported as `tool sandbox timed out after 5.00s`
+under a saturated host. Measured on an idle machine:
+
+| Sandboxed call | Cold-start cost |
+| --- | ---: |
+| Trivial module (`os.getpid`) | ~0.05s |
+| Module importing the caliber package | ~0.55s |
+
+That is per call, and it is the price of the boundary: the control plane no longer imports
+the module, so every invocation pays for a fresh interpreter and its imports. The 5s default
+was a *source-snippet* budget, where 5s means 5s of execution; a registered module spends
+part of that budget before its body starts. Rather than loosening the snippet budget,
+registered-module runs now have their own — `registered_tool_sandbox_timeout_seconds`,
+30s — which still bounds a runaway tool.
+
+An operator with latency-sensitive tools should know the trade: in-process execution was
+faster and shared the API server's memory and credentials with user code. A warm pool of
+sandbox workers would recover most of the cost and is not implemented.
+
+**Still open, and not claimed closed.** The C8 residuals stand: tool source inspection and
+the test/calibration routes still import registered Python in the control plane, generated
+compiler exports still use the legacy in-process binder, and the sandbox is a process
+boundary with resource limits — not a container, VM, or seccomp boundary. The operations
+gaps §0.20 lists are unchanged too: no alert routing or incident history, a process-local
+service rate limiter that replicas multiply, and in-flight delivery state that is not
+durable across abrupt process loss.
+
 ## Executive summary
 
 CALIBER is a credible, broad low-code agent engineering studio and lifecycle control

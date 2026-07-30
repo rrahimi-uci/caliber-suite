@@ -974,6 +974,20 @@ class CaliberConfig(BaseModel):
     #: the "decorative control" this codebase has repeatedly been audited for.
     registered_tool_sandbox_enabled: bool = True
     tool_sandbox_timeout_seconds: float = Field(default=5.0, gt=0)
+    #: Timeout for a **registered module** run, kept separate from the source-snippet
+    #: timeout above because the two budgets pay for different things.
+    #:
+    #: A source snippet is a few lines with no heavy imports, so 5s is 5s of execution. A
+    #: registered module runs in a cold ``python -I`` that must import the module and
+    #: whatever it depends on: measured at ~0.05s for a trivial module but ~0.55s for one
+    #: importing the caliber package, on an idle machine. Under a saturated host that
+    #: startup alone exceeded the 5s budget and a working tool was reported as timed out.
+    #:
+    #: So this is not the same number with more slack — it is a different budget covering
+    #: interpreter start plus import plus execution. It still bounds a runaway tool, and the
+    #: per-call startup cost is a real consequence of running registered tools out of
+    #: process rather than importing them into the control plane.
+    registered_tool_sandbox_timeout_seconds: float = Field(default=30.0, gt=0)
     # Caps a sandboxed node's serialized return. 64 KiB was too small for nodes
     # that emit data/HTML (e.g. a KG report); 1 MiB is a safer default, and big
     # document pipelines raise it via CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES.
@@ -1754,6 +1768,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
     ("CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED", "registered_tool_sandbox_enabled", bool),
     ("CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS", "tool_sandbox_timeout_seconds", float),
+    (
+        "CALIBER_REGISTERED_TOOL_SANDBOX_TIMEOUT_SECONDS",
+        "registered_tool_sandbox_timeout_seconds",
+        float,
+    ),
     ("CALIBER_TOOL_SANDBOX_MAX_OUTPUT_BYTES", "tool_sandbox_max_output_bytes", int),
     ("CALIBER_TOOL_SANDBOX_MAX_MEMORY_BYTES", "tool_sandbox_max_memory_bytes", int),
     ("CALIBER_TOOL_SANDBOX_MAX_FILE_BYTES", "tool_sandbox_max_file_bytes", int),
