@@ -21,7 +21,7 @@ different run's path (no IDOR).
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,12 +39,18 @@ from caliber.auth import (
     require_user,
     resolve_identity,
 )
-from caliber.db.models import CaliberProject, CaliberWorkflowFile, CaliberWorkflowRun
+from caliber.db.models import (
+    CaliberProject,
+    CaliberWorkflow,
+    CaliberWorkflowFile,
+    CaliberWorkflowRun,
+)
 from caliber.routes._deps import (
     envelope_response_dict,
     get_session_factory,
     get_working_dir_service,
     parse_json_object,
+    scoped_child_or_404,
 )
 from caliber.storage import (
     FILE_KINDS,
@@ -87,11 +93,28 @@ def _storage_http(exc: StorageError) -> HTTPException:
     return HTTPException(status_code=status, detail=str(exc))
 
 
-def _require_run(session: Session, run_id: str) -> CaliberWorkflowRun:
-    run = session.get(CaliberWorkflowRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"workflow run {run_id!r} not found")
-    return run
+def _require_run(session: Session, run_id: str, *, request: Request) -> CaliberWorkflowRun:
+    """Resolve the run, but only if its parent workflow is visible to the caller (C3).
+
+    This was a bare ``session.get``, and it is the most consequential instance of the C3
+    pattern in the product: these five routes list, download, upload, and register a run's
+    **files**. ``_file_for_run_or_404`` below has an IDOR guard tying a file to its run, but
+    that guard is worthless if the run itself is reachable by anyone who knows its id — the
+    file genuinely does belong to that run, so the check passes and the bytes are served.
+
+    ``request`` is keyword-only and required: an optional scope argument is one a caller
+    forgets, and here the forgotten case serves artifact content across a project boundary.
+    """
+    run = scoped_child_or_404(
+        session,
+        request,
+        child=CaliberWorkflowRun,
+        child_id=run_id,
+        child_label="workflow run",
+        parent_model=CaliberWorkflow,
+        parent_pk=CaliberWorkflow.workflow_id,
+    )
+    return cast("CaliberWorkflowRun", run)
 
 
 def _file_for_run_or_404(session: Session, run_id: str, file_id: str) -> CaliberWorkflowFile:
@@ -221,7 +244,7 @@ async def run_upload(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            run = _require_run(session, run_id)
+            run = _require_run(session, run_id, request=request)
             scoped_service = service
             if run.project_id:
                 project = session.get(CaliberProject, run.project_id)
@@ -276,7 +299,7 @@ async def list_files(request: Request) -> JSONResponse:
         )
     factory = get_session_factory(request)
     with factory() as session:
-        _require_run(session, run_id)
+        _require_run(session, run_id, request=request)
         stmt = select(CaliberWorkflowFile).where(
             CaliberWorkflowFile.workflow_run_id == run_id,
             CaliberWorkflowFile.deleted_at.is_(None),
@@ -298,7 +321,7 @@ async def get_file(request: Request) -> JSONResponse:
     require_user(request)
     factory = get_session_factory(request)
     with factory() as session:
-        _require_run(session, run_id)
+        _require_run(session, run_id, request=request)
         row = _file_for_run_or_404(session, run_id, file_id)
 
         payload = CaliberFileRecord.from_row(row).to_api()
@@ -319,7 +342,7 @@ async def get_file_content(request: Request) -> Response:
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            _require_run(session, run_id)
+            _require_run(session, run_id, request=request)
             row = _file_for_run_or_404(session, run_id, file_id)
             data = service.read_bytes(row)
             service.record_event(
@@ -356,7 +379,7 @@ async def register_artifact(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     service = get_working_dir_service(request)
     with factory() as session:
-        _require_run(session, run_id)
+        _require_run(session, run_id, request=request)
         row = _file_for_run_or_404(session, run_id, file_id)
         row.status = "artifact"
         row.kind = "artifact"

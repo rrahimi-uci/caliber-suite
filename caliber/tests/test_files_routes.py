@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.testclient import TestClient
 
 from caliber.config import WorkflowStorageConfig
-from caliber.db.models import CaliberProject, CaliberWorkflowFile, CaliberWorkflowRun
+from caliber.db.models import (
+    CaliberProject,
+    CaliberWorkflow,
+    CaliberWorkflowFile,
+    CaliberWorkflowRun,
+)
 from caliber.storage import LocalStorageBackend, WorkingDirectoryService
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -28,6 +33,12 @@ def files_client(client: TestClient, tmp_path: Path) -> TestClient:
 @pytest.fixture
 def run_id(session_factory: sessionmaker[Session]) -> str:
     with session_factory() as s:
+        # The parent workflow is seeded deliberately. File routes scope a run by its
+        # parent's visibility (C3), and an orphaned run — one whose ``workflow_id`` names
+        # no row — resolves to 404 by design, because failing open on a dangling foreign
+        # key would make data corruption an access-control bypass. A run with no workflow
+        # is not a state the product can produce, so the fixture should not invent one.
+        s.add(CaliberWorkflow(workflow_id="WF-1", name="Files", owner="@test"))
         s.add(CaliberWorkflowRun(workflow_run_id="WR-T1", workflow_id="WF-1"))
         s.commit()
     return "WR-T1"
@@ -101,6 +112,15 @@ def test_project_staging_and_run_upload_keep_tenant_project_scope(
             )
         )
         session.add(
+            CaliberWorkflow(
+                workflow_id="WF-project",
+                name="Scoped files",
+                owner="@test",
+                project_id="PRJ-files",
+                visibility="project",
+            )
+        )
+        session.add(
             CaliberWorkflowRun(
                 workflow_run_id="WR-project",
                 workflow_id="WF-project",
@@ -159,7 +179,9 @@ def test_idor_file_from_other_run_not_visible(
     file_id = _upload(files_client, f"{PREFIX}/workflow-runs/{run_id}/files").json()["data"][
         "file_id"
     ]
-    # a second run
+    # A second run under the *same* workflow, so this test keeps proving what it claims.
+    # If WR-T2's parent were absent or foreign, the 404s below would come from run scoping
+    # rather than from the IDOR guard, and the test would pass while covering nothing.
     with session_factory() as s:
         s.add(CaliberWorkflowRun(workflow_run_id="WR-T2", workflow_id="WF-1"))
         s.commit()

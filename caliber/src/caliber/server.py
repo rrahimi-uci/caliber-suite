@@ -384,8 +384,12 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # runtime, generated compiler code, and two route paths, and an allowlist only
     # some of them honoured would read as enforced while leaving the rest open.
     bind_module_allowlist(resolved.registered_tool_module_allowlist)
-    # Registered tools execute out-of-process (C8); this gives that subprocess the
-    # operator's configured limits rather than the class defaults.
+    # Binds the operator's sandbox limits for the out-of-process registered-tool
+    # mechanism. **The runtime is not yet routed through it** — `_bind()` still returns
+    # the imported callable — so this is presently wiring for a path nothing takes. An
+    # earlier version of this comment claimed registered tools "execute out-of-process",
+    # which was false the moment that wiring was reverted; see
+    # `_sandboxed_registered_tool` for why it was, and what closing C8 requires.
     bind_sandbox_config(resolved)
     llm_provider = build_provider(resolved)
     artifact_store = build_store(

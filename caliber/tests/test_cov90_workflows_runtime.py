@@ -545,13 +545,22 @@ def _install_fake_httpx(
     captured: dict[str, Any] = {}
 
     class FakeClient:
-        def __init__(self, timeout: Any = None, follow_redirects: Any = None) -> None:
+        def __init__(
+            self,
+            timeout: Any = None,
+            follow_redirects: Any = None,
+            transport: Any = None,
+        ) -> None:
             captured["timeout"] = timeout
             # Captured, not ignored: ``follow_redirects=False`` is an SSRF control, not
-            # a restated default. Egress policy checks the URL *before* the request, so
-            # a followed 302 would reach an address that check never saw. A double that
-            # silently accepted any value here would let that regress unnoticed.
+            # a restated default. A double that silently accepted any value here would
+            # let that regress unnoticed.
             captured["follow_redirects"] = follow_redirects
+            # The primary SSRF control is now the transport, which pins the connection to
+            # the address policy vetted (N4). ``follow_redirects=False`` became
+            # defence in depth rather than the only defence, so the transport is the thing
+            # this double must not let disappear silently.
+            captured["transport"] = transport
 
         def __enter__(self) -> Any:
             return self
@@ -596,9 +605,13 @@ def test_default_webhook_sender_posts_json_body(monkeypatch: pytest.MonkeyPatch)
     assert captured["kwargs"]["json"] == {"event": "created"}
     assert captured["kwargs"]["headers"] == {"X-Api": "7"}
     assert captured["timeout"] == 12.0
-    # The SSRF control: egress policy vets the URL before the request, so a followed
-    # redirect would reach an address it never checked.
     assert captured["follow_redirects"] is False
+    # The SSRF control that actually closes the rebinding gap: the client must be built on
+    # the egress-guard transport, which connects to the address policy vetted rather than
+    # re-resolving the name. A plain httpx.Client here would silently reopen N4.
+    from caliber.egress import EgressGuardTransport
+
+    assert isinstance(captured["transport"], EgressGuardTransport)
 
 
 def test_default_webhook_sender_get_uses_params(monkeypatch: pytest.MonkeyPatch) -> None:

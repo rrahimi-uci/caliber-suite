@@ -214,11 +214,19 @@ async def _await_subscription(bus: EventBus, timeout: float = 1.0) -> None:
         await asyncio.sleep(0.01)
 
 
-async def _await_captures(captured: list[Any], expected: int, timeout: float = 1.0) -> None:
+async def _await_captures(captured: list[Any], expected: int, timeout: float = 5.0) -> None:
     """Wait until ``captured`` has at least ``expected`` entries.
 
     Used after a publish so the test asserts on the dispatch *result*
     rather than racing the event loop with a hard-coded sleep.
+
+    The deadline is generous on purpose. Retry backoff is already stubbed to zero in
+    ``_build_dispatcher_with``, so what this actually waits on is the dispatcher task being
+    *scheduled* — and under the full suite with ``-n auto`` every core is saturated, so a
+    multi-attempt test could exceed a 1s budget and fail as if delivery had broken. It was
+    observed exactly once in a 5634-test run and never in isolation, which is the signature
+    of a scheduling budget rather than a defect. Raising the ceiling costs nothing when
+    things pass, because the loop returns as soon as the condition holds.
     """
     deadline = asyncio.get_running_loop().time() + timeout
     while len(captured) < expected:
@@ -882,3 +890,98 @@ async def test_stopping_records_the_event_that_was_in_flight(session_factory) ->
     assert in_flight, "an event in flight at shutdown must still be recorded"
     assert "in flight" in in_flight[0].reason
     assert in_flight[0].kind == "shutdown"
+
+
+@pytest.mark.asyncio
+async def test_shutdown_records_every_target_still_owed_an_outcome(session_factory) -> None:
+    """Per-target tracking, which an independent probe showed the first fix lacked.
+
+    One event fans out to every configured URL and each target has its own outcome, but
+    the marker was event-level. So the *first* target to be dead-lettered discharged
+    every other target's obligation: with target one failing permanently and target two
+    still blocked, `stop()` logged a clean stop and wrote no row for target two.
+    """
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    release = threading.Event()
+
+    def _urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        if "doomed" in req.full_url:
+            # A 4xx status rather than a hand-built HTTPError: it travels the real
+            # permanent-failure path in ``_post``, and constructing HTTPError with a
+            # None file object trips a ResourceWarning that pytest promotes to an error.
+            return _FakeResponse(status=400)
+        release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://doomed.example/hook", "https://blocked.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "fan-out"})
+            await asyncio.sleep(0.3)
+        finally:
+            await dispatcher.stop()
+            release.set()
+
+    with session_factory() as session:
+        rows = session.query(CaliberWebhookDeadLetter).all()
+    by_url = {row.url: row.kind for row in rows}
+    assert "https://doomed.example/hook" in by_url, "the permanently failing target"
+    assert by_url["https://blocked.example/hook"] == "shutdown", (
+        "a target still blocked at shutdown must get its own row, not be discharged "
+        "by a sibling target's dead letter"
+    )
+
+
+@pytest.mark.asyncio
+async def test_shutdown_does_not_dead_letter_an_already_delivered_target(
+    session_factory,
+) -> None:
+    """The converse, and the other half of the same defect.
+
+    Draining the event against *every* configured URL would invent a shutdown row for a
+    target that had already succeeded — reporting a delivered event as lost, which sends
+    an operator chasing a replay that must not happen.
+    """
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    release = threading.Event()
+
+    def _urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        if "fast" not in req.full_url:
+            release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://fast.example/hook", "https://slow.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+        session_factory=session_factory,
+    )
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _urlopen):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "partial"})
+            await asyncio.sleep(0.3)
+        finally:
+            await dispatcher.stop()
+            release.set()
+
+    with session_factory() as session:
+        urls = {row.url for row in session.query(CaliberWebhookDeadLetter).all()}
+    assert "https://fast.example/hook" not in urls, "a delivered target must not be dead-lettered"
+    assert "https://slow.example/hook" in urls

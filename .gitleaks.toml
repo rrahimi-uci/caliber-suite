@@ -1,0 +1,50 @@
+# gitleaks configuration.
+#
+# Extends the default ruleset rather than replacing it, so every upstream rule still
+# applies and future rules arrive automatically.
+#
+# Why this file exists: CI runs gitleaks scoped to a pull request's commit range, so
+# anything already on `main` is never rescanned there. A full-history local scan
+# (`scripts/ci-local.sh security`) does see it, and surfaced one pre-existing finding — an
+# obvious test fixture. The local scan is therefore *stricter* than CI for existing
+# history, and that difference is worth keeping rather than papering over.
+#
+# ## Two wrong versions of this file preceded this one, both caught by measurement
+#
+# 1. It re-declared the `generic-api-key` rule to attach an allowlist to it. With
+#    `useDefault = true` a same-id `[[rules]]` entry does not *narrow* the default, and the
+#    hand-copied regex was staler and broader than the shipped one — the finding count went
+#    from 1 to 4. Narrowing a default rule belongs in an allowlist, never in a copy of it.
+#
+# 2. It then used `paths` + `regexes` with `matchCondition = "AND"`, intending "this
+#    placeholder shape, in a test path". **`matchCondition` is silently ignored** by
+#    gitleaks 8.30.1, and `paths` alone allowlisted everything underneath it. Measured on a
+#    minimal repo containing both `sk-test-abcd1234` and `sk-live-abcd1234`:
+#
+#      default config only  -> 2 findings (both)
+#      regexes only         -> 1 finding  (sk-live only)   <- the intended behaviour
+#      paths only           -> 0 findings (blanket)        <- hides real credentials
+#
+#    An unrecognised key that fails open is worse than no key at all: the config *read* as
+#    narrow while behaving as "ignore the tests directory", which is a common way a real
+#    committed secret goes unnoticed.
+#
+# So the allowlist is scoped by **content only**. That is the property that actually makes
+# these strings non-credentials, and unlike a path rule it keeps detection live everywhere —
+# including inside the test tree, where fixtures are exactly where a real key tends to land.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Placeholder credential shapes that no provider issues"
+regexes = [
+  # No provider issues keys with these prefixes, so by construction these cannot be live
+  # credentials. A genuine key in a test file is still reported — verified above with
+  # `sk-live-abcd1234`, which is flagged while `sk-test-abcd1234` is not.
+  '''sk-test-[0-9A-Za-z]+''',
+  '''sk-fake-[0-9A-Za-z]+''',
+  # Passphrases in the auth tests: long enough to satisfy the product's 12-character
+  # minimum, and plainly not secrets — they are English words.
+  '''correct-horse-battery[0-9A-Za-z-]*''',
+]

@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
@@ -575,6 +575,10 @@ def _enforce_service_rate_limit(service: Any) -> None:
     if limit <= 0:
         return
     now = time.time()
+    # One bucket, and only authenticated invocations reach it — see the call site. An
+    # earlier revision carried an ``authenticated`` flag and a second bucket key for a
+    # meter that no caller ever set to ``False``. That is the exact shape of defect this
+    # codebase has been audited for: an unexercised branch that reads as a control.
     key = str(service.service_id)
     with _SERVICE_CALLS_LOCK:
         window = [t for t in _SERVICE_CALLS.get(key, []) if now - t < _RATE_WINDOW_SECONDS]
@@ -618,15 +622,25 @@ def _cors_headers(service: Any, request: Request) -> dict[str, str]:
 async def invoke_service(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     service = _load_enabled_service(request, workflow_id)
-    # Before authentication: a rate limit that only applies to *valid* tokens does not
-    # protect against a flood of invalid ones, and token verification is the expensive
-    # part of this path.
-    _enforce_service_rate_limit(service)
+    # Charged **after** authentication, deliberately, and this is a correction.
+    #
+    # It was originally charged before, reasoning that a limit applying only to valid
+    # tokens does not stop a flood of invalid ones. A review pass pointed out the cost:
+    # that flood then exhausts the budget and denies legitimate callers. Splitting the
+    # buckets does not help either, because before authenticating you cannot tell a valid
+    # caller from an invalid one — the pre-auth bucket is shared, so the denial just moves.
+    #
+    # The resolution is that these are two different jobs. Flood protection is
+    # ``RateLimitMiddleware``'s, applied per-caller across the whole app; this limit is
+    # the per-service budget an operator configured, which should mean "how much work may
+    # this service actually do", so only real invocations should charge it. Token
+    # verification is a hash comparison, not the expensive part of the path.
     actor = (
         _validate_service_token(request, workflow_id, INVOKE_SCOPE)
         if service.auth_required
         else f"anonymous_service:{workflow_id}"
     )
+    _enforce_service_rate_limit(service)
     body = await parse_json_object(request, allow_empty=True)
     payload = ServiceInvokeRequest.model_validate(body)
     try:
@@ -727,7 +741,13 @@ async def get_service_run_status(request: Request) -> JSONResponse:
             error=error,
             trace_id=run.trace_id,
         )
-    return envelope_response(data)
+    response = envelope_response(data)
+    # The poll response needs the allow-origin header for the same reason the invoke
+    # response does: without it the browser blocks the read, so a browser client could
+    # start a run and never learn the outcome.
+    for header, value in _cors_headers(service, request).items():
+        response.headers[header] = value
+    return response
 
 
 def _summary_str(run: CaliberWorkflowRun, key: str) -> str | None:
@@ -873,13 +893,68 @@ async def service_openapi(request: Request) -> JSONResponse:
     with factory() as session:
         workflow = session.get(CaliberWorkflow, workflow_id)
         title = workflow.name if workflow is not None else workflow_id
-    return JSONResponse(
+    response = JSONResponse(
         _build_service_openapi_spec(
             workflow_id=workflow_id,
             title=title,
             service=service,
         )
     )
+    # Same policy as invoke/poll, so a browser-based API explorer on an approved origin
+    # can actually fetch the spec it is meant to import.
+    for header, value in _cors_headers(service, request).items():
+        response.headers[header] = value
+    return response
+
+
+async def preflight_service(request: Request) -> Response:
+    """The CORS preflight for the three browser-reachable service endpoints.
+
+    Without this the CORS support was decorative. A browser sending
+    ``Authorization: Bearer …`` with ``Content-Type: application/json`` must preflight
+    first, and the route only accepted POST, so the preflight got **405** and the real
+    request was never sent. Allow-origin headers on the POST response cannot help when
+    the browser never reaches it — an independent probe caught exactly this.
+
+    Registered on invoke **and** on the run-status/OpenAPI reads. That is not padding:
+    ``Authorization`` is not a CORS-safelisted request header, so a bearer-token ``GET``
+    is preflighted exactly like the ``POST`` is. Fixing only invoke would leave a browser
+    able to start a run and then unable to poll for its result, which is not a usable
+    service.
+
+    Answered without authentication, deliberately and per the CORS spec: a preflight
+    carries no credentials, so requiring a token would make it impossible to satisfy.
+    It discloses nothing beyond whether an origin is permitted, and an unlisted origin
+    still gets no allow-origin header and is blocked by the browser.
+    """
+    workflow_id = request.path_params["workflow_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        service = (
+            session.execute(
+                select(CaliberWorkflowService).where(
+                    CaliberWorkflowService.workflow_id == workflow_id
+                )
+            )
+            .scalars()
+            .first()
+        )
+    headers = _cors_headers(service, request) if service is not None else {}
+    if headers:
+        # Advertise the method this specific path actually accepts. A blanket
+        # "GET, POST, OPTIONS" would tell a browser it may POST to the read-only poll
+        # endpoint, and the browser would believe it right up to the 405.
+        headers["Access-Control-Allow-Methods"] = (
+            "POST, OPTIONS" if request.url.path.endswith("/invoke") else "GET, OPTIONS"
+        )
+        # Echo what the browser asked for rather than guessing: a fixed list would
+        # break the moment a client adds a header the service legitimately accepts.
+        requested = request.headers.get("Access-Control-Request-Headers", "")
+        headers["Access-Control-Allow-Headers"] = requested or "Authorization, Content-Type"
+        headers["Access-Control-Max-Age"] = "600"
+    # 204 with no body either way. An unlisted origin simply receives no allow-origin
+    # header, which is what the browser enforces on.
+    return Response(status_code=204, headers=headers)
 
 
 def register(app: Starlette) -> None:
@@ -893,3 +968,8 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(OPENAPI_PATH, service_openapi, methods=["GET"]))
     app.routes.append(Route(INVOKE_PATH, invoke_service, methods=["POST"]))
     app.routes.append(Route(RUN_STATUS_PATH, get_service_run_status, methods=["GET"]))
+    # Registered separately so a browser preflight is answered rather than 405ing, which
+    # made the CORS allowlist unusable from a browser at all. All three of the endpoints a
+    # browser client touches need one, because a bearer-token GET is preflighted too.
+    for _cors_path in (INVOKE_PATH, RUN_STATUS_PATH, OPENAPI_PATH):
+        app.routes.append(Route(_cors_path, preflight_service, methods=["OPTIONS"]))

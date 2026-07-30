@@ -38,6 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -2640,15 +2641,20 @@ def _attach_step_port_snapshots(
     return step
 
 
-def _default_webhook_sender(request: dict[str, Any]) -> dict[str, Any]:
+def _default_webhook_sender(
+    request: dict[str, Any], *, policy: Any | None = None
+) -> dict[str, Any]:
     """Perform a real outbound HTTP request for a Webhook node.
 
     ``request`` carries ``url``/``method``/``headers``/``timeout_seconds``/``body``.
     A structured (dict/list) body is sent as JSON; anything else as a text body.
     Returns ``status_code``/``text``/``json``/``headers`` for the node to publish.
     Injected via ``RuntimePlan.webhook_sender`` in tests so no network is hit.
+
+    ``policy`` is bound by the call site, so the client this opens enforces egress at
+    connect time rather than trusting an earlier check — see ``caliber.egress`` on N4.
     """
-    import httpx  # noqa: PLC0415 - keep httpx out of the module import path
+    from caliber.egress import EgressBlockedError, build_client  # noqa: PLC0415
 
     method = str(request.get("method") or "POST").upper()
     url = str(request.get("url") or "")
@@ -2665,12 +2671,19 @@ def _default_webhook_sender(request: dict[str, Any]) -> dict[str, Any]:
     elif body is not None:
         kwargs["content"] = body if isinstance(body, (bytes, str)) else str(body)
 
-    # ``follow_redirects=False`` is load-bearing, not a default being restated:
-    # egress policy checks the URL before the request, and a followed 302 would reach
-    # an address that check never saw — the classic SSRF bypass. A sender that needs
-    # redirects must re-check each hop with caliber.egress.check_url.
-    with httpx.Client(timeout=timeout, follow_redirects=False) as client:
-        response = client.request(method, url, **kwargs)
+    # The client enforces policy inside its transport and connects to the address it
+    # vetted, so a name that re-resolves to the metadata endpoint cannot be reached
+    # (N4). ``follow_redirects`` stays False by default — no longer the only defence,
+    # since each hop would be re-checked, but still one fewer thing to reason about.
+    # The pre-check in ``_check_egress`` already refused the obvious cases, so a block
+    # raised *here* is the rebinding case specifically: the name passed the check and then
+    # resolved somewhere else. Translated so the node reports a normal runtime failure
+    # with the reason instead of an opaque RuntimeError.
+    try:
+        with build_client(policy=policy, timeout=timeout) as client:
+            response = client.request(method, url, **kwargs)
+    except EgressBlockedError as exc:
+        raise ToolExecutionError(str(exc)) from exc
 
     parsed: Any = None
     try:
@@ -5657,7 +5670,9 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             body = next(iter(inputs.values()))
         if body is None:
             body = run_input
-        sender = plan.webhook_sender or _default_webhook_sender
+        # Bound with the plan's policy so the default sender's client enforces egress on
+        # the connection it opens. An injected fake still takes just the request.
+        sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
         request = {
             "url": url,
             "method": node.method,
@@ -5723,7 +5738,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                     req_body = next(iter(inputs.values()))
                 if req_body is None:
                     req_body = run_input
-        sender = plan.webhook_sender or _default_webhook_sender
+        sender = plan.webhook_sender or partial(_default_webhook_sender, policy=plan.egress_policy)
         request = {
             "url": req_url,
             "method": method,

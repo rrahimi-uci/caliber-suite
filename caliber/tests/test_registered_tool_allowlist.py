@@ -217,7 +217,11 @@ def test_a_registered_tool_module_can_run_in_a_separate_process() -> None:
     from caliber.tool_sandbox.models import ToolSandboxRunRequest
     from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
 
-    result = LocalSubprocessToolSandbox().run_tool(
+    # Generous timeout for the same reason the demo-tools sandbox test uses one: the
+    # subject here is *which process* the module runs in, not how fast a cold
+    # `python -I` start completes. The 5s class default is decided by machine load once
+    # the rest of the suite is running alongside it.
+    result = LocalSubprocessToolSandbox(default_timeout_seconds=60.0).run_tool(
         ToolSandboxRunRequest(module_path="os", callable_name="getpid")
     )
 

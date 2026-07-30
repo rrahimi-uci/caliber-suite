@@ -188,9 +188,14 @@ class WebhookDispatcher:
         self._delivered = 0
         self._retried = 0
         self._overflowed = 0
-        #: The event the delivery loop currently holds, or ``None``. Not in the queue
-        #: and not yet delivered, so ``stop()`` has to record it explicitly.
-        self._in_flight: dict[str, Any] | None = None
+        #: Targets the delivery loop still owes an outcome for, keyed by URL, for the
+        #: event it currently holds. **Per target, not per event**: one event fans out to
+        #: every configured URL and each has its own outcome, so an event-level marker
+        #: was wrong in both directions — the first target to be dead-lettered cleared it
+        #: and the still-blocked targets got no shutdown row, while an event whose first
+        #: target had already *succeeded* could be dead-lettered against that delivered
+        #: target on the way out.
+        self._in_flight: dict[str, dict[str, Any]] = {}
 
     def dead_letters(self) -> dict[str, Any]:
         """Events that were never delivered, by either loss mode.
@@ -237,12 +242,11 @@ class WebhookDispatcher:
             self._dead_letters.append(entry)
             if kind == KIND_OVERFLOW:
                 self._overflowed += 1
-        # Once an event has *any* dead-letter row it is accounted for, so shutdown
-        # must not add a second one. Without this, an event that exhausted its retries
-        # while still held by the delivery loop was recorded twice: once as
-        # ``exhausted`` and again as ``shutdown``.
-        if self._in_flight is event:
-            self._in_flight = None
+        # This *target* is now accounted for, so the shutdown drain must not add a
+        # second row for it. Scoped to the URL: clearing the whole event here was the
+        # multi-target defect — one target's dead letter silently discharged every other
+        # target's obligation.
+        self._in_flight.pop(url, None)
         self._persist_dead_letter(entry, event)
 
     def _persist_dead_letter(self, entry: dict[str, Any], event: dict[str, object]) -> None:
@@ -386,20 +390,21 @@ class WebhookDispatcher:
         already cancelled, nothing will refill the queue, and stopping must not block.
         """
         drained = 0
-        # The in-flight event first: it was already removed from the queue, so a drain
-        # that only walked the queue would miss exactly the event most likely to be
-        # lost — the one being delivered when the stop arrived.
-        in_flight, self._in_flight = self._in_flight, None
-        if in_flight is not None:
+        # In-flight targets first: the event was already removed from the queue, so a
+        # drain that only walked the queue would miss exactly the delivery most likely to
+        # be lost — the one in progress when the stop arrived. One row per *target* still
+        # owed an outcome; targets already delivered or already dead-lettered have been
+        # removed from the map and are correctly skipped.
+        in_flight, self._in_flight = self._in_flight, {}
+        for url, event in in_flight.items():
             drained += 1
-            for url in self._urls:
-                self._record_dead_letter(
-                    url,
-                    in_flight,
-                    "dispatcher stopped while this event was in flight; delivery outcome unknown",
-                    kind=KIND_SHUTDOWN,
-                    attempts=0,
-                )
+            self._record_dead_letter(
+                url,
+                event,
+                "dispatcher stopped while this event was in flight; delivery outcome unknown",
+                kind=KIND_SHUTDOWN,
+                attempts=0,
+            )
         if self._pending is None:
             return drained
         while True:
@@ -481,7 +486,7 @@ class WebhookDispatcher:
                 # — cancelling the task then dropped it with no durable trace, which is
                 # the in-flight half of N5 an independent probe reproduced
                 # (``pending_before_stop=0`` and zero dead-letter rows after stop()).
-                self._in_flight = event
+                self._in_flight = dict.fromkeys(self._urls, event)
                 try:
                     # Each dispatch runs under its own trace ID so a webhook
                     # POST and the originating state-change can be
@@ -498,7 +503,7 @@ class WebhookDispatcher:
                     # A bug in delivery must not kill the loop and silently stop every
                     # future webhook; the event's own failure is already recorded.
                     logger.exception("webhook delivery raised; continuing")
-                self._in_flight = None
+                self._in_flight = {}
                 self._pending.task_done()
         except asyncio.CancelledError:
             raise
@@ -545,6 +550,9 @@ class WebhookDispatcher:
             try:
                 self._post(url, body, timestamp, signature)
                 self._delivered += 1
+                # Delivered: this target is settled and must not be dead-lettered by a
+                # later shutdown drain.
+                self._in_flight.pop(url, None)
                 return
             except WebhookDeliveryError as exc:
                 last_reason = str(exc)

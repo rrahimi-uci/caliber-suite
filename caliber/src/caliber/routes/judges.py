@@ -192,6 +192,15 @@ async def update_judge(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
+        # Deliberately a bare read, unlike the test-run/alignment routes below.
+        #
+        # This route requires ``SCOPE_ADMIN``, and ``db/scoping.py`` short-circuits
+        # visibility for admins by design (the single-organization target). Routing it
+        # through ``get_visible`` would therefore be a provable no-op: every caller who can
+        # reach this line already bypasses the filter. Adding it anyway would leave a call
+        # that *reads* as an access-control boundary while enforcing nothing — the exact
+        # decorative-control defect this codebase has been audited for. If this route is
+        # ever widened below admin, it must be scoped at the same time.
         judge = session.get(CaliberJudge, judge_id)
         if judge is None:
             raise HTTPException(status_code=404, detail=f"judge {judge_id!r} not found")
@@ -235,13 +244,19 @@ async def test_run_judge(request: Request) -> JSONResponse:
     selecting it as a scorer. Requires a real judge model/gateway at runtime.
     """
     require_user(request)
+    identity = resolve_identity(request)
     judge_id = request.path_params["judge_id"]
     body = await parse_json_object(request)
     payload = JudgeTestRunRequest.model_validate(body)
 
     factory = get_session_factory(request)
     with factory() as session:
-        judge = session.get(CaliberJudge, judge_id)
+        # Scoped, not a bare read (C3). ``get_judge`` above already resolves through
+        # ``get_visible``; this route did not, while requiring only an authenticated user.
+        # A judge's ``instructions`` are its whole substance — the authored prompt — so the
+        # unscoped read handed any signed-in caller another project's evaluation IP and let
+        # them run it on inputs of their choosing.
+        judge = get_visible(session, CaliberJudge, CaliberJudge.judge_id, judge_id, identity)
         if judge is None:
             raise HTTPException(status_code=404, detail=f"judge {judge_id!r} not found")
         name, instructions = judge.name, judge.instructions
@@ -273,13 +288,16 @@ async def align_judge(request: Request) -> JSONResponse:
     judge call errors are reported but excluded from the agreement math.
     """
     require_user(request)
+    identity = resolve_identity(request)
     judge_id = request.path_params["judge_id"]
     body = await parse_json_object(request)
     payload = JudgeAlignmentRequest.model_validate(body)
 
     factory = get_session_factory(request)
     with factory() as session:
-        judge = session.get(CaliberJudge, judge_id)
+        # Scoped for the same reason as the test-run route above: this one also read a
+        # judge's authored instructions behind nothing but ``require_user``.
+        judge = get_visible(session, CaliberJudge, CaliberJudge.judge_id, judge_id, identity)
         if judge is None:
             raise HTTPException(status_code=404, detail=f"judge {judge_id!r} not found")
         name, instructions = judge.name, judge.instructions

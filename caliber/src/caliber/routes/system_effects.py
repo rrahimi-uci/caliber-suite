@@ -35,8 +35,10 @@ release-relevant evidence, not a convenience toggle.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.engine import CursorResult
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -76,6 +78,9 @@ _DEAD_LETTER_ACKNOWLEDGED = "acknowledged"
 #: one means the event was delivered after all, the other means a human decided
 #: it no longer needs to be.
 _DEAD_LETTER_REPLAYED = "replayed"
+#: Claimed by an in-flight replay. Transient but *persisted*, so a concurrent
+#: caller is refused by the database rather than by luck.
+_DEAD_LETTER_REPLAYING = "replaying"
 
 
 async def list_system_effects(request: Request) -> JSONResponse:
@@ -277,8 +282,19 @@ async def replay_webhook_dead_letter(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
 
     dispatcher = getattr(request.app.state, "webhook_dispatcher", None)
+    # ``is_enabled`` too, not merely "an object with the method exists". The app always
+    # installs a dispatcher, so a presence check alone let an operator reach replay on a
+    # deployment where dispatch is switched off, where it could not be signed anyway.
     if dispatcher is None or not hasattr(dispatcher, "replay_event"):
         raise HTTPException(status_code=503, detail="no webhook dispatcher is configured")
+    if not getattr(dispatcher, "is_enabled", False):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "webhook dispatch is disabled (no URLs or no signing secret), so a "
+                "replay could not be signed or delivered"
+            ),
+        )
 
     factory = get_session_factory(request)
     with factory() as session:
@@ -293,6 +309,35 @@ async def replay_webhook_dead_letter(request: Request) -> JSONResponse:
                     "(it predates event retention)"
                 ),
             )
+        # Claim the row before sending. Without this, two concurrent replays — or an
+        # impatient double-click — each read ``open`` and each POST, duplicating a
+        # delivery the operator asked for once. A conditional UPDATE lets the database
+        # arbitrate rather than application ordering.
+        # ``CursorResult.rowcount`` is the row count for a DML statement; the base
+        # ``Result`` protocol mypy infers from ``Session.execute`` does not declare it,
+        # so the narrowing is explicit rather than ignored.
+        claim_result = cast(
+            "CursorResult[Any]",
+            session.execute(
+                update(CaliberWebhookDeadLetter)
+                .where(
+                    CaliberWebhookDeadLetter.dead_letter_id == dead_letter_id,
+                    CaliberWebhookDeadLetter.status == _DEAD_LETTER_OPEN,
+                )
+                .values(status=_DEAD_LETTER_REPLAYING)
+            ),
+        )
+        claimed = claim_result.rowcount
+        if not claimed:
+            session.commit()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"dead letter {dead_letter_id!r} is {row.status!r}, not "
+                    f"{_DEAD_LETTER_OPEN!r}; another replay may be in flight"
+                ),
+            )
+        session.commit()
         url, event = row.url, dict(row.event)
 
     delivered, detail = dispatcher.replay_event(url, event)
@@ -304,6 +349,10 @@ async def replay_webhook_dead_letter(request: Request) -> JSONResponse:
                 row.status = _DEAD_LETTER_REPLAYED
                 row.acknowledged_by = actor
                 row.acknowledged_at = datetime.now(timezone.utc)
+            else:
+                # Released, not left claimed: a failed replay must remain a work item
+                # rather than becoming permanently unreplayable.
+                row.status = _DEAD_LETTER_OPEN
             row.reason = f"{row.reason} | replay by {actor}: {detail}"[:2000]
         audit_record(
             session,

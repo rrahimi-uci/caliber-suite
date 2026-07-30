@@ -278,6 +278,10 @@ def test_replaying_a_dead_letter_redelivers_and_marks_it(
     sent: list[tuple[str, dict]] = []
 
     class _Dispatcher:
+        # ``is_enabled`` is part of the contract: the route refuses to replay when
+        # dispatch is off, because the event could not be signed or delivered anyway.
+        is_enabled = True
+
         def replay_event(self, url, event):
             sent.append((url, event))
             return True, "delivered"
@@ -302,6 +306,8 @@ def test_a_failed_replay_leaves_the_row_open(client: TestClient, db_session: Ses
     key = _dead_letter(db_session, "WDL-badreplay")
 
     class _Dispatcher:
+        is_enabled = True
+
         def replay_event(self, url, event):
             return False, "receiver returned HTTP 500"
 
@@ -315,3 +321,76 @@ def test_a_failed_replay_leaves_the_row_open(client: TestClient, db_session: Ses
     row = db_session.get(CaliberWebhookDeadLetter, key)
     assert row.status == "open", "a failed replay must not clear the work item"
     assert "HTTP 500" in row.reason
+
+
+def test_a_row_already_being_replayed_is_refused(client: TestClient, db_session: Session) -> None:
+    """The row is claimed before sending, so a second caller cannot deliver twice.
+
+    Without the claim both callers read ``open``, both POST, and the operator gets two
+    deliveries for one request — the opposite of what a recovery tool should do.
+
+    The claimed state is asserted directly rather than by driving two real requests: a
+    nested in-handler call would test the test harness's re-entrancy, not the database
+    predicate that actually arbitrates.
+    """
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    key = _dead_letter(db_session, "WDL-claimed")
+    db_session.get(CaliberWebhookDeadLetter, key).status = "replaying"
+    db_session.commit()
+
+    class _Dispatcher:
+        is_enabled = True
+
+        def replay_event(self, url, event):  # pragma: no cover - must not be reached
+            raise AssertionError("a claimed row must not be replayed again")
+
+    client.app.state.webhook_dispatcher = _Dispatcher()
+
+    response = client.post(f"{DEAD_LETTERS}/{key}/replay")
+
+    assert response.status_code == 409, response.text
+    assert "another replay may be in flight" in response.json()["detail"]
+
+
+def test_a_successful_replay_leaves_no_claim_behind(
+    client: TestClient, db_session: Session
+) -> None:
+    """The claim is transient: success settles the row as ``replayed``, and failure
+    releases it back to ``open`` so it stays a work item rather than becoming
+    permanently unreplayable."""
+    from caliber.db.models import CaliberWebhookDeadLetter
+
+    key = _dead_letter(db_session, "WDL-settle")
+
+    class _Dispatcher:
+        is_enabled = True
+
+        def replay_event(self, url, event):
+            return True, "delivered"
+
+    client.app.state.webhook_dispatcher = _Dispatcher()
+    assert client.post(f"{DEAD_LETTERS}/{key}/replay").status_code == 200
+    db_session.expire_all()
+    assert db_session.get(CaliberWebhookDeadLetter, key).status == "replayed"
+
+
+def test_replay_is_refused_when_dispatch_is_disabled(
+    client: TestClient, db_session: Session
+) -> None:
+    """The app always installs a dispatcher object, so checking only that it exists let
+    an operator reach replay on a deployment with no URLs or no signing secret."""
+    key = _dead_letter(db_session, "WDL-disabled")
+
+    class _Dispatcher:
+        is_enabled = False
+
+        def replay_event(self, url, event):  # pragma: no cover - must not be reached
+            raise AssertionError("replay must not be attempted while dispatch is disabled")
+
+    client.app.state.webhook_dispatcher = _Dispatcher()
+
+    response = client.post(f"{DEAD_LETTERS}/{key}/replay")
+
+    assert response.status_code == 503
+    assert "disabled" in response.json()["detail"]

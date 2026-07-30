@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
@@ -397,3 +398,198 @@ def test_cors_headers_are_emitted_only_for_a_listed_origin(client: TestClient) -
         headers={**auth, "Origin": "https://evil.example"},
     )
     assert "Access-Control-Allow-Origin" not in denied.headers
+
+
+def test_a_browser_preflight_is_answered_for_a_listed_origin(client: TestClient) -> None:
+    """Without an OPTIONS handler the CORS allowlist was decorative.
+
+    A browser sending `Authorization: Bearer …` with a JSON content type must preflight
+    first. The route accepted only POST, so the preflight got 405 and the real request
+    was never sent — allow-origin headers on the POST response cannot help when the
+    browser never reaches it. An independent probe reproduced the 405.
+    """
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+
+    response = client.options(
+        f"{PREFIX}/services/{wid}/invoke",
+        headers={
+            "Origin": "https://app.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 204, response.text
+    assert response.headers["Access-Control-Allow-Origin"] == "https://app.example"
+    assert "POST" in response.headers["Access-Control-Allow-Methods"]
+    # The requested headers are echoed rather than guessed at.
+    assert "authorization" in response.headers["Access-Control-Allow-Headers"].lower()
+
+
+def test_a_preflight_from_an_unlisted_origin_gets_no_allow_headers(
+    client: TestClient,
+) -> None:
+    """The preflight answers without authentication (a preflight carries no
+    credentials), so it must not become a way to reach a service from anywhere."""
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+
+    response = client.options(
+        f"{PREFIX}/services/{wid}/invoke",
+        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
+    )
+
+    assert response.status_code == 204
+    assert "Access-Control-Allow-Origin" not in response.headers
+
+
+def test_a_preflight_for_an_unknown_service_discloses_nothing(client: TestClient) -> None:
+    """An unauthenticated caller must not learn which workflow ids have services."""
+    response = client.options(
+        f"{PREFIX}/services/WF-does-not-exist/invoke",
+        headers={"Origin": "https://app.example", "Access-Control-Request-Method": "POST"},
+    )
+    assert response.status_code == 204
+    assert "Access-Control-Allow-Origin" not in response.headers
+
+
+@pytest.mark.parametrize("suffix", ["runs/RUN-1", "openapi.json"])
+def test_the_poll_and_spec_endpoints_answer_a_browser_preflight(
+    client: TestClient, suffix: str
+) -> None:
+    """Preflighting only ``/invoke`` left the CORS support half-built.
+
+    ``Authorization`` is not a CORS-safelisted request header, so a bearer-token ``GET``
+    is preflighted exactly like the ``POST``. With OPTIONS registered on invoke alone, a
+    browser could start a run and then be blocked from polling for its result — which is
+    not a usable service, only one that fails later.
+    """
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+
+    response = client.options(
+        f"{PREFIX}/services/{wid}/{suffix}",
+        headers={
+            "Origin": "https://app.example",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+
+    assert response.status_code == 204, response.text
+    assert response.headers["Access-Control-Allow-Origin"] == "https://app.example"
+    # A read path must advertise GET, not the invoke path's POST.
+    assert response.headers["Access-Control-Allow-Methods"] == "GET, OPTIONS"
+
+
+def test_a_preflight_advertises_only_the_method_its_path_accepts(
+    client: TestClient,
+) -> None:
+    """A blanket allow-methods list would tell a browser it may POST to the read-only
+    poll endpoint, and the browser would believe it right up to the 405."""
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+    headers = {"Origin": "https://app.example", "Access-Control-Request-Method": "POST"}
+
+    invoke = client.options(f"{PREFIX}/services/{wid}/invoke", headers=headers)
+    poll = client.options(f"{PREFIX}/services/{wid}/runs/RUN-1", headers=headers)
+
+    assert invoke.headers["Access-Control-Allow-Methods"] == "POST, OPTIONS"
+    assert "POST" not in poll.headers["Access-Control-Allow-Methods"]
+
+
+def test_the_spec_response_carries_the_allow_origin_header(client: TestClient) -> None:
+    """A passing preflight is not enough: the browser also enforces the header on the
+    actual response, so a spec fetch without it is still blocked."""
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+    token = _mint_token(client, wid)
+
+    allowed = client.get(
+        f"{PREFIX}/services/{wid}/openapi.json",
+        headers={"Authorization": f"Bearer {token}", "Origin": "https://app.example"},
+    )
+    denied = client.get(
+        f"{PREFIX}/services/{wid}/openapi.json",
+        headers={"Authorization": f"Bearer {token}", "Origin": "https://evil.example"},
+    )
+
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.headers["Access-Control-Allow-Origin"] == "https://app.example"
+    assert "Access-Control-Allow-Origin" not in denied.headers
+
+
+def test_the_poll_response_carries_the_allow_origin_header(client: TestClient) -> None:
+    """The run-status read is the one a browser polls in a loop; without the header the
+    caller can start work and never learn the outcome."""
+    wid, _vid = _publish_service(client)
+    client.post(
+        f"{PREFIX}/workflows/{wid}/service",
+        json={"cors_allowed_origins": "https://app.example"},
+    )
+    token = _mint_token(client, wid)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    started = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}},
+        headers=auth,
+    )
+    assert started.status_code == 202, started.text
+    run_id = started.json()["data"]["run_id"]
+
+    polled = client.get(
+        f"{PREFIX}/services/{wid}/runs/{run_id}",
+        headers={**auth, "Origin": "https://app.example"},
+    )
+
+    assert polled.status_code == 200, polled.text
+    assert polled.headers["Access-Control-Allow-Origin"] == "https://app.example"
+
+
+def test_invalid_tokens_do_not_consume_the_service_budget(
+    client: TestClient,
+) -> None:
+    """The budget is charged after authentication, so junk traffic cannot spend it.
+
+    It was originally charged before, to stop a flood of invalid tokens. A review pass
+    pointed out that the flood then denies legitimate callers instead — and separate
+    buckets do not help, because before authenticating you cannot tell the two apart.
+    Flood protection is ``RateLimitMiddleware``'s job, applied per caller; this limit is
+    the per-service work budget, so only real invocations should charge it.
+    """
+    wid, _vid = _publish_service(client)
+    client.post(f"{PREFIX}/workflows/{wid}/service", json={"rate_limit_per_minute": 2})
+    token = _mint_token(client, wid)
+
+    # Exhaust the *unauthenticated* bucket with bad tokens.
+    for _ in range(3):
+        client.post(
+            f"{PREFIX}/services/{wid}/invoke",
+            json={"input": {"user_message": "hi"}},
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+
+    # A valid caller must still get its own full allowance.
+    accepted = client.post(
+        f"{PREFIX}/services/{wid}/invoke",
+        json={"input": {"user_message": "hi"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert accepted.status_code == 202, accepted.text

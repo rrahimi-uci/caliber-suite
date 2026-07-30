@@ -45,6 +45,31 @@ sender sets ``follow_redirects=False`` explicitly for exactly this reason, and s
 at the call site. A custom ``RuntimePlan.webhook_sender`` that *does* follow redirects
 must call :func:`check_url` on each hop; this module cannot enforce that for it.
 
+## DNS rebinding: the checked address must be the connected address (closes N4)
+
+A pre-flight check alone is a **time-of-check/time-of-use** bug, and the report tracked
+it as N4. :func:`check_url` resolves ``evil.example``, sees a public address, and
+permits it; ``httpx`` then resolves the name *again* when it opens the connection, and a
+DNS server under the attacker's control can answer ``169.254.169.254`` the second time.
+Every category check passes and the request still reaches the metadata endpoint. A short
+TTL is enough; no race needs to be won, because the two resolutions are independent
+lookups.
+
+The fix is to make the connection use the address that was actually vetted.
+:func:`resolve_pinned` returns the validated address alongside the original hostname,
+and :func:`build_client` returns an ``httpx.Client`` whose transport rewrites the request
+URL to that literal address immediately before dispatch, while preserving:
+
+* ``Host:`` — so name-based virtual hosting still routes correctly; and
+* the TLS ``server_hostname`` (via httpcore's ``sni_hostname`` extension) — so SNI **and
+  certificate hostname verification** still happen against the real name. Pinning to an
+  IP without this would silently break certificate validation, trading an SSRF hole for a
+  TLS one.
+
+The rewrite happens inside the transport rather than at the call site, so the vetted
+address cannot be invalidated between the check and the connect: there is no second
+resolution to disagree with the first.
+
 ## What this is not
 
 Not a proxy and not a general effect broker. It constrains where a workflow's HTTP
@@ -59,7 +84,9 @@ import logging
 import socket
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
+
+import httpx
 
 logger = logging.getLogger("caliber.egress")
 
@@ -163,17 +190,35 @@ def _resolve_addresses(host: str) -> list[str]:
     return addresses
 
 
-def check_url(url: str, policy: EgressPolicy | None) -> None:
-    """Raise :class:`EgressBlockedError` if ``url`` may not be requested.
+@dataclass(frozen=True)
+class PinnedTarget:
+    """A vetted destination, expressed so the connection cannot re-resolve the name.
 
-    Order matters: scheme, then host presence, then the allowlist, then resolution
-    and category checks. The allowlist is consulted *before* resolution so an
-    explicitly permitted internal host does not need to resolve into a permitted
-    category — which is the whole reason an operator would add it.
+    ``url`` addresses the literal IP that policy actually approved. ``host_header`` and
+    ``sni_hostname`` carry the original name forward so virtual hosting and TLS
+    certificate verification keep working — see the module docstring on why omitting the
+    latter would trade an SSRF hole for a TLS one.
+    """
+
+    url: str
+    host_header: str
+    sni_hostname: str
+
+
+def resolve_pinned(url: str, policy: EgressPolicy | None) -> PinnedTarget | None:
+    """Validate ``url`` and return the address to connect to, or ``None``.
+
+    Raises :class:`EgressBlockedError` exactly as :func:`check_url` does — this is the
+    same policy, returning the vetted address instead of discarding it.
+
+    ``None`` means "permitted, and there is nothing to pin": policy disabled, an
+    operator-allowlisted host, a URL that already names a literal address, or a name that
+    does not resolve here. Each of those either has no second resolution to worry about or
+    is already trusted by explicit operator choice.
     """
     resolved_policy = policy if policy is not None else EgressPolicy()
     if not resolved_policy.enabled:
-        return
+        return None
 
     parts = urlsplit((url or "").strip())
     scheme = (parts.scheme or "").lower()
@@ -188,20 +233,72 @@ def check_url(url: str, policy: EgressPolicy | None) -> None:
 
     lowered = host.lower()
     if lowered in resolved_policy.allowed_hosts:
-        return
+        return None
 
     # A literal address in the URL is checked directly — no resolution needed, and
-    # resolving it would be a needless DNS round trip.
-    direct = resolved_policy.blocked_category(lowered.strip("[]"))
+    # resolving it would be a needless DNS round trip. Nothing to pin either: the
+    # connection uses the same literal, so there is no check/connect divergence.
+    stripped = lowered.strip("[]")
+    direct = resolved_policy.blocked_category(stripped)
     if direct is not None:
         raise EgressBlockedError(_describe(lowered, lowered, direct))
+    if _is_literal_address(stripped):
+        return None
 
-    for address in _resolve_addresses(host):
+    # Every address is validated, and the *first validated* one is what gets connected
+    # to. Validating all of them matters: a name with both a public and a link-local
+    # record must be refused rather than permitted on resolver ordering.
+    addresses = _resolve_addresses(host)
+    for address in addresses:
         if address.lower() in resolved_policy.allowed_hosts:
             continue
         category = resolved_policy.blocked_category(address)
         if category is not None:
             raise EgressBlockedError(_describe(host, address, category))
+    if not addresses:
+        return None
+    return PinnedTarget(
+        url=_replace_host(parts, addresses[0]),
+        host_header=parts.netloc.rsplit("@", 1)[-1],
+        sni_hostname=host,
+    )
+
+
+def check_url(url: str, policy: EgressPolicy | None) -> None:
+    """Raise :class:`EgressBlockedError` if ``url`` may not be requested.
+
+    Order matters: scheme, then host presence, then the allowlist, then resolution
+    and category checks. The allowlist is consulted *before* resolution so an
+    explicitly permitted internal host does not need to resolve into a permitted
+    category — which is the whole reason an operator would add it.
+
+    This is the check-only entry point, kept because callers that do not own the
+    connection still need it. It cannot close the rebinding gap on its own; a caller that
+    *does* own the connection should use :func:`build_client` instead.
+    """
+    resolve_pinned(url, policy)
+
+
+def _is_literal_address(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def _replace_host(parts: SplitResult, address: str) -> str:
+    """Rebuild a URL with ``address`` in place of its hostname, preserving everything
+    else — port, userinfo, path, query, fragment."""
+    literal = f"[{address}]" if ":" in address else address
+    netloc = literal
+    port = parts.port
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    userinfo = parts.netloc.rsplit("@", 1)[0] if "@" in parts.netloc else ""
+    if userinfo:
+        netloc = f"{userinfo}@{netloc}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 
 def _describe(host: str, address: str, category: str) -> str:
@@ -222,6 +319,60 @@ def _describe(host: str, address: str, category: str) -> str:
     )
 
 
+class EgressGuardTransport(httpx.BaseTransport):
+    """Applies egress policy at dispatch time and connects to the vetted address.
+
+    Placing this in the transport rather than at the call site is the point. A check
+    performed earlier can be invalidated by the resolution ``httpx`` does when it opens
+    the connection; a check performed here supplies the address that connection uses, so
+    there is no second lookup that could disagree.
+
+    Redirects are still not followed by the shipped client, but this transport makes that
+    a defence-in-depth choice rather than the only defence: a caller that enables them
+    gets every hop re-checked, because each hop is a separate ``handle_request``.
+    """
+
+    def __init__(self, policy: EgressPolicy | None, inner: httpx.BaseTransport | None = None):
+        self._policy = policy
+        self._inner = inner if inner is not None else httpx.HTTPTransport()
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        # Raises EgressBlockedError for a refused destination. Deliberately allowed to
+        # propagate: the caller translates it into a node-level failure with the reason.
+        pinned = resolve_pinned(str(request.url), self._policy)
+        if pinned is not None:
+            request.url = httpx.URL(pinned.url)
+            request.headers["Host"] = pinned.host_header
+            # Mutated rather than reassigned: httpx may hold its own reference to this
+            # dict, and replacing it would drop extensions a caller set deliberately.
+            request.extensions["sni_hostname"] = pinned.sni_hostname
+        return self._inner.handle_request(request)
+
+    def close(self) -> None:
+        self._inner.close()
+
+
+def build_client(
+    *,
+    policy: EgressPolicy | None,
+    timeout: float | None = None,
+    **kwargs: Any,
+) -> httpx.Client:
+    """An ``httpx.Client`` that enforces egress policy on the connection it opens.
+
+    ``follow_redirects`` defaults to ``False`` and callers should leave it that way; see
+    the module docstring. It is no longer load-bearing on its own, because the transport
+    re-checks every hop, but an unfollowed redirect is still one fewer thing to reason
+    about.
+    """
+    kwargs.setdefault("follow_redirects", False)
+    return httpx.Client(
+        timeout=timeout,
+        transport=EgressGuardTransport(policy),
+        **kwargs,
+    )
+
+
 __all__ = [
     "ALLOWED_SCHEMES",
     "CATEGORIES",
@@ -230,6 +381,10 @@ __all__ = [
     "OTHER_RESERVED",
     "PRIVATE",
     "EgressBlockedError",
+    "EgressGuardTransport",
     "EgressPolicy",
+    "PinnedTarget",
+    "build_client",
     "check_url",
+    "resolve_pinned",
 ]

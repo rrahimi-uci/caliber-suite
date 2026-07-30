@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -35,6 +35,7 @@ from caliber.routes._deps import (
     envelope_response_dict,
     get_session_factory,
     parse_json_object,
+    scoped_child_or_404,
 )
 from caliber.schemas import (
     WorkflowRunApprovalDecisionRequest,
@@ -276,11 +277,32 @@ def _ensure_checkpointing_enabled(request: Request) -> None:
     )
 
 
-def _get_run_or_404(session: Session, run_id: str) -> CaliberWorkflowRun:
-    row = session.get(CaliberWorkflowRun, run_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"workflow run {run_id!r} not found")
-    return row
+def _get_run_or_404(session: Session, run_id: str, *, request: Request) -> CaliberWorkflowRun:
+    """Fetch a run, but only if its parent workflow is visible to the caller (C3).
+
+    This was a bare ``session.get``, which is the C3 defect: a run carries no visibility
+    columns of its own — its access rules live on the parent workflow — so a guessed id
+    read another project's run detail, trace, events, checkpoints, and approvals, and the
+    write routes let a caller cancel, retry, resume, approve, or reject it. The list
+    sibling enforced a predicate this lookup skipped entirely.
+
+    ``request`` is keyword-only and required rather than defaulted to ``None``: an optional
+    scope argument is one a caller forgets, and the forgotten case would fail open. Every
+    caller is a route handler, so ``request`` is always genuinely available.
+
+    A forbidden parent 404s identically to a missing one, so the message is unchanged and
+    "exists but you may not see it" is not disclosed.
+    """
+    row = scoped_child_or_404(
+        session,
+        request,
+        child=CaliberWorkflowRun,
+        child_id=run_id,
+        child_label="workflow run",
+        parent_model=CaliberWorkflow,
+        parent_pk=CaliberWorkflow.workflow_id,
+    )
+    return cast("CaliberWorkflowRun", row)
 
 
 def _run_lineage_sort_key(run: CaliberWorkflowRun) -> tuple[int, datetime, str]:
@@ -859,7 +881,7 @@ async def get_workflow_run(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = _get_run_or_404(session, run_id)
+        row = _get_run_or_404(session, run_id, request=request)
         data = WorkflowRunSchema.model_validate(row)
     return envelope_response(data)
 
@@ -869,7 +891,7 @@ async def get_workflow_run_lineage(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         data = _build_workflow_run_lineage(session, run)
     return envelope_response(data)
 
@@ -879,7 +901,7 @@ async def get_workflow_run_manifest(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         summary = dict(run.summary or {})
         manifest_mode: Literal["saved_version", "snapshot"]
         if isinstance(run.manifest_snapshot, dict):
@@ -961,7 +983,7 @@ async def list_workflow_run_events(request: Request) -> JSONResponse:
     )
     factory = get_session_factory(request)
     with factory() as session:
-        _get_run_or_404(session, run_id)
+        _get_run_or_404(session, run_id, request=request)
         events = (
             session.execute(
                 select(CaliberWorkflowRunEvent)
@@ -992,7 +1014,7 @@ async def get_workflow_run_trace(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         trace_id = run.trace_id or None
     if not trace_id:
         return envelope_response(WorkflowRunTraceSchema(trace_id=None, spans=[]))
@@ -1022,7 +1044,7 @@ async def list_workflow_run_checkpoints(request: Request) -> JSONResponse:
     )
     factory = get_session_factory(request)
     with factory() as session:
-        _get_run_or_404(session, run_id)
+        _get_run_or_404(session, run_id, request=request)
         checkpoints = (
             session.execute(
                 select(CaliberWorkflowRunCheckpoint)
@@ -1052,7 +1074,7 @@ async def cancel_workflow_run(request: Request) -> JSONResponse:
     publish_payload: dict[str, Any] | None = None
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         terminal_non_cancelled = {RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_EXPIRED}
         if run.status in terminal_non_cancelled:
             raise HTTPException(
@@ -1155,7 +1177,7 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
     max_attempts = int(request.app.state.config.workflow_run_max_attempts)
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         if run.status not in {RUN_STATUS_FAILED, RUN_STATUS_CANCELLED, RUN_STATUS_EXPIRED}:
             raise HTTPException(
                 status_code=409,
@@ -1374,7 +1396,7 @@ async def list_workflow_run_approvals(request: Request) -> JSONResponse:
     run_id = request.path_params["run_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        _get_run_or_404(session, run_id)
+        _get_run_or_404(session, run_id, request=request)
         rows = (
             session.execute(
                 select(CaliberRuntimeApprovalRequest)
@@ -1405,7 +1427,7 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
     now = datetime.now(timezone.utc)
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         if run.status != RUN_STATUS_WAITING_APPROVAL:
             raise HTTPException(
                 status_code=409,
@@ -1574,7 +1596,7 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
     approval_node_id: str | None = None
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         if run.status != RUN_STATUS_WAITING_APPROVAL:
             raise HTTPException(
                 status_code=409,
@@ -1950,7 +1972,7 @@ async def resume_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
     payload = WorkflowRunResumeRequest.model_validate(body)
     factory = get_session_factory(request)
     with factory() as session:
-        run = _get_run_or_404(session, run_id)
+        run = _get_run_or_404(session, run_id, request=request)
         if run.status not in {RUN_STATUS_WAITING_APPROVAL, RUN_STATUS_WAITING_EVENT}:
             raise HTTPException(
                 status_code=409,

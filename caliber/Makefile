@@ -86,6 +86,9 @@ test-allure:  ## run pytest and emit Allure results to allure-results/
 	# this run (allure-pytest otherwise APPENDS, inflating/duplicating the report).
 	$(PY) scripts/pytest_clean_exit.py --alluredir=allure-results --clean-alluredir $(ARGS)
 
+ci-local:  ## run every CI gate on this machine (add --fast to skip integration+package)
+	../scripts/ci-local.sh $(ARGS)
+
 lint:  ## ruff + mypy
 	$(RUFF) check src tests
 	$(MYPY) src
