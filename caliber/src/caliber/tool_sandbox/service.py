@@ -156,12 +156,31 @@ class LocalSubprocessToolSandbox:
 
     @classmethod
     def from_config(cls, config: CaliberConfig) -> LocalSubprocessToolSandbox:
+        """Build from operator configuration, tolerating a partial object.
+
+        ``getattr`` with the class defaults rather than attribute access, for the same
+        reason ``sandbox_from_optional_config`` accepts ``config=None``: a caller that
+        cannot supply every field should still get a *bounded* sandbox rather than an
+        ``AttributeError``. Direct access made any partially-populated config a crash — and
+        once the ``python_code`` node started resolving through this factory, a config
+        carrying only the sandbox on/off flag took 27 worker tests down with it.
+        """
+        defaults = cls()
         return cls(
-            default_timeout_seconds=config.tool_sandbox_timeout_seconds,
-            max_output_bytes=config.tool_sandbox_max_output_bytes,
-            max_memory_bytes=config.tool_sandbox_max_memory_bytes,
-            max_file_bytes=config.tool_sandbox_max_file_bytes,
-            max_open_files=config.tool_sandbox_max_open_files,
+            default_timeout_seconds=getattr(
+                config, "tool_sandbox_timeout_seconds", defaults.default_timeout_seconds
+            ),
+            max_output_bytes=getattr(
+                config, "tool_sandbox_max_output_bytes", defaults.max_output_bytes
+            ),
+            max_memory_bytes=getattr(
+                config, "tool_sandbox_max_memory_bytes", defaults.max_memory_bytes
+            ),
+            max_file_bytes=getattr(config, "tool_sandbox_max_file_bytes", defaults.max_file_bytes),
+            max_open_files=getattr(config, "tool_sandbox_max_open_files", defaults.max_open_files),
+            startup_grace_seconds=getattr(
+                config, "tool_sandbox_startup_grace_seconds", defaults.startup_grace_seconds
+            ),
         )
 
     def run_tool(self, request: ToolSandboxRunRequest) -> ToolSandboxRunResult:
@@ -241,6 +260,11 @@ class LocalSubprocessToolSandbox:
         # clock: the rlimit is what stops a runaway loop, and it should still measure the
         # work rather than the overhead.
         wall_timeout = timeout + self.startup_grace_seconds
+        # The child enforces the caller's budget itself, starting after its import. The
+        # parent's longer wait is only a backstop for a child that never reports at all —
+        # without this the effective deadline was budget + grace for anything that blocks,
+        # since RLIMIT_CPU does not tick while a process sleeps or waits on I/O.
+        payload["deadline_seconds"] = timeout
         payload["_limits"] = {
             "cpu_seconds": max(1, int(timeout) + 1),
             "memory_bytes": self.max_memory_bytes,

@@ -47,7 +47,9 @@ from caliber.llm.models import is_reasoning_model
 from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
 from caliber.tool_sandbox.models import ToolSandboxRunRequest
-from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
+from caliber.tool_sandbox.service import (
+    sandbox_from_optional_config,
+)
 from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
@@ -2466,6 +2468,38 @@ def _bind_in_process(binding: IRToolBinding) -> Callable[..., Any] | None:
         return None
 
 
+def _standalone_config() -> Any | None:
+    """Operator configuration for a generated export, **without touching globals**.
+
+    A generated export runs standalone: nothing has called ``bind_sandbox_config`` or
+    ``bind_module_allowlist``, so both process globals are ``None`` and the export would
+    silently ignore every operator setting — allowlist, backend, timeout, and the disable
+    switch alike. Binding happens at *import* of the generated module, before any of the
+    app's startup wiring, so the configuration has to be read here or not at all.
+
+    Returned rather than installed. An earlier version assigned ``_ACTIVE_SANDBOX_CONFIG``
+    and called ``bind_module_allowlist``, which meant merely *binding a tool* mutated
+    process-wide policy — and in a shared process (the test suite, an embedding host) that
+    leaks into everything that runs afterwards. Process-global state set as a side effect
+    of an unrelated call is a defect this codebase has already been bitten by more than
+    once.
+
+    ``None`` when nothing is bound and nothing can be loaded: the caller then falls back to
+    the safe defaults (sandbox on, no allowlist) rather than refusing to start.
+    """
+    if _ACTIVE_SANDBOX_CONFIG is not None:
+        return _ACTIVE_SANDBOX_CONFIG
+    try:
+        import os  # noqa: PLC0415
+
+        from caliber.config import CaliberConfig  # noqa: PLC0415
+
+        return CaliberConfig.load(environ=dict(os.environ))
+    except Exception:
+        logger.debug("standalone export could not load configuration; using defaults")
+        return None
+
+
 def bind_exported_tool(entry: Any) -> Callable[..., Any]:
     """Bind a registered tool for a **generated standalone export**.
 
@@ -2489,14 +2523,16 @@ def bind_exported_tool(entry: Any) -> Callable[..., Any]:
         registered_tool_module_allowed,
     )
 
+    config = _standalone_config()
     module_path = getattr(entry, "module_path", "") or ""
     if module_path == "<in-memory>":
         # No module to load in either mode. Delegated so the existing, specific
         # ToolBindingError is raised rather than a confusing import failure for a literal
         # ``<in-memory>`` module name inside the sandbox child.
         return bind_registered_tool(entry)
-    if _registered_tool_sandbox_enabled():
-        if not registered_tool_module_allowed(module_path):
+    if bool(getattr(config, "registered_tool_sandbox_enabled", True)):
+        allowlist = getattr(config, "registered_tool_module_allowlist", None) or None
+        if not registered_tool_module_allowed(module_path, allowlist):
             raise ToolBindingError(
                 f"tool module {module_path!r} is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
             )
@@ -2510,7 +2546,7 @@ def bind_exported_tool(entry: Any) -> Callable[..., Any]:
             module_path=module_path,
             callable_name=getattr(entry, "callable_name", "") or "",
         )
-        return _sandboxed_registered_tool(binding)
+        return _sandboxed_registered_tool(binding, config=config)
     return bind_registered_tool(entry)
 
 
@@ -2524,7 +2560,9 @@ def _registered_tool_sandbox_enabled() -> bool:
     return bool(getattr(_ACTIVE_SANDBOX_CONFIG, "registered_tool_sandbox_enabled", True))
 
 
-def _sandboxed_registered_tool(binding: IRToolBinding) -> Callable[..., Any]:
+def _sandboxed_registered_tool(
+    binding: IRToolBinding, *, config: Any | None = None
+) -> Callable[..., Any]:
     """Invoke a registered tool in a subprocess. **Wired — this closes C8.**
 
     Convention selection and error typing now live in the sandbox protocol, which is what
@@ -2561,7 +2599,10 @@ def _sandboxed_registered_tool(binding: IRToolBinding) -> Callable[..., Any]:
     from caliber.tool_sandbox.service import sandbox_from_optional_config  # noqa: PLC0415
 
     def _run(*, args: list[Any], kwargs: dict[str, Any], shapes: list[Any]) -> Any:
-        sandbox = sandbox_from_optional_config(_ACTIVE_SANDBOX_CONFIG)
+        # ``config`` lets a standalone export supply its own without mutating the
+        # process-wide binding; inside the app it is simply the active one.
+        effective = config if config is not None else _ACTIVE_SANDBOX_CONFIG
+        sandbox = sandbox_from_optional_config(effective)
         result = sandbox.run_tool(
             ToolSandboxRunRequest(
                 module_path=binding.module_path,
@@ -2573,11 +2614,7 @@ def _sandboxed_registered_tool(binding: IRToolBinding) -> Callable[..., Any]:
                 # for a cold interpreter plus the module's imports before the tool body
                 # starts. See the config field for the measured startup cost.
                 timeout_seconds=float(
-                    getattr(
-                        _ACTIVE_SANDBOX_CONFIG,
-                        "registered_tool_sandbox_timeout_seconds",
-                        30.0,
-                    )
+                    getattr(effective, "registered_tool_sandbox_timeout_seconds", 30.0)
                 ),
             )
         )
@@ -6175,7 +6212,17 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         for kwarg, limit in configured_limits:
             if limit is not None:
                 sandbox_kwargs[kwarg] = limit
-        sandbox = LocalSubprocessToolSandbox(**sandbox_kwargs)
+        # Through the configured factory, not a hardcoded class: an operator who points
+        # CALIBER_TOOL_SANDBOX_BACKEND at a container-backed sandbox was getting it for
+        # registered tools and *not* here — and this is the path that runs arbitrary
+        # user-authored code, so it is the one that most needs the stronger boundary.
+        # The node's own limits still win, since they came from its manifest.
+        sandbox = sandbox_from_optional_config(
+            _ACTIVE_SANDBOX_CONFIG, default_timeout_seconds=node.timeout_seconds
+        )
+        for _attr, _value in sandbox_kwargs.items():
+            with contextlib.suppress(AttributeError):
+                setattr(sandbox, _attr, _value)
         sandbox_request = ToolSandboxRunRequest(
             source_code=_python_node_source(node.code),
             callable_name=_PYTHON_NODE_CALLABLE,

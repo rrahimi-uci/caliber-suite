@@ -1859,6 +1859,52 @@ def test_knowledge_build_node_skips_launch_in_preview_mode() -> None:
     assert "preview skipped" in step.detail
 
 
+def test_python_code_nodes_go_through_the_configured_sandbox_backend(monkeypatch) -> None:
+    """The pluggable backend must cover the path that runs *arbitrary user code*.
+
+    ``CALIBER_TOOL_SANDBOX_BACKEND`` was honoured for registered tools but not here: the
+    ``python_code`` node constructed ``LocalSubprocessToolSandbox`` directly. So an operator
+    who deployed a container-backed sandbox for isolation did not get it on the one path
+    where a workflow author's own code executes. Found by an independent review.
+
+    Asserted by spying on the factory the node must consult, then running a real node — not
+    by inspecting the source, which would pass for a node that never runs.
+    """
+    import caliber.workflows.runtime as runtime_module
+
+    calls: list[object] = []
+    real = runtime_module.sandbox_from_optional_config
+
+    def _spy(config: object, **kwargs: object) -> object:
+        calls.append(config)
+        return real(config, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "sandbox_from_optional_config", _spy)
+
+    data = make_manifest()
+    data["nodes"]["python"] = {
+        "id": "python",
+        "type": "python_code",
+        "code": "return str(input).upper()",
+        "timeout_seconds": 5,
+        "inputs": {"input": {"type": "string"}, "context": {"type": "structured"}},
+        "outputs": {
+            "text": {"type": "string"},
+            "result": {"type": "structured"},
+            "metadata": {"type": "structured"},
+        },
+    }
+    data["edges"] = [
+        {"id": "e_start_python", "from": "start", "to": "python", "map": {"msg": "input"}},
+        {"id": "e_python_final", "from": "python", "to": "final", "map": {"text": "response"}},
+    ]
+
+    result = execute(_plan(data), "refund", executor=FakeWorkflowExecutor())
+
+    assert result.status == "completed", result.error
+    assert calls, "the python_code node must resolve its sandbox through the configured factory"
+
+
 def test_python_code_node_executes_in_runtime() -> None:
     data = make_manifest()
     data["nodes"]["python"] = {

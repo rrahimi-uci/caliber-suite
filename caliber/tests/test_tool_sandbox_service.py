@@ -445,3 +445,62 @@ def test_interpreter_startup_is_not_charged_to_the_callers_timeout() -> None:
     assert result.status == "timed_out"
     # The message reports the configured budget, not the internal allowance.
     assert "0.20s" in (result.error or "")
+
+
+def test_a_blocking_tool_is_bounded_by_its_budget_not_by_budget_plus_grace() -> None:
+    """The startup allowance must not become extra runtime.
+
+    Adding the allowance to the parent's wait fixed cold starts but made the *effective*
+    deadline budget + grace for anything that blocks: `RLIMIT_CPU` does not tick while a
+    process sleeps or waits on I/O, so a 1s budget with a 4s grace actually waited 5s. An
+    independent review caught it.
+
+    The authoritative deadline now lives in the child and starts after its import, so the
+    parent's longer wait is only a backstop for a child that never reports at all.
+    """
+    import time
+
+    from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
+
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=1.0, startup_grace_seconds=15.0)
+    started = time.monotonic()
+    result = sandbox.run_tool(
+        ToolSandboxRunRequest(
+            module_path="time",
+            callable_name="sleep",
+            shapes=[{"args": [30], "kwargs": {}}],
+        )
+    )
+    elapsed = time.monotonic() - started
+
+    assert result.status == "timed_out", result.error
+    # Comfortably under budget + grace (16s); the point is the grace is not runtime.
+    assert elapsed < 8.0, f"a blocking tool ran for {elapsed:.1f}s on a 1s budget"
+
+
+def test_a_partial_config_still_yields_a_bounded_sandbox() -> None:
+    """A config missing fields must degrade to defaults, not raise.
+
+    ``from_config`` read every ``tool_sandbox_*`` attribute directly, so any partially
+    populated config object was an ``AttributeError``. That stayed hidden while only the
+    standalone sandbox app called it; the moment the ``python_code`` node started resolving
+    through the same factory, a config carrying just the sandbox on/off flag took 27 worker
+    tests down with it.
+
+    The rule matches ``sandbox_from_optional_config(None)``: a caller that cannot supply
+    every field should still get a *bounded* sandbox rather than a crash.
+    """
+    from types import SimpleNamespace
+
+    from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
+
+    sandbox = LocalSubprocessToolSandbox.from_config(
+        SimpleNamespace(registered_tool_sandbox_enabled=False)  # type: ignore[arg-type]
+    )
+    defaults = LocalSubprocessToolSandbox()
+
+    assert sandbox.default_timeout_seconds == defaults.default_timeout_seconds
+    assert sandbox.max_memory_bytes == defaults.max_memory_bytes
+    assert sandbox.max_open_files == defaults.max_open_files
+    # Still bounded — the point is a safe fallback, not an unlimited one.
+    assert sandbox.max_output_bytes > 0

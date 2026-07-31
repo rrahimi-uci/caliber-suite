@@ -15,6 +15,7 @@ import io
 import json
 import math as _math
 import re as _re
+import signal
 
 try:
     import resource as _resource
@@ -128,6 +129,14 @@ def main() -> None:
                 result = _inspect_callable(request, max_source_chars=capture_limit)
             else:
                 result = _run_once(request)
+        except _DeadlineExceededError as exc:
+            # Its own status, so the parent reports a timeout rather than a tool failure —
+            # they mean different things to an operator and to a retry policy.
+            result = {
+                "status": "timed_out",
+                "error": str(exc),
+                "error_type": "DeadlineExceeded",
+            }
         except Exception as exc:
             result = {
                 "status": "failed",
@@ -263,17 +272,58 @@ def _resolve_callable(request: dict[str, Any]) -> Any:
     return fn
 
 
+class _DeadlineExceededError(Exception):
+    """The user callable outran the caller's budget, measured from after import."""
+
+
+@contextlib.contextmanager
+def _deadline(seconds: float) -> Any:
+    """Bound the user call by wall clock, inside the child.
+
+    The parent also has a timeout, but it necessarily covers interpreter start and module
+    import too, so it cannot be the caller's budget without charging them for overhead they
+    did not ask for. Extending the parent's wait to compensate then made the *effective*
+    deadline the budget plus the allowance — a 1s budget waited 5s for a sleeping tool,
+    because ``RLIMIT_CPU`` bounds CPU time and a blocked process consumes none.
+
+    So the authoritative deadline lives here, starting after the import is done, and the
+    parent's longer wait is only a backstop for a child that never reports at all.
+
+    ``setitimer`` rather than a watchdog thread: it interrupts a blocking syscall, which a
+    thread cannot, and blocking is exactly the case the parent's CPU limit misses.
+    """
+    if seconds <= 0 or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def _fire(_signum: int, _frame: Any) -> None:
+        raise _DeadlineExceededError(f"tool exceeded its {seconds:.2f}s budget")
+
+    previous = signal.signal(signal.SIGALRM, _fire)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def _run_once(request: dict[str, Any]) -> dict[str, Any]:
+    # Resolution (the import) happens outside the deadline: the caller's budget is for
+    # their code, and charging them for a cold import is what the parent-side timeout got
+    # wrong. The deadline starts once the callable is in hand.
     fn = _resolve_callable(request)
+    budget = float(request.get("deadline_seconds") or 0.0)
     shapes = request.get("shapes") or []
-    if shapes:
-        return _run_selected_shape(fn, shapes)
-    # Positional args are carried separately from keyword input: the runtime calls
-    # some tools positionally, and collapsing both into one dict would silently
-    # reorder or drop them.
-    args = request.get("args") or []
-    output = fn(*args, **request.get("input", {}))
-    return {"status": "completed", "output": output}
+    with _deadline(budget):
+        if shapes:
+            return _run_selected_shape(fn, shapes)
+        # Positional args are carried separately from keyword input: the runtime calls
+        # some tools positionally, and collapsing both into one dict would silently
+        # reorder or drop them.
+        args = request.get("args") or []
+        output = fn(*args, **request.get("input", {}))
+        return {"status": "completed", "output": output}
 
 
 def _inspect_callable(request: dict[str, Any], *, max_source_chars: int) -> dict[str, Any]:
