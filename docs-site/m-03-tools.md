@@ -52,9 +52,9 @@ responsibility to its owner.
 | --- | --- | --- |
 | Tool metadata registry | `CaliberToolRegistry` | Versioned, project-scoped registry rows and lifecycle metadata. |
 | Tool resolution by family/version | `workflows/tools.py` | Metadata-only resolution used by compiler and validation. |
-| Callable import/binding | `workflows/tools.py` | Imports the resolved Python callable for runtime use. |
+| Callable import/binding | `workflows/tools.py` | Resolves a registry entry to a callable. The import itself happens **in the sandbox child**, not the control plane — see §Execution boundary. |
 | Request-path testing and calibration | `routes/tools.py` | API surface for testing, fixtures, calibration, baselines, and archive protection. |
-| Execution isolation | `tool_sandbox/service.py` | Runs user-authored tool code in a short-lived subprocess with timeout and clipped output. |
+| Execution isolation | `tool_sandbox/service.py` | Runs tool code in a short-lived subprocess with a timeout, resource limits, and clipped output. The backend is pluggable (`CALIBER_TOOL_SANDBOX_BACKEND`). |
 | Workflow runtime preview behavior | `workflows/sandbox.py` | Applies preview-mode restrictions and mocking for non-preview-safe tools. |
 
 The boundaries reduce to a single design split. On one side are registry
@@ -110,6 +110,7 @@ protect tools that are still in use. The table summarizes their roles.
 | --- | --- |
 | `CaliberToolRegistry` | Canonical tool registry row including version, callable location, schemas, safety metadata, fixtures, calibration summary, and pinned baseline. |
 | `CaliberToolTestRun` | Durable test-run history for sandbox, suite, and hardening runs. |
+| `CaliberCalibrationJob` | Queued/running/finished calibration work, with the test cases snapshotted at submission so a result is never attributed to a definition that did not produce it. |
 | `CaliberWorkflowDeployment` and `CaliberWorkflowVersion` | Referenced during archive protection and usage analysis so in-use tool families cannot be removed unsafely. |
 
 The `CaliberToolRegistry` row carries the fields that define a tool and govern how
@@ -153,6 +154,20 @@ lifecycle and usage analysis:
 - `GET /tools/{tool_id}/source`
 - `GET /tools/{tool_id}/usage`
 - `GET /tools/{tool_id}/versions`
+
+Calibration also has a **durable** form, because scoring up to 200 cases through the
+sandbox is minutes of work and a synchronous request loses the result to a proxy timeout
+or a closed laptop lid:
+
+- `POST /tools/{tool_id}/calibration-jobs` — returns `202` with a job id
+- `GET /tools/{tool_id}/calibration-jobs` — recent jobs, newest first
+- `GET /tools/{tool_id}/calibration-jobs/{job_id}` — poll one job
+
+A background drain claims a job with a conditional `UPDATE`, runs it off the event loop,
+and records the outcome. A crashed drain deliberately leaves the job claimed rather than
+re-queueing it: calibration invokes tools, so silently re-running one after an ambiguous
+failure is the wrong default. The synchronous `POST /tools/{tool_id}/calibrate` remains
+for small fixture sets.
 
 The second area covers testing and calibration against the sandbox and fixtures:
 
@@ -239,6 +254,44 @@ operator-supplied Python source metadata, but the runtime executes that code onl
 through the sandbox or controlled workflow binding, and source reflection is
 best-effort and read-only. Authoring a tool, in other words, is not the same as
 being allowed to run arbitrary code in the request process.
+
+### 7.1 The execution boundary, and what it is not
+
+A registered tool's module is imported and invoked **in a child process by default**,
+not in the control plane. This matters more than it sounds: the *import* is execution
+too, so module-level code used to run in the API server on first bind. Source
+inspection, test-run, and calibration all go through the same child, so reflecting on a
+tool for its signature no longer executes it here either.
+
+| Control | Setting | Default |
+| --- | --- | --- |
+| Out-of-process execution | `CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED` | on |
+| Which modules may be registered at all | `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` | unrestricted, and reported by `/readiness` as an unset control rather than passing silently |
+| Sandbox implementation | `CALIBER_TOOL_SANDBOX_BACKEND` | the built-in subprocess sandbox |
+| Registered-module budget | `CALIBER_REGISTERED_TOOL_SANDBOX_TIMEOUT_SECONDS` | 30s |
+
+The allowlist is enforced on both binder paths. Routing execution into a subprocess
+narrows *where* a module runs; it does not change *which* modules an operator
+sanctioned, so containment and authorization do not trade off against each other.
+
+**What this boundary is not.** The shipped sandbox is a *process* boundary: a separate
+interpreter, an empty environment, a private working directory, and POSIX resource
+limits. It is **not** a container, VM, or seccomp boundary, and the child retains
+ambient filesystem and network access on the host. That is appropriate for trusted tool
+authors in one organization and is **not** isolation for untrusted ones. Portable Python
+cannot provide OS-enforced isolation — namespaces are Linux-only and privileged, seccomp
+needs a native binding, containers are infrastructure — so a deployment that needs it
+supplies its own factory via `CALIBER_TOOL_SANDBOX_BACKEND` rather than forking.
+
+**Cost.** Running out of process is not free: measured on an idle machine, a cold child
+costs roughly 0.05s for a trivial module and 0.55s for one importing the caliber
+package, per call. A caller's configured timeout budgets *their code* — the child starts
+its own deadline after its import, so interpreter startup is not charged to it. A warm
+worker pool would recover most of that cost and is not implemented.
+
+**Generated exports take the same decision.** A compiled standalone export binds through
+the same path and reads operator configuration from the environment, so a workflow does
+not change behaviour by being exported.
 
 ## 8. Observability and operations
 

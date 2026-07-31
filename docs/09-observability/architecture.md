@@ -10,6 +10,7 @@
 | **Live events** | Ephemeral event-bus frames pushed to the SPA over `GET /events/stream` via a swappable fanout backend. |
 | **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`) plus structured review queues that write back as MLflow assessments and expectations. |
 | **Retention** | Server-owned MLflow trace archival (Postgres → MinIO) via `MLFLOW_TRACE_ARCHIVAL_CONFIG`, opt-in and read transparently. |
+| **Alerting** | Operator-declared SLO objectives evaluated on read, with incidents opened/resolved in `caliber_incidents` and routed over the event bus to the webhook dispatcher. Silencing and acknowledgement are recorded, not inferred. |
 | **Trust / safety** | Authenticated trace surfaces, redaction and byte-caps before MLflow, and safe degradation to empty responses when MLflow is unavailable. |
 
 The sections below start from this picture and drill down into each concern in detail, from scope and module boundaries through to retention and review queues.
@@ -337,6 +338,48 @@ The behaviors that matter most in operation are these:
 - `GET /observability/metrics` computes time buckets over recent traces for the
   in-app charts, while `GET /metrics` remains the machine-scrape surface for
   Prometheus.
+
+### 8.1 SLO objectives, incidents, and alert routing
+
+Evaluation and *memory* are separate concerns here, and for a long time only the first
+existed. `observability/slo.py` evaluates operator-declared objectives
+(`CALIBER_SLO_OBJECTIVES`) against queue, delivery, and readiness signals and returns an
+alert state per objective, rendered by `GET /system/alerts`. That is a gauge: it says
+whether an objective is breaching *now*. It could not answer when a breach started, how
+long it lasted, or whether it had happened before.
+
+`caliber_incidents` supplies the missing state. An incident opens the first time an
+objective fires and resolves when it stops, recording duration, severity, acknowledgement,
+and silence.
+
+| Surface | Purpose |
+| --- | --- |
+| `GET /system/alerts` | Current objective states, and the reconcile point where incidents open and close |
+| `GET /system/incidents` | History, newest first, filterable by status |
+| `POST /system/incidents/{id}/silence` | Mute routing for a window, without hiding the record |
+| `POST /system/incidents/{id}/acknowledge` | Record that a human owns it — deliberately *not* the same as resolving |
+
+**Routing reuses the event bus rather than adding a delivery path.** An incident publishes
+`slo.incident.opened` / `slo.incident.resolved`, which the webhook dispatcher already
+delivers — inheriting bounded retry, the durable dead-letter record, per-target settlement,
+and recovery after abrupt process loss. An alert that vanishes silently is the exact
+failure that delivery path was hardened against; a second path would re-earn it.
+
+Four behaviours are deliberate and worth knowing before relying on this:
+
+- **At most one notification per transition.** The evaluator runs repeatedly, so without
+  `notified_at` an hour-long breach would page on every tick.
+- **Silencing suppresses routing, not the record.** Dropping the row would hide the
+  incident from the history that exists to be reviewed afterwards.
+- **A resolution routes even when the open was silenced.** "All clear" is the one message
+  that is never noise.
+- **Severity is operator configuration** (`CALIBER_SLO_SEVERITIES`), not inferred from how
+  far past target an observation sits: how bad a breach is depends on the service, not the
+  number. An unrecognised severity is ignored so one typo cannot stop other objectives from
+  being evaluated.
+
+What is still absent: escalation chains, on-call rotation, and per-agent or per-workflow
+health rollups. Severity is a label an operator sets, not a policy that escalates over time.
 
 Knowing how the module degrades is just as important as knowing how it behaves
 when healthy. The common degraded modes are:

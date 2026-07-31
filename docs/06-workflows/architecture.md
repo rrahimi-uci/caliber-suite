@@ -390,9 +390,13 @@ points are:
 - Widening the compile-cache, storage, and event-bus backends.
 
 These seams come with a set of deliberate constraints that callers should
-understand. Runtime execution is in-process and worker-driven rather than a
-separate service. The generated Python exists for export and review and is not
-the live execution path. Synchronous SQLAlchemy and synchronous run
+understand. Run *orchestration* is in-process and worker-driven rather than a separate
+service — but the code a workflow author supplies is not: registered tools and
+`python_code` nodes execute in a sandbox child, through the backend the operator
+configured, so the control plane never imports author-supplied modules. The generated
+Python exists for export and review and is not the live execution path; it binds tools
+through the same sandbox decision the runtime takes, so a workflow does not change
+behaviour by being exported. Synchronous SQLAlchemy and synchronous run
 orchestration remain core assumptions of the design. Workflow versions are
 immutable by convention after publication, so most edits are expressed as new
 versions or patches rather than in-place mutation. And several advanced

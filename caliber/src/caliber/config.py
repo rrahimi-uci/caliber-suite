@@ -994,10 +994,11 @@ class CaliberConfig(BaseModel):
     #: importing the caliber package, on an idle machine. Under a saturated host that
     #: startup alone exceeded the 5s budget and a working tool was reported as timed out.
     #:
-    #: So this is not the same number with more slack — it is a different budget covering
-    #: interpreter start plus import plus execution. It still bounds a runaway tool, and the
-    #: per-call startup cost is a real consequence of running registered tools out of
-    #: process rather than importing them into the control plane.
+    #: This is the requested tool-call budget. On POSIX, the child wall timer currently
+    #: starts after module resolution while CPU limits and the parent's budget-plus-startup-
+    #: grace backstop cover the whole child lifetime. It therefore interrupts ordinary
+    #: blocking calls near this value, but it is not yet one portable wall deadline over
+    #: interpreter startup, import, and execution.
     registered_tool_sandbox_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     tool_sandbox_backend: str = Field(
         default="",
@@ -1161,13 +1162,13 @@ class CaliberConfig(BaseModel):
         default="",
         description=(
             "Comma-separated module prefixes a registered tool may be imported from, e.g. "
-            "'caliber.*,mycompany.tools.*'. A registered tool's module_path is imported "
-            "and invoked IN-PROCESS, so this is the defence-in-depth boundary on that "
-            "path. Empty means unrestricted, which is the shipped default because tool "
-            "registration already requires the admin scope and a fail-closed default "
-            "would break every existing install on upgrade — but an unset allowlist is "
-            "reported by /readiness as an unset control rather than passing silently. "
-            "Entries may end in '*' to allow a prefix."
+            "'caliber.*,mycompany.tools.*'. By default, a registered module is imported "
+            "and invoked in the configured sandbox child; disabling that boundary restores "
+            "in-process execution without disabling this allowlist. Empty means unrestricted, "
+            "which is the shipped default because tool registration already requires the "
+            "admin scope and a fail-closed default would break every existing install on "
+            "upgrade — but an unset allowlist is reported by /readiness as an unset control "
+            "rather than passing silently. Entries may end in '*' to allow a prefix."
         ),
     )
 
@@ -1793,7 +1794,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ),
     ("CALIBER_ASSISTANT_TOOL_SOURCE_MAX_BYTES", "assistant_tool_source_max_bytes", int),
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
-    ("CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED", "registered_tool_sandbox_enabled", bool),
+    ("CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED", "registered_tool_sandbox_enabled", _flag),
     ("CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS", "tool_sandbox_timeout_seconds", float),
     (
         "CALIBER_REGISTERED_TOOL_SANDBOX_TIMEOUT_SECONDS",

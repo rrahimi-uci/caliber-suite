@@ -1074,6 +1074,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         ),
         sandbox_max_file_bytes=(config.tool_sandbox_max_file_bytes if config is not None else None),
         sandbox_max_open_files=(config.tool_sandbox_max_open_files if config is not None else None),
+        sandbox_config=config,
         # Built here, from config, so CALIBER_EGRESS_* actually reaches the nodes it
         # governs. ``from_config(None)`` returns the safe default rather than no
         # policy, so a builder that threads no config still constrains egress.

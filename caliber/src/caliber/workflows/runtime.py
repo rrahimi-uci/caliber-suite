@@ -2151,6 +2151,10 @@ class RuntimePlan:
     sandbox_max_memory_bytes: int | None = None
     sandbox_max_file_bytes: int | None = None
     sandbox_max_open_files: int | None = None
+    # The configuration object that selected the sandbox backend. Runtime plans used to
+    # carry only scalar limits, which made exported ``python_code`` nodes fall back to the
+    # local backend even when their caller supplied a hardened custom implementation.
+    sandbox_config: Any | None = None
     # Bounded parallelism for a ForEach node whose target is an agent. 1 (default)
     # = sequential, byte-identical to pre-concurrency behavior. Set from
     # ``config.workflow_foreach_max_workers`` by ``build_plan``; other plan
@@ -2468,7 +2472,7 @@ def _bind_in_process(binding: IRToolBinding) -> Callable[..., Any] | None:
         return None
 
 
-def _standalone_config() -> Any | None:
+def _standalone_config() -> Any:
     """Operator configuration for a generated export, **without touching globals**.
 
     A generated export runs standalone: nothing has called ``bind_sandbox_config`` or
@@ -2484,8 +2488,9 @@ def _standalone_config() -> Any | None:
     of an unrelated call is a defect this codebase has already been bitten by more than
     once.
 
-    ``None`` when nothing is bound and nothing can be loaded: the caller then falls back to
-    the safe defaults (sandbox on, no allowlist) rather than refusing to start.
+    When no process-wide configuration is bound, a default configuration object is loaded
+    from the environment. Invalid operator configuration is a startup error: it must not
+    silently erase an allowlist, backend, timeout, or disable decision.
     """
     if _ACTIVE_SANDBOX_CONFIG is not None:
         return _ACTIVE_SANDBOX_CONFIG
@@ -2495,9 +2500,12 @@ def _standalone_config() -> Any | None:
         from caliber.config import CaliberConfig  # noqa: PLC0415
 
         return CaliberConfig.load(environ=dict(os.environ))
-    except Exception:
-        logger.debug("standalone export could not load configuration; using defaults")
-        return None
+    except Exception as exc:
+        from caliber.workflows.tools import ToolBindingError  # noqa: PLC0415
+
+        raise ToolBindingError(
+            "standalone export sandbox configuration is invalid; refusing to bind tools"
+        ) from exc
 
 
 def bind_exported_tool(entry: Any) -> Callable[..., Any]:
@@ -2530,12 +2538,12 @@ def bind_exported_tool(entry: Any) -> Callable[..., Any]:
         # ToolBindingError is raised rather than a confusing import failure for a literal
         # ``<in-memory>`` module name inside the sandbox child.
         return bind_registered_tool(entry)
+    allowlist = getattr(config, "registered_tool_module_allowlist", None) or None
+    if not registered_tool_module_allowed(module_path, allowlist):
+        raise ToolBindingError(
+            f"tool module {module_path!r} is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
+        )
     if bool(getattr(config, "registered_tool_sandbox_enabled", True)):
-        allowlist = getattr(config, "registered_tool_module_allowlist", None) or None
-        if not registered_tool_module_allowed(module_path, allowlist):
-            raise ToolBindingError(
-                f"tool module {module_path!r} is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
-            )
         binding = IRToolBinding(
             local_name=getattr(entry, "name", "") or "tool",
             registry_ref=getattr(entry, "registry_ref", "") or "",
@@ -6216,9 +6224,14 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         # CALIBER_TOOL_SANDBOX_BACKEND at a container-backed sandbox was getting it for
         # registered tools and *not* here — and this is the path that runs arbitrary
         # user-authored code, so it is the one that most needs the stronger boundary.
-        # The node's own limits still win, since they came from its manifest.
+        # The node timeout still wins; the remaining resource limits come from the plan's
+        # resolved operator configuration.
+        effective_sandbox_config = (
+            plan.sandbox_config if plan.sandbox_config is not None else _ACTIVE_SANDBOX_CONFIG
+        )
         sandbox = sandbox_from_optional_config(
-            _ACTIVE_SANDBOX_CONFIG, default_timeout_seconds=node.timeout_seconds
+            effective_sandbox_config,
+            default_timeout_seconds=node.timeout_seconds,
         )
         for _attr, _value in sandbox_kwargs.items():
             with contextlib.suppress(AttributeError):

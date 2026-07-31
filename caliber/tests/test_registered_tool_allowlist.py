@@ -379,6 +379,52 @@ def test_disabling_the_sandbox_is_possible_but_not_the_default() -> None:
     assert CaliberConfig().registered_tool_sandbox_enabled is True
 
 
+def test_standalone_export_refuses_invalid_sandbox_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed setting must not discard the allowlist and continue unrestricted."""
+    from caliber.workflows.runtime import bind_exported_tool, bind_sandbox_config
+
+    entry = ToolRegistryEntry(
+        name="getpid",
+        version="1.0",
+        module_path="os",
+        callable_name="getpid",
+    )
+    previous = runtime_module._ACTIVE_SANDBOX_CONFIG
+    bind_sandbox_config(None)
+    monkeypatch.setenv("CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST", "nothing.matches.*")
+    monkeypatch.setenv("CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS", "not-a-number")
+    try:
+        with pytest.raises(ToolBindingError, match="configuration is invalid"):
+            bind_exported_tool(entry)
+    finally:
+        bind_sandbox_config(previous)
+
+
+def test_disabled_standalone_export_still_enforces_its_explicit_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Disabling containment cannot also disable module authorization."""
+    from caliber.workflows.runtime import bind_exported_tool, bind_sandbox_config
+
+    entry = ToolRegistryEntry(
+        name="getpid",
+        version="1.0",
+        module_path="os",
+        callable_name="getpid",
+    )
+    previous = runtime_module._ACTIVE_SANDBOX_CONFIG
+    bind_sandbox_config(None)
+    monkeypatch.setenv("CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED", "")
+    monkeypatch.setenv("CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST", "nothing.matches.*")
+    try:
+        with pytest.raises(ToolBindingError, match="CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"):
+            bind_exported_tool(entry)
+    finally:
+        bind_sandbox_config(previous)
+
+
 def test_the_sandbox_refuses_an_ambiguous_request() -> None:
     """Exactly one of ``source_code``/``module_path``. A request carrying both would
     run *something* and which one is not obvious from the call site."""

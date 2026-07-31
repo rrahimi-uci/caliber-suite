@@ -532,6 +532,10 @@ def execute_exported_workflow(
         knowledge_build_runner=resolved_knowledge_build_runner,
         session_memory_store=resolved_session_memory_store,
         max_output_bytes=resolved_config.tool_sandbox_max_output_bytes,
+        sandbox_max_memory_bytes=resolved_config.tool_sandbox_max_memory_bytes,
+        sandbox_max_file_bytes=resolved_config.tool_sandbox_max_file_bytes,
+        sandbox_max_open_files=resolved_config.tool_sandbox_max_open_files,
+        sandbox_config=resolved_config,
         foreach_max_workers=resolved_config.workflow_foreach_max_workers,
     )
     return execute(

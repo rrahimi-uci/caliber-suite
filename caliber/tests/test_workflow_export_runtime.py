@@ -10,12 +10,43 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.config import CaliberConfig
 from caliber.db.models import CaliberWorkflow, CaliberWorkflowDeployment, CaliberWorkflowVersion
+from caliber.tool_sandbox.models import ToolSandboxRunResult
 from caliber.workflows import export_runtime
 from caliber.workflows.compiler import build_ir
 from caliber.workflows.manifest import parse_manifest
 from caliber.workflows.runtime import FakeWorkflowExecutor, RuntimePlan, WorkflowRunResult
 from caliber.workflows.session_memory import InMemoryWorkflowSessionMemoryStore
 from tests.workflow_helpers import fake_resolver, make_manifest
+
+_EXPORTED_SANDBOXES: list[_RecordingExportSandbox] = []
+
+
+class _RecordingExportSandbox:
+    """Protocol-complete stand-in for an operator-selected hardened backend."""
+
+    max_output_bytes: int
+    max_memory_bytes: int
+    max_file_bytes: int
+    max_open_files: int
+
+    def __init__(self, config: object) -> None:
+        self.received_config = config
+        self.requests: list[object] = []
+        _EXPORTED_SANDBOXES.append(self)
+
+    def run_tool(self, request: object) -> ToolSandboxRunResult:
+        self.requests.append(request)
+        return ToolSandboxRunResult(
+            status="completed",
+            output="CUSTOM-BACKEND",
+            duration_ms=1.0,
+        )
+
+    def inspect_tool(self, request: object) -> object:  # pragma: no cover - protocol only
+        raise NotImplementedError
+
+    def run_tests(self, request: object) -> object:  # pragma: no cover - protocol only
+        raise NotImplementedError
 
 
 def _ir(manifest_dict: dict[str, object]):
@@ -45,6 +76,57 @@ def test_execute_exported_workflow_rejects_managed_file_without_project_binder()
             "input",
             config=CaliberConfig(),
         )
+
+
+def test_exported_python_code_uses_explicit_sandbox_config_and_limits() -> None:
+    data = make_manifest("exported-python-backend")
+    data["nodes"]["python"] = {
+        "id": "python",
+        "type": "python_code",
+        "code": "return str(input).upper()",
+        "timeout_seconds": 5,
+        "inputs": {"input": {"type": "string"}, "context": {"type": "structured"}},
+        "outputs": {
+            "text": {"type": "string"},
+            "result": {"type": "structured"},
+            "metadata": {"type": "structured"},
+        },
+    }
+    data["edges"] = [
+        {"id": "e_start_python", "from": "start", "to": "python", "map": {"msg": "input"}},
+        {
+            "id": "e_python_final",
+            "from": "python",
+            "to": "final",
+            "map": {"text": "response"},
+        },
+    ]
+    config = CaliberConfig(
+        tool_sandbox_backend=("tests.test_workflow_export_runtime:_RecordingExportSandbox"),
+        tool_sandbox_max_output_bytes=4096,
+        tool_sandbox_max_memory_bytes=67_108_864,
+        tool_sandbox_max_file_bytes=2048,
+        tool_sandbox_max_open_files=9,
+    )
+    _EXPORTED_SANDBOXES.clear()
+
+    result = export_runtime.execute_exported_workflow(
+        _ir(data),
+        "refund",
+        config=config,
+        executor=FakeWorkflowExecutor(),
+    )
+
+    assert result.status == "completed", result.error
+    assert result.output == "CUSTOM-BACKEND"
+    assert len(_EXPORTED_SANDBOXES) == 1
+    sandbox = _EXPORTED_SANDBOXES[0]
+    assert sandbox.received_config is config
+    assert sandbox.requests
+    assert sandbox.max_output_bytes == 4096
+    assert sandbox.max_memory_bytes == 67_108_864
+    assert sandbox.max_file_bytes == 2048
+    assert sandbox.max_open_files == 9
 
 
 def _workflow_version(

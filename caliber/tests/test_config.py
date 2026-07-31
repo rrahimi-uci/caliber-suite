@@ -87,6 +87,14 @@ def test_registered_tool_timeout_matches_the_request_contract() -> None:
         CaliberConfig(registered_tool_sandbox_timeout_seconds=120.1)
 
 
+@pytest.mark.parametrize("raw", ["false", "0", "no", "off", " FALSE "])
+def test_registered_tool_sandbox_disable_flag_uses_boolean_semantics(raw: str) -> None:
+    """A non-empty string is not automatically true for a security boundary."""
+    config = CaliberConfig.load(environ={"CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED": raw})
+
+    assert config.registered_tool_sandbox_enabled is False
+
+
 def test_mcp_containment_settings_from_env() -> None:
     config = CaliberConfig.load(
         environ={
