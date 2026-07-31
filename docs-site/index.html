@@ -86,13 +86,14 @@
           </p>
           <div class="hero-cta">
             <a class="btn" href="#playbook-build">5-minute quickstart</a>
-            <a class="btn btn-secondary" href="#reference">Browse the architecture</a>
+            <a class="btn btn-secondary" href="m-00-layered-architecture.html">Layered architecture</a>
+            <a class="btn btn-secondary" href="#reference">Browse modules</a>
             <a class="btn btn-secondary" href="m-16-cookbooks.html">Cookbooks</a>
           </div>
           <div class="hero-highlights">
             <div class="hero-highlight">
               <strong>Author &amp; compose</strong>
-              <span>Versioned prompts, sandboxed tools, skills, MCP servers, and a visual Workflow Studio.</span>
+              <span>Versioned prompts, subprocess-contained tools, skills, MCP servers, and a visual Workflow Studio.</span>
             </div>
             <div class="hero-highlight">
               <strong>Verify &amp; calibrate</strong>
@@ -110,8 +111,8 @@
             <div>
               <h2>Architecture reference</h2>
               <p>
-                Search or scan by domain. Each link opens a full module page generated from the authoritative markdown
-                sources in <code>docs/</code>.
+                Start with the repository-level layered map, then search or scan by domain. Each page is generated from
+                <code>ARCHITECTURE.md</code> or the authoritative module sources in <code>docs/</code>.
               </p>
             </div>
           </div>
@@ -123,9 +124,14 @@
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
                 <h3>Platform</h3>
-                <p>Start here: the two supported topologies and the canonical refinement path.</p>
+                <p>Start here: the layered map, the implementation reference, and the concrete refinement path.</p>
               </div>
               <div class="ref-list">
+                <a class="ref-card ref-row" href="m-00-layered-architecture.html">
+                  <span class="ref-row-kicker">Platform</span>
+                  <span class="ref-row-title">Layered architecture</span>
+                  <span class="ref-row-summary">The six-layer stack, abstract lifecycle chain, governed-asset anatomy, real per-family guarantees, execution model, state ownership, and trust boundaries.</span>
+                </a>
                 <a class="ref-card ref-row" href="m-01-platform.html">
                   <span class="ref-row-kicker">Platform</span>
                   <span class="ref-row-title">Platform</span>
@@ -152,7 +158,7 @@
                 <a class="ref-card ref-row" href="m-03-tools.html">
                   <span class="ref-row-kicker">Authoring</span>
                   <span class="ref-row-title">Tools</span>
-                  <span class="ref-row-summary">Callable registry, sandboxed tests, baselines, and replay calibration.</span>
+                  <span class="ref-row-summary">Callable registry, bounded subprocess tests, baselines, and replay calibration.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-04-skills.html">
                   <span class="ref-row-kicker">Authoring</span>
@@ -357,7 +363,7 @@ npm run dev</code></pre>
             per-session interaction-mode and approval-mode choices (routes under <code>/assistant</code>). For larger
             work it can also take a stated <strong>goal</strong>, decompose it into a durable, reviewable <strong>plan</strong>
             of capability-bound steps, and walk that plan under supervision — pausing mid-run for permission, enforcing
-            separation of duties, parking on long-running jobs, and escalating below-gate results (routes under
+            separation of duties on <code>gated</code> steps, parking on long-running jobs, and escalating below-gate results (routes under
             <code>/aria/plans</code>).
           </p>
           <div class="grid">
@@ -369,17 +375,17 @@ npm run dev</code></pre>
             <div class="card">
               <div class="icon">MD</div>
               <h4>Permissioned tools</h4>
-              <p>A per-turn toolset is gated by interaction mode &times; approval mode: read tools in every mode, reversible/sandboxed tools in <code>build</code> + <code>auto_safe</code>, and real runs, approve, and publish only in <code>build</code> + <code>auto_all</code>.</p>
+              <p>A per-turn toolset is gated by interaction mode &times; approval mode: read tools in every mode, reversible or subprocess-contained tools in <code>build</code> + <code>auto_safe</code>, and real runs, approve, and publish only in <code>build</code> + <code>auto_all</code>.</p>
             </div>
             <div class="card">
               <div class="icon">EV</div>
               <h4>Develop and test any artifact</h4>
-              <p>Aria can preview-run and patch workflows, run a tool draft in the subprocess sandbox, query a knowledge base, and create an eval dataset from the conversation then score a prompt, tool, workflow, or skill against it.</p>
+              <p>Aria can preview-run and patch workflows, run a tool draft in the bounded subprocess runner, query a knowledge base, and create an eval dataset from the conversation then score a prompt, tool, workflow, or skill against it.</p>
             </div>
             <div class="card">
               <div class="icon">DR</div>
               <h4>Governed drafts</h4>
-              <p>Drafts move through validate, test, approve, and publish via <code>/drafts/{draft_id}/*</code>; the approval mode controls how far Aria auto-advances a passing draft, never past the gates.</p>
+              <p>Drafts use validate, test, approved-status, and publish via <code>/drafts/{draft_id}/*</code>. In <code>build</code> + <code>auto_all</code>, Aria can automatically approve and publish a passing draft; <code>gated</code> plan capabilities and prompt-alias publication retain their separate approval controls.</p>
             </div>
             <div class="card">
               <div class="icon">SS</div>
@@ -420,8 +426,9 @@ npm run dev</code></pre>
             that turn Aria cannot pause for a human click — the toolset only <em>exposes</em> the tools the current mode
             and approval level allow, mirroring a code assistant's permission modes. For larger work the goal-plan
             orchestrator (<code>/aria/plans</code>) is the durable, <em>interruptible</em> path: it persists every step,
-            pauses mid-plan for an explicit approve/deny interaction (with separation of duties), and resumes from where
-            it stopped — including after a long async job finishes. Aria persists tool calls and a post-turn
+            can pause mid-plan for an explicit approve/deny interaction, enforces separation of duties on
+            <code>gated</code> steps, and resumes from where it stopped — including after a long async job finishes.
+            Aria persists tool calls and a post-turn
             <code>process_steps</code> trail (Thinking, Actions, Drafted, Tested, Review required), but does not yet
             expose a token-by-token streaming transcript.
           </div>
@@ -433,7 +440,7 @@ npm run dev</code></pre>
             CALIBER's trust model is built around measured change. Prompts and skills use queued,
             optimizer-backed refinement; workflows use bounded manifest search and replay in the queued job shell.
             Tools use a different calibration algorithm: deterministic
-            replay of an immutable definition-and-case snapshot through the configured sandbox. The tool suite is
+            replay of an immutable definition-and-case snapshot through the configured execution backend. The tool suite is
             exposed inline and through durable queued jobs; both revision-fence attribution so edited definitions
             cannot inherit stale evidence.
           </p>
@@ -503,7 +510,7 @@ npm run dev</code></pre>
             rather than only through the calibration job. Aria assembles a dataset of representative
             <code>{input, expected}</code> cases from the conversation and attachments with
             <code>create_eval_dataset</code>, then scores an artifact against it: <code>run_quick_eval</code> for a
-            prompt, <code>evaluate_tool_draft</code> for a tool (sandboxed, scored against expected),
+            prompt, <code>evaluate_tool_draft</code> for a tool (subprocess-contained, scored against expected),
             <code>evaluate_workflow_draft</code> for a workflow (structural quality, tool-adherence, completion, and
             safety), and <code>evaluate_skill_selection</code> for skill-selection accuracy. Scores come from the real
             scorecard and calibration scorers — never fabricated — and the tools stay inside the
@@ -764,7 +771,7 @@ curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/health | jq
             successful login issues a revocable HttpOnly session cookie. In this mode
             <code>X-CALIBER-User</code> is ignored. A deployment behind a real identity proxy can explicitly select
             <code>trusted_header</code> mode and require a shared proxy secret; direct access to the app port must then
-            be blocked. Project visibility and write routes apply explicit scope checks rather than trusting a client assertion.
+            be blocked. Route-specific project visibility and write guards apply explicit scope checks rather than trusting a client assertion; coverage is path-specific rather than a repository-wide isolation guarantee.
           </p>
           <div class="table-wrap">
             <table>
@@ -777,7 +784,7 @@ curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/health | jq
               <tbody>
                 <tr>
                   <td><span class="badge badge-cyan">viewer</span></td>
-                  <td>Implicit for authenticated users; unlocks read access across the platform.</td>
+                  <td>Implicit for authenticated users; admits viewer-scoped reads where a route exposes them, subject to path-specific visibility controls.</td>
                 </tr>
                 <tr>
                   <td><span class="badge badge-cyan">operator</span></td>

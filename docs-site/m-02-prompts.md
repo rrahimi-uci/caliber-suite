@@ -9,7 +9,7 @@
 | **Key surfaces** | `caliber/src/caliber/routes/prompts.py`, `Prompts.tsx`, and `PromptBuilder.tsx`, mounted under `/ajax-api/2.0/mlflow/caliber`. |
 | **Runtime model** | One route entry point fans out to MLflow, `prompt_template_library.py`, `prompt_targets.py`, the DB, and the shared refinement pipeline. |
 | **Runtime identity** | A hidden `CaliberAgentConfig` prompt target keyed on prompt name gives each prompt an `agent_id`. |
-| **Trust / safety** | Mutations need `operator` scope; template-preview and test-render are read-only, non-executing transformations. |
+| **Trust / safety** | Mutations, including alias release and rollback, need `operator` scope. An admin inherits that scope; `approver` is a sibling role and cannot release a prompt unless it is separately granted operator/admin authority. Template-preview and test-render are read-only, non-executing transformations. |
 | **Calibration** | Optimization and calibration enqueue `CaliberVerificationItem` and `CaliberRefinementJob` into the shared pipeline. |
 
 The sections below start from this picture and drill down into the detail behind each dimension.
@@ -151,13 +151,15 @@ The first area covers core inventory and versioning, backed by the registry:
 - `POST /prompts/{name}/aliases/{alias}`
 - `POST /prompts/{name}/rollback`
 
-Within this area, authoring is decoupled from going live. `POST
-/prompts/{name}/versions` honors a `promote` flag (default `true`); `promote:
-false` registers a new version as a *draft* without rotating any alias, so a
-developer can evaluate a candidate before it serves live. `POST
-/prompts/{name}/aliases/{alias}` is the audited promote: it captures the
-outgoing live version, rotates the alias, and writes a `promote_prompt` audit
-row carrying the advisory-gate verdict and any operator override. `POST
+Within this area, decoupling authoring from going live is opt-in. `POST
+/prompts/{name}/versions` honors a `promote` flag whose default is `true`, so the
+normal version-create path registers the version and attempts to rotate the
+target alias in the same request. A caller must send `promote: false` to create
+a *draft* without rotating an alias. `POST /prompts/{name}/aliases/{alias}` is
+the distinct audited promote: it captures the outgoing live version, rotates
+the alias, and writes a `promote_prompt` audit row carrying the advisory gate
+verdict and any operator override. That advisory verdict is evidence only and
+never blocks alias rotation. `POST
 /prompts/{name}/rollback` reads that audit trail to restore the exact
 previously-live version, writing a `rollback_prompt` row and returning `409`
 when no prior live version is recorded. The rollback walk reads only
@@ -166,6 +168,18 @@ writes — so repeated rollbacks step strictly backward through real promotion
 history (v3→v2→v1) instead of oscillating back to the version just left. An
 alias rotation applied through the assistant/apply path records the same
 `promote_prompt` row, so it is equally visible to rollback.
+
+The audited alias route and Apply path cross an external dual-write boundary:
+MLflow alias rotation occurs before the CALIBER database transaction commits
+its audit, checkpoint, verdict, and provenance state. There is no distributed
+transaction across MLflow and CALIBER, so a failure after the external write
+can leave the registry and database records divergent and requires operational
+reconciliation or a safe retry.
+
+Both explicit alias promotion and rollback are operator-scoped release actions:
+a configured operator or admin can invoke them because admin inherits operator,
+while an approver does not inherit operator and cannot release merely by holding
+the sibling approver scope.
 
 The second area serves the builder and preview experience, transforming
 templates without executing them:
@@ -224,18 +238,26 @@ sequenceDiagram
     API->>DB: Ensure hidden prompt target
     API->>DB: Insert verification item and refinement job
     API-->>UI: Return queued job metadata
-    Q->>DB: Process refinement stages
-    Q->>ML: Read and eventually update prompt alias/version
+    Q->>ML: Read prompt and evidence
+    Q->>DB: Process stages; on pass mark candidate_ready
+    U->>UI: Inspect candidate and invoke Apply
+    UI->>API: POST /jobs/{job_id}/apply
+    API->>ML: Register candidate and rotate alias
+    API->>DB: Commit checkpoint, audit, and provenance
 ```
 
 A few lifecycle rules govern how these flows behave. The module in
 `prompt_targets.py` auto-provisions a hidden runtime identity keyed on the prompt
 name, so a prompt can be tested and calibrated without the operator ever managing
-an explicit agent row. Saving a version and promoting it are separate steps: a
-`promote: false` save registers a draft, and rotating the live alias is an
-audited, advisory-gated step that records the gate verdict and outgoing version
-so a `rollback` can later restore the exact previously-live version. Test-run
-history is durable and CALIBER-owned, but replay is effectively a frontend
+an explicit agent row. Saving a version and promoting it are separate only when
+the caller opts into `promote: false`; because `promote` defaults to `true`, a
+normal version-create request attempts to rotate the live alias. The explicit
+alias route and later Apply path are audited release operations that record the
+outgoing version and advisory verdict so a `rollback` can later restore the
+exact previously-live version. The advisory verdict never blocks rotation, and
+the external MLflow write is not atomic with the subsequent CALIBER database
+commit, so operators must treat divergence as a reconciliation boundary.
+Test-run history is durable and CALIBER-owned, but replay is effectively a frontend
 re-run that inserts a fresh row rather than a server-side replay API. Bind and baseline are workspace metadata operations on
 the hidden prompt target, not registry mutations. And workflow-node binding is
 currently best-effort metadata only: the route records the intent to bind but
@@ -245,8 +267,10 @@ does not yet fully rewrite workflow manifests in place.
 
 Because the module spans a registry and CALIBER-owned state, its controls are
 split across both. The enforced controls are as follows. Mutating endpoints
-require `operator` scope or higher. Prompt target creation inherits project
-scoping through the active identity. Prompt aliases are constrained by the
+require `operator` scope; admins inherit it, but approvers are a sibling role and
+do not. Consequently, prompt release and rollback require an operator or admin,
+not an approver acting only with `caliber.approver`. Prompt target creation
+inherits project scoping through the active identity. Prompt aliases are constrained by the
 CALIBER-side allowed alias set. And optional scorer support is capability-gated
 at runtime rather than assumed to be present.
 

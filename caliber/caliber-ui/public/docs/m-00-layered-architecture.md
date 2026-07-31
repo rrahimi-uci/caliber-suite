@@ -1,6 +1,4 @@
-<div align="center">
 
-<img src="docs-site/caliber.png" alt="CALIBER" width="140"/>
 
 # CALIBER — Layered Architecture
 
@@ -8,7 +6,6 @@
 
 *Read top-down: the stack, the abstract lifecycle chain, the unit of governance, then the topologies.*
 
-</div>
 
 ---
 
@@ -146,22 +143,20 @@ flowchart LR
   classDef t3 fill:#f0fdf4,stroke:#15803d,color:#14532d;
 ```
 
-<div align="center"><sub>
 
-🟪 control plane &nbsp;·&nbsp; 🟦 surfaces &nbsp;·&nbsp; 🩷 governance &nbsp;·&nbsp; 🟧 asset families &nbsp;·&nbsp; 🟩 external systems &nbsp;·&nbsp; 🟨 asynchronous &nbsp;·&nbsp; 🔵 durable state
+🟪 control plane  ·  🟦 surfaces  ·  🩷 governance  ·  🟧 asset families  ·  🟩 external systems  ·  🟨 asynchronous  ·  🔵 durable state
 
-</sub></div>
 
 ### Reading the layers
 
 | Layer | What it owns | Primary code |
 | --- | --- | --- |
-| **6 · Surfaces** — *the interface* | Every human and machine entry point. One same-origin browser control plane in either topology. | [routes/static.py](caliber/src/caliber/routes/static.py) · [routes/](caliber/src/caliber/routes/) · [caliber-ui/src/](caliber/caliber-ui/src/) |
-| **5 · Lifecycle modes** — *the verbs* | Six reusable lifecycle concepts applied where an asset supports them. Each new family must explicitly wire its adapters, routes, authorization, evidence, and tests; integration is not inherited automatically. | [orchestrator/](caliber/src/caliber/orchestrator/) · [eval/](caliber/src/caliber/eval/) · [apply.py](caliber/src/caliber/apply.py) · [promoter.py](caliber/src/caliber/promoter.py) |
-| **4 · Asset families** — *the nouns* | Nine governed families or contexts. Some are authored runtime assets, while others are evidence, scoring, or anchor records; several have no live-target or release primitive (§4). | [db/models.py](caliber/src/caliber/db/models.py) · [schemas.py](caliber/src/caliber/schemas.py) |
-| **3 · Governance substrate** — *the rules* | Shared primitives for identity, execution policy, evidence, release control, and ledgers. Asset paths wire them explicitly, so adoption and guarantees remain path-specific. | [auth.py](caliber/src/caliber/auth.py) · [egress.py](caliber/src/caliber/egress.py) · [mcp_policy.py](caliber/src/caliber/mcp_policy.py) · [gate_verdicts.py](caliber/src/caliber/gate_verdicts.py) · [audit.py](caliber/src/caliber/audit.py) |
-| **2 · Kernel** — *modular services* | Core app-lifetime dependencies are built in `create_app()` and stored on `app.state`; some feature and runtime services or backends are constructed lazily or per operation. | [server.py](caliber/src/caliber/server.py) · [config.py](caliber/src/caliber/config.py) · [storage/](caliber/src/caliber/storage/) · [tool_sandbox/](caliber/src/caliber/tool_sandbox/) · [events/](caliber/src/caliber/events/) |
-| **1 · Infrastructure** — *the base* | The substrate CALIBER runs on and integrates with, all of it swappable by configuration. | [db/session.py](caliber/src/caliber/db/session.py) · [knowledge/pgvector_ann.py](caliber/src/caliber/knowledge/pgvector_ann.py) · [knowledge/age.py](caliber/src/caliber/knowledge/age.py) |
+| **6 · Surfaces** — *the interface* | Every human and machine entry point. One same-origin browser control plane in either topology. | [routes/static.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/routes/static.py) · [routes/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/routes) · [caliber-ui/src/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/caliber-ui/src) |
+| **5 · Lifecycle modes** — *the verbs* | Six reusable lifecycle concepts applied where an asset supports them. Each new family must explicitly wire its adapters, routes, authorization, evidence, and tests; integration is not inherited automatically. | [orchestrator/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/orchestrator) · [eval/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/eval) · [apply.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/apply.py) · [promoter.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/promoter.py) |
+| **4 · Asset families** — *the nouns* | Nine governed families or contexts. Some are authored runtime assets, while others are evidence, scoring, or anchor records; several have no live-target or release primitive (§4). | [db/models.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/db/models.py) · [schemas.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/schemas.py) |
+| **3 · Governance substrate** — *the rules* | Shared primitives for identity, execution policy, evidence, release control, and ledgers. Asset paths wire them explicitly, so adoption and guarantees remain path-specific. | [auth.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/auth.py) · [egress.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/egress.py) · [mcp_policy.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/mcp_policy.py) · [gate_verdicts.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/gate_verdicts.py) · [audit.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/audit.py) |
+| **2 · Kernel** — *modular services* | Core app-lifetime dependencies are built in `create_app()` and stored on `app.state`; some feature and runtime services or backends are constructed lazily or per operation. | [server.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/server.py) · [config.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/config.py) · [storage/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/storage) · [tool_sandbox/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/tool_sandbox) · [events/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/events) |
+| **1 · Infrastructure** — *the base* | The substrate CALIBER runs on and integrates with, all of it swappable by configuration. | [db/session.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/db/session.py) · [knowledge/pgvector_ann.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/knowledge/pgvector_ann.py) · [knowledge/age.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/knowledge/age.py) |
 
 > **The boundary that matters most:** feature modules should not own top-level
 > application bootstrapping. Core lifecycle ownership remains in `create_app()`,
@@ -180,7 +175,7 @@ workflow-specific stage and reuses the durable job and apply machinery. Other
 families implement only the positions their own evidence and release idiom support.
 
 The seven terms below are **concepts, not a stage count**. In the concrete prompt
-loop documented in [The Refinement Loop](docs/refinement-loop.md), production
+loop documented in [The Refinement Loop](m-00-refinement-loop.md), production
 trace/feedback supplies the incoming signal, evidence assembly is folded into the
 transition from `Verify` toward `Diagnose`, the six numbered stages run from
 `Verify` through `Promote`, and the next production trace closes the loop after
@@ -383,10 +378,10 @@ flowchart TB
   to equal** MLflow's backend store. The bundled stack deliberately uses separate
   logical databases so the two Alembic histories never compete for one version table.
 - The SPA is bundled separately with Vite but served **through** the CALIBER package
-  by [routes/static.py](caliber/src/caliber/routes/static.py) — same origin, not a distinct host.
+  by [routes/static.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/routes/static.py) — same origin, not a distinct host.
 - **Two different stores are both called "the artifact store."** MLflow's artifact
   root supports the full MLflow backend set including GCS; CALIBER's own storage
-  service accepts only `local` and `s3` — [storage/service.py](caliber/src/caliber/storage/service.py)
+  service accepts only `local` and `s3` — [storage/service.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/storage/service.py)
   rejects anything else, and MinIO is reached as S3-compatible. Don't read GCS
   support on one as support on the other.
 
@@ -568,14 +563,14 @@ touching the substrate.
 
 | Seam | What plugs in | Where |
 | --- | --- | --- |
-| **Provider protocols** | `LLMProvider`, `EvalProvider`, `Promoter` — narrow protocols, one operation per pipeline stage, with a deterministic `fake` default so the server boots with no API key | [llm/provider.py](caliber/src/caliber/llm/provider.py) · [eval/provider.py](caliber/src/caliber/eval/provider.py) · [promoter.py](caliber/src/caliber/promoter.py) |
-| **Storage backends** | `StorageBackend` protocol — `local` and `s3` ship | [storage/base.py](caliber/src/caliber/storage/base.py) |
-| **Event transports** | `in_process`, `nats`, `redis`, `database` | [events/](caliber/src/caliber/events/) |
-| **Tool execution** | `ToolSandbox` protocol — the shipped implementation is a short-lived, bounded local subprocess process boundary, not container, VM, or seccomp isolation | [tool_sandbox/service.py](caliber/src/caliber/tool_sandbox/service.py) |
-| **Workflow components** | 29 built-in node types behind a typed IR and component catalog; the in-server interpreter and generated Agents SDK export share that IR, which is designed for future additional backends | [workflows/ir.py](caliber/src/caliber/workflows/ir.py) · [workflows/component_catalog.py](caliber/src/caliber/workflows/component_catalog.py) |
-| **Aria capabilities** | Declare an operation once — key, risk tier, scopes, input schema, handler — and the agent toolset picks it up as a *projection* of the registry. **Partial current-source snapshot:** the toolset is 29 hand-written `_t_*` tools plus a 7-capability projection, so this is an emerging seam rather than complete parity. | [assistant/capabilities.py](caliber/src/caliber/assistant/capabilities.py) |
-| **Scorers & judges** | Deterministic scorers plus operator-authored `make_judge` judges, referenced as `Judge.<id>` tokens anywhere a scorer is accepted | [eval/judge_scorer.py](caliber/src/caliber/eval/judge_scorer.py) · [eval/scorecard.py](caliber/src/caliber/eval/scorecard.py) |
-| **Graph extraction** | `heuristic` or `spacy` backends over Apache AGE | [knowledge/graph.py](caliber/src/caliber/knowledge/graph.py) · [knowledge/age.py](caliber/src/caliber/knowledge/age.py) |
+| **Provider protocols** | `LLMProvider`, `EvalProvider`, `Promoter` — narrow protocols, one operation per pipeline stage, with a deterministic `fake` default so the server boots with no API key | [llm/provider.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/llm/provider.py) · [eval/provider.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/eval/provider.py) · [promoter.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/promoter.py) |
+| **Storage backends** | `StorageBackend` protocol — `local` and `s3` ship | [storage/base.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/storage/base.py) |
+| **Event transports** | `in_process`, `nats`, `redis`, `database` | [events/](https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/events) |
+| **Tool execution** | `ToolSandbox` protocol — the shipped implementation is a short-lived, bounded local subprocess process boundary, not container, VM, or seccomp isolation | [tool_sandbox/service.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/tool_sandbox/service.py) |
+| **Workflow components** | 29 built-in node types behind a typed IR and component catalog; the in-server interpreter and generated Agents SDK export share that IR, which is designed for future additional backends | [workflows/ir.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/workflows/ir.py) · [workflows/component_catalog.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/workflows/component_catalog.py) |
+| **Aria capabilities** | Declare an operation once — key, risk tier, scopes, input schema, handler — and the agent toolset picks it up as a *projection* of the registry. **Partial current-source snapshot:** the toolset is 29 hand-written `_t_*` tools plus a 7-capability projection, so this is an emerging seam rather than complete parity. | [assistant/capabilities.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/assistant/capabilities.py) |
+| **Scorers & judges** | Deterministic scorers plus operator-authored `make_judge` judges, referenced as `Judge.<id>` tokens anywhere a scorer is accepted | [eval/judge_scorer.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/eval/judge_scorer.py) · [eval/scorecard.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/eval/scorecard.py) |
+| **Graph extraction** | `heuristic` or `spacy` backends over Apache AGE | [knowledge/graph.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/knowledge/graph.py) · [knowledge/age.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/knowledge/age.py) |
 
 ---
 
@@ -583,12 +578,12 @@ touching the substrate.
 
 | You are… | Read |
 | --- | --- |
-| An **executive** sizing the platform | §1 the stack, §3 the governed asset, §4 the guarantees table — then [the competitive analysis](docs-site/m-17-competitive-analysis.html) and [roadmap](docs-site/m-18-roadmap.html) |
-| An **architect** evaluating fit | §5 topologies, §6 execution, §7 state ownership, §8 trust — then [docs/01-caliber/architecture.md](docs/01-caliber/architecture.md) |
-| A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](caliber/CONTRIBUTING.md) and [server.py](caliber/src/caliber/server.py) |
-| An **operator** bringing it up | The [walkthrough runbook](docs-site/walkthrough.html) and [deploy/README.md](deploy/README.md) |
-| Anyone asking **"what is actually built?"** | [product-complete-report.md](product-complete-report.md) — current evidence, remaining defects, and the production-boundary limits |
+| An **executive** sizing the platform | §1 the stack, §3 the governed asset, §4 the guarantees table — then [the competitive analysis](m-17-competitive-analysis.md) and [roadmap](m-18-roadmap.md) |
+| An **architect** evaluating fit | §5 topologies, §6 execution, §7 state ownership, §8 trust — then [docs/01-caliber/architecture.md](m-01-platform.md) |
+| A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/CONTRIBUTING.md) and [server.py](https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/server.py) |
+| An **operator** bringing it up | The [walkthrough runbook](walkthrough.html) and [deploy/README.md](https://github.com/rrahimi-uci/caliber-suite/blob/main/deploy/README.md) |
+| Anyone asking **"what is actually built?"** | [product-complete-report.md](https://github.com/rrahimi-uci/caliber-suite/blob/main/product-complete-report.md) — current evidence, remaining defects, and the production-boundary limits |
 
-Per-area design specs live under [docs/](docs/), one `architecture.md` per numbered
-area, rendered at [docs-site/](docs-site/). This document is the layered map above
+Per-area design specs live under [docs/](https://github.com/rrahimi-uci/caliber-suite/tree/main/docs), one `architecture.md` per numbered
+area, rendered at [docs-site/](index.html). This document is the layered map above
 them; they are the depth beneath it.

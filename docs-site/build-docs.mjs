@@ -1,11 +1,12 @@
 /**
  * CALIBER documentation site generator.
  *
- * Reads the architecture series of markdown files under `docs/` and renders each
- * into a polished, self-navigating HTML page under `docs-site/`, reusing the
- * shared design system (`docs.css` + `docs.js`). It also emits `docs-nav.js`,
- * the single source of truth for the sidebar navigation shared by every page
- * (including the hand-authored landing `index.html`).
+ * Reads the repository-level layered architecture plus the architecture series
+ * under `docs/` and renders each into a polished, self-navigating HTML page
+ * under `docs-site/`, reusing the shared design system (`docs.css` + `docs.js`).
+ * It also emits `docs-nav.js`, the single source of truth for the sidebar
+ * navigation shared by every page (including the hand-authored landing
+ * `index.html`).
  *
  * The renderer is intentionally dependency-free so this can run inside the
  * `prebuild` hook in any context (including Docker stages with no node_modules).
@@ -22,14 +23,16 @@
  * Usage:  node docs-site/build-docs.mjs
  */
 
-import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync } from "node:fs";
-import { dirname, relative, resolve, posix } from "node:path";
+import { readFileSync, writeFileSync, readdirSync, existsSync, rmSync, renameSync, statSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(here, ".."); // caliber-suite
 const DOCS_DIR = resolve(here, "../docs"); // caliber-suite/docs
 const OUT_DIR = here; // caliber-suite/docs-site
+const GITHUB_SOURCE_BASE = "https://github.com/rrahimi-uci/caliber-suite";
 const BRAND_SHORT = "CALIBER";
 const BRAND_FULL = "CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement";
 const DOCS_HOME_LABEL = `${BRAND_FULL} docs home`;
@@ -64,10 +67,11 @@ const GROUPS = [
 ];
 
 const MODULES = [
+  { md: "../ARCHITECTURE.md", out: "m-00-layered-architecture.html", group: "platform", label: "Layered architecture", blurb: "The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams." },
   { md: "01-caliber/architecture.md", out: "m-01-platform.html", group: "platform", label: "Platform", blurb: "Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on." },
   { md: "refinement-loop.md", out: "m-00-refinement-loop.html", group: "platform", label: "The refinement loop", blurb: "The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and promote — plus the evidence and audit boundaries that differ across other asset families. Read this first." },
   { md: "02-prompts/architecture.md", out: "m-02-prompts.html", group: "authoring", label: "Prompts", blurb: "MLflow Prompt Registry authoring, render/test history, hidden runtime targets, and queued optimizer-backed calibration." },
-  { md: "03-tools/architecture.md", out: "m-03-tools.html", group: "authoring", label: "Tools", blurb: "Versioned callable registry, sandboxed test runs, fixture suites and baselines, and deterministic replay calibration." },
+  { md: "03-tools/architecture.md", out: "m-03-tools.html", group: "authoring", label: "Tools", blurb: "Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration." },
   { md: "04-skills/architecture.md", out: "m-04-skills.html", group: "authoring", label: "Skills", blurb: "Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration." },
   { md: "05-mcp/architecture.md", out: "m-05-mcp.html", group: "authoring", label: "MCP servers", blurb: "Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use." },
   { md: "06-workflows/architecture.md", out: "m-06-workflows.html", group: "authoring", label: "Workflows", blurb: "Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service." },
@@ -88,8 +92,50 @@ const MODULES = [
   { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];
 
-// Fast lookup: normalized "<dir>/<file>.md" (relative to docs/) -> output html.
-const mdToHtml = new Map(MODULES.map((m) => [m.md, m.out]));
+function isWithin(base, target) {
+  const rel = relative(base, target);
+  return (
+    rel === "" ||
+    (!isAbsolute(rel) && rel !== ".." && !rel.startsWith("../") && !rel.startsWith("..\\"))
+  );
+}
+
+function validateModuleManifest(modules) {
+  const rootArchitecture = resolve(REPO_ROOT, "ARCHITECTURE.md");
+  const sources = new Set();
+  const outputs = new Set();
+
+  for (const mod of modules) {
+    const source = resolve(DOCS_DIR, mod.md);
+    const output = resolve(OUT_DIR, mod.out);
+    const sourceAllowed =
+      source === rootArchitecture ||
+      (source !== DOCS_DIR && isWithin(DOCS_DIR, source));
+    if (!sourceAllowed || !source.endsWith(".md")) {
+      throw new Error(`[build-docs] unsafe module source ${mod.md}`);
+    }
+    if (dirname(output) !== OUT_DIR || !/^m-[a-z0-9-]+\.html$/.test(mod.out)) {
+      throw new Error(`[build-docs] unsafe module output ${mod.out}`);
+    }
+    if (sources.has(source) || outputs.has(output)) {
+      throw new Error(`[build-docs] duplicate module mapping ${mod.md} -> ${mod.out}`);
+    }
+    sources.add(source);
+    outputs.add(output);
+  }
+}
+
+validateModuleManifest(MODULES);
+
+// Resolve sources canonically rather than comparing docs/-relative strings. The
+// repository-level ARCHITECTURE.md links into docs/, while the nested modules
+// link relative to their own directories; absolute keys make both forms agree.
+const sourceToModule = new Map(
+  MODULES.map((m) => [resolve(DOCS_DIR, m.md), m])
+);
+const outputToModule = new Map(
+  MODULES.map((m) => [resolve(OUT_DIR, m.out), m])
+);
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -119,6 +165,37 @@ function slugify(text) {
 function leadingSpaces(line) {
   const m = line.match(/^(\s*)/);
   return m ? m[1].replace(/\t/g, "    ").length : 0;
+}
+
+/**
+ * Remove presentation-only HTML used by the repository landing documents.
+ * The dependency-free renderer deliberately does not accept arbitrary raw
+ * HTML, and the flattened Markdown must not retain an image path that only
+ * makes sense from the repository root. Keep the semantic Markdown inside the
+ * wrappers and normalize non-breaking-space entities to ordinary whitespace.
+ */
+function normalizePublishedMarkdown(markdown, fromMdRel) {
+  if (resolve(DOCS_DIR, fromMdRel) !== resolve(REPO_ROOT, "ARCHITECTURE.md")) {
+    return markdown;
+  }
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const normalized = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (
+      trimmed === '<div align="center">' ||
+      trimmed === "</div>" ||
+      trimmed === '<div align="center"><sub>' ||
+      trimmed === "</sub></div>"
+    ) {
+      return false;
+    }
+    return !/^<img\s+src="docs-site\/caliber\.png"[^>]*\/?>$/i.test(trimmed);
+  });
+  return normalized.join("\n").replaceAll("&nbsp;", " ");
+}
+
+function isThematicBreak(line) {
+  return /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line);
 }
 
 function resolveDocAsset(ref, fromMdRel) {
@@ -165,14 +242,67 @@ function classifyLink(href, fromMdRel) {
   if (path === "" && hash) {
     return { kind: "anchor", href: hash };
   }
-  if (/\.md$/.test(path)) {
-    // Resolve relative to the source file's directory, then to docs/ root.
-    const fromDir = posix.dirname(fromMdRel);
-    const rel = posix.normalize(posix.join(fromDir, path));
-    const out = mdToHtml.get(rel);
-    if (out) return { kind: "page", href: out + hash };
-    return { kind: "code" }; // unknown doc — render as code, never a broken link
+
+  const fromSource = resolve(DOCS_DIR, fromMdRel);
+  const target = resolve(dirname(fromSource), path);
+
+  const sourceModule = sourceToModule.get(target);
+  if (sourceModule) {
+    return {
+      kind: "page",
+      href: sourceModule.out + hash,
+      markdownHref: sourceModule.out.replace(/\.html$/, ".md") + hash,
+    };
   }
+
+  // The repository-level architecture links to already-published docs-site
+  // pages. Keep those links inside the flat site, preferring the raw Markdown
+  // sibling for generated modules and HTML for hand-authored views.
+  const outputModule = outputToModule.get(target);
+  if (outputModule) {
+    return {
+      kind: "page",
+      href: outputModule.out + hash,
+      markdownHref: outputModule.out.replace(/\.html$/, ".md") + hash,
+    };
+  }
+  const siteRel = relative(OUT_DIR, target);
+  const insideSite =
+    siteRel === "" ||
+    (siteRel !== ".." && !siteRel.startsWith("../") && !siteRel.startsWith("..\\"));
+  if (insideSite && existsSync(target)) {
+    const relativeHref = statSync(target).isDirectory()
+      ? `${siteRel ? siteRel.replaceAll("\\", "/") + "/" : ""}index.html`
+      : siteRel.replaceAll("\\", "/");
+    return {
+      kind: "page",
+      href: relativeHref + hash,
+      markdownHref: relativeHref + hash,
+    };
+  }
+
+  // HTML pages intentionally render source-code references as labels rather
+  // than navigation out of the docs shell. The machine-readable Markdown keeps
+  // those references useful by pointing to stable repository blob/tree URLs.
+  const repoRel = relative(REPO_ROOT, target);
+  const insideRepo =
+    repoRel !== "" &&
+    repoRel !== ".." &&
+    !repoRel.startsWith("../") &&
+    !repoRel.startsWith("..\\");
+  if (insideRepo && existsSync(target)) {
+    const sourceKind = statSync(target).isDirectory() ? "tree" : "blob";
+    const encodedPath = repoRel
+      .replaceAll("\\", "/")
+      .split("/")
+      .map(encodeURIComponent)
+      .join("/");
+    return {
+      kind: "code",
+      markdownHref: `${GITHUB_SOURCE_BASE}/${sourceKind}/main/${encodedPath}${hash}`,
+    };
+  }
+
   // Source files and any other repo-relative path: show as code, not a link.
   return { kind: "code" };
 }
@@ -186,8 +316,9 @@ function classifyLink(href, fromMdRel) {
  * the published Markdown files are siblings (`m-14-evaluation.md ->
  * m-11-test-sets.md`). Copying source bytes verbatim therefore leaves links in
  * the machine-readable docs broken. Reuse the same manifest-aware resolution
- * as the HTML renderer and preserve anchors, angle brackets, optional titles,
- * and every non-module destination exactly as authored.
+ * as the HTML renderer and preserve anchors, angle brackets, and optional
+ * titles. Published docs-site pages stay local; other repository references
+ * become stable GitHub blob/tree URLs instead of broken flat-site paths.
  */
 function rewriteMarkdownCrossReferences(markdown, fromMdRel) {
   return markdown.replace(/(!?\[[^\]\n]*\]\()([^\n)]*)(\))/g, (whole, prefix, rawDestination, suffix) => {
@@ -211,8 +342,8 @@ function rewriteMarkdownCrossReferences(markdown, fromMdRel) {
     }
 
     const info = classifyLink(href, fromMdRel);
-    if (info.kind !== "page") return whole;
-    const rewritten = info.href.replace(/\.html(?=#|$)/, ".md");
+    if (!info.markdownHref) return whole;
+    const rewritten = info.markdownHref;
     const destination = angleWrapped ? `<${rewritten}>` : rewritten;
     return `${prefix}${leading}${destination}${remainder}${suffix}`;
   });
@@ -402,6 +533,14 @@ function renderBlocks(md, fromMdRel) {
       continue;
     }
 
+    // Markdown thematic break. Handle this before lists so `---` is not
+    // rendered as a literal paragraph in architecture and strategy pages.
+    if (isThematicBreak(line)) {
+      out.push("<hr>");
+      i++;
+      continue;
+    }
+
     // Fenced code block
     const fence = line.match(/^\s*```\s*([\w-]*)\s*$/);
     if (fence) {
@@ -494,6 +633,7 @@ function renderBlocks(md, fromMdRel) {
     while (
       i < lines.length &&
       !/^\s*$/.test(lines[i]) &&
+      !isThematicBreak(lines[i]) &&
       !/^(#{1,6})\s/.test(lines[i]) &&
       !/^\s*```/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
@@ -654,7 +794,7 @@ function pageHtml({ title, groupTitle, label, bodyHtml }) {
         <footer>
           <p>
             ${escapeHtml(BRAND_FULL)} —
-            this page is generated from the architecture series in <code>docs/</code>.
+            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
           </p>
         </footer>
       </article>
@@ -679,7 +819,7 @@ function pageHtml({ title, groupTitle, label, bodyHtml }) {
 // Render one markdown module to a full HTML page.
 function renderModule(mod) {
   const srcPath = resolve(DOCS_DIR, mod.md);
-  const raw = readFileSync(srcPath, "utf8");
+  const raw = normalizePublishedMarkdown(readFileSync(srcPath, "utf8"), mod.md);
   const lines = raw.replace(/\r\n/g, "\n").split("\n");
 
   // Pull out the first H1 as the page title; render the rest as the body.
@@ -793,9 +933,11 @@ function main() {
       if (STRICT) throw new Error(`[build-docs] required source ${mod.md} not found`);
       console.warn(`[build-docs] missing source ${mod.md} — skipping ${mod.out}`);
       const staleOut = resolve(OUT_DIR, mod.out);
-      if (existsSync(staleOut)) {
-        rmSync(staleOut);
-        console.warn(`[build-docs] removed stale page ${mod.out}`);
+      const staleMarkdown = staleOut.replace(/\.html$/, ".md");
+      for (const stalePath of [staleOut, staleMarkdown]) {
+        if (!existsSync(stalePath)) continue;
+        rmSync(stalePath);
+        console.warn(`[build-docs] removed stale page ${relative(OUT_DIR, stalePath)}`);
       }
       continue;
     }
@@ -808,7 +950,10 @@ function main() {
     // flattened, so rewrite known module cross-references to their sibling
     // m-*.md names; otherwise source-relative links would escape docs-site or
     // point at directories that do not exist in the published layout.
-    const markdown = readFileSync(resolve(DOCS_DIR, mod.md), "utf8");
+    const markdown = normalizePublishedMarkdown(
+      readFileSync(resolve(DOCS_DIR, mod.md), "utf8"),
+      mod.md
+    );
     writeTextAtomic(
       resolve(OUT_DIR, mod.out.replace(/\.html$/, ".md")),
       rewriteMarkdownCrossReferences(markdown, mod.md)
@@ -853,4 +998,10 @@ function main() {
 
 main();
 
-export { renderBlocks, renderInline, rewriteMarkdownCrossReferences, MODULES };
+export {
+  renderBlocks,
+  renderInline,
+  rewriteMarkdownCrossReferences,
+  normalizePublishedMarkdown,
+  MODULES,
+};

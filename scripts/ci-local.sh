@@ -225,6 +225,16 @@ if "caliber/ui/index.html" not in names or not any(
     name.startswith("caliber/ui/assets/") for name in names
 ):
     raise SystemExit("wheel is missing the bundled SPA")
+required_docs = {
+    "caliber/ui/docs/m-00-layered-architecture.html",
+    "caliber/ui/docs/m-00-layered-architecture.md",
+}
+missing_docs = required_docs.difference(names)
+if missing_docs:
+    raise SystemExit(
+        "wheel is missing layered architecture documentation: "
+        + ", ".join(sorted(missing_docs))
+    )
 PY
   for candidate in dist/*.tar.gz; do
     [ -e "$candidate" ] || continue

@@ -2143,6 +2143,12 @@ footer {
   scroll-margin-top: calc(var(--topbar-h) + 1rem);
 }
 
+.doc-body hr {
+  margin: 2rem 0;
+  border: 0;
+  border-top: 1px solid var(--border-light);
+}
+
 /* Hover-reveal heading anchor links. */
 .anchor {
   margin-left: .45rem;

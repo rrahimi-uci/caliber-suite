@@ -14,10 +14,10 @@ When someone flags a production AI agent's response as wrong (via an MLflow Asse
 
 1. **Verifies** — a human confirms the feedback is actionable (one click).
 2. **Diagnoses** — an LLM agent identifies the root cause from the trace.
-3. **Generates a fix** — through one of five implemented provider paths. The prompt form exposes MetaPrompt and GEPA; policy can select SkillMetaPrompt and DSPy BootstrapFewShot; DSPy MIPRO requires explicit configuration and the DSPy dependency profile.
+3. **Optimizes a fix** — through one of five implemented provider paths. The prompt form exposes MetaPrompt and GEPA; policy can select SkillMetaPrompt and DSPy BootstrapFewShot; DSPy MIPRO requires explicit configuration and the DSPy dependency profile.
 4. **Evaluates** — the configured `EvalProvider` compares the candidate with the baseline on a pinned dataset, then the aggregate/per-dimension gate decides whether it reaches `candidate_ready`.
 5. **Awaits Apply** — an operator can inspect the diff, eval comparison, and root-cause summary, then invoke Apply. This is one action boundary, not a separate vote/quorum/reject approval workflow.
-6. **Promotes atomically** — applying a prompt candidate rotates its MLflow Prompt Registry alias, records the exact outgoing version, and writes audit/provenance rows; explicit rollback restores that recorded target. Prompts can also register a draft version without rotating the live alias (`promote: false`).
+6. **Promotes across a dual-write boundary** — applying a prompt candidate rotates its alias in external MLflow before the CALIBER database transaction commits its checkpoint, audit, and provenance rows. No distributed transaction joins those systems, so a failure after the alias write can require reconciliation. Explicit rollback restores the recorded outgoing target when that database record exists. Prompt version authoring can opt out of the default alias rotation with `promote: false`.
 
 The canonical loop has **two human decisions**: verification and Apply. Its runtime depends on the provider, dataset, and optimizer;
 the project does not publish a universal time-to-fix measurement.
@@ -35,7 +35,9 @@ CALIBER's design center of gravity:
 - **Auditable.** Refinement-originated prompt changes retain signal-to-job lineage; direct prompt edits and releases follow their own audit path.
 - **Honest about bundle scope.** Multi-target promotion plumbing exists, but automatic multi-agent bundle optimization (`MultiAgentCoord`) remains roadmap work; current submission paths are single-target.
 
-See [`caliber-suite/`](../) for the full design specs and demo stories.
+See the suite-level [layered architecture](../ARCHITECTURE.md), its
+[generated HTML page](../docs-site/m-00-layered-architecture.html), and
+[`caliber-suite/`](../) for the full design specs and demo stories.
 
 ---
 
@@ -130,8 +132,9 @@ result = Runner.run_sync(support_agent, user_message)
 #    Assessment with category "hallucination". CALIBER's feedback poller
 #    creates a verification-queue item automatically.
 
-# 4. Open http://localhost:5000/caliber/, verify the item, approve the
-#    resulting refinement candidate. CALIBER rotates the prompt alias.
+# 4. Open http://localhost:5000/caliber/, verify the item, wait for the
+#    refinement job to reach candidate_ready, inspect it, and invoke Apply.
+#    CALIBER then rotates the prompt alias.
 #    Your code keeps loading "support-agent@prod" — the next call gets
 #    the new version with no code change.
 ```
@@ -217,10 +220,10 @@ CALIBER uses one ASGI application in two topologies. Embedded mode loads it as a
 MLflow `mlflow.app`; the bundled Compose stack starts it with Uvicorn as a standalone
 service and reaches vanilla MLflow through `MLFLOW_TRACKING_URI`. In either mode it registers:
 
-- **ASGI routes** under `/ajax-api/2.0/mlflow/caliber/*` for the verification queue, refinement jobs, approvals, workflows, and dashboard.
+- **ASGI routes** under `/ajax-api/2.0/mlflow/caliber/*` for the verification queue, refinement jobs, Apply/rollback, workflows, and dashboard.
 - **Static-file routes** under `/caliber/` for the React SPA (built from `caliber-ui/`).
 - **A background feedback poller** that turns new MLflow Assessments into verification-queue items.
-- **A refinement task adapter** that runs the 6-stage pipeline (triage → evidence → diagnosis → candidate → eval → approval) on background workers.
+- **A refinement task adapter** that runs queued triage → evidence → diagnosis → candidate → eval work. A passing eval ends at `candidate_ready`; the later operator-scoped Apply action runs on the request path, not as a worker approval stage.
 - **Alembic-managed CALIBER tables** through `CALIBER_DATABASE_URL`, which may and in the
   bundled stack does point to a separate logical database from MLflow's backend store.
 
@@ -251,7 +254,9 @@ Standalone topology runs the CALIBER API/SPA and its in-process background loops
 `:5001`, MLflow on `:5000`, and uses separate `caliber` and `mlflow` databases in the
 development Compose stack. See [`deploy/caliber/README.md`](../deploy/caliber/README.md).
 
-Full architectural reference: [platform architecture](../docs/01-caliber/architecture.md),
+Architectural reading order: the [layered architecture](../ARCHITECTURE.md) first
+([generated HTML](../docs-site/m-00-layered-architecture.html)), then the deeper
+[platform implementation reference](../docs/01-caliber/architecture.md),
 [workflow architecture](../docs/06-workflows/architecture.md), and the
 [rendered documentation site](../docs-site/index.html).
 

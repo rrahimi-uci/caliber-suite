@@ -16,6 +16,11 @@ test.describe("Docs Shell", () => {
     await expect(page.locator("#menuToggle")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Ask Aria" })).toHaveCount(0);
     await expect(page.locator("details.guide-section")).toHaveCount(5);
+    await expect(
+      page.locator(
+        '#reference .ref-card[href="m-00-layered-architecture.html"]',
+      ),
+    ).toBeVisible();
 
     await page.locator("#landingSearch").fill("workflow");
     await expect(
@@ -34,6 +39,39 @@ test.describe("Docs Shell", () => {
       )
       .toBe(true);
     await expect(page.getByRole("heading", { name: "API surface" })).toBeVisible();
+
+    expect(consoleErrors).toEqual([]);
+    expect(pageErrors).toEqual([]);
+  });
+
+  test("layered architecture publishes the repository overview as a docs module", async ({
+    page,
+  }) => {
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+    page.on("pageerror", (err) => pageErrors.push(String(err)));
+
+    await page.goto("/caliber/docs/m-00-layered-architecture.html");
+
+    await expect(
+      page.getByRole("heading", {
+        name: "CALIBER — Layered Architecture",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.locator("#page-toc a")).toHaveCount(11);
+    await expect(page.locator("pre.mermaid")).toHaveCount(8);
+    await expect(
+      page.locator(
+        '.nav-link.active[href="m-00-layered-architecture.html"]',
+      ),
+    ).toHaveText("Layered architecture");
+    await expect(page.locator(".doc-body")).not.toContainText(
+      '<div align="center">',
+    );
 
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);

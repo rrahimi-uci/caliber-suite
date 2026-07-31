@@ -5,9 +5,10 @@
  * The site is a multi-page set: the hand-authored landing page (index.html), the
  * shared design system (docs.css + docs.js), the generated sidebar nav data
  * (docs-nav.js), and one generated page per published module (m-*.html). The
- * architecture, workflow-reference, and strategy module pages plus docs-nav.js
- * are produced from docs/**.md by docs-site/build-docs.mjs, which this hook runs
- * first so a markdown edit flows
+ * The layered overview is produced from root ARCHITECTURE.md; the architecture,
+ * workflow-reference, and strategy modules come from docs/**.md. The shared
+ * docs-site/build-docs.mjs builder emits those pages plus docs-nav.js, and this
+ * hook runs it first so a markdown edit flows
  * through to the served docs on the next build.
  *
  * The source of truth is the suite-level docs-site/. We rewrite image references

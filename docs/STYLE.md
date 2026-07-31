@@ -1,18 +1,44 @@
 # CALIBER documentation style guide
 
-This is the contract every module doc under `docs/NN-name/*.md` follows, plus the
-diagram conventions the generator (`docs-site/build-docs.mjs`) and the shared
-client (`docs-site/docs.js`) understand. It exists so the docs read consistently
-top-down — a newcomer gets oriented before any deep reference — and so diagrams
-look like one designed system rather than sixteen unrelated sketches.
+This is the contract every published architecture module follows, plus the diagram
+conventions the generator (`docs-site/build-docs.mjs`) and the shared client
+(`docs-site/docs.js`) understand. Most module sources live under
+`docs/NN-name/*.md`; the repository-root `ARCHITECTURE.md` is the deliberate
+executive-overview exception described below. The contract keeps the docs readable
+top-down — a newcomer gets oriented before any deep reference — and makes the
+diagrams look like one designed system rather than unrelated sketches.
 
-Operate at the **markdown + generator** layer, never the generated HTML in
-`docs-site/m-*.html` — that is overwritten on every build. One generator change
-propagates to all pages at once; that is the leverage.
+Operate at the **Markdown source + generator** layer, never the generated HTML in
+`docs-site/m-*.html` — that is overwritten on every build. The Markdown sources
+are `ARCHITECTURE.md` and the selected files under `docs/`; one generator change
+propagates to all pages at once.
+
+### Repository-root executive overview
+
+`ARCHITECTURE.md` is both the GitHub-facing layered map and the direct source for
+the published executive architecture module. It intentionally remains at the
+repository root so the README can lead executives and architects to it without a
+docs-site build. `docs-site/build-docs.mjs` reads that file directly from its
+module manifest; do not create a mirrored copy under `docs/`.
+
+The root overview owns the conceptual stack, canonical lifecycle shape, governed-
+asset anatomy, cross-family guarantees, and high-level topology, execution, state,
+trust, and extension maps. `docs/01-caliber/architecture.md` is the implementation
+reference beneath it, and the numbered feature pages own their exact APIs and
+lifecycle semantics. Cross-link rather than copying those sections between tiers.
+
+Because the same bytes render on GitHub and through the docs generator, the root
+source uses only one approved presentation exception: its centered logo/title and
+legend wrappers. The generator removes those wrappers and the repository-relative
+logo before rendering, while preserving the semantic Markdown within them. The
+root map uses its numbered sections instead of the module-only `## Reference`
+tier, and all links must remain generator-resolvable. Nested module pages link back
+to it as `../../ARCHITECTURE.md`.
 
 ## The page contract
 
-Each `docs/NN-name/architecture.md` follows this shape, top to bottom:
+Each numbered implementation/feature architecture module follows this shape, top
+to bottom; the repository-root executive overview follows the exception above:
 
 1. `# H1` — the page title.
 2. **"What this is"** — one short paragraph in plain language. No code-path names,

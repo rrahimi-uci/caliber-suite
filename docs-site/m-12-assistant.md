@@ -8,8 +8,8 @@
 | **Session model** | Per-user authoring sessions with turn-by-turn message history, persisted in the `CaliberAssistant*` tables. |
 | **Engine** | A pluggable provider behind one `AssistantEngine` protocol (`fake` / `openai` / `anthropic` / `ollama`), selected once at boot in `server.py`. |
 | **Interaction modes** | `chat`, `build`, and `plan` — only `build` materializes `draft_deltas`; `plan` creates durable goal-plans via `POST /aria/plans`. |
-| **Tool loop** | The OpenAI and Anthropic engines run an agentic tool-calling loop with read-only registry access (`list_skills` / `get_skill` / `list_tools`). |
-| **Approval / governance** | Drafts move through validate → test → approve → publish; publishing is gated and the agentic orchestrator pauses `gated`-tier steps for a human. |
+| **Tool loop** | The OpenAI and Anthropic engines run an agentic tool-calling loop over a per-turn, tier-filtered surface: 29 hand-written tools plus seven capability-registry entries in the current source. It is not read-only or full registry parity: read tools are always eligible, safe/mutate tools depend on build/approval mode, and `gated` capabilities are omitted from synchronous projection. |
+| **Approval / governance** | Drafts use validate → test → approved-status → publish. In `build` + `auto_all`, Aria may automatically approve and publish a passing draft; that status gate is not necessarily a separate human decision. `gated` plan capabilities always pause for a human, and prompt-alias publication has its own approval-provenance policy. |
 | **Trust / safety** | Engine output is a proposal, never an authorization; attachments are capped text snapshots and platform RBAC outranks injected prompt content. |
 
 The sections below start from this picture and drill down into the detail — scope,
@@ -24,9 +24,13 @@ The assistant module is **Aria**, CALIBER's in-product agent for authoring and
 operating platform artifacts. Aria is an embedded reasoning and orchestration
 layer: it turns a chat conversation into concrete, governed CALIBER actions —
 drafting tools, skills, prompts, workflows, and MCP servers, validating and
-testing those drafts, and proposing them for publication through the platform's
-normal approval gates. Because it is embedded rather than bolted on, every
-action it takes flows through the same governance the rest of CALIBER enforces.
+testing those drafts, and publishing them when the current mode, actor authority,
+draft state, and asset policy permit it. In `build` + `auto_all`, Aria can
+automatically approve and publish a draft that passes validation and testing;
+forced human involvement is reserved for `gated` plan capabilities, while prompt
+alias publication separately enforces its approval-provenance policy. Because it
+is embedded rather than bolted on, admitted actions still flow through CALIBER's
+path-specific service and capability controls.
 
 Concretely, Aria owns the following responsibilities:
 
@@ -39,8 +43,9 @@ Concretely, Aria owns the following responsibilities:
   drafts, and any user-attached **context attachments** ("+ add files").
 - It supports interaction **modes** (chat, build, and plan) that shape its
   behavior the way a code assistant's mode toggle does.
-- It manages **drafts** through a validate → test → approve → publish state
-  machine.
+- It manages **drafts** through a validate → test → approved-status → publish
+  state machine; `auto_all` can advance a passing draft through the last two
+  states without a separate human click.
 - It runs an intent-driven **plan workbench** (resolve intent → build plan →
   execute) for structured, confirmable single mutations — now used mainly by
   authoring surfaces such as the Prompts page rather than by the assistant
@@ -98,20 +103,24 @@ and what that ownership entails.
 
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
-| Orchestration | `AssistantService` (`service.py`) | Persists turns/runs, assembles context, calls the engine, applies draft deltas, drives intent plans, and gates publishing. |
+| Orchestration | `AssistantService` (`service.py`) | Persists turns/runs, assembles context, calls the engine, applies draft deltas, drives intent plans, and advances draft state according to interaction and approval mode. |
 | Provider engine | `AssistantEngine` protocol (`engine.py`) | One `run_turn(AssistantTurnRequest) -> AssistantTurnResult` contract; concrete engines in `openai_engine.py`, `anthropic_engine.py`, `ollama_engine.py`, `fake.py`. |
 | Engine selection | `server.py` | Picks the engine at boot from `assistant_engine` (default `auto` → a real provider by available API key: OpenAI if `OPENAI_API_KEY`, else Anthropic/Claude if `ANTHROPIC_API_KEY`, else OpenAI). `FakeAssistantEngine` is a deterministic test double, never selected automatically. |
 | System prompt assembly | `prompt_builder.py` | Builds one shared system prompt from policy, mode guidance, selected skills, and attached context. |
 | Skill selection | `skill_runtime.py` | Deterministic `resolve_assistant_skills` (auto / manual / off) over `CaliberSkill` rows. |
-| Read-only registry access | `RegistryToolDispatcher` (`tools.py`) | Lets tool-calling engines `list_skills` / `get_skill` / `list_tools` directly from the DB. |
+| Fallback registry access | `RegistryToolDispatcher` (`tools.py`) | A three-tool, read-only fallback (`list_skills` / `get_skill` / `list_tools`). Normal service turns pass the richer per-turn toolset below, which overrides this engine fallback. |
+| Per-turn agent tools | `AssistantAgentToolset` (`agent_tools.py`) | Binds the actor, session, mode, approval mode, and project to 29 hand-written tools plus a tier-filtered projection of the seven currently registered capabilities. This is partial coverage, not a claim that every CALIBER route has tool parity; `gated` capabilities are never advertised to a synchronous turn. |
 | Draft validation / test | `validators.py`, `service.py` | Validates draft artifacts and runs draft tests (tool sandbox, skill render, workflow compile). |
-| Publishing | `publisher.py` | Publishes approved drafts into the real artifact registries behind approval gates. |
+| Publishing | `publisher.py` | Publishes drafts whose approved status and asset-specific policy permit it. `auto_all` can supply the draft-status transition; prompt alias publication may additionally require matching approved promotion provenance. |
 | Tracing | `tracing.py` | `AssistantTracer` emits MLflow spans with session/correlation/user attributes. |
 | Persistence | `CaliberAssistant*` rows (`db/models.py`) | Sessions, messages, drafts, runs, publish events, and attachments. |
 
-The result is a layered ownership model: the service is the only component that
-mutates CALIBER state, the engine is the only component that reasons, and the
-seam between them is the single `run_turn` contract.
+The result is a layered ownership model: the service assembles and persists the
+turn and injects context-bound tool dependencies, the engine reasons and requests
+tool calls, and permissioned service/capability handlers perform any admitted
+mutation. The seam remains the single `run_turn` contract, but the current tool
+surface is deliberately mixed — 29 hand-written operations plus seven projected
+registry capabilities — rather than full registry parity.
 
 ## 3. Runtime architecture
 
@@ -164,8 +173,11 @@ explain why the architecture stays simple as providers and features grow:
   underlying source.
 - Skill selection is **deterministic and DB-backed**, not model-decided, so the
   same session state always yields the same skill set.
-- Mutations flow through the same governance the rest of CALIBER uses (validate
-  → test → approve → publish), which means Aria cannot bypass approval gates.
+- Mutations remain subject to the current mode, actor scopes, draft state, and
+  asset-specific policy. `build` + `auto_all` may automatically carry a passing
+  draft through approve and publish; this satisfies the draft state machine but
+  is not a mandatory human-approval boundary. `gated` plan capabilities and the
+  prompt-alias approval-provenance policy retain their stronger controls.
 
 Together these properties make the engine a replaceable detail and the service
 the durable, governed core.
@@ -393,13 +405,22 @@ human-driven route. The following controls enforce that assumption.
   through `db.scoping.get_visible` with the caller's identity, so a guessed
   `plan_id` from another owner returns 404 (admins bypass). Editing a plan's
   autonomy dial is audited.
-- Publishing a draft is gated by approval (`publish_requires_approval`), so Aria
-  proposes but cannot unilaterally publish.
+- Publishing requires the draft row to be in approved status, but that is a
+  state gate rather than an unconditional human gate: `build` + `auto_all` can
+  validate, test, approve, and publish a passing draft automatically. Human
+  approval remains mandatory for `gated` plan capabilities, and enabled prompt-
+  alias publication policy separately requires matching approved promotion
+  provenance.
 - Attachment content is reduced to a **capped text snapshot** at attach time and
   per-session counts are bounded, which limits both the prompt-injection surface
   and context blowup.
-- The registry tool dispatcher exposed to engines is **read-only**
-  (`list_skills` / `get_skill` / `list_tools`).
+- The legacy engine fallback dispatcher is read-only, but normal OpenAI/Anthropic
+  service turns receive `AssistantAgentToolset`: 29 hand-written tools plus the
+  allowed subset of seven registered capabilities. Read tools are eligible in
+  every mode; safe/mutate tools require the matching build/approval mode; and
+  capabilities declared `gated` are omitted from synchronous tool specs and
+  dispatch. This is permissioned partial coverage, not a read-only surface or
+  complete route-to-tool parity.
 - Draft testing runs in the shared local tool containment process rather than
   in the request handler. The runner uses Python isolated mode, an empty
   environment, a private working directory, POSIX CPU/memory/file/open-file
@@ -480,8 +501,8 @@ testable modules.
 
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
-| Capability registry | `capabilities.py` | Single-definition `Capability` objects (key, title, tier, handler) plus a `CapabilityContext`. Handlers reuse the same extracted route helpers the HTTP API uses, so there is one execution path per action. Builtins today: `judge.list/create`, `review_queue.list/create/add_items`, `eval_dataset.create`, and the async `workflow.calibrate` (this is the backend capability registry; the shipped planner does not yet populate step inputs, so create-tier steps require the operator to supply inputs on the asset page rather than being created autonomously). |
-| Tool projection | `agent_tools.py` | Projects the registry into engine tool specs and dispatches calls back through it, so the conversational engine and the orchestrator share one capability surface. `gated`-tier capabilities are never projected for autonomous calling. |
+| Capability registry | `capabilities.py` | Single-definition `Capability` objects (key, title, tier, handler) plus a `CapabilityContext`. Handlers reuse the same extracted route helpers as their HTTP paths. The seven builtins today are `judge.list/create`, `review_queue.list/create/add_items`, `eval_dataset.create`, and async `workflow.calibrate`; the shipped planner does not yet populate step inputs, so create-tier steps require operator-supplied inputs rather than autonomous creation. |
+| Tool projection | `agent_tools.py` | Adds the allowed registry entries to a separate set of 29 hand-written engine tools. Thus the conversation and plan paths overlap on seven registered capabilities but do not have full surface parity. Mode/approval tier filtering applies, and `gated` capabilities are never projected for synchronous autonomous calling. |
 | Planner | `plans.py` (`Planner` protocol, `HeuristicPlanner`) | Decomposes a goal into ordered `PlannedStep`s, each bound to a capability and carrying an optional quality `gate`. The default planner is registry-driven: it matches the capability domain named in the goal (the richer task contract is persisted on the plan for a future state-aware planner). |
 | Plan service | `plans.py` (`PlanService`) | Persists plans and steps — including the per-plan task contract (`constraints`, `done_when`, `context_refs`) — with create / get / list / `set_status`. |
 | Plan executor | `executor.py` (`PlanExecutor`) | Walks an approved plan, dispatches each step's capability, applies the autonomy gate, raises interactions, parks async steps, and runs the quality-gate / self-correction logic. |
@@ -557,9 +578,12 @@ Aria's seams make it straightforward to extend along a few well-defined axes:
   service layer.
 - Additional intent adapters can be added in `service.py`.
 - New agentic capabilities are added by registering a `Capability` in
-  `capabilities.py` (§9); they are picked up by both the conversational tool
-  loop and the goal-plan orchestrator with no further wiring, and a richer
-  planner can be supplied behind the `Planner` protocol.
+  `capabilities.py` (§9). The goal-plan registry sees them, while the synchronous
+  conversational loop projects only capabilities allowed by its mode/approval
+  tier and omits `gated` entries. That projection needs no bespoke `_t_*`
+  adapter, but it does not make the existing 29 hand-written tools registry-backed
+  or establish full parity. A richer planner can be supplied behind the
+  `Planner` protocol.
 - The reasoning layer can be extracted into a remote backend behind the engine
   protocol; no such service is shipped here.
 
@@ -578,5 +602,5 @@ callers should plan around:
 
 Taken together, these properties make Aria the conversational front door to
 CALIBER authoring: it reasons over grounded context, drafts governed artifacts,
-and drives them through the same validate/test/approve/publish pipeline the rest
-of the platform uses.
+and drives them through a mode-, scope-, state-, and policy-controlled
+validate/test/approve/publish pipeline.

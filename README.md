@@ -29,13 +29,14 @@ CALIBER is an **MLflow-integrated ASGI control plane** and **React application**
 resources. It closes the loop that most observability tools leave open: catching a production failure is
 well-tooled — *doing something about it, at scale, with a human in the loop and an audit trail* is not.
 CALIBER's canonical prompt-refinement path turns a flagged trace into a measured candidate that a human
-explicitly reviews before any alias update. Evaluation gates govern refinement jobs and travel as advisory
-evidence; audited rollback exists only where an asset records live-target or snapshot history, and its
-semantics remain asset-specific. The implementation reuses MLflow's
+explicitly reviews before any alias update. Evaluation gates enforce whether refinement jobs advance to
+`candidate_ready`; separately persisted per-version verdicts are advisory release evidence and never block
+prompt alias rotation. Audited rollback exists only where an asset records live-target or snapshot history,
+and its semantics remain asset-specific. The implementation reuses MLflow's
 Experiments, Traces, Assessments, Prompt Registry, Artifact Store, and `genai.evaluate`. It supports an
 in-process `mlflow.app` plugin topology and a standalone CALIBER service that talks to MLflow over HTTP.
 
-> 📖 **Live docs:** [`docs-site/index.html`](./docs-site/index.html) &nbsp;·&nbsp; 📦 **Source-only distribution metadata:** `caliber-suite` (`caliber` import/app) &nbsp;·&nbsp; 🧑‍🍳 **Learn by doing:** [16 Cookbooks](./docs-site/m-16-cookbooks.html)
+> 📖 **Live docs:** [`docs-site/index.html`](./docs-site/index.html) &nbsp;·&nbsp; 🏛️ **Layered architecture:** [HTML](./docs-site/m-00-layered-architecture.html) / [Markdown](./ARCHITECTURE.md) &nbsp;·&nbsp; 🧑‍🍳 **Learn by doing:** [16 Cookbooks](./docs-site/m-16-cookbooks.html)
 
 ---
 
@@ -51,7 +52,7 @@ flowchart LR
     flag["Response flagged<br/>MLflow Assessment"]:::src
     v["① Verify<br/>human · 1 click"]:::human
     d["② Diagnose<br/>LLM root-cause"]:::auto
-    g["③ Generate<br/>policy-selected optimizer"]:::auto
+    g["③ Optimize<br/>policy-selected optimizer"]:::auto
     e["④ Evaluate<br/>EvalProvider + regression gate"]:::auto
     a["⑤ Apply<br/>operator · diff + eval"]:::human
     p["⑥ Promote<br/>audited alias rotation"]:::ship
@@ -67,10 +68,10 @@ flowchart LR
 
 <div align="center"><sub>🟡 human decision &nbsp;·&nbsp; 🔵 automated &nbsp;·&nbsp; 🟢 shipped — the dashed edge closes the loop: your code keeps loading <code>@prod</code>, the next call gets the new version.</sub></div>
 
-**Why it matters** — changes reuse MLflow evidence, carry per-dimension evaluation and an advisory gate
-verdict into review, and retain an audit trail. Promotion authorization remains explicit; a gate verdict
-is evidence, not an unbypassable cross-artifact policy. Automatic multi-agent bundle optimization remains
-roadmap work rather than a shipped optimizer.
+**Why it matters** — changes reuse MLflow evidence, must clear an enforced candidate-advancement gate,
+and carry per-dimension evaluation plus any advisory per-version verdict into review. Promotion
+authorization remains explicit; the persisted advisory verdict never blocks prompt alias rotation.
+Automatic multi-agent bundle optimization remains roadmap work rather than a shipped optimizer.
 
 ---
 
@@ -84,7 +85,7 @@ surface; the repository audit records the exact current boundary.
 | ✍️ **Authoring** | **Prompts**, **Tools**, **Skills**, **MCP servers** — governed definitions with asset-specific testing and governance; versioning, gates, live aliases, and rollback apply only where each asset implements them |
 | 🔀 **Workflows** | Visual **Studio**, queued runs, runtime approvals, checkpointing, and workflow-as-a-service |
 | 📚 **Knowledge bases** | Versioned RAG corpora — chunking, embeddings, **Apache AGE** graph extraction, hybrid retrieval + cross-encoder rerank |
-| 🧪 **Evaluation** | Scorecards, **custom LLM judges** (`make_judge`), structured human-review queues, and path-specific advisory gate verdicts |
+| 🧪 **Evaluation** | Scorecards, **custom LLM judges** (`make_judge`), structured human-review queues, enforced refinement-advancement gates, and advisory persisted version verdicts |
 | 🎛️ **Calibration** | Five implemented provider paths: the prompt form exposes MetaPrompt and GEPA; policy can select SkillMetaPrompt and DSPy BootstrapFewShot; DSPy MIPRO requires explicit configuration |
 | 🔭 **Observability** | MLflow tracing with multimodal attachments, SSE live events, service visibility, and trace retention |
 | 🛡️ **Governance** | RBAC, path-specific audited promotion/rollback, and the **LLM Gateway** surface (endpoint discovery, guardrails, per-model pricing, usage) |
@@ -96,7 +97,8 @@ surface; the repository audit records the exact current boundary.
 
 > 🏛️ **For the layered, executive-and-architect view — the six-layer stack, the canonical chain, the
 > anatomy of a governed asset, and the per-asset guarantees — read
-> [`ARCHITECTURE.md`](./ARCHITECTURE.md).** The section below is the deployment-topology summary.
+> [`ARCHITECTURE.md`](./ARCHITECTURE.md) or its [generated HTML page](./docs-site/m-00-layered-architecture.html).**
+> The section below is the deployment-topology summary.
 
 The same CALIBER ASGI application supports two deployment topologies. Native development can mount it as
 an in-process MLflow `mlflow.app`; the bundled loopback Compose stack runs CALIBER as a standalone service
@@ -193,8 +195,8 @@ loopback launcher; any network-reachable deployment must leave
 | Path | What it is |
 | --- | --- |
 | 📦 [`caliber/`](./caliber/) | The Python package for both the in-process MLflow app and standalone CALIBER service — runtime code, Alembic migrations, the React SPA, tests, and packaging. See its [README](./caliber/README.md) for install + dev. |
-| 🌐 [`docs-site/`](./docs-site/) | The published documentation site: the [landing page](./docs-site/index.html); 19 generated Markdown-backed module pages (built from [`docs/`](./docs/) by [`build-docs.mjs`](./docs-site/build-docs.mjs)); the **[Cookbooks](./docs-site/m-16-cookbooks.html)** — a card index plus 16 step-by-step, UI-only recipe pages sourced from [`docs-site/cookbooks/`](./docs-site/cookbooks/); the [walkthrough](./docs-site/walkthrough.html) runbook; and click-through slide decks. Also synced into the SPA and served in-app at `/caliber/docs/`. |
-| 📐 [`docs/`](./docs/) | Source-of-truth design specs — one `architecture.md` per numbered area (platform, registries, workflows, data, observability, QA, evaluation, calibration, assistant) plus the [workflow components reference](./docs/06-workflows/components.md). Each opens with an **At a glance** summary + a typed-color diagram, then a banded **Reference** tier. Conventions in [`docs/STYLE.md`](./docs/STYLE.md); machine index for agents at `docs-site/llms.txt`. |
+| 🌐 [`docs-site/`](./docs-site/) | The published documentation site: the [landing page](./docs-site/index.html); 20 generated Markdown-backed module pages (built from root [`ARCHITECTURE.md`](./ARCHITECTURE.md) plus [`docs/`](./docs/) by [`build-docs.mjs`](./docs-site/build-docs.mjs)); the **[Cookbooks](./docs-site/m-16-cookbooks.html)** — a card index plus 16 step-by-step, UI-only recipe pages sourced from [`docs-site/cookbooks/`](./docs-site/cookbooks/); the [walkthrough](./docs-site/walkthrough.html) runbook; and click-through slide decks. Also synced into the SPA and served in-app at `/caliber/docs/`. |
+| 📐 [`docs/`](./docs/) | Source-of-truth implementation and per-area design specs beneath the root layered map — one `architecture.md` per numbered area (platform, registries, workflows, data, observability, QA, evaluation, calibration, assistant) plus the [workflow components reference](./docs/06-workflows/components.md). Each opens with an **At a glance** summary + a typed-color diagram, then a banded **Reference** tier. Conventions in [`docs/STYLE.md`](./docs/STYLE.md); machine index for agents at `docs-site/llms.txt`. |
 | 🐳 [`deploy/`](./deploy/) | A loopback-only Docker development stack (Postgres 17 + pgvector + Apache AGE, MinIO, MLflow, the MLflow AI Gateway, and NATS) plus `compose.yaml`. See [`deploy/README.md`](./deploy/README.md). |
 | 🎬 [`overview-video/`](./overview-video/) | Narration script and screenshot/video-generation scripts that render the embedded overview video on the docs site. |
 
@@ -205,12 +207,13 @@ loopback launcher; any network-reachable deployment must leave
 | Start here | For… |
 | --- | --- |
 | 🏠 **[Docs landing page](./docs-site/index.html)** | What CALIBER is, why it exists, and how it fits with MLflow |
+| 🏛️ **[Layered architecture](./docs-site/m-00-layered-architecture.html)** | Executive and architect map of the stack, governance chain, asset-family guarantees, topologies, execution, state, and trust boundaries |
 | 🧭 **[Walkthrough runbook](./docs-site/walkthrough.html)** | A copy-pasteable bring-up that tours every SPA page and builds a governed artifact with Aria |
 | 🧑‍🍳 **[Cookbooks](./docs-site/m-16-cookbooks.html)** | 16 step-by-step, UI-only recipes — prompt regression, precision skills, policy-safe tools, doc-to-JSON, governed MCP, grounded knowledge, support/incident copilots, self-healing workflows, observability & triage, trustworthy evaluation, release signoff, and four Aria goal-plan recipes |
 | 🧱 **[Build the plugin](./caliber/README.md)** | `cd caliber && python -m pip install -e ".[dev,s3]"`, then `make dev` |
 | 🤝 **[Contributing](./caliber/CONTRIBUTING.md)** | Local setup, the quality gate, extension seams, and PR conventions |
 
-**Design context** — browse [`docs/`](./docs/) or the rendered [architecture pages](./docs-site/m-01-platform.html):
+**Design context** — start with the rendered [layered architecture](./docs-site/m-00-layered-architecture.html), then browse [`docs/`](./docs/) or the deeper [architecture pages](./docs-site/m-01-platform.html):
 [platform architecture](./docs/01-caliber/) · [Aria copilot](./docs/12-assistant/) · [evaluation](./docs/14-evaluation/) + [calibration](./docs/15-calibration/).
 
 ---

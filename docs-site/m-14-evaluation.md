@@ -4,11 +4,13 @@ This document describes how CALIBER turns a dataset and an artifact into scores.
 Evaluation is the scoring engine of the platform: it is consumed both by an
 operator-facing **scorecard** surface, where a dataset is run through scorers and
 inspected example by example, and by the **refinement and calibration pipeline**,
-where a candidate artifact is scored against a baseline and gated before it can be
-promoted. The dataset model that supplies the examples is documented separately in
-[Test Sets](m-11-test-sets.md), and the pipeline that consumes the
-gate is documented in [Calibration](m-15-calibration.md); this
-document covers the engine that sits between them.
+where a candidate artifact is scored against a baseline and gated before the job
+can advance to `candidate_ready`. Promotion is a later, explicit operator-scoped
+Apply action rather than an eval-stage side effect. The dataset model that supplies the
+examples is documented separately in [Test Sets](m-11-test-sets.md),
+and the pipeline that consumes the gate is documented in
+[Calibration](m-15-calibration.md); this document covers the engine
+that sits between them.
 
 Throughout, all HTTP routes are mounted under the `/ajax-api/2.0/mlflow/caliber`
 prefix; endpoint paths are shown relative to that prefix once the convention has
@@ -18,7 +20,7 @@ been stated.
 
 | Dimension | Evaluation engine |
 | --- | --- |
-| **What it is** | The scoring engine that turns a dataset and an artifact into scores, feeding both a scorecard surface and the refinement gate. |
+| **What it is** | The scoring engine that turns a dataset and an artifact into scores, feeding both a scorecard surface and the refinement gate that decides advancement to `candidate_ready`. |
 | **Scorers / judges** | MLflow GenAI judges, scorecard heuristics (`exact_match`, `token_f1`, `contains_expected`, `non_empty`), the workflow LLM judge, and custom judges via `mlflow.genai.make_judge`. |
 | **Run targets** | `predict_target` selects what is scored: `llm`, `prompt`, `skill`, or `workflow`. |
 | **Human alignment** | `POST /judges/{id}/alignment` reports agreement rate and Cohen's kappa against operator labels. |
@@ -36,8 +38,9 @@ Evaluation exists so that quality is measured by data rather than asserted by
 intuition. The module owns the contract for scoring a set of inputs against
 expected references, the adapters that realize that contract on top of MLflow or a
 deterministic in-process scorer, and the gate that converts raw scores into a
-promote-or-reject decision. It deliberately never fabricates a score: when no real
-model is configured, the scoring path fails closed rather than inventing numbers.
+candidate-ready-versus-retry/reject decision. It deliberately never fabricates a
+score: when no real model is configured, the scoring path fails closed rather
+than inventing numbers.
 
 Its responsibilities are:
 
@@ -47,8 +50,9 @@ Its responsibilities are:
   computes the per-dimension deltas the gate inspects.
 - It runs synchronous, per-example scorecard evaluations for the standalone
   Evaluations surface and persists their full results.
-- It applies the promotion gate — the aggregate-score floor and the
-  regression-delta ceiling.
+- It applies the refinement advancement gate — the aggregate-score floor and the
+  regression-delta ceiling — whose passing outcome is `candidate_ready`, not
+  automatic promotion.
 - It hosts the scorer catalog and its capability gating, spanning MLflow GenAI
   judges, deterministic heuristics, the workflow LLM judge, and operator-authored
   **custom judges** built via `mlflow.genai.make_judge` (these families serve
@@ -85,7 +89,7 @@ below assigns ownership across both.
 | Provider contract | `EvalProvider` protocol (`eval/provider.py`) | A single `evaluate(EvalRequest) -> EvalComparison`; failures are wrapped in `EvalProviderError` rather than leaking the backend exception. |
 | MLflow scoring | `MLflowEvalProvider` (`eval/mlflow_runner.py`) | Runs `mlflow.genai.evaluate` per pass (candidate, baseline) and aggregates `result.metrics` into a `ScoreSet`. |
 | Deterministic test double | `FakeEvalProvider` (`eval/fake.py`) | The default provider; returns fixed scores for tests and honors cold-start when no baseline content is supplied. |
-| Promotion gate | `apply_gate` (`eval/gate.py`) | A pure function turning an `EvalComparison` plus thresholds into a `GateDecision`. |
+| Refinement advancement gate | `apply_gate` (`eval/gate.py`) | A pure function turning an `EvalComparison` plus thresholds into a `GateDecision`; `eval_stage.py` maps a pass to `candidate_ready` and performs no release. |
 | Scorecard run | `run_scorecard` (`eval/scorecard.py`) | Per-example prediction and scoring with per-row error isolation; the basis of the Evaluations surface. |
 | Real-LLM prediction | `build_completion_fn` (`eval/predict.py`) | Builds the completion function from configuration; returns `None` for fake/unset providers so callers fail closed. |
 | Scorecard persistence | `CaliberEvalRun` (`db/models.py`, migration 0049) | Stores run config, recomputed summaries, and the heavy per-example `results` array. |
@@ -178,7 +182,9 @@ none is configured, so the Evaluations surface can never display fabricated scor
 
 The refinement gate has no public route of its own; it is invoked internally by the
 calibration pipeline through `orchestrator/eval_stage.py`, which builds an
-`EvalRequest`, calls the provider, and applies the gate.
+`EvalRequest`, calls the provider, and applies the gate. A passing decision sets
+the refinement job to terminal `candidate_ready`; only a later operator-scoped
+Apply action can release the candidate.
 
 ## 6. Execution lifecycle
 
@@ -215,6 +221,7 @@ The lifecycle is governed by a few firm rules:
   errors is the run marked `failed`.
 - The gate path mirrors this but compares two passes: the provider runs the
   candidate and, when present, the baseline, then computes deltas for the gate.
+  A pass advances the job to `candidate_ready`; it does not mutate a live target.
 
 ## 7. Scoring, gating, and trust boundaries
 
@@ -237,22 +244,30 @@ importable, those scorers are marked unavailable with an install hint and exclud
 from the defaults, so a missing optional dependency degrades cleanly instead of
 failing a run.
 
-The gate itself is a pure function. It reads `min_aggregate_score` (default `0.85`)
-and `max_regression_delta` (default `0.02`) from the agent's thresholds, falling
-back to those defaults, and applies two rules: the candidate's `overall` must meet
-the score floor, and — only when a baseline exists — no per-dimension delta may
-fall below the negative regression ceiling. Cold-start evaluations, which have no
-baseline, skip the regression rule entirely. The decision carries its reasons and
-the thresholds it used.
+The gate itself is a pure function over already-resolved thresholds. For prompt
+and skill refinement, the orchestrator starts with the agent's thresholds; prompt
+optimization runs may override the two gate values. Absent either, the defaults are
+`min_aggregate_score=0.85` and `max_regression_delta=0.02`. Workflow evaluation
+delegates to its workflow-aware path and derives policy from the manifest's deploy
+gates instead. The resolved gate applies two rules: the candidate's `overall` must
+meet the score floor, and — only when a baseline exists — no per-dimension delta
+may fall below the negative regression ceiling. Cold-start evaluations, which
+have no baseline, skip the regression rule entirely. The decision carries its
+reasons and the thresholds it used.
 
 This verdict is also surfaced **advisorily** per artifact version. A single row
 per `(artifact_type, version_key)` lives in `caliber_gate_verdicts` (migration
 `0062`) and is read and upserted through `GET`/`POST /gate-verdicts/{artifact_type}/{version_key}`
 (`gate_verdicts.py`); the prompt promote path stamps it from the supplied gate
-fields so the version surface shows `pass`/`fail`/`none` before a promotion. The
-verdict is strictly advisory — it never blocks an alias rotation — and `state` is
-authoritative over both gate rules, with the numeric columns kept only as display
-detail.
+fields so the version surface shows `pass`/`fail`/`none` independently of any
+later promotion. The verdict is strictly advisory — it never blocks an alias
+rotation — and `state` is authoritative over both gate rules, with the numeric
+columns kept only as display detail.
+
+`apply_gate` itself only returns the decision. The orchestrator persists the
+comparison and maps a pass to `candidate_ready`; failed attempts follow the
+configured retry/reject path. Alias rotation or another asset-specific release
+can happen only in the separate Apply path.
 
 The trust boundary is that scores must be earned: creating a scorecard run requires
 the `operator` scope, evaluation requires a real configured LLM provider, and
@@ -285,13 +300,14 @@ backends behind the same `evaluate` call.
 The current constraints are deliberate trade-offs. Scorecard runs are synchronous
 and capped, which keeps evidence complete but bounds dataset size per run. There is
 no server-side run-comparison endpoint; comparison is a client concern over the
-persisted runs. And gate thresholds are per-agent rather than global, which keeps
-promotion policy close to the artifact it governs at the cost of a single
-platform-wide knob.
+persisted runs. Gate policy is path- and asset-specific rather than one global
+knob: agent thresholds govern prompt and skill refinement, prompt runs may override
+them, and workflow evaluation reads manifest deploy-gate thresholds.
 
 Evaluation is therefore the measurement substrate beneath both inspection and
-promotion: it scores honestly or not at all, it records enough to be audited, and
-it hands the calibration pipeline a single, well-defined gate decision.
+candidate readiness: it scores honestly or not at all, it records enough to be
+audited, and it hands the calibration pipeline a single, well-defined gate
+decision. Release remains a separate operator-scoped action.
 
 ## 10. Custom LLM judges
 
@@ -339,8 +355,9 @@ instruction via the gate's `build_default_predict_fn_factory`, so the thing unde
 test is the real asset, not a neutral completion. `workflow` compiles the version
 **once** (the same `caliber.workflows.promoter` `build_plan` + `build_executor`
 seam the preview/run paths use) and then executes that plan per example in
-preview mode (tools sandboxed), scoring the workflow's output; because a workflow
-run is heavy, the example count is bounded tighter (`_WORKFLOW_MAX_EXAMPLES`) than
+preview mode through the configured bounded tool-execution backend, scoring the
+workflow's output; because a workflow run is heavy, the example count is bounded
+tighter (`_WORKFLOW_MAX_EXAMPLES`) than
 the generic cap. Every run records `predict_target` + `subject_ref` (prompt
 `<name>@<version>`, skill id, or workflow version id) for reproducibility.
 
@@ -353,4 +370,5 @@ verdict, and rationale — the **"Try it"** playground on the Judges page. `POST
 the **agreement rate and Cohen's kappa** (chance-corrected) between the judge's
 thresholded verdicts and the human labels, plus a binary confusion breakdown
 (`caliber.eval.alignment`). A judge that doesn't agree with humans shouldn't gate
-releases; alignment makes that measurable before the judge is trusted.
+advancement to `candidate_ready`; alignment makes that measurable before the
+judge is trusted.

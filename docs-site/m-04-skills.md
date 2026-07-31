@@ -5,7 +5,7 @@
 | Dimension | Skills module orientation |
 | --- | --- |
 | **What it is** | A registry of reusable, versioned instruction assets composed into agents and assistant turns — lighter than a prompt or workflow. |
-| **Where state lives** | Canonical `CaliberSkill` rows, with `CaliberSkillTestRun` history and hidden `CaliberAgentConfig` targets keyed `skill::{name}`. |
+| **Where state lives** | The mutable current value lives in `CaliberSkill`; immutable content/summary snapshots live in `CaliberSkillVersion`; `CaliberSkillTestRun` holds run evidence; hidden `CaliberAgentConfig` targets are keyed `skill::{name}`. |
 | **Key surfaces** | HTTP routes in `routes/skills.py` under `/ajax-api/2.0/mlflow/caliber`; UI via `Skills.tsx`, `SkillWizard.tsx`, `SkillDetail.tsx`. |
 | **Runtime model** | The assistant selects skills `auto`/`manual`/`off` via `assistant/skill_runtime.py`, reading `CaliberSkill` rows directly. |
 | **Trust / safety** | Skills are prompt material, not code; reserved prefixes (`claude`, `anthropic`) rejected, angle brackets filtered, deterministic auto-selection. |
@@ -35,6 +35,7 @@ host agent. And it provides skill selection inputs to the assistant runtime.
 These responsibilities are realized across a small set of primary code paths:
 
 - `caliber/src/caliber/routes/skills.py`
+- `caliber/src/caliber/skill_versions.py`
 - `caliber/src/caliber/skill_packages.py`
 - `caliber/src/caliber/skill_targets.py`
 - `caliber/src/caliber/assistant/skill_runtime.py`
@@ -50,6 +51,7 @@ concerns, so each responsibility has a distinct owner. The table below maps them
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
 | Skill registry | `CaliberSkill` | Canonical row storing summary, content, metadata, dependencies, and tags. |
+| Immutable version history | `CaliberSkillVersion`, coordinated by `skill_versions.py` | One content/summary snapshot per version; edits and refinement Apply share the same transactional helpers, and rollback restores an older snapshot as a new forward-only version. |
 | Packaging/import | `skill_packages.py` | Maps DB rows to and from an OpenAI-style skill package folder or ZIP. |
 | Auto-selection scoring | `assistant/skill_runtime.py` | Deterministic scorer used by the assistant runtime and selection tests. |
 | Hidden runtime identity | `skill_targets.py` | Auto-provisions `skill::{name}` agent identities for testing and calibration. |
@@ -72,6 +74,8 @@ flowchart LR
     UI[Skills UI]:::ui
     API[routes/skills.py]:::ctrl
     DB[(CaliberSkill<br/>CaliberSkillTestRun)]:::store
+    VH[skill_versions.py]:::ctrl
+    VDB[(CaliberSkillVersion<br/>immutable snapshots)]:::store
     PKG[skill_packages.py]:::ctrl
     TGT[skill_targets.py]:::ctrl
     AR[assistant/skill_runtime.py]:::ctrl
@@ -80,6 +84,8 @@ flowchart LR
 
     UI --> API
     API --> DB
+    API --> VH
+    VH --> VDB
     API --> PKG
     API --> TGT
     API --> AR
@@ -109,6 +115,7 @@ summarizes each.
 | State | Storage | Purpose |
 | --- | --- | --- |
 | Skill row | `CaliberSkill` | Canonical artifact with summary, content, category, tags, dependencies, and metadata. |
+| Version history | `CaliberSkillVersion` | Immutable content-and-summary snapshots keyed by `(skill_id, version_number)` for listing, diff, conflict-safe forward history, and rollback-as-a-new-version. |
 | Durable test history | `CaliberSkillTestRun` | Render, selection, and scenario run results with scores and optional host identity. |
 | Hidden runtime target | `CaliberAgentConfig` keyed by `skill::{name}` | Provides an `agent_id` for jobs, traces, baselines, and workspace state. |
 | Calibration queue | `CaliberVerificationItem`, `CaliberRefinementJob` | Shared refinement pipeline entry point for skill calibration. |
@@ -122,7 +129,8 @@ soft-delete oriented, taking the values `active` or `archived` rather than
 hard-deleting by default.
 
 Although the canonical skill is a single mutable row, its history is real: every
-version-bumping edit snapshots the skill into `CaliberSkillVersion` — one
+version-bumping API edit and refinement Apply snapshots the skill into
+`CaliberSkillVersion` — one
 immutable row per `(skill_id, version_number)` — which is what the version panel
 lists, diffs, and rolls back against. Both the `content` and the level-1
 `summary` are part of that snapshot, so an edit to either bumps the version and
@@ -133,6 +141,9 @@ not bump. `GET /skills/{skill_id}/versions` lists the history and
 (the version counter is forward-only; 409 when there is no prior version to
 restore). Two edits that race the same version number resolve to a retryable
 `409` rather than a `500`, so the version table never grows a duplicate.
+The Skills API and `SkillPromoter` both use `skill_versions.py` in the caller's
+database transaction, so updating the live row, recording its immutable history,
+and writing the surrounding audit/checkpoint state succeed or roll back together.
 
 ## 5. API and interaction surfaces
 
@@ -195,7 +206,7 @@ sequenceDiagram
 
     U->>UI: Create or edit skill
     UI->>API: POST or PATCH /skills
-    API->>DB: Persist CaliberSkill
+    API->>DB: Persist CaliberSkill; snapshot versioned payload when changed
     API-->>UI: Return skill record
 
     U->>UI: Test selection or render

@@ -16,6 +16,7 @@ from urllib.parse import unquote, urlsplit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_SITE = REPO_ROOT / "docs-site"
 DOCS_SOURCE = REPO_ROOT / "docs"
+LAYERED_ARCHITECTURE = REPO_ROOT / "ARCHITECTURE.md"
 PUBLIC_DOCS = REPO_ROOT / "caliber" / "caliber-ui" / "public" / "docs"
 PACKAGED_DOCS = REPO_ROOT / "caliber" / "src" / "caliber" / "ui" / "docs"
 MARKDOWN_LINK = re.compile(r"!?\[[^\]\n]*\]\(([^\n)]*)\)")
@@ -55,9 +56,39 @@ def _manifest_modules() -> list[tuple[str, str]]:
 
 def _without_link_destinations(markdown: str) -> str:
     """Keep authored text/labels while ignoring the expected flattened href rewrite."""
-    return MARKDOWN_LINK.sub(
-        lambda match: match.group(0).replace(match.group(1), "<LINK>"), markdown
-    )
+
+    def replace_destination(match: re.Match[str]) -> str:
+        whole = match.group(0)
+        start = match.start(1) - match.start(0)
+        end = match.end(1) - match.start(0)
+        return f"{whole[:start]}<LINK>{whole[end:]}"
+
+    return MARKDOWN_LINK.sub(replace_destination, markdown)
+
+
+def _normalize_published_markdown(markdown: str, source: Path) -> str:
+    """Mirror the generator's removal of repository-only presentation chrome."""
+    if source.resolve() != LAYERED_ARCHITECTURE:
+        return markdown
+    wrappers = {
+        '<div align="center">',
+        "</div>",
+        '<div align="center"><sub>',
+        "</sub></div>",
+    }
+    lines = []
+    for line in markdown.replace("\r\n", "\n").split("\n"):
+        stripped = line.strip()
+        if stripped in wrappers:
+            continue
+        if re.fullmatch(
+            r'<img\s+src="docs-site/caliber\.png"[^>]*?/?>',
+            stripped,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        lines.append(line)
+    return "\n".join(lines).replace("&nbsp;", " ")
 
 
 def _served_site_files(directory: Path) -> set[str]:
@@ -88,7 +119,7 @@ def _served_copy(source: Path) -> str:
 
 
 def test_all_manifest_markdown_is_current_and_published() -> None:
-    """Pin all 19 source modules to their flattened generated Markdown copies.
+    """Pin all 20 source modules to their flattened generated Markdown copies.
 
     Link destinations intentionally change during flattening. Removing only those
     destinations lets this independent test catch stale prose (the failure mode
@@ -96,7 +127,11 @@ def test_all_manifest_markdown_is_current_and_published() -> None:
     link-resolution test below validates the rewritten destinations themselves.
     """
     modules = _manifest_modules()
-    assert len(modules) == 19
+    assert len(modules) == 20
+    assert modules[0] == (
+        "../ARCHITECTURE.md",
+        "m-00-layered-architecture.html",
+    )
 
     for source_name, html_name in modules:
         source = DOCS_SOURCE / source_name
@@ -104,8 +139,37 @@ def test_all_manifest_markdown_is_current_and_published() -> None:
         assert source.is_file(), source_name
         assert generated.is_file(), generated.name
         assert _without_link_destinations(generated.read_text(encoding="utf-8")) == (
-            _without_link_destinations(source.read_text(encoding="utf-8"))
+            _without_link_destinations(
+                _normalize_published_markdown(source.read_text(encoding="utf-8"), source)
+            )
         ), f"stale generated Markdown for {source_name}"
+
+
+def test_layered_architecture_render_and_links_are_published() -> None:
+    """The repository-level map renders cleanly in HTML and flat Markdown."""
+    assert LAYERED_ARCHITECTURE.is_file()
+    html = (DOCS_SITE / "m-00-layered-architecture.html").read_text(encoding="utf-8")
+    markdown = (DOCS_SITE / "m-00-layered-architecture.md").read_text(encoding="utf-8")
+
+    assert '<h1 id="top">CALIBER — Layered Architecture</h1>' in html
+    assert '<pre class="mermaid">' in html
+    assert "<hr>" in html
+    assert "&lt;div align=" not in html
+    assert 'href="m-01-platform.html"' in html
+    assert 'href="m-17-competitive-analysis.html"' in html
+
+    assert markdown.lstrip().startswith("# CALIBER — Layered Architecture")
+    assert '<div align="center">' not in markdown
+    assert "docs-site/caliber.png" not in markdown
+    assert "(m-01-platform.md)" in markdown
+    assert "(m-17-competitive-analysis.md)" in markdown
+    assert "(walkthrough.html)" in markdown
+    assert (
+        "https://github.com/rrahimi-uci/caliber-suite/blob/main/caliber/src/caliber/server.py"
+    ) in markdown
+    assert (
+        "https://github.com/rrahimi-uci/caliber-suite/tree/main/caliber/src/caliber/routes"
+    ) in markdown
 
 
 def test_llms_index_and_flattened_markdown_links_resolve_locally() -> None:
@@ -143,9 +207,9 @@ def test_llms_index_and_flattened_markdown_links_resolve_locally() -> None:
 
 
 def test_all_materialized_docs_copies_match_docs_site() -> None:
-    """The tracked public tree and any built package tree match the 63-file site."""
+    """The tracked public tree and any built package tree match the 65-file site."""
     expected = _served_site_files(DOCS_SITE)
-    assert len(expected) == 63
+    assert len(expected) == 65
     assert _served_site_files(PUBLIC_DOCS) == expected
 
     for name in sorted(expected):

@@ -4,7 +4,7 @@
 
 ## At a glance
 
-Every other topic in this documentation — prompts, tools, skills, MCP servers, workflows, knowledge bases, test sets, evaluation, calibration, governance, and the Aria copilot — supports one product motion: **turn a flagged production response into a measured candidate with an attributable deployment decision**. The canonical prompt-refinement path below has two human decisions: verification and review/apply. Other asset families implement subsets of the lifecycle and must not be assumed to share its aliases, gates, or rollback semantics.
+Every other topic in this documentation — prompts, tools, skills, MCP servers, workflows, knowledge bases, test sets, evaluation, calibration, governance, and the Aria copilot — supports one product motion: **turn a flagged production response into a measured candidate with an attributable deployment decision**. The concrete prompt-refinement path below has six numbered stages and two human decisions: verification and review/apply. The seven-term `Signal → Evidence → Candidate → Measurement → Decision → Release → Trace` chain in the [layered architecture](m-00-layered-architecture.md) is an abstract lifecycle map, not a second seven-stage worker pipeline: the incoming trace and feedback supply its signal, evidence assembly is folded into the transition from Verify toward Diagnose, and the next trace closes the loop after stage 6. Other asset families implement subsets of the lifecycle and must not be assumed to share its aliases, gates, or rollback semantics.
 
 ```mermaid
 flowchart LR
@@ -34,8 +34,8 @@ flowchart LR
 | **① Verify** | A human confirms the flagged trace is actionable — one click. | Platform |
 | **② Diagnose** | An LLM identifies the root cause from the trace and its evidence. | Calibration |
 | **③ Optimize** | A policy-selected optimizer proposes a fix. A manual pin or agent override wins; diagnosis heuristics choose among the remaining live paths. | Calibration |
-| **④ Evaluate** | The candidate is scored against a pinned test set with per-dimension regression checks. These govern advancement inside the refinement job; registry gate verdicts elsewhere remain advisory. | Evaluation · Test sets |
-| **⑤ Apply decision** | An operator reviews the diff, evaluation comparison, and root-cause summary, then either invokes Apply or leaves the candidate unapplied. This is not a separate vote/quorum/reject API. | Prompts |
+| **④ Evaluate** | The candidate is scored against a pinned test set with per-dimension regression checks. A pass advances the job to `candidate_ready`; it does not promote automatically, and registry gate verdicts elsewhere remain advisory. | Evaluation · Test sets |
+| **⑤ Apply decision** | An operator-scoped actor (operator or admin; approver is a sibling scope) reviews the diff, evaluation comparison, and root-cause summary, then either invokes Apply or leaves the candidate unapplied. This is not a separate vote/quorum/reject API. | Prompts |
 | **⑥ Promote** | On the canonical prompt path, Apply rotates the live alias and records the exact outgoing target for audited rollback. Other assets retain their own release semantics. | Prompts |
 
 ## Why it matters

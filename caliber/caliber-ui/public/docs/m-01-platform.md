@@ -1,11 +1,12 @@
 # CALIBER Platform Architecture
 
-This document is the authoritative overview of the CALIBER platform. It describes
-how the system is bootstrapped, how its layers fit together, where state lives,
-and how the cross-cutting subsystems combine into a single control plane. The
-per-feature documents that accompany it describe how individual bounded contexts
-plug into the substrate established here; this document is the anchor they refer
-back to.
+This document is the authoritative implementation reference for the CALIBER
+platform: how the application is bootstrapped, where state lives, and how the
+cross-cutting subsystems combine at runtime. Start with the
+[layered architecture map](m-00-layered-architecture.md) for the executive view of the
+stack, governed assets, and family-specific guarantees. This page supplies the
+runtime depth beneath that map; the per-feature references describe how each
+bounded context plugs into the substrate documented here.
 
 Throughout, all HTTP routes are mounted under the
 `/ajax-api/2.0/mlflow/caliber` prefix. To keep the prose readable, endpoint
@@ -19,8 +20,8 @@ paths are shown relative to that prefix once the convention has been stated.
 | **Where it runs** | Either in the MLflow server process, or as the bundled standalone CALIBER service that calls MLflow over HTTP. |
 | **How users reach it** | A React SPA served under `/caliber/`; every action flows through the API under `/ajax-api/2.0/mlflow/caliber/*`. |
 | **Source of truth** | SQLAlchemy relational metadata is authoritative; object storage owns file bytes; MLflow owns prompt versions and traces. |
-| **Work model** | Request-path actions return inline; durable work is queued to in-process background loops (refinement, calibration, workflow/Aria/KB work, janitor, and webhooks). |
-| **Trust model** | Session mode verifies a database-backed account and resolves the `viewer` / `operator` / `approver` / `admin` scopes; trusted identity headers are an explicit proxy-mode option. |
+| **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to eight in-process loops. All share the background-task lifecycle gate, and three also have independent enable flags. |
+| **Trust model** | Session mode verifies a database-backed account and resolves the `viewer` / `operator` / `approver` / `admin` scopes; trusted identity headers are an explicit proxy-mode option. Route guards, project visibility, and audit coverage remain path-specific. |
 
 The sections below start from this picture and drill down — scope, boundaries,
 runtime, state, surfaces, lifecycle, security, operations, and the seams the
@@ -30,9 +31,10 @@ system is extended along.
 assets/platform-overview.svg
 ```
 
-*Platform overview — the same CALIBER ASGI application can be embedded in MLflow or
-served separately, exposes one same-origin browser control plane in either topology,
-and coordinates off-request work through durable state.*
+*Platform implementation overview — the same CALIBER ASGI application can be
+embedded in MLflow or served separately, exposes one same-origin browser control
+plane in either topology, and combines durable queue arbitration with configured or
+process-local live fanout.*
 
 ## Reference
 
@@ -50,10 +52,11 @@ feature module — and span the following concerns:
 - It serves the React SPA under `/caliber/`.
 - It exposes the CALIBER API surface under
   `/ajax-api/2.0/mlflow/caliber/*`.
-- It owns persistence, authorization, CSRF, rate limiting, project scoping, and
-  audit.
-- It orchestrates background loops for refinement, tool calibration, workflow runs,
-  Aria plans, knowledge-base builds, janitor work, and webhook dispatch/recovery.
+- It provides shared persistence, authorization, CSRF, rate-limiting, project-
+  visibility, and audit primitives that feature paths wire explicitly.
+- It orchestrates up to eight in-process loops for refinement, tool calibration,
+  workflow runs, Aria plans, knowledge-base builds, workflow scheduling, janitor
+  work, and webhook dispatch/recovery.
 - It integrates with MLflow tracing, the MLflow prompt registry, object storage,
   and optional event-bus backends.
 
@@ -86,10 +89,11 @@ interfaces.
 | Frontend shell | `caliber-ui/src/components/AppShell.tsx`, `TopBar.tsx`, `Sidebar.tsx`, `WorkspaceSelector.tsx` | Route users into page-level feature modules, select or create the active project, and keep shared chrome, state, and assistant panel behavior consistent. |
 
 The architectural boundary that matters most is that feature modules do not own
-application bootstrapping. `server.py` constructs every long-lived dependency
-exactly once, stores it on `app.state`, and leaves the route modules to consume
-those dependencies rather than create their own. This single-construction
-discipline is what keeps the layering above honest in practice.
+top-level application bootstrapping. `server.py` constructs core app-lifetime
+dependencies and stores them on `app.state`; some feature services, runtime
+services, and backends are instead constructed lazily or per operation. Core
+lifecycle ownership remains in `create_app()` without implying that every route
+dependency is a process-lifetime singleton.
 
 ## 3. Runtime architecture
 
@@ -142,17 +146,19 @@ explicit, because they shape every design decision downstream:
   in front of MLflow.
 - The frontend shell is bundled separately with Vite, but it is served through
   the CALIBER package by `routes/static.py` rather than from a distinct origin.
-- Shared dependencies are constructed once in `create_app()` and injected via
-  `app.state`. They comprise the SQLAlchemy engine and session factory, the
-  artifact store, the LLM provider, the eval provider, the promoter, the event
-  bus, the assistant service, and the background workers.
+- Core app-lifetime dependencies are constructed in `create_app()` and exposed
+  through `app.state`, including the SQLAlchemy engine and session factory,
+  configured storage and provider adapters, the event bus, and worker lifecycle.
+  Some feature/runtime services and backends are constructed lazily or per
+  operation instead of being retained as app-lifetime singletons.
 - `CALIBER_DATABASE_URL` independently owns CALIBER's tables. It is not required to
   equal MLflow's backend-store URL; the bundled stack uses separate logical databases
   so the two Alembic histories never compete for one version table.
-- The codebase uses sync SQLAlchemy consistently, even inside Starlette. Sync
-  route handlers execute in Starlette's threadpool; this keeps the ORM model
-  aligned with MLflow's own sync behavior and avoids the impedance mismatch of
-  mixing async ORM access into a host process that is itself synchronous.
+- The codebase uses sync SQLAlchemy consistently even though route callables are
+  predominantly async. Selected blocking work is explicitly sent through
+  `run_in_threadpool` or `asyncio.to_thread`; there is no async ORM. An async route
+  is not automatically moved to Starlette's threadpool merely because it uses a
+  synchronous session.
 
 ## 4. Data model and state
 
@@ -184,24 +190,28 @@ ownership rules, and they hold consistently across the platform:
   inventory.
 - MLflow is authoritative for prompt registry versions and traces, but not for
   CALIBER-specific workflow, tool, or skill metadata.
-- Route handlers and workers are both permitted to mutate the same tables, so
-  the code coordinates through explicit status transitions, audit rows, and
-  durable timeline events rather than through in-memory state. Durability is
-  the synchronization mechanism precisely because the two writers do not share a
-  process-local view.
+- Route handlers and workers both mutate the same tables. Durable queue and run
+  arbitration uses explicit status transitions, conditional claims, leases, and
+  timeline rows. Live SSE fanout and lifecycle stop state may remain process-local
+  or use a configured NATS, Redis, or database event transport; not every
+  coordination mechanism is durable, and the workers normally share the ASGI
+  process.
 
 Versioning is a cross-artifact UI concern, not one shared persistence or release
 contract. The normalized frontend model maps several deliberately different
-idioms:
+idioms. In the final column, **gate** means a release/deployment or persisted
+version-panel gate. That is distinct from the enforced evaluation gate inside the
+prompt and skill refinement workers, whose passing outcome is `candidate_ready`,
+and from the prompt panel's advisory verdict, which does not block alias rotation:
 
-| Artifact | History and liveness | Gate and rollback semantics |
+| Artifact | History and liveness | Release/version-panel gate and rollback semantics |
 | --- | --- | --- |
-| Prompt | Immutable MLflow registry versions behind an alias such as `@prod` | The prompt panel shows a persisted advisory verdict. Audited promote records the exact outgoing alias target; rollback restores that recorded target. |
+| Prompt | Immutable MLflow registry versions behind an alias such as `@prod` | The panel verdict is persisted but advisory. Operator/admin promote records the exact outgoing alias target; rollback restores that target across an external-registry/SQL reconciliation boundary. |
 | Workflow | Editable drafts become published workflow-version rows; deployment aliases select a published version | Promotion evaluates the workflow deploy-gate policy and uses an optimistic alias check. Rollback pops the deployment's recorded checkpoint stack. |
 | Knowledge base | Immutable build versions behind `active_version_id` | No prompt-style gate verdict. Activation and rollback are audited; rollback derives the prior active build from activation history. |
-| Skill | A mutable current skill plus immutable `CaliberSkillVersion` snapshots | No alias, promotion, or gate. Rollback restores the prior snapshot as a new current version. |
+| Skill | A mutable current skill plus immutable `CaliberSkillVersion` snapshots | No live alias or release/version-panel gate; queued refinement still uses its enforced candidate-advancement evaluation. Rollback restores the prior snapshot as a new current version. |
 | Test set | A dataset version counter plus example validity intervals (`dataset_version` / `superseded_version`) | Version filtering preserves historical example sets; there is no live alias or generic rollback action. |
-| Tool | Separate `(name, version)` registry rows with lifecycle status | Read-only family history in the version panel; no live alias, gate, or rollback. |
+| Tool | Separate `(name, version)` registry rows with lifecycle status | Read-only family history in the version panel; no live alias, release/version-panel gate, or rollback. |
 
 The shared `VersionPanel` is mounted for prompts, workflows, knowledge bases,
 skills, and tools through per-artifact adapters; sharing the component does not
@@ -213,9 +223,10 @@ aggregate.
 
 ## 5. API and interaction surfaces
 
-State is reached exclusively through the HTTP surface. That surface is
-centralized in `routes/__init__.py`, which registers each feature module under
-the same-origin AJAX namespace. The endpoints below are representative rather
+Human and API-client interactions enter through the HTTP surface. That surface
+is centralized in `routes/__init__.py`, which registers each feature module
+under the same-origin AJAX namespace; in-process workers consume the underlying
+services and stores directly. The endpoints below are representative rather
 than exhaustive:
 
 - `/prompts`
@@ -246,9 +257,10 @@ modules, each of which owns a single feature surface:
 
 The frontend shell never talks to databases or providers directly. Every user
 action routes through the CALIBER HTTP surface, even when the eventual effect is
-a provider call, an object-store mutation, or a workflow enqueue. Keeping the
-client behind a single API boundary is what allows authorization, scoping, and
-audit to be enforced uniformly in one place.
+a provider call, an object-store mutation, or a workflow enqueue. The shared API
+boundary provides common authorization, visibility, and audit primitives, but
+each feature path must wire them explicitly; their presence is not a repository-
+wide uniform-coverage guarantee.
 
 The top bar exposes the active workspace rather than leaving project scoping as
 an API-only header. An operator can create and immediately select a project;
@@ -257,9 +269,15 @@ queries, and uses that project for newly created workflows and managed files.
 
 ## 6. Execution lifecycle
 
-The API surface admits two shapes of work: actions that complete on the request
-path, and actions that are durably queued for a background worker. The sequence
-below shows both branches and the point at which they diverge.
+The API surface admits two broad shapes of work: bounded validation, external
+calls, and many durable mutations that complete on the request path; and
+explicitly queued or long-running work handled by an in-process loop. The
+sequence below shows both branches and the point at which they diverge.
+
+All configured loops share `background_tasks_enabled` as their lifecycle gate.
+`WorkflowRunWorker`, `KnowledgeBaseWorker`, and `WorkflowScheduler` additionally
+have independent enable flags; the other five loops, including `AriaPlanWorker`,
+do not.
 
 ```mermaid
 sequenceDiagram
@@ -291,11 +309,13 @@ The same lifecycle plays out at three scales — process startup, individual
 request handling, and shutdown — and each has well-defined checkpoints:
 
 - At application startup, configuration is loaded and validated, logging and
-  tracing are configured, the engine, providers, storage, and event bus are
-  built, and the workers are started by the Starlette lifespan manager.
+  tracing are configured, core engine/session, provider, storage, and event-bus
+  dependencies are built, and enabled workers are started by the Starlette
+  lifespan manager. Other operation-scoped services remain lazy.
 - During request handling, the route module validates the headers, body, and
-  query, uses the `app.state` dependencies together with a DB session, and
-  either returns directly or enqueues durable work.
+  query, uses app-lifetime or operation-scoped dependencies together with a DB
+  session, and may mutate state inline, explicitly offload blocking work, or
+  enqueue durable work.
 - At shutdown, workers receive a stop signal and bounded grace before the event bus
   and SQLAlchemy engine are torn down. Most loops settle or release their durable
   claims. Tool calibration immediately fences its active generation, waits at most its
@@ -338,8 +358,11 @@ request path and the data it touches:
 
 - CSRF protection guards browser-driven state changes.
 - Optional rate-limiting middleware bounds request volume.
-- Project and visibility filters are applied at query time.
-- Audit logging records durable mutations.
+- Project and visibility filters are applied on the feature paths that wire the
+  shared scoping helpers.
+- Implemented mutation paths append audit records; database-local mutation and
+  audit can share one caller transaction, while external effects and separately
+  committed paths remain reconciliation boundaries.
 - Secrets are referenced indirectly through `*_source` fields rather than
   carried as raw secret material.
 - Manifest validation rejects inline secrets in workflow definitions.
@@ -364,6 +387,10 @@ and network authority. `external_app` callables remain trusted-operator code and
 need a separate worker/container boundary before mutually untrusted authors can
 use them safely. MCP admission is separately mediated by command/host allowlists
 and deployment preflight; local stdio containment is likewise not an OS sandbox.
+These controls are path-specific: protected routes select `require_user()` or
+`require_scopes()` according to their operation, while public health and
+published-service paths use separate admission rules. Importing a shared guard,
+scoping helper, or audit function does not prove complete coverage for a module.
 
 ## 8. Observability and operations
 

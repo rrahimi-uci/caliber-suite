@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CALIBER — Layered Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER — Layered Architecture — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Platform</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Layered architecture</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Platform · Architecture reference</div>
+          <h1 id="top">CALIBER — Layered Architecture</h1>
+          <p class="doc-summary">The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<h3 id="one-control-plane-for-the-lifecycle-of-ai-agent-resources">One control plane for the lifecycle of AI-agent resources<a class="anchor" href="#one-control-plane-for-the-lifecycle-of-ai-agent-resources" aria-hidden="true" tabindex="-1">#</a></h3>
+<p><em>Read top-down: the stack, the abstract lifecycle chain, the unit of governance, then the topologies.</em></p>
+<hr>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Where CALIBER stands</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>An MLflow-integrated ASGI control plane plus a React application with author, test, evaluate, calibrate, release, and observe surfaces whose coverage varies by asset family.</td></tr><tr><td><strong>The unit of value</strong></td><td>The <strong>governed asset</strong> — one of nine governed asset families or contexts. Typed definitions, versioning, evidence, gates, live targets, and release or rollback are family-specific rather than uniform guarantees (§4).</td></tr><tr><td><strong>The canonical chain</strong></td><td><code>Signal → Evidence → Candidate → Measurement → Decision → Release → Trace</code> — a seven-term conceptual map, not seven worker stages. The concrete prompt refinement loop has six numbered stages (<code>Verify</code> through <code>Promote</code>): production trace/feedback supplies the signal, evidence assembly is folded into that concrete path, and the next trace closes the loop. Prompt and skill use the standard queued refinement path; workflow-manifest calibration enters at a workflow-specific stage but reuses durable job and apply machinery. Other families implement only the applicable facets.</td></tr><tr><td><strong>What it reuses</strong></td><td>MLflow Experiments, Traces, Assessments, Prompt Registry, Artifact Store, <code>genai.evaluate</code>, <code>genai.make_judge</code>, <code>genai.datasets</code> — CALIBER does not rebuild them.</td></tr><tr><td><strong>Where it runs</strong></td><td>One ASGI app, two topologies: in-process <code>mlflow.app</code>, or a standalone service talking to MLflow over HTTP.</td></tr><tr><td><strong>Source of truth</strong></td><td>Relational metadata is authoritative for the control plane; object storage owns file bytes; MLflow owns prompt versions and traces.</td></tr><tr><td><strong>Work model</strong></td><td>Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to eight in-process loops. All are gated by <code>background_tasks_enabled</code>; three also have independent enable flags. No separate worker tier.</td></tr><tr><td><strong>Trust model</strong></td><td>Four RBAC scopes — <code>viewer</code> / <code>operator</code> / <code>approver</code> / <code>admin</code> — plus route-specific CSRF, rate limiting, visibility filters, service admission, and governed HTTP/MCP execution policy. Coverage is path-specific, not a repository-wide isolation guarantee.</td></tr></tbody></table></div>
+<hr>
+<h2 id="1-the-layered-stack">1 · The layered stack<a class="anchor" href="#1-the-layered-stack" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Read the centre column <strong>bottom-up</strong>. Infrastructure <em>carries</em> modular services; services <em>obey</em> a governance substrate; the substrate <em>governs</em> asset families — <strong>the nouns</strong>; lifecycle modes — <strong>the verbs</strong> — act on those nouns; and surfaces expose the whole thing. The left column is machinery that spans every layer. The right column is the thing all of it exists to produce.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+
+  subgraph HS["◀ PLATFORM SERVICES"]
+    direction TB
+    hs1["&lt;b&gt;Evidence Base&lt;/b&gt;&lt;br/&gt;Test sets · MLflow traces&lt;br/&gt;assessments · trace→example capture"]:::store
+    hs2["&lt;b&gt;Evaluation Framework&lt;/b&gt;&lt;br/&gt;Scorecards · deterministic scorers&lt;br/&gt;custom LLM judges · human alignment"]:::ctrl
+    hs3["&lt;b&gt;Calibration Framework&lt;/b&gt;&lt;br/&gt;Optimizer paths · manifest replay&lt;br/&gt;retrieval tuning · queued jobs"]:::async
+    hs4["&lt;b&gt;Capability Registry&lt;/b&gt;&lt;br/&gt;Declare an operation once —&lt;br/&gt;risk tier · scopes · schema · handler&lt;br/&gt;&lt;i&gt;emerging seam, partial coverage&lt;/i&gt;"]:::ctrl
+    hs5["&lt;b&gt;Integration Hub&lt;/b&gt;&lt;br/&gt;MCP servers · LLM Gateway&lt;br/&gt;webhooks · workflow-as-a-service"]:::ext
+    hs6["&lt;b&gt;Project Scoping&lt;/b&gt;&lt;br/&gt;Shared visibility helpers and fields&lt;br/&gt;&lt;i&gt;path-specific coverage&lt;/i&gt;"]:::store
+    hs1 --- hs2 --- hs3 --- hs4 --- hs5 --- hs6
+  end
+
+  subgraph STACK["THE CALIBER STACK"]
+    direction TB
+
+    subgraph L6["6 · SURFACES"]
+      direction LR
+      s1["&lt;b&gt;React SPA&lt;/b&gt;&lt;br/&gt;&lt;code&gt;/caliber/&lt;/code&gt;"]:::ui
+      s2["&lt;b&gt;HTTP API&lt;/b&gt;&lt;br/&gt;roughly 340 declarations across&lt;br/&gt;API · system · static surfaces"]:::ui
+      s3["&lt;b&gt;Aria copilot&lt;/b&gt;&lt;br/&gt;permissioned&lt;br/&gt;agentic tool loop"]:::ui
+      s4["&lt;b&gt;Headless&lt;/b&gt;&lt;br/&gt;service tokens ·&lt;br/&gt;SSE · webhooks"]:::ui
+      s1 --- s2 --- s3 --- s4
+    end
+
+    subgraph L5["5 · LIFECYCLE MODES"]
+      direction LR
+      v1["&lt;b&gt;AUTHOR&lt;/b&gt;&lt;br/&gt;draft · render&lt;br/&gt;compile · validate"]:::ctrl
+      v2["&lt;b&gt;TEST&lt;/b&gt;&lt;br/&gt;bounded test runs&lt;br/&gt;fixtures · baselines"]:::ctrl
+      v3["&lt;b&gt;EVALUATE&lt;/b&gt;&lt;br/&gt;scorecards · judges&lt;br/&gt;review queues"]:::ctrl
+      v4["&lt;b&gt;CALIBRATE&lt;/b&gt;&lt;br/&gt;optimize · replay&lt;br/&gt;tune retrieval"]:::ctrl
+      v5["&lt;b&gt;RELEASE&lt;/b&gt;&lt;br/&gt;publish · gate&lt;br/&gt;promote · roll back"]:::ctrl
+      v6["&lt;b&gt;OBSERVE&lt;/b&gt;&lt;br/&gt;trace · meter&lt;br/&gt;incident · replay"]:::ctrl
+      v1 --- v2 --- v3 --- v4 --- v5 --- v6
+    end
+
+    subgraph L4["4 · ASSET FAMILIES"]
+      direction LR
+      a1["Prompts"]:::asset
+      a2["Tools"]:::asset
+      a3["Skills"]:::asset
+      a4["MCP&lt;br/&gt;servers"]:::asset
+      a5["Workflows"]:::asset
+      a6["Knowledge&lt;br/&gt;bases"]:::asset
+      a7["Test sets"]:::asset
+      a8["Judges"]:::asset
+      a9["Agents"]:::asset
+      a1 --- a2 --- a3 --- a4 --- a5 --- a6 --- a7 --- a8 --- a9
+    end
+
+    subgraph L3["3 · GOVERNANCE"]
+      direction LR
+      g1["&lt;b&gt;Identity &amp;amp; authority&lt;/b&gt;&lt;br/&gt;sessions · 4 RBAC scopes&lt;br/&gt;CSRF · rate limit"]:::gov
+      g2["&lt;b&gt;Execution policy&lt;/b&gt;&lt;br/&gt;governed HTTP/MCP egress&lt;br/&gt;MCP containment · env class"]:::gov
+      g3["&lt;b&gt;Evidence &amp;amp; verdicts&lt;/b&gt;&lt;br/&gt;gate verdicts · regression&lt;br/&gt;impact analysis"]:::gov
+      g4["&lt;b&gt;Release control&lt;/b&gt;&lt;br/&gt;apply · promote&lt;br/&gt;rollback checkpoints"]:::gov
+      g5["&lt;b&gt;Ledgers&lt;/b&gt;&lt;br/&gt;audit log · effect ledger&lt;br/&gt;redaction"]:::gov
+      g1 --- g2 --- g3 --- g4 --- g5
+    end
+
+    subgraph L2["2 · KERNEL"]
+      direction LR
+      k1["Config &amp;amp;&lt;br/&gt;secret store"]:::ctrl
+      k2["Persistence&lt;br/&gt;SQLAlchemy · Alembic"]:::ctrl
+      k3["Storage service&lt;br/&gt;artifact store"]:::ctrl
+      k4["Tool execution&lt;br/&gt;bounded subprocess boundary"]:::ctrl
+      k5["Event bus&lt;br/&gt;&amp;amp; webhooks"]:::async
+      k6["Observability core&lt;br/&gt;tracing · SLO · readiness"]:::ctrl
+      k7["Provider adapters&lt;br/&gt;LLM · Eval · Promoter"]:::ext
+      k1 --- k2 --- k3 --- k4 --- k5 --- k6 --- k7
+    end
+
+    subgraph L1["1 · INFRASTRUCTURE"]
+      direction LR
+      i1["Process host&lt;br/&gt;Starlette ASGI&lt;br/&gt;embedded or standalone"]:::store
+      i2["PostgreSQL 17&lt;br/&gt;pgvector · Apache AGE&lt;br/&gt;SQLite for dev"]:::store
+      i3["Object storage&lt;br/&gt;S3 · MinIO · local&lt;br/&gt;&lt;i&gt;GCS only via MLflow&lt;/i&gt;"]:::store
+      i4["MLflow ≥ 3.14&lt;br/&gt;tracking · registry&lt;br/&gt;artifacts · evaluate"]:::ext
+      i5["Event transport&lt;br/&gt;in-process · NATS&lt;br/&gt;Redis · database"]:::async
+      i1 --- i2 --- i3 --- i4 --- i5
+    end
+
+    L6 --&gt; L5 --&gt; L4 --&gt; L3 --&gt; L2 --&gt; L1
+  end
+
+  subgraph GA["◆ GOVERNED ASSET"]
+    direction TB
+    p1["&lt;b&gt;FULL LOOP&lt;/b&gt;&lt;br/&gt;―――――&lt;br/&gt;&lt;b&gt;Prompt&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Immutable MLflow registry&lt;br/&gt;versions behind &lt;code&gt;@prod&lt;/code&gt;&lt;br/&gt;Enforced refinement advancement;&lt;br/&gt;advisory release verdict&lt;br/&gt;Operator/admin promote records&lt;br/&gt;the outgoing alias target —&lt;br/&gt;rollback restores it&lt;br/&gt;Optimizer-backed calibration"]:::t1
+    p2["&lt;b&gt;DEPLOYED&lt;/b&gt;&lt;br/&gt;―――――&lt;br/&gt;&lt;b&gt;Workflow&lt;/b&gt; · &lt;b&gt;Knowledge base&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Published version rows behind&lt;br/&gt;deployment aliases or&lt;br/&gt;&lt;code&gt;active_version_id&lt;/code&gt;&lt;br/&gt;Deploy-gate policy with an&lt;br/&gt;optimistic alias check&lt;br/&gt;Checkpoint-stack or&lt;br/&gt;activation-history rollback"]:::t2
+    p3["&lt;b&gt;VERSIONED / MANAGED&lt;/b&gt;&lt;br/&gt;―――――&lt;br/&gt;&lt;b&gt;Skill&lt;/b&gt; · &lt;b&gt;Tool&lt;/b&gt; · &lt;b&gt;Test set&lt;/b&gt; · &lt;b&gt;MCP&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Immutable skill snapshots;&lt;br/&gt;tool and test-set version forms;&lt;br/&gt;mutable MCP definitions with&lt;br/&gt;audit history&lt;br/&gt;No shared live-alias contract&lt;br/&gt;Skill rollback creates a new version"]:::t3
+    p1 --- p2 --- p3
+  end
+
+  HS ~~~ STACK
+  STACK ~~~ GA
+
+  linkStyle default stroke:transparent,stroke-width:0px
+
+  classDef ui fill:#e0f2fe,stroke:#0284c7,color:#075985;
+  classDef ctrl fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;
+  classDef gov fill:#fce7f3,stroke:#db2777,color:#831843;
+  classDef store fill:#eef2ff,stroke:#6366f1,color:#312e81;
+  classDef ext fill:#f0fdf4,stroke:#16a34a,color:#14532d;
+  classDef async fill:#fef3c7,stroke:#d97706,color:#78350f;
+  classDef asset fill:#fff7ed,stroke:#ea580c,color:#7c2d12;
+  classDef t1 fill:#fff1f2,stroke:#be123c,color:#881337;
+  classDef t2 fill:#eff6ff,stroke:#1d4ed8,color:#1e3a8a;
+  classDef t3 fill:#f0fdf4,stroke:#15803d,color:#14532d;</pre></div>
+<p>🟪 control plane  ·  🟦 surfaces  ·  🩷 governance  ·  🟧 asset families  ·  🟩 external systems  ·  🟨 asynchronous  ·  🔵 durable state</p>
+<h3 id="reading-the-layers">Reading the layers<a class="anchor" href="#reading-the-layers" aria-hidden="true" tabindex="-1">#</a></h3>
+<div class="table-wrap"><table><thead><tr><th>Layer</th><th>What it owns</th><th>Primary code</th></tr></thead><tbody><tr><td><strong>6 · Surfaces</strong> — <em>the interface</em></td><td>Every human and machine entry point. One same-origin browser control plane in either topology.</td><td>routes/static.py · routes/ · caliber-ui/src/</td></tr><tr><td><strong>5 · Lifecycle modes</strong> — <em>the verbs</em></td><td>Six reusable lifecycle concepts applied where an asset supports them. Each new family must explicitly wire its adapters, routes, authorization, evidence, and tests; integration is not inherited automatically.</td><td>orchestrator/ · eval/ · apply.py · promoter.py</td></tr><tr><td><strong>4 · Asset families</strong> — <em>the nouns</em></td><td>Nine governed families or contexts. Some are authored runtime assets, while others are evidence, scoring, or anchor records; several have no live-target or release primitive (§4).</td><td>db/models.py · schemas.py</td></tr><tr><td><strong>3 · Governance substrate</strong> — <em>the rules</em></td><td>Shared primitives for identity, execution policy, evidence, release control, and ledgers. Asset paths wire them explicitly, so adoption and guarantees remain path-specific.</td><td>auth.py · egress.py · mcp_policy.py · gate_verdicts.py · audit.py</td></tr><tr><td><strong>2 · Kernel</strong> — <em>modular services</em></td><td>Core app-lifetime dependencies are built in <code>create_app()</code> and stored on <code>app.state</code>; some feature and runtime services or backends are constructed lazily or per operation.</td><td>server.py · config.py · storage/ · tool_sandbox/ · events/</td></tr><tr><td><strong>1 · Infrastructure</strong> — <em>the base</em></td><td>The substrate CALIBER runs on and integrates with, all of it swappable by configuration.</td><td>db/session.py · knowledge/pgvector_ann.py · knowledge/age.py</td></tr></tbody></table></div>
+<blockquote class="callout"><p><strong>The boundary that matters most:</strong> feature modules should not own top-level application bootstrapping. Core lifecycle ownership remains in <code>create_app()</code>, even though some request- or operation-scoped services are constructed later.</p></blockquote>
+<hr>
+<h2 id="2-the-abstract-lifecycle-chain">2 · The abstract lifecycle chain<a class="anchor" href="#2-the-abstract-lifecycle-chain" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>The chain is what makes a change <em>reviewable</em>: implemented refinement paths persist durable state and evidence across their stages, so a release has a reconstructable record rather than depending on memory. Read it as a <strong>reference shape</strong> for refinement- and release-capable families. Prompt and skill use the standard queued refinement path; workflow-manifest calibration enters at a workflow-specific stage and reuses the durable job and apply machinery. Other families implement only the positions their own evidence and release idiom support.</p>
+<p>The seven terms below are <strong>concepts, not a stage count</strong>. In the concrete prompt loop documented in <a href="m-00-refinement-loop.html">The Refinement Loop</a>, production trace/feedback supplies the incoming signal, evidence assembly is folded into the transition from <code>Verify</code> toward <code>Diagnose</code>, the six numbered stages run from <code>Verify</code> through <code>Promote</code>, and the next production trace closes the loop after release.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    c1["&lt;b&gt;SIGNAL&lt;/b&gt;&lt;br/&gt;a failure worth acting on"]:::chain
+    c2["&lt;b&gt;EVIDENCE&lt;/b&gt;&lt;br/&gt;traces + test sets assembled"]:::chain
+    c3["&lt;b&gt;CANDIDATE&lt;/b&gt;&lt;br/&gt;a proposed better version"]:::chain
+    c4["&lt;b&gt;MEASUREMENT&lt;/b&gt;&lt;br/&gt;scored against the evidence"]:::chain
+    c5["&lt;b&gt;DECISION&lt;/b&gt;&lt;br/&gt;operator Applies or&lt;br/&gt;leaves the candidate unapplied"]:::chain
+    c6["&lt;b&gt;RELEASE&lt;/b&gt;&lt;br/&gt;the live target moves"]:::chain
+    c7["&lt;b&gt;TRACE&lt;/b&gt;&lt;br/&gt;the next signal arrives"]:::chain
+
+    c1 --&gt; c2 --&gt; c3 --&gt; c4 --&gt; c5 --&gt; c6 --&gt; c7
+    c7 -.-&gt;|"the loop closes — code keeps loading @prod"| c1
+
+    classDef chain fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;</pre></div>
+<p>Implemented paths leave durable state and evidence across the chain. A concept is not necessarily a distinct worker stage, table, or row:</p>
+<div class="table-wrap"><table><thead><tr><th>Concept</th><th>What it leaves behind</th></tr></thead><tbody><tr><td>Signal</td><td>Verification item — the queue entry an operator confirms is real</td></tr><tr><td>Evidence</td><td>Refinement job with assembled trace evidence</td></tr><tr><td>Candidate</td><td>Diagnosis + candidate artifact, produced by the policy-selected optimizer</td></tr><tr><td>Measurement</td><td>Job, regression, or evaluation records with scores and an enforced candidate-advancement gate decision; a separate per-version gate-verdict row, where written, is advisory release evidence</td></tr><tr><td>Decision</td><td>An explicit operator/admin Apply action; implemented refinement release paths then mint a born-approved provenance anchor carrying the candidate and evaluation evidence</td></tr><tr><td>Release</td><td>A rollback checkpoint and audit row on implemented release paths; DB-local writes can share the caller transaction, while external registry or provider effects remain reconciliation boundaries</td></tr><tr><td>Trace</td><td>New MLflow traces and assessments — and, when SLO reconciliation runs on the observability surface, a durable incident</td></tr></tbody></table></div>
+<p>The canonical <strong>prompt</strong> path is the fullest instance of the chain, with two explicit human decisions — verification, and an operator Apply action:</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    trace["Production agent&lt;br/&gt;MLflow trace"]:::src
+    flag["Response flagged&lt;br/&gt;MLflow Assessment"]:::src
+    v["① Verify&lt;br/&gt;&lt;b&gt;human&lt;/b&gt;"]:::human
+    d["② Diagnose&lt;br/&gt;LLM root-cause"]:::auto
+    g["③ Optimize&lt;br/&gt;policy-selected optimizer"]:::auto
+    e["④ Evaluate&lt;br/&gt;EvalProvider + regression gate"]:::auto
+    a["⑤ Apply&lt;br/&gt;&lt;b&gt;operator&lt;/b&gt; · diff + eval"]:::human
+    p["⑥ Promote&lt;br/&gt;audited alias rotation"]:::ship
+
+    trace --&gt; flag --&gt; v --&gt; d --&gt; g --&gt; e --&gt; a --&gt; p
+    p -.-&gt;|"agent loads @prod — no code change"| trace
+
+    classDef src fill:#f1f5f9,stroke:#64748b,color:#0f172a;
+    classDef human fill:#fef3c7,stroke:#d97706,color:#78350f;
+    classDef auto fill:#dbeafe,stroke:#2563eb,color:#1e3a8f;
+    classDef ship fill:#dcfce7,stroke:#16a34a,color:#14532d;</pre></div>
+<p>Other asset families reuse the chain but <strong>not</strong> its full guarantees — a workflow is measured by manifest replay, a tool by a revision-fenced deterministic suite, a knowledge base by retrieval calibration. The chain is the shape; the evidence and the release idiom are asset-specific. See §4.</p>
+<hr>
+<h2 id="3-anatomy-of-a-governed-asset">3 · Anatomy of a governed asset<a class="anchor" href="#3-anatomy-of-a-governed-asset" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>This is the unit the whole platform exists to produce. The diagram names twelve possible facets; an asset family implements and explicitly wires only the ones its idiom supports.</p>
+<div class="diagram"><pre class="mermaid">flowchart TB
+  subgraph R1[" "]
+    direction LR
+    n1["&lt;b&gt;Typed definition&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Schema-validated spec —&lt;br/&gt;the asset's source of truth"]:::cell
+    n2["&lt;b&gt;Version history&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Immutable snapshots or&lt;br/&gt;MLflow registry versions"]:::cell
+    n3["&lt;b&gt;Live target&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Alias or active pointer&lt;br/&gt;selecting what runs now"]:::cell
+    n4["&lt;b&gt;Test surface&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Asset-specific runs with&lt;br/&gt;recorded inputs and outputs"]:::cell
+    n1 --- n2 --- n3 --- n4
+  end
+  subgraph R2[" "]
+    direction LR
+    n5["&lt;b&gt;Evidence base&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Test sets · traces ·&lt;br/&gt;assessments · expectations"]:::cell
+    n6["&lt;b&gt;Evaluation&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Scorecards · deterministic&lt;br/&gt;scorers · custom LLM judges"]:::cell
+    n7["&lt;b&gt;Gate semantics&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Candidate advancement ·&lt;br/&gt;advisory verdict · deploy gate"]:::cell
+    n8["&lt;b&gt;Calibration&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;The loop that proposes a&lt;br/&gt;measurably better version"]:::cell
+    n5 --- n6 --- n7 --- n8
+  end
+  subgraph R3[" "]
+    direction LR
+    n9["&lt;b&gt;Release path&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Audited promote and rollback&lt;br/&gt;where the family records it"]:::cell
+    n10["&lt;b&gt;Authority&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;RBAC scopes · risk tiers ·&lt;br/&gt;separation of duties"]:::cell
+    n11["&lt;b&gt;Trace &amp;amp; audit&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;MLflow traces · audit rows&lt;br/&gt;effect ledger · incidents"]:::cell
+    n12["&lt;b&gt;Packaging&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;Manifests · exports ·&lt;br/&gt;service exposure"]:::cell
+    n9 --- n10 --- n11 --- n12
+  end
+
+  R1 --&gt; R2 --&gt; R3
+
+  linkStyle default stroke:transparent,stroke-width:0px
+
+  classDef cell fill:#fff7ed,stroke:#ea580c,color:#7c2d12;
+  style R1 fill:none,stroke:none
+  style R2 fill:none,stroke:none
+  style R3 fill:none,stroke:none</pre></div>
+<blockquote class="callout"><h3 id="what-a-governed-asset-is-not">What a governed asset is <strong>not</strong><a class="anchor" href="#what-a-governed-asset-is-not" aria-hidden="true" tabindex="-1">#</a></h3>
+<p><strong>Not a prompt file in git.</strong> <strong>Not a dashboard over traces.</strong> <strong>Not an agent framework.</strong> Where a family supports these facets, it is a typed record with version, evidence, and release metadata that makes a change reviewable. Evidence and anchor families such as test sets, judges, and agents do not have live targets or release paths.</p>
+<p>And the honest limits: gate semantics are <strong>path-specific</strong>, not one cross-artifact policy. Refinement gates enforce advancement to <code>candidate_ready</code>; persisted per-version verdicts are advisory and never block prompt alias rotation; deploy gates enforce release only on asset paths that explicitly wire them. Guarantees remain <strong>asset-specific</strong>, and v1 ships a <strong>single environment</strong> with no <code>dev → staging → prod</code> ladder.</p></blockquote>
+<hr>
+<h2 id="4-asset-families-and-their-real-guarantees">4 · Asset families and their real guarantees<a class="anchor" href="#4-asset-families-and-their-real-guarantees" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Sharing a substrate does not make the guarantees uniform, and the nine governed families in layer 4 are not even the same <em>kind</em> of thing: six are authored runtime assets, <strong>Test sets</strong> and <strong>Judges</strong> are evidence and scoring assets rather than things you deploy, and <strong>Agent</strong> is the anchor record that verification items, refinement jobs, and approvals hang off. This table is the one executives and architects should read before assuming a capability transfers across families.</p>
+<div class="table-wrap"><table><thead><tr><th>Family</th><th>History &amp; liveness</th><th>Gate semantics</th><th>Release / rollback</th><th>Calibration idiom</th></tr></thead><tbody><tr><td><strong>Prompt</strong></td><td>Immutable MLflow registry versions behind an alias such as <code>@prod</code></td><td>Refinement gate enforces advancement to <code>candidate_ready</code>; persisted version-panel verdict is advisory</td><td>Operator-scoped promote/rollback (operator or admin; approver is a sibling scope) records and restores the outgoing alias target</td><td>Provider optimizer + EvalProvider</td></tr><tr><td><strong>Workflow</strong></td><td>Editable drafts → published version rows; deployment aliases select one</td><td>Refinement/calibration gate enforces candidate readiness; deploy-gate policy enforces configured releases with an optimistic alias check</td><td>Rollback pops the deployment's checkpoint stack</td><td>Manifest replay</td></tr><tr><td><strong>Knowledge base</strong></td><td>Immutable build versions behind <code>active_version_id</code></td><td>No prompt-style verdict</td><td>Audited activation; rollback derives the prior active build from history</td><td>Retrieval-quality calibration</td></tr><tr><td><strong>Skill</strong></td><td>Mutable current <code>CaliberSkill</code> + immutable <code>CaliberSkillVersion</code> snapshots</td><td>Refinement gate enforces advancement to <code>candidate_ready</code>; no release/version-panel gate</td><td>Rollback restores the prior snapshot as a new current version</td><td>Agent-free optimizer path</td></tr><tr><td><strong>Tool</strong></td><td>Separate <code>(name, version)</code> registry rows with lifecycle status</td><td>None</td><td>Read-only family history; no live alias</td><td>Revision-fenced deterministic suites</td></tr><tr><td><strong>Test set</strong></td><td>Version counter + example validity intervals</td><td>n/a — it <em>is</em> evidence</td><td>No live alias or generic rollback</td><td>n/a</td></tr><tr><td><strong>MCP server</strong></td><td>Mutable managed definitions with discovered tool inventories and audit edit history</td><td>Production workflow preflight</td><td>No version rollback; connection and policy controls are fail-closed</td><td>Connection + policy tests</td></tr><tr><td><strong>Judge</strong></td><td>Operator-authored, reusable via <code>Judge.&lt;id&gt;</code> tokens</td><td>n/a — it <em>is</em> a scorer</td><td>n/a</td><td>Human-alignment agreement / kappa</td></tr><tr><td><strong>Agent</strong></td><td>The record everything hangs off — items, jobs, approvals</td><td>n/a</td><td><code>enabled</code> is the pause/resume lever workers read</td><td>n/a</td></tr></tbody></table></div>
+<p>The shared <code>VersionPanel</code> is mounted for prompts, workflows, knowledge bases, skills, and tools through per-artifact adapters. <strong>Sharing the component does not share the semantics.</strong></p>
+<hr>
+<h2 id="5-deployment-topologies">5 · Deployment topologies<a class="anchor" href="#5-deployment-topologies" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>One ASGI application; two ways to run it. The choice is a failure-domain and operations decision, not a feature decision — the API and SPA are identical.</p>
+<div class="diagram"><pre class="mermaid">flowchart TB
+    spa["React SPA — &lt;code&gt;/caliber/&lt;/code&gt;"]:::ui
+
+    subgraph embedded["Topology A · embedded mlflow.app"]
+        eproc["MLflow server process&lt;br/&gt;MLflow core + CALIBER ASGI&lt;br/&gt;&lt;i&gt;shared failure domain&lt;/i&gt;"]:::plug
+    end
+
+    subgraph standalone["Topology B · standalone service"]
+        capi["CALIBER ASGI :5001&lt;br/&gt;API · SPA · in-process workers"]:::plug
+        mflow["MLflow :5000&lt;br/&gt;traces · registry · evaluate"]:::core
+        capi --&gt;|"MLFLOW_TRACKING_URI over HTTP"| mflow
+    end
+
+    cdb[("CALIBER metadata DB&lt;br/&gt;&lt;code&gt;CALIBER_DATABASE_URL&lt;/code&gt;")]:::store
+    mdb[("MLflow backend store")]:::store
+    cart[("CALIBER storage service&lt;br/&gt;local · S3&lt;br/&gt;&lt;i&gt;MinIO via S3 compatibility&lt;/i&gt;")]:::store
+    mart[("MLflow artifact root&lt;br/&gt;MLflow-configured backends&lt;br/&gt;&lt;i&gt;including S3 · MinIO · GCS · local&lt;/i&gt;")]:::store
+    llm["LLM providers&lt;br/&gt;OpenAI · Claude · MLflow AI Gateway"]:::ext
+
+    spa -. "choose one topology" .-&gt; eproc
+    spa -. "choose one topology" .-&gt; capi
+    eproc --&gt; cdb
+    eproc --&gt; mdb
+    capi --&gt; cdb
+    mflow --&gt; mdb
+    eproc --&gt; cart
+    eproc --&gt; mart
+    capi --&gt; cart
+    mflow --&gt; mart
+    eproc --&gt; llm
+    capi --&gt; llm
+
+    classDef ui fill:#e0f2fe,stroke:#0284c7,color:#075985;
+    classDef core fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;
+    classDef plug fill:#fce7f3,stroke:#db2777,color:#831843;
+    classDef store fill:#eef2ff,stroke:#6366f1,color:#312e81;
+    classDef ext fill:#f0fdf4,stroke:#16a34a,color:#14532d;</pre></div>
+<ul><li><strong>Neither mode makes CALIBER a transparent gateway in front of MLflow.</strong> It is a sibling surface, not a proxy.</li><li><code>CALIBER_DATABASE_URL</code> independently owns CALIBER's tables and is <strong>not required to equal</strong> MLflow's backend store. The bundled stack deliberately uses separate logical databases so the two Alembic histories never compete for one version table.</li><li>The SPA is bundled separately with Vite but served <strong>through</strong> the CALIBER package by routes/static.py — same origin, not a distinct host.</li><li><strong>Two different stores are both called "the artifact store."</strong> MLflow's artifact root supports the full MLflow backend set including GCS; CALIBER's own storage service accepts only <code>local</code> and <code>s3</code> — storage/service.py rejects anything else, and MinIO is reached as S3-compatible. Don't read GCS support on one as support on the other.</li></ul>
+<hr>
+<h2 id="6-execution-model-where-the-work-actually-happens">6 · Execution model — where the work actually happens<a class="anchor" href="#6-execution-model-where-the-work-actually-happens" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Bounded validation and many durable database mutations run inline in request handlers. Explicitly queued or long-running work is handled by up to eight in-process loops. The loops are <strong>not uniform</strong>: several queue consumers use atomic claims, while pollers and sweepers have path-specific concurrency semantics. All configured loops share the <code>background_tasks_enabled</code> lifecycle gate. <code>WorkflowRunWorker</code>, <code>KnowledgeBaseWorker</code>, and <code>WorkflowScheduler</code> additionally have independent enable flags; <code>AriaPlanWorker</code> does not.</p>
+<div class="diagram"><pre class="mermaid">flowchart TB
+    REQ["&lt;b&gt;Request path&lt;/b&gt;&lt;br/&gt;predominantly async route callables&lt;br/&gt;&lt;i&gt;sync ORM · selected work offloaded&lt;/i&gt;"]:::ctrl
+    Q[("&lt;b&gt;Durable queues&lt;/b&gt;&lt;br/&gt;status columns on&lt;br/&gt;relational rows")]:::store
+
+    subgraph LOOPS["UP TO 8 BACKGROUND LOOPS"]
+      direction TB
+      subgraph WA[" "]
+        direction LR
+        w1["&lt;b&gt;RefinementWorker&lt;/b&gt;&lt;br/&gt;triage → evidence → diagnosis&lt;br/&gt;→ candidate → eval&lt;br/&gt;&lt;i&gt;atomic claim&lt;/i&gt;"]:::async
+        w2["&lt;b&gt;CalibrationDrain&lt;/b&gt;&lt;br/&gt;queued calibration jobs&lt;br/&gt;&lt;i&gt;atomic claim&lt;/i&gt;"]:::async
+        w3["&lt;b&gt;WorkflowRunWorker&lt;/b&gt;&lt;br/&gt;queued runs · checkpoints&lt;br/&gt;runtime approvals&lt;br/&gt;&lt;i&gt;atomic claim · optional&lt;/i&gt;"]:::async
+        w4["&lt;b&gt;AriaPlanWorker&lt;/b&gt;&lt;br/&gt;resumes plans parked on&lt;br/&gt;async jobs&lt;br/&gt;&lt;i&gt;DB polling · no claim lease&lt;/i&gt;"]:::async
+        w1 --- w2 --- w3 --- w4
+      end
+      subgraph WB[" "]
+        direction LR
+        w5["&lt;b&gt;KnowledgeBaseWorker&lt;/b&gt;&lt;br/&gt;ingest · chunk · embed&lt;br/&gt;graph extraction&lt;br/&gt;&lt;i&gt;claim · optional&lt;/i&gt;"]:::async
+        w6["&lt;b&gt;WorkflowScheduler&lt;/b&gt;&lt;br/&gt;cron triggers per&lt;br/&gt;deployment alias&lt;br/&gt;&lt;i&gt;tick evaluation · optional&lt;/i&gt;"]:::async
+        w7["&lt;b&gt;Janitor&lt;/b&gt;&lt;br/&gt;reaps stale jobs on&lt;br/&gt;heartbeat timeout&lt;br/&gt;&lt;i&gt;idempotent sweep&lt;/i&gt;"]:::async
+        w8["&lt;b&gt;WebhookDispatcher&lt;/b&gt;&lt;br/&gt;delivery · settlement&lt;br/&gt;dead letters&lt;br/&gt;&lt;i&gt;claim&lt;/i&gt;"]:::async
+        w5 --- w6 --- w7 --- w8
+      end
+      WA --- WB
+    end
+
+    REQ --&gt;|"inline mutation or enqueue durable work"| Q
+    Q --&gt;|"atomic claim · poll · sweep"| LOOPS
+    LOOPS --&gt;|"status transitions · timeline events"| Q
+    LOOPS --&gt;|"SSE live events"| REQ
+
+    linkStyle 0,1,2,3,4,5,6 stroke:transparent,stroke-width:0px
+    style WA fill:none,stroke:none
+    style WB fill:none,stroke:none
+
+    classDef ctrl fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;
+    classDef store fill:#eef2ff,stroke:#6366f1,color:#312e81;
+    classDef async fill:#fef3c7,stroke:#d97706,color:#78350f;</pre></div>
+<p>Two consequences worth stating plainly:</p>
+<ul><li><strong>Route handlers and workers both mutate the same tables.</strong> Durable queue and run arbitration uses database status, claim, and lease state. Live SSE fan-out and lifecycle stop state may be process-local, or use a configured NATS, Redis, or database event transport; not every coordination mechanism is durable.</li><li><strong>Sync SQLAlchemy throughout</strong>, even though route callables are predominantly async. Selected blocking work is explicitly sent through <code>run_in_threadpool</code> or <code>asyncio.to_thread</code>; there is no async ORM.</li></ul>
+<hr>
+<h2 id="7-state-ownership">7 · State ownership<a class="anchor" href="#7-state-ownership" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Three stores, three owners, stated strictly — ambiguity here is what makes a governance platform unauditable.</p>
+<div class="diagram"><pre class="mermaid">flowchart TB
+    subgraph OWN["AUTHORITATIVE FOR…"]
+      direction LR
+      o1["&lt;b&gt;Relational metadata&lt;/b&gt;&lt;br/&gt;―――――&lt;br/&gt;The control plane.&lt;br/&gt;Registries, jobs, approvals, runs,&lt;br/&gt;deployments, audit, ledgers,&lt;br/&gt;and the file &lt;i&gt;inventory&lt;/i&gt;"]:::store
+      o2["&lt;b&gt;Object storage&lt;/b&gt;&lt;br/&gt;―――――&lt;br/&gt;File &lt;i&gt;bytes&lt;/i&gt;.&lt;br/&gt;Uploads, artifacts,&lt;br/&gt;exports, archived traces.&lt;br/&gt;&lt;b&gt;Not&lt;/b&gt; the inventory"]:::store
+      o3["&lt;b&gt;MLflow&lt;/b&gt;&lt;br/&gt;―――――&lt;br/&gt;Prompt registry versions&lt;br/&gt;and traces.&lt;br/&gt;&lt;b&gt;Not&lt;/b&gt; CALIBER workflow,&lt;br/&gt;tool, or skill metadata"]:::ext
+      o1 --- o2 --- o3
+    end
+
+    subgraph DOM["RELATIONAL DOMAINS"]
+      direction TB
+      subgraph DR1[" "]
+        direction LR
+        m1["&lt;b&gt;Core governance&lt;/b&gt;&lt;br/&gt;verification items · refinement jobs&lt;br/&gt;approvals · rollback checkpoints"]:::dom
+        m2["&lt;b&gt;Prompts &amp;amp; assistant&lt;/b&gt;&lt;br/&gt;test runs · Aria sessions, plans,&lt;br/&gt;steps, interactions, attachments"]:::dom
+        m3["&lt;b&gt;Tools &amp;amp; skills&lt;/b&gt;&lt;br/&gt;registry rows · test runs&lt;br/&gt;&lt;code&gt;CaliberSkillVersion&lt;/code&gt; snapshots"]:::dom
+        m4["&lt;b&gt;Workflows&lt;/b&gt;&lt;br/&gt;versions · deployments · runs · events&lt;br/&gt;checkpoints · patches · promotions"]:::dom
+        m1 --- m2 --- m3 --- m4
+      end
+      subgraph DR2[" "]
+        direction LR
+        m5["&lt;b&gt;Knowledge&lt;/b&gt;&lt;br/&gt;bases · versions · sources · chunks&lt;br/&gt;entities · relationships · build runs"]:::dom
+        m6["&lt;b&gt;Quality&lt;/b&gt;&lt;br/&gt;eval datasets · examples · eval runs&lt;br/&gt;judges · review queues · gate verdicts"]:::dom
+        m7["&lt;b&gt;Platform&lt;/b&gt;&lt;br/&gt;projects · files · secrets · sessions&lt;br/&gt;accounts · incidents · heartbeats"]:::dom
+        m5 --- m6 --- m7
+      end
+      DR1 --- DR2
+    end
+
+    OWN --&gt; DOM
+
+    linkStyle 0,1,2,3,4,5,6,7 stroke:transparent,stroke-width:0px
+    style DR1 fill:none,stroke:none
+    style DR2 fill:none,stroke:none
+
+    classDef store fill:#eef2ff,stroke:#6366f1,color:#312e81;
+    classDef ext fill:#f0fdf4,stroke:#16a34a,color:#14532d;
+    classDef dom fill:#f8fafc,stroke:#94a3b8,color:#0f172a;</pre></div>
+<hr>
+<h2 id="8-trust-boundary">8 · Trust boundary<a class="anchor" href="#8-trust-boundary" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Protected routes use <code>require_user</code> or <code>require_scopes</code> according to the route; public health and published-service paths use separate admission rules. Aria's HTTP entry points and projected capabilities reuse account scopes, but project visibility remains path-specific rather than a verified repository-wide isolation boundary.</p>
+<div class="diagram"><pre class="mermaid">flowchart TB
+    B["Browser / account API client"]:::user
+    AUTH["Session verification&lt;br/&gt;database-backed account&lt;br/&gt;&lt;i&gt;or trusted-header proxy mode, opt-in&lt;/i&gt;"]:::gov
+    SC["Scope resolution&lt;br/&gt;&lt;code&gt;operator&lt;/code&gt; → &lt;code&gt;viewer&lt;/code&gt;&lt;br/&gt;&lt;code&gt;approver&lt;/code&gt; → &lt;code&gt;viewer&lt;/code&gt;&lt;br/&gt;&lt;code&gt;admin&lt;/code&gt; → all four"]:::gov
+    GUARD["Account-route guards&lt;br/&gt;CSRF · rate limit · redaction&lt;br/&gt;path-specific visibility filters"]:::gov
+    RISK["Risk tiering for Aria capabilities&lt;br/&gt;&lt;code&gt;read&lt;/code&gt; → &lt;code&gt;safe&lt;/code&gt; → &lt;code&gt;mutate&lt;/code&gt; → &lt;code&gt;gated&lt;/code&gt;"]:::gov
+    EXEC["Execution policy&lt;br/&gt;governed HTTP/MCP allowlists&lt;br/&gt;MCP containment vs. attested isolation&lt;br/&gt;environment classification"]:::gov
+    SVC["Published workflow&lt;br/&gt;service caller"]:::user
+    SADM["Service admission&lt;br/&gt;public policy or Bearer token&lt;br/&gt;body cap · quota · idempotency"]:::gov
+    ACT["Authorized action&lt;br/&gt;DB-local paths may audit&lt;br/&gt;in the caller transaction"]:::ctrl
+
+    B --&gt; AUTH --&gt; SC --&gt; GUARD --&gt; ACT
+    SC --&gt; RISK --&gt; ACT
+    GUARD --&gt; EXEC --&gt; ACT
+    SVC --&gt; SADM --&gt; ACT
+
+    classDef user fill:#f1f5f9,stroke:#64748b,color:#0f172a;
+    classDef gov fill:#fce7f3,stroke:#db2777,color:#831843;
+    classDef ctrl fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;</pre></div>
+<p>Notes an architect will want:</p>
+<ul><li><strong>Capabilities actually declared <code>gated</code> are omitted from the synchronous Aria tool projection</strong> and require a plan interaction. This is classification-dependent: the existing hand-written <code>approve_draft</code> and <code>publish_draft</code> tools are classified as <code>mutate</code>, so build mode with <code>auto_all</code> advertises and can execute them.</li><li>*<em>Local stdio MCP controls are called </em>containment<em>, not a sandbox.</em>* Command and host allowlists, a sanitized environment, a private working directory, and process timeouts reduce ambient authority. Only an attested managed sidecar or a non-loopback HTTPS endpoint counts as an external execution boundary for production preflight. The shipped bubblewrap profile is containment.</li><li><strong>Fail-closed egress applies to governed HTTP and MCP transports, not arbitrary user code.</strong> The shipped local tool runner has a separate interpreter, empty environment, private working directory, and resource limits, but retains ambient host filesystem and network authority. Untrusted authors require an operator-supplied OS-enforced backend.</li><li><strong>Published workflow services use two-stage admission.</strong> A protected invoke validates its Bearer token before consuming the body; public and protected invokes then count raw ASGI chunks against <code>CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES</code> (1 MiB by default). Policy and token are revalidated under the enqueue lock after bounded parsing. This is a per-request application bound, not connection/IP flood protection.</li><li><strong>Audit atomicity is path-specific.</strong> For database-resident paths that call <code>audit_record</code> on the caller's session, mutation and audit share one SQL transaction. External MLflow or provider effects and separately committed paths are dual-write boundaries that can diverge without reconciliation. Importing the helper does not prove that every mutation in a module is audited.</li></ul>
+<hr>
+<h2 id="9-extension-seams">9 · Extension seams<a class="anchor" href="#9-extension-seams" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>The layering pays off as a small number of places to add capability without touching the substrate.</p>
+<div class="table-wrap"><table><thead><tr><th>Seam</th><th>What plugs in</th><th>Where</th></tr></thead><tbody><tr><td><strong>Provider protocols</strong></td><td><code>LLMProvider</code>, <code>EvalProvider</code>, <code>Promoter</code> — narrow protocols, one operation per pipeline stage, with a deterministic <code>fake</code> default so the server boots with no API key</td><td>llm/provider.py · eval/provider.py · promoter.py</td></tr><tr><td><strong>Storage backends</strong></td><td><code>StorageBackend</code> protocol — <code>local</code> and <code>s3</code> ship</td><td>storage/base.py</td></tr><tr><td><strong>Event transports</strong></td><td><code>in_process</code>, <code>nats</code>, <code>redis</code>, <code>database</code></td><td>events/</td></tr><tr><td><strong>Tool execution</strong></td><td><code>ToolSandbox</code> protocol — the shipped implementation is a short-lived, bounded local subprocess process boundary, not container, VM, or seccomp isolation</td><td>tool_sandbox/service.py</td></tr><tr><td><strong>Workflow components</strong></td><td>29 built-in node types behind a typed IR and component catalog; the in-server interpreter and generated Agents SDK export share that IR, which is designed for future additional backends</td><td>workflows/ir.py · workflows/component_catalog.py</td></tr><tr><td><strong>Aria capabilities</strong></td><td>Declare an operation once — key, risk tier, scopes, input schema, handler — and the agent toolset picks it up as a <em>projection</em> of the registry. <strong>Partial current-source snapshot:</strong> the toolset is 29 hand-written <code>_t_*</code> tools plus a 7-capability projection, so this is an emerging seam rather than complete parity.</td><td>assistant/capabilities.py</td></tr><tr><td><strong>Scorers &amp; judges</strong></td><td>Deterministic scorers plus operator-authored <code>make_judge</code> judges, referenced as <code>Judge.&lt;id&gt;</code> tokens anywhere a scorer is accepted</td><td>eval/judge_scorer.py · eval/scorecard.py</td></tr><tr><td><strong>Graph extraction</strong></td><td><code>heuristic</code> or <code>spacy</code> backends over Apache AGE</td><td>knowledge/graph.py · knowledge/age.py</td></tr></tbody></table></div>
+<hr>
+<h2 id="10-where-to-go-next">10 · Where to go next<a class="anchor" href="#10-where-to-go-next" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>You are…</th><th>Read</th></tr></thead><tbody><tr><td>An <strong>executive</strong> sizing the platform</td><td>§1 the stack, §3 the governed asset, §4 the guarantees table — then <a href="m-17-competitive-analysis.html">the competitive analysis</a> and <a href="m-18-roadmap.html">roadmap</a></td></tr><tr><td>An <strong>architect</strong> evaluating fit</td><td>§5 topologies, §6 execution, §7 state ownership, §8 trust — then <a href="m-01-platform.html">docs/01-caliber/architecture.md</a></td></tr><tr><td>A <strong>builder</strong> joining the codebase</td><td>§2 the chain, §9 the seams — then CONTRIBUTING.md and server.py</td></tr><tr><td>An <strong>operator</strong> bringing it up</td><td>The <a href="walkthrough.html">walkthrough runbook</a> and deploy/README.md</td></tr><tr><td>Anyone asking <strong>"what is actually built?"</strong></td><td>product-complete-report.md — current evidence, remaining defects, and the production-boundary limits</td></tr></tbody></table></div>
+<p>Per-area design specs live under docs/, one <code>architecture.md</code> per numbered area, rendered at <a href="index.html">docs-site/</a>. This document is the layered map above them; they are the depth beneath it.</p>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

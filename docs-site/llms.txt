@@ -6,13 +6,14 @@ The pages below are the published architecture, workflow, and strategy documenta
 
 ## Platform
 
+- [Layered architecture](m-00-layered-architecture.md): The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams.
 - [Platform](m-01-platform.md): Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on.
 - [The refinement loop](m-00-refinement-loop.md): The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and promote — plus the evidence and audit boundaries that differ across other asset families. Read this first.
 
 ## Authoring
 
 - [Prompts](m-02-prompts.md): MLflow Prompt Registry authoring, render/test history, hidden runtime targets, and queued optimizer-backed calibration.
-- [Tools](m-03-tools.md): Versioned callable registry, sandboxed test runs, fixture suites and baselines, and deterministic replay calibration.
+- [Tools](m-03-tools.md): Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration.
 - [Skills](m-04-skills.md): Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.
 - [MCP servers](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
 - [Workflows](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.

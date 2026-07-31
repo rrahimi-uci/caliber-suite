@@ -1,13 +1,14 @@
 name: Pages
 
 # Publish the CALIBER documentation site (docs-site/) to GitHub Pages.
-# The site is regenerated from the docs/**/*.md sources by the dependency-free
-# builder so a markdown edit flows through to the published pages on every push.
+# The site is regenerated from root ARCHITECTURE.md plus docs/**/*.md by the
+# dependency-free builder so a source edit flows through to the published pages.
 
 on:
   push:
     branches: [main]
     paths:
+      - "ARCHITECTURE.md"
       - "docs/**"
       - "docs-site/**"
       - "caliber/caliber-ui/scripts/sync-docs.mjs"

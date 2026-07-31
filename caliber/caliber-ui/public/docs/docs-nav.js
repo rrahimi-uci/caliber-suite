@@ -13,6 +13,10 @@ window.DOCS_NAV = [
     "section": "Platform",
     "links": [
       {
+        "href": "m-00-layered-architecture.html",
+        "label": "Layered architecture"
+      },
+      {
         "href": "m-01-platform.html",
         "label": "Platform"
       },
