@@ -23,7 +23,7 @@ def _load_psycopg() -> tuple[Any, Any]:
         import psycopg  # noqa: PLC0415 (lazy import is deliberate)
         from psycopg.rows import dict_row  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise DbToolError("psycopg is not installed; install caliber[postgres]") from exc
+        raise DbToolError("psycopg is not installed; install caliber-suite[postgres]") from exc
     return psycopg, dict_row
 
 

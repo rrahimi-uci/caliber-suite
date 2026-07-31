@@ -37,6 +37,11 @@ _OUTPUT_READ_HEADROOM = 4
 _DEFAULT_STARTUP_GRACE_SECONDS = 15.0
 _MIN_OUTPUT_READ_CAP = 262_144
 _READ_CHUNK = 8192
+# Must match the stdlib-only child runner. The child cannot emit JSON after a hard
+# os._exit(), so this code is the protocol marker for an uncaught wall deadline.
+_DEADLINE_EXIT_CODE = 124
+_PARENT_READY_MARKER = "__CALIBER_SANDBOX_READY_V1__"
+_PARENT_START_MARKER = "__CALIBER_SANDBOX_START_V1__"
 
 
 class ToolSandbox(Protocol):
@@ -259,12 +264,13 @@ class LocalSubprocessToolSandbox:
         # ``cpu_seconds`` stays derived from the caller's timeout, not the extended wall
         # clock: the rlimit is what stops a runaway loop, and it should still measure the
         # work rather than the overhead.
-        wall_timeout = timeout + self.startup_grace_seconds
-        # The child enforces the caller's budget itself, starting after its import. The
-        # parent's longer wait is only a backstop for a child that never reports at all —
-        # without this the effective deadline was budget + grace for anything that blocks,
-        # since RLIMIT_CPU does not tick while a process sleeps or waits on I/O.
+        # The child watchdog remains defense in depth, but the parent owns the authored
+        # wall deadline. A child thread can be denied the GIL, and registered module code
+        # can mutate process-global modules; neither can stop a separate parent process.
+        # An explicit ready/start handshake separates the startup allowance from this
+        # budget so authored work can consume exactly ``timeout`` and never the grace.
         payload["deadline_seconds"] = timeout
+        payload["_parent_deadline_handshake"] = True
         payload["_limits"] = {
             "cpu_seconds": max(1, int(timeout) + 1),
             "memory_bytes": self.max_memory_bytes,
@@ -287,7 +293,10 @@ class LocalSubprocessToolSandbox:
                 start_new_session=os.name == "posix",
             )
             raw_stdout, raw_stderr, timed_out = self._communicate_bounded(
-                process, json.dumps(payload), wall_timeout
+                process,
+                json.dumps(payload),
+                timeout,
+                startup_timeout=self.startup_grace_seconds,
             )
             if timed_out:
                 return {
@@ -307,6 +316,15 @@ class LocalSubprocessToolSandbox:
         # its own capture and the parent caps its reads — so parse it whole and clip
         # only the tool-facing fields below.
         stderr = self._clip(raw_stderr)
+        if process.returncode == _DEADLINE_EXIT_CODE:
+            return {
+                "status": "timed_out",
+                "error": f"tool sandbox timed out after {timeout:.2f}s",
+                "stdout": self._clip(raw_stdout),
+                "stderr": stderr,
+                "tests": [],
+                "duration_ms": round(timeout * 1000, 1),
+            }
         if process.returncode != 0:
             return {
                 "status": "failed",
@@ -341,11 +359,13 @@ class LocalSubprocessToolSandbox:
             "duration_ms": 0.0,
         }
 
-    def _communicate_bounded(
+    def _communicate_bounded(  # noqa: PLR0912, PLR0915 - bounded two-phase process protocol
         self,
         process: subprocess.Popen[str],
         stdin_payload: str | None,
         timeout: float,
+        *,
+        startup_timeout: float | None = None,
     ) -> tuple[str, str, bool]:
         """Write stdin and read stdout/stderr with a **bounded** buffer.
 
@@ -383,27 +403,106 @@ class LocalSubprocessToolSandbox:
                 # Past the cap the chunk is dropped, not buffered. The loop keeps
                 # reading so the child is never blocked on a full pipe.
 
-        if stdin_payload is not None and process.stdin is not None:
+        def _write_stdin(value: str, *, close: bool) -> None:
+            if process.stdin is None:
+                return
             try:
-                process.stdin.write(stdin_payload)
+                process.stdin.write(value)
                 process.stdin.flush()
             except (BrokenPipeError, ValueError):
                 # The child exited before reading its input; the exit status and
                 # whatever it wrote are the useful signal.
                 pass
-            finally:
+            if close:
                 with contextlib.suppress(Exception):
                     process.stdin.close()
 
-        threads = [
-            threading.Thread(target=_drain, args=(name, getattr(process, name)), daemon=True)
-            for name in ("stdout", "stderr")
-        ]
-        for thread in threads:
+        threads: list[threading.Thread] = []
+
+        def _start_drain(name: str) -> None:
+            thread = threading.Thread(
+                target=_drain,
+                args=(name, getattr(process, name)),
+                daemon=True,
+            )
+            threads.append(thread)
             thread.start()
+
         timed_out = False
         try:
-            process.wait(timeout=timeout)
+            if startup_timeout is None:
+                # Private compatibility path for callers/tests exercising this helper
+                # directly. Production calls always use the ready/start protocol below.
+                if stdin_payload is not None:
+                    _write_stdin(stdin_payload, close=True)
+                _start_drain("stdout")
+                _start_drain("stderr")
+            else:
+                # stderr has no protocol data and can be drained throughout startup.
+                _start_drain("stderr")
+                startup_started = time.monotonic()
+                # ``0`` historically meant "no *extra* startup grace", not "kill the
+                # child before it can execute one instruction". In that mode startup
+                # consumes the caller's total budget; a positive grace remains a separate
+                # phase and preserves the full authored-code budget after readiness.
+                startup_budget = startup_timeout if startup_timeout > 0 else timeout
+                ready: dict[str, str] = {"line": ""}
+                ready_event = threading.Event()
+
+                def _read_ready() -> None:
+                    stream = process.stdout
+                    if stream is not None:
+                        # Before this marker the child has not run authored code, and it
+                        # waits for our start acknowledgement, so this bounded line is the
+                        # only possible stdout protocol message.
+                        ready["line"] = stream.readline(len(_PARENT_READY_MARKER) + 2)
+                    ready_event.set()
+
+                ready_thread = threading.Thread(target=_read_ready, daemon=True)
+                threads.append(ready_thread)
+                ready_thread.start()
+                if stdin_payload is not None:
+                    _write_stdin(stdin_payload + "\n", close=False)
+
+                if not ready_event.wait(timeout=startup_budget):
+                    timed_out = True
+                    self._terminate_process_tree(process)
+                    with contextlib.suppress(Exception):
+                        process.wait(timeout=1.0)
+                elif ready["line"].rstrip("\r\n") != _PARENT_READY_MARKER:
+                    # Preserve the unexpected bytes for diagnostics, then stop a child
+                    # that cannot participate in the deadline protocol.
+                    collected["stdout"].append(ready["line"])
+                    self._terminate_process_tree(process)
+                    with contextlib.suppress(Exception):
+                        process.wait(timeout=1.0)
+                else:
+                    # The authored clock starts before permission is sent. Starting the
+                    # normal reader first prevents a fast/noisy child from filling its
+                    # pipe before the parent reaches wait().
+                    _start_drain("stdout")
+                    if startup_timeout > 0:
+                        execution_budget = timeout
+                    else:
+                        execution_budget = max(
+                            0.0,
+                            timeout - (time.monotonic() - startup_started),
+                        )
+                    deadline = time.monotonic() + execution_budget
+                    _write_stdin(_PARENT_START_MARKER + "\n", close=True)
+                    process.wait(timeout=max(0.0, deadline - time.monotonic()))
+
+            if not timed_out and startup_timeout is None:
+                process.wait(timeout=timeout)
+
+            if not timed_out and process.returncode == _DEADLINE_EXIT_CODE:
+                # The runner's uncatchable watchdog exits only the direct child. A
+                # registered tool may have spawned descendants in the sandbox session;
+                # those descendants can keep running (and keep our pipes open) after the
+                # leader exits with 124. Treat the protocol exit exactly like the parent
+                # backstop timeout and reap the whole POSIX process group immediately.
+                timed_out = True
+                self._terminate_process_tree(process)
         except subprocess.TimeoutExpired:
             timed_out = True
             # Kill the whole group: a tool that spawned children must not outlive the
@@ -412,6 +511,9 @@ class LocalSubprocessToolSandbox:
             with contextlib.suppress(Exception):
                 process.wait(timeout=1.0)
         finally:
+            if process.stdin is not None:
+                with contextlib.suppress(Exception):
+                    process.stdin.close()
             # Bounded join: a reader blocked on a pipe the child never closes must not
             # hang the request. The process-group kill in the timeout path closes them.
             for thread in threads:
@@ -437,15 +539,27 @@ class LocalSubprocessToolSandbox:
         external container/VM boundary.
         """
 
-        if process.poll() is not None:
-            return
         if os.name == "posix":
+            # Deliberately attempt killpg even when the process-group leader has already
+            # exited. That is the child-watchdog (status 124) case: descendants remain in
+            # the group and are precisely what this boundary must terminate.
             try:
                 os.killpg(process.pid, signal.SIGKILL)
                 return
             except ProcessLookupError:
                 return
-        process.kill()
+            except PermissionError:
+                # Some constrained hosts allow signalling a direct child but deny
+                # process-group signals. Preserve the stronger tree kill whenever the
+                # host permits it; otherwise reap the child rather than turning a
+                # correctly detected timeout into an unrelated 500/runner exception.
+                # A hardened deployment still needs a container/VM (and Windows a Job
+                # Object) to guarantee descendant cleanup outside this POSIX primitive.
+                if process.poll() is None:
+                    process.kill()
+                return
+        if process.poll() is None:
+            process.kill()
 
     def _clip(self, value: str | bytes | None) -> str:
         if value is None:

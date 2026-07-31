@@ -44,7 +44,7 @@ from caliber.db.models import (
     CaliberRollbackCheckpoint,
 )
 from caliber.ids import new_checkpoint_id
-from caliber.promoter import Promoter, PromoterError, PromotionResult
+from caliber.promoter import Promoter, PromoterConflictError, PromoterError, PromotionResult
 from caliber.workflows.promoter import (
     AliasPreflightError,
     DeployError,
@@ -78,6 +78,8 @@ def _build_checkpoint(
     approval: CaliberApprovalRequest,
     candidate: dict[str, object],
     result: PromotionResult,
+    *,
+    target: BundleTarget | None = None,
 ) -> CaliberRollbackCheckpoint:
     """Translate a successful :class:`PromotionResult` into a checkpoint row.
 
@@ -108,26 +110,45 @@ def _build_checkpoint(
         version_before = (
             version_after - 1 if version_after is not None and version_after > 1 else None
         )
-    artifact_type = _as_str(candidate.get("artifact_type"), "prompt")
+    # The resolved target is authoritative. Candidate JSON is retained only as
+    # a compatibility fallback for direct helper callers and legacy promoters.
+    artifact_type = (
+        target.artifact_type
+        if target is not None
+        else _as_str(candidate.get("artifact_type"), "prompt")
+    )
+    checkpoint_target = target.agent_id if target is not None else approval.agent_id
+    checkpoint_agent_id = checkpoint_target
     artifact_ref_before = (
-        f"prompts:/{approval.agent_id}/{version_before}" if version_before is not None else None
+        f"prompts:/{checkpoint_target}/{version_before}" if version_before is not None else None
     )
     # Skills have no alias indirection (the active skill *is* the DB row), so the
     # checkpoint must carry the prior content for SkillPromoter.rollback to
     # restore it; prompts roll back via alias rotation and need no snapshot.
     snapshot_payload: dict[str, object] | None = None
     if artifact_type == "skill":
+        checkpoint_agent_id = approval.agent_id
+        skill_name = details.get("skill_name") if isinstance(details, dict) else None
+        if isinstance(skill_name, str) and skill_name:
+            checkpoint_target = skill_name
         content_before = details.get("content_before") if isinstance(details, dict) else None
-        snapshot_payload = {"content_before": content_before, "version_before": version_before}
+        summary_before = details.get("summary_before") if isinstance(details, dict) else None
+        snapshot_payload = {
+            "content_before": content_before,
+            "summary_before": summary_before,
+            "version_before": version_before,
+        }
         artifact_ref_before = (
-            f"skill://{approval.agent_id}/v{version_before}" if version_before is not None else None
+            f"skill://{checkpoint_target}/v{version_before}" if version_before is not None else None
         )
     return CaliberRollbackCheckpoint(
         checkpoint_id=new_checkpoint_id(),
         approval_id=approval.approval_id,
-        agent_id=approval.agent_id,
+        # Checkpoints are agent-scoped (and FK to CaliberAgentConfig) even
+        # when the artifact is a skill. ``artifact_name`` carries the skill.
+        agent_id=checkpoint_agent_id,
         artifact_type=artifact_type,
-        artifact_name=approval.agent_id,
+        artifact_name=checkpoint_target,
         artifact_ref_before=artifact_ref_before,
         artifact_ref_after=str(getattr(result, "artifact_ref", ""))
         if getattr(result, "artifact_ref", None) is not None
@@ -174,10 +195,27 @@ def _build_bundle_checkpoint(
     artifact_ref_before = (
         f"prompts:/{target.agent_id}/{version_before}" if version_before is not None else None
     )
+    snapshot_payload: dict[str, object] = {"bundle_target": True}
+    checkpoint_agent_id = target.agent_id
+    if target.artifact_type == "skill":
+        # BundleTarget.agent_id is the skill name for SkillPromoter, but the
+        # checkpoint column is an AgentConfig FK. Anchor it to the approval's
+        # owning agent and keep the skill identity in artifact_name/ref.
+        checkpoint_agent_id = approval.agent_id
+        artifact_ref_before = (
+            f"skill://{target.agent_id}/v{version_before}" if version_before is not None else None
+        )
+        snapshot_payload.update(
+            {
+                "content_before": details.get("content_before"),
+                "summary_before": details.get("summary_before"),
+                "version_before": version_before,
+            }
+        )
     return CaliberRollbackCheckpoint(
         checkpoint_id=new_checkpoint_id(),
         approval_id=approval.approval_id,
-        agent_id=target.agent_id,
+        agent_id=checkpoint_agent_id,
         artifact_type=target.artifact_type,
         artifact_name=target.agent_id,
         artifact_ref_before=artifact_ref_before,
@@ -186,7 +224,7 @@ def _build_bundle_checkpoint(
         else "",
         version_before=version_before,
         version_after=version_after,
-        snapshot_payload={"bundle_target": True},
+        snapshot_payload=snapshot_payload,
     )
 
 
@@ -206,7 +244,12 @@ def _record_checkpoints(
     ``approval_id``.
     """
     if len(targets) == 1:
-        checkpoint = _build_checkpoint(approval, candidate, results[0])
+        checkpoint = _build_checkpoint(
+            approval,
+            candidate,
+            results[0],
+            target=targets[0],
+        )
         session.add(checkpoint)
         return [checkpoint.checkpoint_id]
     checkpoints = [
@@ -324,6 +367,11 @@ def _apply_bundle(
             status_code=409,
             detail=f"job {job.job_id!r} has no candidate content to promote",
         )
+    if job.artifact_type == "skill" and not job.skill_name:
+        raise HTTPException(
+            status_code=409,
+            detail=f"skill job {job.job_id!r} has no target skill_name",
+        )
 
     targets = resolve_bundle_targets(
         job,
@@ -331,7 +379,15 @@ def _apply_bundle(
         candidate_rationale=_as_str(candidate.get("rationale")),
     )
     try:
-        results = promote_bundle(promoter, targets, approval_id=approval.approval_id)
+        results = promote_bundle(
+            promoter,
+            targets,
+            approval_id=approval.approval_id,
+            session=session,
+            actor=actor,
+        )
+    except PromoterConflictError as exc:
+        raise HTTPException(status_code=409, detail=f"promotion conflict: {exc}") from exc
     except PromoterError as exc:
         raise HTTPException(status_code=502, detail=f"promotion failed: {exc}") from exc
 

@@ -16,7 +16,7 @@ apply a manual patch → validate**. Build order:
 > evidence-grounded* in Evaluations. The core demo (reproduce → localize → patch
 > → validate) is done entirely in the **Run Monitor** and needs only items 1–2.
 
-## What ships (be faithful — read [`../FEASIBILITY.md`](../FEASIBILITY.md))
+## What ships (be faithful — read [`../../FEASIBILITY.md`](../../FEASIBILITY.md))
 
 - ✅ **Recovery surfaces are real**: **Run Monitor**, **Checkpoint** panel
   (active node + state blob), **Recovery** panel (approval/event timeline +

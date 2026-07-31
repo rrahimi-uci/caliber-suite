@@ -24,10 +24,18 @@ def test_defaults() -> None:
     assert config.registered_tool_sandbox_timeout_seconds == 30.0
     assert config.tool_sandbox_max_output_bytes == 1_048_576
     assert config.tool_sandbox_max_memory_bytes == 268_435_456
+    assert config.service_invoke_max_body_bytes == 1_048_576
     assert config.mcp_stdio_command_allowlist == "${PYTHON}"
     assert config.mcp_stdio_safe_path == os.defpath
     assert config.mcp_stdio_isolation_profile == "none"
     assert config.mcp_require_external_isolation_for_aliases == "prod"
+    assert config.auth_bootstrap_admin_user == "admin"
+    assert config.auth_bootstrap_allow_insecure_default is False
+    # A literal identity must never gain admin scope merely by upgrading CALIBER.
+    # Loopback launchers opt their bootstrap account in explicitly.
+    assert config.admin_users == ""
+    event_types = {value.strip() for value in config.webhook_event_filter.split(",")}
+    assert {"slo.incident.opened", "slo.incident.resolved"} <= event_types
 
 
 def test_log_level_from_env() -> None:
@@ -77,6 +85,14 @@ def test_tool_sandbox_settings_from_env() -> None:
     assert config.tool_sandbox_max_memory_bytes == 67_108_864
     assert config.tool_sandbox_max_file_bytes == 2048
     assert config.tool_sandbox_max_open_files == 24
+
+
+def test_service_invoke_body_limit_from_env_and_validation() -> None:
+    config = CaliberConfig.load(environ={"CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES": "2097152"})
+    assert config.service_invoke_max_body_bytes == 2_097_152
+
+    with pytest.raises(ConfigError, match="invalid CALIBER configuration"):
+        CaliberConfig.load(environ={"CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES": "0"})
 
 
 def test_registered_tool_timeout_matches_the_request_contract() -> None:

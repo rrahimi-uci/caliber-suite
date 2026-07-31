@@ -48,6 +48,7 @@ import type {
 } from "@/api/workflowTypes";
 import { caliberApi } from "@/api/caliberApi";
 import { DEPLOYMENT_ALIASES } from "@/lib/environment";
+import { buildCaliberRouteHref } from "@/lib/externalLinks";
 import type {
   KnowledgeBase,
   KnowledgeBaseVersion,
@@ -1150,7 +1151,9 @@ function SubworkflowSection({
           {selectedWorkflow && (
             <a
               data-testid="inspector-subworkflow-open"
-              href={`/workflows/${encodeURIComponent(selectedWorkflow.workflow_id)}`}
+              href={buildCaliberRouteHref(
+                `/workflows/${encodeURIComponent(selectedWorkflow.workflow_id)}`,
+              )}
               className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-600 transition-colors hover:border-zinc-300 hover:text-zinc-900"
             >
               Open workflow
@@ -3516,11 +3519,12 @@ function WorkflowDeployGatesSection({
                   </Field>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  Thresholds are evaluated against the graded replay. A threshold
-                  the gate cannot measure — including one whose scorer is not
-                  configured, or a dataset with no expected output — fails the gate
-                  rather than being skipped. Use <code>min_completion_rate</code>{" "}
-                  when the dataset has no expected answers.
+                  Thresholds are evaluated against the graded replay. A
+                  threshold the gate cannot measure — including one whose scorer
+                  is not configured, or a dataset with no expected output —
+                  fails the gate rather than being skipped. Use{" "}
+                  <code>min_completion_rate</code> when the dataset has no
+                  expected answers.
                 </p>
               </div>
             );
@@ -5024,11 +5028,13 @@ export function Inspector({
                   {typeof node.bucket === "string" &&
                     node.bucket.trim() !== "" && (
                       <a
-                        href={`/object-store?bucket=${encodeURIComponent(node.bucket)}${
-                          typeof node.prefix === "string" && node.prefix
-                            ? `&prefix=${encodeURIComponent(node.prefix.replace(/^\/+/, ""))}`
-                            : ""
-                        }`}
+                        href={buildCaliberRouteHref(
+                          `/object-store?bucket=${encodeURIComponent(node.bucket)}${
+                            typeof node.prefix === "string" && node.prefix
+                              ? `&prefix=${encodeURIComponent(node.prefix.replace(/^\/+/, ""))}`
+                              : ""
+                          }`,
+                        )}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-block text-[11px] font-medium text-caliber-purple hover:underline"

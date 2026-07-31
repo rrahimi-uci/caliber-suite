@@ -2607,7 +2607,10 @@ describe("Inspector", () => {
 
     expect(
       await screen.findByRole("link", { name: /Open in Object Store/i }),
-    ).toHaveAttribute("href", "/object-store?bucket=reports&prefix=exports%2F");
+    ).toHaveAttribute(
+      "href",
+      "/caliber/object-store?bucket=reports&prefix=exports%2F",
+    );
     expect(screen.getByTestId("inspector-field-overwrite")).toHaveAttribute(
       "data-workflow-field-key",
       "overwrite",
@@ -4622,7 +4625,7 @@ describe("Inspector", () => {
     );
     expect(screen.getByTestId("inspector-subworkflow-open")).toHaveAttribute(
       "href",
-      "/workflows/wf-child",
+      "/caliber/workflows/wf-child",
     );
 
     await userEvent.selectOptions(workflowShortcut, "wf-child-2");

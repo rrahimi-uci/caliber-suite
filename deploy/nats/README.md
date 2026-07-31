@@ -1,5 +1,8 @@
 # NATS (message bus) — optional
 
+> Development service: client and monitoring ports bind to `127.0.0.1`. This
+> profile does not configure production authentication, authorization, or TLS.
+
 CALIBER can use NATS as its shared event fan-out backend for live SSE updates
 and outbound webhook notifications across app replicas. Native local dev still
 defaults to the in-process EventBus unless `CALIBER_WORKFLOW_RUN_EVENT_BACKEND`

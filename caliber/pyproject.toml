@@ -1,7 +1,7 @@
 [project]
-name = "caliber"
+name = "caliber-suite"
 version = "0.1.0.dev0"
-description = "Human-in-the-loop refinement pipeline for AI agents — an MLflow server plugin."
+description = "MLflow-integrated control plane for governed AI-agent lifecycles."
 readme = "README.md"
 license = { file = "LICENSE" }
 # Packaging and CI currently validate the 3.10-3.12 matrix. Keep the supported
@@ -23,12 +23,10 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
-# Runtime dependencies are intentionally minimal at v0.1.0.dev0; only what the
-# plugin shell needs to load and respond to a health check. Later phases add:
-#   Phase 2 (Refinement Pipeline): openai-agents, mlflow[genai], dspy-ai, textgrad
-#   Phase 3 (Approval & Promotion): no new deps; uses MLflow Prompt Registry
-#   Phase 4 (Multi-agent / Conversational): no new deps for the orchestrator
-#   Phase 5 (Production hardening): structlog, opentelemetry-sdk
+# Core dependencies cover the ASGI control plane, persistence/migrations,
+# workflow and MCP surfaces, and the MLflow integration. Provider, optimizer,
+# storage, and ingestion stacks stay in explicit extras below so a base install
+# does not pull optional execution engines.
 dependencies = [
     "mlflow>=3.14.0,<4",
     "sqlalchemy>=2.0,<3",
@@ -65,6 +63,8 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "pre-commit>=3.7",
+    "build>=1.2",                 # local package parity with the CI distribution job
+    "twine>=6,<7",                # validates wheel/sdist metadata before publication
     "types-PyYAML",
     "moto[s3]>=5.0",             # in-process S3 mock for the s3 backend tests
 ]
@@ -171,6 +171,7 @@ build-backend = "hatchling.build"
 artifacts = ["src/caliber/ui/**"]
 exclude = [
     "/.venv/**",
+    "/.venv*/**",
     "/.venv-security-audit/**",
     "/.venv-security-audit-safe/**",
     "/.venv-security-audit-extended/**",
@@ -181,9 +182,21 @@ exclude = [
     "/.tmp-pip-audit.*",
     "/build/**",
     "/dist/**",
+    "/node_modules/**",
+    "/allure-results/**",
+    "/allure-report/**",
+    "/playwright-report/**",
+    "/test-results/**",
+    "/htmlcov/**",
+    "/mlruns/**",
+    "/.coverage*",
     "/caliber.db*",
     "/coverage.xml",
     "/mlflow.db*",
+    "/caliber-ui/allure-results/**",
+    "/caliber-ui/allure-report/**",
+    "/caliber-ui/playwright-report/**",
+    "/caliber-ui/test-results/**",
     "/caliber-ui/node_modules/**",
     "/caliber-ui/dist/**",
 ]
@@ -302,8 +315,9 @@ ignore_missing_imports = true
 module = ["agents", "agents.*"]
 ignore_missing_imports = true
 
-# ``dspy`` ships in the ``[llm]`` extra. The DSPy optimizer bridge imports it
-# eagerly and it ships no type stubs; CI core runs without the extra installed.
+# ``dspy`` ships in the separate ``[dspy]`` extra. The production provider loads
+# the bridge lazily only for a DSPy optimizer; dspy ships no type stubs, and CI
+# core runs without the extra installed.
 [[tool.mypy.overrides]]
 module = ["dspy", "dspy.*"]
 ignore_missing_imports = true
@@ -362,7 +376,7 @@ filterwarnings = [
     "ignore::FutureWarning:mlflow.*",
     "ignore::UserWarning:mlflow.*",
     "ignore::DeprecationWarning:sqlalchemy.*",
-    # dspy (``[llm]`` extra, eager-imported by the optimizer bridge) emits
+    # dspy (separate ``[dspy]`` extra, lazy-loaded by the provider) emits
     # DeprecationWarnings from its own internal signatures/fields on import.
     # Not CALIBER bugs — silence the dspy namespace like we do for mlflow.
     "ignore::DeprecationWarning:dspy.*",

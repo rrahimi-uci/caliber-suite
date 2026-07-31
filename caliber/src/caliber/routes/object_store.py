@@ -553,7 +553,7 @@ def _extract_docx_text(data: bytes) -> str:
         import docx  # noqa: PLC0415
     except ImportError as exc:
         raise _ExtractUnavailableError(
-            "Word preview needs the optional dependency python-docx; install caliber[ingest]."
+            "Word preview needs the optional dependency python-docx; install caliber-suite[ingest]."
         ) from exc
     document = docx.Document(io.BytesIO(data))
     return "\n".join(p.text for p in document.paragraphs if p.text.strip())
@@ -564,7 +564,8 @@ def _extract_pptx_text(data: bytes) -> str:
         import pptx  # noqa: PLC0415
     except ImportError as exc:
         raise _ExtractUnavailableError(
-            "PowerPoint preview needs the optional dependency python-pptx; install caliber[ingest]."
+            "PowerPoint preview needs the optional dependency python-pptx; "
+            "install caliber-suite[ingest]."
         ) from exc
     presentation = pptx.Presentation(io.BytesIO(data))
     out: list[str] = []
@@ -584,7 +585,7 @@ def _extract_xlsx_sheets(data: bytes) -> tuple[list[dict[str, Any]], bool]:
         import openpyxl  # type: ignore[import-untyped]  # noqa: PLC0415
     except ImportError as exc:
         raise _ExtractUnavailableError(
-            "Excel preview needs the optional dependency openpyxl; install caliber[ingest]."
+            "Excel preview needs the optional dependency openpyxl; install caliber-suite[ingest]."
         ) from exc
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     truncated = False

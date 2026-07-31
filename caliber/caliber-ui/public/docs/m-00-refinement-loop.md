@@ -4,16 +4,16 @@
 
 ## At a glance
 
-Every other topic in this documentation — prompts, tools, skills, MCP servers, workflows, knowledge bases, test sets, evaluation, calibration, governance, and the Aria copilot — exists to serve a single motion: **turn a flagged production response into a measurably-better, safely-deployed artifact**, without leaving the platform and without losing an audit trail. CALIBER runs this as a *closed loop* with humans at exactly **two** gates.
+Every other topic in this documentation — prompts, tools, skills, MCP servers, workflows, knowledge bases, test sets, evaluation, calibration, governance, and the Aria copilot — supports one product motion: **turn a flagged production response into a measured candidate with an attributable deployment decision**. The canonical prompt-refinement path below has two human decisions: verification and review/apply. Other asset families implement subsets of the lifecycle and must not be assumed to share its aliases, gates, or rollback semantics.
 
 ```mermaid
 flowchart LR
     trace["Production trace<br/>+ flagged feedback"]:::src
     verify["① Verify<br/>human · 1 click"]:::human
     diagnose["② Diagnose<br/>LLM root-cause"]:::auto
-    optimize["③ Optimize<br/>diagnosis-selected optimizer"]:::auto
+    optimize["③ Optimize<br/>policy-selected optimizer"]:::auto
     evaluate["④ Evaluate<br/>judges + per-dimension gate"]:::auto
-    approve["⑤ Approve<br/>human · diff + eval"]:::human
+    approve["⑤ Apply decision<br/>operator · diff + eval"]:::human
     promote["⑥ Promote<br/>audited alias rotation"]:::ship
 
     trace --> verify --> diagnose --> optimize --> evaluate --> approve --> promote
@@ -33,23 +33,23 @@ flowchart LR
 |---|---|---|
 | **① Verify** | A human confirms the flagged trace is actionable — one click. | Platform |
 | **② Diagnose** | An LLM identifies the root cause from the trace and its evidence. | Calibration |
-| **③ Optimize** | A **diagnosis-selected optimizer** proposes a fix for the prompt or skill (the optimizer is chosen from the failure's shape, not hand-picked). | Calibration |
-| **④ Evaluate** | The candidate is scored against a pinned test set with **per-dimension regression gates** — nothing advances on a regression. | Evaluation · Test sets |
-| **⑤ Approve** | A human reviews the diff, the eval comparison, and the root-cause summary, then approves or rejects. | Prompts |
-| **⑥ Promote** | The live alias is rotated atomically and **audited**; an explicit rollback restores the exact previously-live version. | Prompts · Workflows |
+| **③ Optimize** | A policy-selected optimizer proposes a fix. A manual pin or agent override wins; diagnosis heuristics choose among the remaining live paths. | Calibration |
+| **④ Evaluate** | The candidate is scored against a pinned test set with per-dimension regression checks. These govern advancement inside the refinement job; registry gate verdicts elsewhere remain advisory. | Evaluation · Test sets |
+| **⑤ Apply decision** | An operator reviews the diff, evaluation comparison, and root-cause summary, then either invokes Apply or leaves the candidate unapplied. This is not a separate vote/quorum/reject API. | Prompts |
+| **⑥ Promote** | On the canonical prompt path, Apply rotates the live alias and records the exact outgoing target for audited rollback. Other assets retain their own release semantics. | Prompts |
 
 ## Why it matters
 
-Most tools own only one arc of this loop — an observability platform, a visual builder, or an evaluation harness. CALIBER's bet is owning the **whole circuit**, self-hosted and MLflow-native, so improvement is *governed end-to-end* rather than stitched together from separate products. That closed, eval-gated, audited loop — across a unified set of artifacts — is what distinguishes it. See [how CALIBER compares to the alternatives](competitive-analysis.md) and [where it is headed](roadmap.md).
+Most tools own only one arc — observability, visual building, or evaluation. CALIBER's bet is integrating the full prompt-refinement circuit with a broader asset inventory, self-hosted and MLflow-integrated. Its differentiator is that connected evidence/review/audit path, not a claim that every asset shares one unbypassable lifecycle. See [how CALIBER compares to the alternatives](m-17-competitive-analysis.md) and [where it is headed](m-18-roadmap.md).
 
 ## How the rest of the docs map to the loop
 
 The loop runs over the artifacts the following sections document:
 
-- **Authoring** — the artifacts it improves and promotes: [Prompts](02-prompts/architecture.md), [Tools](03-tools/architecture.md), [Skills](04-skills/architecture.md), [MCP servers](05-mcp/architecture.md), and [Workflows](06-workflows/architecture.md).
-- **Data & knowledge** — what those artifacts run against: the [Object store](07-object-store/architecture.md) and [Knowledge bases](08-knowledge-bases/architecture.md).
-- **Quality & trust** — how a fix is *proven*: [Test sets](11-test-sets/architecture.md) provide the evidence, [Evaluation](14-evaluation/architecture.md) scores it, and [Calibration](15-calibration/architecture.md) is the optimizer engine behind stage ③.
-- **Operations** — how it's watched and governed once live: [Observability](09-observability/architecture.md), [Gateways](10-gateways/architecture.md), and the [QA plan](13-qa-plan/architecture.md).
-- **Aria** — the [embedded copilot](12-assistant/architecture.md) that can drive parts of this loop under permission.
+- **Authoring** — the artifacts it inventories, authors, tests, and, on supported paths, improves or promotes: [Prompts](m-02-prompts.md), [Tools](m-03-tools.md), [Skills](m-04-skills.md), [MCP servers](m-05-mcp.md), and [Workflows](m-06-workflows.md).
+- **Data & knowledge** — what those artifacts run against: the [Object store](m-07-object-store.md) and [Knowledge bases](m-08-knowledge-bases.md).
+- **Quality & trust** — how candidate evidence is produced: [Test sets](m-11-test-sets.md) provide examples, [Evaluation](m-14-evaluation.md) scores supported targets, and [Calibration](m-15-calibration.md) documents prompt/skill optimization plus the separate workflow and tool loops.
+- **Operations** — how it's watched and governed once live: [Observability](m-09-observability.md), [Gateways](m-10-gateways.md), and the [QA plan](m-13-qa-plan.md).
+- **Aria** — the [embedded copilot](m-12-assistant.md) that can drive parts of this loop under permission.
 
-> **New here?** Start with the [Platform](01-caliber/architecture.md) overview for how CALIBER runs (an MLflow plugin), then this page for *what* it does, then dip into whichever artifact you're working with.
+> **New here?** Start with the [Platform](m-01-platform.md) overview for the embedded and standalone topologies, then this page for *what* the canonical refinement path does, then dip into whichever artifact you're working with.

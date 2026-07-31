@@ -21,6 +21,7 @@ import hmac
 import json
 import threading
 from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -741,13 +742,15 @@ async def test_a_dead_letter_is_persisted_when_a_session_factory_is_bound(
 
 
 @pytest.mark.asyncio
-async def test_a_failing_persist_does_not_break_delivery(session_factory) -> None:
-    """The dispatcher has already failed to deliver an event; raising while recording
-    that would lose both the event and the record of it."""
+async def test_a_failing_accept_persist_refuses_delivery(session_factory) -> None:
+    """Sending without a durable obligation can turn a later crash into silent loss."""
 
-    def _always_500(req: Any, timeout: float = 0) -> _FakeResponse:
-        del req, timeout
-        return _FakeResponse(status=500)
+    requests: list[Any] = []
+
+    def _capture(req: Any, timeout: float = 0) -> _FakeResponse:
+        del timeout
+        requests.append(req)
+        return _FakeResponse(status=200)
 
     def _broken_factory():
         raise RuntimeError("database is gone")
@@ -762,23 +765,25 @@ async def test_a_failing_persist_does_not_break_delivery(session_factory) -> Non
         sleep=lambda _seconds: None,
         session_factory=_broken_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _always_500):
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _capture):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
             bus.publish({"type": "run.completed", "id": "R-1"})
             deadline = asyncio.get_running_loop().time() + 5.0
             while (
-                dispatcher.dead_letters()["count"] == 0
+                dispatcher.dead_letters()["accept_rejected"] == 0
                 and asyncio.get_running_loop().time() < deadline
             ):
                 await asyncio.sleep(0.01)
         finally:
             await dispatcher.stop()
 
-    # The in-memory record still holds it, so the failure is observable even with the
-    # durable store unavailable.
-    assert dispatcher.dead_letters()["count"] == 1
+    report = dispatcher.dead_letters()
+    assert requests == [], "an event with no durable accept record must not be sent"
+    assert report["accept_rejected"] == 1
+    assert report["count"] == 1
+    assert report["entries"][0]["kind"] == "accept_failed"
 
 
 def test_the_report_exposes_pending_depth_and_durability() -> None:
@@ -922,6 +927,82 @@ async def test_stopping_records_the_event_that_was_in_flight(session_factory) ->
 
 
 @pytest.mark.asyncio
+async def test_stop_prevents_detached_sender_from_posting_later_targets_after_restart() -> None:
+    """Cancelling ``to_thread`` must not let the old generation keep sending.
+
+    The first target is held inside ``urlopen`` while ``stop()`` records both targets as
+    abandoned. The same dispatcher is then restarted and delivers a new event before the
+    old POST returns. Releasing the old worker must neither start its second target nor
+    settle the new generation's in-flight map.
+    """
+    old_entered = threading.Event()
+    old_release = threading.Event()
+    old_worker_done = threading.Event()
+    calls: list[tuple[str, str]] = []
+    calls_lock = threading.Lock()
+
+    def _generation_aware_urlopen(req: Any, timeout: float = 0) -> _FakeResponse:
+        del timeout
+        payload = json.loads(req.data.decode("utf-8"))
+        call = (str(payload["id"]), req.full_url)
+        with calls_lock:
+            calls.append(call)
+        if call == ("old", "https://a.example/hook"):
+            old_entered.set()
+            old_release.wait(timeout=5.0)
+        return _FakeResponse(status=200)
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://a.example/hook", "https://b.example/hook"],
+        secret="topsecret",
+        backoff_seconds=0.0,
+        sleep=lambda _seconds: None,
+    )
+    real_post_to_all = dispatcher._post_to_all
+
+    def _observe_worker_completion(event: dict[str, object], *args: Any) -> None:
+        try:
+            real_post_to_all(event, *args)
+        finally:
+            if event.get("id") == "old":
+                old_worker_done.set()
+
+    dispatcher._post_to_all = _observe_worker_completion  # type: ignore[method-assign]
+    with patch("caliber.events.webhooks.urllib.request.urlopen", _generation_aware_urlopen):
+        await dispatcher.start()
+        await _await_subscription(bus)
+        bus.publish({"type": "run.completed", "id": "old"})
+        await _await_condition(old_entered.is_set, timeout=5.0)
+        assert old_entered.is_set(), "the old generation never entered its first POST"
+
+        await dispatcher.stop()
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "new"})
+            await _await_condition(
+                lambda: (
+                    {url for event_id, url in calls if event_id == "new"}
+                    == {"https://a.example/hook", "https://b.example/hook"}
+                ),
+                timeout=5.0,
+            )
+            old_release.set()
+            await _await_condition(old_worker_done.is_set, timeout=5.0)
+            assert old_worker_done.is_set(), "detached old sender did not finish"
+        finally:
+            old_release.set()
+            await dispatcher.stop()
+
+    old_calls = [url for event_id, url in calls if event_id == "old"]
+    new_calls = [url for event_id, url in calls if event_id == "new"]
+    assert old_calls == ["https://a.example/hook"]
+    assert new_calls == ["https://a.example/hook", "https://b.example/hook"]
+
+
+@pytest.mark.asyncio
 async def test_a_target_is_recorded_once_when_delivery_and_shutdown_race(
     session_factory,
 ) -> None:
@@ -1034,19 +1115,28 @@ async def test_an_abruptly_killed_process_leaves_a_recoverable_record(
         with session_factory() as session:
             assert session.query(CaliberWebhookAcceptedEvent).count() == 1
 
-        # Abandon without stop(): the process "died" here.
-        doomed._task.cancel() if doomed._task else None
-        doomed._delivery_task.cancel() if doomed._delivery_task else None
-        release.set()
+        # Abandon without stop(): cancel the process-owned tasks but keep the sender thread
+        # blocked. A real crashed process cannot renew its lease, so expire it explicitly.
+        tasks = [task for task in (doomed._task, doomed._delivery_task, doomed._lease_task) if task]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        with session_factory() as session:
+            row = session.query(CaliberWebhookAcceptedEvent).one()
+            row.lease_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+                seconds=1
+            )
+            session.commit()
 
-    # A fresh process starts against the same database.
-    survivor = WebhookDispatcher(
-        bus=EventBus(),
-        urls=["https://receiver.example/hook"],
-        secret="topsecret",
-        session_factory=session_factory,
-    )
-    recovered = survivor.recover_accepted_events()
+        # A fresh process starts against the same database and claims only the expired row.
+        survivor = WebhookDispatcher(
+            bus=EventBus(),
+            urls=["https://receiver.example/hook"],
+            secret="topsecret",
+            session_factory=session_factory,
+        )
+        recovered = survivor.recover_accepted_events()
+        release.set()
 
     assert recovered == 1, "the accepted event was not recovered after an abrupt loss"
     with session_factory() as session:
@@ -1055,6 +1145,298 @@ async def test_an_abruptly_killed_process_leaves_a_recoverable_record(
         # report the same loss again.
         assert [r.kind for r in rows] == ["shutdown"]
         assert rows[0].event and rows[0].event.get("id") == "killed-mid-flight"
+        assert session.query(CaliberWebhookAcceptedEvent).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_start_recovers_expired_accepts_after_all_urls_are_removed(
+    session_factory,
+) -> None:
+    """Current dispatch configuration cannot erase obligations accepted previously."""
+    from caliber.db.models import CaliberWebhookAcceptedEvent, CaliberWebhookDeadLetter
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with session_factory() as session:
+        session.add(
+            CaliberWebhookAcceptedEvent(
+                accepted_id="accepted-before-url-removal",
+                url="https://retired.example/hook",
+                event_type="run.completed",
+                event={"type": "run.completed", "id": "orphaned-config"},
+                accepted_at=now - timedelta(minutes=1),
+                owner_id="dead-replica",
+                lease_expires_at=now - timedelta(seconds=1),
+            )
+        )
+        session.commit()
+
+    dispatcher = WebhookDispatcher(
+        bus=EventBus(),
+        urls=[],
+        secret="",
+        session_factory=session_factory,
+        owner_id="replacement-replica",
+    )
+    await dispatcher.start()
+    try:
+        assert dispatcher._task is None, "no URLs should still leave live dispatch disabled"
+        assert dispatcher._lease_task is not None, "durable recovery is configuration-independent"
+        with session_factory() as session:
+            assert session.query(CaliberWebhookAcceptedEvent).count() == 0
+            recovered = session.query(CaliberWebhookDeadLetter).one()
+            assert recovered.kind == "shutdown"
+            assert recovered.url == "https://retired.example/hook"
+            assert recovered.event and recovered.event.get("id") == "orphaned-config"
+    finally:
+        await dispatcher.stop()
+    assert dispatcher._lease_task is None
+
+
+@pytest.mark.asyncio
+async def test_no_url_recovery_continues_until_a_foreign_live_lease_expires(
+    session_factory,
+) -> None:
+    """Disabling all current targets must not require another restart for recovery."""
+    from caliber.db.models import CaliberWebhookAcceptedEvent, CaliberWebhookDeadLetter
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with session_factory() as session:
+        session.add(
+            CaliberWebhookAcceptedEvent(
+                accepted_id="live-when-zero-url-replica-started",
+                url="https://retired.example/hook",
+                event_type="run.completed",
+                event={"type": "run.completed", "id": "expires-after-start"},
+                accepted_at=now,
+                owner_id="old-still-live-replica",
+                lease_expires_at=now + timedelta(seconds=0.2),
+            )
+        )
+        session.commit()
+
+    dispatcher = WebhookDispatcher(
+        bus=EventBus(),
+        urls=[],
+        secret="",
+        session_factory=session_factory,
+        owner_id="recovery-only-replica",
+        accept_lease_seconds=0.12,
+    )
+    await dispatcher.start()
+    try:
+        assert dispatcher._task is None
+        assert dispatcher._delivery_task is None
+        assert dispatcher._lease_task is not None
+        with session_factory() as session:
+            assert session.query(CaliberWebhookAcceptedEvent).count() == 1
+            assert session.query(CaliberWebhookDeadLetter).count() == 0
+        await _await_condition(
+            lambda: dispatcher.dead_letters()["count"] == 1,
+            timeout=3.0,
+        )
+    finally:
+        await dispatcher.stop()
+
+    assert dispatcher._lease_task is None
+    with session_factory() as session:
+        assert session.query(CaliberWebhookAcceptedEvent).count() == 0
+        recovered = session.query(CaliberWebhookDeadLetter).one()
+        assert recovered.kind == "shutdown"
+        assert recovered.event and recovered.event.get("id") == "expires-after-start"
+
+
+def test_a_live_replicas_accept_row_is_not_swept(session_factory) -> None:
+    """Starting replica B must not dead-letter work replica A is still delivering."""
+    from caliber.db.models import CaliberWebhookAcceptedEvent, CaliberWebhookDeadLetter
+
+    owner = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+        owner_id="replica-a",
+        accept_lease_seconds=60.0,
+    )
+    assert owner._persist_accepted({"type": "run.completed", "id": "live"}) is True
+
+    contender = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+        owner_id="replica-b",
+    )
+    assert contender.recover_accepted_events() == 0
+
+    with session_factory() as session:
+        row = session.query(CaliberWebhookAcceptedEvent).one()
+        assert row.owner_id == "replica-a"
+        assert row.lease_expires_at > datetime.now(timezone.utc).replace(tzinfo=None)
+        assert session.query(CaliberWebhookDeadLetter).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_a_running_replica_recovers_a_lease_that_expires_after_start(
+    session_factory,
+) -> None:
+    """Failover must not require a third replica restart after the owner crashes."""
+    from caliber.db.models import CaliberWebhookAcceptedEvent, CaliberWebhookDeadLetter
+
+    owner = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+        owner_id="replica-a",
+        accept_lease_seconds=0.3,
+    )
+    assert owner._persist_accepted({"type": "run.completed", "id": "later-expiry"})
+
+    survivor = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+        owner_id="replica-b",
+        accept_lease_seconds=0.15,
+    )
+    await survivor.start()
+    try:
+        with session_factory() as session:
+            assert session.query(CaliberWebhookAcceptedEvent).count() == 1
+            assert session.query(CaliberWebhookDeadLetter).count() == 0
+        await _await_condition(
+            lambda: survivor.dead_letters()["count"] == 1,
+            timeout=3.0,
+        )
+    finally:
+        await survivor.stop()
+
+    with session_factory() as session:
+        assert session.query(CaliberWebhookAcceptedEvent).count() == 0
+        assert session.query(CaliberWebhookDeadLetter).count() == 1
+
+
+def test_failed_recovery_persistence_keeps_the_accept_row(session_factory) -> None:
+    """The dead letter must commit before recovery consumes its only durable evidence."""
+    from caliber.db.models import CaliberWebhookAcceptedEvent, CaliberWebhookDeadLetter
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with session_factory() as session:
+        session.add(
+            CaliberWebhookAcceptedEvent(
+                accepted_id="expired-accept",
+                url="https://receiver.example/hook",
+                event_type="run.completed",
+                event={"type": "run.completed", "id": "expired"},
+                accepted_at=now - timedelta(minutes=1),
+                owner_id="dead-replica",
+                lease_expires_at=now - timedelta(seconds=1),
+            )
+        )
+        session.commit()
+
+    class _FailingDeadLetterSession:
+        def __init__(self) -> None:
+            self._inner = session_factory()
+
+        def __enter__(self) -> Any:
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *args: Any) -> Any:
+            return self._inner.__exit__(*args)
+
+        def add(self, instance: Any) -> None:
+            if isinstance(instance, CaliberWebhookDeadLetter):
+                raise RuntimeError("dead-letter storage failed")
+            self._inner.add(instance)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._inner, name)
+
+    dispatcher = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=_FailingDeadLetterSession,
+        owner_id="recovery-replica",
+        accept_lease_seconds=1.0,
+    )
+    assert dispatcher.recover_accepted_events() == 0
+
+    with session_factory() as session:
+        row = session.get(CaliberWebhookAcceptedEvent, "expired-accept")
+        assert row is not None, "a failed dead-letter insert must not consume the accept row"
+        assert row.owner_id == "recovery-replica"
+        assert session.query(CaliberWebhookDeadLetter).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_successful_delivery_prunes_accept_markers(session_factory) -> None:
+    """Settled events cannot leave one marker and lease id per delivery forever."""
+    from caliber.db.models import CaliberWebhookAcceptedEvent
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+    )
+    with patch(
+        "caliber.events.webhooks.urllib.request.urlopen",
+        lambda req, timeout=0: _FakeResponse(status=200),
+    ):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish({"type": "run.completed", "id": "settled"})
+            await _await_condition(
+                lambda: (
+                    dispatcher.dead_letters()["delivered"] == 1 and not dispatcher._event_markers
+                )
+            )
+        finally:
+            await dispatcher.stop()
+
+    assert dispatcher._event_markers == {}
+    assert dispatcher._marker_targets == {}
+    assert dispatcher._owned_accept_ids == set()
+    with session_factory() as session:
+        assert session.query(CaliberWebhookAcceptedEvent).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_republishing_the_same_event_object_tracks_each_occurrence(session_factory) -> None:
+    """Object identity reuse cannot overwrite one occurrence's durable marker."""
+    from caliber.db.models import CaliberWebhookAcceptedEvent
+
+    bus = EventBus()
+    dispatcher = WebhookDispatcher(
+        bus=bus,
+        urls=["https://receiver.example/hook"],
+        secret="topsecret",
+        session_factory=session_factory,
+    )
+    event = {"type": "run.completed", "id": "same-object"}
+    with patch(
+        "caliber.events.webhooks.urllib.request.urlopen",
+        lambda req, timeout=0: _FakeResponse(status=200),
+    ):
+        await dispatcher.start()
+        try:
+            await _await_subscription(bus)
+            bus.publish(event)
+            bus.publish(event)
+            await _await_condition(lambda: dispatcher.dead_letters()["delivered"] == 2)
+        finally:
+            await dispatcher.stop()
+
+    assert dispatcher._event_markers == {}
+    assert dispatcher._marker_targets == {}
+    assert dispatcher._owned_accept_ids == set()
+    with session_factory() as session:
         assert session.query(CaliberWebhookAcceptedEvent).count() == 0
 
 

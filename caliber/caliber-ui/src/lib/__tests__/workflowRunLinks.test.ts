@@ -12,13 +12,23 @@ describe("workflowRunLinks", () => {
 
   it("builds an absolute workflow run URL when an origin is provided", () => {
     expect(workflowRunUrl("WR-123", "https://caliber.example")).toBe(
-      "https://caliber.example/workflow-runs/WR-123",
+      "https://caliber.example/caliber/workflow-runs/WR-123",
     );
+  });
+
+  it("includes the MLflow static prefix in copied workflow run URLs", () => {
+    window.__CALIBER_STATIC_PREFIX__ = "/mlflow/";
+
+    expect(workflowRunUrl("WR-123", "https://caliber.example")).toBe(
+      "https://caliber.example/mlflow/caliber/workflow-runs/WR-123",
+    );
+
+    window.__CALIBER_STATIC_PREFIX__ = undefined;
   });
 
   it("falls back to the relative path when the origin is invalid", () => {
     expect(workflowRunUrl("WR-123", "not a valid origin")).toBe(
-      "/workflow-runs/WR-123",
+      "/caliber/workflow-runs/WR-123",
     );
   });
 });

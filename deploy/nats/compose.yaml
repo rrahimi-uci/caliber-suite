@@ -16,8 +16,8 @@ services:
     profiles: ["nats"]
     command: ["-js", "-m", "8222"]
     ports:
-      - "${NATS_CLIENT_PORT:-4222}:4222"   # client connections
-      - "${NATS_MONITOR_PORT:-8222}:8222"  # http monitoring
+      - "127.0.0.1:${NATS_CLIENT_PORT:-4222}:4222"   # client connections
+      - "127.0.0.1:${NATS_MONITOR_PORT:-8222}:8222"  # http monitoring
     volumes:
       - caliber_nats_data:/data
     restart: unless-stopped

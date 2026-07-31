@@ -34,18 +34,10 @@ include:
   #   caliber        : standalone CALIBER service (:5001) — serves its own SPA at
   #                    /caliber and talks to mlflow over HTTP
   - mlflow/compose.yaml
-  # MLflow AI Gateway (LLM gateway) — fronts the LLM providers on :5002. Uses
-  # the suite-root .env for the provider keys it substitutes into its endpoint
-  # config (same include env_file rationale as the CALIBER service below).
-  - path: mlflow-gateway/compose.yaml
-    env_file:
-      - ../.env
-  # Interpolate the CALIBER service from the suite-root .env (app settings +
-  # secrets) so CALIBER_LLM_PROVIDER and the API keys resolve even on a bare
-  # `docker compose -f deploy/compose.yaml up` with no --env-file. Docker does
-  # NOT propagate the auto-discovered root .env into `include`d files — only an
-  # explicit env_file is — so without this an included service silently falls
-  # back to its ${VAR:-default} (e.g. CALIBER_LLM_PROVIDER → fake).
-  - path: caliber/compose.yaml
-    env_file:
-      - ../.env
+  # MLflow AI Gateway (LLM gateway) — fronts the LLM providers on :5002.
+  - mlflow-gateway/compose.yaml
+  # The launch helpers pass suite-root .env through `--env-file` when it exists;
+  # Compose also auto-discovers it for a direct root invocation. Do not make the
+  # include itself require that ignored file: a fresh clone must still resolve to
+  # the documented fake-provider defaults and reach `make start` successfully.
+  - caliber/compose.yaml

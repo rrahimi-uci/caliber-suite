@@ -45,11 +45,10 @@ SCENES = [
         "duration": 30,
         "narration": (
             "CALIBER — Contextual Adaptive Lifecycle for Intelligent Build, "
-            "Evaluation, and Refinement. An MLflow-native control plane for "
+            "Evaluation, and Refinement. An MLflow-integrated control plane for "
             "trusted agentic workflows: design, verify, calibrate, evaluate, "
-            "publish, and observe every agent resource from one same-origin "
-            "platform — then keep learning from real evidence and refining "
-            "every asset across its lifecycle."
+            "publish, and observe agent resources from one browser platform — "
+            "then use real evidence to guide each asset's supported lifecycle."
         ),
     },
     {
@@ -101,11 +100,12 @@ SCENES = [
         "title": "Introducing CALIBER",
         "duration": 28,
         "narration": (
-            "CALIBER is one same-origin control plane for agentic workflows. "
-            "As an MLflow application plugin, it mounts its interface and "
-            "API on the same server as MLflow, so composing, measuring, "
-            "and governing every agent resource happens against one identity, "
-            "one store, and one trace backend. Compose, measure, govern."
+            "CALIBER is one ASGI control-plane codebase for agentic workflows. "
+            "It can mount inside MLflow for a same-process development loop, "
+            "or run as a standalone service that reaches vanilla MLflow over "
+            "HTTP. In both modes, its interface unifies authoring, evidence, "
+            "and governance while CALIBER and MLflow retain explicit state "
+            "ownership. Compose, measure, govern."
         ),
     },
     {
@@ -114,11 +114,12 @@ SCENES = [
         "duration": 28,
         "narration": (
             "Build composes; the Library supplies. Prompts, tools, skills, "
-            "MCP servers, knowledge bases, and workflows are each "
-            "first-class, versioned assets. Every one has its own workspace — "
-            "pytest for an asset — with a status header, stage tabs, and "
-            "durable test runs, so you develop and verify it in isolation "
-            "before a workflow ever uses it."
+            "MCP servers, knowledge bases, and workflows are first-class "
+            "registered assets with asset-specific versioning, testing, "
+            "aliases, and rollback. Their workspaces expose the evidence each "
+            "family actually records, so you can inspect and verify an asset "
+            "before a workflow uses it without pretending every family has "
+            "one uniform lifecycle."
         ),
     },
     {
@@ -152,15 +153,14 @@ SCENES = [
         "duration": 34,
         "narration": (
             "Measurement comes in two layers. Evaluation runs a test set "
-            "through scorers and compares runs. Calibration goes further: it "
-            "searches for a better version of an asset — using optimizers like "
-            "Meta-Prompt, GEPA, or DSPy — and gates promotion on a measured "
-            "score against the held-out set. Candidates that clear the gate "
-            "land at candidate-ready and move live only through an explicit "
-            "operator apply. Never auto-promoted. This is the heart of "
-            "CALIBER: a closed learning loop that refines each asset against "
-            "real evidence, so quality compounds over its lifecycle instead "
-            "of drifting."
+            "through scorers and compares runs. The prompt refinement path can "
+            "search for a better candidate using provider paths such as "
+            "Meta-Prompt, GEPA, or DSPy, then apply per-dimension regression "
+            "checks before candidate-ready. Moving that candidate live still "
+            "requires an explicit operator action; registry gate verdicts "
+            "outside the job are advisory. Tools use deterministic, "
+            "revision-fenced fixture calibration instead. This is CALIBER's "
+            "evidence loop: measured proposals with explicit human authority."
         ),
     },
     {
@@ -207,12 +207,13 @@ SCENES = [
         "title": "Governance",
         "duration": 28,
         "narration": (
-            "One gate governs every change, whether a person makes it or Aria "
-            "does. Validate, test, approve, publish — there is no copilot "
-            "bypass. RBAC controls who can advance each gate, the audit "
-            "trail records actor, action, and entity, and artifacts live in "
-            "object storage. Workflow runtime approvals govern live execution "
-            "separately from offline artifact promotion."
+            "Governance follows the asset's real lifecycle rather than one "
+            "fictional universal gate. Aria uses the same RBAC, permission "
+            "checks, sandbox decisions, and audit trail as human-driven "
+            "routes; it does not gain a separate authorization bypass. "
+            "Validation, tests, explicit apply or publish actions, and alias "
+            "rollback exist where the asset implements them. Workflow runtime "
+            "approvals remain separate from offline artifact promotion."
         ),
     },
     {
@@ -220,16 +221,16 @@ SCENES = [
         "title": "Why Different: Unified & Closed-Loop",
         "duration": 30,
         "narration": (
-            "CALIBER collapses the patchwork into one same-origin control "
-            "plane. It mounts its interface and API on the same server as "
-            "MLflow, as an application plugin: one identity, one store, one "
-            "trace backend. Prompts, tools, skills, knowledge bases, and "
-            "workflows are each first-class, versioned assets with their own "
-            "pytest-style workspace. Then the signature difference, a closed "
-            "loop. It evaluates, searches for a better version with optimizers "
-            "like Meta-Prompt, GEPA, and DSPy, and gates promotion on a "
-            "measured score against a held-out set. It does not just measure. "
-            "It closes the loop."
+            "CALIBER collapses the patchwork into one control-plane interface, "
+            "deployed either inside MLflow or beside it. CALIBER metadata and "
+            "MLflow evidence keep explicit owners, while prompts, tools, skills, "
+            "knowledge bases, and workflows share one inventory with "
+            "asset-specific lifecycle controls. Then the signature difference: "
+            "an integrated prompt-refinement path that evaluates, searches with "
+            "provider paths such as Meta-Prompt, GEPA, and DSPy, records "
+            "regression evidence, and requires explicit apply. It connects "
+            "measurement to action without overstating one lifecycle for every "
+            "asset."
         ),
     },
     {
@@ -237,16 +238,15 @@ SCENES = [
         "title": "Why Different: Open & Governed",
         "duration": 30,
         "narration": (
-            "One gate governs every change, validate, test, approve, publish, "
-            "whether a person makes it or the Aria copilot does. There is no "
-            "copilot bypass. RBAC scopes who advances each gate, the audit "
-            "trail records actor, action, and entity, and artifacts live in "
-            "object storage. That matters: only twenty-eight percent of "
+            "Asset-specific controls govern each change whether a person "
+            "initiates it or Aria does. The copilot uses the same RBAC and "
+            "permission boundaries; the audit trail records actor, action, "
+            "and entity. That matters: only twenty-eight percent of "
             "organizations can trace an agent's actions back to a human, and "
             "sixty-one percent of executives now require a human in the loop. "
             "With EU AI Act high-risk obligations landing August 2026, and "
-            "CALIBER open source under Apache 2.0, your data and lineage stay "
-            "home."
+            "CALIBER open source under Apache 2.0, your data and lineage can "
+            "stay in infrastructure you control."
         ),
     },
     {
@@ -254,11 +254,12 @@ SCENES = [
         "title": "Vision",
         "duration": 30,
         "narration": (
-            "CALIBER is open source and MLflow-native. Native to MLflow. "
-            "Agentic with Aria's permissioned tool loop. Measured by "
-            "evaluation and calibration. Refined by a contextual, adaptive "
-            "lifecycle that learns from evidence and improves every asset over "
-            "time. Governed by explicit approval. Observable through tracing. "
+            "CALIBER is open source and MLflow-integrated, deployable embedded "
+            "or standalone. Agentic with Aria's permissioned tool loop. "
+            "Measured by evaluation and calibration. Refined through "
+            "asset-specific lifecycles that preserve evidence and human "
+            "authority. Governed by explicit permissions and actions. "
+            "Observable through tracing. "
             "Apache 2 licensed, with no vendor lock-in. A contextual, adaptive "
             "lifecycle for intelligent build, evaluation, and refinement — "
             "agentic workflows you can measure, refine, govern, and trust."

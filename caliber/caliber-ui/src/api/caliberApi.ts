@@ -251,7 +251,12 @@ import type {
   KnowledgeQueryResult,
   KnowledgeSourceSelection,
 } from "./knowledgeTypes";
-import { getCaliberUserHeader } from "@/auth/localAuth";
+import {
+  clearLocalAuthSession,
+  getAuthEpoch,
+  getCaliberUserHeader,
+  getStoredAuthSession,
+} from "@/auth/localAuth";
 import { getActiveProjectId } from "@/workspace/activeWorkspace";
 
 /**
@@ -299,6 +304,15 @@ interface RequestOptions {
    * chat completions or run launches are never cut off). Pass `0` to disable.
    */
   timeoutMs?: number;
+  /** Optional response media type for authenticated non-JSON reads. */
+  accept?: string;
+  /**
+   * Login/logout responses mutate the shared HttpOnly cookie, and an auth-session
+   * reconciliation intentionally crosses local display boundaries. Their callers must
+   * learn that a 2xx completed even if another tab changed display state meanwhile.
+   * Ordinary requests reject successful stale responses by default.
+   */
+  allowAuthBoundaryChangeOnSuccess?: boolean;
 }
 
 const WRITE_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
@@ -332,16 +346,182 @@ const PROJECT_HEADER = "X-CALIBER-Project";
 let csrfState: { enabled: boolean; token: string | null } | null = null;
 let inflightBootstrap: Promise<CSRFTokenResponse> | null = null;
 
-async function fetchCsrfToken(): Promise<CSRFTokenResponse> {
-  const response = await fetch(`${API_BASE}/csrf`, {
-    method: "GET",
-    credentials: "same-origin",
-  });
-  if (!response.ok) {
-    throw new ApiError(response.status, "csrf bootstrap failed", null);
+function authGeneration(): string | null {
+  return getStoredAuthSession()?.generation ?? null;
+}
+
+function authBoundary(): string {
+  return `${getAuthEpoch()}\u0000${authGeneration() ?? ""}`;
+}
+
+function requireSameAuthBoundary(expected: string, path: string): void {
+  if (authBoundary() !== expected) {
+    throw new ApiError(
+      409,
+      `authentication session changed while ${path} was in flight; retry the request`,
+      null,
+    );
   }
-  const json = (await response.json()) as Envelope<CSRFTokenResponse>;
-  return json.data;
+}
+
+class RequestLifecycle {
+  readonly signal: AbortSignal;
+
+  private readonly controller = new AbortController();
+  private readonly deadline: number | null;
+  private readonly callerSignal?: AbortSignal;
+  private readonly callerAbort: () => void;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private timedOut = false;
+  private finished = false;
+
+  constructor(
+    private readonly path: string,
+    options: RequestOptions,
+    method: string,
+  ) {
+    const timeout = options.timeoutMs ?? (method === "GET" ? readTimeoutMs : 0);
+    this.deadline = timeout > 0 ? performance.now() + timeout : null;
+    this.signal = this.controller.signal;
+    this.callerSignal = options.signal;
+    this.callerAbort = () => {
+      const reason = this.callerSignal?.reason;
+      this.controller.abort(
+        reason instanceof ApiError
+          ? reason
+          : new DOMException("aborted", "AbortError"),
+      );
+    };
+
+    if (this.callerSignal?.aborted) {
+      this.callerAbort();
+    } else if (this.callerSignal) {
+      this.callerSignal.addEventListener("abort", this.callerAbort, {
+        once: true,
+      });
+    }
+    if (timeout > 0) {
+      this.timer = setTimeout(() => {
+        this.timedOut = true;
+        this.controller.abort(
+          new ApiError(0, `request to ${this.path} timed out`, null),
+        );
+      }, timeout);
+    }
+  }
+
+  remainingMs(): number | undefined {
+    if (this.deadline === null) return undefined;
+    const remaining = Math.ceil(this.deadline - performance.now());
+    if (remaining <= 0) {
+      this.timedOut = true;
+      this.controller.abort(
+        new ApiError(0, `request to ${this.path} timed out`, null),
+      );
+      throw this.abortError();
+    }
+    return remaining;
+  }
+
+  /** Race headers or body consumption against the same request-wide signal. */
+  wait<T>(start: () => Promise<T>): Promise<T> {
+    if (this.signal.aborted) return Promise.reject(this.abortError());
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const settle = (
+        callback: (value: T | PromiseLike<T>) => void,
+        value: T | PromiseLike<T>,
+      ): void => {
+        if (settled) return;
+        settled = true;
+        this.signal.removeEventListener("abort", onAbort);
+        callback(value);
+      };
+      const settleError = (error: unknown): void => {
+        if (settled) return;
+        settled = true;
+        this.signal.removeEventListener("abort", onAbort);
+        reject(this.signal.aborted ? this.abortError() : error);
+      };
+      const onAbort = (): void => settleError(this.abortError());
+      this.signal.addEventListener("abort", onAbort, { once: true });
+
+      let pending: Promise<T>;
+      try {
+        pending = start();
+      } catch (error) {
+        settleError(error);
+        return;
+      }
+      pending.then(
+        (value) => settle(resolve, value),
+        (error: unknown) => settleError(error),
+      );
+    });
+  }
+
+  /**
+   * Release timers/listeners and abort any unread response branch. Aborting after a
+   * fully consumed response is harmless; doing it unconditionally closes clone,
+   * retry, malformed-body, and early-throw paths that would otherwise retain a stream.
+   */
+  finish(): void {
+    if (this.finished) return;
+    this.finished = true;
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.callerSignal?.removeEventListener("abort", this.callerAbort);
+    if (!this.signal.aborted) this.controller.abort();
+  }
+
+  private abortError(): Error {
+    if (this.timedOut) {
+      return new ApiError(0, `request to ${this.path} timed out`, null);
+    }
+    const reason = this.signal.reason;
+    return reason instanceof ApiError && reason.status === 0
+      ? reason
+      : new DOMException("aborted", "AbortError");
+  }
+}
+
+function rethrowRequestTermination(error: unknown): void {
+  if (error instanceof ApiError && error.status === 0) throw error;
+  if (error instanceof DOMException && error.name === "AbortError") throw error;
+}
+
+function clearSessionOnUnauthorized(
+  response: Response,
+  requestAuthBoundary: string,
+): Response {
+  // An older request can complete after the user has signed in again. Its 401 belongs
+  // to the old cookie and must not clear the newer display state/query-cache boundary.
+  // Compare the epoch as well as the generation: reconciliation can intentionally
+  // preserve a generation while confirming the still-live HttpOnly cookie.
+  if (response.status === 401 && authBoundary() === requestAuthBoundary) {
+    clearLocalAuthSession();
+  }
+  return response;
+}
+
+async function fetchCsrfToken(
+  timeoutMs?: number,
+  signal?: AbortSignal,
+): Promise<CSRFTokenResponse> {
+  const options: RequestOptions = { method: "GET", timeoutMs };
+  if (signal) options.signal = signal;
+  const lifecycle = new RequestLifecycle("/csrf", options, "GET");
+  try {
+    const response = await doFetch("/csrf", options, null, lifecycle);
+    if (!response.ok) {
+      throw new ApiError(response.status, "csrf bootstrap failed", null);
+    }
+    const json = await lifecycle.wait(
+      () => response.json() as Promise<Envelope<CSRFTokenResponse>>,
+    );
+    return json.data;
+  } finally {
+    lifecycle.finish();
+  }
 }
 
 /**
@@ -364,9 +544,21 @@ export async function bootstrapCsrf(): Promise<CSRFTokenResponse> {
   return inflightBootstrap;
 }
 
-async function refreshCsrfToken(): Promise<string | null> {
+async function refreshCsrfToken(
+  timeoutMs?: number,
+  expectedAuthBoundary?: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
   csrfState = null;
-  const info = await bootstrapCsrf();
+  // A bounded logical request must not inherit an older, unbounded shared bootstrap.
+  const info =
+    timeoutMs === undefined && signal === undefined
+      ? await bootstrapCsrf()
+      : await fetchCsrfToken(timeoutMs, signal);
+  if (expectedAuthBoundary !== undefined) {
+    requireSameAuthBoundary(expectedAuthBoundary, "/csrf");
+  }
+  csrfState = { enabled: info.enabled, token: info.token };
   return info.token;
 }
 
@@ -379,9 +571,12 @@ async function doFetch(
   path: string,
   options: RequestOptions,
   csrfToken: string | null,
+  lifecycle: RequestLifecycle,
 ): Promise<Response> {
-  const { method = "GET", body, signal, timeoutMs } = options;
+  const { method = "GET", body, accept } = options;
+  const requestAuthBoundary = authBoundary();
   const headers: Record<string, string> = {};
+  if (accept) headers.Accept = accept;
   const user = getCaliberUserHeader();
   if (user) headers[USER_HEADER] = user;
   const projectId = getActiveProjectId();
@@ -396,41 +591,11 @@ async function doFetch(
     credentials: "same-origin",
   };
   if (body !== undefined) init.body = JSON.stringify(body);
-
-  const effectiveTimeout = timeoutMs ?? (method === "GET" ? readTimeoutMs : 0);
-  if (effectiveTimeout <= 0) {
-    if (signal) init.signal = signal;
-    return fetch(`${API_BASE}${path}`, init);
-  }
-
-  // Abort on either the caller's signal (refresh/unmount) or the timeout,
-  // whichever fires first. A timeout surfaces as a clear ApiError; a
-  // caller-driven cancel keeps propagating as AbortError so useApi ignores it.
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, effectiveTimeout);
-  if (signal) {
-    if (signal.aborted) controller.abort();
-    else signal.addEventListener("abort", () => controller.abort(), { once: true });
-  }
-  init.signal = controller.signal;
-  try {
-    return await fetch(`${API_BASE}${path}`, init);
-  } catch (err) {
-    if (timedOut) {
-      throw new ApiError(
-        0,
-        `request to ${path} timed out after ${effectiveTimeout}ms`,
-        null,
-      );
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
+  init.signal = lifecycle.signal;
+  return clearSessionOnUnauthorized(
+    await lifecycle.wait(() => fetch(`${API_BASE}${path}`, init)),
+    requestAuthBoundary,
+  );
 }
 
 async function request<T>(
@@ -438,66 +603,103 @@ async function request<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const method = options.method ?? "GET";
+  const logicalAuthBoundary = authBoundary();
+  const lifecycle = new RequestLifecycle(path, options, method);
   const initialToken =
     csrfState && csrfState.enabled && WRITE_METHODS.has(method)
       ? csrfState.token
       : null;
 
-  let response: Response;
   try {
-    response = await doFetch(path, options, initialToken);
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
-    // A timeout (or any pre-classified failure) already carries a clear
-    // message — surface it as-is instead of re-wrapping as "network error".
-    if (err instanceof ApiError) throw err;
-    throw new ApiError(
-      0,
-      `network error: ${err instanceof Error ? err.message : String(err)}`,
-      null,
-    );
-  }
-
-  // CSRF retry path: a 403 with a CSRF-shaped detail likely means
-  // the cached token expired. Refresh once and retry.
-  if (response.status === 403 && WRITE_METHODS.has(method)) {
-    let parsed: ApiErrorBody | null = null;
+    let response: Response;
     try {
-      parsed = (await response.clone().json()) as ApiErrorBody;
-    } catch {
-      // Body wasn't JSON; fall through.
+      response = await doFetch(path, options, initialToken, lifecycle);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      // A timeout (or any pre-classified failure) already carries a clear
+      // message — surface it as-is instead of re-wrapping as "network error".
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(
+        0,
+        `network error: ${err instanceof Error ? err.message : String(err)}`,
+        null,
+      );
     }
-    if (isCsrfRejection(parsed)) {
+
+    // CSRF retry path: a 403 with a CSRF-shaped detail likely means
+    // the cached token expired. Refresh once and retry.
+    if (response.status === 403 && WRITE_METHODS.has(method)) {
+      let parsed: ApiErrorBody | null = null;
       try {
-        const fresh = await refreshCsrfToken();
-        if (fresh) {
-          response = await doFetch(path, options, fresh);
+        parsed = await lifecycle.wait(
+          () => response.clone().json() as Promise<ApiErrorBody>,
+        );
+      } catch (error) {
+        rethrowRequestTermination(error);
+        // Body wasn't JSON; fall through.
+      }
+      if (isCsrfRejection(parsed)) {
+        try {
+          requireSameAuthBoundary(logicalAuthBoundary, path);
+          const fresh = await refreshCsrfToken(
+            lifecycle.remainingMs(),
+            logicalAuthBoundary,
+            lifecycle.signal,
+          );
+          if (fresh) {
+            // The clone consumed the network branch; release the original branch
+            // before retrying so it cannot retain a tee buffer until final cleanup.
+            void response.body?.cancel().catch(() => undefined);
+            response = await doFetch(path, options, fresh, lifecycle);
+          }
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            throw error;
+          }
+          if (
+            error instanceof ApiError &&
+            (error.status === 0 || error.status === 409)
+          ) {
+            throw error;
+          }
+          // Refresh failed; fall through and surface the original 403.
         }
-      } catch {
-        // Refresh failed; fall through and surface the original 403.
       }
     }
-  }
 
-  if (!response.ok) {
-    let parsed: ApiErrorBody | null = null;
-    try {
-      parsed = (await response.json()) as ApiErrorBody;
-    } catch {
-      // Body wasn't JSON — fall through with the status-line message.
+    if (!response.ok) {
+      let parsed: ApiErrorBody | null = null;
+      try {
+        parsed = await lifecycle.wait(
+          () => response.json() as Promise<ApiErrorBody>,
+        );
+      } catch (error) {
+        rethrowRequestTermination(error);
+        // Body wasn't JSON — fall through with the status-line message.
+      }
+      const detail = parsed?.detail ?? response.statusText;
+      throw new ApiError(response.status, detail, parsed);
     }
-    const detail = parsed?.detail ?? response.statusText;
-    throw new ApiError(response.status, detail, parsed);
-  }
 
-  // 204 No Content is valid for some writes. Callers parameterized as
-  // `void` see undefined; everyone else gets the unwrapped envelope.
-  if (response.status === 204) {
-    return undefined as T;
-  }
+    // 204 No Content is valid for some writes. Callers parameterized as
+    // `void` see undefined; everyone else gets the unwrapped envelope.
+    if (response.status === 204) {
+      if (!options.allowAuthBoundaryChangeOnSuccess) {
+        requireSameAuthBoundary(logicalAuthBoundary, path);
+      }
+      return undefined as T;
+    }
 
-  const json = (await response.json()) as Envelope<T>;
-  return json.data;
+    const json = await lifecycle.wait(
+      () => response.json() as Promise<Envelope<T>>,
+    );
+    if (!options.allowAuthBoundaryChangeOnSuccess) {
+      requireSameAuthBoundary(logicalAuthBoundary, path);
+    }
+    return json.data;
+  } finally {
+    lifecycle.finish();
+  }
 }
 
 async function requestEnvelope<T>(
@@ -505,61 +707,97 @@ async function requestEnvelope<T>(
   options: RequestOptions = {},
 ): Promise<Envelope<T>> {
   const method = options.method ?? "GET";
+  const logicalAuthBoundary = authBoundary();
+  const lifecycle = new RequestLifecycle(path, options, method);
   const initialToken =
     csrfState && csrfState.enabled && WRITE_METHODS.has(method)
       ? csrfState.token
       : null;
 
-  let response: Response;
   try {
-    response = await doFetch(path, options, initialToken);
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
-    // A timeout (or any pre-classified failure) already carries a clear
-    // message — surface it as-is instead of re-wrapping as "network error".
-    if (err instanceof ApiError) throw err;
-    throw new ApiError(
-      0,
-      `network error: ${err instanceof Error ? err.message : String(err)}`,
-      null,
-    );
-  }
-
-  if (response.status === 403 && WRITE_METHODS.has(method)) {
-    let parsed: ApiErrorBody | null = null;
+    let response: Response;
     try {
-      parsed = (await response.clone().json()) as ApiErrorBody;
-    } catch {
-      // Body wasn't JSON; fall through.
+      response = await doFetch(path, options, initialToken, lifecycle);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      // A timeout (or any pre-classified failure) already carries a clear
+      // message — surface it as-is instead of re-wrapping as "network error".
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(
+        0,
+        `network error: ${err instanceof Error ? err.message : String(err)}`,
+        null,
+      );
     }
-    if (isCsrfRejection(parsed)) {
+
+    if (response.status === 403 && WRITE_METHODS.has(method)) {
+      let parsed: ApiErrorBody | null = null;
       try {
-        const fresh = await refreshCsrfToken();
-        if (fresh) {
-          response = await doFetch(path, options, fresh);
+        parsed = await lifecycle.wait(
+          () => response.clone().json() as Promise<ApiErrorBody>,
+        );
+      } catch (error) {
+        rethrowRequestTermination(error);
+        // Body wasn't JSON; fall through.
+      }
+      if (isCsrfRejection(parsed)) {
+        try {
+          requireSameAuthBoundary(logicalAuthBoundary, path);
+          const fresh = await refreshCsrfToken(
+            lifecycle.remainingMs(),
+            logicalAuthBoundary,
+            lifecycle.signal,
+          );
+          if (fresh) {
+            void response.body?.cancel().catch(() => undefined);
+            response = await doFetch(path, options, fresh, lifecycle);
+          }
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            throw error;
+          }
+          if (
+            error instanceof ApiError &&
+            (error.status === 0 || error.status === 409)
+          ) {
+            throw error;
+          }
+          // Refresh failed; fall through and surface the original 403.
         }
-      } catch {
-        // Refresh failed; fall through and surface the original 403.
       }
     }
-  }
 
-  if (!response.ok) {
-    let parsed: ApiErrorBody | null = null;
-    try {
-      parsed = (await response.json()) as ApiErrorBody;
-    } catch {
-      // Body wasn't JSON — fall through with the status-line message.
+    if (!response.ok) {
+      let parsed: ApiErrorBody | null = null;
+      try {
+        parsed = await lifecycle.wait(
+          () => response.json() as Promise<ApiErrorBody>,
+        );
+      } catch (error) {
+        rethrowRequestTermination(error);
+        // Body wasn't JSON — fall through with the status-line message.
+      }
+      const detail = parsed?.detail ?? response.statusText;
+      throw new ApiError(response.status, detail, parsed);
     }
-    const detail = parsed?.detail ?? response.statusText;
-    throw new ApiError(response.status, detail, parsed);
-  }
 
-  if (response.status === 204) {
-    return { data: undefined as T, next_cursor: null };
-  }
+    if (response.status === 204) {
+      if (!options.allowAuthBoundaryChangeOnSuccess) {
+        requireSameAuthBoundary(logicalAuthBoundary, path);
+      }
+      return { data: undefined as T, next_cursor: null };
+    }
 
-  return (await response.json()) as Envelope<T>;
+    const envelope = await lifecycle.wait(
+      () => response.json() as Promise<Envelope<T>>,
+    );
+    if (!options.allowAuthBoundaryChangeOnSuccess) {
+      requireSameAuthBoundary(logicalAuthBoundary, path);
+    }
+    return envelope;
+  } finally {
+    lifecycle.finish();
+  }
 }
 
 /**
@@ -570,37 +808,67 @@ async function requestEnvelope<T>(
  * CSRF handling + envelope unwrap, but lets the browser own the Content-Type.
  */
 async function uploadMultipart<T>(path: string, form: FormData): Promise<T> {
+  const logicalAuthBoundary = authBoundary();
+  const options: RequestOptions = { method: "POST" };
+  const lifecycle = new RequestLifecycle(path, options, "POST");
   const send = async (token: string | null): Promise<Response> => {
+    requireSameAuthBoundary(logicalAuthBoundary, path);
+    const requestAuthBoundary = authBoundary();
     const headers: Record<string, string> = {};
     const user = getCaliberUserHeader();
     if (user) headers[USER_HEADER] = user;
     const projectId = getActiveProjectId();
     if (projectId) headers[PROJECT_HEADER] = projectId;
     if (token) headers[CSRF_HEADER] = token;
-    return fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      headers,
-      body: form,
-      credentials: "same-origin",
-    });
+    return clearSessionOnUnauthorized(
+      await lifecycle.wait(() =>
+        fetch(`${API_BASE}${path}`, {
+          method: "POST",
+          headers,
+          body: form,
+          credentials: "same-origin",
+          signal: lifecycle.signal,
+        }),
+      ),
+      requestAuthBoundary,
+    );
   };
-  let token = csrfState && csrfState.enabled ? csrfState.token : null;
-  let response = await send(token);
-  if (response.status === 403) {
-    token = await refreshCsrfToken();
-    if (token) response = await send(token);
-  }
-  if (!response.ok) {
-    let parsed: ApiErrorBody | null = null;
-    try {
-      parsed = (await response.json()) as ApiErrorBody;
-    } catch {
-      // non-JSON error body
+  try {
+    let token = csrfState && csrfState.enabled ? csrfState.token : null;
+    let response = await send(token);
+    if (response.status === 403) {
+      requireSameAuthBoundary(logicalAuthBoundary, path);
+      token = await refreshCsrfToken(
+        lifecycle.remainingMs(),
+        logicalAuthBoundary,
+        lifecycle.signal,
+      );
+      if (token) response = await send(token);
     }
-    throw new ApiError(response.status, parsed?.detail ?? response.statusText, parsed);
+    if (!response.ok) {
+      let parsed: ApiErrorBody | null = null;
+      try {
+        parsed = await lifecycle.wait(
+          () => response.json() as Promise<ApiErrorBody>,
+        );
+      } catch (error) {
+        rethrowRequestTermination(error);
+        // non-JSON error body
+      }
+      throw new ApiError(
+        response.status,
+        parsed?.detail ?? response.statusText,
+        parsed,
+      );
+    }
+    const json = await lifecycle.wait(
+      () => response.json() as Promise<Envelope<T>>,
+    );
+    requireSameAuthBoundary(logicalAuthBoundary, path);
+    return json.data;
+  } finally {
+    lifecycle.finish();
   }
-  const json = (await response.json()) as Envelope<T>;
-  return json.data;
 }
 
 /**
@@ -612,26 +880,33 @@ async function uploadMultipart<T>(path: string, form: FormData): Promise<T> {
  * local-auth mode. Returns the Blob; the caller turns it into a download.
  */
 async function downloadFile(path: string, accept: string): Promise<Blob> {
-  const headers: Record<string, string> = { Accept: accept };
-  const user = getCaliberUserHeader();
-  if (user) headers[USER_HEADER] = user;
-  const projectId = getActiveProjectId();
-  if (projectId) headers[PROJECT_HEADER] = projectId;
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: "GET",
-    headers,
-    credentials: "same-origin",
-  });
-  if (!response.ok) {
-    let parsed: ApiErrorBody | null = null;
-    try {
-      parsed = (await response.json()) as ApiErrorBody;
-    } catch {
-      // non-JSON error body
+  const logicalAuthBoundary = authBoundary();
+  const options: RequestOptions = { method: "GET", accept };
+  const lifecycle = new RequestLifecycle(path, options, "GET");
+  try {
+    const response = await doFetch(path, options, null, lifecycle);
+    if (!response.ok) {
+      let parsed: ApiErrorBody | null = null;
+      try {
+        parsed = await lifecycle.wait(
+          () => response.json() as Promise<ApiErrorBody>,
+        );
+      } catch (error) {
+        rethrowRequestTermination(error);
+        // non-JSON error body
+      }
+      throw new ApiError(
+        response.status,
+        parsed?.detail ?? response.statusText,
+        parsed,
+      );
     }
-    throw new ApiError(response.status, parsed?.detail ?? response.statusText, parsed);
+    const blob = await lifecycle.wait(() => response.blob());
+    requireSameAuthBoundary(logicalAuthBoundary, path);
+    return blob;
+  } finally {
+    lifecycle.finish();
   }
-  return response.blob();
 }
 
 /* -------------------------------------------------------------------------- */
@@ -650,7 +925,9 @@ function buildQuery(params: Record<string, string | undefined>): string {
 
 export const caliberApi = {
   /** GET /health */
-  getHealth(signal?: AbortSignal): Promise<{ status: string; version: string }> {
+  getHealth(
+    signal?: AbortSignal,
+  ): Promise<{ status: string; version: string }> {
     return request<{ status: string; version: string }>("/health", { signal });
   },
 
@@ -675,8 +952,12 @@ export const caliberApi = {
   },
 
   /** GET /settings/runtime */
-  getRuntimeConfiguration(signal?: AbortSignal): Promise<RuntimeConfigurationInventory> {
-    return request<RuntimeConfigurationInventory>("/settings/runtime", { signal });
+  getRuntimeConfiguration(
+    signal?: AbortSignal,
+  ): Promise<RuntimeConfigurationInventory> {
+    return request<RuntimeConfigurationInventory>("/settings/runtime", {
+      signal,
+    });
   },
 
   /** GET /verification-queue */
@@ -708,7 +989,9 @@ export const caliberApi = {
   },
 
   /** POST /verification-queue */
-  createVerificationItem(payload: VerificationItemCreatePayload): Promise<VerificationItem> {
+  createVerificationItem(
+    payload: VerificationItemCreatePayload,
+  ): Promise<VerificationItem> {
     return request<VerificationItem>("/verification-queue", {
       method: "POST",
       body: stripNulls({ ...payload }),
@@ -815,10 +1098,9 @@ export const caliberApi = {
    * not in `candidate_ready`.
    */
   applyJob(jobId: string): Promise<JobApplyResult> {
-    return request<JobApplyResult>(
-      `/jobs/${encodeURIComponent(jobId)}/apply`,
-      { method: "POST" },
-    );
+    return request<JobApplyResult>(`/jobs/${encodeURIComponent(jobId)}/apply`, {
+      method: "POST",
+    });
   },
 
   /** GET /agents */
@@ -850,7 +1132,9 @@ export const caliberApi = {
   },
 
   /** DELETE /agents/{id} — removes the agent and cascades its dependent rows. */
-  deleteAgent(agentId: string): Promise<{ agent_id: string; deleted: boolean }> {
+  deleteAgent(
+    agentId: string,
+  ): Promise<{ agent_id: string; deleted: boolean }> {
     return request<{ agent_id: string; deleted: boolean }>(
       `/agents/${encodeURIComponent(agentId)}`,
       { method: "DELETE" },
@@ -893,12 +1177,25 @@ export const caliberApi = {
     return request<AuthLoginResult>("/auth/login", {
       method: "POST",
       body: { user_id: userId, password },
+      // A successful response has already replaced the HttpOnly cookie. A competing
+      // tab may have advanced local display state while this request was in flight;
+      // signIn reconciles that race against /auth/session instead of treating the
+      // completed cookie mutation as a stale-data 409.
+      timeoutMs: 15_000,
+      allowAuthBoundaryChangeOnSuccess: true,
     });
   },
 
   /** POST /auth/logout — revoke the session server-side, not just locally. */
   logout(): Promise<{ revoked: boolean }> {
-    return request<{ revoked: boolean }>("/auth/logout", { method: "POST", body: {} });
+    return request<{ revoked: boolean }>("/auth/logout", {
+      method: "POST",
+      body: {},
+      // The shell deliberately withholds the login form until revocation settles
+      // to prevent cookie races, so this request needs its own bounded wait.
+      timeoutMs: 15_000,
+      allowAuthBoundaryChangeOnSuccess: true,
+    });
   },
 
   /** GET /auth/accounts — the account inventory (admin). */
@@ -907,7 +1204,10 @@ export const caliberApi = {
   },
 
   /** POST /auth/accounts — create an account. The password is never echoed back. */
-  createAccount(userId: string, password: string): Promise<{ user_id: string }> {
+  createAccount(
+    userId: string,
+    password: string,
+  ): Promise<{ user_id: string }> {
     return request<{ user_id: string }>("/auth/accounts", {
       method: "POST",
       body: { user_id: userId, password },
@@ -919,10 +1219,13 @@ export const caliberApi = {
     userId: string,
     changes: { disabled?: boolean; password?: string },
   ): Promise<{ user_id: string }> {
-    return request<{ user_id: string }>(`/auth/accounts/${encodeURIComponent(userId)}`, {
-      method: "PATCH",
-      body: changes,
-    });
+    return request<{ user_id: string }>(
+      `/auth/accounts/${encodeURIComponent(userId)}`,
+      {
+        method: "PATCH",
+        body: changes,
+      },
+    );
   },
 
   /** DELETE /auth/accounts/{id}/sessions — revoke every session for an account. */
@@ -939,7 +1242,10 @@ export const caliberApi = {
   },
 
   /** POST /secrets — store a value, creating a new version (rotation). */
-  putSecret(name: string, value: string): Promise<{ name: string; version: number }> {
+  putSecret(
+    name: string,
+    value: string,
+  ): Promise<{ name: string; version: number }> {
     return request<{ name: string; version: number }>("/secrets", {
       method: "POST",
       body: { name, value },
@@ -957,6 +1263,18 @@ export const caliberApi = {
   /** GET /auth/session — who am I, and how was that established? */
   getAuthSession(signal?: AbortSignal): Promise<AuthSessionInfo> {
     return request<AuthSessionInfo>("/auth/session", { signal });
+  },
+
+  /**
+   * Re-read the authoritative HttpOnly-cookie identity after a competing auth epoch.
+   * This deliberately accepts a local boundary transition; its result is used to
+   * repair that boundary rather than returned as ordinary user-scoped page data.
+   */
+  getAuthSessionForReconciliation(): Promise<AuthSessionInfo> {
+    return request<AuthSessionInfo>("/auth/session", {
+      timeoutMs: 15_000,
+      allowAuthBoundaryChangeOnSuccess: true,
+    });
   },
 
   /** GET /agents/{id}/skills */
@@ -1065,7 +1383,10 @@ export const caliberApi = {
   },
 
   /** GET /gate-verdicts/{artifactType}/{versionKey} */
-  getGateVerdict(artifactType: string, versionKey: string): Promise<GateVerdict> {
+  getGateVerdict(
+    artifactType: string,
+    versionKey: string,
+  ): Promise<GateVerdict> {
     return request<GateVerdict>(
       `/gate-verdicts/${encodeURIComponent(artifactType)}/${encodeURIComponent(versionKey)}`,
     );
@@ -1092,7 +1413,9 @@ export const caliberApi = {
 
   /** GET /skills/{skillId}/versions — content version history, newest first. */
   listSkillVersions(skillId: string): Promise<SkillVersionInfo[]> {
-    return request<SkillVersionInfo[]>(`/skills/${encodeURIComponent(skillId)}/versions`);
+    return request<SkillVersionInfo[]>(
+      `/skills/${encodeURIComponent(skillId)}/versions`,
+    );
   },
 
   /** GET /releases/timeline — cross-artifact promotion/rollback events, newest first. */
@@ -1123,7 +1446,9 @@ export const caliberApi = {
   /** GET /prompts/{name} */
   getPrompt(name: string, alias = "prod"): Promise<PromptDetail> {
     const query = buildQuery({ alias });
-    return request<PromptDetail>(`/prompts/${encodeURIComponent(name)}${query}`);
+    return request<PromptDetail>(
+      `/prompts/${encodeURIComponent(name)}${query}`,
+    );
   },
 
   /** GET /prompts/{name}/workspace — runtime facts + computed lifecycle status. */
@@ -1151,18 +1476,25 @@ export const caliberApi = {
   },
 
   /** GET /prompts/template-library */
-  getPromptTemplateLibrary(signal?: AbortSignal): Promise<PromptTemplateCatalog> {
-    return request<PromptTemplateCatalog>("/prompts/template-library", { signal });
+  getPromptTemplateLibrary(
+    signal?: AbortSignal,
+  ): Promise<PromptTemplateCatalog> {
+    return request<PromptTemplateCatalog>("/prompts/template-library", {
+      signal,
+    });
   },
 
   /** POST /prompts/template-library/preview */
   previewPromptTemplate(
     payload: PromptTemplatePreviewPayload,
   ): Promise<PromptTemplatePreviewResult> {
-    return request<PromptTemplatePreviewResult>("/prompts/template-library/preview", {
-      method: "POST",
-      body: payload,
-    });
+    return request<PromptTemplatePreviewResult>(
+      "/prompts/template-library/preview",
+      {
+        method: "POST",
+        body: payload,
+      },
+    );
   },
 
   /** POST /assistant/prompt-draft — assistant drafts a prompt from a description */
@@ -1185,18 +1517,27 @@ export const caliberApi = {
 
   /** GET /prompts/{name}/versions */
   listPromptVersions(name: string): Promise<PromptVersionInfo[]> {
-    return request<PromptVersionInfo[]>(`/prompts/${encodeURIComponent(name)}/versions`);
+    return request<PromptVersionInfo[]>(
+      `/prompts/${encodeURIComponent(name)}/versions`,
+    );
   },
 
   /** GET /prompts/{name}/versions/{version} */
-  getPromptVersion(name: string, version: number): Promise<PromptVersionDetail> {
+  getPromptVersion(
+    name: string,
+    version: number,
+  ): Promise<PromptVersionDetail> {
     return request<PromptVersionDetail>(
       `/prompts/${encodeURIComponent(name)}/versions/${encodeURIComponent(String(version))}`,
     );
   },
 
   /** POST /prompts/{name}/aliases/{alias} */
-  setPromptAlias(name: string, alias: string, version: number): Promise<PromptAliasResult> {
+  setPromptAlias(
+    name: string,
+    alias: string,
+    version: number,
+  ): Promise<PromptAliasResult> {
     return request<PromptAliasResult>(
       `/prompts/${encodeURIComponent(name)}/aliases/${encodeURIComponent(alias)}`,
       {
@@ -1319,8 +1660,14 @@ export const caliberApi = {
   },
 
   /** GET /skills/{id}/package */
-  getSkillPackage(skillId: string, signal?: AbortSignal): Promise<SkillPackage> {
-    return request<SkillPackage>(`/skills/${encodeURIComponent(skillId)}/package`, { signal });
+  getSkillPackage(
+    skillId: string,
+    signal?: AbortSignal,
+  ): Promise<SkillPackage> {
+    return request<SkillPackage>(
+      `/skills/${encodeURIComponent(skillId)}/package`,
+      { signal },
+    );
   },
 
   /** Direct URL for GET /skills/{id}/package.zip */
@@ -1335,7 +1682,10 @@ export const caliberApi = {
 
   /** POST /skills/import-package — create a skill from an uploaded package. */
   importSkillPackage(payload: SkillPackageImportPayload): Promise<Skill> {
-    return request<Skill>("/skills/import-package", { method: "POST", body: payload });
+    return request<Skill>("/skills/import-package", {
+      method: "POST",
+      body: payload,
+    });
   },
 
   /** PATCH /skills/{id} */
@@ -1364,7 +1714,11 @@ export const caliberApi = {
    */
   testSkillSelection(
     skillId: string,
-    body: { user_message: string; artifact_type?: string; session_goal?: string },
+    body: {
+      user_message: string;
+      artifact_type?: string;
+      session_goal?: string;
+    },
   ): Promise<SkillSelectionResult> {
     return request<SkillSelectionResult>(
       `/skills/${encodeURIComponent(skillId)}/test-selection`,
@@ -1451,10 +1805,13 @@ export const caliberApi = {
     skillId: string,
     payload: SkillCalibratePayload = {},
   ): Promise<{ item: Record<string, unknown>; job: Record<string, unknown> }> {
-    return request<{ item: Record<string, unknown>; job: Record<string, unknown> }>(
-      `/skills/${encodeURIComponent(skillId)}/calibrate`,
-      { method: "POST", body: payload },
-    );
+    return request<{
+      item: Record<string, unknown>;
+      job: Record<string, unknown>;
+    }>(`/skills/${encodeURIComponent(skillId)}/calibrate`, {
+      method: "POST",
+      body: payload,
+    });
   },
 
   /** GET /eval-datasets */
@@ -1537,7 +1894,9 @@ export const caliberApi = {
       version:
         options.version !== undefined ? String(options.version) : undefined,
       as_of_version:
-        options.asOfVersion !== undefined ? String(options.asOfVersion) : undefined,
+        options.asOfVersion !== undefined
+          ? String(options.asOfVersion)
+          : undefined,
       include_superseded: options.includeSuperseded ? "true" : undefined,
     });
     return request<EvalExample[]>(
@@ -1633,7 +1992,10 @@ export const caliberApi = {
   },
 
   /** POST /judges/{id}/test-run — run the judge once on a sample (no persistence). */
-  testRunJudge(judgeId: string, payload: JudgeTestRunPayload): Promise<JudgeTestRunResult> {
+  testRunJudge(
+    judgeId: string,
+    payload: JudgeTestRunPayload,
+  ): Promise<JudgeTestRunResult> {
     return request<JudgeTestRunResult>(
       `/judges/${encodeURIComponent(judgeId)}/test-run`,
       { method: "POST", body: payload },
@@ -1641,7 +2003,10 @@ export const caliberApi = {
   },
 
   /** POST /judges/{id}/alignment — judge-vs-human agreement + Cohen's kappa. */
-  alignJudge(judgeId: string, payload: JudgeAlignmentPayload): Promise<JudgeAlignmentResult> {
+  alignJudge(
+    judgeId: string,
+    payload: JudgeAlignmentPayload,
+  ): Promise<JudgeAlignmentResult> {
     return request<JudgeAlignmentResult>(
       `/judges/${encodeURIComponent(judgeId)}/alignment`,
       { method: "POST", body: payload },
@@ -1662,7 +2027,10 @@ export const caliberApi = {
   },
 
   /** GET /review-queues/{id} — queue + its items. */
-  getReviewQueue(queueId: string, signal?: AbortSignal): Promise<ReviewQueueDetail> {
+  getReviewQueue(
+    queueId: string,
+    signal?: AbortSignal,
+  ): Promise<ReviewQueueDetail> {
     return request<ReviewQueueDetail>(
       `/review-queues/${encodeURIComponent(queueId)}`,
       { signal },
@@ -1671,7 +2039,10 @@ export const caliberApi = {
 
   /** POST /review-queues */
   createReviewQueue(payload: ReviewQueueCreatePayload): Promise<ReviewQueue> {
-    return request<ReviewQueue>("/review-queues", { method: "POST", body: payload });
+    return request<ReviewQueue>("/review-queues", {
+      method: "POST",
+      body: payload,
+    });
   },
 
   /** PATCH /review-queues/{id} */
@@ -1679,16 +2050,23 @@ export const caliberApi = {
     queueId: string,
     payload: ReviewQueueUpdatePayload,
   ): Promise<ReviewQueue> {
-    return request<ReviewQueue>(`/review-queues/${encodeURIComponent(queueId)}`, {
-      method: "PATCH",
-      body: payload,
-    });
+    return request<ReviewQueue>(
+      `/review-queues/${encodeURIComponent(queueId)}`,
+      {
+        method: "PATCH",
+        body: payload,
+      },
+    );
   },
 
   /** POST /review-queues/{id}/items — enqueue traces for review. */
   addReviewItems(
     queueId: string,
-    payload: { trace_ids: string[]; experiment_id?: string; assigned_to?: string },
+    payload: {
+      trace_ids: string[];
+      experiment_id?: string;
+      assigned_to?: string;
+    },
   ): Promise<ReviewItem[]> {
     return request<ReviewItem[]>(
       `/review-queues/${encodeURIComponent(queueId)}/items`,
@@ -1715,52 +2093,81 @@ export const caliberApi = {
   /* ---------------------------------------------------------------------- */
 
   /** GET /aria/plans[?session_id=] — the caller's plans, optionally scoped to a chat session. */
-  listAriaPlans(sessionId?: string | null, signal?: AbortSignal): Promise<AriaPlan[]> {
-    const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
+  listAriaPlans(
+    sessionId?: string | null,
+    signal?: AbortSignal,
+  ): Promise<AriaPlan[]> {
+    const query = sessionId
+      ? `?session_id=${encodeURIComponent(sessionId)}`
+      : "";
     return request<AriaPlan[]>(`/aria/plans${query}`, { signal });
   },
 
   /** GET /aria/plans/{id} — plan + its steps. */
   getAriaPlan(planId: string, signal?: AbortSignal): Promise<AriaPlanDetail> {
-    return request<AriaPlanDetail>(`/aria/plans/${encodeURIComponent(planId)}`, { signal });
+    return request<AriaPlanDetail>(
+      `/aria/plans/${encodeURIComponent(planId)}`,
+      { signal },
+    );
   },
 
   /** POST /aria/plans — decompose a goal into a draft plan. */
   createAriaPlan(payload: AriaPlanCreatePayload): Promise<AriaPlanDetail> {
-    return request<AriaPlanDetail>("/aria/plans", { method: "POST", body: payload });
-  },
-
-  /** PATCH /aria/plans/{id} — edit autonomy / cancel (draft only). */
-  updateAriaPlan(planId: string, payload: AriaPlanUpdatePayload): Promise<AriaPlanDetail> {
-    return request<AriaPlanDetail>(`/aria/plans/${encodeURIComponent(planId)}`, {
-      method: "PATCH",
+    return request<AriaPlanDetail>("/aria/plans", {
+      method: "POST",
       body: payload,
     });
   },
 
+  /** PATCH /aria/plans/{id} — edit autonomy / cancel (draft only). */
+  updateAriaPlan(
+    planId: string,
+    payload: AriaPlanUpdatePayload,
+  ): Promise<AriaPlanDetail> {
+    return request<AriaPlanDetail>(
+      `/aria/plans/${encodeURIComponent(planId)}`,
+      {
+        method: "PATCH",
+        body: payload,
+      },
+    );
+  },
+
   /** POST /aria/plans/{id}/approve — approve the plan shape. */
   approveAriaPlan(planId: string): Promise<AriaPlanDetail> {
-    return request<AriaPlanDetail>(`/aria/plans/${encodeURIComponent(planId)}/approve`, {
-      method: "POST",
-    });
+    return request<AriaPlanDetail>(
+      `/aria/plans/${encodeURIComponent(planId)}/approve`,
+      {
+        method: "POST",
+      },
+    );
   },
 
   /** POST /aria/plans/{id}/execute — run/resume the plan (pauses at gates). */
   executeAriaPlan(planId: string): Promise<AriaPlanDetail> {
-    return request<AriaPlanDetail>(`/aria/plans/${encodeURIComponent(planId)}/execute`, {
-      method: "POST",
-    });
+    return request<AriaPlanDetail>(
+      `/aria/plans/${encodeURIComponent(planId)}/execute`,
+      {
+        method: "POST",
+      },
+    );
   },
 
   /** POST /aria/plans/{id}/poll — advance any steps parked on async jobs. */
   pollAriaPlan(planId: string): Promise<AriaPlanDetail> {
-    return request<AriaPlanDetail>(`/aria/plans/${encodeURIComponent(planId)}/poll`, {
-      method: "POST",
-    });
+    return request<AriaPlanDetail>(
+      `/aria/plans/${encodeURIComponent(planId)}/poll`,
+      {
+        method: "POST",
+      },
+    );
   },
 
   /** GET /aria/plans/{id}/interactions — the plan's interactions. */
-  listAriaInteractions(planId: string, signal?: AbortSignal): Promise<AriaInteraction[]> {
+  listAriaInteractions(
+    planId: string,
+    signal?: AbortSignal,
+  ): Promise<AriaInteraction[]> {
     return request<AriaInteraction[]>(
       `/aria/plans/${encodeURIComponent(planId)}/interactions`,
       { signal },
@@ -1787,13 +2194,17 @@ export const caliberApi = {
     datasetId?: string,
     signal?: AbortSignal,
   ): Promise<EvalRunSummary[]> {
-    const query = datasetId ? `?dataset_id=${encodeURIComponent(datasetId)}` : "";
+    const query = datasetId
+      ? `?dataset_id=${encodeURIComponent(datasetId)}`
+      : "";
     return request<EvalRunSummary[]>(`/evaluations${query}`, { signal });
   },
 
   /** GET /evaluations/{run_id} — one run with its per-example scorecard. */
   getEvaluation(runId: string, signal?: AbortSignal): Promise<EvalRun> {
-    return request<EvalRun>(`/evaluations/${encodeURIComponent(runId)}`, { signal });
+    return request<EvalRun>(`/evaluations/${encodeURIComponent(runId)}`, {
+      signal,
+    });
   },
 
   /** POST /evaluations — run a dataset through the scorers now. */
@@ -1812,13 +2223,22 @@ export const caliberApi = {
   },
 
   /** GET /gateway/guardrails/catalog — buildable scorer templates + existing scorers. */
-  getGatewayGuardrailCatalog(signal?: AbortSignal): Promise<GatewayGuardrailCatalog> {
-    return request<GatewayGuardrailCatalog>("/gateway/guardrails/catalog", { signal });
+  getGatewayGuardrailCatalog(
+    signal?: AbortSignal,
+  ): Promise<GatewayGuardrailCatalog> {
+    return request<GatewayGuardrailCatalog>("/gateway/guardrails/catalog", {
+      signal,
+    });
   },
 
   /** POST /gateway/guardrails — define a new guardrail (native scorer or existing). */
-  createGatewayGuardrail(payload: GatewayGuardrailCreateRequest): Promise<GatewayGuardrail> {
-    return request<GatewayGuardrail>("/gateway/guardrails", { method: "POST", body: payload });
+  createGatewayGuardrail(
+    payload: GatewayGuardrailCreateRequest,
+  ): Promise<GatewayGuardrail> {
+    return request<GatewayGuardrail>("/gateway/guardrails", {
+      method: "POST",
+      body: payload,
+    });
   },
 
   /** DELETE /gateway/guardrails/{id} — delete a guardrail. */
@@ -1835,10 +2255,13 @@ export const caliberApi = {
     endpointId: string,
     payload: { guardrail_id: string; execution_order?: number },
   ): Promise<{ endpoint_id: string; guardrail_id: string; attached: boolean }> {
-    return request(`/gateway/endpoints/${encodeURIComponent(endpointId)}/guardrails`, {
-      method: "POST",
-      body: payload,
-    });
+    return request(
+      `/gateway/endpoints/${encodeURIComponent(endpointId)}/guardrails`,
+      {
+        method: "POST",
+        body: payload,
+      },
+    );
   },
 
   /** DELETE /gateway/endpoints/{id}/guardrails/{gid} — detach a guardrail. */
@@ -1883,22 +2306,34 @@ export const caliberApi = {
     filters: { status?: ResourceStatus | "all" } = {},
     signal?: AbortSignal,
   ): Promise<LlmPricing[]> {
-    return request<LlmPricing[]>(`/llm-pricing${buildQuery({ status: filters.status })}`, {
-      signal,
-    });
+    return request<LlmPricing[]>(
+      `/llm-pricing${buildQuery({ status: filters.status })}`,
+      {
+        signal,
+      },
+    );
   },
 
   /** POST /llm-pricing — add a per-model rate. */
   createLlmPricing(payload: LlmPricingCreatePayload): Promise<LlmPricing> {
-    return request<LlmPricing>("/llm-pricing", { method: "POST", body: payload });
+    return request<LlmPricing>("/llm-pricing", {
+      method: "POST",
+      body: payload,
+    });
   },
 
   /** PATCH /llm-pricing/{id} — edit / archive a rate. */
-  updateLlmPricing(pricingId: string, payload: LlmPricingUpdatePayload): Promise<LlmPricing> {
-    return request<LlmPricing>(`/llm-pricing/${encodeURIComponent(pricingId)}`, {
-      method: "PATCH",
-      body: payload,
-    });
+  updateLlmPricing(
+    pricingId: string,
+    payload: LlmPricingUpdatePayload,
+  ): Promise<LlmPricing> {
+    return request<LlmPricing>(
+      `/llm-pricing/${encodeURIComponent(pricingId)}`,
+      {
+        method: "PATCH",
+        body: payload,
+      },
+    );
   },
 
   /** GET /system/services — backing-service URLs + live health. */
@@ -1912,28 +2347,40 @@ export const caliberApi = {
 
   /** GET /workflows */
   listWorkflows(status?: string, signal?: AbortSignal): Promise<Workflow[]> {
-    return request<Workflow[]>(`/workflows${buildQuery({ status })}`, { signal });
+    return request<Workflow[]>(`/workflows${buildQuery({ status })}`, {
+      signal,
+    });
   },
 
   /** POST /workflows */
-  createWorkflow(
-    payload: { name: string; description?: string; owner?: string },
-  ): Promise<Workflow> {
+  createWorkflow(payload: {
+    name: string;
+    description?: string;
+    owner?: string;
+  }): Promise<Workflow> {
     return request<Workflow>("/workflows", { method: "POST", body: payload });
   },
 
   /** GET /workflows/{id} */
   getWorkflow(workflowId: string, signal?: AbortSignal): Promise<Workflow> {
-    return request<Workflow>(`/workflows/${encodeURIComponent(workflowId)}`, { signal });
+    return request<Workflow>(`/workflows/${encodeURIComponent(workflowId)}`, {
+      signal,
+    });
   },
 
   /** GET /workflow-components */
-  listWorkflowComponents(signal?: AbortSignal): Promise<WorkflowComponentCatalog> {
-    return request<WorkflowComponentCatalog>("/workflow-components", { signal });
+  listWorkflowComponents(
+    signal?: AbortSignal,
+  ): Promise<WorkflowComponentCatalog> {
+    return request<WorkflowComponentCatalog>("/workflow-components", {
+      signal,
+    });
   },
 
   /** GET /workflow-templates */
-  listWorkflowTemplates(signal?: AbortSignal): Promise<WorkflowTemplateCatalog> {
+  listWorkflowTemplates(
+    signal?: AbortSignal,
+  ): Promise<WorkflowTemplateCatalog> {
     return request<WorkflowTemplateCatalog>("/workflow-templates", { signal });
   },
 
@@ -1949,11 +2396,16 @@ export const caliberApi = {
       tz: timezone,
       count: count === undefined ? undefined : String(count),
     });
-    return request<WorkflowCronPreview>(`/workflow-cron-preview${query}`, { signal });
+    return request<WorkflowCronPreview>(`/workflow-cron-preview${query}`, {
+      signal,
+    });
   },
 
   /** GET /audit-log — filtered, paginated page of audit entries (admin-only). */
-  listAuditLog(filters: AuditLogFilters = {}, signal?: AbortSignal): Promise<AuditLogPage> {
+  listAuditLog(
+    filters: AuditLogFilters = {},
+    signal?: AbortSignal,
+  ): Promise<AuditLogPage> {
     const query = buildQuery({
       actor: filters.actor,
       action: filters.action,
@@ -1968,7 +2420,10 @@ export const caliberApi = {
   },
 
   /** GET /audit-log/export — the filtered entries as a CSV or JSON Blob (admin-only). */
-  exportAuditLog(filters: AuditLogFilters = {}, format: "csv" | "json" = "csv"): Promise<Blob> {
+  exportAuditLog(
+    filters: AuditLogFilters = {},
+    format: "csv" | "json" = "csv",
+  ): Promise<Blob> {
     const query = buildQuery({
       actor: filters.actor,
       action: filters.action,
@@ -2037,7 +2492,9 @@ export const caliberApi = {
   /** PATCH /workflows/{id} */
   updateWorkflow(
     workflowId: string,
-    payload: Partial<Pick<Workflow, "name" | "description" | "owner" | "status">>,
+    payload: Partial<
+      Pick<Workflow, "name" | "description" | "owner" | "status">
+    >,
   ): Promise<Workflow> {
     return request<Workflow>(`/workflows/${encodeURIComponent(workflowId)}`, {
       method: "PATCH",
@@ -2053,7 +2510,10 @@ export const caliberApi = {
   },
 
   /** GET /workflows/{id}/versions */
-  listWorkflowVersions(workflowId: string, signal?: AbortSignal): Promise<WorkflowVersion[]> {
+  listWorkflowVersions(
+    workflowId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowVersion[]> {
     return request<WorkflowVersion[]>(
       `/workflows/${encodeURIComponent(workflowId)}/versions`,
       { signal },
@@ -2072,7 +2532,10 @@ export const caliberApi = {
   },
 
   /** GET /workflow-versions/{id} */
-  getWorkflowVersion(versionId: string, signal?: AbortSignal): Promise<WorkflowVersion> {
+  getWorkflowVersion(
+    versionId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowVersion> {
     return request<WorkflowVersion>(
       `/workflow-versions/${encodeURIComponent(versionId)}`,
       { signal },
@@ -2143,15 +2606,44 @@ export const caliberApi = {
 
   /** GET /workflow-versions/{id}/export/python — raw generated Python source (text). */
   async exportWorkflowPython(versionId: string): Promise<string> {
-    const res = await doFetch(
-      `/workflow-versions/${encodeURIComponent(versionId)}/export/python`,
-      {},
-      null,
-    );
-    if (!res.ok) {
-      throw new ApiError(res.status, `export failed: ${res.statusText}`, null);
+    const path = `/workflow-versions/${encodeURIComponent(versionId)}/export/python`;
+    const logicalAuthBoundary = authBoundary();
+    const options: RequestOptions = {
+      method: "GET",
+      accept: "text/x-python, text/plain",
+    };
+    const lifecycle = new RequestLifecycle(path, options, "GET");
+    try {
+      const res = await doFetch(path, options, null, lifecycle);
+      if (!res.ok) {
+        throw new ApiError(
+          res.status,
+          `export failed: ${res.statusText}`,
+          null,
+        );
+      }
+      const text = await lifecycle.wait(() => res.text());
+      requireSameAuthBoundary(logicalAuthBoundary, path);
+      return text;
+    } finally {
+      lifecycle.finish();
     }
-    return res.text();
+  },
+
+  /** GET /workflow-versions/{id}/export/manifest as an authenticated download. */
+  downloadWorkflowVersionManifest(versionId: string): Promise<Blob> {
+    return downloadFile(
+      `/workflow-versions/${encodeURIComponent(versionId)}/export/manifest`,
+      "application/yaml, text/yaml",
+    );
+  },
+
+  /** GET /workflow-versions/{id}/export/python as an authenticated download. */
+  downloadWorkflowVersionPython(versionId: string): Promise<Blob> {
+    return downloadFile(
+      `/workflow-versions/${encodeURIComponent(versionId)}/export/python`,
+      "text/x-python, text/plain",
+    );
   },
 
   /** POST /workflow-versions/{id}/preview-run.
@@ -2165,7 +2657,10 @@ export const caliberApi = {
   ): Promise<PreviewResult> {
     return request<PreviewResult>(
       `/workflow-versions/${encodeURIComponent(versionId)}/preview-run`,
-      { method: "POST", body: stripNulls({ input, session_id: sessionId, manifest }) },
+      {
+        method: "POST",
+        body: stripNulls({ input, session_id: sessionId, manifest }),
+      },
     );
   },
 
@@ -2179,7 +2674,10 @@ export const caliberApi = {
   ): Promise<WorkflowRunResult> {
     return request<WorkflowRunResult>(
       `/workflow-versions/${encodeURIComponent(versionId)}/run`,
-      { method: "POST", body: stripNulls({ input, session_id: sessionId, alias, manifest }) },
+      {
+        method: "POST",
+        body: stripNulls({ input, session_id: sessionId, alias, manifest }),
+      },
     );
   },
 
@@ -2263,7 +2761,10 @@ export const caliberApi = {
   },
 
   /** GET /workflow-runs/{id}/trace — the run's MLflow span tree. */
-  getWorkflowRunTrace(runId: string, signal?: AbortSignal): Promise<WorkflowRunTrace> {
+  getWorkflowRunTrace(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowRunTrace> {
     return request<WorkflowRunTrace>(
       `/workflow-runs/${encodeURIComponent(runId)}/trace`,
       { signal },
@@ -2277,9 +2778,12 @@ export const caliberApi = {
   ): Promise<ObservabilityMetrics> {
     const query = buildQuery({
       experiment_id: options.experimentId || undefined,
-      since_ms: options.sinceMs !== undefined ? String(options.sinceMs) : undefined,
+      since_ms:
+        options.sinceMs !== undefined ? String(options.sinceMs) : undefined,
     });
-    return request<ObservabilityMetrics>(`/observability/metrics${query}`, { signal });
+    return request<ObservabilityMetrics>(`/observability/metrics${query}`, {
+      signal,
+    });
   },
 
   /** GET /observability/experiments — MLflow experiments for the filter. */
@@ -2309,7 +2813,8 @@ export const caliberApi = {
       status: options.status || undefined,
       experiment_id: options.experimentId || undefined,
       session: options.session || undefined,
-      since_ms: options.sinceMs !== undefined ? String(options.sinceMs) : undefined,
+      since_ms:
+        options.sinceMs !== undefined ? String(options.sinceMs) : undefined,
     });
     const result = await request<{ traces: ObservabilityTrace[] }>(
       `/observability/traces${query}`,
@@ -2332,7 +2837,11 @@ export const caliberApi = {
   /** POST /observability/traces/{traceId}/feedback — attach a human assessment. */
   submitObservabilityFeedback(
     traceId: string,
-    body: { name?: string; value: boolean | number | string; rationale?: string },
+    body: {
+      name?: string;
+      value: boolean | number | string;
+      rationale?: string;
+    },
   ): Promise<{ assessments: ObservabilityTraceAssessment[] }> {
     return request<{ assessments: ObservabilityTraceAssessment[] }>(
       `/observability/traces/${encodeURIComponent(traceId)}/feedback`,
@@ -2500,7 +3009,10 @@ export const caliberApi = {
   },
 
   /** GET /workflows/{id}/patches */
-  listWorkflowPatches(workflowId: string, signal?: AbortSignal): Promise<WorkflowPatch[]> {
+  listWorkflowPatches(
+    workflowId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowPatch[]> {
     return request<WorkflowPatch[]>(
       `/workflows/${encodeURIComponent(workflowId)}/patches`,
       { signal },
@@ -2530,9 +3042,11 @@ export const caliberApi = {
   },
 
   /** POST /workflows/import */
-  previewWorkflowImport(
-    payload: { manifest?: WorkflowManifest; manifest_yaml?: string; name?: string },
-  ): Promise<WorkflowImportPreview> {
+  previewWorkflowImport(payload: {
+    manifest?: WorkflowManifest;
+    manifest_yaml?: string;
+    name?: string;
+  }): Promise<WorkflowImportPreview> {
     return request<WorkflowImportPreview>("/workflows/import/preview", {
       method: "POST",
       body: payload,
@@ -2540,17 +3054,25 @@ export const caliberApi = {
   },
 
   /** POST /workflows/import — always creates a fresh workflow and draft version. */
-  importWorkflow(
-    payload: { manifest?: WorkflowManifest; manifest_yaml?: string; name?: string },
-  ): Promise<{ workflow: Workflow; version: WorkflowVersion }> {
-    return request<{ workflow: Workflow; version: WorkflowVersion }>("/workflows/import", {
-      method: "POST",
-      body: payload,
-    });
+  importWorkflow(payload: {
+    manifest?: WorkflowManifest;
+    manifest_yaml?: string;
+    name?: string;
+  }): Promise<{ workflow: Workflow; version: WorkflowVersion }> {
+    return request<{ workflow: Workflow; version: WorkflowVersion }>(
+      "/workflows/import",
+      {
+        method: "POST",
+        body: payload,
+      },
+    );
   },
 
   /** GET /workflows/{id}/runs */
-  listWorkflowRuns(workflowId: string, signal?: AbortSignal): Promise<WorkflowRun[]> {
+  listWorkflowRuns(
+    workflowId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowRun[]> {
     return request<WorkflowRun[]>(
       `/workflows/${encodeURIComponent(workflowId)}/runs`,
       { signal },
@@ -2600,7 +3122,10 @@ export const caliberApi = {
   },
 
   /** GET /workflow-runs/by-trace/{traceId} */
-  getWorkflowRunByTrace(traceId: string, signal?: AbortSignal): Promise<WorkflowRun> {
+  getWorkflowRunByTrace(
+    traceId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowRun> {
     return request<WorkflowRun>(
       `/workflow-runs/by-trace/${encodeURIComponent(traceId)}`,
       { signal },
@@ -2631,7 +3156,10 @@ export const caliberApi = {
   },
 
   /** POST /workflows/{id}/deployments/{alias}/rollback */
-  rollbackWorkflow(workflowId: string, alias: string): Promise<WorkflowDeployment> {
+  rollbackWorkflow(
+    workflowId: string,
+    alias: string,
+  ): Promise<WorkflowDeployment> {
     return request<WorkflowDeployment>(
       `/workflows/${encodeURIComponent(workflowId)}/deployments/${encodeURIComponent(alias)}/rollback`,
       { method: "POST" },
@@ -2751,12 +3279,16 @@ export const caliberApi = {
 
   /** GET /tools */
   listTools(status?: string, signal?: AbortSignal): Promise<ToolDefinition[]> {
-    return request<ToolDefinition[]>(`/tools${buildQuery({ status })}`, { signal });
+    return request<ToolDefinition[]>(`/tools${buildQuery({ status })}`, {
+      signal,
+    });
   },
 
   /** GET /tools/{toolId}/versions — all versions in this tool's family, newest first. */
   listToolVersions(toolId: string): Promise<ToolDefinition[]> {
-    return request<ToolDefinition[]>(`/tools/${encodeURIComponent(toolId)}/versions`);
+    return request<ToolDefinition[]>(
+      `/tools/${encodeURIComponent(toolId)}/versions`,
+    );
   },
 
   /** POST /tools */
@@ -2779,7 +3311,9 @@ export const caliberApi = {
 
   /** GET /tools/{id} */
   getTool(toolId: string, signal?: AbortSignal): Promise<ToolDefinition> {
-    return request<ToolDefinition>(`/tools/${encodeURIComponent(toolId)}`, { signal });
+    return request<ToolDefinition>(`/tools/${encodeURIComponent(toolId)}`, {
+      signal,
+    });
   },
 
   /** PATCH /tools/{id} */
@@ -2795,12 +3329,16 @@ export const caliberApi = {
 
   /** GET /tools/{id}/usage */
   getToolUsage(toolId: string, signal?: AbortSignal): Promise<ToolUsage> {
-    return request<ToolUsage>(`/tools/${encodeURIComponent(toolId)}/usage`, { signal });
+    return request<ToolUsage>(`/tools/${encodeURIComponent(toolId)}/usage`, {
+      signal,
+    });
   },
 
   /** GET /tools/{id}/source — real implementation source + signature + docstring */
   getToolSource(toolId: string, signal?: AbortSignal): Promise<ToolSource> {
-    return request<ToolSource>(`/tools/${encodeURIComponent(toolId)}/source`, { signal });
+    return request<ToolSource>(`/tools/${encodeURIComponent(toolId)}/source`, {
+      signal,
+    });
   },
 
   // --- Object Store (MinIO / S3 console) ---
@@ -2811,10 +3349,16 @@ export const caliberApi = {
     return request<ObjectStoreBucket[]>("/object-store/buckets", { signal });
   },
   createObjectStoreBucket(name: string): Promise<{ name: string }> {
-    return request<{ name: string }>("/object-store/buckets", { method: "POST", body: { name } });
+    return request<{ name: string }>("/object-store/buckets", {
+      method: "POST",
+      body: { name },
+    });
   },
   deleteObjectStoreBucket(bucket: string): Promise<void> {
-    return request<void>(`/object-store/buckets/${encodeURIComponent(bucket)}`, { method: "DELETE" });
+    return request<void>(
+      `/object-store/buckets/${encodeURIComponent(bucket)}`,
+      { method: "DELETE" },
+    );
   },
   listObjectStoreObjects(
     bucket: string,
@@ -2840,13 +3384,23 @@ export const caliberApi = {
     const form = new FormData();
     form.append("file", file, file.name);
     if (prefix) form.append("prefix", prefix);
-    return uploadMultipart(`/object-store/buckets/${encodeURIComponent(bucket)}/objects`, form);
+    return uploadMultipart(
+      `/object-store/buckets/${encodeURIComponent(bucket)}/objects`,
+      form,
+    );
   },
-  createObjectStoreFolder(bucket: string, prefix: string, name: string): Promise<{ prefix: string }> {
-    return request<{ prefix: string }>(`/object-store/buckets/${encodeURIComponent(bucket)}/folders`, {
-      method: "POST",
-      body: { prefix, name },
-    });
+  createObjectStoreFolder(
+    bucket: string,
+    prefix: string,
+    name: string,
+  ): Promise<{ prefix: string }> {
+    return request<{ prefix: string }>(
+      `/object-store/buckets/${encodeURIComponent(bucket)}/folders`,
+      {
+        method: "POST",
+        body: { prefix, name },
+      },
+    );
   },
   deleteObjectStoreObject(bucket: string, key: string): Promise<void> {
     return request<void>(
@@ -2855,14 +3409,20 @@ export const caliberApi = {
     );
   },
   /** Bulk-delete explicit object keys (multi-select). */
-  deleteObjectStoreObjects(bucket: string, keys: string[]): Promise<ObjectStoreDeleteResult> {
+  deleteObjectStoreObjects(
+    bucket: string,
+    keys: string[],
+  ): Promise<ObjectStoreDeleteResult> {
     return request<ObjectStoreDeleteResult>(
       `/object-store/buckets/${encodeURIComponent(bucket)}/objects/delete`,
       { method: "POST", body: { keys } },
     );
   },
   /** Delete a whole folder — every object under the prefix (recursive). */
-  deleteObjectStoreFolder(bucket: string, prefix: string): Promise<ObjectStoreDeleteResult> {
+  deleteObjectStoreFolder(
+    bucket: string,
+    prefix: string,
+  ): Promise<ObjectStoreDeleteResult> {
     return request<ObjectStoreDeleteResult>(
       `/object-store/buckets/${encodeURIComponent(bucket)}/objects/delete`,
       { method: "POST", body: { prefix } },
@@ -2924,7 +3484,10 @@ export const caliberApi = {
     return request<KnowledgeOptions>("/knowledge-bases/options", { signal });
   },
   listKnowledgeBases(
-    filters: { status?: "active" | "archived" | "all"; visibility?: "project" | "user" | "public" } = {},
+    filters: {
+      status?: "active" | "archived" | "all";
+      visibility?: "project" | "user" | "public";
+    } = {},
     signal?: AbortSignal,
   ): Promise<KnowledgeBase[]> {
     const qs = new URLSearchParams();
@@ -2948,17 +3511,30 @@ export const caliberApi = {
       body,
     });
   },
-  getKnowledgeBase(knowledgeBaseId: string, signal?: AbortSignal): Promise<KnowledgeBase> {
-    return request<KnowledgeBase>(`/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`, { signal });
+  getKnowledgeBase(
+    knowledgeBaseId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeBase> {
+    return request<KnowledgeBase>(
+      `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`,
+      { signal },
+    );
   },
   updateKnowledgeBase(
     knowledgeBaseId: string,
-    body: { name?: string; description?: string; status?: "active" | "archived" },
+    body: {
+      name?: string;
+      description?: string;
+      status?: "active" | "archived";
+    },
   ): Promise<KnowledgeBase> {
-    return request<KnowledgeBase>(`/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`, {
-      method: "PATCH",
-      body,
-    });
+    return request<KnowledgeBase>(
+      `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`,
+      {
+        method: "PATCH",
+        body,
+      },
+    );
   },
   /**
    * DELETE /knowledge-bases/{id} — permanently remove a KB and its data
@@ -2970,12 +3546,16 @@ export const caliberApi = {
   deleteKnowledgeBase(
     knowledgeBaseId: string,
   ): Promise<{ knowledge_base_id?: string; deleted?: boolean } | undefined> {
-    return request<{ knowledge_base_id?: string; deleted?: boolean } | undefined>(
-      `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`,
-      { method: "DELETE" },
-    );
+    return request<
+      { knowledge_base_id?: string; deleted?: boolean } | undefined
+    >(`/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`, {
+      method: "DELETE",
+    });
   },
-  listKnowledgeBaseVersions(knowledgeBaseId: string, signal?: AbortSignal): Promise<KnowledgeBaseVersion[]> {
+  listKnowledgeBaseVersions(
+    knowledgeBaseId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeBaseVersion[]> {
     return request<KnowledgeBaseVersion[]>(
       `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/versions`,
       { signal },
@@ -3005,19 +3585,27 @@ export const caliberApi = {
       { method: "POST", body: {} },
     );
   },
-  getKnowledgeBaseVersion(versionId: string, signal?: AbortSignal): Promise<KnowledgeBaseVersion> {
+  getKnowledgeBaseVersion(
+    versionId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeBaseVersion> {
     return request<KnowledgeBaseVersion>(
       `/knowledge-base-versions/${encodeURIComponent(versionId)}`,
       { signal },
     );
   },
-  syncKnowledgeBaseVersionToAge(versionId: string): Promise<KnowledgeBaseVersion> {
+  syncKnowledgeBaseVersionToAge(
+    versionId: string,
+  ): Promise<KnowledgeBaseVersion> {
     return request<KnowledgeBaseVersion>(
       `/knowledge-base-versions/${encodeURIComponent(versionId)}/age-sync`,
       { method: "POST", body: {} },
     );
   },
-  listKnowledgeBaseSources(versionId: string, signal?: AbortSignal): Promise<KnowledgeBaseSource[]> {
+  listKnowledgeBaseSources(
+    versionId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeBaseSource[]> {
     return request<KnowledgeBaseSource[]>(
       `/knowledge-base-versions/${encodeURIComponent(versionId)}/sources`,
       { signal },
@@ -3038,7 +3626,10 @@ export const caliberApi = {
       { signal },
     );
   },
-  listKnowledgeBaseEntities(versionId: string, signal?: AbortSignal): Promise<KnowledgeBaseEntity[]> {
+  listKnowledgeBaseEntities(
+    versionId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeBaseEntity[]> {
     return request<KnowledgeBaseEntity[]>(
       `/knowledge-base-versions/${encodeURIComponent(versionId)}/entities`,
       { signal },
@@ -3072,7 +3663,10 @@ export const caliberApi = {
     if (opts.q) qs.set("q", opts.q);
     if (opts.entityType) qs.set("entity_type", opts.entityType);
     if (typeof opts.minimumRelationshipWeight === "number") {
-      qs.set("minimum_relationship_weight", String(opts.minimumRelationshipWeight));
+      qs.set(
+        "minimum_relationship_weight",
+        String(opts.minimumRelationshipWeight),
+      );
     }
     if (typeof opts.traversalHops === "number") {
       qs.set("traversal_hops", String(opts.traversalHops));
@@ -3092,13 +3686,19 @@ export const caliberApi = {
       { signal },
     );
   },
-  listKnowledgeBaseRuns(knowledgeBaseId: string, signal?: AbortSignal): Promise<KnowledgeBaseRun[]> {
+  listKnowledgeBaseRuns(
+    knowledgeBaseId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeBaseRun[]> {
     return request<KnowledgeBaseRun[]>(
       `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/runs`,
       { signal },
     );
   },
-  listKnowledgeBaseRunEvents(runId: string, signal?: AbortSignal): Promise<KnowledgeBaseRunEvent[]> {
+  listKnowledgeBaseRunEvents(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<KnowledgeBaseRunEvent[]> {
     return request<KnowledgeBaseRunEvent[]>(
       `/knowledge-runs/${encodeURIComponent(runId)}/events`,
       { signal },
@@ -3114,7 +3714,11 @@ export const caliberApi = {
     graph_overrides?: {
       retrieval_strength?: "conservative" | "balanced" | "aggressive";
       minimum_relationship_weight?: number;
-      age_seed_mode?: "entity_then_text" | "query_entities_only" | "query_text_only" | "query_entities_and_text";
+      age_seed_mode?:
+        | "entity_then_text"
+        | "query_entities_only"
+        | "query_text_only"
+        | "query_entities_and_text";
       age_traversal_hops?: number;
       age_candidate_pool_size?: number;
       age_dense_rerank_weight?: number;
@@ -3278,23 +3882,16 @@ export const caliberApi = {
   // ── MCP Servers ──────────────────────────────────────────────────────
 
   /** GET /mcp-servers — list all registered MCP servers */
-  listMcpServers(
-    status?: string,
-    signal?: AbortSignal,
-  ): Promise<McpServer[]> {
+  listMcpServers(status?: string, signal?: AbortSignal): Promise<McpServer[]> {
     const q = status ? `?status=${encodeURIComponent(status)}` : "";
     return request<McpServer[]>(`/mcp-servers${q}`, { signal });
   },
 
   /** GET /mcp-servers/{id} */
-  getMcpServer(
-    serverId: string,
-    signal?: AbortSignal,
-  ): Promise<McpServer> {
-    return request<McpServer>(
-      `/mcp-servers/${encodeURIComponent(serverId)}`,
-      { signal },
-    );
+  getMcpServer(serverId: string, signal?: AbortSignal): Promise<McpServer> {
+    return request<McpServer>(`/mcp-servers/${encodeURIComponent(serverId)}`, {
+      signal,
+    });
   },
 
   /** GET /mcp-servers/{id}/history — create/update/delete audit trail (survives deletion). */
@@ -3310,13 +3907,13 @@ export const caliberApi = {
       details: Record<string, unknown>;
     }>
   > {
-    return request(`/mcp-servers/${encodeURIComponent(serverId)}/history`, { signal });
+    return request(`/mcp-servers/${encodeURIComponent(serverId)}/history`, {
+      signal,
+    });
   },
 
   /** POST /mcp-servers — register a new MCP server (admin) */
-  createMcpServer(
-    payload: McpServerCreatePayload,
-  ): Promise<McpServer> {
+  createMcpServer(payload: McpServerCreatePayload): Promise<McpServer> {
     return request<McpServer>("/mcp-servers", {
       method: "POST",
       body: payload,
@@ -3328,24 +3925,21 @@ export const caliberApi = {
     serverId: string,
     payload: McpServerUpdatePayload,
   ): Promise<McpServer> {
-    return request<McpServer>(
-      `/mcp-servers/${encodeURIComponent(serverId)}`,
-      { method: "PATCH", body: payload },
-    );
+    return request<McpServer>(`/mcp-servers/${encodeURIComponent(serverId)}`, {
+      method: "PATCH",
+      body: payload,
+    });
   },
 
   /** DELETE /mcp-servers/{id} — remove server (admin) */
   deleteMcpServer(serverId: string): Promise<void> {
-    return request<null>(
-      `/mcp-servers/${encodeURIComponent(serverId)}`,
-      { method: "DELETE" },
-    ) as unknown as Promise<void>;
+    return request<null>(`/mcp-servers/${encodeURIComponent(serverId)}`, {
+      method: "DELETE",
+    }) as unknown as Promise<void>;
   },
 
   /** POST /mcp-servers/{id}/test-connection — test connectivity and discover tools */
-  testMcpConnection(
-    serverId: string,
-  ): Promise<McpTestConnectionResult> {
+  testMcpConnection(serverId: string): Promise<McpTestConnectionResult> {
     return request<McpTestConnectionResult>(
       `/mcp-servers/${encodeURIComponent(serverId)}/test-connection`,
       { method: "POST" },
@@ -3353,9 +3947,7 @@ export const caliberApi = {
   },
 
   /** POST /mcp-servers/{id}/discover-tools — refresh discovered tools */
-  discoverMcpTools(
-    serverId: string,
-  ): Promise<McpDiscoverToolsResult> {
+  discoverMcpTools(serverId: string): Promise<McpDiscoverToolsResult> {
     return request<McpDiscoverToolsResult>(
       `/mcp-servers/${encodeURIComponent(serverId)}/discover-tools`,
       { method: "POST" },
@@ -3379,7 +3971,11 @@ export const caliberApi = {
     toolName: string,
     payload: McpToolPolicyUpdatePayload,
   ): Promise<{ server_id: string; tool_name: string; policy: McpToolPolicy }> {
-    return request<{ server_id: string; tool_name: string; policy: McpToolPolicy }>(
+    return request<{
+      server_id: string;
+      tool_name: string;
+      policy: McpToolPolicy;
+    }>(
       `/mcp-servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}/policy`,
       { method: "PATCH", body: payload },
     );
@@ -3425,17 +4021,13 @@ export const caliberApi = {
   /* ------------------------------------------------------------------ */
 
   /** GET /assistant/sessions */
-  listAssistantSessions(
-    owner?: string,
-  ): Promise<AssistantSession[]> {
+  listAssistantSessions(owner?: string): Promise<AssistantSession[]> {
     const qs = owner ? `?owner=${encodeURIComponent(owner)}` : "";
     return request<AssistantSession[]>(`/assistant/sessions${qs}`);
   },
 
   /** POST /assistant/sessions */
-  createAssistantSession(
-    body: SessionCreateBody,
-  ): Promise<AssistantSession> {
+  createAssistantSession(body: SessionCreateBody): Promise<AssistantSession> {
     return request<AssistantSession>("/assistant/sessions", {
       method: "POST",
       body,
@@ -3443,9 +4035,7 @@ export const caliberApi = {
   },
 
   /** GET /assistant/sessions/{id} */
-  getAssistantSession(
-    sessionId: string,
-  ): Promise<AssistantSession> {
+  getAssistantSession(sessionId: string): Promise<AssistantSession> {
     return request<AssistantSession>(
       `/assistant/sessions/${encodeURIComponent(sessionId)}`,
     );
@@ -3463,9 +4053,7 @@ export const caliberApi = {
   },
 
   /** GET /assistant/sessions/{id}/messages */
-  listAssistantMessages(
-    sessionId: string,
-  ): Promise<AssistantMessage[]> {
+  listAssistantMessages(sessionId: string): Promise<AssistantMessage[]> {
     return request<AssistantMessage[]>(
       `/assistant/sessions/${encodeURIComponent(sessionId)}/messages`,
     );
@@ -3483,9 +4071,7 @@ export const caliberApi = {
   },
 
   /** GET /assistant/sessions/{id}/attachments */
-  listAssistantAttachments(
-    sessionId: string,
-  ): Promise<AssistantAttachment[]> {
+  listAssistantAttachments(sessionId: string): Promise<AssistantAttachment[]> {
     return request<AssistantAttachment[]>(
       `/assistant/sessions/${encodeURIComponent(sessionId)}/attachments`,
     );
@@ -3518,9 +4104,7 @@ export const caliberApi = {
   },
 
   /** DELETE /assistant/attachments/{id} */
-  deleteAssistantAttachment(
-    attachmentId: string,
-  ): Promise<void> {
+  deleteAssistantAttachment(attachmentId: string): Promise<void> {
     return request<void>(
       `/assistant/attachments/${encodeURIComponent(attachmentId)}`,
       { method: "DELETE" },
@@ -3528,9 +4112,7 @@ export const caliberApi = {
   },
 
   /** GET /assistant/sessions/{id}/queue */
-  listAssistantQueue(
-    sessionId: string,
-  ): Promise<AssistantQueuedMessage[]> {
+  listAssistantQueue(sessionId: string): Promise<AssistantQueuedMessage[]> {
     return request<AssistantQueuedMessage[]>(
       `/assistant/sessions/${encodeURIComponent(sessionId)}/queue`,
     );
@@ -3548,13 +4130,10 @@ export const caliberApi = {
   },
 
   /** DELETE /assistant/queue/{queueId} */
-  cancelAssistantQueued(
-    queueId: string,
-  ): Promise<void> {
-    return request<void>(
-      `/assistant/queue/${encodeURIComponent(queueId)}`,
-      { method: "DELETE" },
-    );
+  cancelAssistantQueued(queueId: string): Promise<void> {
+    return request<void>(`/assistant/queue/${encodeURIComponent(queueId)}`, {
+      method: "DELETE",
+    });
   },
 
   /** POST /assistant/sessions/{id}/intent/resolve */
@@ -3610,18 +4189,14 @@ export const caliberApi = {
   },
 
   /** GET /assistant/sessions/{id}/drafts */
-  listAssistantDrafts(
-    sessionId: string,
-  ): Promise<AssistantDraft[]> {
+  listAssistantDrafts(sessionId: string): Promise<AssistantDraft[]> {
     return request<AssistantDraft[]>(
       `/assistant/sessions/${encodeURIComponent(sessionId)}/drafts`,
     );
   },
 
   /** GET /assistant/drafts/{id} */
-  getAssistantDraft(
-    draftId: string,
-  ): Promise<AssistantDraft> {
+  getAssistantDraft(draftId: string): Promise<AssistantDraft> {
     return request<AssistantDraft>(
       `/assistant/drafts/${encodeURIComponent(draftId)}`,
     );
@@ -3639,9 +4214,7 @@ export const caliberApi = {
   },
 
   /** POST /assistant/drafts/{id}/validate */
-  validateAssistantDraft(
-    draftId: string,
-  ): Promise<AssistantValidationReport> {
+  validateAssistantDraft(draftId: string): Promise<AssistantValidationReport> {
     return request<AssistantValidationReport>(
       `/assistant/drafts/${encodeURIComponent(draftId)}/validate`,
       { method: "POST" },
@@ -3649,9 +4222,7 @@ export const caliberApi = {
   },
 
   /** POST /assistant/drafts/{id}/test */
-  testAssistantDraft(
-    draftId: string,
-  ): Promise<AssistantTestReport> {
+  testAssistantDraft(draftId: string): Promise<AssistantTestReport> {
     return request<AssistantTestReport>(
       `/assistant/drafts/${encodeURIComponent(draftId)}/test`,
       { method: "POST" },
@@ -3659,9 +4230,7 @@ export const caliberApi = {
   },
 
   /** POST /assistant/drafts/{id}/approve */
-  approveAssistantDraft(
-    draftId: string,
-  ): Promise<AssistantDraft> {
+  approveAssistantDraft(draftId: string): Promise<AssistantDraft> {
     return request<AssistantDraft>(
       `/assistant/drafts/${encodeURIComponent(draftId)}/approve`,
       { method: "POST" },
@@ -3669,9 +4238,7 @@ export const caliberApi = {
   },
 
   /** POST /assistant/drafts/{id}/publish */
-  publishAssistantDraft(
-    draftId: string,
-  ): Promise<Record<string, unknown>> {
+  publishAssistantDraft(draftId: string): Promise<Record<string, unknown>> {
     return request<Record<string, unknown>>(
       `/assistant/drafts/${encodeURIComponent(draftId)}/publish`,
       { method: "POST" },
@@ -3679,9 +4246,7 @@ export const caliberApi = {
   },
 
   /** GET /assistant/runs/{id} */
-  getAssistantRun(
-    runId: string,
-  ): Promise<AssistantRun> {
+  getAssistantRun(runId: string): Promise<AssistantRun> {
     return request<AssistantRun>(
       `/assistant/runs/${encodeURIComponent(runId)}`,
     );
@@ -3693,14 +4258,12 @@ export const caliberApi = {
   },
 
   /** PATCH /assistant/config */
-  updateAssistantConfig(
-    body: {
-      model?: string;
-      reasoning?: string;
-      disabled_intents?: string[];
-      disabled_domains?: string[];
-    },
-  ): Promise<AssistantConfig> {
+  updateAssistantConfig(body: {
+    model?: string;
+    reasoning?: string;
+    disabled_intents?: string[];
+    disabled_domains?: string[];
+  }): Promise<AssistantConfig> {
     return request<AssistantConfig>("/assistant/config", {
       method: "PATCH",
       body,
@@ -3750,7 +4313,11 @@ export const caliberApi = {
   registerWorkflowArtifact(
     runId: string,
     fileId: string,
-    opts: { artifact_type?: string; display_name?: string; summary?: string } = {},
+    opts: {
+      artifact_type?: string;
+      display_name?: string;
+      summary?: string;
+    } = {},
   ): Promise<WorkflowFile> {
     return request<WorkflowFile>(
       `/workflow-runs/${encodeURIComponent(runId)}/artifacts`,
@@ -3809,7 +4376,9 @@ export const caliberApi = {
 
   /** GET /projects/{id} */
   getProject(projectId: string, signal?: AbortSignal): Promise<Project> {
-    return request<Project>(`/projects/${encodeURIComponent(projectId)}`, { signal });
+    return request<Project>(`/projects/${encodeURIComponent(projectId)}`, {
+      signal,
+    });
   },
 
   /** PATCH /projects/{id} */
@@ -3824,7 +4393,10 @@ export const caliberApi = {
   },
 
   /** GET /projects/{id}/files */
-  listProjectFiles(projectId: string, signal?: AbortSignal): Promise<WorkflowFileList> {
+  listProjectFiles(
+    projectId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowFileList> {
     return request<WorkflowFileList>(
       `/projects/${encodeURIComponent(projectId)}/files`,
       { signal },
@@ -3832,7 +4404,10 @@ export const caliberApi = {
   },
 
   /** POST /projects/{id}/folders */
-  createProjectFolder(projectId: string, path: string): Promise<ProjectDirectory> {
+  createProjectFolder(
+    projectId: string,
+    path: string,
+  ): Promise<ProjectDirectory> {
     return request<ProjectDirectory>(
       `/projects/${encodeURIComponent(projectId)}/folders`,
       { method: "POST", body: { path } },

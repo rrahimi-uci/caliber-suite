@@ -1,5 +1,11 @@
 # CALIBER (standalone service)
 
+> This image belongs to the loopback-only development stack. Its default first
+> login is `admin` / `admin` because Compose explicitly sets
+> `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true`. Change it immediately.
+> Any network-reachable deployment must set that flag to `false`, supply a strong
+> bootstrap password source, enable TLS/Secure cookies, and use a hardened ingress.
+
 CALIBER as its **own ASGI service** (`uvicorn caliber.server:create_app`), kept
 separate from MLflow. It reads/writes MLflow over HTTP via `MLFLOW_TRACKING_URI`
 — no plugin coupling — which is the cleaner architecture (CALIBER and MLflow as
@@ -8,7 +14,7 @@ separate services behind the gateway).
 Part of the `app` profile (runs alongside MLflow + gateway):
 
 ```bash
-docker compose -f deploy/compose.yaml --profile app up -d --build
+docker compose -f deploy/compose.yaml --profile app --profile nats up -d --build
 make infra-up APP=1
 ```
 
@@ -21,11 +27,25 @@ make infra-up APP=1
 
 The image builds the CALIBER SPA (multi-stage), installs the safer default
 extras profile
-`caliber[s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge]` + `uvicorn`,
+`caliber-suite[s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge]` + `uvicorn`,
 preloads the default spaCy model for knowledge-graph extraction, and on boot
-runs `alembic upgrade head` before serving. Background loops (poller,
-refinement worker, scheduler, janitor) run in-process; set
+runs `alembic upgrade head` before serving. Background loops (feedback poller,
+webhook dispatcher/recovery, refinement and calibration drains, workflow/Aria/knowledge
+workers, scheduler, and janitor) run in-process; set
 `CALIBER_BACKGROUND_TASKS_ENABLED=false` for an API-only replica.
+
+Published workflow-service invocation bodies are capped at 1 MiB of raw JSON by default.
+Override `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` in the suite-root `.env` and restart the
+service if a reviewed workload needs more; prefer managed storage references for large
+content. Token-protected services reject an invalid Bearer token before consuming the body,
+but this per-request bound is not a substitute for ingress connection/IP rate controls.
+
+The runtime image executes as UID/GID 65532. The bundled Compose service additionally
+drops all Linux capabilities, sets `no-new-privileges`, mounts a read-only root filesystem,
+uses a bounded `/tmp` tmpfs, and provides a named `/data` volume. Those controls reduce
+container privilege; they do not turn
+the development Compose file or its known service credentials into a production
+deployment.
 
 ## Allure report
 
@@ -49,7 +69,7 @@ To ship local Hugging Face embeddings in the deployed image, rebuild with:
 
 ```bash
 CALIBER_INSTALL_EXTRAS=s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge,knowledge-local \
-docker compose --env-file deploy/.env --env-file .env -f deploy/compose.yaml --profile app up -d --build
+docker compose --env-file deploy/.env --env-file .env -f deploy/compose.yaml --profile app --profile nats up -d --build
 ```
 
 That keeps the default image free of the optional torch stack and makes the

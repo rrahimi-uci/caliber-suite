@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
   <meta name="description"
-    content="CALIBER is an MLflow-native control plane for trusted agentic workflows. Design, verify, calibrate, evaluate, publish, and observe prompts, tools, skills, MCP servers, workflows, knowledge bases, and Aria from one same-origin platform.">
+    content="CALIBER is an MLflow-integrated control plane for trusted agentic workflows. Design, verify, calibrate, evaluate, publish, and observe prompts, tools, skills, MCP servers, workflows, knowledge bases, and Aria from one browser platform, deployed embedded or standalone.">
   <link rel="icon" type="image/png" href="../caliber-icon.png">
   <script>
     // Resolve theme before first paint to avoid a flash of the wrong mode.
@@ -24,7 +24,7 @@
   </script>
   <meta property="og:title" content="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement">
   <meta property="og:description"
-    content="MLflow-native docs for CALIBER: same-origin architecture, Aria, workflows, evaluation, calibration, observability, and quality governance verified against the current codebase.">
+    content="MLflow-integrated docs for CALIBER: embedded and standalone architecture, Aria, workflows, evaluation, calibration, observability, and quality governance verified against the current codebase.">
   <meta property="og:image" content="../caliber.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,13 +75,14 @@
       <article class="content">
         <section class="hero" id="overview">
           <img class="hero-logo" src="../caliber.png" alt="CALIBER">
-          <div class="hero-eyebrow">MLflow-native · Agentic workflow control plane</div>
+          <div class="hero-eyebrow">MLflow-integrated · Agentic workflow control plane</div>
           <h1><span class="cal-acro">CALIBER</span> : <span class="cal-acro">C</span>ontextual <span class="cal-acro">A</span>daptive <span class="cal-acro">L</span>ifecycle for <span class="cal-acro">I</span>ntelligent <span class="cal-acro">B</span>uild, <span class="cal-acro">E</span>valuation, and <span class="cal-acro">R</span>efinement</h1>
           <p class="lede">
-            CALIBER is an MLflow server plugin and application for teams shipping LLM agents to production. Author
-            prompts, tools, skills, MCP servers, knowledge bases, and visual workflows — then <strong>evaluate,
-            calibrate, approve, deploy, and observe</strong> them on one governed control plane. Where eval-only tools
-            stop at a score, CALIBER closes the loop: every artifact is testable, improvable, and gated before it ships.
+            CALIBER is an MLflow-integrated ASGI control plane and application for teams shipping LLM agents to production. Author
+            prompts, tools, skills, MCP servers, knowledge bases, and visual workflows — then <strong>test,
+            calibrate, deploy, and observe</strong> them through asset-specific controls. Where eval-only tools
+            stop at a score, CALIBER connects measured prompt proposals to explicit review and apply, while each other
+            asset family exposes the lifecycle controls it actually implements.
           </p>
           <div class="hero-cta">
             <a class="btn" href="#playbook-build">5-minute quickstart</a>
@@ -95,7 +96,7 @@
             </div>
             <div class="hero-highlight">
               <strong>Verify &amp; calibrate</strong>
-              <span>Test sets, fail-closed scorecards, custom LLM judges, and optimizer-driven calibration.</span>
+              <span>Test sets, fail-closed scorecards, custom LLM judges, and asset-specific calibration.</span>
             </div>
             <div class="hero-highlight">
               <strong>Govern &amp; observe</strong>
@@ -122,18 +123,18 @@
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
                 <h3>Platform</h3>
-                <p>Start here: how CALIBER runs, and the closed loop that ties everything together.</p>
+                <p>Start here: the two supported topologies and the canonical refinement path.</p>
               </div>
               <div class="ref-list">
                 <a class="ref-card ref-row" href="m-01-platform.html">
                   <span class="ref-row-kicker">Platform</span>
                   <span class="ref-row-title">Platform</span>
-                  <span class="ref-row-summary">Plugin model, shared runtime state, async workers, and trust boundary.</span>
+                  <span class="ref-row-summary">Embedded and standalone topologies, shared runtime state, async workers, and trust boundary.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-00-refinement-loop.html">
                   <span class="ref-row-kicker">Platform</span>
                   <span class="ref-row-title">The refinement loop</span>
-                  <span class="ref-row-summary">The closed, eval-gated loop — verify, diagnose, optimize, evaluate, approve, promote — and how every other topic serves it. Read this first.</span>
+                  <span class="ref-row-summary">The canonical prompt-refinement path and the evidence, review, alias, and rollback boundaries that differ across asset families. Read this first.</span>
                 </a>
               </div>
             </section>
@@ -196,7 +197,7 @@
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
                 <h3>Quality & trust</h3>
-                <p>Evidence systems used to test, score, improve, and approve behavior.</p>
+                <p>Evidence systems used to test, score, improve, and review behavior.</p>
               </div>
               <div class="ref-list">
                 <a class="ref-card ref-row" href="m-11-test-sets.html">
@@ -212,14 +213,14 @@
                 <a class="ref-card ref-row" href="m-15-calibration.html">
                   <span class="ref-row-kicker">Quality & trust</span>
                   <span class="ref-row-title">Calibration</span>
-                  <span class="ref-row-summary">Optimizer-driven calibration for prompts, skills, and workflows, plus deterministic inline tool calibration.</span>
+                  <span class="ref-row-summary">Provider-backed prompt/skill refinement, bounded workflow search/replay, and deterministic inline or queued tool calibration.</span>
                 </a>
               </div>
             </section>
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
                 <h3>Operations</h3>
-                <p>Runtime visibility, service health, and external gateway discovery.</p>
+                <p>Runtime visibility, incident and delivery recovery, service health, and governed external-gateway integration.</p>
               </div>
               <div class="ref-list">
                 <a class="ref-card ref-row" href="m-09-observability.html">
@@ -230,7 +231,7 @@
                 <a class="ref-card ref-row" href="m-10-gateways.html">
                   <span class="ref-row-kicker">Operations</span>
                   <span class="ref-row-title">Gateways</span>
-                  <span class="ref-row-summary">External MLflow AI Gateway discovery and outbound routing posture.</span>
+                  <span class="ref-row-summary">External MLflow AI Gateway discovery, guardrail governance, trace-derived usage, per-model pricing, and outbound routing posture.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-13-qa-plan.html">
                   <span class="ref-row-kicker">Operations</span>
@@ -320,6 +321,12 @@ make dev
 npm install
 npm run dev</code></pre>
             </div>
+          </div>
+          <div class="callout callout-warn">
+            <strong>First local login:</strong> both loopback launchers explicitly opt into
+            <code>admin</code> / <code>admin</code> only while the account table is empty. Change it immediately in
+            Administration. The product default keeps <code>CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false</code>;
+            a network-reachable deployment must provide a strong bootstrap password source instead.
           </div>
           <div class="callout">
             <strong>Boot verification:</strong> use <code>GET /health</code> for a liveness check and
@@ -423,10 +430,12 @@ npm run dev</code></pre>
         <section id="verification">
           <h2>Verification and calibration</h2>
           <p>
-            CALIBER's trust model is built around measured change. Prompts, skills, and workflows use a queued,
-            optimizer-backed refinement pipeline. Tools use a different calibration system entirely: deterministic
-            replay of saved test cases through the preview sandbox. Those are distinct mechanisms with different
-            execution semantics, but both exist to turn evidence into a governed artifact update.
+            CALIBER's trust model is built around measured change. Prompts and skills use queued,
+            optimizer-backed refinement; workflows use bounded manifest search and replay in the queued job shell.
+            Tools use a different calibration algorithm: deterministic
+            replay of an immutable definition-and-case snapshot through the configured sandbox. The tool suite is
+            exposed inline and through durable queued jobs; both revision-fence attribution so edited definitions
+            cannot inherit stale evidence.
           </p>
           <div class="diagram">
             <pre class="mermaid">flowchart LR
@@ -434,8 +443,8 @@ npm run dev</code></pre>
     VI[Verification item]
     JOB[Refinement job]
     WRK[Refinement worker]
-    CAND[Candidate generation]
-    EVAL[Evaluation gate]
+    CAND[Asset-specific candidate or search]
+    EVAL[Asset-specific evaluation and gate]
     READY[Candidate ready]
     APPLY[Apply]
     CKPT[Checkpoint anchor]
@@ -468,9 +477,9 @@ npm run dev</code></pre>
                 </tr>
                 <tr>
                   <td>Tools</td>
-                  <td><code>/tools/{tool_id}/test-cases</code><br><code>/tools/{tool_id}/calibrate</code></td>
-                  <td>Inline deterministic suite</td>
-                  <td>Pass-rate summary written back to the tool row</td>
+                  <td><code>/tools/{tool_id}/test-cases</code><br><code>/tools/{tool_id}/calibrate</code><br><code>/tools/{tool_id}/calibration-jobs</code></td>
+                  <td>Inline thread-pool run or durable drain + poll</td>
+                  <td>Job/result history; pass-rate attaches to the tool only at the submitted revision</td>
                 </tr>
                 <tr>
                   <td>Workflows</td>
@@ -599,7 +608,7 @@ make allure-report</code></pre>
                 <tr>
                   <td>Runtime and promotion</td>
                   <td><code>/workflow-runs</code><br><code>/jobs/{job_id}/apply</code><br><code>/agents/{agent_id}/rollback</code><br><code>/services/{workflow_id}/invoke</code></td>
-                  <td>Queued execution, candidate apply, rollback, and workflow-as-a-service invocation.</td>
+                  <td>Queued execution, candidate apply, rollback, and workflow-as-a-service invocation. Protected service calls authenticate before body consumption; every invoke has a streamed raw-body ceiling.</td>
                 </tr>
                 <tr>
                   <td>Assistant</td>
@@ -608,16 +617,17 @@ make allure-report</code></pre>
                 </tr>
                 <tr>
                   <td>Operations</td>
-                  <td><code>/observability/*</code><br><code>/metrics</code><br><code>/events/stream</code><br><code>/gateway</code><br><code>/system/services</code></td>
-                  <td>Trace browsing, feedback capture, Prometheus metrics, SSE updates, gateway discovery, and backing-service status.</td>
+                  <td><code>/observability/*</code><br><code>/metrics</code><br><code>/events/stream</code><br><code>/gateway/*</code><br><code>/llm-pricing</code><br><code>/system/incidents</code><br><code>/system/webhook-dead-letters</code><br><code>/system/services</code></td>
+                  <td>Trace browsing, feedback, metrics, SSE, gateway discovery/governance/usage/pricing, durable SLO incidents, webhook recovery, and backing-service status.</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <pre><code>curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/health | jq
-curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/gateway | jq
-curl -X POST http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/jobs/JOB-123/apply \
-  -H "X-CALIBER-User: @local-admin"</code></pre>
+          <pre><code># Public liveness probe
+curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/health | jq
+
+# Protected reads and mutations require the server-issued session cookie and
+# CSRF token used by the SPA. X-CALIBER-User is ignored in default session mode.</code></pre>
         </section>
 
         <section id="config">
@@ -663,14 +673,19 @@ curl -X POST http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/jobs/JOB-
                   <td>Controls whether workflow runs are accepted and processed through the queued runtime path.</td>
                 </tr>
                 <tr>
+                  <td><code>CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES</code></td>
+                  <td>Published-service request bound</td>
+                  <td>Caps the raw streamed JSON envelope for protected and explicitly public workflow services (1 MiB by default). It bounds per-request parse/memory work, not ingress IP or connection rates.</td>
+                </tr>
+                <tr>
                   <td><code>CALIBER_KNOWLEDGE_BUILD_QUEUE_ENABLED</code></td>
                   <td>Knowledge-base build queue</td>
                   <td>Turns durable queued KB build processing on or off.</td>
                 </tr>
                 <tr>
                   <td><code>CALIBER_GATEWAY_URI</code></td>
-                  <td>Gateway discovery</td>
-                  <td>Tells CALIBER where to probe for an external MLflow AI Gateway.</td>
+                  <td>Gateway endpoint discovery</td>
+                  <td>Tells CALIBER where to probe for external endpoint inventory. Guardrail governance uses the MLflow tracking store; usage comes from traces; pricing overrides are database-backed.</td>
                 </tr>
                 <tr>
                   <td><code>CALIBER_LLM_BASE_URL</code></td>
@@ -708,7 +723,8 @@ curl -X POST http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/jobs/JOB-
           <h2>Observability and operations</h2>
           <p>
             Observability in CALIBER is broader than traces. The current platform exposes trace browsing and feedback,
-            metrics, live event streams, gateway and backing-service visibility, and merged test evidence. The key
+            metrics, live event streams, durable SLO incident history/routing, accepted-webhook/dead-letter recovery,
+            gateway governance/usage/pricing, backing-service visibility, and merged test evidence. The key
             design choice is that these are served surfaces over real runtime state and built artifacts, not placeholder
             dashboards.
           </p>
@@ -725,8 +741,8 @@ curl -X POST http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/jobs/JOB-
             </div>
             <div class="card">
               <div class="icon">SV</div>
-              <h4>Service truth</h4>
-              <p><code>/gateway</code> and <code>/system/services</code> report the health and reachability of the external AI Gateway and backing platform services.</p>
+              <h4>Service and recovery truth</h4>
+              <p><code>/gateway/*</code> and <code>/system/services</code> expose external-gateway governance and backing-service health; <code>/system/incidents</code> and <code>/system/webhook-dead-letters</code> retain actionable failure history.</p>
             </div>
             <div class="card">
               <div class="icon">AL</div>
@@ -744,9 +760,11 @@ curl -X POST http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/jobs/JOB-
         <section id="security">
           <h2>Security</h2>
           <p>
-            CALIBER inherits authentication from MLflow or the upstream proxy and resolves the acting user from
-            <code>X-CALIBER-User</code>. Project scoping rides on <code>X-CALIBER-Project</code>, and write routes use
-            explicit scope checks rather than assuming broad administrative access.
+            CALIBER defaults to its own server-validated session login: passwords are stored as scrypt hashes and a
+            successful login issues a revocable HttpOnly session cookie. In this mode
+            <code>X-CALIBER-User</code> is ignored. A deployment behind a real identity proxy can explicitly select
+            <code>trusted_header</code> mode and require a shared proxy secret; direct access to the app port must then
+            be blocked. Project visibility and write routes apply explicit scope checks rather than trusting a client assertion.
           </p>
           <div class="table-wrap">
             <table>
@@ -777,9 +795,11 @@ curl -X POST http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/jobs/JOB-
             </table>
           </div>
           <p>
-            Scope assignment is currently config-driven through the user lists in <code>CaliberConfig</code>, which
-            keeps the authorization model explicit and easy to audit. Because CALIBER is same-origin with MLflow,
-            security posture is also strongly shaped by the deployment's proxy, header stamping, and session handling.
+            Scope assignment is currently config-driven through the user lists in <code>CaliberConfig</code>. The
+            loopback launchers' first-boot <code>admin</code> / <code>admin</code> convenience must be rotated before
+            exposure; network deployments leave the insecure-bootstrap flag off and supply a strong secret. Because
+            CALIBER is same-origin with MLflow in plugin mode, TLS, cookie, proxy, and direct-port controls remain part
+            of the deployment boundary.
           </p>
         </section>
           </div>
@@ -798,11 +818,11 @@ curl -X POST http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/jobs/JOB-
         <section id="faq">
           <h2>FAQ</h2>
 
-          <h4>Is CALIBER a separate microservice today?</h4>
-          <p>No. In the current architecture it is embedded as an MLflow <code>mlflow.app</code> plugin and shares origin, process lifecycle, and core runtime dependencies with MLflow.</p>
+          <h4>Must CALIBER be a separate microservice?</h4>
+          <p>No. The same ASGI application supports two topologies: an embedded MLflow <code>mlflow.app</code> that shares its process, or a standalone CALIBER service that reaches vanilla MLflow over HTTP. The bundled loopback Compose stack uses standalone mode and separate logical databases.</p>
 
           <h4>Does CALIBER ship its own gateway?</h4>
-          <p>No. The Gateway surface is an integration and visibility layer for an external MLflow AI Gateway. Discovery uses <code>CALIBER_GATEWAY_URI</code>; actual outbound routing uses <code>CALIBER_LLM_BASE_URL</code>.</p>
+          <p>No. CALIBER does not proxy model traffic itself. Its Gateway surface discovers the external MLflow AI Gateway, governs tracking-store guardrails, derives usage from traces, and maintains pricing overrides. Discovery uses <code>CALIBER_GATEWAY_URI</code>; actual outbound routing uses <code>CALIBER_LLM_BASE_URL</code>.</p>
 
           <h4>Does Aria stream its internal thinking?</h4>
           <p>Not in the current route surface. Aria persists a final assistant message, tool-call transparency, and a compact post-turn <code>process_steps</code> trail, but not a live token-stream reasoning transcript.</p>

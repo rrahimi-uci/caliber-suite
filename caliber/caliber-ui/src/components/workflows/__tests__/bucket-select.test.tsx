@@ -1,5 +1,13 @@
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   BucketContentsField,
@@ -31,8 +39,18 @@ function bucketHandlers() {
           prefixes: [],
           objects: [
             { key: "service/", size: 0, last_modified: null, etag: "folder" },
-            { key: "service/a.txt", size: 10, last_modified: "2026-06-10T12:00:00Z", etag: "a" },
-            { key: "service/b.txt", size: 20, last_modified: "2026-06-10T12:01:00Z", etag: "b" },
+            {
+              key: "service/a.txt",
+              size: 10,
+              last_modified: "2026-06-10T12:00:00Z",
+              etag: "a",
+            },
+            {
+              key: "service/b.txt",
+              size: 20,
+              last_modified: "2026-06-10T12:01:00Z",
+              etag: "b",
+            },
           ],
           next_token: null,
           is_truncated: false,
@@ -57,7 +75,9 @@ describe("BucketSelect workflow helpers", () => {
       ...bucketHandlers(),
       http.post(`${OS}/buckets`, async ({ request }) => {
         body = (await request.json()) as { name?: string };
-        return HttpResponse.json(envelope({ name: body.name }), { status: 201 });
+        return HttpResponse.json(envelope({ name: body.name }), {
+          status: 201,
+        });
       }),
     );
     const user = userEvent.setup();
@@ -80,12 +100,21 @@ describe("BucketSelect workflow helpers", () => {
     server.use(
       ...bucketHandlers(),
       http.post(`${OS}/buckets`, () =>
-        HttpResponse.json({ detail: "already exists", status_code: 409 }, { status: 409 }),
+        HttpResponse.json(
+          { detail: "already exists", status_code: 409 },
+          { status: 409 },
+        ),
       ),
     );
     const user = userEvent.setup();
 
-    render(<BucketSelect value="existing-outside-cache" onChange={onChange} testId="bucket" />);
+    render(
+      <BucketSelect
+        value="existing-outside-cache"
+        onChange={onChange}
+        testId="bucket"
+      />,
+    );
 
     expect(await screen.findByText(/doesn't exist yet/i)).toBeInTheDocument();
     // findBy (not getBy): the "Create it" button can render a tick after the
@@ -93,15 +122,21 @@ describe("BucketSelect workflow helpers", () => {
     await user.click(await screen.findByRole("button", { name: "Create it" }));
 
     await waitFor(() => expect(onChange).not.toHaveBeenCalled());
-    expect(screen.queryByText(/Failed to create bucket/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Failed to create bucket/i),
+    ).not.toBeInTheDocument();
   });
 
   it("creates nested prefixes one segment at a time", async () => {
     const calls: Array<{ prefix?: string; name?: string }> = [];
     server.use(
       http.post(`${OS}/buckets/reports/folders`, async ({ request }) => {
-        calls.push((await request.json()) as { prefix?: string; name?: string });
-        return HttpResponse.json(envelope({ prefix: "service/2026/" }), { status: 201 });
+        calls.push(
+          (await request.json()) as { prefix?: string; name?: string },
+        );
+        return HttpResponse.json(envelope({ prefix: "service/2026/" }), {
+          status: 201,
+        });
       }),
     );
     const user = userEvent.setup();
@@ -133,18 +168,29 @@ describe("BucketSelect workflow helpers", () => {
       http.post(`${OS}/buckets/reports/objects`, async ({ request }) => {
         const form = await request.formData();
         uploadedPrefix = form.get("prefix");
-        return HttpResponse.json(envelope({ bucket: "reports", key: "service/new.txt", size: 3 }));
+        return HttpResponse.json(
+          envelope({ bucket: "reports", key: "service/new.txt", size: 3 }),
+        );
       }),
     );
     const user = userEvent.setup();
 
-    render(<BucketContentsField bucket="reports" prefix="service/" previewLimit={1} testId="contents" />);
+    render(
+      <BucketContentsField
+        bucket="reports"
+        prefix="service/"
+        previewLimit={1}
+        testId="contents"
+      />,
+    );
 
     expect(await screen.findByText(/2 objects/i)).toBeInTheDocument();
     expect(screen.getByText(/a.txt/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Open in Object Store/i })).toHaveAttribute(
+    expect(
+      screen.getByRole("link", { name: /Open in Object Store/i }),
+    ).toHaveAttribute(
       "href",
-      "/object-store?bucket=reports&prefix=service%2F",
+      "/caliber/object-store?bucket=reports&prefix=service%2F",
     );
 
     await user.upload(
@@ -160,7 +206,13 @@ describe("BucketSelect workflow helpers", () => {
     server.use(
       ...bucketHandlers(),
       http.get(`${API_BASE}/me`, () =>
-        HttpResponse.json(envelope({ user_id: "@viewer", scopes: ["caliber.viewer"], is_admin: false })),
+        HttpResponse.json(
+          envelope({
+            user_id: "@viewer",
+            scopes: ["caliber.viewer"],
+            is_admin: false,
+          }),
+        ),
       ),
     );
 

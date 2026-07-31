@@ -105,3 +105,66 @@ def test_publish_only_exemptions_are_still_real_jobs() -> None:
     future job of the same name."""
     stale = set(PUBLISH_ONLY_JOBS) - _workflow_jobs()
     assert not stale, f"PUBLISH_ONLY_JOBS names jobs the workflow no longer has: {sorted(stale)}"
+
+
+def test_remote_and_local_package_gates_require_index_and_assets() -> None:
+    """A wheel with only one half of the SPA is not a valid UI package.
+
+    This used to be ``not any(index OR assets)`` in Actions, which passed when *either*
+    the HTML shell or its asset directory existed. Keep the two independent requirements
+    aligned with the local packaging gate.
+    """
+    required = 'if "caliber/ui/index.html" not in names or not any('
+    assert required in WORKFLOW.read_text()
+    assert required in SCRIPT.read_text()
+
+
+def test_local_package_gate_always_rebuilds_the_spa() -> None:
+    """A stale ``dist/`` must never be accepted merely because index.html exists."""
+    text = SCRIPT.read_text()
+    rebuild = '(cd "$UI_DIR" && CALIBER_DOCS_STRICT=1 npm run build) || return 1'
+    stage = "rm -rf src/caliber/ui && mkdir -p src/caliber/ui"
+    assert rebuild in text
+    assert text.index(rebuild) < text.index(stage)
+    assert '[ -f "caliber-ui/dist/index.html" ] ||' not in text
+
+
+def test_remote_and_local_ui_gates_both_run_eslint() -> None:
+    """Job-name parity must not hide a missing check inside a shared UI job."""
+    workflow = WORKFLOW.read_text()
+    script = SCRIPT.read_text()
+    assert "run: npx eslint ." in workflow
+    assert "&& npx eslint ." in script
+
+
+def test_remote_and_local_backend_gates_use_the_grouped_xdist_scheduler() -> None:
+    """Large free-function modules stay balanced; sensitive groups stay serialized."""
+    workflow = WORKFLOW.read_text()
+    script = SCRIPT.read_text()
+    assert "pytest -n auto --dist loadgroup" in workflow
+    assert "pytest -n auto --dist loadgroup" in script
+
+
+def test_docs_sources_are_not_excluded_from_pull_request_ci() -> None:
+    """The UI prebuild consumes ``docs/**`` and checks generated-copy parity."""
+    assert '- "docs/**"' not in WORKFLOW.read_text()
+
+
+def test_remote_and_local_compose_gates_validate_the_merged_quiet_model() -> None:
+    """Both gates must expand every profile without disclosing resolved values."""
+    workflow = WORKFLOW.read_text()
+    script = SCRIPT.read_text()
+    required = (
+        "--env-file deploy/.env.example",
+        "--env-file .env.example",
+        "-f deploy/compose.yaml",
+        "--profile app",
+        "--profile nats",
+        "config --quiet",
+    )
+
+    assert 'COMPOSE_DISABLE_ENV_FILE: "1"' in workflow
+    assert "COMPOSE_DISABLE_ENV_FILE=1 docker compose" in script
+    for fragment in required:
+        assert fragment in workflow
+        assert fragment in script

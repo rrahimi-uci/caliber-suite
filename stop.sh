@@ -13,7 +13,7 @@ echo "stopping caliber-suite (containers)..."
 ENV_ARGS=()
 [[ -f deploy/.env ]] && ENV_ARGS+=(--env-file deploy/.env)
 [[ -f .env ]] && ENV_ARGS+=(--env-file .env)
-COMPOSE=(docker compose "${ENV_ARGS[@]}" -f deploy/compose.yaml --profile redis --profile nats --profile app)
+COMPOSE=(docker compose "${ENV_ARGS[@]}" -f deploy/compose.yaml --profile nats --profile app)
 
 "${COMPOSE[@]}" down
 echo "done."

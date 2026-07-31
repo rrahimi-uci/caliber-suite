@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Guided walkthrough | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="Step-by-step runbook to bring up MLflow with the CALIBER plugin against object storage and real LLM providers, then tour every page of the SPA and build a governed artifact with Aria.">
+  <meta name="description" content="Step-by-step runbook to bring up MLflow with the CALIBER plugin, configure storage and an optional real LLM provider, then tour the SPA and build a governed artifact with Aria.">
   <link rel="icon" type="image/png" href="../caliber-icon.png">
   <script>
     (function () {
@@ -126,15 +126,15 @@
           <h1 id="top">Bring up MLflow, run CALIBER, tour the platform.</h1>
           <p class="doc-summary">
             This is a copy-pasteable runbook for the current build. CALIBER runs as
-            an MLflow application plugin against object storage and real LLM
-            providers — there is no canned demo seed to load. You bring the stack up,
+            an MLflow application plugin with configurable local or object storage
+            and optional real LLM providers — there is no canned demo seed to load. You bring the stack up,
             confirm it is healthy, and then either tour each surface of the SPA or
             let Aria, the embedded agentic copilot, build and test a governed
             artifact for you while you watch.
           </p>
           <div class="runbook-meta">
             <span>⏱ <strong>~15 min</strong> to a running stack</span>
-            <span>🧰 Requires: <strong>Python 3.11+</strong>, <strong>Node 20+</strong>, <strong>Docker</strong> (MinIO), <strong>git</strong></span>
+            <span>🧰 Requires: <strong>Python 3.10–3.12</strong>, <strong>Node 20+</strong>, <strong>git</strong>; <strong>Docker</strong> only for the MinIO option</span>
             <span>🔑 An <strong>OpenAI</strong> or <strong>Anthropic</strong> API key for Aria and LLM-backed features</span>
           </div>
         </header>
@@ -143,25 +143,24 @@
       <h2>Prerequisites</h2>
       <p>You need a working Unix-like shell (macOS, Linux, or WSL) with the following on <code>$PATH</code>:</p>
       <ul class="checklist">
-        <li><strong>Python ≥ 3.11</strong> — <code>python3 --version</code> should print 3.11 or newer.</li>
+        <li><strong>Python 3.10–3.12</strong> — 3.11 is recommended and is the canonical CI interpreter.</li>
         <li><strong>Node ≥ 20</strong> and <strong>npm</strong> — to build and serve the React SPA.</li>
-        <li><strong>Docker</strong> (or a reachable S3-compatible endpoint) — CALIBER stores artifacts in object storage; the suite ships a local MinIO stack.</li>
+        <li><strong>Docker</strong> (optional) — needed for the suite's MinIO stack; local filesystem storage is also supported.</li>
         <li><strong>git</strong> — to clone the repo.</li>
       </ul>
       <div class="callout">
-        <strong>Provider posture:</strong> this build uses real providers — there is no <code>fake</code> default.
-        Aria's engine defaults to <code>auto</code>, resolving to OpenAI if <code>OPENAI_API_KEY</code> is set, otherwise
-        Anthropic if <code>ANTHROPIC_API_KEY</code> is set. Export at least one before you start the server so Aria and
-        the LLM-backed evaluation/calibration paths work. The <code>fake</code> engine still exists but is reserved for
-        the test suite.
+        <strong>Provider posture:</strong> <code>CALIBER_LLM_PROVIDER</code> defaults to the deterministic
+        <code>fake</code> provider. Aria's separate engine defaults to <code>auto</code>, preferring OpenAI when
+        <code>OPENAI_API_KEY</code> is set and otherwise Anthropic when <code>ANTHROPIC_API_KEY</code> is set. Export a
+        key and configure the relevant provider fields before treating evaluation or calibration output as real-model evidence.
       </div>
     </section>
 
     <section id="clone">
       <h2><span class="step-num">1</span>Clone &amp; install</h2>
       <p>Clone the suite and install the plugin in editable mode with the dev and S3 extras, then install the SPA's npm dependencies:</p>
-      <pre><code>git clone https://github.com/<your-org>/caliber-mlflow.git
-cd caliber-mlflow/caliber
+      <pre><code>git clone https://github.com/rrahimi-uci/caliber-suite.git
+cd caliber-suite/caliber
 
 python -m venv .venv
 source .venv/bin/activate
@@ -184,12 +183,12 @@ npm install</code></pre>
     </section>
 
     <section id="storage">
-      <h2><span class="step-num">2</span>Object storage &amp; provider keys</h2>
+      <h2><span class="step-num">2</span>Storage &amp; provider keys</h2>
       <p>
-        CALIBER is object-storage-only: MLflow artifacts and CALIBER's own object store both write to an
-        S3-compatible bucket, not a local <code>mlruns/</code> tree. <code>make dev</code> defaults the artifact root to
-        <code>s3://mlflow/mlruns</code> via a MinIO endpoint at <code>http://127.0.0.1:9000</code>, so bring that up
-        first (the suite ships a compose stack under <code>deploy/</code>), or point the variables at your own endpoint.
+        <code>make dev</code> defaults MLflow artifacts to <code>s3://mlflow/mlruns</code> via MinIO at
+        <code>http://127.0.0.1:9000</code>, so bring that up first (the suite ships a Compose stack under
+        <code>deploy/</code>) or point the variables at your own endpoint. CALIBER workflow/file storage supports both
+        local filesystem and S3-compatible backends; this walkthrough uses MinIO so the object-storage surfaces are available.
       </p>
       <p>Set the provider keys CALIBER should use before launching (a suite-root <code>.env</code> is the usual home for these):</p>
       <pre><code># Real LLM provider for Aria + LLM-backed eval/calibration
@@ -210,7 +209,7 @@ export AWS_SECRET_ACCESS_KEY=minioadmin</code></pre>
     <section id="start">
       <h2><span class="step-num">3</span>Start MLflow with the CALIBER plugin</h2>
       <p>
-        CALIBER doesn't run as a separate service. It's an MLflow <em>application</em>:
+        In this embedded walkthrough CALIBER doesn't run as a separate service. It's loaded as an MLflow <em>application</em>:
         when the server launches with <code>--app-name caliber</code>, MLflow
         mounts CALIBER's SPA at <code>/caliber/</code> and its REST endpoints
         at <code>/ajax-api/2.0/mlflow/caliber/*</code> on the same port,
@@ -236,7 +235,8 @@ export AWS_SECRET_ACCESS_KEY=minioadmin</code></pre>
    listen           : http://127.0.0.1:5000
    caliber UI       : http://127.0.0.1:5000/caliber/
    caliber API      : http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/
-   dev identity     : @local-admin
+   dev identity     : admin
+   initial login    : admin / admin (empty account table only; change immediately)
    workflow queue   : true
    approvals        : true
    checkpointing    : true
@@ -299,8 +299,9 @@ HTTP/1.1 <span class="ok">200 OK</span>
       <pre><code>open http://127.0.0.1:5000/caliber/      # macOS
 xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
       <p>
-        On first load you'll authenticate as the dev identity (<code>@local-admin</code> by default, an admin). The
-        database starts empty — there is no demo seed in this build, so the lists are blank until you create
+        On first load, sign in with <code>admin</code> / <code>admin</code> and immediately replace that local-only
+        first-boot password in <strong>Administration</strong>. The loopback launcher is the component that explicitly
+        enables this known credential; the product default leaves it disabled. The database starts empty — there is no demo seed in this build, so the lists are blank until you create
         artifacts, either by hand on each page or by asking Aria to build them for you. The rest of this runbook walks
         the SPA in sidebar order and then has Aria build a governed artifact end to end.
       </p>
@@ -376,7 +377,7 @@ xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
       </p>
       <div class="grid">
         <div class="card"><h4>Knowledge Base</h4><p><code>/knowledge-bases</code> — versioned KBs with hybrid search (BM25 + dense RRF, tri-hybrid with graph) and calibration metrics (Recall@k, nDCG@k, faithfulness, answer-correctness).</p></div>
-        <div class="card"><h4>Object Store</h4><p><code>/object-store</code> — the file UI over object storage. This is the storage surface; there is no separate local file-directory page.</p></div>
+        <div class="card"><h4>File Directory</h4><p><code>/object-store</code> — the file UI over configured local or S3-compatible directories.</p></div>
       </div>
       <h4>Try this</h4>
       <ul>
@@ -494,8 +495,8 @@ xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
       <h2>What you just ran — the receipt</h2>
       <p>To pin it down in one place, by the end of this runbook you have:</p>
       <ol>
-        <li>Brought up MLflow with the CALIBER plugin co-resident at <code>/caliber/</code>, against object storage.</li>
-        <li>Confirmed via <code>/health</code> and <code>/readiness</code> that the server is healthy and running on a real LLM provider.</li>
+        <li>Brought up MLflow with the CALIBER plugin co-resident at <code>/caliber/</code>, against the configured storage backend.</li>
+        <li>Confirmed via <code>/health</code> and <code>/readiness</code> which services are healthy and which providers are real or simulated.</li>
         <li>Toured every SPA surface in sidebar order: Dashboard, Workflows, the Library, the data plane, the observe surfaces, and Platform.</li>
         <li>Used Aria's agentic loop to draft, validate, sandbox-test, and (optionally) publish a governed artifact — with every action recorded.</li>
       </ol>
@@ -529,8 +530,8 @@ make dev   # alembic re-creates the schema; the database is empty</code></pre>
         <tbody>
           <tr>
             <td><code>pip install</code> fails on a build wheel</td>
-            <td>Python &lt; 3.11, or missing build tools</td>
-            <td><code>python3 --version</code>; install Python 3.11+ via <code>pyenv</code> or your package manager</td>
+            <td>Python outside 3.10–3.12, or missing build tools</td>
+            <td><code>python3 --version</code>; install Python 3.11 via <code>pyenv</code> or your package manager</td>
           </tr>
           <tr>
             <td><code>/health</code> returns 404</td>
@@ -568,7 +569,7 @@ make dev   # alembic re-creates the schema; the database is empty</code></pre>
 
         <footer>
           <p>
-            Source: <code>caliber-mlflow</code> ·
+            Source: <code>caliber-suite</code> ·
             Bring-up: <code>caliber/scripts/run-dev.sh</code> ·
             <a href="index.html">← Back to overview</a>
           </p>

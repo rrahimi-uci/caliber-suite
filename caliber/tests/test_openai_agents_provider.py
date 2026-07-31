@@ -188,7 +188,8 @@ def test_generate_candidate_dspy_falls_back_when_dspy_extra_is_missing(
         "_load_dspy_optimizer_bridge",
         lambda: (_ for _ in ()).throw(
             LLMProviderError(
-                "DSPy optimizer dependencies are not installed. Install with `pip install caliber[dspy]` to enable DSPy refinement paths."
+                "DSPy optimizer dependencies are not installed. Install with "
+                "`pip install caliber-suite[dspy]` to enable DSPy refinement paths."
             )
         ),
     )
@@ -200,7 +201,7 @@ def test_generate_candidate_dspy_falls_back_when_dspy_extra_is_missing(
     )
 
     assert candidate.content == "META-FALLBACK"
-    assert "Install with `pip install caliber[dspy]`" in candidate.rationale
+    assert "Install with `pip install caliber-suite[dspy]`" in candidate.rationale
     assert "DSPyBootstrapFewShot -> MetaPrompt fallback" in candidate.diff_summary
 
 

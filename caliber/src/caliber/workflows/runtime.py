@@ -665,7 +665,7 @@ class OpenAIChatWorkflowExecutor:
             except ImportError as exc:
                 raise RuntimeError(
                     "openai is not installed. Install with "
-                    "`pip install caliber[llm]` to enable real workflow LLM runs."
+                    "`pip install caliber-suite[llm]` to enable real workflow LLM runs."
                 ) from exc
             # ``base_url`` routes calls through an OpenAI-compatible endpoint (e.g.
             # the MLflow AI Gateway at .../gateway/mlflow/v1) instead of api.openai.com.
@@ -844,7 +844,7 @@ class OpenAIResponsesWorkflowExecutor:
             except ImportError as exc:
                 raise RuntimeError(
                     "openai is not installed. Install with "
-                    "`pip install caliber[llm]` to enable real workflow LLM runs."
+                    "`pip install caliber-suite[llm]` to enable real workflow LLM runs."
                 ) from exc
             self._client = OpenAI(api_key=api_key, base_url=base_url or None)
         self._default_model = default_model
@@ -1040,7 +1040,7 @@ class OpenAIAgentsWorkflowExecutor:
         except ImportError as exc:
             raise RuntimeError(
                 "openai-agents is not installed. Install with "
-                "`pip install caliber[llm]` to enable Agents SDK workflow runs."
+                "`pip install caliber-suite[llm]` to enable Agents SDK workflow runs."
             ) from exc
         return (
             Agent,
@@ -2478,8 +2478,9 @@ def _standalone_config() -> Any:
     A generated export runs standalone: nothing has called ``bind_sandbox_config`` or
     ``bind_module_allowlist``, so both process globals are ``None`` and the export would
     silently ignore every operator setting — allowlist, backend, timeout, and the disable
-    switch alike. Binding happens at *import* of the generated module, before any of the
-    app's startup wiring, so the configuration has to be read here or not at all.
+    switch alike. The generated module builds its agent graph on each ``run`` so explicit
+    configuration can arrive first; when none is supplied, the environment must be read
+    here or those standalone settings would still be lost.
 
     Returned rather than installed. An earlier version assigned ``_ACTIVE_SANDBOX_CONFIG``
     and called ``bind_module_allowlist``, which meant merely *binding a tool* mutated
@@ -2508,7 +2509,7 @@ def _standalone_config() -> Any:
         ) from exc
 
 
-def bind_exported_tool(entry: Any) -> Callable[..., Any]:
+def bind_exported_tool(entry: Any, *, config: Any | None = None) -> Callable[..., Any]:
     """Bind a registered tool for a **generated standalone export**.
 
     Compiled exports used to emit ``bind_registered_tool(...)`` directly, which imports and
@@ -2522,23 +2523,28 @@ def bind_exported_tool(entry: Any) -> Callable[..., Any]:
     subprocess by default, honouring the module allowlist, and in-process only where an
     operator has explicitly disabled the sandbox.
 
-    Raises ``ToolBindingError`` rather than returning ``None``. A generated script binds at
-    import time and has no fallback path, so a refused module must fail loudly at startup
-    instead of yielding a null that surfaces as a confusing error mid-run.
+    ``config`` is accepted explicitly so generated ``run(config=...)`` calls select policy
+    before the graph binds. With no explicit object, the standalone environment is loaded.
+    Raises ``ToolBindingError`` rather than returning ``None`` so a refused module fails
+    clearly while the run graph is constructed instead of yielding a null tool.
     """
     from caliber.workflows.tools import (  # noqa: PLC0415
         ToolBindingError,
         registered_tool_module_allowed,
     )
 
-    config = _standalone_config()
+    config = config if config is not None else _standalone_config()
     module_path = getattr(entry, "module_path", "") or ""
     if module_path == "<in-memory>":
         # No module to load in either mode. Delegated so the existing, specific
         # ToolBindingError is raised rather than a confusing import failure for a literal
         # ``<in-memory>`` module name inside the sandbox child.
         return bind_registered_tool(entry)
-    allowlist = getattr(config, "registered_tool_module_allowlist", None) or None
+    # This is an explicit config snapshot. Preserve an explicit empty allowlist as
+    # unrestricted instead of converting it to ``None``, which tells the helper to
+    # consult mutable process-global policy and can make a standalone export depend on
+    # whichever CALIBER app happened to initialize first in the same interpreter.
+    allowlist = str(getattr(config, "registered_tool_module_allowlist", "") or "")
     if not registered_tool_module_allowed(module_path, allowlist):
         raise ToolBindingError(
             f"tool module {module_path!r} is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
@@ -2555,7 +2561,7 @@ def bind_exported_tool(entry: Any) -> Callable[..., Any]:
             callable_name=getattr(entry, "callable_name", "") or "",
         )
         return _sandboxed_registered_tool(binding, config=config)
-    return bind_registered_tool(entry)
+    return bind_registered_tool(entry, module_allowlist=allowlist)
 
 
 def _registered_tool_sandbox_enabled() -> bool:

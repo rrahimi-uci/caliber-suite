@@ -26,7 +26,7 @@
 #   docker run --rm -v caliber_pg_data_pg16_bak:/from -v caliber_pg_data:/to \
 #       alpine sh -c 'cp -a /from/. /to/'
 #   git checkout -- caliber/deploy/mcp/Dockerfile.postgres caliber/deploy/mcp/docker-compose.yml
-#   docker compose -f deploy/compose.yaml --profile app up -d --build
+#   docker compose -f deploy/compose.yaml --profile app --profile nats up -d --build
 #
 # Usage (from the suite root):
 #   bash caliber/deploy/mcp/migrate-pg16-to-pg17.sh
@@ -63,7 +63,7 @@ log()     { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 log "Pre-flight: confirming the pg16 cluster is up"
 if ! docker exec "${PG_CONTAINER}" pg_isready -U "${PG_USER}" -d "${CALIBER_DB}" >/dev/null 2>&1; then
   echo "ERROR: ${PG_CONTAINER} is not running/ready. Start the stack first:"
-  echo "  docker compose -f ${COMPOSE_FILE} --profile app up -d"
+  echo "  docker compose -f ${COMPOSE_FILE} --profile app --profile nats up -d"
   exit 1
 fi
 RUNNING_MAJOR="$(docker exec "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${CALIBER_DB}" -tAc 'SHOW server_version_num;' | cut -c1-2)"
@@ -163,7 +163,7 @@ docker exec "${PG_CONTAINER}" psql -U "${PG_USER}" -d "${MLFLOW_DB}" -tAc \
   "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';"
 
 log "Bringing the rest of the app tier back up"
-compose --profile app up -d
+compose --profile app --profile nats up -d
 
 log "Migration complete."
 cat <<EOF

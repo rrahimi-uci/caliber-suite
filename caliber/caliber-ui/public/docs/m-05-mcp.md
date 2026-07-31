@@ -362,11 +362,13 @@ classification is deployment-operator attested because the gateway cannot
 inspect another container's live security policy. The UI's execution
 readiness panel reports these controls and blockers; it must not be interpreted
 as a claim that ordinary local stdio is sandboxed or that the backing service's
-data privileges are least-privilege. Deployment preflight currently validates
-MCP references in the selected workflow snapshot. It does not recursively
-expand separately published subworkflow snapshots before alias rotation; nested
-MCP calls still pass through the central runtime gateway and fail closed, but a
-nested policy failure can therefore surface only when the subworkflow executes.
+data privileges are least-privilege. Alias-rotation preflight resolves each
+subworkflow's deployed target and recursively inspects its MCP dependencies, using
+the same target-selection rules as runtime. An unresolved deployed child is a
+fail-closed blocker for alias rotation, and exhausting the 16-level traversal
+bound is always reported as unverifiable rather than silently treated as complete.
+Manifest-only callers without a database session remain root-only by design; nested
+runtime calls still pass through the central gateway and fail closed independently.
 
 In sum, the MCP module is a mediated integration layer. It turns external MCP
 servers into policy-controlled, inspectable CALIBER runtime dependencies without

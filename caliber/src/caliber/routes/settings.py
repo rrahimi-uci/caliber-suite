@@ -932,6 +932,17 @@ def _runtime_groups(config: CaliberConfig) -> list[dict[str, Any]]:
                 ),
                 _setting(
                     config,
+                    key="service_invoke_max_body_bytes",
+                    env_var="CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES",
+                    label="Published-service invoke body limit",
+                    description=(
+                        "Maximum raw JSON-envelope bytes consumed by a published "
+                        "workflow-service invocation."
+                    ),
+                    formatter=_bytes,
+                ),
+                _setting(
+                    config,
                     key="rate_limit_requests_per_minute",
                     env_var="CALIBER_RATE_LIMIT_REQUESTS_PER_MINUTE",
                     label="Request rate",

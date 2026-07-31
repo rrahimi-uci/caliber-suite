@@ -12,6 +12,7 @@ import { useCallback, useRef, useState } from "react";
 import { ApiError, caliberApi } from "@/api/caliberApi";
 import { useApi } from "@/hooks/useApi";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { buildCaliberRouteHref } from "@/lib/externalLinks";
 
 /**
  * Whether the signed-in user may create/upload to the object store. Reads (list
@@ -38,7 +39,11 @@ interface BucketSelectProps {
 
 const CREATE_SENTINEL = "__create__";
 
-export function BucketSelect({ value, onChange, testId }: BucketSelectProps): JSX.Element {
+export function BucketSelect({
+  value,
+  onChange,
+  testId,
+}: BucketSelectProps): JSX.Element {
   const fetcher = useCallback(
     (signal: AbortSignal) => caliberApi.listObjectStoreBuckets(signal),
     [],
@@ -86,7 +91,9 @@ export function BucketSelect({ value, onChange, testId }: BucketSelectProps): JS
         refresh();
         return;
       }
-      setCreateError(err instanceof ApiError ? err.message : "Failed to create bucket");
+      setCreateError(
+        err instanceof ApiError ? err.message : "Failed to create bucket",
+      );
     } finally {
       setBusy(false);
     }
@@ -99,7 +106,9 @@ export function BucketSelect({ value, onChange, testId }: BucketSelectProps): JS
       refresh();
     } catch (err) {
       if (!(err instanceof ApiError && err.status === 409)) {
-        setCreateError(err instanceof ApiError ? err.message : "Failed to create bucket");
+        setCreateError(
+          err instanceof ApiError ? err.message : "Failed to create bucket",
+        );
       } else {
         refresh();
       }
@@ -143,7 +152,9 @@ export function BucketSelect({ value, onChange, testId }: BucketSelectProps): JS
             Cancel
           </button>
         </div>
-        {createError && <p className="text-[11px] text-red-600">{createError}</p>}
+        {createError && (
+          <p className="text-[11px] text-red-600">{createError}</p>
+        )}
       </div>
     );
   }
@@ -157,19 +168,24 @@ export function BucketSelect({ value, onChange, testId }: BucketSelectProps): JS
         value={missing ? "" : value}
         onChange={(e) => handleSelect(e.target.value)}
       >
-        <option value="">{loading ? "Loading buckets…" : "Select a bucket…"}</option>
+        <option value="">
+          {loading ? "Loading buckets…" : "Select a bucket…"}
+        </option>
         {buckets.map((b) => (
           <option key={b.name} value={b.name}>
             {b.name}
           </option>
         ))}
-        {canManage && <option value={CREATE_SENTINEL}>+ Create new bucket…</option>}
+        {canManage && (
+          <option value={CREATE_SENTINEL}>+ Create new bucket…</option>
+        )}
       </select>
 
       {missing && (
         <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
           <span className="truncate">
-            Bucket <span className="font-mono font-medium">{value}</span> doesn&apos;t exist yet.
+            Bucket <span className="font-mono font-medium">{value}</span>{" "}
+            doesn&apos;t exist yet.
           </span>
           {canManage && (
             <button
@@ -183,7 +199,11 @@ export function BucketSelect({ value, onChange, testId }: BucketSelectProps): JS
           )}
         </div>
       )}
-      {error && <p className="text-[11px] text-red-600">Failed to load buckets: {error.message}</p>}
+      {error && (
+        <p className="text-[11px] text-red-600">
+          Failed to load buckets: {error.message}
+        </p>
+      )}
       {createError && <p className="text-[11px] text-red-600">{createError}</p>}
     </div>
   );
@@ -213,7 +233,9 @@ export function BucketPrefixField({
   testId,
 }: BucketPrefixFieldProps): JSX.Element {
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(
+    null,
+  );
   const canManage = useCanManageStorage();
 
   const canCreate = bucket.trim() !== "" && value.trim() !== "";
@@ -275,7 +297,9 @@ export function BucketPrefixField({
         )}
       </div>
       {msg && (
-        <p className={`text-[11px] ${msg.kind === "ok" ? "text-emerald-600" : "text-red-600"}`}>
+        <p
+          className={`text-[11px] ${msg.kind === "ok" ? "text-emerald-600" : "text-red-600"}`}
+        >
           {msg.text}
         </p>
       )}
@@ -322,23 +346,35 @@ export function BucketContentsField({
     },
     [trimmedBucket, normPrefix],
   );
-  const { data, loading, error, refresh } = useApi(fetcher, [trimmedBucket, normPrefix]);
+  const { data, loading, error, refresh } = useApi(fetcher, [
+    trimmedBucket,
+    normPrefix,
+  ]);
 
   // Drop folder markers so the count matches what the runtime actually reads.
   const objects = (data?.objects ?? []).filter((o) => !o.key.endsWith("/"));
   const names = objects
     .slice(0, previewLimit)
-    .map((o) => (normPrefix && o.key.startsWith(normPrefix) ? o.key.slice(normPrefix.length) : o.key));
+    .map((o) =>
+      normPrefix && o.key.startsWith(normPrefix)
+        ? o.key.slice(normPrefix.length)
+        : o.key,
+    );
   const extra = objects.length - names.length;
   const truncated = data?.is_truncated ?? false;
   const canManage = useCanManageStorage();
 
-  const browseHref = `/object-store?bucket=${encodeURIComponent(trimmedBucket)}${
-    normPrefix ? `&prefix=${encodeURIComponent(normPrefix)}` : ""
-  }`;
+  const browseHref = buildCaliberRouteHref(
+    `/object-store?bucket=${encodeURIComponent(trimmedBucket)}${
+      normPrefix ? `&prefix=${encodeURIComponent(normPrefix)}` : ""
+    }`,
+  );
 
   return (
-    <div className="space-y-1.5 rounded-lg border border-zinc-200 bg-zinc-50/60 p-2.5" data-testid={testId}>
+    <div
+      className="space-y-1.5 rounded-lg border border-zinc-200 bg-zinc-50/60 p-2.5"
+      data-testid={testId}
+    >
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-medium text-zinc-500">Contents</span>
         {trimmedBucket !== "" && (
@@ -363,20 +399,24 @@ export function BucketContentsField({
       </div>
 
       {trimmedBucket === "" ? (
-        <p className="text-[11px] text-zinc-400">Select a bucket to see its contents.</p>
+        <p className="text-[11px] text-zinc-400">
+          Select a bucket to see its contents.
+        </p>
       ) : loading ? (
         <p className="text-[11px] text-zinc-400">Checking…</p>
       ) : error ? (
         <p className="text-[11px] text-red-600">{error.message}</p>
       ) : objects.length === 0 ? (
         <p className="text-[11px] text-amber-700">
-          No objects under this prefix yet{canManage ? " — upload one below." : "."}
+          No objects under this prefix yet
+          {canManage ? " — upload one below." : "."}
         </p>
       ) : (
         <p className="text-[11px] text-zinc-600">
           <span className="font-medium text-emerald-700">
             {objects.length}
-            {truncated ? "+" : ""} object{objects.length === 1 && !truncated ? "" : "s"}
+            {truncated ? "+" : ""} object
+            {objects.length === 1 && !truncated ? "" : "s"}
           </span>
           {names.length > 0 && (
             <span className="text-zinc-500">
@@ -421,7 +461,9 @@ export function BucketUploadField({
 }: BucketUploadFieldProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(
+    null,
+  );
   const canManage = useCanManageStorage();
 
   const canUpload = bucket.trim() !== "";
@@ -436,10 +478,16 @@ export function BucketUploadField({
         await caliberApi.uploadObjectStoreObject(bucket, file, prefix || "");
         count += 1;
       }
-      setMsg({ kind: "ok", text: `Uploaded ${count} object${count === 1 ? "" : "s"}` });
+      setMsg({
+        kind: "ok",
+        text: `Uploaded ${count} object${count === 1 ? "" : "s"}`,
+      });
       onUploaded?.();
     } catch (err) {
-      setMsg({ kind: "err", text: err instanceof ApiError ? err.message : "Upload failed" });
+      setMsg({
+        kind: "err",
+        text: err instanceof ApiError ? err.message : "Upload failed",
+      });
     } finally {
       setBusy(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -475,7 +523,9 @@ export function BucketUploadField({
         {busy ? "Uploading…" : "⬆ Upload object(s)"}
       </button>
       {msg && (
-        <p className={`text-[11px] ${msg.kind === "ok" ? "text-emerald-600" : "text-red-600"}`}>
+        <p
+          className={`text-[11px] ${msg.kind === "ok" ? "text-emerald-600" : "text-red-600"}`}
+        >
           {msg.text}
         </p>
       )}

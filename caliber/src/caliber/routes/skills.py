@@ -41,7 +41,6 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -72,7 +71,6 @@ from caliber.ids import (
     new_job_id,
     new_skill_id,
     new_skill_test_run_id,
-    new_skill_version_id,
 )
 from caliber.routes._deps import (
     envelope_response,
@@ -110,6 +108,15 @@ from caliber.skill_targets import (
     ensure_skill_target,
     skill_target_agent_id,
     skill_target_status,
+)
+from caliber.skill_versions import (
+    ensure_skill_version_snapshot as _ensure_skill_version_snapshot,
+)
+from caliber.skill_versions import (
+    previous_skill_version as _previous_skill_version,
+)
+from caliber.skill_versions import (
+    record_skill_version as _record_skill_version,
 )
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/skills"
@@ -484,10 +491,10 @@ async def update_skill(request: Request) -> JSONResponse:
             # Backfill the pre-edit snapshot for the prior version (no-op when
             # create_skill already recorded it), so rollback always has an exact
             # target, then record the new content+summary as a new version.
-            _ensure_skill_version_snapshot(
+            history_head = _ensure_skill_version_snapshot(
                 session, skill.skill_id, pre_version, pre_content, pre_summary, created_by=actor
             )
-            skill.version = pre_version + 1
+            skill.version = history_head + 1
             diff["version"] = {"from": pre_version, "to": skill.version}
             version_changed = True
             _record_skill_version(session, skill, created_by=actor)
@@ -522,83 +529,6 @@ async def update_skill(request: Request) -> JSONResponse:
         data = SkillSchema.model_validate(skill)
 
     return envelope_response(data)
-
-
-def _record_skill_version(session: Session, skill: CaliberSkill, *, created_by: str) -> None:
-    """Snapshot the skill's current content/summary at its current version number.
-
-    Called whenever ``skill.version`` is (re)assigned — on create, on a
-    content-changing edit, and on rollback — so the version table is the
-    authoritative history the panel lists, diffs, and rolls back against.
-    """
-    session.add(
-        CaliberSkillVersion(
-            skill_version_id=new_skill_version_id(),
-            skill_id=skill.skill_id,
-            version_number=skill.version,
-            content=skill.content,
-            summary=skill.summary or "",
-            created_by=created_by,
-        )
-    )
-
-
-def _ensure_skill_version_snapshot(
-    session: Session,
-    skill_id: str,
-    version_number: int,
-    content: str,
-    summary: str,
-    *,
-    created_by: str,
-) -> None:
-    """Record a snapshot for ``(skill_id, version_number)`` if one doesn't exist.
-
-    Backfills the pre-edit content for skills that predate the version table (or
-    were inserted without going through ``create_skill``), so the first edit
-    leaves a real rollback target rather than orphaning the prior content.
-    """
-    exists = (
-        session.execute(
-            select(CaliberSkillVersion.skill_version_id)
-            .where(CaliberSkillVersion.skill_id == skill_id)
-            .where(CaliberSkillVersion.version_number == version_number)
-            .limit(1)
-        )
-        .scalars()
-        .first()
-    )
-    if exists is None:
-        session.add(
-            CaliberSkillVersion(
-                skill_version_id=new_skill_version_id(),
-                skill_id=skill_id,
-                version_number=version_number,
-                content=content,
-                summary=summary or "",
-                created_by=created_by,
-            )
-        )
-
-
-def _previous_skill_version(session: Session, skill: CaliberSkill) -> CaliberSkillVersion | None:
-    """The snapshot with the largest version_number strictly below the current.
-
-    This is the exact content that was live immediately before the current
-    version, so rolling back to it (as a new version) restores prior state
-    precisely. ``None`` when the skill has no earlier version.
-    """
-    return (
-        session.execute(
-            select(CaliberSkillVersion)
-            .where(CaliberSkillVersion.skill_id == skill.skill_id)
-            .where(CaliberSkillVersion.version_number < skill.version)
-            .order_by(CaliberSkillVersion.version_number.desc())
-            .limit(1)
-        )
-        .scalars()
-        .first()
-    )
 
 
 async def rollback_skill(request: Request) -> JSONResponse:

@@ -1127,9 +1127,10 @@ class CaliberCalibrationJob(Base):
     paying a cold subprocess start, that is minutes of work that used to be one synchronous
     HTTP request. The job row makes it durable and the result addressable.
 
-    ``test_cases`` snapshots the cases at submission: calibrating against a moving target
-    would make the result unattributable, which is why the synchronous path already refused
-    a run whose cases changed underneath it.
+    ``tool_snapshot`` and ``test_cases`` capture the executable definition and cases at
+    submission.  The worker executes that immutable snapshot, then reloads the current tool
+    in a fresh transaction before deciding whether the result is still current enough to
+    attach to ``CaliberToolRegistry.last_calibration``.
     """
 
     __tablename__ = "caliber_calibration_jobs"
@@ -1142,6 +1143,7 @@ class CaliberCalibrationJob(Base):
     tool_id: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16), default="queued", server_default="queued")
     requested_by: Mapped[str] = mapped_column(String(256), default="", server_default="")
+    tool_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     test_cases: Mapped[list[Any] | None] = mapped_column(JSON, nullable=True)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1162,15 +1164,22 @@ class CaliberIncident(Base):
     true, so "when did this start", "how long did it last", and "has it happened before"
     had no answer.
 
-    At most one ``open`` incident per objective. That invariant is enforced in the service
-    rather than by a partial unique index, because SQLite and PostgreSQL disagree on those
-    and the transition is already serialised in one place.
+    At most one ``open`` incident per objective. SQLite and PostgreSQL both enforce that
+    invariant with a partial unique index; the service handles the resulting insert race
+    without publishing a duplicate transition.
     """
 
     __tablename__ = "caliber_incidents"
     __table_args__ = (
         Index("ix_caliber_incidents_objective_status", "objective", "status"),
         Index("ix_caliber_incidents_opened_at", "opened_at"),
+        Index(
+            "uq_caliber_incidents_open_objective",
+            "objective",
+            unique=True,
+            sqlite_where=text("status = 'open'"),
+            postgresql_where=text("status = 'open'"),
+        ),
     )
 
     incident_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -1191,14 +1200,19 @@ class CaliberIncident(Base):
     #: When this incident was routed. Null means never notified, which is what makes
     #: delivery idempotent across evaluator ticks.
     notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: Independent marker for the all-clear event. Null on a resolved row means delivery
+    #: is pending and retryable. Migration 0080 backfills pre-existing resolved history so
+    #: an upgrade never replays old all-clear notifications.
+    resolved_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class CaliberWebhookAcceptedEvent(Base):
     """An accepted-but-unsettled webhook delivery, so a crash is still observable.
 
     Written per (event, url) **before** the event is queued and deleted when that target
-    settles. Rows surviving a restart are events the previous process accepted and never
-    finished; the dispatcher sweeps them into the dead-letter record on boot.
+    settles. ``owner_id`` and ``lease_expires_at`` distinguish work owned by a live replica
+    from abandoned work. A recovering dispatcher may claim only an expired row, then writes
+    the dead letter and consumes the accept row in one transaction.
 
     The graceful-shutdown drain already covered queued and in-flight events. This covers
     the case that skips it entirely — ``SIGKILL``, OOM, eviction — which is the one where
@@ -1206,13 +1220,18 @@ class CaliberWebhookAcceptedEvent(Base):
     """
 
     __tablename__ = "caliber_webhook_accepted_events"
-    __table_args__ = (Index("ix_caliber_webhook_accepted_events_accepted_at", "accepted_at"),)
+    __table_args__ = (
+        Index("ix_caliber_webhook_accepted_events_accepted_at", "accepted_at"),
+        Index("ix_caliber_webhook_accepted_events_lease", "lease_expires_at"),
+    )
 
     accepted_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     url: Mapped[str] = mapped_column(String(1024))
     event_type: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
     event: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
     accepted_at: Mapped[datetime] = mapped_column(DateTime)
+    owner_id: Mapped[str] = mapped_column(String(128), default="", server_default="")
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class CaliberWebhookDeadLetter(Base):
@@ -1311,6 +1330,13 @@ class CaliberToolRegistry(Base):
         JSON, default=list, server_default="[]"
     )
     last_calibration: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # Monotonic identity for the definition + fixtures that a calibration scored.
+    # Every supported mutation increments it and clears ``last_calibration``; workers
+    # attach results with ``UPDATE ... WHERE calibration_revision = <submitted>`` so
+    # the database, rather than a check-then-write window, arbitrates concurrent edits.
+    calibration_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     # Pinned comparison baseline: a CaliberToolTestRun.test_run_id the Runs tab
     # diffs the current run against. Null until an operator sets one.
     baseline_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

@@ -1,5 +1,8 @@
 # `age-viewer/` — graph DB console (Apache AGE Viewer)
 
+> Development console: the published port binds to `127.0.0.1` and connection
+> credentials are embedded for automatic login. Do not expose it on a network.
+
 Interactive web console for the **Apache AGE** graph database that lives in the
 suite's Postgres container. Write openCypher, see results rendered as an
 interactive node/edge graph — the graph counterpart of the MinIO console

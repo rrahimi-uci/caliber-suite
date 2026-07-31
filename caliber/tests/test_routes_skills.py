@@ -333,15 +333,10 @@ def test_rollback_skill_409_without_prior_edit(client: TestClient, db_session: S
     assert resp.status_code == 409
 
 
-def test_update_skill_concurrent_version_bump_returns_409(
+def test_update_skill_repairs_history_ahead_of_live_version(
     client: TestClient, db_session: Session
 ) -> None:
-    """Two concurrent content edits both bump to the same version number.
-
-    The loser's snapshot insert hits ``uq_skill_version_number``; that must map
-    to a retryable 409 (the panel's If-Match flow reloads and retries), not an
-    unhandled IntegrityError surfacing as a 500.
-    """
+    """Legacy stale live versions append repair history instead of colliding."""
     _insert_skill(db_session, skill_id="SK-CC", name="concurrent_v1", content="orig", version=1)
     # Simulate a concurrent editor that already committed version 2 for this skill.
     db_session.add(
@@ -360,13 +355,17 @@ def test_update_skill_concurrent_version_bump_returns_409(
         DETAIL_PATH.replace("{skill_id}", "SK-CC"),
         json={"content": "my edit"},
     )
-    assert resp.status_code == 409, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["version"] == 4
 
-    # The failed edit rolled back cleanly: the skill still reads version 1 with
-    # its original content, and no partial state leaked.
+    # v3 anchors the outgoing live content above the existing v2 history head;
+    # v4 records this edit. Immutable v2 remains untouched.
     detail = client.get(DETAIL_PATH.replace("{skill_id}", "SK-CC")).json()["data"]
-    assert detail["version"] == 1
-    assert detail["content"] == "orig"
+    assert detail["version"] == 4
+    assert detail["content"] == "my edit"
+    versions = client.get(f"{PREFIX}/SK-CC/versions").json()["data"]
+    assert [row["version_number"] for row in versions] == [4, 3, 2]
+    assert [row["content"] for row in versions] == ["my edit", "orig", "rival edit"]
 
 
 def test_update_skill_non_content_does_not_bump_version(

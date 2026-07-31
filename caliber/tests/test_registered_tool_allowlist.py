@@ -425,6 +425,57 @@ def test_disabled_standalone_export_still_enforces_its_explicit_allowlist(
         bind_sandbox_config(previous)
 
 
+def test_disabled_export_explicit_allowlist_does_not_fall_back_to_global_policy() -> None:
+    """Explicit ``run(config=...)`` policy must win before in-process binding too."""
+    from types import SimpleNamespace
+
+    from caliber.workflows.runtime import bind_exported_tool
+    from caliber.workflows.tools import bind_module_allowlist
+
+    entry = ToolRegistryEntry(
+        name="lookup_policy",
+        version="1.0",
+        module_path="caliber.workflows.demo_tools",
+        callable_name="lookup_policy",
+    )
+    bind_module_allowlist("forbidden.*")
+    explicit = SimpleNamespace(
+        registered_tool_module_allowlist="caliber.workflows.*",
+        registered_tool_sandbox_enabled=False,
+    )
+    try:
+        bound = bind_exported_tool(entry, config=explicit)
+        assert bound("refund?")["policy"].startswith("Purchases within 30 days")
+    finally:
+        # Avoid leaking the deliberate global denial into later tests.
+        bind_module_allowlist("")
+
+
+def test_disabled_export_explicit_empty_allowlist_is_not_replaced_by_global_policy() -> None:
+    """An empty policy in the supplied config means unrestricted, not 'inherit global'."""
+    from types import SimpleNamespace
+
+    from caliber.workflows.runtime import bind_exported_tool
+    from caliber.workflows.tools import bind_module_allowlist
+
+    entry = ToolRegistryEntry(
+        name="lookup_policy",
+        version="1.0",
+        module_path="caliber.workflows.demo_tools",
+        callable_name="lookup_policy",
+    )
+    bind_module_allowlist("forbidden.*")
+    explicit = SimpleNamespace(
+        registered_tool_module_allowlist="",
+        registered_tool_sandbox_enabled=False,
+    )
+    try:
+        bound = bind_exported_tool(entry, config=explicit)
+        assert bound("refund?")["policy"].startswith("Purchases within 30 days")
+    finally:
+        bind_module_allowlist("")
+
+
 def test_the_sandbox_refuses_an_ambiguous_request() -> None:
     """Exactly one of ``source_code``/``module_path``. A request carrying both would
     run *something* and which one is not obvious from the call site."""

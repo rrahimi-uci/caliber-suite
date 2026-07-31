@@ -4,13 +4,13 @@
 # NOT mounted inside MLflow. It reads/writes MLflow over HTTP (MLFLOW_TRACKING_URI),
 # which keeps the two cleanly separated. Build context is the suite root.
 #
-#   docker compose -f deploy/compose.yaml --profile app up -d --build
+#   docker compose -f deploy/compose.yaml --profile app --profile nats up -d --build
 
 # ── Stage 1: build the CALIBER SPA bundle ──────────────────────────────
 FROM node:20-slim AS ui
 WORKDIR /ui
 COPY caliber/caliber-ui/package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY caliber/caliber-ui/ ./
 RUN npm run build
 
@@ -69,7 +69,12 @@ RUN set -eux; \
     retry python -m spacy download "${CALIBER_DEFAULT_SPACY_MODEL}"
 
 COPY deploy/caliber/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && mkdir -p /data \
+    && groupadd --gid 65532 caliber \
+    && useradd --uid 65532 --gid 65532 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin caliber \
+    && chown -R 65532:65532 /app /data
 
 EXPOSE 5001
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

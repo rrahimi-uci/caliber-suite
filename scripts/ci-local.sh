@@ -39,7 +39,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test integration ui package security)
+ALL_JOBS=(lint type-check test compatibility integration ui compose package security)
 FAST_SKIP=(integration package)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -99,10 +99,39 @@ job_type_check() {
 }
 
 # Coverage on, matching CI: the repo gate is 80% and running without it locally is how
-# a coverage regression reaches CI unnoticed. -n auto mirrors the workflow's xdist use.
+# a coverage regression reaches CI unnoticed. Explicit xdist groups serialize only the
+# subprocess/loopback-sensitive tests instead of pinning every large module to one worker.
 job_test() {
   cd "$CALIBER_DIR" || return 1
-  "$VENV_PY" -m pytest -n auto --dist loadscope
+  "$VENV_PY" -m pytest -n auto --dist loadgroup
+}
+
+# The full suite is canonical on Python 3.11 in CI. This bounded edge-version gate makes
+# the declared 3.10-3.12 package range executable rather than metadata-only. Local virtual
+# environments are persistent/ignored so repeated runs reuse installed wheels; a missing
+# interpreter is reported as SKIPPED, never as a pass.
+job_compatibility() {
+  cd "$CALIBER_DIR" || return 1
+  local version interpreter compat_dir compat_python
+  for version in 3.10 3.12; do
+    interpreter="python${version}"
+    if ! command -v "$interpreter" >/dev/null 2>&1; then
+      SKIP_REASON="${interpreter} is unavailable; CI still runs the ${version} compatibility leg"
+      return "$EXIT_SKIPPED"
+    fi
+    compat_dir="$CALIBER_DIR/.venv-compat-${version}"
+    compat_python="$compat_dir/bin/python"
+    if [ ! -x "$compat_python" ]; then
+      "$interpreter" -m venv "$compat_dir" || return 1
+    fi
+    "$compat_python" -m pip install --disable-pip-version-check --quiet -e ".[dev]" \
+      || return 1
+    "$compat_python" -m pytest \
+      tests/test_config.py \
+      tests/test_migrations.py \
+      tests/test_auth_sessions.py \
+      --no-cov -q || return 1
+  done
 }
 
 # The 6 tests that skip by default. They are the ones a local run silently omits, so
@@ -114,44 +143,130 @@ job_integration() {
 
 job_ui() {
   cd "$UI_DIR" || return 1
+  # A pre-commit run may already contain intentional, synchronized documentation edits.
+  # Comparing generated files to HEAD would reject that valid dirty tree. Fingerprint the
+  # docs-only diff/status instead: the build must be idempotent relative to the caller's
+  # starting state, while a clean CI checkout still requires no generated drift.
+  local docs_before docs_after
+  docs_before=$(
+    {
+      git -C "$REPO_ROOT" diff --binary -- \
+        docs-site caliber/caliber-ui/public/docs caliber/src/caliber/ui/docs
+      git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -- \
+        docs-site caliber/caliber-ui/public/docs caliber/src/caliber/ui/docs
+    } | git hash-object --stdin
+  ) || return 1
   npm ci --silent \
     && npm run typecheck \
     && npx eslint . \
     && npx vitest run \
-    && npm run build
+    && CALIBER_DOCS_STRICT=1 npm run build || return 1
+  docs_after=$(
+    {
+      git -C "$REPO_ROOT" diff --binary -- \
+        docs-site caliber/caliber-ui/public/docs caliber/src/caliber/ui/docs
+      git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all -- \
+        docs-site caliber/caliber-ui/public/docs caliber/src/caliber/ui/docs
+    } | git hash-object --stdin
+  ) || return 1
+  if [ "$docs_before" != "$docs_after" ]; then
+    red "  UI build changed generated documentation; commit synchronized copies"
+    git -C "$REPO_ROOT" status --short -- \
+      docs-site caliber/caliber-ui/public/docs caliber/src/caliber/ui/docs
+    return 1
+  fi
+}
+
+# Parse the fully merged development stack using only committed example values. This
+# catches cross-fragment interpolation, include, profile, and dependency defects that
+# per-file YAML parsing cannot see, without printing expanded values into CI logs.
+job_compose() {
+  cd "$REPO_ROOT" || return 1
+  command -v docker >/dev/null 2>&1 || {
+    SKIP_REASON="docker is unavailable; CI still validates the merged Compose model"
+    return "$EXIT_SKIPPED"
+  }
+  COMPOSE_DISABLE_ENV_FILE=1 docker compose \
+    --env-file deploy/.env.example \
+    --env-file .env.example \
+    -f deploy/compose.yaml \
+    --profile app \
+    --profile nats \
+    config --quiet
 }
 
 # Builds the wheel and asserts the SPA is inside it — the check that catches a
 # packaging change that would ship an empty UI.
 job_package() {
   cd "$CALIBER_DIR" || return 1
-  [ -f "caliber-ui/dist/index.html" ] || {
-    yellow "  SPA dist missing; building it first"
-    (cd "$UI_DIR" && npm run build) || return 1
-  }
+  # A pre-existing dist/ may come from an older source tree. Rebuild every time
+  # so the local package gate has the same commit binding as the remote UI
+  # artifact/rebuild path.
+  (cd "$UI_DIR" && CALIBER_DOCS_STRICT=1 npm run build) || return 1
   rm -rf src/caliber/ui && mkdir -p src/caliber/ui && cp -R caliber-ui/dist/. src/caliber/ui/ || return 1
   "$VENV_PY" -m build --outdir dist . >/dev/null 2>&1 || {
     red "  python -m build failed (is 'build' installed? $VENV_PY -m pip install build)"
     return 1
   }
-  local whl
-  whl=$(ls -t dist/*.whl 2>/dev/null | head -1)
+  local whl="" sdist="" candidate
+  for candidate in dist/*.whl; do
+    [ -e "$candidate" ] || continue
+    [ -z "$whl" ] || [ "$candidate" -nt "$whl" ] || continue
+    whl="$candidate"
+  done
   [ -n "$whl" ] || { red "  no wheel produced"; return 1; }
-  "$VENV_PY" -m zipfile -l "$whl" | grep -qE "caliber/ui/(index\.html|assets/)" || {
-    red "  wheel is missing the bundled SPA"
-    return 1
-  }
-  echo "  wheel contains the SPA: $(basename "$whl")"
+  "$VENV_PY" - "$whl" <<'PY' || return 1
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    names = archive.namelist()
+if "caliber/ui/index.html" not in names or not any(
+    name.startswith("caliber/ui/assets/") for name in names
+):
+    raise SystemExit("wheel is missing the bundled SPA")
+PY
+  for candidate in dist/*.tar.gz; do
+    [ -e "$candidate" ] || continue
+    [ -z "$sdist" ] || [ "$candidate" -nt "$sdist" ] || continue
+    sdist="$candidate"
+  done
+  [ -n "$sdist" ] || { red "  no sdist produced"; return 1; }
+  "$VENV_PY" -m twine check "$whl" "$sdist" || return 1
+  "$VENV_PY" - "$sdist" <<'PY'
+from pathlib import Path
+import sys
+import tarfile
+
+forbidden = {
+    "node_modules", "allure-results", "allure-report", "playwright-report",
+    "test-results", "htmlcov", "mlruns", ".pytest_cache", ".mypy_cache",
+    ".ruff_cache", ".tmp",
+}
+with tarfile.open(sys.argv[1]) as archive:
+    members = archive.getnames()
+leaked = [
+    name for name in members
+    if forbidden.intersection(Path(name).parts)
+    or any(part.startswith((".coverage", ".venv")) for part in Path(name).parts)
+]
+if leaked:
+    raise SystemExit("sdist contains local evidence/cache files: " + ", ".join(leaked[:10]))
+PY
+  echo "  distributions are clean and the wheel contains the SPA: $(basename "$whl")"
 }
 
 # gitleaks is what CI uses. Absent locally it is reported as skipped rather than passed:
 # a check that did not run must never look like one that did.
 job_security() {
+  cd "$REPO_ROOT" || return 1
+  "$CALIBER_DIR/scripts/run-supported-python-security-audit.sh" \
+    --venv-dir "${CALIBER_SECURITY_AUDIT_VENV_DIR:-$CALIBER_DIR/.venv-security-audit}" \
+    --extras dev || return 1
   if ! command -v gitleaks >/dev/null 2>&1; then
-    SKIP_REASON="gitleaks not installed (brew install gitleaks); CI still runs it"
+    SKIP_REASON="dependency audit passed; gitleaks not installed (brew install gitleaks), so the secret scan did not run"
     return "$EXIT_SKIPPED"
   fi
-  cd "$REPO_ROOT" || return 1
   gitleaks detect --no-banner --redact
 }
 
@@ -207,8 +322,10 @@ main() {
       lint) run_job lint job_lint ;;
       type-check) run_job type-check job_type_check ;;
       test) run_job test job_test ;;
+      compatibility) run_job compatibility job_compatibility ;;
       integration) run_job integration job_integration ;;
       ui) run_job ui job_ui ;;
+      compose) run_job compose job_compose ;;
       package) run_job package job_package ;;
       security) run_job security job_security ;;
       *)

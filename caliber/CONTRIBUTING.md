@@ -4,11 +4,13 @@ Thanks for your interest in contributing. CALIBER is an early-stage open-source 
 
 ## Quick start for contributors
 
-CALIBER is currently supported and CI-validated on **Python 3.10-3.12**. Use **Python 3.11** unless you have a reason to target another version in that range.
+Package metadata supports **Python 3.10–3.12**. Use **Python 3.11**, which is the
+interpreter used by the canonical GitHub functional suite; CI is not currently a
+three-version functional matrix.
 
 ```bash
-git clone https://github.com/<your-org>/caliber-mlflow
-cd caliber
+git clone https://github.com/rrahimi-uci/caliber-suite.git
+cd caliber-suite/caliber
 
 # Set up a virtualenv with dev dependencies.
 python -m venv .venv && source .venv/bin/activate
@@ -17,11 +19,16 @@ pip install -e ".[dev]"
 # Install pre-commit hooks (runs lint + type-check on every commit).
 pre-commit install
 
-# Verify your environment.
+# Fast smoke check for the local Python environment.
 ./scripts/check-runtime-advisories.sh && pytest && ruff check . && mypy src
 ```
 
-If all four commands pass, you're ready to make changes.
+Those four commands are a useful setup smoke test, but they are not the complete merge
+gate. From the suite root, `./scripts/ci-local.sh` mirrors every executable CI job: lint,
+type-check, coverage tests, Python 3.10/3.12 compatibility, opt-in MLflow integration,
+UI, Compose configuration, package, and security. `./scripts/ci-local.sh --fast` skips only
+integration and package. A missing interpreter, integration dependency, or `gitleaks` is reported as
+**skipped**, never as a pass; review the summary before opening a PR.
 
 Concurrent targeted `pytest` runs are safe by default: the repo preloads
 `caliber._pytest_cov_plugin`, which assigns each pytest process its own
@@ -38,7 +45,7 @@ shared-file behavior.
 | **Conventional Commits** | `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:` prefixes. Auto-generates the changelog. |
 | **SemVer** | `MAJOR.MINOR.PATCH`. Pre-1.0 minor bumps may include breaking changes (documented in CHANGELOG). |
 | **Squash merge** | Each PR is one commit on `main`. Keeps history readable. |
-| **CI must pass** | Lint, type-check, tests, and security scan must all be green before merge. No `--no-verify`. |
+| **CI must pass** | Run the parity script; lint, type-check, coverage tests, compatibility, integration, UI, Compose, package, and security gates must be green or an explicit skip/block must be resolved. No `--no-verify`. |
 | **Eval-driven changes** | Changes to optimizers or scorers ship with eval data showing the change is an improvement, not just a refactor. |
 
 ## What makes a good PR
@@ -59,7 +66,7 @@ The default `pytest` run executes the unit suite only — fast, hermetic, no MLf
 CALIBER_INTEGRATION_TESTS=1 pytest -m integration --no-cov
 ```
 
-The opt-in env var is required — without it the integration tests skip at collection time so a contributor without MLflow installed can still run the suite. CI runs the integration job in a separate workflow step (see [`.github/workflows/test.yml`](.github/workflows/test.yml)).
+The opt-in env var is required — without it the integration tests skip at collection time so a contributor without MLflow installed can still run the suite. CI runs the integration job in a separate workflow step (see [`ci.yml`](../.github/workflows/ci.yml)).
 
 Integration tests cover:
 
@@ -70,8 +77,8 @@ Integration tests cover:
 ## What to work on
 
 - Browse the project's open issues, especially ones tagged `good-first-issue`.
-- Read [`caliber-suite/docs/roadmap/development-plan.md`](../docs/roadmap/development-plan.md) for the phase roadmap. Each phase lists concrete deliverables.
-- Read [`caliber-suite/docs/demo/demo-story.md`](../docs/demo/demo-story.md) for the user-visible behavior we're building toward.
+- Read [`docs/roadmap.md`](../docs/roadmap.md) for the feasibility-grounded phase roadmap.
+- Read the [guided walkthrough](../docs-site/walkthrough.html) for the user-visible end-to-end behavior.
 
 If you want to propose something larger than a bug fix, open an issue first — labeled `proposal` — so we can align on direction before code is written.
 
@@ -89,7 +96,7 @@ We use `ruff` for both linting and formatting. `pre-commit` runs it automaticall
 
 Open an issue using the `bug` template. Include:
 
-- CALIBER version (`pip show caliber`)
+- CALIBER distribution version (`pip show caliber-suite`)
 - MLflow version (`mlflow --version`)
 - Python version
 - Minimal reproduction steps

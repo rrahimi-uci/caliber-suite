@@ -59,9 +59,9 @@ dev:  ## run alembic + start mlflow server with --app-name caliber
 
 tracking-server:  ## start a vanilla mlflow server on $(MLFLOW_TRACKING_PORT) sharing the caliber DB
 	@echo ">> mlflow tracking server (vanilla — agents POST traces here)"
-	@echo "   database         : $(CALIBER_DATABASE_URL)"
-	@echo "   artifact root    : $(MLFLOW_ARTIFACT_ROOT)"
-	@echo "   s3 endpoint      : $(MLFLOW_S3_ENDPOINT_URL)"
+	@echo "   database         : configured via CALIBER_DATABASE_URL"
+	@echo "   artifact root    : configured via MLFLOW_ARTIFACT_ROOT"
+	@echo "   s3 endpoint      : configured via MLFLOW_S3_ENDPOINT_URL"
 	@echo "   listen           : http://$(MLFLOW_HOST):$(MLFLOW_TRACKING_PORT)"
 	@echo "   tracking URI     : http://$(MLFLOW_HOST):$(MLFLOW_TRACKING_PORT)"
 	@AWS_ACCESS_KEY_ID="$(AWS_ACCESS_KEY_ID)" \

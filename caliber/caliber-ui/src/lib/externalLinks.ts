@@ -12,7 +12,9 @@ const CALIBER_THEME_KEY = "caliber.theme";
 const MLFLOW_DARK_KEY = "_mlflow_dark_mode_toggle_enabled";
 const MLFLOW_PREF_KEY = "databricks-dark-mode-pref";
 
-function normalizeTheme(value: string | null | undefined): ThemePreference | null {
+function normalizeTheme(
+  value: string | null | undefined,
+): ThemePreference | null {
   if (value === "light" || value === "dark") return value;
   if (value === "true") return "dark";
   if (value === "false") return "light";
@@ -22,7 +24,9 @@ function normalizeTheme(value: string | null | undefined): ThemePreference | nul
 function readStoredTheme(): ThemePreference | null {
   if (typeof window === "undefined") return null;
   try {
-    const caliber = normalizeTheme(window.localStorage.getItem(CALIBER_THEME_KEY));
+    const caliber = normalizeTheme(
+      window.localStorage.getItem(CALIBER_THEME_KEY),
+    );
     if (caliber) return caliber;
     const mlflow = normalizeTheme(window.localStorage.getItem(MLFLOW_DARK_KEY));
     if (mlflow) return mlflow;
@@ -34,7 +38,19 @@ function readStoredTheme(): ThemePreference | null {
 
 function staticPrefix(): string {
   if (typeof window === "undefined") return "";
-  return window.__CALIBER_STATIC_PREFIX__ || "";
+  return (window.__CALIBER_STATIC_PREFIX__ || "").replace(/\/+$/, "");
+}
+
+/**
+ * Build a browser-navigable path inside the CALIBER SPA.
+ *
+ * React Router adds its basename to `<Link>` destinations, but ordinary anchors
+ * and copied URLs bypass the router. Those callers must include both the MLflow
+ * static prefix and CALIBER's `/caliber` mount themselves.
+ */
+export function buildCaliberRouteHref(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${staticPrefix()}/caliber${normalizedPath}`;
 }
 
 function normalizeHash(hash?: string): string {
@@ -87,7 +103,11 @@ export function buildCaliberHref(options?: {
   const theme = options?.theme ?? readStoredTheme();
   const prefix = staticPrefix();
   const relative = withThemeHint(`${prefix}/caliber/`, theme);
-  if (typeof window === "undefined" || prefix || window.location.port !== "5001") {
+  if (
+    typeof window === "undefined" ||
+    prefix ||
+    window.location.port !== "5001"
+  ) {
     return relative;
   }
   return `${unifiedOrigin()}${relative}`;

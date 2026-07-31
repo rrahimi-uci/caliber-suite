@@ -1031,7 +1031,7 @@ def build_backend(config: WorkflowStorageConfig) -> StorageBackend:
             from caliber.storage.s3 import S3StorageBackend  # noqa: PLC0415
         except ImportError as exc:  # boto3 not installed
             raise StorageValidationError(
-                "s3 backend requires boto3; install with `pip install caliber[s3]`"
+                "s3 backend requires boto3; install with `pip install caliber-suite[s3]`"
             ) from exc
         return S3StorageBackend(config)
     raise StorageValidationError(f"unknown storage backend: {config.backend!r}")

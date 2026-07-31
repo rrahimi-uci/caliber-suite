@@ -22,6 +22,12 @@ import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  clearLocalAuthSession,
+  createLocalAuthSession,
+  getStoredAuthSession,
+  saveLocalAuthSession,
+} from "@/auth/localAuth";
 import { Administration } from "@/pages/Administration";
 import { server } from "@/test/server";
 
@@ -33,7 +39,10 @@ function envelope<T>(data: T): { data: T } {
 
 function renderPage(): void {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
   });
   render(
     <QueryClientProvider client={queryClient}>
@@ -76,7 +85,10 @@ function stubStores(
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  clearLocalAuthSession();
+});
 afterAll(() => server.close());
 
 describe("Administration", () => {
@@ -150,7 +162,9 @@ describe("Administration", () => {
     fireEvent.change(password, { target: { value: "correct-horse-battery" } });
     fireEvent.click(screen.getByRole("button", { name: /Create account/ }));
 
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Created @carol"));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Created @carol"),
+    );
     // The credential must not linger in a DOM node after the request succeeds.
     expect(password.value).toBe("");
     expect((user as HTMLInputElement).value).toBe("");
@@ -160,13 +174,139 @@ describe("Administration", () => {
     stubStores();
     renderPage();
 
-    fireEvent.change(await screen.findByLabelText("User ID"), { target: { value: "@dave" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "short" } });
+    fireEvent.change(await screen.findByLabelText("User ID"), {
+      target: { value: "@dave" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "short" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Create account/ }));
 
     // No POST handler is registered, so reaching the network would fail the test via
     // `onUnhandledRequest: "error"` — the local guard has to catch this first.
-    expect(await screen.findByRole("alert")).toHaveTextContent("at least 12 characters");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "at least 12 characters",
+    );
+  });
+
+  it("resets a password through the write-only account control and clears it", async () => {
+    const account = {
+      user_id: "admin",
+      disabled: false,
+      created_at: "2026-01-01T00:00:00",
+      password_updated_at: "2026-01-01T00:00:00",
+      last_login_at: null,
+    };
+    stubStores({ accounts: [account] });
+    let requestBody: unknown;
+    let accountReads = 0;
+    server.use(
+      http.get(`${API_BASE}/auth/accounts`, () => {
+        accountReads += 1;
+        return HttpResponse.json(envelope({ accounts: [account], total: 1 }));
+      }),
+      http.patch(`${API_BASE}/auth/accounts/admin`, async ({ request }) => {
+        requestBody = await request.json();
+        return HttpResponse.json(
+          envelope({ user_id: "admin", changed: ["password"] }),
+        );
+      }),
+    );
+    renderPage();
+
+    const password = (await screen.findByLabelText(
+      "New password for admin",
+    )) as HTMLInputElement;
+    const actionCell = password.closest("td");
+    expect(actionCell).not.toHaveClass("flex");
+    expect(actionCell?.firstElementChild).toHaveClass("flex");
+    fireEvent.change(password, { target: { value: "correct-horse-battery" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reset password for admin" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Changed the password for admin and revoked all of that account's sessions",
+      ),
+    );
+    expect(requestBody).toEqual({ password: "correct-horse-battery" });
+    expect(password.value).toBe("");
+    expect(accountReads).toBeGreaterThanOrEqual(2);
+  });
+
+  it("clears the current browser session after resetting its own password", async () => {
+    stubStores({
+      accounts: [
+        {
+          user_id: "admin",
+          disabled: false,
+          created_at: "2026-01-01T00:00:00",
+          password_updated_at: "2026-01-01T00:00:00",
+          last_login_at: null,
+        },
+      ],
+    });
+    server.use(
+      http.patch(`${API_BASE}/auth/accounts/admin`, () =>
+        HttpResponse.json(
+          envelope({ user_id: "admin", changed: ["password"] }),
+        ),
+      ),
+    );
+    saveLocalAuthSession(createLocalAuthSession("admin"));
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("New password for admin"), {
+      target: { value: "correct-horse-battery" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reset password for admin" }),
+    );
+
+    await waitFor(() => expect(getStoredAuthSession()).toBeNull());
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Sign in again with the new password",
+    );
+  });
+
+  it("does not clear admin when resetting the distinct @admin account", async () => {
+    stubStores({
+      accounts: [
+        {
+          user_id: "@admin",
+          disabled: false,
+          created_at: "2026-01-01T00:00:00",
+          password_updated_at: "2026-01-01T00:00:00",
+          last_login_at: null,
+        },
+      ],
+    });
+    server.use(
+      http.patch(
+        `${API_BASE}/auth/accounts/${encodeURIComponent("@admin")}`,
+        () =>
+          HttpResponse.json(
+            envelope({ user_id: "@admin", changed: ["password"] }),
+          ),
+      ),
+    );
+    saveLocalAuthSession(createLocalAuthSession("admin"));
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("New password for @admin"), {
+      target: { value: "correct-horse-battery" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reset password for @admin" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Changed the password for @admin and revoked all of that account's sessions",
+      ),
+    );
+    expect(getStoredAuthSession()?.username).toBe("admin");
   });
 
   it("says the store is disabled rather than showing an empty inventory", async () => {
@@ -185,7 +325,12 @@ describe("Administration", () => {
       ),
       http.get(`${API_BASE}/secrets`, () =>
         HttpResponse.json(
-          envelope({ secrets: [], total: 0, enabled: true, reference_scheme: "secret://" }),
+          envelope({
+            secrets: [],
+            total: 0,
+            enabled: true,
+            reference_scheme: "secret://",
+          }),
         ),
       ),
     );

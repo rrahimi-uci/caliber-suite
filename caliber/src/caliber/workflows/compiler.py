@@ -931,9 +931,8 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
                     binding.local_name,
                     (binding.mcp_server_id or "", binding.mcp_tool_name or ""),
                 )
-    if mcp_tool_refs:
-        lines.append("from typing import Any")
-        lines.append("")
+    lines.append("from typing import Any")
+    lines.append("")
     lines.append("from agents import Agent, Runner, handoff")
     lines.append("import mlflow")
     lines.append("")
@@ -956,13 +955,6 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
     lines.append("from caliber.workflows.runtime import bind_exported_tool")
     lines.append("from caliber.workflows.tools import ToolRegistryEntry")
     lines.append("")
-    if registry_tool_bindings:
-        lines.append("# Tool bindings (resolved from the CALIBER tool registry).")
-        for local_name in sorted(registry_tool_bindings):
-            var = _py_identifier(local_name)
-            binding = registry_tool_bindings[local_name]
-            lines.append(f"{var} = bind_exported_tool({_tool_registry_entry_literal(binding)})")
-        lines.append("")
     if mcp_tool_refs:
         lines.append("# MCP tool bindings call the shared CALIBER MCP gateway directly.")
         lines.append("def _bind_mcp_tool(local_name: str, server_id: str, tool_name: str):")
@@ -1014,26 +1006,42 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
             args.append(f"is_enabled=workflow_handoff_is_enabled({_str_literal(condition)})")
         return f"handoff({', '.join(args)})"
 
+    # Constructing the graph at run time is deliberate: a standalone caller may pass
+    # explicit sandbox configuration to ``run(config=...)``. Binding registered tools at
+    # module import made that configuration arrive too late and could even reject an
+    # otherwise valid explicit configuration based on the ambient environment.
+    lines.append("def _build_agent_graph(*, config: Any | None = None):")
+    if registry_tool_bindings:
+        lines.append("    # Tool bindings (resolved from the CALIBER tool registry).")
+        for local_name in sorted(registry_tool_bindings):
+            var = _py_identifier(local_name)
+            binding = registry_tool_bindings[local_name]
+            lines.append(
+                f"    {var} = bind_exported_tool("
+                f"{_tool_registry_entry_literal(binding)}, config=config)"
+            )
+
     # Agent definitions in handoff-target-first order.
     for agent in _topo_order_agents(ir):
         var = _py_identifier(agent.node_id)
-        lines.append(f"# node: {agent.node_id}")
-        lines.append(f"{var} = Agent(")
-        lines.append(f"    name={_str_literal(agent.name)},")
-        lines.append(f"    model=workflow_model({_str_literal(agent.node_id)}),")
-        lines.append(f"    instructions={_agent_instructions_arg(agent)},")
+        lines.append(f"    # node: {agent.node_id}")
+        lines.append(f"    {var} = Agent(")
+        lines.append(f"        name={_str_literal(agent.name)},")
+        lines.append(f"        model=workflow_model({_str_literal(agent.node_id)}),")
+        lines.append(f"        instructions={_agent_instructions_arg(agent)},")
         tool_vars = ", ".join(
             _py_identifier(b.local_name) for b in sorted(agent.tools, key=lambda b: b.local_name)
         )
-        lines.append(f"    tools=[{tool_vars}],")
+        lines.append(f"        tools=[{tool_vars}],")
         handoff_vars = ", ".join(
             _handoff_expr(h) for h in sorted(agent.handoffs, key=lambda h: h.target_node_id)
         )
-        lines.append(f"    handoffs=[{handoff_vars}],")
-        lines.append(")")
-        lines.append("")
+        lines.append(f"        handoffs=[{handoff_vars}],")
+        lines.append("    )")
 
     entry_var = _py_identifier(ir.entry_node_id)
+    lines.append(f"    return {entry_var}")
+    lines.append("")
     guardrails = sorted(
         (n for n in ir.nodes.values() if isinstance(n, IRGuardrail)),
         key=lambda g: g.node_id,
@@ -1052,7 +1060,9 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
         lines.append("]")
         lines.append("")
 
-    lines.append("def run(input_text: str, *, session_id: str | None = None):")
+    lines.append(
+        "def run(input_text: str, *, session_id: str | None = None, config: Any | None = None):"
+    )
     lines.append("    with run_with_caliber_context(")
     lines.append(f"        workflow_id={_str_literal(ir.workflow_id)},")
     lines.append(f"        workflow_version={_str_literal(ir.version)},")
@@ -1063,7 +1073,10 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
     lines.append(f"        extra_tags={_py_literal(ir.mlflow_trace_group_tags)},")
     lines.append("        session_id=session_id,")
     lines.append("    ):")
-    lines.append(f"        result = Runner.run_sync({entry_var}, input_text)")
+    # Agent construction calls ``workflow_model``. Build inside the context so inherited
+    # models resolve to this workflow's pinned default rather than the process fallback.
+    lines.append("        entry_agent = _build_agent_graph(config=config)")
+    lines.append("        result = Runner.run_sync(entry_agent, input_text)")
     if guardrails:
         lines.append("        enforce_guardrails(result.final_output, [], _GUARDRAILS)")
     lines.append("        return result.final_output")

@@ -45,7 +45,7 @@ class RedisEventBus(EventBus):
         except ImportError as exc:
             raise RuntimeError(
                 "Redis event backend requires the 'redis' extra "
-                "(install caliber[redis] or use the CALIBER container image)"
+                "(install caliber-suite[redis] or use the CALIBER container image)"
             ) from exc
 
         self._redis = _redis_from_url(redis_asyncio, self._url)

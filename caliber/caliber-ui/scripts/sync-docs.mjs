@@ -4,9 +4,10 @@
  *
  * The site is a multi-page set: the hand-authored landing page (index.html), the
  * shared design system (docs.css + docs.js), the generated sidebar nav data
- * (docs-nav.js), and one generated page per architecture module (m-*.html). The
- * module pages and docs-nav.js are produced from docs/**.md by
- * docs-site/build-docs.mjs, which this hook runs first so a markdown edit flows
+ * (docs-nav.js), and one generated page per published module (m-*.html). The
+ * architecture, workflow-reference, and strategy module pages plus docs-nav.js
+ * are produced from docs/**.md by docs-site/build-docs.mjs, which this hook runs
+ * first so a markdown edit flows
  * through to the served docs on the next build.
  *
  * The source of truth is the suite-level docs-site/. We rewrite image references
@@ -18,7 +19,15 @@
  * the committed public/docs/ files are used as-is.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -27,6 +36,7 @@ const DOCS_SITE = resolve(here, "../../../docs-site"); // caliber-suite/docs-sit
 const SERVED_DEST_DIR = resolve(here, "../public/docs"); // caliber-ui/public/docs
 const PACKAGED_UI_DIR = resolve(here, "../../src/caliber/ui");
 const PACKAGED_DEST_DIR = resolve(PACKAGED_UI_DIR, "docs"); // caliber/src/caliber/ui/docs
+const STRICT = process.env.CALIBER_DOCS_STRICT === "1";
 
 function writeTextAtomic(dest, contents) {
   const tmp = `${dest}.tmp-${process.pid}-${Date.now()}`;
@@ -42,7 +52,13 @@ function writeTextAtomic(dest, contents) {
 }
 
 if (!existsSync(DOCS_SITE) || !existsSync(resolve(DOCS_SITE, "index.html"))) {
-  console.log(`[sync-docs] ${DOCS_SITE} not found — keeping committed docs copies.`);
+  if (STRICT)
+    throw new Error(
+      `[sync-docs] required documentation site ${DOCS_SITE} not found`,
+    );
+  console.log(
+    `[sync-docs] ${DOCS_SITE} not found — keeping committed docs copies.`,
+  );
   process.exit(0);
 }
 
@@ -52,7 +68,10 @@ if (existsSync(builder)) {
   try {
     await import(pathToFileURL(builder).href); // runs main() on import
   } catch (err) {
-    console.warn(`[sync-docs] build-docs.mjs failed (${err.message}) — copying existing docs-site files.`);
+    if (STRICT) throw err;
+    console.warn(
+      `[sync-docs] build-docs.mjs failed (${err.message}) — copying existing docs-site files.`,
+    );
   }
 }
 
@@ -68,7 +87,7 @@ const SITE_FILES = readdirSync(DOCS_SITE).filter(
     f === "presentation_timed.html" ||
     f === "walkthrough.html" ||
     /^m-.*\.html$/.test(f) ||
-    /^m-.*\.md$/.test(f)
+    /^m-.*\.md$/.test(f),
 );
 
 // HTML pages reference the shared UI-root images one level up.
@@ -80,7 +99,9 @@ function rewriteHtml(html) {
 
 const DESTINATIONS = [
   { label: "public/docs", dir: SERVED_DEST_DIR },
-  ...(existsSync(PACKAGED_UI_DIR) ? [{ label: "src/caliber/ui/docs", dir: PACKAGED_DEST_DIR }] : []),
+  ...(existsSync(PACKAGED_UI_DIR)
+    ? [{ label: "src/caliber/ui/docs", dir: PACKAGED_DEST_DIR }]
+    : []),
 ];
 
 let written = 0;
@@ -90,11 +111,23 @@ for (const target of DESTINATIONS) {
     const src = readFileSync(resolve(DOCS_SITE, file), "utf8");
     const out = file.endsWith(".html") ? rewriteHtml(src) : src;
     if (!out.trim()) {
-      console.warn(`[sync-docs] skipping empty output for ${file} (${target.label}) — keeping existing file.`);
+      if (STRICT)
+        throw new Error(
+          `[sync-docs] empty output for ${file} (${target.label})`,
+        );
+      console.warn(
+        `[sync-docs] skipping empty output for ${file} (${target.label}) — keeping existing file.`,
+      );
       continue;
     }
     if (file.endsWith(".html") && !out.includes("<!DOCTYPE html>")) {
-      console.warn(`[sync-docs] skipping invalid HTML output for ${file} (${target.label}) — keeping existing file.`);
+      if (STRICT)
+        throw new Error(
+          `[sync-docs] invalid HTML output for ${file} (${target.label})`,
+        );
+      console.warn(
+        `[sync-docs] skipping invalid HTML output for ${file} (${target.label}) — keeping existing file.`,
+      );
       continue;
     }
     const dest = resolve(target.dir, file);
@@ -108,10 +141,10 @@ for (const target of DESTINATIONS) {
 
 if (written === 0) {
   console.log(
-    `[sync-docs] docs copies already up to date (${DESTINATIONS.length} target(s), ${SITE_FILES.length} files each).`
+    `[sync-docs] docs copies already up to date (${DESTINATIONS.length} target(s), ${SITE_FILES.length} files each).`,
   );
 } else {
   console.log(
-    `[sync-docs] refreshed ${written} file write(s) across ${DESTINATIONS.length} target(s) (${SITE_FILES.length} files each).`
+    `[sync-docs] refreshed ${written} file write(s) across ${DESTINATIONS.length} target(s) (${SITE_FILES.length} files each).`,
   );
 }

@@ -41,6 +41,10 @@ class PromotionRequest:
     new_content: str
     rationale: str
     approval_id: str
+    # DB-resident promoters participate in the route's transaction. External
+    # promoters ignore these fields.
+    session: Any | None = field(default=None, repr=False, compare=False)
+    actor: str = ""
 
 
 @dataclass(frozen=True)
@@ -71,6 +75,10 @@ class RollbackRequest:
     artifact_type: str
     version_before: int | None
     checkpoint_id: str
+    # DB-resident promoters participate in the route's transaction. External
+    # promoters ignore these fields.
+    session: Any | None = field(default=None, repr=False, compare=False)
+    actor: str = ""
 
 
 class PromoterError(Exception):
@@ -80,6 +88,10 @@ class PromoterError(Exception):
     they can retry or escalate. The job status is *not* mutated — the
     approval stays in ``pending`` for retry.
     """
+
+
+class PromoterConflictError(PromoterError):
+    """Raised when a concurrent DB promotion claims the same version."""
 
 
 class Promoter(Protocol):
@@ -406,15 +418,14 @@ class SkillPromoter:
 
     Skills live in ``caliber_skills``, not in the MLflow Prompt Registry.
     Promotion means updating the row's ``content``, bumping ``version``,
-    and recording a ``skill_metadata`` tag with the approval lineage.
+    recording an immutable ``CaliberSkillVersion`` snapshot, and tagging
+    ``skill_metadata`` with the approval lineage.
 
-    Rollback restores the previous content stored in the
-    ``CaliberRollbackCheckpoint.content_before`` field and decrements
-    version.
+    Both promotion and rollback require the caller's SQLAlchemy session so the
+    live row, immutable history, checkpoint, and audit record commit or roll
+    back together. Rollback restores prior content as a *new* monotonically
+    increasing version.
     """
-
-    def __init__(self, session_factory: Any | None = None) -> None:
-        self._session_factory = session_factory
 
     def promote(self, request: PromotionRequest) -> PromotionResult:
         if request.artifact_type != "skill":
@@ -422,14 +433,18 @@ class SkillPromoter:
                 f"SkillPromoter only supports artifact_type='skill'; got {request.artifact_type!r}"
             )
 
-        from caliber.db.models import CaliberSkill  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
+        from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
-        if self._session_factory is None:
-            # The app always wires a session factory through ``build_promoter``;
-            # a None factory means a misconfigured/direct construction. Fail
-            # clearly rather than touching an undeclared default database.
-            raise PromoterError("SkillPromoter requires a session_factory")
-        session_factory = self._session_factory
+        from caliber.db.models import CaliberSkill  # noqa: PLC0415
+        from caliber.skill_versions import (  # noqa: PLC0415
+            ensure_skill_version_snapshot,
+            record_skill_version,
+        )
+
+        session = request.session
+        if session is None:
+            raise PromoterError("SkillPromoter requires a caller-owned session")
 
         # ``agent_id`` is overloaded: for skill jobs, routes store the
         # skill name in the approval request's ``agent_id`` field (or
@@ -439,114 +454,175 @@ class SkillPromoter:
         skill_name = request.agent_id
 
         try:
-            with session_factory() as session:
-                skill = (
-                    session.query(CaliberSkill)
-                    .filter(
+            skill = (
+                session.execute(
+                    select(CaliberSkill)
+                    .where(
                         CaliberSkill.name == skill_name,
                         CaliberSkill.status == "active",
                     )
-                    .first()
+                    .with_for_update()
                 )
-                if skill is None:
-                    raise PromoterError(
-                        f"skill {skill_name!r} not found or archived; cannot promote."
-                    )
-                old_version = skill.version
-                old_content = skill.content
-                skill.content = request.new_content
-                skill.version = old_version + 1
-                # Tag the skill's metadata with promotion lineage.
-                meta = dict(skill.skill_metadata or {})
-                meta["last_approval_id"] = request.approval_id
-                meta["last_promoted_at"] = datetime.now(timezone.utc).isoformat()
-                skill.skill_metadata = meta
-                session.commit()
+                .scalars()
+                .first()
+            )
+            if skill is None:
+                raise PromoterError(f"skill {skill_name!r} not found or archived; cannot promote.")
+            old_version = skill.version
+            old_content = skill.content
+            old_summary = skill.summary or ""
+            created_by = request.actor or f"approval:{request.approval_id}"
+            history_head = ensure_skill_version_snapshot(
+                session,
+                skill.skill_id,
+                old_version,
+                old_content,
+                old_summary,
+                created_by=created_by,
+            )
+            skill.content = request.new_content
+            skill.version = history_head + 1
+            meta = dict(skill.skill_metadata or {})
+            meta["last_approval_id"] = request.approval_id
+            meta["last_promoted_at"] = datetime.now(timezone.utc).isoformat()
+            skill.skill_metadata = meta
+            record_skill_version(session, skill, created_by=created_by)
+            session.flush()
 
-                return PromotionResult(
-                    artifact_ref=f"skill://{skill_name}/v{skill.version}",
-                    rotated_at=datetime.now(timezone.utc),
-                    details={
-                        "skill_name": skill_name,
-                        "old_version": old_version,
-                        "new_version": skill.version,
-                        # ``version`` mirrors new_version so the generic checkpoint
-                        # builder (which reads details["version"]) records the right
-                        # version_after for skill promotions too.
-                        "version": skill.version,
-                        # Captured so rollback can restore the prior state — skills
-                        # have no alias indirection, the active skill *is* the row.
-                        "content_before": old_content,
-                        "version_before": old_version,
-                    },
-                )
+            return PromotionResult(
+                artifact_ref=f"skill://{skill_name}/v{skill.version}",
+                rotated_at=datetime.now(timezone.utc),
+                details={
+                    "skill_name": skill_name,
+                    "old_version": old_version,
+                    "new_version": skill.version,
+                    "version": skill.version,
+                    "content_before": old_content,
+                    "summary_before": old_summary,
+                    "version_before": history_head,
+                },
+            )
         except PromoterError:
             raise
+        except IntegrityError as exc:
+            raise PromoterConflictError(
+                f"skill {skill_name!r} was modified concurrently; reload and retry."
+            ) from exc
         except Exception as exc:
             logger.exception("skill promotion failed for %s", skill_name)
             raise PromoterError(f"failed to promote skill {skill_name!r}: {exc}") from exc
 
-    def rollback(self, request: RollbackRequest) -> PromotionResult:
+    def rollback(  # noqa: PLR0915 - validation and transactional restore stay together
+        self, request: RollbackRequest
+    ) -> PromotionResult:
         if request.artifact_type != "skill":
             raise PromoterError(
                 f"SkillPromoter only supports artifact_type='skill'; got {request.artifact_type!r}"
             )
 
-        from caliber.db.models import CaliberRollbackCheckpoint, CaliberSkill  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
+        from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
-        if self._session_factory is None:
-            raise PromoterError("SkillPromoter requires a session_factory")
+        from caliber.db.models import (  # noqa: PLC0415
+            CaliberRollbackCheckpoint,
+            CaliberSkill,
+            CaliberSkillVersion,
+        )
+        from caliber.skill_versions import (  # noqa: PLC0415
+            ensure_skill_version_snapshot,
+            record_skill_version,
+        )
+
+        session = request.session
+        if session is None:
+            raise PromoterError("SkillPromoter requires a caller-owned session")
 
         try:
-            with self._session_factory() as session:
-                checkpoint = session.get(CaliberRollbackCheckpoint, request.checkpoint_id)
-                if checkpoint is None:
-                    raise PromoterError(
-                        f"rollback checkpoint {request.checkpoint_id!r} not found; "
-                        "skill rollback restores the snapshot recorded at promotion."
-                    )
-                payload = checkpoint.snapshot_payload or {}
-                content_before = payload.get("content_before")
-                if not isinstance(content_before, str):
-                    raise PromoterError(
-                        f"checkpoint {request.checkpoint_id!r} has no skill content snapshot; "
-                        "cannot roll back (was it created before skill snapshots were recorded?)."
-                    )
-
-                skill_name = checkpoint.artifact_name or request.agent_id
-                skill = session.query(CaliberSkill).filter(CaliberSkill.name == skill_name).first()
-                if skill is None:
-                    raise PromoterError(f"skill {skill_name!r} not found; cannot roll back.")
-
-                # Restore the pre-promotion content + version. ``version_before``
-                # on the request (read off the checkpoint by the route) wins;
-                # fall back to the snapshot copy.
-                restored_version = request.version_before
-                if restored_version is None:
-                    snap_version = payload.get("version_before")
-                    restored_version = snap_version if isinstance(snap_version, int) else None
-
-                skill.content = content_before
-                if isinstance(restored_version, int):
-                    skill.version = restored_version
-                meta = dict(skill.skill_metadata or {})
-                meta["last_rollback_checkpoint_id"] = request.checkpoint_id
-                meta["last_rolled_back_at"] = datetime.now(timezone.utc).isoformat()
-                skill.skill_metadata = meta
-                session.commit()
-
-                return PromotionResult(
-                    artifact_ref=f"skill://{skill_name}/v{skill.version}",
-                    rotated_at=datetime.now(timezone.utc),
-                    details={
-                        "skill_name": skill_name,
-                        "restored_version": skill.version,
-                        "checkpoint_id": request.checkpoint_id,
-                        "rolled_back": True,
-                    },
+            checkpoint = session.get(CaliberRollbackCheckpoint, request.checkpoint_id)
+            if checkpoint is None:
+                raise PromoterError(
+                    f"rollback checkpoint {request.checkpoint_id!r} not found; "
+                    "skill rollback restores the snapshot recorded at promotion."
                 )
+            payload = checkpoint.snapshot_payload or {}
+            content_before = payload.get("content_before")
+            if not isinstance(content_before, str):
+                raise PromoterError(
+                    f"checkpoint {request.checkpoint_id!r} has no skill content snapshot; "
+                    "cannot roll back (was it created before skill snapshots were recorded?)."
+                )
+
+            skill_name = checkpoint.artifact_name or request.agent_id
+            skill = (
+                session.execute(
+                    select(CaliberSkill).where(CaliberSkill.name == skill_name).with_for_update()
+                )
+                .scalars()
+                .first()
+            )
+            if skill is None:
+                raise PromoterError(f"skill {skill_name!r} not found; cannot roll back.")
+
+            restored_from_version = request.version_before
+            if restored_from_version is None:
+                snap_version = payload.get("version_before")
+                restored_from_version = snap_version if isinstance(snap_version, int) else None
+            summary_before = payload.get("summary_before")
+            if not isinstance(summary_before, str) and isinstance(restored_from_version, int):
+                source = (
+                    session.execute(
+                        select(CaliberSkillVersion).where(
+                            CaliberSkillVersion.skill_id == skill.skill_id,
+                            CaliberSkillVersion.version_number == restored_from_version,
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if source is not None:
+                    summary_before = source.summary
+            if not isinstance(summary_before, str):
+                summary_before = skill.summary or ""
+
+            created_by = request.actor or f"rollback:{request.checkpoint_id}"
+            history_head = ensure_skill_version_snapshot(
+                session,
+                skill.skill_id,
+                skill.version,
+                skill.content,
+                skill.summary or "",
+                created_by=created_by,
+            )
+            previous_live_version = skill.version
+            skill.content = content_before
+            skill.summary = summary_before
+            skill.version = history_head + 1
+            meta = dict(skill.skill_metadata or {})
+            meta["last_rollback_checkpoint_id"] = request.checkpoint_id
+            meta["last_rolled_back_at"] = datetime.now(timezone.utc).isoformat()
+            skill.skill_metadata = meta
+            record_skill_version(session, skill, created_by=created_by)
+            session.flush()
+
+            return PromotionResult(
+                artifact_ref=f"skill://{skill_name}/v{skill.version}",
+                rotated_at=datetime.now(timezone.utc),
+                details={
+                    "skill_name": skill_name,
+                    "restored_from_version": restored_from_version,
+                    "previous_live_version": previous_live_version,
+                    "new_version": skill.version,
+                    "version": skill.version,
+                    "checkpoint_id": request.checkpoint_id,
+                    "rolled_back": True,
+                },
+            )
         except PromoterError:
             raise
+        except IntegrityError as exc:
+            raise PromoterConflictError(
+                f"skill {request.agent_id!r} was modified concurrently; reload and retry."
+            ) from exc
         except Exception as exc:
             logger.exception("skill rollback failed for checkpoint %s", request.checkpoint_id)
             raise PromoterError(f"failed to roll back skill: {exc}") from exc
@@ -601,7 +677,7 @@ class CompositePromoter:
         return self._default.rollback(request)
 
 
-def build_promoter(provider: str, session_factory: Any | None = None) -> Promoter:
+def build_promoter(provider: str) -> Promoter:
     """Factory keyed off ``CaliberConfig.promoter_provider``.
 
     Always wraps the base promoter in a :class:`CompositePromoter` so
@@ -614,4 +690,6 @@ def build_promoter(provider: str, session_factory: Any | None = None) -> Promote
         base = MLflowPromoter()
     else:
         raise PromoterError(f"unknown promoter_provider {provider!r}")
-    return CompositePromoter(default=base, skill=SkillPromoter(session_factory=session_factory))
+    # SkillPromoter deliberately uses the caller-owned request session instead
+    # of opening an inner transaction.
+    return CompositePromoter(default=base, skill=SkillPromoter())

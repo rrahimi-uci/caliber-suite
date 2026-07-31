@@ -1,13 +1,13 @@
 # CALIBER
 
-> MLflow-native control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the embedded Aria copilot.
+> MLflow-integrated control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the Aria copilot — in embedded-plugin or standalone-service topologies.
 
-The pages below are the architecture reference, one per module. Each link is the raw Markdown source, built for programmatic access.
+The pages below are the published architecture, workflow, and strategy documentation. Each link is a flattened Markdown copy built for programmatic access.
 
 ## Platform
 
-- [Platform](m-01-platform.md): Boot and dependency graph, same-origin MLflow plugin model, shared runtime state, async workers, and the trust boundary the whole product stands on.
-- [The refinement loop](m-00-refinement-loop.md): The closed, eval-gated loop that ties the platform together — verify, diagnose, optimize, evaluate, approve, promote — with humans at exactly two gates, and a map of how every other topic serves it. Read this first.
+- [Platform](m-01-platform.md): Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on.
+- [The refinement loop](m-00-refinement-loop.md): The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and promote — plus the evidence and audit boundaries that differ across other asset families. Read this first.
 
 ## Authoring
 
@@ -27,12 +27,12 @@ The pages below are the architecture reference, one per module. Each link is the
 
 - [Test sets](m-11-test-sets.md): Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring.
 - [Evaluation](m-14-evaluation.md): Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation.
-- [Calibration](m-15-calibration.md): Optimizer-driven calibration for prompts, skills, and workflows on one unified make_judge scoring path, plus deterministic inline tool calibration from saved fixtures.
+- [Calibration](m-15-calibration.md): Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued.
 
 ## Operations
 
-- [Observability](m-09-observability.md): MLflow traces with multimodal attachments, feedback, Prometheus metrics, SSE live events, service visibility, and trace retention.
-- [Gateways](m-10-gateways.md): Read-only discovery of an external MLflow AI Gateway and a clear account of whether CALIBER routes outbound traffic through it.
+- [Observability](m-09-observability.md): MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention.
+- [Gateways](m-10-gateways.md): External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility.
 - [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
 
 ## Aria assistant

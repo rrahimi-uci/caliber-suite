@@ -362,7 +362,10 @@ async def get_alerts(request: Request) -> JSONResponse:
         publish = getattr(getattr(request.app.state, "event_bus", None), "publish", None)
         changed = incidents.reconcile(
             session,
-            [slo.AlertState(**a) if isinstance(a, dict) else a for a in report.get("alerts", [])],
+            [
+                slo.AlertState(**state) if isinstance(state, dict) else state
+                for state in report.get("objectives", [])
+            ],
             severities=incidents.parse_severities(getattr(config, "slo_severities", "")),
             publish=publish if callable(publish) else None,
         )

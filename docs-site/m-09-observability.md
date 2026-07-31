@@ -8,7 +8,7 @@
 | **Tracing** | MLflow is the system of record for spans, tags, token/cost rollups, and assessments; CALIBER reads and annotates rather than originates. |
 | **Metrics** | A CALIBER-owned Prometheus `CollectorRegistry` scraped at `GET /metrics`. |
 | **Live events** | Ephemeral event-bus frames pushed to the SPA over `GET /events/stream` via a swappable fanout backend. |
-| **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`) plus structured review queues that write back as MLflow assessments and expectations. |
+| **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`), structured review queues that write back to MLflow, and operator alert/incident/dead-letter APIs. |
 | **Retention** | Server-owned MLflow trace archival (Postgres → MinIO) via `MLFLOW_TRACE_ARCHIVAL_CONFIG`, opt-in and read transparently. |
 | **Alerting** | Operator-declared SLO objectives evaluated on read, with incidents opened/resolved in `caliber_incidents` and routed over the event bus to the webhook dispatcher. Silencing and acknowledgement are recorded, not inferred. |
 | **Trust / safety** | Authenticated trace surfaces, redaction and byte-caps before MLflow, and safe degradation to empty responses when MLflow is unavailable. |
@@ -37,6 +37,10 @@ following:
 - recording structured JSON logs and, optionally, batching them into
   S3-compatible object storage;
 - publishing live workflow events over Server-Sent Events for the SPA;
+- reconciling configured SLO objectives into durable incident history and routing
+  lifecycle notifications through the event bus;
+- preserving accepted-but-unsettled outbound webhooks and exhausted deliveries for
+  operator acknowledgement or replay;
 - exporting Prometheus metrics for scraping; and
 - serving a generated Allure report from local disk or `s3://...` storage.
 
@@ -55,7 +59,10 @@ These responsibilities are implemented across the following primary code paths:
 - `caliber/src/caliber/events/bus.py`
 - `caliber/src/caliber/events/database_bus.py`
 - `caliber/src/caliber/events/nats_bus.py`
+- `caliber/src/caliber/events/webhooks.py`
+- `caliber/src/caliber/observability/incidents.py`
 - `caliber/src/caliber/routes/system_services.py`
+- `caliber/src/caliber/routes/system_effects.py`
 - `caliber/src/caliber/routes/health.py`
 - `caliber/caliber-ui/src/pages/Observability.tsx`
 - `caliber/caliber-ui/src/components/observability/TraceMetricsCharts.tsx`
@@ -74,29 +81,34 @@ maps each responsibility to the file that owns it.
 | Prometheus metrics | `observability/metrics.py` | Owns the CALIBER registry, counters, histograms, and gauges for runtime health and throughput. |
 | Trace viewer APIs | `routes/observability.py` | Lists traces, fetches trace detail, logs human feedback, computes monitoring buckets, and serves Allure assets. |
 | SSE live updates | `routes/events_stream.py` + `events/*` | Streams event frames from `app.state.event_bus` to the SPA, with heartbeat support and pluggable fanout backends. |
+| SLO incident state | `observability/slo.py` + `observability/incidents.py` | Evaluates objectives and reconciles durable open/resolved/acknowledged/silenced incident rows. |
+| Outbound delivery | `events/webhooks.py` + `routes/system_effects.py` | Signs and retries webhook deliveries, persists acceptance leases/dead letters, and exposes acknowledgement/replay operations. |
 | Trace data access | `trace_client.py` | Normalizes MLflow trace reads into CALIBER's trace-detail shape for the UI and downstream consumers. |
 | Operator service probes | `routes/system_services.py` + `routes/health.py` | Adjacent operational truth surfaces for backing service status and readiness honesty. |
 | Frontend observability UX | `Observability.tsx` + `TraceMetricsCharts.tsx` | Provides trace list/detail, compare mode, filters, feedback UI, and time-series monitoring charts. |
 
-Underneath those owners, the module draws one sharp line: it separates the three
-fundamentally different kinds of telemetry it handles, each with its own store
+Underneath those owners, the module draws one sharp line: it separates four
+fundamentally different kinds of telemetry and operational memory, each with its own store
 and lifetime.
 
 - Durable trace data is external MLflow state that CALIBER reads and annotates
   rather than originates.
 - Ephemeral live events are short-lived event-bus frames used to update the SPA
   in near real time.
+- Durable operational memory is CALIBER relational state for SLO incidents,
+  accepted webhook leases, and delivery dead letters.
 - Process-local telemetry consists of Prometheus registry samples and structured
   log records emitted by the current server process.
 
-Keeping these three concerns distinct is what allows each to fail or degrade
+Keeping these four concerns distinct is what allows each to fail or degrade
 independently without taking the others down.
 
 ## 3. Runtime architecture
 
-The runtime topology shows how a single action fans out into the durable,
-ephemeral, and process-local telemetry paths described above, and how the UI
-later reads them back.
+The runtime topology shows how a single action fans out into durable trace,
+event-fanout, webhook-delivery, and process-local telemetry paths, and how the
+UI later reads them back. SLO incident rows are reconciled separately when the
+alert surface evaluates configured objectives.
 
 ```mermaid
 flowchart LR
@@ -110,6 +122,8 @@ flowchart LR
     S3LOG[(S3 / MinIO log sink)]:::store
     BUS[Event bus<br/>app.state.event_bus]:::async
     FAN[(In-memory / DB / broker fanout)]:::async
+    WH[Webhook dispatcher]:::async
+    WSTATE[(Accepted-event leases<br/>+ dead letters)]:::store
     OBS[routes/observability.py]:::ctrl
     SSE[routes/events_stream.py]:::ctrl
     ALLURE[(Local dir or S3 Allure report)]:::store
@@ -120,6 +134,7 @@ flowchart LR
     API --> MET
     API --> LOG --> S3LOG
     API --> BUS --> FAN
+    BUS --> WH --> WSTATE
     UI --> OBS --> MLF
     UI --> SSE --> BUS
     OBS --> ALLURE
@@ -153,17 +168,22 @@ where each lives and why.
 | State | Backing store | Role |
 | --- | --- | --- |
 | Trace spans, tags, token/cost rollups, feedback assessments | MLflow | Source of truth for trace inspection and human review. |
-| Live event payloads | In-memory queue, database rows, or broker transport | Source of truth for SSE subscribers waiting on state changes. |
+| Live event payloads | In-memory queue, database rows, or broker transport | Fanout substrate for SSE subscribers waiting on state changes. |
 | Metrics counters, histograms, and gauges | In-process Prometheus `CollectorRegistry` | Scrape-time operational counters and distributions. |
 | Structured logs | stderr and optional S3 JSONL batches | Operational logs with request correlation. |
 | Request correlation | `contextvars` + response headers | Carries `trace_id` / request ID through async execution paths. |
+| SLO incident lifecycle | `caliber_incidents` | Durable open/resolved history, acknowledgement, silence, routing metadata, and database arbitration for one open row per objective. |
+| Accepted outbound targets | `caliber_webhook_accepted_events` | Per-occurrence, per-target acceptance and lease state until that target is settled or dead-lettered. |
+| Exhausted/ambiguous deliveries | `caliber_webhook_dead_letters` | Durable operator-visible failure record with acknowledgement and manual replay state. |
 
-The only observability state that touches the relational database exists to
-solve one specific problem: fanning live events out across replicas.
+The relational tables cover both cross-replica fanout and operational memory:
 
 | Table | Role |
 | --- | --- |
 | `CaliberLiveEvent` | Append-only event payload mirror used by the database-backed event bus. |
+| `CaliberIncident` | Durable SLO transition record; a partial unique index arbitrates concurrent openers, and conditional updates arbitrate concurrent resolvers. |
+| `CaliberWebhookAcceptedEvent` | Accepted-but-unsettled occurrence/target snapshot and renewable recovery lease. |
+| `CaliberWebhookDeadLetter` | Per-target terminal/ambiguous delivery record retained for acknowledgement or manual replay. |
 
 A handful of runtime semantics govern how that state is produced and consumed,
 and they are worth stating explicitly.
@@ -216,6 +236,17 @@ The platform telemetry routes are the machine-facing surfaces:
 
 - `GET /metrics`
 - `GET /events/stream`
+
+The adjacent operational-memory routes expose alerts, incidents, and delivery
+failures:
+
+- `GET /system/alerts`
+- `GET /system/incidents`
+- `POST /system/incidents/{incident_id}/silence`
+- `POST /system/incidents/{incident_id}/acknowledge`
+- `GET /system/webhook-dead-letters`
+- `POST /system/webhook-dead-letters/{dead_letter_id}/acknowledge`
+- `POST /system/webhook-dead-letters/{dead_letter_id}/replay`
 
 Two further routes are not part of observability proper but are the surfaces it
 depends on operationally:
@@ -341,16 +372,21 @@ The behaviors that matter most in operation are these:
 
 ### 8.1 SLO objectives, incidents, and alert routing
 
-Evaluation and *memory* are separate concerns here, and for a long time only the first
-existed. `observability/slo.py` evaluates operator-declared objectives
+Instantaneous evaluation and incident *memory* are separate concerns.
+`observability/slo.py` evaluates operator-declared objectives
 (`CALIBER_SLO_OBJECTIVES`) against queue, delivery, and readiness signals and returns an
 alert state per objective, rendered by `GET /system/alerts`. That is a gauge: it says
 whether an objective is breaching *now*. It could not answer when a breach started, how
 long it lasted, or whether it had happened before.
 
-`caliber_incidents` supplies the missing state. An incident opens the first time an
-objective fires and resolves when it stops, recording duration, severity, acknowledgement,
-and silence.
+`caliber_incidents` supplies the missing state. An incident opens when an objective
+starts firing and resolves when it stops, recording duration, severity, acknowledgement,
+and silence. Migration `0079` adds a partial unique index for one open row per objective;
+migration `0080` gives the all-clear its own notification marker. Conditional transition
+and notification claims make the database choose one synchronous local publisher when
+replicas reconcile the same state concurrently. The `0080` upgrade marks pre-existing
+resolved history as already handled, so upgrading cannot emit a wave of historical
+all-clears.
 
 | Surface | Purpose |
 | --- | --- |
@@ -360,15 +396,27 @@ and silence.
 | `POST /system/incidents/{id}/acknowledge` | Record that a human owns it — deliberately *not* the same as resolving |
 
 **Routing reuses the event bus rather than adding a delivery path.** An incident publishes
-`slo.incident.opened` / `slo.incident.resolved`, which the webhook dispatcher already
-delivers — inheriting bounded retry, the durable dead-letter record, per-target settlement,
-and recovery after abrupt process loss. An alert that vanishes silently is the exact
-failure that delivery path was hardened against; a second path would re-earn it.
+`slo.incident.opened` / `slo.incident.resolved`, which are included in the default webhook
+filter. For each configured target, the dispatcher writes durable acceptance before queueing,
+then applies bounded retry and per-target settlement. If an acceptance lease expires after
+abrupt process loss, recovery moves it atomically into the durable dead-letter workflow for
+manual replay; it does not silently re-send an outcome that may already have reached the
+receiver. The lease/recovery loop remains active whenever durable storage is bound, even if
+the current configuration has no webhook URLs or signing secret. Removing a target therefore
+stops new delivery without stranding a previously accepted row whose foreign lease expires
+after this replica starts. Dispatcher shutdown also sets a per-start stop generation before
+cancelling async tasks. A blocking sender that returns late cannot begin another retry or
+target, and an old generation cannot settle a restarted dispatcher's in-memory claim. A POST
+already in progress at shutdown can still have an externally ambiguous outcome.
 
 Four behaviours are deliberate and worth knowing before relying on this:
 
-- **At most one notification per transition.** The evaluator runs repeatedly, so without
-  `notified_at` an hour-long breach would page on every tick.
+- **One synchronous local publisher wins each notification claim.** The partial unique
+  index arbitrates open races, a conditional update arbitrates resolution races, and
+  `notified_at` / `resolved_notified_at` independently claim the opening and all-clear.
+  A known synchronous publication failure releases its claim, so a later firing or
+  non-firing reconciliation retries it. Successfully committed markers prevent steady-state
+  ticks from routing the transition again.
 - **Silencing suppresses routing, not the record.** Dropping the row would hide the
   incident from the history that exists to be reviewed afterwards.
 - **A resolution routes even when the open was silenced.** "All clear" is the one message
@@ -378,8 +426,18 @@ Four behaviours are deliberate and worth knowing before relying on this:
   number. An unrecognised severity is ignored so one typo cannot stop other objectives from
   being evaluated.
 
-What is still absent: escalation chains, on-call rotation, and per-agent or per-workflow
-health rollups. Severity is a label an operator sets, not a policy that escalates over time.
+This is not exactly-once external notification. Event-bus publication and the incident-row
+commit are not one atomic transaction. A process can publish and then fail before committing
+its marker, causing the next reconciliation to publish the same transition again; an async
+subscriber can also fail after the synchronous `publish()` call returns. Downstream webhook
+acceptance and settlement are a separate durability boundary, and a receiver can succeed
+while local acknowledgement is lost. Deployments that require receiver deduplication must
+therefore use a stable event/delivery identity before treating replay as safe automation.
+
+What is still absent: continuous/timer-driven objective reconciliation (the current
+reconcile point is an alerts request), escalation chains, on-call rotation, and per-agent
+or per-workflow health rollups. Severity is a label an operator sets, not a policy that
+escalates over time.
 
 Knowing how the module degrades is just as important as knowing how it behaves
 when healthy. The common degraded modes are:

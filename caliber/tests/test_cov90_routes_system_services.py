@@ -117,25 +117,26 @@ def test_probe_http_any_no_candidates_returns_default() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.xdist_group("system-service-loopback-probes")
 def test_probe_tcp_success_against_real_listener() -> None:
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("127.0.0.1", 0))
-    server.listen(1)
-    port = server.getsockname()[1]
-    try:
+    # Context ownership matters even when a managed test sandbox rejects bind(): an
+    # unclosed socket otherwise becomes a ResourceWarning/error on an unrelated test.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
         result = asyncio.run(svc._probe_tcp("127.0.0.1", port))
         assert result.healthy is True
         assert f"TCP 127.0.0.1:{port} open" == result.detail
         assert result.latency_ms is not None
-    finally:
-        server.close()
 
 
+@pytest.mark.xdist_group("system-service-loopback-probes")
 def test_probe_tcp_failure_when_nothing_listening() -> None:
-    probe_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe_socket.bind(("127.0.0.1", 0))
-    port = probe_socket.getsockname()[1]
-    probe_socket.close()  # freed immediately — nothing is listening on it now
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe_socket:
+        probe_socket.bind(("127.0.0.1", 0))
+        port = probe_socket.getsockname()[1]
+    # Context exit frees the port immediately — nothing is listening on it now.
 
     result = asyncio.run(svc._probe_tcp("127.0.0.1", port))
     assert result.healthy is False

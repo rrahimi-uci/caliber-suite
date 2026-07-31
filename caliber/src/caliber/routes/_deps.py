@@ -140,6 +140,7 @@ async def parse_json_object(
     request: Request,
     *,
     allow_empty: bool = False,
+    max_body_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Parse a JSON-object request body and translate failures to 400.
 
@@ -158,6 +159,10 @@ async def parse_json_object(
         When ``True``, an empty body resolves to ``{}`` instead of a
         400. Used by the few endpoints (approve, rollback) whose body
         is optional.
+    max_body_bytes:
+        Optional raw-body ceiling. ``Content-Length`` is only a fast rejection;
+        the streamed byte count is authoritative so chunked or understated
+        requests cannot bypass the limit.
 
     Returns
     -------
@@ -172,7 +177,37 @@ async def parse_json_object(
         400 on missing-but-required body, malformed JSON, or
         non-object root.
     """
-    raw = await request.body()
+    if max_body_bytes is not None and max_body_bytes < 1:
+        raise ValueError("max_body_bytes must be positive")
+
+    raw: bytes
+    if max_body_bytes is None:
+        raw = await request.body()
+    else:
+        declared = request.headers.get("Content-Length")
+        if declared is not None:
+            try:
+                declared_bytes = int(declared)
+            except ValueError:
+                declared_bytes = -1
+            if declared_bytes > max_body_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"request body exceeds {max_body_bytes} bytes",
+                )
+
+        buffered = bytearray()
+        async for chunk in request.stream():
+            if len(buffered) + len(chunk) > max_body_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"request body exceeds {max_body_bytes} bytes",
+                )
+            buffered.extend(chunk)
+        raw = bytes(buffered)
+        # Match Request.body()'s replay behavior for instrumentation or wrappers
+        # that legitimately inspect the already-consumed body later in the request.
+        request._body = raw
     if not raw:
         if allow_empty:
             return {}

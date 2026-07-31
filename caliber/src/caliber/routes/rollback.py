@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -33,7 +33,7 @@ from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
 from caliber.db.models import CaliberAgentConfig, CaliberRollbackCheckpoint, CaliberSkill
 from caliber.events.bus import EventBus
 from caliber.observability import metrics
-from caliber.promoter import Promoter, PromoterError, RollbackRequest
+from caliber.promoter import Promoter, PromoterConflictError, PromoterError, RollbackRequest
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import RollbackCheckpointSchema, RollbackResponse
 
@@ -52,9 +52,9 @@ def _get_promoter(request: Request) -> Promoter:
 def _rollback_target_exists(session: object, agent_id: str) -> bool:
     """Whether the ``{agent_id}`` path param names a rollback-able artifact.
 
-    The route is nominally agent-scoped, but skill promotions write checkpoints
-    keyed by the skill name (skills have no ``CaliberAgentConfig`` row), so a
-    skill of that name is an equally valid target.
+    Checkpoints remain agent-scoped because ``agent_id`` is an AgentConfig FK;
+    skill promotions store the skill name in ``artifact_name``. The skill
+    lookup is retained for legacy/development rows that predate that invariant.
     """
     from sqlalchemy import select as _select  # noqa: PLC0415
     from sqlalchemy.orm import Session  # noqa: PLC0415
@@ -124,8 +124,17 @@ async def rollback_agent(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        if not _rollback_target_exists(session, agent_id):
-            raise HTTPException(status_code=404, detail=f"agent or skill {agent_id!r} not found")
+        # Make the first statement a write so SQLite never has to upgrade a
+        # shared read transaction while another rollback is committing. This
+        # no-op conditional update serializes rollback selection per owning
+        # agent on SQLite and PostgreSQL without changing updated_at.
+        owner_claim = session.execute(
+            update(CaliberAgentConfig)
+            .where(CaliberAgentConfig.agent_id == agent_id)
+            .values(updated_at=CaliberAgentConfig.updated_at)
+        )
+        if int(getattr(owner_claim, "rowcount", 0) or 0) != 1:
+            raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
 
         checkpoint = _select_checkpoint(session, agent_id, checkpoint_id)
         if checkpoint is None:
@@ -146,21 +155,39 @@ async def rollback_agent(request: Request) -> JSONResponse:
                 ),
             )
 
+        claimed_at = datetime.now(timezone.utc)
+        claim = session.execute(
+            update(CaliberRollbackCheckpoint)
+            .where(CaliberRollbackCheckpoint.checkpoint_id == checkpoint.checkpoint_id)
+            .where(CaliberRollbackCheckpoint.rolled_back_at.is_(None))
+            .values(rolled_back_at=claimed_at, rolled_back_by=actor)
+        )
+        if int(getattr(claim, "rowcount", 0) or 0) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail=f"checkpoint {checkpoint.checkpoint_id!r} was already claimed",
+            )
+        # Keep the loaded object aligned with the successful CAS so response
+        # serialization and the audit share the exact consumed timestamp.
+        checkpoint.rolled_back_at = claimed_at
+        checkpoint.rolled_back_by = actor
+
         rollback_req = RollbackRequest(
             agent_id=checkpoint.agent_id,
             artifact_type=checkpoint.artifact_type,
             version_before=checkpoint.version_before,
             checkpoint_id=checkpoint.checkpoint_id,
+            session=session if checkpoint.artifact_type == "skill" else None,
+            actor=actor,
         )
         try:
             result = promoter.rollback(rollback_req)
+        except PromoterConflictError as exc:
+            raise HTTPException(status_code=409, detail=f"rollback conflict: {exc}") from exc
         except PromoterError as exc:
             # No DB writes have happened yet. Surface 502 like the approve
             # path does on promoter failure.
             raise HTTPException(status_code=502, detail=f"rollback failed: {exc}") from exc
-
-        checkpoint.rolled_back_at = datetime.now(timezone.utc)
-        checkpoint.rolled_back_by = actor
 
         audit_record(
             session,
@@ -171,8 +198,17 @@ async def rollback_agent(request: Request) -> JSONResponse:
             details={
                 "checkpoint_id": checkpoint.checkpoint_id,
                 "artifact_ref": result.artifact_ref,
+                # Retain legacy checkpoint fields for audit consumers; the
+                # explicit fields below distinguish them from the new live
+                # version created by a forward-only skill rollback.
                 "version_before": checkpoint.version_before,
                 "version_after": checkpoint.version_after,
+                "checkpoint_version_before": checkpoint.version_before,
+                "checkpoint_version_after": checkpoint.version_after,
+                "restored_from_version": result.details.get(
+                    "restored_from_version", checkpoint.version_before
+                ),
+                "new_live_version": result.details.get("version", checkpoint.version_before),
             },
         )
         session.commit()
@@ -218,7 +254,15 @@ def _select_checkpoint(
 
     assert isinstance(session, Session)
     if isinstance(checkpoint_id, str) and checkpoint_id:
-        checkpoint = session.get(CaliberRollbackCheckpoint, checkpoint_id)
+        checkpoint = (
+            session.execute(
+                select(CaliberRollbackCheckpoint)
+                .where(CaliberRollbackCheckpoint.checkpoint_id == checkpoint_id)
+                .with_for_update()
+            )
+            .scalars()
+            .first()
+        )
         if checkpoint is None:
             return None
         if checkpoint.agent_id != agent_id:
@@ -231,6 +275,7 @@ def _select_checkpoint(
             .where(CaliberRollbackCheckpoint.rolled_back_at.is_(None))
             .order_by(CaliberRollbackCheckpoint.created_at.desc())
             .limit(1)
+            .with_for_update()
         )
         .scalars()
         .first()

@@ -1,5 +1,9 @@
 # MLflow AI Gateway (LLM Gateway)
 
+> Development service: the published port binds to `127.0.0.1`. Provider keys
+> still enter this process, so a network deployment requires authenticated TLS
+> ingress and a dedicated secret-management design.
+
 A standalone MLflow **AI Gateway** (`mlflow.gateway.app`) that fronts the
 configured LLM providers behind one endpoint surface. Part of the `app` profile;
 listens on **:5002**.
@@ -22,9 +26,9 @@ Ships with `chat-openai`, `completions-openai`, `embeddings-openai`, and
 
 ## How CALIBER uses it
 
-- **Discovery (default on):** CALIBER's **Gateway** page reads this server's
-  endpoints + health via `CALIBER_GATEWAY_URI` (default `http://mlflow-gateway:5002`).
-  This only makes the gateway *visible* in CALIBER.
+- **Discovery (default on):** CALIBER's **Gateway** page probes this server's endpoint
+  inventory via `CALIBER_GATEWAY_URI` (default `http://mlflow-gateway:5002`) and derives
+  reachability from that request. This only makes the gateway *visible* in CALIBER.
 - **Routing (opt-in):** set `CALIBER_LLM_BASE_URL=http://mlflow-gateway:5002/gateway`
   on the CALIBER service to route every LLM call through the gateway. Left unset
   by default, so existing direct-provider routing is unchanged.
@@ -32,13 +36,18 @@ Ships with `chat-openai`, `completions-openai`, `embeddings-openai`, and
 ## Guardrails
 
 MLflow's gateway guardrails (pre/post-LLM validation) attach at the gateway, so
-they apply to all routed traffic without touching CALIBER. See
-[`../mlflow/configure_guardrails.py`](../mlflow/configure_guardrails.py).
+they apply to all routed traffic. CALIBER's Gateway UI/API uses the shared MLflow
+tracking store to define supported native-scorer guardrails, delete them, and
+attach/detach/reorder/enable them per endpoint under audited operator scope.
+Dependency-heavy validator scorers that CALIBER intentionally does not install are
+still provisioned in the MLflow image with
+[`../mlflow/configure_guardrails.py`](../mlflow/configure_guardrails.py); once registered,
+they are visible and selectable from CALIBER.
 
 ## Run
 
 Built and started with the rest of the `app` profile:
 
 ```
-./start.sh                  # or: docker compose -f deploy/compose.yaml --profile app up -d --build
+./start.sh                  # or: docker compose -f deploy/compose.yaml --profile app --profile nats up -d --build
 ```

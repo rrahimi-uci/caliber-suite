@@ -2,22 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
+import io
 import os
 import signal
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from starlette.testclient import TestClient
 
 from caliber.config import CaliberConfig
 from caliber.tool_sandbox import service as sandbox_service
 from caliber.tool_sandbox.models import (
     ToolSandboxRunRequest,
+    ToolSandboxRunResult,
     ToolSandboxTestCase,
     ToolSandboxTestSuiteRequest,
+    ToolSandboxTestSuiteResult,
 )
-from caliber.tool_sandbox.server import RUN_PATH, TESTS_PATH, create_app
+from caliber.tool_sandbox.server import HEALTH_PATH, RUN_PATH, TESTS_PATH, create_app
 from caliber.tool_sandbox.service import LocalSubprocessToolSandbox
+
+pytestmark = pytest.mark.xdist_group("tool-sandbox-subprocess")
 
 
 def _instant_timeout_sandbox() -> LocalSubprocessToolSandbox:
@@ -60,6 +69,24 @@ def add(x, y=0):
     assert "running add" in result.stdout
 
 
+def test_zero_startup_grace_charges_startup_to_the_budget_instead_of_killing_immediately() -> None:
+    """Zero disables the separate allowance; it does not disable the sandbox."""
+    sandbox = LocalSubprocessToolSandbox(
+        default_timeout_seconds=2.0,
+        max_output_bytes=4_000,
+        startup_grace_seconds=0.0,
+    )
+    result = sandbox.run_tool(
+        ToolSandboxRunRequest(
+            source_code="def ready():\n    return {'ready': True}\n",
+            callable_name="ready",
+        )
+    )
+
+    assert result.status == "completed", result
+    assert result.output == {"ready": True}
+
+
 def test_local_subprocess_sandbox_blocks_imports_by_default() -> None:
     result = _sandbox().run_tool(
         ToolSandboxRunRequest(
@@ -95,12 +122,36 @@ def loop():
     assert "timed out" in (result.error or "")
 
 
+def test_authored_repr_cannot_escape_the_hard_deadline_during_serialization() -> None:
+    """Result conversion is part of authored execution, not trusted runner cleanup."""
+    result = _instant_timeout_sandbox().run_tool(
+        ToolSandboxRunRequest(
+            source_code="""
+class SlowResult:
+    def __repr__(self):
+        while True:
+            pass
+
+def build_result():
+    return SlowResult()
+""",
+            callable_name="build_result",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result.status == "timed_out"
+    assert "timed out" in (result.error or "")
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups are unavailable")
 def test_timeout_termination_kills_the_sandbox_process_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[int, signal.Signals]] = []
-    process = SimpleNamespace(pid=4123, poll=lambda: None)
+    # The direct runner has already exited with its watchdog marker. Descendants remain
+    # addressable through the process-group id even though the leader is gone.
+    process = SimpleNamespace(pid=4123, poll=lambda: 124)
     monkeypatch.setattr(
         sandbox_service.os,
         "killpg",
@@ -110,6 +161,50 @@ def test_timeout_termination_kills_the_sandbox_process_group(
     LocalSubprocessToolSandbox._terminate_process_tree(process)  # type: ignore[arg-type]
 
     assert calls == [(4123, signal.SIGKILL)]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups are unavailable")
+def test_timeout_termination_falls_back_when_group_signal_is_forbidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    killed: list[bool] = []
+    process = SimpleNamespace(pid=4123, poll=lambda: None, kill=lambda: killed.append(True))
+
+    def _forbidden(_pid: int, _sig: signal.Signals) -> None:
+        raise PermissionError("process-group signalling is blocked")
+
+    monkeypatch.setattr(sandbox_service.os, "killpg", _forbidden)
+
+    LocalSubprocessToolSandbox._terminate_process_tree(process)  # type: ignore[arg-type]
+
+    assert killed == [True]
+
+
+def test_deadline_exit_is_treated_as_a_tree_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Status 124 is emitted by the child watchdog, not the parent wait timeout."""
+    sandbox = _instant_timeout_sandbox()
+    process = SimpleNamespace(
+        pid=4123,
+        stdin=None,
+        stdout=io.StringIO(""),
+        stderr=io.StringIO(""),
+        returncode=124,
+        wait=lambda timeout: 124,
+        poll=lambda: 124,
+    )
+    terminated: list[object] = []
+    monkeypatch.setattr(sandbox, "_terminate_process_tree", terminated.append)
+
+    _stdout, _stderr, timed_out = sandbox._communicate_bounded(
+        process,  # type: ignore[arg-type]
+        None,
+        timeout=1.0,
+    )
+
+    assert timed_out is True
+    assert terminated == [process]
 
 
 def test_local_subprocess_sandbox_runs_tool_tests() -> None:
@@ -184,6 +279,76 @@ def test_sandbox_http_service_rejects_invalid_body() -> None:
         response = client.post(RUN_PATH, json={"source_code": "def f(): return 1"})
 
     assert response.status_code == 400
+
+
+class _BlockingHttpSandbox:
+    """Synchronous backend used to prove the ASGI loop remains responsive."""
+
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def _block(self) -> None:
+        self.started.set()
+        self.release.wait()
+
+    def run_tool(self, _request: object) -> ToolSandboxRunResult:
+        self._block()
+        return ToolSandboxRunResult(status="completed", output={"ok": True}, duration_ms=0)
+
+    def run_tests(self, _request: object) -> ToolSandboxTestSuiteResult:
+        self._block()
+        return ToolSandboxTestSuiteResult(status="passed", tests=[], duration_ms=0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        (
+            RUN_PATH,
+            {"source_code": "def ok(): return 1", "callable_name": "ok"},
+        ),
+        (
+            TESTS_PATH,
+            {
+                "source_code": "def ok(): return 1",
+                "callable_name": "ok",
+                "tests": [{"name": "ok", "expected": 1}],
+            },
+        ),
+    ],
+)
+async def test_sandbox_http_execution_does_not_block_health(
+    path: str,
+    body: dict[str, object],
+) -> None:
+    sandbox = _BlockingHttpSandbox()
+    app = create_app(config=CaliberConfig.load(environ={}), sandbox=sandbox)  # type: ignore[arg-type]
+    # A backstop makes the regression fail instead of hanging if synchronous work is
+    # accidentally moved back onto the event loop.
+    backstop = threading.Timer(3.0, sandbox.release.set)
+    backstop.start()
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://sandbox.test"
+        ) as client:
+            execution = asyncio.create_task(client.post(path, json=body))
+            observed = await asyncio.to_thread(sandbox.started.wait, 1.0)
+            assert observed, "sandbox backend was not invoked"
+            assert not sandbox.release.is_set(), (
+                "event loop stayed blocked until the backstop fired"
+            )
+
+            response = await asyncio.wait_for(client.get(HEALTH_PATH), timeout=1.0)
+            assert response.status_code == 200
+            assert not sandbox.release.is_set(), "health only responded after execution completed"
+
+            sandbox.release.set()
+            assert (await execution).status_code == 200
+    finally:
+        sandbox.release.set()
+        backstop.cancel()
 
 
 def test_clip_caps_output_by_bytes_not_characters() -> None:
@@ -383,6 +548,22 @@ def test_the_default_backend_is_the_built_in_subprocess_one() -> None:
     assert isinstance(sandbox_from_optional_config(None), LocalSubprocessToolSandbox)
 
 
+def test_standalone_service_uses_the_configured_backend_factory() -> None:
+    """The standalone boundary must not bypass the operator's hardened backend."""
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_TOOL_SANDBOX_BACKEND": (
+                "tests.test_tool_sandbox_service:_FakeContainerSandbox"
+            )
+        }
+    )
+
+    app = create_app(config=config)
+
+    assert isinstance(app.state.sandbox, _FakeContainerSandbox)
+    assert app.state.sandbox.received_config is config
+
+
 class _FakeContainerSandbox:
     """Stands in for a Docker/gVisor-backed implementation."""
 
@@ -455,8 +636,9 @@ def test_a_blocking_tool_is_bounded_by_its_budget_not_by_budget_plus_grace() -> 
     process sleeps or waits on I/O, so a 1s budget with a 4s grace actually waited 5s. An
     independent review caught it.
 
-    The authoritative deadline now lives in the child and starts after its import, so the
-    parent's longer wait is only a backstop for a child that never reports at all.
+    The child now announces readiness and waits for the parent to arm the authored-code
+    clock. The child watchdog remains a second boundary, but the startup allowance is a
+    separate phase rather than extra runtime.
     """
     import time
 
@@ -476,6 +658,115 @@ def test_a_blocking_tool_is_bounded_by_its_budget_not_by_budget_plus_grace() -> 
     assert result.status == "timed_out", result.error
     # Comfortably under budget + grace (16s); the point is the grace is not runtime.
     assert elapsed < 8.0, f"a blocking tool ran for {elapsed:.1f}s on a 1s budget"
+
+
+def test_authored_code_cannot_catch_and_continue_after_the_wall_deadline() -> None:
+    """The former SIGALRM raised Exception, so a tool could catch the boundary itself."""
+    import time
+
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=0.2, startup_grace_seconds=2.0)
+    started = time.monotonic()
+    result = sandbox.run_tool(
+        ToolSandboxRunRequest(
+            source_code=(
+                "def evade():\n"
+                "    try:\n"
+                "        while True:\n"
+                "            pass\n"
+                "    except Exception:\n"
+                "        return {'escaped': True}\n"
+            ),
+            callable_name="evade",
+            timeout_seconds=0.2,
+        )
+    )
+
+    assert result.status == "timed_out", result
+    assert result.output is None
+    assert time.monotonic() - started < 1.5
+
+
+def test_tool_test_suite_uses_the_same_uncatchable_wall_deadline() -> None:
+    """Test mode previously installed no wall timer and waited for the CPU rlimit."""
+    import time
+
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=0.2, startup_grace_seconds=2.0)
+    started = time.monotonic()
+    result = sandbox.run_tests(
+        ToolSandboxTestSuiteRequest(
+            source_code="def hang():\n    while True:\n        pass\n",
+            callable_name="hang",
+            tests=[ToolSandboxTestCase(name="bounded", input={}, expected=None)],
+            timeout_seconds=0.2,
+        )
+    )
+
+    assert result.status == "timed_out", result
+    assert result.tests == []
+    assert time.monotonic() - started < 1.5
+
+
+def test_top_level_authored_source_is_inside_the_wall_deadline() -> None:
+    """A hostile module body must not receive the parent's full startup grace."""
+    import time
+
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=0.2, startup_grace_seconds=2.0)
+    started = time.monotonic()
+    result = sandbox.run_tool(
+        ToolSandboxRunRequest(
+            source_code="while True:\n    pass\n\ndef never_runs():\n    return 1\n",
+            callable_name="never_runs",
+            timeout_seconds=0.2,
+        )
+    )
+
+    assert result.status == "timed_out", result
+    assert time.monotonic() - started < 1.5
+
+
+def test_mutating_os_exit_cannot_consume_the_startup_allowance() -> None:
+    """Registered module code cannot disarm both hard wall-clock owners.
+
+    ``builtins.exec`` runs with normal imports, replaces the child process's shared
+    ``os._exit`` attribute, then loops forever. The captured child primitive and the
+    independent parent clock must still enforce the authored budget rather than the
+    much larger startup grace.
+    """
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=0.2, startup_grace_seconds=3.0)
+    started = time.monotonic()
+    result = sandbox.run_tool(
+        ToolSandboxRunRequest(
+            module_path="builtins",
+            callable_name="exec",
+            shapes=[{"args": ["import os\nos._exit = lambda code: None\nwhile True:\n    pass\n"]}],
+            timeout_seconds=0.2,
+        )
+    )
+
+    assert result.status == "timed_out", result
+    assert time.monotonic() - started < 1.5
+
+
+def test_child_gil_starvation_cannot_consume_the_startup_allowance() -> None:
+    """A separate parent clock remains runnable when the child watchdog is not.
+
+    CPython's catastrophic regex path holds the child GIL, so its watchdog thread
+    cannot be the sole wall-clock authority. The parent must kill the process group at
+    the authored deadline, not after adding the startup grace.
+    """
+    sandbox = LocalSubprocessToolSandbox(default_timeout_seconds=0.2, startup_grace_seconds=3.0)
+    started = time.monotonic()
+    result = sandbox.run_tool(
+        ToolSandboxRunRequest(
+            module_path="re",
+            callable_name="fullmatch",
+            shapes=[{"args": ["(a+)+$", "a" * 50_000 + "!"]}],
+            timeout_seconds=0.2,
+        )
+    )
+
+    assert result.status == "timed_out", result
+    assert time.monotonic() - started < 1.5
 
 
 def test_a_partial_config_still_yields_a_bounded_sandbox() -> None:

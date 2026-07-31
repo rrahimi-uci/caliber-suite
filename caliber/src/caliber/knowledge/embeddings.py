@@ -119,7 +119,7 @@ def _build_cross_encoder(model_id: str) -> Any:
     except ImportError as exc:  # pragma: no cover - exercised only without optional deps
         raise KnowledgeDependencyError(
             "Cross-encoder reranking needs the optional package "
-            "'sentence-transformers'. Install caliber[knowledge,knowledge-local]."
+            "'sentence-transformers'. Install caliber-suite[knowledge,knowledge-local]."
         ) from exc
     return CrossEncoder(model_id, device="cpu")
 
@@ -162,7 +162,7 @@ def _import_huggingface_embeddings_class() -> Any:
         raise KnowledgeDependencyError(
             "Knowledge-base embeddings need the optional packages "
             "'langchain-huggingface' and its runtime dependencies. Install "
-            "caliber[knowledge,knowledge-local]."
+            "caliber-suite[knowledge,knowledge-local]."
         ) from exc
     return HuggingFaceEmbeddings
 

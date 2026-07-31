@@ -1,8 +1,8 @@
-"""DSPy ``BootstrapFewShot`` bridge for the candidate-generation stage.
+"""DSPy BootstrapFewShot and MIPROv2 bridge for candidate generation.
 
-CALIBER's optimizer selector can route a refinement job to
-``"DSPyBootstrapFewShot"`` (see :mod:`caliber.orchestrator.optimizer_select`).
-The OpenAI provider's :meth:`generate_candidate` delegates that case here.
+CALIBER's automatic selector can route an opted-in prompt job to
+``"DSPyBootstrapFewShot"``; an explicit job/agent override can also select
+``"DSPyMIPRO"``. The OpenAI provider lazily loads this module for either name.
 
 What this does
 --------------
@@ -21,20 +21,21 @@ Deliberate Phase-1 simplifications (documented so they're not mistaken for
 bugs):
 
 * **Single ``question -> answer`` signature.** Arbitrary CALIBER prompts are
-  treated as one input → one output task. Multi-field / structured tasks are a
-  later milestone (and would pair naturally with DSPyMIPRO).
+  treated as one input → one output task. Multi-field / structured tasks remain
+  a later milestone for both teleprompters.
 * **Deterministic metric.** A normalized containment check between the gold
   ``expected`` text and the model output decides whether a demo is kept. This
   keeps bootstrapping cheap (no judge-LLM cost) and reproducible. Swapping in
   an LLM-judge metric built from the eval scorer suite is the obvious Phase-2
-  upgrade and is where MIPRO's instruction search would also plug in.
+  upgrade. MIPROv2 currently uses the same deterministic metric while jointly
+  searching the instruction and demonstrations.
 
 Packaging
 ---------
 ``dspy`` ships in the dedicated ``[dspy]`` extra on top of the OpenAI-backed
 provider. The core / ``FakeLLMProvider`` path never imports this module, and
 the OpenAI provider only loads it when a DSPy optimizer is actually selected,
-so the base ``caliber[llm]`` install stays dspy-free.
+so the base ``caliber-suite[llm]`` install stays dspy-free.
 """
 
 from __future__ import annotations

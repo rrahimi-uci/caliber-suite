@@ -1,19 +1,36 @@
-# Keeps the Docker build context lean for image builds rooted at the suite
-# (currently deploy/mlflow/Dockerfile). Builds with their own context (e.g.
-# deploy/mcp) are unaffected — .dockerignore is read from each build's context.
-**/.venv
+# Keeps every suite-root Docker build context lean and prevents local test,
+# trace, and report evidence from being copied into runtime images. Builds with
+# their own context (for example deploy/mcp) use that context's ignore rules.
+**/.venv*
+# Never send ignored local credentials to the daemon or COPY them into an image.
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
 **/node_modules
 **/__pycache__
 **/*.pyc
 **/.pytest_cache
 **/.mypy_cache
 **/.ruff_cache
+**/.tmp
 **/dist
+**/allure-results
+**/allure-report
+**/playwright-report
+**/test-results
+**/htmlcov
+**/mlruns
+**/.coverage*
+**/coverage*.xml
 **/.DS_Store
 .git
 .run
 logs
-*.db
+**/*.db*
+**/*.sqlite*
 mlartifacts
 artifacts
 caliber-workspaces

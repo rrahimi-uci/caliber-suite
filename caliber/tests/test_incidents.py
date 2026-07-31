@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import pytest
+
 from caliber.observability import incidents
 from caliber.observability.slo import AlertState
 
@@ -63,6 +65,83 @@ def test_a_breach_opens_one_incident_and_routes_it_once(session_factory) -> None
     assert [e["type"] for e in published.events] == [incidents.EVENT_OPENED]
 
 
+def test_concurrent_open_reloads_database_winner_without_duplicate_publish(
+    session_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second replica can win after this one observes no open row.
+
+    Injecting that commit between the existence read and speculative insert exercises the
+    unique-index race deterministically without depending on a thread scheduler. The losing
+    savepoint must recover the winner while leaving its outer transaction usable.
+    """
+    from caliber.db.models import CaliberIncident
+
+    objective = "success_ratio>=0.9"
+    published = _Recorder()
+    real_open_incident = incidents._open_incident
+    calls = 0
+
+    def _miss_then_commit_winner(session: Any, requested: str) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            with session_factory() as winner:
+                winner.add(
+                    CaliberIncident(
+                        incident_id="INC-concurrent-winner",
+                        objective=requested,
+                        signal="success_ratio",
+                        severity="warning",
+                        status="open",
+                        detail="opened by another replica",
+                        opened_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                        notified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    )
+                )
+                winner.commit()
+            return None
+        return real_open_incident(session, requested)
+
+    monkeypatch.setattr(incidents, "_open_incident", _miss_then_commit_winner)
+
+    with session_factory() as session:
+        result = incidents.reconcile(session, [_state(objective, firing=True)], publish=published)
+        rows = session.query(CaliberIncident).all()
+
+    assert result == {"opened": [], "resolved": [], "notified": []}
+    assert [row.incident_id for row in rows] == ["INC-concurrent-winner"]
+    assert published.events == [], "the insert loser must not republish the winner's event"
+
+
+def test_stale_concurrent_resolver_does_not_publish_twice(
+    session_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both replicas may read ``open``; only the conditional-update winner publishes."""
+    from caliber.db.models import CaliberIncident
+
+    objective = "success_ratio>=0.9"
+    with session_factory() as session:
+        incidents.reconcile(session, [_state(objective, firing=True)], publish=None)
+        stale = session.query(CaliberIncident).one()
+        session.expunge(stale)
+
+    published = _Recorder()
+    with session_factory() as winner:
+        won = incidents.reconcile(winner, [_state(objective, firing=False)], publish=published)
+
+    # This detached object represents a replica that read the row before the winner's
+    # commit and reaches its UPDATE afterwards.
+    monkeypatch.setattr(incidents, "_open_incident", lambda _session, _objective: stale)
+    with session_factory() as loser:
+        lost = incidents.reconcile(loser, [_state(objective, firing=False)], publish=published)
+        stored = loser.query(CaliberIncident).one()
+
+    assert won["resolved"] == [objective]
+    assert lost["resolved"] == []
+    assert stored.status == incidents.STATUS_RESOLVED
+    assert [event["type"] for event in published.events] == [incidents.EVENT_RESOLVED]
+
+
 def test_recovery_resolves_the_incident_and_records_a_duration(session_factory) -> None:
     published = _Recorder()
     objective = "success_ratio>=0.9"
@@ -79,6 +158,7 @@ def test_recovery_resolves_the_incident_and_records_a_duration(session_factory) 
         incidents.EVENT_RESOLVED,
     ]
     assert rows[0]["status"] == "resolved"
+    assert rows[0]["resolved_notified_at"] is not None
     assert rows[0]["duration_seconds"] is not None
 
 
@@ -146,8 +226,9 @@ def test_a_resolution_routes_even_when_the_open_was_silenced(session_factory) ->
                 status="open",
                 detail="silenced while ongoing",
                 opened_at=now,
-                # Silence already expired, so the resolution routes normally.
-                silenced_until=now - timedelta(minutes=1),
+                # The silence is still active. It suppresses another firing notification,
+                # but must not suppress the all-clear transition.
+                silenced_until=now + timedelta(hours=1),
             )
         )
         session.commit()
@@ -165,6 +246,7 @@ def test_acknowledging_does_not_resolve(session_factory) -> None:
         incidents.reconcile(session, [_state("success_ratio>=0.9", firing=True)], publish=None)
         incident_id = session.query(CaliberIncident).one().incident_id
         incidents.acknowledge(session, incident_id, actor="@oncall")
+        session.commit()
         row = session.get(CaliberIncident, incident_id)
 
         assert row.acknowledged_by == "@oncall"
@@ -172,7 +254,7 @@ def test_acknowledging_does_not_resolve(session_factory) -> None:
         assert row.status == "open", "acknowledgement is not resolution"
 
 
-def test_a_routing_failure_does_not_lose_the_incident(session_factory) -> None:
+def test_a_routing_failure_is_persisted_and_retried_on_the_next_tick(session_factory) -> None:
     """The record is the durable part. Losing it because a subscriber raised would defeat
     the purpose of having a history at all."""
     from caliber.db.models import CaliberIncident
@@ -180,15 +262,222 @@ def test_a_routing_failure_does_not_lose_the_incident(session_factory) -> None:
     def _explode(_payload: dict[str, Any]) -> None:
         raise RuntimeError("subscriber down")
 
+    objective = "success_ratio>=0.9"
     with session_factory() as session:
-        result = incidents.reconcile(
+        first = incidents.reconcile(
             session, [_state("success_ratio>=0.9", firing=True)], publish=_explode
         )
         stored = session.query(CaliberIncident).all()
 
-    assert result["opened"] == ["success_ratio>=0.9"]
-    assert result["notified"] == [], "a failed route must not be recorded as notified"
+    assert first["opened"] == [objective]
+    assert first["notified"] == [], "a failed route must not be recorded as notified"
     assert len(stored) == 1
+    assert stored[0].notified_at is None
+
+    published = _Recorder()
+    with session_factory() as session:
+        retried = incidents.reconcile(session, [_state(objective, firing=True)], publish=published)
+        notified_at = session.query(CaliberIncident).one().notified_at
+
+    assert retried == {"opened": [], "resolved": [], "notified": [objective]}
+    assert [event["type"] for event in published.events] == [incidents.EVENT_OPENED]
+    assert notified_at is not None
+
+
+def test_stale_replica_loses_the_open_notification_claim_without_duplicate_publish(
+    session_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two replicas can both read ``notified_at = NULL`` before either publishes.
+
+    A detached stale row models the losing read deterministically. The conditional UPDATE,
+    rather than the ORM object's old value, must choose the sole publisher.
+    """
+    from caliber.db.models import CaliberIncident
+
+    objective = "success_ratio>=0.9"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with session_factory() as session:
+        session.add(
+            CaliberIncident(
+                incident_id="INC-notification-race",
+                objective=objective,
+                signal="success_ratio",
+                severity="warning",
+                status="open",
+                detail="not yet routed",
+                opened_at=now,
+            )
+        )
+        session.commit()
+        stale = session.query(CaliberIncident).one()
+        session.expunge(stale)
+
+    published = _Recorder()
+    with session_factory() as winner:
+        won = incidents.reconcile(winner, [_state(objective, firing=True)], publish=published)
+
+    monkeypatch.setattr(incidents, "_open_incident", lambda _session, _objective: stale)
+    with session_factory() as loser:
+        lost = incidents.reconcile(loser, [_state(objective, firing=True)], publish=published)
+
+    assert won["notified"] == [objective]
+    assert lost["notified"] == []
+    assert [event["type"] for event in published.events] == [incidents.EVENT_OPENED]
+
+
+def test_a_resolution_publish_failure_is_retried_on_the_next_non_firing_tick(
+    session_factory,
+) -> None:
+    """A durable resolution is not evidence that its all-clear entered the event bus."""
+    from caliber.db.models import CaliberIncident
+
+    objective = "success_ratio>=0.9"
+    opened = _Recorder()
+    with session_factory() as session:
+        incidents.reconcile(session, [_state(objective, firing=True)], publish=opened)
+
+    def _fail_resolution(payload: dict[str, Any]) -> None:
+        assert payload["type"] == incidents.EVENT_RESOLVED
+        raise RuntimeError("event bus unavailable")
+
+    with session_factory() as session:
+        first = incidents.reconcile(
+            session,
+            [_state(objective, firing=False)],
+            publish=_fail_resolution,
+        )
+        failed_marker = session.query(CaliberIncident).one().resolved_notified_at
+
+    assert first["resolved"] == [objective]
+    assert failed_marker is None
+
+    retried_events = _Recorder()
+    with session_factory() as session:
+        retried = incidents.reconcile(
+            session,
+            [_state(objective, firing=False)],
+            publish=retried_events,
+        )
+        successful_marker = session.query(CaliberIncident).one().resolved_notified_at
+
+    with session_factory() as session:
+        steady = incidents.reconcile(
+            session,
+            [_state(objective, firing=False)],
+            publish=retried_events,
+        )
+
+    assert retried["resolved"] == []
+    assert steady["resolved"] == []
+    assert successful_marker is not None
+    assert [event["type"] for event in retried_events.events] == [incidents.EVENT_RESOLVED]
+
+
+def test_stale_replica_loses_the_resolution_notification_claim_without_duplicate_publish(
+    session_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale pending row cannot bypass the conditional resolution-notification claim."""
+    from caliber.db.models import CaliberIncident
+
+    objective = "success_ratio>=0.9"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with session_factory() as session:
+        session.add(
+            CaliberIncident(
+                incident_id="INC-resolution-race",
+                objective=objective,
+                signal="success_ratio",
+                severity="warning",
+                status="resolved",
+                detail="all-clear not yet routed",
+                opened_at=now,
+                resolved_at=now,
+                notified_at=now,
+            )
+        )
+        session.commit()
+        stale = session.query(CaliberIncident).one()
+        session.expunge(stale)
+
+    published = _Recorder()
+    with session_factory() as winner:
+        incidents.reconcile(winner, [_state(objective, firing=False)], publish=published)
+
+    monkeypatch.setattr(incidents, "_pending_resolutions", lambda _session, _objective: [stale])
+    with session_factory() as loser:
+        incidents.reconcile(loser, [_state(objective, firing=False)], publish=published)
+        marker = loser.query(CaliberIncident).one().resolved_notified_at
+
+    assert marker is not None
+    assert [event["type"] for event in published.events] == [incidents.EVENT_RESOLVED]
+
+
+def test_handled_resolution_history_is_never_replayed(session_factory) -> None:
+    """Migration-backfilled markers exclude pre-upgrade all-clears from retry queries."""
+    from caliber.db.models import CaliberIncident
+
+    objective = "success_ratio>=0.9"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with session_factory() as session:
+        session.add(
+            CaliberIncident(
+                incident_id="INC-historical-resolution",
+                objective=objective,
+                signal="success_ratio",
+                severity="warning",
+                status="resolved",
+                detail="resolved before marker migration",
+                opened_at=now,
+                resolved_at=now,
+                notified_at=now,
+                resolved_notified_at=now,
+            )
+        )
+        session.commit()
+
+    published = _Recorder()
+    with session_factory() as session:
+        result = incidents.reconcile(
+            session,
+            [_state(objective, firing=False)],
+            publish=published,
+        )
+
+    assert result == {"opened": [], "resolved": [], "notified": []}
+    assert published.events == []
+
+
+def test_operator_mutation_helpers_flush_without_owning_the_transaction(session_factory) -> None:
+    """A caller can roll back the incident mutation with an adjacent failed audit write."""
+    from caliber.db.models import CaliberIncident
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with session_factory() as session:
+        session.add(
+            CaliberIncident(
+                incident_id="INC-caller-owned",
+                objective="success_ratio>=0.9",
+                signal="success_ratio",
+                severity="warning",
+                status="open",
+                detail="transaction boundary",
+                opened_at=now,
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        assert incidents.silence(session, "INC-caller-owned", minutes=30) is not None
+        assert incidents.acknowledge(session, "INC-caller-owned", actor="@oncall") is not None
+        session.rollback()
+
+    with session_factory() as session:
+        stored = session.get(CaliberIncident, "INC-caller-owned")
+
+    assert stored is not None
+    assert stored.silenced_until is None
+    assert stored.acknowledged_at is None
+    assert stored.acknowledged_by is None
 
 
 def test_severity_is_operator_configuration_not_inferred() -> None:

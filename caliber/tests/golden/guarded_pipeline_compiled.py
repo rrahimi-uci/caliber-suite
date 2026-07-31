@@ -6,6 +6,8 @@ manifest_hash: 1bfe9cb3b4144aa5f6bea13d944da500c0eb7330bac5068a66dd99de5f87d7ed
 compiler_version: 0.1.0
 """
 
+from typing import Any
+
 from agents import Agent, Runner, handoff
 import mlflow
 
@@ -14,26 +16,27 @@ from caliber.workflows.runtime import run_with_caliber_context, workflow_model
 from caliber.workflows.runtime import bind_exported_tool
 from caliber.workflows.tools import ToolRegistryEntry
 
-# Tool bindings (resolved from the CALIBER tool registry).
-escalate = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "escalate", "output_schema": None, "requires_approval": True, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
-get_order = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
-lookup_policy = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
-
-# node: support_agent
-support_agent = Agent(
-    name="support-agent",
-    model=workflow_model("support_agent"),
-    instructions=mlflow.genai.load_prompt("prompts:/support-agent@prod").template,
-    tools=[escalate, get_order, lookup_policy],
-    handoffs=[],
-)
+def _build_agent_graph(*, config: Any | None = None):
+    # Tool bindings (resolved from the CALIBER tool registry).
+    escalate = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "escalate", "output_schema": None, "requires_approval": True, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    get_order = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    lookup_policy = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    # node: support_agent
+    support_agent = Agent(
+        name="support-agent",
+        model=workflow_model("support_agent"),
+        instructions=mlflow.genai.load_prompt("prompts:/support-agent@prod").template,
+        tools=[escalate, get_order, lookup_policy],
+        handoffs=[],
+    )
+    return support_agent
 
 # Guardrail specs enforced after the entry agent completes.
 _GUARDRAILS = [
     {"checks": [{"kind": "tool_required_before_claim", "params": {"categories": ["refund_policy", "warranty_policy"], "tool": "lookup_policy"}}], "mode": "post_agent", "node_id": "policy_guardrail", "on_failure": "block"},
 ]
 
-def run(input_text: str, *, session_id: str | None = None):
+def run(input_text: str, *, session_id: str | None = None, config: Any | None = None):
     with run_with_caliber_context(
         workflow_id="guarded_pipeline_wf",
         workflow_version="1",
@@ -44,6 +47,7 @@ def run(input_text: str, *, session_id: str | None = None):
         extra_tags={},
         session_id=session_id,
     ):
-        result = Runner.run_sync(support_agent, input_text)
+        entry_agent = _build_agent_graph(config=config)
+        result = Runner.run_sync(entry_agent, input_text)
         enforce_guardrails(result.final_output, [], _GUARDRAILS)
         return result.final_output

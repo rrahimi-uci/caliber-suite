@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -410,6 +411,7 @@ async def update_tool(request: Request) -> JSONResponse:
             return envelope_response(ToolSchema.model_validate(tool))
         if diff.get("status", {}).get("to") == "deprecated" and tool.deprecated_at is None:
             tool.deprecated_at = datetime.now(timezone.utc)
+        calibration_drain.invalidate_tool_calibration(session, tool)
         audit_record(
             session,
             actor=actor,
@@ -436,7 +438,9 @@ async def archive_tool(request: Request) -> JSONResponse:
                 detail=f"tool {tool.name!r} is referenced by deployed workflow(s) {blocking}; "
                 "undeploy them before archiving",
             )
-        tool.status = "archived"
+        if tool.status != "archived":
+            tool.status = "archived"
+            calibration_drain.invalidate_tool_calibration(session, tool)
         audit_record(
             session,
             actor=actor,
@@ -602,7 +606,9 @@ async def save_tool_test_cases(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         tool = _visible_tool_or_404(session, request, tool_id)
-        tool.test_cases = cases
+        if list(tool.test_cases or []) != cases:
+            tool.test_cases = cases
+            calibration_drain.invalidate_tool_calibration(session, tool)
         audit_record(
             session,
             actor=actor,
@@ -620,10 +626,13 @@ def _score_tool_cases(
     saved_cases: list[dict[str, Any]],
     *,
     config: Any | None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> list[dict[str, Any]]:
     """Execute a calibration snapshot outside the ASGI event loop."""
     scored: list[dict[str, Any]] = []
     for case in saved_cases:
+        if should_stop is not None and should_stop():
+            raise InterruptedError("calibration stop requested")
         name = str(case.get("name", "")) or "case"
         raw_input = case.get("input")
         case_input: dict[str, Any] = dict(raw_input) if isinstance(raw_input, dict) else {}
@@ -655,9 +664,10 @@ async def submit_calibration(request: Request) -> JSONResponse:
     the client holds a connection open for minutes, a proxy timeout or a closed lid loses
     the result, and nothing records that the work happened.
 
-    Returns ``202`` with a job id. The cases are snapshotted here rather than read at
-    execution time, because scoring against a definition the author has since edited would
-    produce a pass rate that belongs to no version of the tool.
+    Returns ``202`` with a job id. Both the executable Tool definition and cases are
+    snapshotted here rather than read at execution time, because scoring against a module,
+    policy, schema, or fixture the author has since edited would produce a pass rate that
+    belongs to no submitted revision.
     """
     tool_id = request.path_params["tool_id"]
     actor = require_scopes(request, [SCOPE_OPERATOR])
@@ -676,6 +686,7 @@ async def submit_calibration(request: Request) -> JSONResponse:
             tool_id=tool_id,
             status=calibration_drain.STATUS_QUEUED,
             requested_by=actor,
+            tool_snapshot=calibration_drain.snapshot_tool(tool),
             test_cases=saved_cases,
             created_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
@@ -721,6 +732,8 @@ async def get_calibration_job(request: Request) -> JSONResponse:
             "result": job.result,
             "error": job.error,
             "created_at": job.created_at.isoformat() if job.created_at else None,
+            "claimed_at": job.claimed_at.isoformat() if job.claimed_at else None,
+            "claimed_by": job.claimed_by,
             "finished_at": job.finished_at.isoformat() if job.finished_at else None,
         }
     return envelope_response_dict(payload)
@@ -750,6 +763,8 @@ async def list_calibration_jobs(request: Request) -> JSONResponse:
                 "status": r.status,
                 "requested_by": r.requested_by,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
+                "claimed_at": r.claimed_at.isoformat() if r.claimed_at else None,
+                "claimed_by": r.claimed_by,
                 "finished_at": r.finished_at.isoformat() if r.finished_at else None,
                 "pass_rate": (r.result or {}).get("pass_rate") if r.result else None,
             }
@@ -778,6 +793,7 @@ async def calibrate_tool(request: Request) -> JSONResponse:
                 detail=f"tool {tool_id!r} has no saved test cases to calibrate against",
             )
         tool_data = ToolSchema.model_validate(tool)
+        submitted_snapshot = calibration_drain.snapshot_tool(tool)
 
     # Spawning and waiting on child processes is blocking I/O. Run the whole snapshot in
     # the bounded Starlette worker pool and, critically, do not hold a database session
@@ -793,12 +809,29 @@ async def calibrate_tool(request: Request) -> JSONResponse:
 
     with factory() as session:
         tool = _visible_tool_or_404(session, request, tool_id)
-        if list(tool.test_cases or []) != saved_cases:
+        stale_reasons = calibration_drain.attach_calibration_if_current(
+            session,
+            tool_id,
+            submitted_snapshot,
+            saved_cases,
+            result,
+        )
+        if stale_reasons:
+            changed = []
+            if (
+                "tool_definition_changed" in stale_reasons
+                or "tool_revision_changed" in stale_reasons
+            ):
+                changed.append("tool definition")
+            if "test_cases_changed" in stale_reasons:
+                changed.append("test cases")
             raise HTTPException(
                 status_code=409,
-                detail=f"tool {tool_id!r} test cases changed while calibration was running",
+                detail=(
+                    f"tool {tool_id!r} {' and '.join(changed) or 'inputs'} changed while "
+                    "calibration was running"
+                ),
             )
-        tool.last_calibration = result
         audit_record(
             session,
             actor=actor,

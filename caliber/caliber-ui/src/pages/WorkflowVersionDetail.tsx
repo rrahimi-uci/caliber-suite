@@ -11,7 +11,31 @@ import type { CompileResult, ValidationReport } from "@/api/workflowTypes";
 import { ProblemsPanel } from "@/components/workflows/ProblemsPanel";
 import { useApiMutation, useApiQuery } from "@/hooks/useApiQuery";
 
-const API_BASE = "/ajax-api/2.0/mlflow/caliber";
+function triggerVersionDownload(
+  blob: Blob,
+  versionId: string,
+  extension: "yaml" | "py",
+): void {
+  if (
+    typeof document === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof URL.createObjectURL !== "function"
+  ) {
+    return;
+  }
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  const safeVersionId = versionId.replace(/[^a-zA-Z0-9._-]+/g, "-");
+  anchor.href = objectUrl;
+  anchor.download = `caliber-${safeVersionId}.${extension}`;
+  document.body.appendChild(anchor);
+  try {
+    anchor.click();
+  } finally {
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 function exportModeLabel(mode: string | null): string | null {
   if (mode === "agents_sdk_direct") return "Direct Agents SDK export";
@@ -33,47 +57,107 @@ export function WorkflowVersionDetail(): JSX.Element {
   const { versionId } = useParams<{ versionId: string }>();
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [compiled, setCompiled] = useState<CompileResult | null>(null);
+  const [exporting, setExporting] = useState<"manifest" | "python" | null>(
+    null,
+  );
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const versionQuery = useApiQuery(
     ["workflow-version", versionId],
     (s) => caliberApi.getWorkflowVersion(versionId!, s),
     { enabled: Boolean(versionId) },
   );
-  const validateMut = useApiMutation(() => caliberApi.validateWorkflowVersion(versionId!), {
-    onSuccess: setReport,
-  });
-  const compileMut = useApiMutation(() => caliberApi.compileWorkflowVersion(versionId!), {
-    onSuccess: (data) => {
-      setCompiled(data);
-      void versionQuery.refetch();
+  const validateMut = useApiMutation(
+    () => caliberApi.validateWorkflowVersion(versionId!),
+    {
+      onSuccess: setReport,
     },
-  });
+  );
+  const compileMut = useApiMutation(
+    () => caliberApi.compileWorkflowVersion(versionId!),
+    {
+      onSuccess: (data) => {
+        setCompiled(data);
+        void versionQuery.refetch();
+      },
+    },
+  );
+
+  const exportVersion = async (
+    format: "manifest" | "python",
+  ): Promise<void> => {
+    if (!versionId || exporting) return;
+    setExporting(format);
+    setExportError(null);
+    try {
+      const blob =
+        format === "manifest"
+          ? await caliberApi.downloadWorkflowVersionManifest(versionId)
+          : await caliberApi.downloadWorkflowVersionPython(versionId);
+      triggerVersionDownload(
+        blob,
+        versionId,
+        format === "manifest" ? "yaml" : "py",
+      );
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : `Could not export ${format}.`,
+      );
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const version = versionQuery.data;
-  if (versionQuery.isLoading || !version) {
+  if (versionQuery.isLoading) {
     return <div className="text-sm text-gray-400">Loading version…</div>;
   }
+  if (!version) {
+    return (
+      <div
+        role="alert"
+        data-testid="workflow-version-detail-error"
+        className="rounded border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+      >
+        <p>
+          Could not load this workflow version:{" "}
+          {versionQuery.error?.message ?? "Workflow version not found."}
+        </p>
+        <Link to="/workflows" className="mt-2 inline-block underline">
+          Back to workflows
+        </Link>
+      </div>
+    );
+  }
   const compilerReport =
-    (compiled?.report as Record<string, unknown> | null | undefined)
-    ?? (version.compiled_bundle?.compiler_report as Record<string, unknown> | null | undefined)
-    ?? null;
+    (compiled?.report as Record<string, unknown> | null | undefined) ??
+    (version.compiled_bundle?.compiler_report as
+      | Record<string, unknown>
+      | null
+      | undefined) ??
+    null;
   const compiledCode =
-    compiled?.generated_python
-    ?? (typeof version.compiled_bundle?.generated_python === "string"
+    compiled?.generated_python ??
+    (typeof version.compiled_bundle?.generated_python === "string"
       ? version.compiled_bundle.generated_python
       : "");
-  const compiledRequirements = compiled?.requirements ?? version.compiled_bundle?.requirements ?? [];
-  const compiledArtifactUri = compiled?.compiled_artifact_uri ?? version.compiled_artifact_uri;
-  const compiledCompilerVersion = compiled?.compiler_version ?? version.compiler_version;
+  const compiledRequirements =
+    compiled?.requirements ?? version.compiled_bundle?.requirements ?? [];
+  const compiledArtifactUri =
+    compiled?.compiled_artifact_uri ?? version.compiled_artifact_uri;
+  const compiledCompilerVersion =
+    compiled?.compiler_version ?? version.compiler_version;
   const compiledManifestHash = compiled?.manifest_hash ?? version.manifest_hash;
-  const compileMs = typeof compiled?.compile_ms === "number" ? compiled.compile_ms : null;
-  const compileCached = typeof compiled?.cached === "boolean" ? compiled.cached : null;
+  const compileMs =
+    typeof compiled?.compile_ms === "number" ? compiled.compile_ms : null;
+  const compileCached =
+    typeof compiled?.cached === "boolean" ? compiled.cached : null;
   const hasCompiledOutput = Boolean(
-    compiledCode
-    || compilerReport
-    || compiledRequirements.length > 0
-    || compiledArtifactUri
-    || compiledCompilerVersion,
+    compiledCode ||
+    compilerReport ||
+    compiledRequirements.length > 0 ||
+    compiledArtifactUri ||
+    compiledCompilerVersion,
   );
   const exportMode =
     compilerReport && typeof compilerReport.export_mode === "string"
@@ -84,7 +168,20 @@ export function WorkflowVersionDetail(): JSX.Element {
 
   return (
     <div data-testid="version-detail">
-      <Link to={`/workflows/${version.workflow_id}`} className="text-xs text-gray-400 hover:underline">
+      {versionQuery.error && (
+        <div
+          role="status"
+          data-testid="workflow-version-refresh-warning"
+          className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          Showing the last loaded workflow version because refresh failed:{" "}
+          {versionQuery.error.message}
+        </div>
+      )}
+      <Link
+        to={`/workflows/${version.workflow_id}`}
+        className="text-xs text-gray-400 hover:underline"
+      >
         ← Workflow
       </Link>
       <h1 className="text-xl font-semibold text-gray-900">
@@ -111,21 +208,31 @@ export function WorkflowVersionDetail(): JSX.Element {
         >
           {compileMut.isPending ? "Compiling…" : "Compile"}
         </button>
-        <a
+        <button
+          type="button"
           data-testid="vd-export-manifest"
-          href={`${API_BASE}/workflow-versions/${version.version_id}/export/manifest`}
+          disabled={exporting !== null}
+          onClick={() => void exportVersion("manifest")}
           className="rounded border border-gray-300 px-2 py-1 text-xs"
         >
-          Export YAML
-        </a>
-        <a
+          {exporting === "manifest" ? "Exporting…" : "Export YAML"}
+        </button>
+        <button
+          type="button"
           data-testid="vd-export-python"
-          href={`${API_BASE}/workflow-versions/${version.version_id}/export/python`}
+          disabled={exporting !== null}
+          onClick={() => void exportVersion("python")}
           className="rounded border border-gray-300 px-2 py-1 text-xs"
         >
-          Export Python
-        </a>
+          {exporting === "python" ? "Exporting…" : "Export Python"}
+        </button>
       </div>
+
+      {exportError && (
+        <div role="alert" className="mb-3 text-sm text-red-700">
+          {exportError}
+        </div>
+      )}
 
       <ProblemsPanel report={report ?? version.validation_report} />
 
@@ -137,8 +244,12 @@ export function WorkflowVersionDetail(): JSX.Element {
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-700">
             Export mode
           </div>
-          <div className="mt-1 text-sm font-semibold text-slate-900">{exportModeTitle}</div>
-          {exportModeDescription && <div className="mt-1 leading-relaxed">{exportModeDescription}</div>}
+          <div className="mt-1 text-sm font-semibold text-slate-900">
+            {exportModeTitle}
+          </div>
+          {exportModeDescription && (
+            <div className="mt-1 leading-relaxed">{exportModeDescription}</div>
+          )}
         </div>
       )}
 
@@ -154,10 +265,14 @@ export function WorkflowVersionDetail(): JSX.Element {
             <dl className="mt-2 grid gap-2 sm:grid-cols-2">
               <div>
                 <dt className="font-semibold text-slate-500">Manifest hash</dt>
-                <dd className="font-mono text-[11px] text-slate-800">{compiledManifestHash}</dd>
+                <dd className="font-mono text-[11px] text-slate-800">
+                  {compiledManifestHash}
+                </dd>
               </div>
               <div>
-                <dt className="font-semibold text-slate-500">Compiler version</dt>
+                <dt className="font-semibold text-slate-500">
+                  Compiler version
+                </dt>
                 <dd>{compiledCompilerVersion ?? "—"}</dd>
               </div>
               <div>
@@ -182,8 +297,13 @@ export function WorkflowVersionDetail(): JSX.Element {
 
           {compiledRequirements.length > 0 && (
             <div>
-              <div className="text-xs font-semibold text-gray-500">Requirements</div>
-              <div data-testid="vd-compile-requirements" className="mt-2 flex flex-wrap gap-2">
+              <div className="text-xs font-semibold text-gray-500">
+                Requirements
+              </div>
+              <div
+                data-testid="vd-compile-requirements"
+                className="mt-2 flex flex-wrap gap-2"
+              >
                 {compiledRequirements.map((requirement) => (
                   <span
                     key={requirement}
@@ -198,7 +318,9 @@ export function WorkflowVersionDetail(): JSX.Element {
 
           {compilerReport && (
             <div>
-              <div className="text-xs font-semibold text-gray-500">Compiler report</div>
+              <div className="text-xs font-semibold text-gray-500">
+                Compiler report
+              </div>
               <pre
                 data-testid="vd-compile-report"
                 className="mt-1 max-h-48 overflow-auto rounded bg-slate-950 p-2 text-[11px] text-slate-100"
@@ -209,13 +331,15 @@ export function WorkflowVersionDetail(): JSX.Element {
           )}
 
           <div>
-            <div className="text-xs font-semibold text-gray-500">Compiled code</div>
-          <pre
-            data-testid="vd-compiled-code"
-            className="mt-1 max-h-72 overflow-auto rounded bg-gray-900 p-2 text-[11px] text-gray-100"
-          >
-            {compiledCode}
-          </pre>
+            <div className="text-xs font-semibold text-gray-500">
+              Compiled code
+            </div>
+            <pre
+              data-testid="vd-compiled-code"
+              className="mt-1 max-h-72 overflow-auto rounded bg-gray-900 p-2 text-[11px] text-gray-100"
+            >
+              {compiledCode}
+            </pre>
           </div>
         </div>
       )}

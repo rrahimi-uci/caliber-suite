@@ -20,6 +20,12 @@ Three separate defects, fixed separately:
    require a shared proxy secret so a request that bypasses the proxy is rejected.
    The no-header dev fallback is off by default.
 
+Fresh local launchers intentionally retain one narrow compatibility convenience:
+an empty account table may seed a server-validated ``admin/admin`` account and those
+launchers separately grant it admin scope. The password is hashed at rest, the startup
+log warns until it is changed, and this exception is unavailable to ordinary account
+creation and password reset.
+
 Why stdlib scrypt rather than argon2/bcrypt: it is memory-hard, it is in
 :mod:`hashlib`, and adding a password-hashing dependency to a control plane is a
 supply-chain decision that should not be made incidentally. Parameters are stored
@@ -59,13 +65,14 @@ _SALT_BYTES = 16
 #: guessing is hopeless, short enough for a cookie.
 _TOKEN_BYTES = 32
 
-#: Passwords below this are rejected at creation. Not a substitute for a real
-#: policy, but it stops the specific thing this replaces: a four-character
-#: well-known default.
+#: Passwords below this are rejected during ordinary creation and reset. Not a
+#: substitute for a real policy, but it stops weak credentials beyond the one
+#: explicitly isolated local bootstrap exception.
 MIN_PASSWORD_LENGTH = 12
 
-#: Credentials that must never be accepted, because they are what the demo login
-#: used and what an operator copying a quickstart would reach for first.
+#: Credentials normal account creation and reset must never accept, because they
+#: are what an operator copying a quickstart would reach for first. The one-time
+#: empty-database bootstrap explicitly handles the sole ``admin`` exception.
 FORBIDDEN_PASSWORDS = frozenset(
     {
         "admin",
@@ -80,6 +87,12 @@ FORBIDDEN_PASSWORDS = frozenset(
         "secret",
     }
 )
+
+#: Requested zero-configuration local login. This credential is intentionally confined
+#: to the empty-database bootstrap path; ordinary account creation and password reset keep
+#: rejecting it through :data:`FORBIDDEN_PASSWORDS`.
+DEFAULT_BOOTSTRAP_ADMIN_USER = "admin"
+DEFAULT_BOOTSTRAP_ADMIN_PASSWORD = "admin"  # noqa: S105 - explicit local bootstrap
 
 #: A user id is an opaque handle used as a resource ``owner`` value and parsed out
 #: of comma-separated scope lists, so a comma or whitespace in one would corrupt
@@ -154,6 +167,14 @@ def verify_password(password: str, encoded: str) -> bool:
     return hmac.compare_digest(derived.hex(), hash_hex)
 
 
+# Unknown accounts must pay exactly the same one-scrypt verification cost as a wrong
+# password for a real account. Creating this sentinel inside ``authenticate`` would hash
+# once and then verify once, making the unknown-user branch roughly twice as slow and
+# turning the mitigation itself into a timing oracle. It is randomized once at process
+# startup and is not a credential for any account.
+_DUMMY_PASSWORD_HASH = hash_password("caliber-auth-timing-sentinel")
+
+
 def needs_rehash(encoded: str) -> bool:
     """Whether a stored hash uses weaker parameters than the current policy."""
     try:
@@ -205,12 +226,20 @@ def create_account(
     user_id: str,
     password: str,
     actor: str = "system",
+    allow_insecure_default: bool = False,
 ) -> Any:
     """Create an account. Raises :class:`AccountError` on invalid or duplicate input."""
     from caliber.db.models import CaliberUserAccount  # noqa: PLC0415
 
     resolved_id = validate_user_id(user_id)
-    validate_password(password)
+    if allow_insecure_default:
+        if (resolved_id, password) != (
+            DEFAULT_BOOTSTRAP_ADMIN_USER,
+            DEFAULT_BOOTSTRAP_ADMIN_PASSWORD,
+        ):
+            raise AccountError("the insecure bootstrap exception is limited to admin/admin")
+    else:
+        validate_password(password)
     if session.get(CaliberUserAccount, resolved_id) is not None:
         raise AccountError(f"account {resolved_id!r} already exists")
     now = datetime.now(timezone.utc)
@@ -292,9 +321,9 @@ def authenticate(
 
     account = session.get(CaliberUserAccount, (user_id or "").strip())
     if account is None:
-        # Constant-ish work for an unknown user: verify against a throwaway hash
-        # so login timing is not an enumeration oracle.
-        verify_password(password or "", hash_password("dummy-value-for-timing"))
+        # Exactly one scrypt verification, matching the wrong-password branch. The
+        # sentinel is built once at import; rebuilding it here would make this path 2x.
+        verify_password(password or "", _DUMMY_PASSWORD_HASH)
         raise AuthenticationError("invalid credentials")
     if account.disabled:
         verify_password(password or "", account.password_hash)
@@ -431,6 +460,8 @@ def purge_expired_sessions(session: Any, *, now: datetime | None = None) -> int:
 
 
 __all__ = [
+    "DEFAULT_BOOTSTRAP_ADMIN_PASSWORD",
+    "DEFAULT_BOOTSTRAP_ADMIN_USER",
     "FORBIDDEN_PASSWORDS",
     "MIN_PASSWORD_LENGTH",
     "SCRYPT_N",

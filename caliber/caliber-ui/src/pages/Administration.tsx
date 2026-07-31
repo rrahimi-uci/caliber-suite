@@ -25,6 +25,7 @@ import { KeyRound, ShieldCheck, UserPlus } from "lucide-react";
 
 import { caliberApi } from "@/api/caliberApi";
 import type { AuthAccountList, SecretList } from "@/api/types";
+import { clearLocalAuthSession, getStoredAuthSession } from "@/auth/localAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { useApiQuery } from "@/hooks/useApiQuery";
 
@@ -38,13 +39,19 @@ function formatWhen(value: string | null): string {
 }
 
 export function Administration(): JSX.Element {
-  const accounts = useApiQuery<AuthAccountList>(["auth", "accounts"], (signal) =>
-    caliberApi.listAccounts(signal),
+  const accounts = useApiQuery<AuthAccountList>(
+    ["auth", "accounts"],
+    (signal) => caliberApi.listAccounts(signal),
   );
-  const secrets = useApiQuery<SecretList>(["secrets"], (signal) => caliberApi.listSecrets(signal));
+  const secrets = useApiQuery<SecretList>(["secrets"], (signal) =>
+    caliberApi.listSecrets(signal),
+  );
 
   const [newUser, setNewUser] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [resetPasswords, setResetPasswords] = useState<Record<string, string>>(
+    {},
+  );
   const [accountError, setAccountError] = useState<string | null>(null);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
 
@@ -57,7 +64,9 @@ export function Administration(): JSX.Element {
     setAccountError(null);
     setAccountNotice(null);
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setAccountError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      setAccountError(
+        `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      );
       return;
     }
     try {
@@ -68,7 +77,11 @@ export function Administration(): JSX.Element {
       setNewPassword("");
       await accounts.refetch();
     } catch (error) {
-      setAccountError(error instanceof Error ? error.message : "Could not create the account.");
+      setAccountError(
+        error instanceof Error
+          ? error.message
+          : "Could not create the account.",
+      );
     }
   }, [accounts, newPassword, newUser]);
 
@@ -79,27 +92,71 @@ export function Administration(): JSX.Element {
         await caliberApi.updateAccount(userId, { disabled });
         await accounts.refetch();
       } catch (error) {
-        setAccountError(error instanceof Error ? error.message : "Could not update the account.");
+        setAccountError(
+          error instanceof Error
+            ? error.message
+            : "Could not update the account.",
+        );
       }
     },
     [accounts],
   );
 
-  const revokeSessions = useCallback(
+  const resetPassword = useCallback(
     async (userId: string) => {
+      const password = resetPasswords[userId] ?? "";
       setAccountError(null);
       setAccountNotice(null);
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        setAccountError(
+          `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+        );
+        return;
+      }
       try {
-        const result = await caliberApi.revokeAccountSessions(userId);
-        // Disabling an account does not by itself end sessions already issued to it,
-        // so this is the control that actually logs someone out now.
-        setAccountNotice(`Revoked ${result.revoked} session(s) for ${userId}.`);
+        await caliberApi.updateAccount(userId, { password });
+        setResetPasswords((current) => ({ ...current, [userId]: "" }));
+        const currentSession = getStoredAuthSession();
+        const resetCurrentAccount = currentSession?.username === userId;
+        if (resetCurrentAccount) {
+          const notice = `Changed the password for ${userId}. Sign in again with the new password.`;
+          setAccountNotice(notice);
+          // The server revokes every session for the account, including this one.
+          // Clear the shell's display state immediately instead of waiting for the
+          // next API request to discover the revoked cookie. The event carries the
+          // explanation to the login screen because this page unmounts immediately.
+          clearLocalAuthSession(notice);
+          return;
+        }
+        await accounts.refetch();
+        setAccountNotice(
+          `Changed the password for ${userId} and revoked all of that account's sessions.`,
+        );
       } catch (error) {
-        setAccountError(error instanceof Error ? error.message : "Could not revoke sessions.");
+        setAccountError(
+          error instanceof Error
+            ? error.message
+            : "Could not reset the password.",
+        );
       }
     },
-    [],
+    [accounts, resetPasswords],
   );
+
+  const revokeSessions = useCallback(async (userId: string) => {
+    setAccountError(null);
+    setAccountNotice(null);
+    try {
+      const result = await caliberApi.revokeAccountSessions(userId);
+      // Disabling an account does not by itself end sessions already issued to it,
+      // so this is the control that actually logs someone out now.
+      setAccountNotice(`Revoked ${result.revoked} session(s) for ${userId}.`);
+    } catch (error) {
+      setAccountError(
+        error instanceof Error ? error.message : "Could not revoke sessions.",
+      );
+    }
+  }, []);
 
   const putSecret = useCallback(async () => {
     setSecretError(null);
@@ -114,7 +171,9 @@ export function Administration(): JSX.Element {
       setSecretValue("");
       await secrets.refetch();
     } catch (error) {
-      setSecretError(error instanceof Error ? error.message : "Could not store the secret.");
+      setSecretError(
+        error instanceof Error ? error.message : "Could not store the secret.",
+      );
     }
   }, [secretName, secretValue, secrets]);
 
@@ -125,7 +184,11 @@ export function Administration(): JSX.Element {
         await caliberApi.revokeSecret(name);
         await secrets.refetch();
       } catch (error) {
-        setSecretError(error instanceof Error ? error.message : "Could not revoke the secret.");
+        setSecretError(
+          error instanceof Error
+            ? error.message
+            : "Could not revoke the secret.",
+        );
       }
     },
     [secrets],
@@ -140,7 +203,10 @@ export function Administration(): JSX.Element {
 
       {/* ---------------------------------------------------------------- Accounts */}
       <section aria-labelledby="accounts-heading" className="space-y-3">
-        <h2 id="accounts-heading" className="flex items-center gap-2 text-lg font-semibold">
+        <h2
+          id="accounts-heading"
+          className="flex items-center gap-2 text-lg font-semibold"
+        >
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
           Accounts
         </h2>
@@ -216,42 +282,80 @@ export function Administration(): JSX.Element {
                 <td>{account.disabled ? "Disabled" : "Active"}</td>
                 <td>{formatWhen(account.last_login_at)}</td>
                 <td>{formatWhen(account.password_updated_at)}</td>
-                <td className="space-x-2 py-1">
-                  <button
-                    type="button"
-                    className="rounded border border-slate-600 px-2 py-0.5"
-                    onClick={() => void toggleAccount(account.user_id, !account.disabled)}
-                  >
-                    {account.disabled ? "Enable" : "Disable"}
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded border border-slate-600 px-2 py-0.5"
-                    onClick={() => void revokeSessions(account.user_id)}
-                  >
-                    Revoke sessions
-                  </button>
+                <td className="py-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      className="sr-only"
+                      htmlFor={`reset-password-${account.user_id}`}
+                    >
+                      New password for {account.user_id}
+                    </label>
+                    <input
+                      id={`reset-password-${account.user_id}`}
+                      className="w-48 rounded border border-slate-700 bg-slate-900 px-2 py-0.5"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="New password"
+                      minLength={MIN_PASSWORD_LENGTH}
+                      value={resetPasswords[account.user_id] ?? ""}
+                      onChange={(event) =>
+                        setResetPasswords((current) => ({
+                          ...current,
+                          [account.user_id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="rounded border border-slate-600 px-2 py-0.5"
+                      onClick={() => void resetPassword(account.user_id)}
+                    >
+                      Reset password for {account.user_id}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-slate-600 px-2 py-0.5"
+                      onClick={() =>
+                        void toggleAccount(account.user_id, !account.disabled)
+                      }
+                    >
+                      {account.disabled ? "Enable" : "Disable"}
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-slate-600 px-2 py-0.5"
+                      onClick={() => void revokeSessions(account.user_id)}
+                    >
+                      Revoke sessions
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {!accounts.isLoading && !accounts.isError && (accounts.data?.accounts.length ?? 0) === 0 ? (
+        {!accounts.isLoading &&
+        !accounts.isError &&
+        (accounts.data?.accounts.length ?? 0) === 0 ? (
           <p className="text-sm text-slate-400">No accounts yet.</p>
         ) : null}
       </section>
 
       {/* ----------------------------------------------------------------- Secrets */}
       <section aria-labelledby="secrets-heading" className="space-y-3">
-        <h2 id="secrets-heading" className="flex items-center gap-2 text-lg font-semibold">
+        <h2
+          id="secrets-heading"
+          className="flex items-center gap-2 text-lg font-semibold"
+        >
           <KeyRound className="h-5 w-5" aria-hidden="true" />
           Secrets
         </h2>
 
         {secrets.data && !secrets.data.enabled ? (
           <p role="status" className="text-sm text-amber-400">
-            The encrypted store is disabled — set CALIBER_SECRET_ENCRYPTION_KEY_SOURCE.
-            Until then a <code>secret://</code> reference resolves to nothing and its
+            The encrypted store is disabled — set
+            CALIBER_SECRET_ENCRYPTION_KEY_SOURCE. Until then a{" "}
+            <code>secret://</code> reference resolves to nothing and its
             consumer fails closed rather than reading a plaintext fallback.
           </p>
         ) : null}
@@ -307,7 +411,9 @@ export function Administration(): JSX.Element {
         </form>
 
         <table className="w-full text-left text-sm">
-          <caption className="sr-only">Stored secrets — metadata only, never values</caption>
+          <caption className="sr-only">
+            Stored secrets — metadata only, never values
+          </caption>
           <thead>
             <tr className="text-slate-400">
               <th scope="col">Name</th>
@@ -341,7 +447,9 @@ export function Administration(): JSX.Element {
             ))}
           </tbody>
         </table>
-        {!secrets.isLoading && !secrets.isError && (secrets.data?.secrets.length ?? 0) === 0 ? (
+        {!secrets.isLoading &&
+        !secrets.isError &&
+        (secrets.data?.secrets.length ?? 0) === 0 ? (
           <p className="text-sm text-slate-400">No secrets stored yet.</p>
         ) : null}
       </section>

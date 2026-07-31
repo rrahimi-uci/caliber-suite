@@ -1,7 +1,15 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { Login } from "@/pages/Login";
 import { server } from "@/test/server";
@@ -32,6 +40,24 @@ describe("Login", () => {
     render(<Login onLogin={vi.fn()} />);
     expect(screen.getByPlaceholderText("Enter your username")).toHaveValue("");
     expect(screen.getByPlaceholderText("Enter your password")).toHaveValue("");
+    expect(screen.queryByText(/Demo credentials/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Credentials are managed by your CALIBER administrator/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows an authentication transition notice", () => {
+    render(
+      <Login
+        notice="Your password changed. Sign in again."
+        onLogin={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Your password changed. Sign in again.",
+    );
   });
 
   it("signs in through the server and reports the session, not a synthesised identity", async () => {
@@ -42,7 +68,7 @@ describe("Login", () => {
       http.post(`${API_BASE}/auth/login`, async ({ request }) => {
         received = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json({
-          data: { user_id: "@owner", expires_at: "2026-01-01T00:00:00Z", token: "t" },
+          data: { user_id: "@owner", expires_at: "2026-01-01T00:00:00Z" },
         });
       }),
     );
@@ -53,10 +79,15 @@ describe("Login", () => {
 
     await waitFor(() => expect(onLogin).toHaveBeenCalledTimes(1));
     // The password left the browser to be checked, rather than being compared here.
-    expect(received).toEqual({ user_id: "@owner", password: "correct-horse-battery" });
+    expect(received).toEqual({
+      user_id: "@owner",
+      password: "correct-horse-battery",
+    });
     // Only display state is persisted; the session itself is an HttpOnly cookie the
     // browser cannot read.
-    expect(window.localStorage.getItem("caliber.auth.session")).toContain("@owner");
+    expect(window.localStorage.getItem("caliber.auth.session")).toContain(
+      "@owner",
+    );
   });
 
   it("shows a generic error when the server rejects the credentials", async () => {
@@ -72,7 +103,9 @@ describe("Login", () => {
     await fillCredentials(user, "@ghost", "whatever-password");
     await user.click(screen.getByRole("button", { name: /^Sign in$/ }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Invalid username or password.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Invalid username or password.",
+    );
     expect(onLogin).not.toHaveBeenCalled();
     expect(window.localStorage.getItem("caliber.auth.session")).toBeNull();
   });
@@ -83,7 +116,10 @@ describe("Login", () => {
     const user = userEvent.setup();
     server.use(
       http.post(`${API_BASE}/auth/login`, () =>
-        HttpResponse.json({ detail: "too many failed sign-in attempts" }, { status: 429 }),
+        HttpResponse.json(
+          { detail: "too many failed sign-in attempts" },
+          { status: 429 },
+        ),
       ),
     );
 
@@ -91,7 +127,9 @@ describe("Login", () => {
     await fillCredentials(user, "@owner", "wrong-password-here");
     await user.click(screen.getByRole("button", { name: /^Sign in$/ }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Too many failed sign-in/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Too many failed sign-in/,
+    );
   });
 
   it("clears the error when a field is edited", async () => {

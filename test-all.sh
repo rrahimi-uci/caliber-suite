@@ -60,14 +60,22 @@ fi
 # every suite runs). ``if ! cmd`` keeps ``set -e`` from tripping on test failures.
 overall_rc=0
 
+backend_venv=".venv"
+if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+  # ``make -C caliber`` resolves VENV relative to caliber/. Prefer the suite-root
+  # environment created by ``make setup`` when present, while keeping the
+  # package-local caliber/.venv default for contributors who installed there.
+  backend_venv="../.venv"
+fi
+
 echo "[1/3] Running backend + UI unit tests with Allure result emission (make test-allure)..."
-if ! make test-allure; then
+if ! make -C caliber VENV="$backend_venv" test-allure; then
   echo "  ✗ unit tests reported failures (continuing so the report still builds)" >&2
   overall_rc=1
 fi
 
 echo "[2/3] Running frontend E2E tests (Playwright)..."
-if ! (cd caliber/caliber-ui && npm run test:e2e); then
+if ! (cd caliber/caliber-ui && VENV_DIR="$backend_venv" npm run test:e2e); then
   echo "  ✗ E2E tests reported failures (continuing so the report still builds)" >&2
   overall_rc=1
 fi

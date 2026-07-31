@@ -247,6 +247,18 @@ moving promotions through approval:
 - `POST /workflow-promotions/{promotion_id}/approve`
 - `POST /workflow-promotions/{promotion_id}/reject`
 
+The fifth group publishes a deployed workflow as an asynchronous HTTP service. Internal
+operator routes manage policy and tokens; external routes invoke, poll, and expose the
+same generated OpenAPI contract:
+
+- `POST`, `GET`, and `DELETE /workflows/{workflow_id}/service`
+- `POST` and `GET /workflows/{workflow_id}/service/tokens`
+- `DELETE /workflows/{workflow_id}/service/tokens/{token_id}`
+- `GET /workflows/{workflow_id}/service/openapi.json`
+- `POST /services/{workflow_id}/invoke`
+- `GET /services/{workflow_id}/runs/{run_id}`
+- `GET /services/{workflow_id}/openapi.json`
+
 The final group exposes calibration, which discovers the available options for a
 workflow and enqueues calibration runs against it:
 
@@ -331,6 +343,9 @@ On the access-control side, the following controls apply:
   force an illegal status change.
 - Idempotency keys prevent duplicate queued runs originating from external or
   event-driven sources.
+- Token-protected published services reject a missing/invalid Bearer token before
+  consuming the request body, then revalidate token and policy under the locked enqueue
+  snapshot. Public and protected invokes both enforce a raw streamed-body ceiling.
 - Concurrent version creation is race-safe: `version_number` allocation retries
   on the unique-constraint collision and returns a clean `409` instead of an
   unhandled `500`.
@@ -378,6 +393,36 @@ mid-execution. And the benchmark and patch surfaces let operators compare
 product behavior at a level above the narrow run log, which is where regressions
 and improvements are easiest to judge.
 
+### Published workflow services
+
+Publishing a workflow exposes an asynchronous invoke-and-poll contract over the same
+queued-run path. New services require bearer tokens by default; explicitly public services
+remain possible. A protected invoke first performs a short, read-only Bearer-token admission
+check before consuming its body. After bounded parsing, mutable policy and the token are
+revalidated under one database lock for invocation; status reads and the external OpenAPI
+document use the same locked policy discipline. Enablement, authentication, schema,
+deployment alias, quota, and CORS therefore cannot come from different authoritative
+configuration snapshots.
+
+Every invoke counts raw ASGI request chunks rather than trusting `Content-Length` and
+returns `413` above `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` (1 MiB by default). The limit
+also applies to chunked and explicitly public requests; rejection creates no run, audit, or
+quota charge, and a listed browser origin can read the error. Large content should use
+managed storage references. This bounds per-request application memory and parse work; it
+does not replace connection, IP, or aggregate rate controls at the deployment ingress.
+
+Client idempotency keys are scoped to the authenticated token (or to the one anonymous
+service identity for an explicitly public endpoint), hashed before persistence, and paired
+with the canonical request input. Replaying the same request returns its existing run and
+does not consume another paid-work quota slot. Reusing that caller-scoped key with different
+input returns `409`; two different tokens may safely choose the same external key without
+seeing or reusing one another's run. Upgrade compatibility recognizes a pre-namespace row
+only when its recorded actor and input match the current caller.
+
+Token minting and service unpublish serialize on the service row. Unpublish deletes the
+service's tokens and current-window quota rows in the same transaction, preventing a racing
+mint from leaving an orphan token that could become valid after a later re-publish.
+
 ## 9. Extension points and current constraints
 
 The module is built to grow along well-defined seams. Its primary extension
@@ -391,12 +436,14 @@ points are:
 
 These seams come with a set of deliberate constraints that callers should
 understand. Run *orchestration* is in-process and worker-driven rather than a separate
-service — but the code a workflow author supplies is not: registered tools and
-`python_code` nodes execute in a sandbox child, through the backend the operator
-configured, so the control plane never imports author-supplied modules. The generated
-Python exists for export and review and is not the live execution path; it binds tools
-through the same sandbox decision the runtime takes, so a workflow does not change
-behaviour by being exported. Synchronous SQLAlchemy and synchronous run
+service. By default, registered tools and `python_code` nodes execute through the
+configured subprocess sandbox rather than importing author modules into the control
+plane. That is a configurable boundary, not an invariant: an operator can explicitly
+disable registered-tool sandboxing, choose a custom backend, or allow an
+`external_app` entrypoint that remains trusted in-process code. The generated Python
+exists for export and review and is not the live execution path; it enters the same
+explicit run configuration before binding tools, so it preserves the selected sandbox
+backend and allowlist. Synchronous SQLAlchemy and synchronous run
 orchestration remain core assumptions of the design. Workflow versions are
 immutable by convention after publication, so most edits are expressed as new
 versions or patches rather than in-place mutation. And several advanced

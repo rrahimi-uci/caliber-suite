@@ -20,5 +20,5 @@ services:
       # Pre-fills the "Server" field on the login screen.
       ADMINER_DEFAULT_SERVER: postgres
     ports:
-      - "${ADMINER_PORT:-8081}:8080"
+      - "127.0.0.1:${ADMINER_PORT:-8081}:8080"
     restart: unless-stopped

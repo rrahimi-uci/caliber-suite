@@ -73,7 +73,9 @@ def test_workflow_calibration_run_reaches_approval_and_promotes(
     assert run.status_code == 201, run.text
     job_id = run.json()["data"]["job"]["job_id"]
 
-    deadline = time.monotonic() + 20
+    # Match the pipeline E2E budget: this worker path can exceed 20 seconds
+    # under xdist load even though it completes in roughly 12 seconds alone.
+    deadline = time.monotonic() + 45
     status = None
     while time.monotonic() < deadline:
         detail = worker_client.get(f"{PREFIX}/jobs/{job_id}")

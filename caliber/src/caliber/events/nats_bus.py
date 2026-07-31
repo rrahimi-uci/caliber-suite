@@ -49,7 +49,7 @@ class NatsEventBus(EventBus):
         except ImportError as exc:
             raise RuntimeError(
                 "NATS event backend requires the 'nats' extra "
-                "(install caliber[nats] or use the CALIBER container image)"
+                "(install caliber-suite[nats] or use the CALIBER container image)"
             ) from exc
 
         self._loop = asyncio.get_running_loop()

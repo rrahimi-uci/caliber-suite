@@ -2,13 +2,100 @@ export interface LocalAuthSession {
   username: string;
   identity: string;
   createdAt: string;
+  /** Opaque browser-login generation used to reject stale async auth responses. */
+  generation: string;
+}
+
+export interface AuthChangedDetail {
+  notice?: string;
 }
 
 const AUTH_KEY = "caliber.auth.session";
+const AUTH_EPOCH_KEY = "caliber.auth.epoch";
+const AUTH_OPERATION_LOCK = "caliber.auth.cookie-operation";
 export const AUTH_CHANGED_EVENT = "caliber-auth-changed";
 
+// The HttpOnly session cookie is shared by every same-origin tab. Login and logout
+// responses both mutate that cookie, so their network requests and matching display-
+// state writes must be one serialized operation. Otherwise response-cookie order and
+// localStorage order can disagree (for example, cookie=user-a while the shell says
+// user-b). Web Locks supplies an origin-wide mutex in supported browsers. The promise
+// tail is still useful for non-browser callers and older engines. It only serializes
+// this JavaScript realm, so the operation also detects a competing auth epoch and
+// reconciles against the authoritative cookie before updating display state.
+let inProcessAuthOperationTail: Promise<void> = Promise.resolve();
+
+type AuthOperationOutcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: unknown };
+
+async function withInProcessAuthOperation<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = inProcessAuthOperationTail;
+  let release!: () => void;
+  inProcessAuthOperationTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+async function withAuthOperationLock<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (typeof navigator !== "undefined") {
+    let manager: LockManager | undefined;
+    try {
+      manager = (navigator as Navigator & { locks?: LockManager }).locks;
+    } catch {
+      // Hardened contexts can expose navigator while denying access to Web Locks.
+      return withInProcessAuthOperation(operation);
+    }
+    if (manager && typeof manager.request === "function") {
+      let outcome: AuthOperationOutcome<T>;
+      let callbackStarted = false;
+      try {
+        // The callback always resolves with an outcome. That distinction matters:
+        // only a LockManager failure should fall back. Retrying when the operation
+        // itself rejects would submit a failed login/logout request twice.
+        outcome = await manager.request(
+          AUTH_OPERATION_LOCK,
+          { mode: "exclusive" },
+          async (): Promise<AuthOperationOutcome<T>> => {
+            callbackStarted = true;
+            try {
+              return {
+                ok: true,
+                value: await withInProcessAuthOperation(operation),
+              };
+            } catch (error) {
+              return { ok: false, error };
+            }
+          },
+        );
+      } catch (error) {
+        // Access to Web Locks can be unavailable in hardened/legacy browser
+        // contexts. The same-document mutex below still prevents local overlap;
+        // the auth-epoch reconciliation handles a cooperating fallback race.
+        // If the callback already started, retrying is unsafe because its network
+        // mutation may have completed even though the lock manager rejected.
+        if (callbackStarted) throw error;
+        return withInProcessAuthOperation(operation);
+      }
+      if (!outcome.ok) throw outcome.error;
+      return outcome.value;
+    }
+  }
+  return withInProcessAuthOperation(operation);
+}
+
 /**
- * There is no default credential any more.
+ * There is no browser-side default credential or client-side authentication.
  *
  * This module used to define `admin`/`admin`, validate it in the browser, and
  * synthesise an identity the backend then trusted via `X-CALIBER-User` — so any
@@ -35,6 +122,13 @@ function parseSession(raw: string | null): LocalAuthSession | null {
         username: parsed.username,
         identity: parsed.identity,
         createdAt: parsed.createdAt,
+        // Preserve display-only sessions written by older UI bundles. The next
+        // successful login replaces this deterministic compatibility value with a
+        // random generation.
+        generation:
+          typeof parsed.generation === "string" && parsed.generation
+            ? parsed.generation
+            : `${parsed.username}:${parsed.createdAt}`,
       };
     }
   } catch {
@@ -43,9 +137,11 @@ function parseSession(raw: string | null): LocalAuthSession | null {
   return null;
 }
 
-function emitAuthChanged(): void {
+function emitAuthChanged(detail: AuthChangedDetail = {}): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
+  window.dispatchEvent(
+    new CustomEvent<AuthChangedDetail>(AUTH_CHANGED_EVENT, { detail }),
+  );
 }
 
 export function identityForUsername(username: string): string {
@@ -55,6 +151,22 @@ export function identityForUsername(username: string): string {
 export function getStoredAuthSession(): LocalAuthSession | null {
   if (typeof window === "undefined") return null;
   return parseSession(window.localStorage.getItem(AUTH_KEY));
+}
+
+/** Monotonic-ish browser auth boundary, including transitions whose session is null. */
+export function getAuthEpoch(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(AUTH_EPOCH_KEY) ?? "";
+}
+
+function advanceAuthEpoch(): void {
+  const epoch =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  // Write this before the session value. A startup validation that races a cross-tab
+  // login/logout then sees the changed epoch before it could apply its stale response.
+  window.localStorage.setItem(AUTH_EPOCH_KEY, epoch);
 }
 
 /**
@@ -69,22 +181,81 @@ export function getCaliberUserHeader(): string | null {
 }
 
 export function createLocalAuthSession(username: string): LocalAuthSession {
+  const createdAt = new Date().toISOString();
+  const generation =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${username}:${createdAt}:${Math.random().toString(36).slice(2)}`;
   return {
     username,
     identity: identityForUsername(username),
-    createdAt: new Date().toISOString(),
+    createdAt,
+    generation,
   };
 }
 
 export function saveLocalAuthSession(session: LocalAuthSession): void {
+  advanceAuthEpoch();
   window.localStorage.setItem(AUTH_KEY, JSON.stringify(session));
   emitAuthChanged();
 }
 
-export function clearLocalAuthSession(): void {
+export function clearLocalAuthSession(notice?: string): void {
   if (typeof window === "undefined") return;
+  advanceAuthEpoch();
   window.localStorage.removeItem(AUTH_KEY);
-  emitAuthChanged();
+  emitAuthChanged(notice ? { notice } : {});
+}
+
+function isAuthenticatedSession(info: {
+  user_id: string;
+  authenticated_by: string;
+  login_required: boolean;
+}): boolean {
+  return (
+    !info.login_required &&
+    info.authenticated_by !== "none" &&
+    info.user_id !== "anonymous"
+  );
+}
+
+/**
+ * Re-read the HttpOnly cookie after a fallback-mode auth race.
+ *
+ * A storage epoch changing while login/logout is in flight means another realm wrote
+ * display state and may also have changed the shared cookie. Two bounded probes let a
+ * second observed epoch settle without overwriting it with a stale probe. If the
+ * session endpoint is temporarily unavailable, the mutation response remains the
+ * best evidence: login falls back to its returned user and logout falls back to null.
+ */
+async function reconcileLocalAuthSession(
+  fallbackSession: LocalAuthSession | null,
+): Promise<void> {
+  const { caliberApi } = await import("@/api/caliberApi");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const probeEpoch = getAuthEpoch();
+    try {
+      const info = await caliberApi.getAuthSessionForReconciliation();
+      if (getAuthEpoch() !== probeEpoch) continue;
+      if (isAuthenticatedSession(info)) {
+        saveLocalAuthSession(
+          fallbackSession?.username === info.user_id
+            ? fallbackSession
+            : createLocalAuthSession(info.user_id),
+        );
+      } else {
+        clearLocalAuthSession();
+      }
+      return;
+    } catch {
+      if (getAuthEpoch() !== probeEpoch) continue;
+      if (fallbackSession === null) clearLocalAuthSession();
+      else saveLocalAuthSession(fallbackSession);
+      return;
+    }
+  }
+  // Continuous cross-realm churn means the newest storage event is better evidence
+  // than either completed probe. Leave that state intact instead of clobbering it.
 }
 
 /**
@@ -95,24 +266,53 @@ export function clearLocalAuthSession(): void {
  * it. A failure message is deliberately generic, matching the server, so the form
  * cannot be used to enumerate accounts.
  */
-export async function signIn(username: string, password: string): Promise<void> {
-  const { caliberApi } = await import("@/api/caliberApi");
-  const result = await caliberApi.login(username.trim(), password);
-  saveLocalAuthSession({
-    username: username.trim(),
-    identity: identityForUsername(result.user_id),
-    createdAt: new Date().toISOString(),
+export async function signIn(
+  username: string,
+  password: string,
+): Promise<void> {
+  await withAuthOperationLock(async () => {
+    const operationEpoch = getAuthEpoch();
+    const { caliberApi } = await import("@/api/caliberApi");
+    const result = await caliberApi.login(username.trim(), password);
+    if (getAuthEpoch() !== operationEpoch) {
+      await reconcileLocalAuthSession(createLocalAuthSession(result.user_id));
+    } else {
+      saveLocalAuthSession(createLocalAuthSession(result.user_id));
+    }
   });
 }
 
 /** Revoke the session server-side, then clear local display state. */
 export async function signOut(): Promise<void> {
-  try {
-    const { caliberApi } = await import("@/api/caliberApi");
-    await caliberApi.logout();
-  } catch {
-    // A failed revoke must not trap the user in a signed-in UI; the local state is
-    // cleared either way and the cookie expires on its own.
-  }
-  clearLocalAuthSession();
+  await withAuthOperationLock(async () => {
+    const operationEpoch = getAuthEpoch();
+    const signingOutSession = getStoredAuthSession();
+    const signingOutGeneration = signingOutSession?.generation ?? null;
+    let serverCompleted = false;
+    try {
+      const { caliberApi } = await import("@/api/caliberApi");
+      await caliberApi.logout();
+      serverCompleted = true;
+    } catch {
+      // A network/500 response is an ambiguous revoke, not proof of logout. The
+      // HttpOnly cookie may still authenticate this browser, so reconcile it and keep
+      // the prior identity if even that probe is unavailable. Falsely showing the
+      // login screen on a shared device would leave a live server session hidden behind
+      // local display state.
+      await reconcileLocalAuthSession(signingOutSession);
+      return;
+    }
+    // Inside the origin-wide lock, no newer login can apply a Set-Cookie response or
+    // display generation between the server response and this clear. The generation
+    // comparison still protects a newer state installed by a non-cooperating legacy
+    // tab when the logout request failed before completing.
+    if (serverCompleted && getAuthEpoch() !== operationEpoch) {
+      await reconcileLocalAuthSession(null);
+    } else if (
+      serverCompleted ||
+      getStoredAuthSession()?.generation === signingOutGeneration
+    ) {
+      clearLocalAuthSession();
+    }
+  });
 }

@@ -1,7 +1,15 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 import type { PromptInfo } from "@/api/types";
@@ -51,7 +59,13 @@ const billingPrompt: PromptInfo = {
 };
 
 function renderWithRouter(ui: JSX.Element): void {
-  render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{ui}</MemoryRouter>);
+  render(
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      {ui}
+    </MemoryRouter>,
+  );
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -127,55 +141,75 @@ describe("Prompts advanced playground flows", () => {
           { status: 201 },
         ),
       ),
-      http.post(`${API_BASE}/assistant/sessions/:sessionId/messages`, async ({ request, params }) => {
-        const body = (await request.json()) as Record<string, unknown>;
-        messagePayloads.push(body);
-        if (messagePayloads.length === 1) {
-          return HttpResponse.json(
-            envelope({
-              assistant_message: {
-                message_id: "AMSG-1",
-                session_id: String(params.sessionId),
-                role: "assistant",
-                content: "Assistant reply",
-                metadata_: {},
-                sequence_number: 1,
-                created_at: "2025-01-01T00:00:01Z",
-              },
-              questions: [],
-              draft_updates: [],
-              run: null,
-            }),
-            { status: 201 },
-          );
-        }
-        return HttpResponse.json({ detail: "send failed" }, { status: 500 });
-      }),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/messages`,
+        async ({ request, params }) => {
+          const body = (await request.json()) as Record<string, unknown>;
+          messagePayloads.push(body);
+          if (messagePayloads.length === 1) {
+            return HttpResponse.json(
+              envelope({
+                assistant_message: {
+                  message_id: "AMSG-1",
+                  session_id: String(params.sessionId),
+                  role: "assistant",
+                  content: "Assistant reply",
+                  metadata_: {},
+                  sequence_number: 1,
+                  created_at: "2025-01-01T00:00:01Z",
+                },
+                questions: [],
+                draft_updates: [],
+                run: null,
+              }),
+              { status: 201 },
+            );
+          }
+          return HttpResponse.json({ detail: "send failed" }, { status: 500 });
+        },
+      ),
     );
 
     renderWithRouter(
-      <PromptChatPlayground prompts={[supportPrompt, billingPrompt]} loading={false} />,
+      <PromptChatPlayground
+        prompts={[supportPrompt, billingPrompt]}
+        loading={false}
+      />,
     );
 
     await screen.findByLabelText("Select model");
-    await user.selectOptions(screen.getByLabelText("Select model"), "gpt-4.1-mini");
-    await user.click(screen.getByRole("button", { name: "Start Chat Session" }));
+    await user.selectOptions(
+      screen.getByLabelText("Select model"),
+      "gpt-4.1-mini",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Start Chat Session" }),
+    );
 
     expect(updatedModel).toBe("gpt-4.1-mini");
     await screen.findByText(/Locked prompt ref:/);
 
-    const fileInput = screen.getByLabelText("Attach a file") as HTMLInputElement;
+    const fileInput = screen.getByLabelText(
+      "Attach a file",
+    ) as HTMLInputElement;
     const oversized = new File([new Uint8Array(300 * 1024)], "huge.txt", {
       type: "text/plain",
     });
     await user.upload(fileInput, oversized);
     expect(await screen.findByText(/File too large/)).toBeInTheDocument();
 
-    const unsupported = new File(["%PDF"], "report.pdf", { type: "application/pdf" });
+    const unsupported = new File(["%PDF"], "report.pdf", {
+      type: "application/pdf",
+    });
     await user.upload(fileInput, unsupported);
-    expect(await screen.findByText(/Only text-based files are supported/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Only text-based files are supported/),
+    ).toBeInTheDocument();
 
-    await user.upload(fileInput, new File(["temp"], "notes.txt", { type: "text/plain" }));
+    await user.upload(
+      fileInput,
+      new File(["temp"], "notes.txt", { type: "text/plain" }),
+    );
     expect(await screen.findByText("notes.txt")).toBeInTheDocument();
     await user.click(screen.getByTitle("Remove file"));
     expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
@@ -188,7 +222,9 @@ describe("Prompts advanced playground flows", () => {
     await user.click(screen.getByTitle("Send message"));
 
     expect(await screen.findByText("Assistant reply")).toBeInTheDocument();
-    expect(messagePayloads[0]?.content).toContain('The user has uploaded a file named "context.md"');
+    expect(messagePayloads[0]?.content).toContain(
+      'The user has uploaded a file named "context.md"',
+    );
     expect(scrollSpy).toHaveBeenCalled();
 
     await user.type(screen.getByRole("textbox"), "Second turn");
@@ -196,7 +232,9 @@ describe("Prompts advanced playground flows", () => {
     expect(await screen.findByText("send failed")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "New Session" }));
-    expect(screen.getByRole("button", { name: "Start Chat Session" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Start Chat Session" }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces assistant config and session-start failures", async () => {
@@ -209,7 +247,10 @@ describe("Prompts advanced playground flows", () => {
       ),
       http.post(`${API_BASE}/assistant/sessions`, () => {
         startAttempts += 1;
-        return HttpResponse.json({ detail: "session create failed" }, { status: 500 });
+        return HttpResponse.json(
+          { detail: "session create failed" },
+          { status: 500 },
+        );
       }),
     );
 
@@ -220,7 +261,9 @@ describe("Prompts advanced playground flows", () => {
     await waitFor(() => {
       expect(screen.queryByText("Loading models…")).not.toBeInTheDocument();
     });
-    await user.click(screen.getByRole("button", { name: "Start Chat Session" }));
+    await user.click(
+      screen.getByRole("button", { name: "Start Chat Session" }),
+    );
     await waitFor(() => {
       expect(startAttempts).toBe(1);
     });
@@ -292,23 +335,104 @@ describe("Prompts advanced test-case generation flows", () => {
           { status: 201 },
         );
       }),
-      http.post(`${API_BASE}/assistant/sessions/:sessionId/messages`, async ({ params, request }) => {
-        const sid = String(params.sessionId);
-        const title = sessionTitles.get(sid) ?? "";
-        const body = (await request.json()) as { content?: string };
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/messages`,
+        async ({ params, request }) => {
+          const sid = String(params.sessionId);
+          const title = sessionTitles.get(sid) ?? "";
+          const body = (await request.json()) as { content?: string };
 
-        if (title.startsWith("Test Gen:")) {
+          if (title.startsWith("Test Gen:")) {
+            return HttpResponse.json(
+              envelope({
+                assistant_message: {
+                  message_id: "AMSG-gen",
+                  session_id: sid,
+                  role: "assistant",
+                  content: JSON.stringify([
+                    {
+                      input: "Question 1",
+                      expectedBehavior: "Answer clearly",
+                      tags: ["basic"],
+                    },
+                    {
+                      input: "Question 2",
+                      expectedBehavior: "Decline unsafe request",
+                      tags: ["policy"],
+                    },
+                    {
+                      input: "Question 3",
+                      expectedBehavior: "Ask clarifying questions",
+                      tags: ["edge"],
+                    },
+                  ]),
+                  metadata_: {},
+                  sequence_number: 1,
+                  created_at: "2025-01-01T00:00:01Z",
+                },
+                questions: [],
+                draft_updates: [],
+                run: null,
+              }),
+              { status: 201 },
+            );
+          }
+
+          if (title.startsWith("Test Run:") && body.content === "Question 2") {
+            return HttpResponse.json(
+              { detail: "agent execution failed" },
+              { status: 500 },
+            );
+          }
+
+          if (title.startsWith("Test Run:")) {
+            return HttpResponse.json(
+              envelope({
+                assistant_message: {
+                  message_id: "AMSG-agent",
+                  session_id: sid,
+                  role: "assistant",
+                  content: `Response for ${body.content ?? ""}`,
+                  metadata_: {},
+                  sequence_number: 1,
+                  created_at: "2025-01-01T00:00:01Z",
+                },
+                questions: [],
+                draft_updates: [],
+                run: null,
+              }),
+              { status: 201 },
+            );
+          }
+
+          if (title.endsWith("#3")) {
+            return HttpResponse.json(
+              envelope({
+                assistant_message: {
+                  message_id: "AMSG-judge-bad",
+                  session_id: sid,
+                  role: "assistant",
+                  content: "{not-json}",
+                  metadata_: {},
+                  sequence_number: 1,
+                  created_at: "2025-01-01T00:00:01Z",
+                },
+                questions: [],
+                draft_updates: [],
+                run: null,
+              }),
+              { status: 201 },
+            );
+          }
+
           return HttpResponse.json(
             envelope({
               assistant_message: {
-                message_id: "AMSG-gen",
+                message_id: "AMSG-judge",
                 session_id: sid,
                 role: "assistant",
-                content: JSON.stringify([
-                  { input: "Question 1", expectedBehavior: "Answer clearly", tags: ["basic"] },
-                  { input: "Question 2", expectedBehavior: "Decline unsafe request", tags: ["policy"] },
-                  { input: "Question 3", expectedBehavior: "Ask clarifying questions", tags: ["edge"] },
-                ]),
+                content:
+                  '{"verdict":"pass","score":0.92,"reasoning":"Looks good"}',
                 metadata_: {},
                 sequence_number: 1,
                 created_at: "2025-01-01T00:00:01Z",
@@ -319,70 +443,8 @@ describe("Prompts advanced test-case generation flows", () => {
             }),
             { status: 201 },
           );
-        }
-
-        if (title.startsWith("Test Run:") && body.content === "Question 2") {
-          return HttpResponse.json({ detail: "agent execution failed" }, { status: 500 });
-        }
-
-        if (title.startsWith("Test Run:")) {
-          return HttpResponse.json(
-            envelope({
-              assistant_message: {
-                message_id: "AMSG-agent",
-                session_id: sid,
-                role: "assistant",
-                content: `Response for ${body.content ?? ""}`,
-                metadata_: {},
-                sequence_number: 1,
-                created_at: "2025-01-01T00:00:01Z",
-              },
-              questions: [],
-              draft_updates: [],
-              run: null,
-            }),
-            { status: 201 },
-          );
-        }
-
-        if (title.endsWith("#3")) {
-          return HttpResponse.json(
-            envelope({
-              assistant_message: {
-                message_id: "AMSG-judge-bad",
-                session_id: sid,
-                role: "assistant",
-                content: "{not-json}",
-                metadata_: {},
-                sequence_number: 1,
-                created_at: "2025-01-01T00:00:01Z",
-              },
-              questions: [],
-              draft_updates: [],
-              run: null,
-            }),
-            { status: 201 },
-          );
-        }
-
-        return HttpResponse.json(
-          envelope({
-            assistant_message: {
-              message_id: "AMSG-judge",
-              session_id: sid,
-              role: "assistant",
-              content: '{"verdict":"pass","score":0.92,"reasoning":"Looks good"}',
-              metadata_: {},
-              sequence_number: 1,
-              created_at: "2025-01-01T00:00:01Z",
-            },
-            questions: [],
-            draft_updates: [],
-            run: null,
-          }),
-          { status: 201 },
-        );
-      }),
+        },
+      ),
       http.post(`${API_BASE}/eval-datasets`, () =>
         HttpResponse.json(
           envelope({
@@ -419,7 +481,10 @@ describe("Prompts advanced test-case generation flows", () => {
     );
 
     renderWithRouter(
-      <PromptTestCases prompts={[supportPrompt, billingPrompt]} loading={false} />,
+      <PromptTestCases
+        prompts={[supportPrompt, billingPrompt]}
+        loading={false}
+      />,
     );
 
     await screen.findByLabelText("Select model");
@@ -428,22 +493,39 @@ describe("Prompts advanced test-case generation flows", () => {
     await user.click(screen.getByLabelText("Increase test case count"));
     await user.click(screen.getByRole("button", { name: "10" }));
 
-    await user.selectOptions(screen.getByLabelText("Select model"), "gpt-4.1-mini");
-    await user.click(screen.getByRole("button", { name: /Generate Test Cases/i }));
+    await user.selectOptions(
+      screen.getByLabelText("Select model"),
+      "gpt-4.1-mini",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Generate Test Cases/i }),
+    );
     expect(await screen.findByText("Question 1")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Select model"), "gpt-4o-mini");
-    await user.click(screen.getByRole("button", { name: /Run Tests & Judge/i }));
+    await user.selectOptions(
+      screen.getByLabelText("Select model"),
+      "gpt-4o-mini",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Run Tests & Judge/i }),
+    );
 
     expect(await screen.findByText("Overall Score")).toBeInTheDocument();
     expect(screen.getByText("Pass")).toBeInTheDocument();
     expect(screen.getByText("Fail")).toBeInTheDocument();
 
     await user.click(screen.getByText("Question 3"));
-    expect(await screen.findByText("Judge response was not valid JSON")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Judge response was not valid JSON"),
+    ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Save to Test Sets/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Save to Test Sets/i }),
+    );
     expect(await screen.findByText(/Saved to Test Sets/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /View Test Sets/i }),
+    ).toHaveAttribute("href", "/eval-datasets");
     expect(createdExamples).toBe(3);
     expect(requestedModels).toContain("gpt-4.1-mini");
     expect(requestedModels).toContain("gpt-4o-mini");
@@ -490,35 +572,44 @@ describe("Prompts advanced test-case generation flows", () => {
           { status: 201 },
         );
       }),
-      http.post(`${API_BASE}/assistant/sessions/:sid/messages`, ({ params }) => {
-        if (String(params.sid) === sessionId) {
-          return HttpResponse.json(
-            envelope({
-              assistant_message: {
-                message_id: "AMSG-invalid",
-                session_id: sessionId,
-                role: "assistant",
-                content: "not-json",
-                metadata_: {},
-                sequence_number: 1,
-                created_at: "2025-01-01T00:00:01Z",
-              },
-              questions: [],
-              draft_updates: [],
-              run: null,
-            }),
-            { status: 201 },
-          );
-        }
-        return HttpResponse.json({ detail: "unexpected" }, { status: 500 });
-      }),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sid/messages`,
+        ({ params }) => {
+          if (String(params.sid) === sessionId) {
+            return HttpResponse.json(
+              envelope({
+                assistant_message: {
+                  message_id: "AMSG-invalid",
+                  session_id: sessionId,
+                  role: "assistant",
+                  content: "not-json",
+                  metadata_: {},
+                  sequence_number: 1,
+                  created_at: "2025-01-01T00:00:01Z",
+                },
+                questions: [],
+                draft_updates: [],
+                run: null,
+              }),
+              { status: 201 },
+            );
+          }
+          return HttpResponse.json({ detail: "unexpected" }, { status: 500 });
+        },
+      ),
     );
 
-    renderWithRouter(<PromptTestCases prompts={[supportPrompt]} loading={false} />);
+    renderWithRouter(
+      <PromptTestCases prompts={[supportPrompt]} loading={false} />,
+    );
     await screen.findByLabelText("Select model");
-    await user.click(screen.getByRole("button", { name: /Generate Test Cases/i }));
+    await user.click(
+      screen.getByRole("button", { name: /Generate Test Cases/i }),
+    );
     expect(
-      await screen.findByText("LLM did not return a valid JSON array. Try again."),
+      await screen.findByText(
+        "LLM did not return a valid JSON array. Try again.",
+      ),
     ).toBeInTheDocument();
   });
 });
@@ -588,7 +679,9 @@ describe("Prompt optimization calibration edge flows", () => {
 
   it("treats a draft prompt (has_prompt=false) as calibratable", async () => {
     optionHandlers([
-      http.get(`${API_BASE}/eval-datasets`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
     ]);
 
     renderWithRouter(
@@ -609,11 +702,15 @@ describe("Prompt optimization calibration edge flows", () => {
       http.get(`${API_BASE}/prompts/calibration/options`, () =>
         HttpResponse.json({ detail: "options offline" }, { status: 500 }),
       ),
-      http.get(`${API_BASE}/eval-datasets`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
       http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([]))),
     );
 
-    renderWithRouter(<PromptOptimizationTab prompts={[supportPrompt]} loading={false} />);
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
     expect(await screen.findByText("options offline")).toBeInTheDocument();
   });
 
@@ -639,28 +736,44 @@ describe("Prompt optimization calibration edge flows", () => {
     ]);
 
     const user = userEvent.setup();
-    renderWithRouter(<PromptOptimizationTab prompts={[supportPrompt]} loading={false} />);
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
 
     await screen.findByText("Run Configuration");
     const rubric = screen.getByRole("checkbox", { name: "Rubric" });
     await user.click(rubric);
-    await user.click(screen.getByRole("button", { name: "Start Calibration Run" }));
-    expect(await screen.findByText("Select at least one scorer.")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Start Calibration Run" }),
+    );
+    expect(
+      await screen.findByText("Select at least one scorer."),
+    ).toBeInTheDocument();
 
     await user.click(rubric);
     const weight = screen.getByLabelText("rubric weight");
     await user.clear(weight);
     await user.type(weight, "0");
-    await user.click(screen.getByRole("button", { name: "Start Calibration Run" }));
-    expect(await screen.findByText("Scorer rubric must have a positive weight.")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Start Calibration Run" }),
+    );
+    expect(
+      await screen.findByText("Scorer rubric must have a positive weight."),
+    ).toBeInTheDocument();
 
     await user.clear(weight);
     await user.type(weight, "1");
-    const config = screen.getByPlaceholderText('{"guidelines": ["Do not hallucinate."]}');
+    const config = screen.getByPlaceholderText(
+      '{"guidelines": ["Do not hallucinate."]}',
+    );
     await user.clear(config);
     fireEvent.change(config, { target: { value: "[]" } });
-    await user.click(screen.getByRole("button", { name: "Start Calibration Run" }));
-    expect(await screen.findByText("Scorer rubric config must be a JSON object.")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Start Calibration Run" }),
+    );
+    expect(
+      await screen.findByText("Scorer rubric config must be a JSON object."),
+    ).toBeInTheDocument();
   });
 
   it("uploads JSONL calibration datasets and starts a configured scorer run", async () => {
@@ -682,7 +795,9 @@ describe("Prompt optimization calibration edge flows", () => {
     ];
 
     optionHandlers([
-      http.get(`${API_BASE}/eval-datasets`, () => HttpResponse.json(envelope(datasets))),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope(datasets)),
+      ),
       http.post(`${API_BASE}/eval-datasets`, async ({ request }) => {
         createdDataset = (await request.json()) as Record<string, unknown>;
         const uploaded = {
@@ -699,26 +814,29 @@ describe("Prompt optimization calibration edge flows", () => {
         datasets = [uploaded, ...datasets];
         return HttpResponse.json(envelope(uploaded), { status: 201 });
       }),
-      http.post(`${API_BASE}/eval-datasets/:datasetId/examples`, async ({ request, params }) => {
-        examples.push({
-          datasetId: String(params.datasetId),
-          ...((await request.json()) as Record<string, unknown>),
-        });
-        return HttpResponse.json(
-          envelope({
-            example_id: `ex-${examples.length}`,
-            dataset_id: String(params.datasetId),
-            version: 1,
-            input: {},
-            expected: {},
-            tags: [],
-            metadata_: {},
-            superseded_by: null,
-            created_at: "2025-01-01T00:00:00Z",
-          }),
-          { status: 201 },
-        );
-      }),
+      http.post(
+        `${API_BASE}/eval-datasets/:datasetId/examples`,
+        async ({ request, params }) => {
+          examples.push({
+            datasetId: String(params.datasetId),
+            ...((await request.json()) as Record<string, unknown>),
+          });
+          return HttpResponse.json(
+            envelope({
+              example_id: `ex-${examples.length}`,
+              dataset_id: String(params.datasetId),
+              version: 1,
+              input: {},
+              expected: {},
+              tags: [],
+              metadata_: {},
+              superseded_by: null,
+              created_at: "2025-01-01T00:00:00Z",
+            }),
+            { status: 201 },
+          );
+        },
+      ),
       http.post(`${API_BASE}/prompts/calibration/runs`, async ({ request }) => {
         runPayload = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(
@@ -776,11 +894,15 @@ describe("Prompt optimization calibration edge flows", () => {
     ]);
 
     const user = userEvent.setup();
-    renderWithRouter(<PromptOptimizationTab prompts={[supportPrompt]} loading={false} />);
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
     await screen.findByText("Run Configuration");
 
     await user.click(screen.getByRole("button", { name: "Upload Dataset" }));
-    expect(await screen.findByText("Select a dataset file first.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Select a dataset file first."),
+    ).toBeInTheDocument();
 
     const file = new File(
       [
@@ -790,11 +912,16 @@ describe("Prompt optimization calibration edge flows", () => {
       "cases.jsonl",
       { type: "application/x-ndjson" },
     );
-    await user.upload(screen.getByLabelText("Upload calibration dataset"), file);
+    await user.upload(
+      screen.getByLabelText("Upload calibration dataset"),
+      file,
+    );
     expect(screen.getByDisplayValue("prompt-cal-cases")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Upload Dataset" }));
 
-    expect(await screen.findByText("Uploaded 2 examples to prompt-cal-cases.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Uploaded 2 examples to prompt-cal-cases."),
+    ).toBeInTheDocument();
     expect(createdDataset).toMatchObject({
       name: "prompt-cal-cases",
       description: "Uploaded from Prompt Calibration",
@@ -809,15 +936,22 @@ describe("Prompt optimization calibration edge flows", () => {
       weight: 2,
     });
 
-    const config = screen.getByPlaceholderText('{"guidelines": ["Do not hallucinate."]}');
+    const config = screen.getByPlaceholderText(
+      '{"guidelines": ["Do not hallucinate."]}',
+    );
     await user.clear(config);
     fireEvent.change(config, {
       target: { value: '{"guidelines":["Strictly cite policy."]}' },
     });
     await user.clear(screen.getByLabelText("rubric weight"));
     await user.type(screen.getByLabelText("rubric weight"), "2");
-    await user.type(screen.getByLabelText("Calibration run notes"), "Configured rubric run");
-    await user.click(screen.getByRole("button", { name: "Start Calibration Run" }));
+    await user.type(
+      screen.getByLabelText("Calibration run notes"),
+      "Configured rubric run",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Start Calibration Run" }),
+    );
 
     expect(await screen.findByText("job-configured-run")).toBeInTheDocument();
     expect(runPayload).toMatchObject({
@@ -837,6 +971,8 @@ describe("Prompt optimization calibration edge flows", () => {
     });
 
     // The pinned version is surfaced in the run provenance panel.
-    expect(await screen.findByText(/prompt-cal-cases @ v1/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/prompt-cal-cases @ v1/),
+    ).toBeInTheDocument();
   });
 });

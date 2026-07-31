@@ -216,7 +216,7 @@
 <div id="stage">
 <canvas id="particles"></canvas>
 <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
-<div class="watermark">CALIBER · MLflow plugin</div>
+<div class="watermark">CALIBER · MLflow-integrated</div>
 <div class="scene-counter" id="counter">scene 1 / 16</div>
 
 <!-- SCENE 1 — TITLE -->
@@ -235,10 +235,10 @@
       </div>
     </div>
     <div class="reveal" style="--d:2.2s">
-      <div style="font-size:26px; color:var(--text2); font-weight:300; letter-spacing:.06em; margin-top:18px;">An MLflow-native control plane for trusted agentic workflows</div>
+      <div style="font-size:26px; color:var(--text2); font-weight:300; letter-spacing:.06em; margin-top:18px;">An MLflow-integrated control plane for trusted agentic workflows</div>
     </div>
     <div class="reveal" style="--d:2.9s">
-      <div style="font-size:17px; color:var(--text3); margin-top:26px; letter-spacing:.05em;">An MLflow plugin · Apache 2.0 · Same-origin by design</div>
+      <div style="font-size:17px; color:var(--text3); margin-top:26px; letter-spacing:.05em;">Embedded or standalone · Apache 2.0</div>
     </div>
     <div class="reveal" style="--d:3.4s">
       <div style="font-size:14px; color:var(--text3); margin-top:46px; letter-spacing:.18em; text-transform:uppercase;">Design · Verify · Calibrate · Evaluate · Publish · Observe</div>
@@ -345,9 +345,9 @@
 <section class="scene" data-scene="5">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Introducing</span></div>
-    <div class="reveal" style="--d:.5s"><div class="section-title">One <span class="glow-text">same-origin</span> control plane for agentic workflows.</div></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">One <span class="glow-text">MLflow-integrated</span> control plane for agentic workflows.</div></div>
     <div class="reveal" style="--d:1.0s">
-      <div class="section-subtitle">CALIBER is an <strong>MLflow application plugin</strong>: it mounts its SPA and API on the same server as MLflow, so designing, evaluating, calibrating, publishing, and observing every agent resource happens against one identity, one store, and one trace backend.</div>
+      <div class="section-subtitle">CALIBER is one <strong>ASGI control-plane codebase</strong>: mount it inside MLflow for a same-process development loop, or run it beside vanilla MLflow over HTTP. Both modes share one browser interface while CALIBER metadata and MLflow evidence retain explicit owners.</div>
     </div>
     <div class="diagram-row reveal" style="--d:1.6s">
       <div class="diagram-box">
@@ -369,7 +369,7 @@
       <div class="diagram-box">
         <h4>Govern</h4>
         <ul>
-          <li>Validate → test → approve → publish</li>
+          <li>Asset-specific validation, testing, apply, and publish</li>
           <li>Runtime approvals &amp; checkpoints</li>
           <li>RBAC, audit, object-storage artifacts</li>
         </ul>
@@ -384,7 +384,7 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">The platform</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Build composes. The Library supplies.</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Every agent resource is a first-class, versioned asset with its own "pytest-for-an-asset" workspace — a status header, stage tabs, and durable test runs — so you develop and verify each one in isolation before a workflow ever uses it.</div>
+      <div class="section-subtitle">Agent resources are first-class registered assets with asset-specific versioning, tests, aliases, rollback, and evidence. Their workspaces expose the controls each family actually implements, so you can verify an asset without pretending every family has one uniform lifecycle.</div>
     </div>
     <div class="vision-grid reveal" style="--d:1.4s">
       <div class="vision-card"><h4>Prompts</h4><p>Versioned against MLflow's Prompt Registry, with aliases and a per-prompt test workspace.</p></div>
@@ -444,7 +444,7 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">Data &amp; knowledge</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">The data plane behind every workflow</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Knowledge bases provide hybrid retrieval with their own calibration metrics; the object store is the file UI over S3-compatible storage; test sets are the versioned datasets every scored run draws from.</div>
+      <div class="section-subtitle">Knowledge bases provide hybrid retrieval with their own calibration metrics; File Directory is the UI over configured local or S3-compatible storage; test sets are the versioned datasets every scored run draws from.</div>
     </div>
     <div class="diagram-row reveal" style="--d:1.6s">
       <div class="diagram-box">
@@ -456,9 +456,9 @@
         </ul>
       </div>
       <div class="diagram-box">
-        <h4>Object Store</h4>
+        <h4>File Directory</h4>
         <ul>
-          <li>S3-compatible, object-storage-only</li>
+          <li>Local or S3-compatible storage</li>
           <li>The file UI for the whole platform</li>
           <li>Backs MLflow &amp; CALIBER artifacts</li>
         </ul>
@@ -481,7 +481,7 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">Measure</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Evaluate, then calibrate — with receipts</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Evaluation runs a test set through scorers and compares runs. Calibration goes further: it searches for a better version of an asset and gates promotion on a measured score against the held-out set — a closed learning loop that refines each asset against real evidence.</div>
+      <div class="section-subtitle">Evaluation runs a test set through scorers and compares runs. Prompt refinement can search for a better candidate and apply per-dimension regression checks before candidate-ready; tools use deterministic, revision-fenced fixture calibration. Moving a prompt candidate live still requires explicit operator apply.</div>
     </div>
     <div class="pipeline-flow reveal" style="--d:1.3s">
       <div class="pipe-step glow">
@@ -504,8 +504,8 @@
       <div class="pipe-arrow">›</div>
       <div class="pipe-step">
         <div class="pn">stage 4</div>
-        <div class="pt">Gate</div>
-        <div class="pd">Candidate vs baseline</div>
+        <div class="pt">Check</div>
+        <div class="pd">Per-dimension regression evidence</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step glow">
@@ -516,7 +516,7 @@
     </div>
     <div class="reveal" style="--d:2.2s">
       <div style="color:var(--text2); font-size:15px; margin-top:32px; max-width:1300px; margin-left:auto; margin-right:auto;">
-        Candidates that clear the gate land at <span class="mono" style="color:var(--accent-light)">candidate_ready</span> and move live only through an explicit operator <span class="mono" style="color:var(--accent-light)">apply</span> — never auto-promoted.
+        Prompt candidates that pass the job's regression checks land at <span class="mono" style="color:var(--accent-light)">candidate_ready</span> and move live only through an explicit operator <span class="mono" style="color:var(--accent-light)">apply</span> — never auto-promoted. Registry gate verdicts outside the job are advisory.
       </div>
     </div>
   </div>
@@ -536,7 +536,7 @@
         <ul>
           <li>Root run trace per workflow run</li>
           <li>Per-tool-call spans with timing</li>
-          <li>Same-origin with MLflow's trace UI</li>
+          <li>Integrated with MLflow's trace backend</li>
         </ul>
       </div>
       <div class="diagram-box">
@@ -587,7 +587,7 @@
       <div class="diagram-box">
         <h4>Governed</h4>
         <ul>
-          <li>Drafts ride the same gates</li>
+          <li>Same RBAC and permission checks</li>
           <li>Tool calls recorded per turn</li>
           <li>Autonomy bounded &amp; auditable</li>
         </ul>
@@ -619,38 +619,38 @@
 <section class="scene" data-scene="13">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Govern</span></div>
-    <div class="reveal" style="--d:.5s"><div class="section-title">One gate for every change, human or Aria</div></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Asset-specific controls, one authorization boundary</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Whether a person edits an artifact or Aria drafts one, the same lifecycle applies — there is no copilot bypass. Promotion is an explicit operator action, and every transition is recorded.</div>
+      <div class="section-subtitle">Governance follows each asset's implemented lifecycle. Aria uses the same RBAC, permission checks, sandbox decisions, and audit path as human-driven routes; it does not gain a separate authorization bypass.</div>
     </div>
     <div class="pipeline-flow reveal" style="--d:1.3s">
       <div class="pipe-step glow">
-        <div class="pn">gate 1</div>
-        <div class="pt">Validate</div>
-        <div class="pd">Schema &amp; structure</div>
+        <div class="pn">control 1</div>
+        <div class="pt">Authorize</div>
+        <div class="pd">RBAC &amp; permission checks</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step">
-        <div class="pn">gate 2</div>
-        <div class="pt">Test</div>
-        <div class="pd">Run against inputs</div>
+        <div class="pn">control 2</div>
+        <div class="pt">Verify</div>
+        <div class="pd">Asset-specific validation &amp; tests</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step">
-        <div class="pn">gate 3</div>
-        <div class="pt">Approve</div>
-        <div class="pd">Operator sign-off</div>
+        <div class="pn">control 3</div>
+        <div class="pt">Act</div>
+        <div class="pd">Explicit apply or publish</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step glow">
-        <div class="pn">gate 4</div>
-        <div class="pt">Publish</div>
-        <div class="pd">Versioned &amp; live</div>
+        <div class="pn">control 4</div>
+        <div class="pt">Record</div>
+        <div class="pd">Audit actor, action &amp; entity</div>
       </div>
     </div>
     <div class="reveal" style="--d:2.2s">
       <div style="color:var(--text2); font-size:15px; margin-top:32px; max-width:1300px; margin-left:auto; margin-right:auto;">
-        RBAC scopes who can advance each gate; the audit trail records actor, action, and entity; artifacts live in object storage. Workflow <em>runtime</em> approvals govern live execution separately from offline artifact promotion.
+        Validation, tests, explicit apply or publish actions, and alias rollback exist where the asset implements them. Workflow <em>runtime</em> approvals govern live execution separately from offline artifact promotion.
       </div>
     </div>
   </div>
@@ -660,20 +660,20 @@
 <section class="scene" data-scene="14">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Why different</span></div>
-    <div class="reveal" style="--d:.5s"><div class="section-title">Unified, and <span class="glow-text">closed-loop</span>.</div></div>
-    <div class="reveal" style="--d:.9s"><div class="section-subtitle">CALIBER collapses the patchwork into one same-origin control plane on MLflow — one identity, one store, one trace backend — then does what measure-only tools don't: it closes the loop.</div></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Unified, and <span class="glow-text">evidence-to-action</span>.</div></div>
+    <div class="reveal" style="--d:.9s"><div class="section-subtitle">CALIBER collapses the patchwork into one interface, deployed inside MLflow or beside it. CALIBER metadata and MLflow evidence keep explicit owners, while an integrated prompt-refinement path connects measured proposals to explicit human apply.</div></div>
     <div class="pipeline-flow reveal" style="--d:1.4s">
       <div class="pipe-step glow"><div class="pn">step 1</div><div class="pt">Evaluate</div><div class="pd">Held-out test set through scorers — real scores, no fabricated numbers</div></div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step"><div class="pn">step 2</div><div class="pt">Search</div><div class="pd">Optimizers (Meta-Prompt, GEPA, DSPy) find a better asset version</div></div>
       <div class="pipe-arrow">›</div>
-      <div class="pipe-step"><div class="pn">step 3</div><div class="pt">Gate</div><div class="pd">Promotion blocked unless the held-out score clears</div></div>
+      <div class="pipe-step"><div class="pn">step 3</div><div class="pt">Check</div><div class="pd">Record per-dimension regression evidence</div></div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step"><div class="pn">step 4</div><div class="pt">Candidate-ready</div><div class="pd">Clears the gate but stays offline — never auto-promoted</div></div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step glow"><div class="pn">step 5</div><div class="pt">Apply</div><div class="pd">Goes live only via an explicit operator step</div></div>
     </div>
-    <div class="reveal" style="--d:2.4s"><div style="color:var(--text2); font-size:15px; margin-top:30px; max-width:1300px; margin-left:auto; margin-right:auto;">Same-origin on MLflow. A loop that closes, not measure-only. Self-hostable — your data stays home.</div></div>
+    <div class="reveal" style="--d:2.4s"><div style="color:var(--text2); font-size:15px; margin-top:30px; max-width:1300px; margin-left:auto; margin-right:auto;">Embedded or standalone. Evidence connected to action. Self-hostable — your data stays home.</div></div>
   </div>
 </section>
 
@@ -682,9 +682,9 @@
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Why different</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Open, and <span class="glow-text">governed</span>.</div></div>
-    <div class="reveal" style="--d:.9s"><div class="section-subtitle">One gate governs every change — and it binds humans and the Aria copilot equally.</div></div>
+    <div class="reveal" style="--d:.9s"><div class="section-subtitle">Asset-specific controls govern each change, while humans and the Aria copilot share the same authorization boundary.</div></div>
     <div class="vision-grid reveal" style="--d:1.4s; grid-template-columns:repeat(2,1fr); max-width:1280px;">
-      <div class="vision-card"><h4>One gate, no bypass</h4><p>Validate → test → approve → publish governs every change. Humans and the Aria copilot pass through the same gate — there is no copilot bypass. RBAC scopes who advances each step; the audit trail records actor, action, and entity.</p></div>
+      <div class="vision-card"><h4>Same authorization boundary</h4><p>Humans and the Aria copilot use the same RBAC and permission checks. Each asset follows the lifecycle it actually implements, and the audit trail records actor, action, and entity.</p></div>
       <div class="vision-card"><h4>Traceable to a human</h4><p>Only 28% of organizations can trace an agent's actions back to a human across all environments — ~72% cannot (Cloud Security Alliance, 2025). CALIBER ties every change to an actor in one audit trail.</p></div>
       <div class="vision-card"><h4>Human in the loop</h4><p>61% of executives require a human in the loop, up from 45% the prior quarter (KPMG, Q3 2025). Workflow runtime approvals govern live execution separately from offline promotion.</p></div>
       <div class="vision-card"><h4>Open, ahead of the clock</h4><p>EU AI Act fines reach €35M or 7% of global annual turnover; high-risk obligations land Aug 2, 2026 (Article 99). Apache 2.0 and self-hostable — no lock-in, data and lineage stay in your own environment.</p></div>
@@ -699,12 +699,12 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">The vision</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Agentic workflows you can <span class="glow-text">measure, refine, govern, and trust.</span></div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">CALIBER : <strong>Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</strong> is open source and MLflow-native, learning from real evidence to refine every asset across its lifecycle.</div>
+      <div class="section-subtitle">CALIBER : <strong>Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</strong> is open source and MLflow-integrated, using real evidence to guide each asset's supported lifecycle.</div>
     </div>
     <div class="vision-grid reveal" style="--d:1.4s">
       <div class="vision-card">
-        <h4>Native</h4>
-        <p>Mounts at <span class="mono" style="color:var(--accent-light)">/caliber</span> as an <span class="mono" style="color:var(--accent-light)">mlflow.app</span> plugin. Same-origin with MLflow's AJAX API and trace backend.</p>
+        <h4>Integrated</h4>
+        <p>Mounts at <span class="mono" style="color:var(--accent-light)">/caliber</span> inside MLflow, or runs as a standalone ASGI service connected to vanilla MLflow over HTTP.</p>
       </div>
       <div class="vision-card">
         <h4>Agentic</h4>
@@ -712,11 +712,11 @@
       </div>
       <div class="vision-card">
         <h4>Measured &amp; refined</h4>
-        <p>A learning loop: evaluation scorecards and per-asset calibration refine each asset, gating promotion on real scores against held-out test sets.</p>
+        <p>Evaluation scorecards, prompt refinement with regression checks, and deterministic tool calibration connect proposals to recorded evidence.</p>
       </div>
       <div class="vision-card">
         <h4>Governed</h4>
-        <p>Validate → test → approve → publish for every artifact, with RBAC, audit, and explicit operator apply.</p>
+        <p>Asset-specific controls with shared RBAC, audit, and explicit operator apply or publish actions.</p>
       </div>
       <div class="vision-card">
         <h4>Observable</h4>
@@ -724,12 +724,12 @@
       </div>
       <div class="vision-card">
         <h4>Open</h4>
-        <p>Apache 2.0 · Python 3.11+ · SQLAlchemy 2.0 · React SPA · object-storage-backed · No vendor lock-in.</p>
+        <p>Apache 2.0 · Python 3.10–3.12 · SQLAlchemy 2.0 · React SPA · local/S3 storage · No vendor lock-in.</p>
       </div>
     </div>
     <div class="reveal" style="--d:2.4s">
       <div style="margin-top:38px; font-size:18px; color:var(--text2); letter-spacing:.06em;">
-        <span class="glow-text" style="font-weight:700;">caliber-mlflow</span> · Apache 2.0 · open source
+        <span class="glow-text" style="font-weight:700;">caliber-suite</span> · Apache 2.0 · open source
       </div>
     </div>
   </div>

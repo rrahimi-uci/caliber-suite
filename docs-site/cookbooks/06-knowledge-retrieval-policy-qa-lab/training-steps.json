@@ -148,7 +148,7 @@
         ["Owner", "your handle (required, e.g. <code>@you</code>)"]
       ],
       "click": "Create",
-      "see": "Dataset <code>policy-qa-eval</code> appears; at <code>/eval-datasets/:id</code> use <strong>+ Add example</strong> to add its golden answer rows plus the clarify (Q05) and abstain (Q06/Q07) rows (each answerable row's curated <code>expected</code> substring) per <a href=\"../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/qa-eval.jsonl\">qa-eval.jsonl</a> (Q01–Q08).",
+      "see": "Dataset <code>policy-qa-eval</code> appears; at <code>/eval-datasets/:id</code> use <strong>+ Add example</strong> to add its golden answer rows plus the clarify (Q05) and abstain (Q06/Q07) rows (each answerable row's curated <code>expected</code> substring) per <a href=\"cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/qa-eval.jsonl\">qa-eval.jsonl</a> (Q01–Q08).",
       "asset": "test set: policy-qa-eval",
       "assetlink": [{"href": "../cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/qa-eval.jsonl", "label": "qa-eval.jsonl"}]
     },

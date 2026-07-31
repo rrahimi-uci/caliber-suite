@@ -176,8 +176,9 @@ class CandidateContext:
     """Input bundle for the candidate-generation stage.
 
     Built by :func:`caliber.orchestrator.candidate.run_candidate`. The
-    ``optimizer_type`` field tells the production provider which agent to
-    invoke (MetaPrompt for now; GEPA, TextGrad, etc. as those land).
+    ``optimizer_type`` tells the production provider which implemented strategy
+    to invoke: MetaPrompt/SkillMetaPrompt, GEPA, DSPyBootstrapFewShot, or
+    explicit-only DSPyMIPRO. Unsupported roadmap taxonomy is rejected.
     ``current_artifact_content`` is the current value of the artifact the
     job targets — typically the prompt aliased ``@prod``. May be ``None``
     on cold-start deployments.
@@ -379,7 +380,7 @@ def build_provider(config: CaliberConfig) -> LLMProvider:
     * ``"fake"`` — :class:`FakeLLMProvider`, used by tests and by default
       so that ``mlflow server --app-name caliber`` boots without an API key.
     * ``"openai"`` — :class:`OpenAIAgentsLLMProvider`, requires the
-      ``caliber[llm]`` install extra and an API key in the env var
+      ``caliber-suite[llm]`` install extra and an API key in the env var
       named by ``config.llm_api_key_env``.
 
     When ``config.llm_circuit_breaker_enabled`` is true, the result is

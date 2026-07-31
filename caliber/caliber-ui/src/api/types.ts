@@ -1379,8 +1379,6 @@ export interface EvalExampleFromTracePayload {
 export interface AuthLoginResult {
   user_id: string;
   expires_at: string;
-  /** Returned once for non-browser clients; the SPA relies on the HttpOnly cookie. */
-  token: string;
 }
 
 /**
@@ -1496,7 +1494,11 @@ export interface EvalRunEvidence {
       pass_rate: number | null;
     }
   >;
-  policy: { scorers: string[]; pass_threshold: number; incomplete_row_policy: string };
+  policy: {
+    scorers: string[];
+    pass_threshold: number;
+    incomplete_row_policy: string;
+  };
   resolved: Record<string, unknown>;
   cost: {
     avg_latency_ms: number | null;

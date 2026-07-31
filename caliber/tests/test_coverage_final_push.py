@@ -214,11 +214,10 @@ def test_skill_promoter_generic_exception() -> None:
     """L443–445: skill promotion raises a non-PromoterError exception."""
     from caliber.promoter import PromoterError, PromotionRequest, SkillPromoter
 
-    # Make the session factory's context manager raise
+    # Make the caller-owned session fail during the first query.
     mock_session = MagicMock()
-    mock_session.__enter__ = MagicMock(side_effect=RuntimeError("db gone"))
-    mock_session.__exit__ = MagicMock(return_value=False)
-    promoter = SkillPromoter(session_factory=MagicMock(return_value=mock_session))
+    mock_session.execute = MagicMock(side_effect=RuntimeError("db gone"))
+    promoter = SkillPromoter()
 
     req = PromotionRequest(
         agent_id="agent-1",
@@ -226,6 +225,7 @@ def test_skill_promoter_generic_exception() -> None:
         new_content="new stuff",
         rationale="reason",
         approval_id="AP-1",
+        session=mock_session,
     )
     with pytest.raises(PromoterError, match="failed to promote skill"):
         promoter.promote(req)

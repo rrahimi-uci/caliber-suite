@@ -30,7 +30,7 @@ LLM judge**. It is two deterministic pieces:
    `exact_match`) that compares the run output's `validation_status` /
    `missing_fields` against each dataset row's `expectations`.
 
-Do **not** create a Judge for this. (Per [`../FEASIBILITY.md`](../FEASIBILITY.md):
+Do **not** create a Judge for this. (Per [`../../FEASIBILITY.md`](../../FEASIBILITY.md):
 "deterministic judge" is not a thing — use a deterministic scorer or a
 tool/python_code assertion. Reserve Judges for LLM-graded criteria.)
 

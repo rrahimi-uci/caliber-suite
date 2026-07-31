@@ -154,6 +154,7 @@ def test_generated_code_executes_with_importable_registered_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     data = make_manifest("tool_codegen_exec_wf")
+    data["runtime"]["default_model_ref"] = "openai:/pinned-export-model"
     data["nodes"]["agent"]["tools"] = ["lookup_policy"]
     data["tools"] = {
         "lookup_policy": {
@@ -180,6 +181,7 @@ def test_generated_code_executes_with_importable_registered_tools(
     class FakeRunner:
         @staticmethod
         def run_sync(agent: FakeAgent, prompt: str) -> object:
+            assert agent.kwargs["model"] == "openai:/pinned-export-model"
             tool_result = agent.kwargs["tools"][0](prompt)
             return types.SimpleNamespace(final_output=tool_result["policy"])
 
@@ -195,14 +197,33 @@ def test_generated_code_executes_with_importable_registered_tools(
     )
     monkeypatch.setitem(sys.modules, "mlflow", mlflow_mod)
 
+    from caliber.workflows import runtime as workflow_runtime
+
+    seen_configs: list[object | None] = []
+    original_bind = workflow_runtime.bind_exported_tool
+
+    def _recording_bind(entry: object, *, config: object | None = None):
+        seen_configs.append(config)
+        return original_bind(entry, config=config)
+
+    monkeypatch.setattr(workflow_runtime, "bind_exported_tool", _recording_bind)
+
     namespace: dict[str, object] = {}
     exec(code, namespace)
 
-    lookup_policy = namespace["lookup_policy"]
-    assert callable(lookup_policy)
-    assert namespace["run"]("refund?") == (
+    # Importing the generated module must not bind against ambient configuration before
+    # an explicit per-run sandbox configuration is available.
+    assert seen_configs == []
+    explicit_config = types.SimpleNamespace(
+        registered_tool_module_allowlist="caliber.workflows.*",
+        registered_tool_sandbox_enabled=True,
+        registered_tool_sandbox_timeout_seconds=30.0,
+        tool_sandbox_backend="",
+    )
+    assert namespace["run"]("refund?", config=explicit_config) == (
         "Purchases within 30 days are eligible for a full refund."
     )
+    assert seen_configs == [explicit_config]
 
 
 def test_generated_code_executes_with_mcp_tool_bindings(

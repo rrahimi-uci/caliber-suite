@@ -1,10 +1,49 @@
 
 # Version Management UX — Design Spec (v2, critique-corrected)
 
-> **Status:** Proposal · **Scope:** cross-artifact · **Target:** CALIBER v1 (single-environment)
+> **Status:** Historical design record, substantially implemented and superseded by
+> the current code · **Baseline captured:** before the 2026-07-31 reconciliation ·
+> **Scope:** cross-artifact · **Original target:** CALIBER v1 (single-environment)
 > **Decisions locked:** single-environment (no dev→staging→prod ladder); eval gate is **inline & advisory** (verdict shown at promote time, operator may override with an acknowledged, audited reason).
 >
-> **v2 note:** This revision folds in a code-grounded adversarial critique (40 findings, 36 confirmed). The biggest corrections: the raw prompt-alias path writes **no audit row/checkpoint/actor** (so the timeline + override audit + exact rollback for prompts all need a new audited endpoint); the gate verdict is **not** a thin read (the candidate-vs-baseline comparison isn't stored against a version); prompts have **no save-without-promote path** today; RBAC is **not uniform** across artifacts. Sections below reflect those fixes. Each backed claim cites `file:line`.
+> **Reading rule:** the numbered sections below preserve the proposal and its
+> code-audit baseline. Statements such as “today”, “new”, “required”, and their
+> `file:line` references describe that snapshot, not the current checkout. Use the
+> reconciliation immediately below and the per-feature architecture documents for
+> present behavior.
+
+---
+
+## 0. Current-state reconciliation (2026-07-31)
+
+The proposal's principal Phase-0/Phase-1 gaps have landed:
+
+- Prompts now have save-without-promote plus audited promote and exact rollback
+  endpoints. Alias rotation records the outgoing version and rejects a stale
+  `expected_version` with `409`; the prompt workspace mounts the shared
+  `VersionPanel`.
+- Workflows mount that panel and expose operator-scoped promote/rollback backed by
+  the deployment rollback stack and an `expected_version_id` conflict check.
+- Knowledge bases mount the panel around their immutable build versions and
+  audited active-version pointer; rollback walks activation history rather than
+  guessing an ordinal.
+- Skills now write immutable `CaliberSkillVersion` snapshots beside the mutable
+  current row. Their panel has no alias or promotion action; rollback restores the
+  prior snapshot as a new version. Tools expose their `(name, version)` family as
+  read-only history, with no alias or rollback.
+- The read-only Releases hub and Versioning settings surface exist. The live board
+  is database-backed and therefore enumerates workflow deployments and active
+  knowledge-base versions; prompt `@prod` liveness remains in MLflow and appears on
+  the per-prompt page, while prompt promotions still appear in the audit timeline.
+- Prompt gate verdicts are persisted and displayed as advisory evidence. Workflow
+  deployment gates use their own policy path, while knowledge bases, skills, and
+  tools do not inherit the prompt verdict contract.
+
+The implementation deliberately retains asset-specific semantics rather than
+turning every counter, snapshot, build, and alias into one backend abstraction.
+The normalized frontend model is shared; the persistence, liveness, gate, and
+rollback guarantees are not. The sections below remain useful as design rationale
+and as a record of the defects that motivated the implementation.
 
 ---
 
@@ -555,4 +594,3 @@ add/remove labeled, not color-only.
 - **Workflow `rollback_checkpoint` element order:** stack top is the **last** element.
 - **Audit keying:** prompt promotions keyed `entity_type='prompt', entity_id=name` so the board
   can resolve them; do not depend on the `refinement_job`-keyed row.
-

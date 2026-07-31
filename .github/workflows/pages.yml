@@ -10,6 +10,9 @@ on:
     paths:
       - "docs/**"
       - "docs-site/**"
+      - "caliber/caliber-ui/scripts/sync-docs.mjs"
+      - "caliber/caliber-ui/public/docs/**"
+      - "caliber/src/caliber/ui/docs/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -31,8 +34,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Regenerate docs from markdown sources
-        run: node docs-site/build-docs.mjs
+      - name: Regenerate and sync docs from markdown sources
+        env:
+          CALIBER_DOCS_STRICT: "1"
+        run: node caliber/caliber-ui/scripts/sync-docs.mjs
+      - name: Require committed generated docs to match their sources
+        run: >-
+          git diff --exit-code --
+          docs-site
+          caliber/caliber-ui/public/docs
+          caliber/src/caliber/ui/docs
       - uses: actions/configure-pages@v5
         with:
           enablement: true

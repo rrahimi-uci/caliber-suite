@@ -1,5 +1,9 @@
 # MCP backing services
 
+> Local development only. Postgres binds to `127.0.0.1` and uses the documented
+> `caliber` / `caliber` credential. Use a managed, least-privilege database for
+> any network-reachable MCP deployment.
+
 Containers that the MCP catalog's servers connect to. This compose provides the
 database the Postgres-family catalog entries talk to.
 
@@ -24,7 +28,7 @@ this one `POSTGRES_URL`, so this single instance backs all of them.
 
 The catalog entries use `command = ${PYTHON}` (resolved by the MCP gateway to
 the CALIBER interpreter, so the server runs under the same venv where `psycopg`
-is installed — `pip install caliber[postgres]`) and
+is installed — from a source checkout, `pip install -e ".[postgres]"`) and
 `env POSTGRES_URL=${POSTGRES_URL}` (resolved from the CALIBER process env — set
 `POSTGRES_URL` in your `.env`).
 

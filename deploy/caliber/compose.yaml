@@ -101,7 +101,10 @@ services:
       mcp-db-graph:
         condition: service_healthy
     ports:
-      - "${CALIBER_PORT:-5001}:5001"
+      # This development stack deliberately publishes only on loopback. A
+      # network-reachable deployment must use a separate hardened overlay,
+      # TLS/Secure cookies, and an operator-supplied bootstrap password.
+      - "127.0.0.1:${CALIBER_PORT:-5001}:5001"
     environment:
       CALIBER_HOST: 0.0.0.0
       CALIBER_PORT: 5001
@@ -119,14 +122,15 @@ services:
       # dropped by the browser. Overridden here rather than in the product default,
       # which stays Secure.
       CALIBER_AUTH_SESSION_COOKIE_SECURE: ${CALIBER_AUTH_SESSION_COOKIE_SECURE:-false}
-      # Seeds a usable account on first boot ONLY while the account table is empty,
-      # so a fresh stack is reachable without a well-known credential. The password
-      # is read from CALIBER_BOOTSTRAP_PASSWORD and must pass the same strength rules
-      # as any other, so 'admin' cannot be seeded. Set it in .env; with no password
-      # set, no account is created and the startup log says so.
-      CALIBER_AUTH_BOOTSTRAP_ADMIN_USER: ${CALIBER_AUTH_BOOTSTRAP_ADMIN_USER:-@local-admin}
+      # Seeds admin/admin on first local boot ONLY while the account table is empty.
+      # Change it immediately in Administration. Override CALIBER_BOOTSTRAP_PASSWORD
+      # with a strong secret before exposing this stack beyond a trusted local network.
+      CALIBER_AUTH_BOOTSTRAP_ADMIN_USER: ${CALIBER_AUTH_BOOTSTRAP_ADMIN_USER:-admin}
       CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV: CALIBER_BOOTSTRAP_PASSWORD
-      CALIBER_BOOTSTRAP_PASSWORD: ${CALIBER_BOOTSTRAP_PASSWORD:-}
+      CALIBER_BOOTSTRAP_PASSWORD: ${CALIBER_BOOTSTRAP_PASSWORD:-admin}
+      # Explicit exception for this loopback-only development stack. The
+      # product default is false; never carry this into a non-loopback overlay.
+      CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT: ${CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT:-true}
 
       # Encrypted secret store. Optional: with no key, 'secret://' references resolve
       # to nothing and their consumers fail closed rather than reading plaintext.
@@ -134,11 +138,14 @@ services:
       CALIBER_SECRET_KEY: ${CALIBER_SECRET_KEY:-}
 
       # Scope assignment stays config-driven and is separate from authentication:
-      # these lists say what @local-admin may do once it has proved it is @local-admin.
-      CALIBER_DEV_USER: ${CALIBER_DEV_USER:-@local-admin}
-      CALIBER_ADMIN_USERS: ${CALIBER_ADMIN_USERS:-@local-admin}
-      CALIBER_APPROVER_USERS: ${CALIBER_APPROVER_USERS:-@local-admin}
-      CALIBER_OPERATOR_USERS: ${CALIBER_OPERATOR_USERS:-@local-admin}
+      # these lists say what admin may do once it has proved it is admin.
+      CALIBER_DEV_USER: ${CALIBER_DEV_USER:-admin}
+      CALIBER_ADMIN_USERS: ${CALIBER_ADMIN_USERS:-admin}
+      CALIBER_APPROVER_USERS: ${CALIBER_APPROVER_USERS:-admin}
+      CALIBER_OPERATOR_USERS: ${CALIBER_OPERATOR_USERS:-admin}
+      # Bound raw published-service JSON envelopes even for explicitly public
+      # services. Protected services authenticate before consuming this allowance.
+      CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES: ${CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES:-1048576}
 
       # Object/workflow storage → MinIO.
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
@@ -244,7 +251,20 @@ services:
       # first `make allure-report`; the route shows a friendly hint until then.
       # Path is resolved from this compose file dir (deploy/caliber).
       - ${CALIBER_ALLURE_REPORT_HOST_DIR:-../../caliber/caliber-ui/allure-report}:/app/allure-report:ro
+      # Retains the standalone SQLite fallback and any small runtime scratch
+      # state without making the application filesystem writable.
+      - caliber_runtime_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    user: "65532:65532"
     networks:
       - default
       - mcp-db-internal
     restart: unless-stopped
+
+volumes:
+  caliber_runtime_data:

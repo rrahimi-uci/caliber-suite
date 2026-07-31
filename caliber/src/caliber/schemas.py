@@ -3530,7 +3530,12 @@ class WorkflowServiceSchema(BaseModel):
 
 
 class ServiceInvokeRequest(BaseModel):
-    """Body of ``POST /caliber/services/{workflow_id}/invoke``."""
+    """Parsed body of ``POST /caliber/services/{workflow_id}/invoke``.
+
+    The route separately caps the raw JSON envelope before Pydantic validation. A
+    schema ``maxLength`` would describe one string field, not the encoded object, and
+    therefore cannot represent that transport/resource boundary correctly.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

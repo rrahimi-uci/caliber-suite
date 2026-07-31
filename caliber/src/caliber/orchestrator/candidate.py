@@ -1,10 +1,11 @@
 """Candidate-generation stage of the refinement pipeline.
 
-The fifth stage. Reads the diagnosis from the prior stage, picks an
-optimizer (Phase 2.8: always ``"MetaPrompt"``), calls the injected
-:class:`LLMProvider` to produce a structured :class:`PromptCandidate`,
-persists it to ``caliber_refinement_jobs.candidate``, and advances the
-job to ``running/eval``.
+The fifth stage. Prompt and skill jobs read the prior diagnosis, select an
+implemented optimizer through :func:`select_optimizer`, call the injected
+:class:`LLMProvider` for a structured :class:`PromptCandidate`, persist it to
+``caliber_refinement_jobs.candidate``, and advance to ``running/eval``. Workflow
+manifest jobs delegate to their bounded patch-search stage instead of using a
+prompt optimizer.
 
 Same state-machine + audit shape as :func:`run_diagnosis`. The LLM call
 is wrapped so :class:`LLMProviderError` bubbles to the worker which

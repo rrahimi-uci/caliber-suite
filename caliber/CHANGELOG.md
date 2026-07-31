@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Authentication and browser-session isolation.** Default configuration no longer grants
+  the literal `admin` identity special access; the loopback launchers are the only paths that
+  opt into the disposable first-boot credential. Server-side password validation, dummy-hash
+  timing equalization, per-principal login budgets, token-response removal, and browser
+  epoch/generation fences prevent stale startup responses, cached state, and CSRF retries from
+  crossing a logout or account switch.
+- **Auth-operation and response-stream lifecycle.** Same-origin login/logout cookie mutations
+  are serialized with an origin-wide Web Lock (plus an in-process fallback), then reconciled
+  against auth epoch/generation changes. API calls carry one timeout/abort lifecycle through
+  headers, CSRF refresh/retry, and body consumption, and cancel abandoned response branches.
+- **Tool execution and export hardening.** The child signals readiness before the parent
+  arms the authored-code clock; the parent then owns the exact runtime deadline and kills
+  the process group even when authored code mutates `os._exit` or monopolizes the GIL. The
+  child watchdog still covers source/module resolution, import, test/invoke, result
+  representation, and serialization. Explicit run configuration reaches exported binders
+  before tool resolution, including an intentionally empty allowlist, and standalone
+  factories honor the selected sandbox backend. The sandbox ASGI endpoints offload their
+  synchronous work so a long run cannot freeze `/health` or other event-loop traffic. If a
+  constrained POSIX host denies process-group signalling, timeout cleanup falls back to the
+  direct child rather than surfacing an unrelated exception; descendant guarantees on that
+  host still require external containment.
+- **Container-development defaults.** Host ports bind to loopback, the CALIBER image runs as a
+  non-root user, and the bundled Compose service drops capabilities, sets no-new-privileges,
+  and uses a read-only root filesystem with bounded writable mounts.
 - **Aria plans: cross-user IDOR on every detail/action route.** `GET`,
   `PATCH`, `approve`, `execute`, `poll`, and the interactions list resolved a
   plan by bare id with no owner check (only `list` was scoped), so any
@@ -44,6 +68,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token-authenticated calls are traceable.
 
 ### Added
+
+- **Durable tool calibration, webhook acceptance, incident arbitration, and skill history repair.** Migrations `0076`–`0081` add
+  snapshotted calibration jobs, durable per-target webhook acceptance/leases, and a monotonic
+  tool-calibration revision fence, plus a partial unique index for one open incident per SLO
+  objective and an independent all-clear notification marker. The `0080` upgrade marks
+  existing resolved history handled rather than replaying it; `0081` anchors missing current
+  skill snapshots and appends a repair version when legacy decrement/reuse made the live row
+  conflict with immutable history, without pretending overwritten history can be reconstructed.
+  Workers claim rows conditionally, use short database
+  transactions around external work, reject stale calibration attribution, and recover
+  abandoned accepted webhook targets into the dead-letter workflow. Recovery deliberately
+  requires manual replay because a receiver may have succeeded before acknowledgement was
+  lost; external delivery is not exactly once.
+- **SLO incident lifecycle routing.** Alert reconciliation now opens and resolves incident
+  records and publishes both transitions through webhook event types enabled in the default
+  filter. Database constraints and conditional claims choose one synchronous local publisher
+  across racing replicas; known open/all-clear publication failures release their claims for
+  a later reconciliation retry. Silences suppress open noise without hiding the eventual
+  resolution. Silence/acknowledgement mutations and their audit rows now commit or roll back
+  together.
 
 - **LLM Gateway: guardrails, per-model cost config, and usage graphs.** The
   Gateway page is now tabbed — **Endpoints** (discovery, as before),
@@ -122,6 +166,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Transactional, forward-only skill promotion history.** Refinement Apply now targets
+  `job.skill_name` rather than the owning agent, locks the job against duplicate Apply,
+  and writes the live skill row, immutable version snapshot, rollback checkpoint, and audit
+  record through one caller-owned transaction. Rollback locks and consumes its checkpoint,
+  restores content and summary as a new monotonically increasing version, and records both
+  the restored source and new live version. Mixed bundles keep skill writes transactional
+  while compensating external provider effects best-effort.
+- **Python distribution identity.** The installable distribution is now
+  `caliber-suite` (including extras such as `caliber-suite[s3]`) to avoid the
+  existing `caliber` project name on package indexes; the Python import package
+  and MLflow app name remain `caliber`. No PyPI release is currently published
+  by this repository, so the README retains source-checkout installation as the
+  executable present-day path.
+- **Published-service policy and quota atomicity.** Invocation now locks and reloads mutable
+  service policy before enforcing enablement, auth, schema, alias, and quota. Idempotency is
+  resolved before charging, so a replay returns the existing run's actual status without a
+  second quota row or queued event; a new run, its charge, and audit commit together. External
+  keys are hashed with the authenticated service-token identity, so two callers can safely
+  reuse the same key without seeing or replaying each other's run. Reusing a caller key with
+  different canonical input returns `409`; matching pre-namespace rows retain a guarded
+  compatibility replay. Token mint/unpublish, status polling, and the external token-gated
+  OpenAPI route share the same locked service snapshot, and unpublish removes service rate
+  rows as well as tokens.
+- **Published-service request admission is auth-first and bounded.** Token-protected invoke
+  requests now reject invalid/missing Bearer credentials before consuming the JSON body, then
+  revalidate under the authoritative locked service snapshot. All invoke bodies, including
+  explicitly public and chunked requests, are counted from the ASGI stream and capped by
+  `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` (1 MiB by default); an oversize request returns
+  `413` without a run, audit, or quota charge. OpenAPI and Settings expose the active limit.
+- **Backend xdist scheduling is balanced without dropping resource serialization.** CI and
+  `scripts/ci-local.sh` use `--dist loadgroup`, allowing the 17k-line workflow-worker and
+  RBAC free-function modules to spread across workers. Explicit groups keep real sandbox
+  subprocess timing and the paired loopback probes on one worker, replacing a stale blanket
+  `loadscope` rule that produced a multi-hour single-worker tail.
 - **Aria plans: pagination + N+1 removal + bounded async polling.** `GET
   /aria/plans` accepts `?limit`/`?offset` and computes per-plan step counts in a
   single grouped query (was a COUNT-per-plan N+1); the interactions list is
@@ -148,6 +226,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bounded tool-calibration shutdown.** Stop fences the active drain generation immediately,
+  waits only its grace window, and performs no late stop-time database settlement. An
+  interrupted claim remains visibly `running`/ambiguous for operator resolution, while its
+  retained generation fence prevents a late scorer from attaching a result after shutdown.
+- **Recovery-only webhook lease sweeps.** Durable accepted-event recovery remains active even
+  with zero current webhook URLs or no signing secret, so a foreign lease that expires after
+  startup is moved to manual-replay dead-letter state without waiting for another restart.
+- **Webhook shutdown generations.** Each dispatcher start owns a stop event and exact
+  in-flight occurrence identity. A sender thread that returns after shutdown cannot begin a
+  later retry or target, and an old generation cannot settle a restarted dispatcher's claim.
+  A request already in flight can still have an externally ambiguous outcome.
+- **Release and local-CI parity.** CI and `scripts/ci-local.sh` now validate both Compose
+  profiles with explicit example settings and no implicit `.env`; the root test runner passes
+  `VENV_DIR` from its selected backend virtualenv to the Playwright command. Docker build contexts exclude
+  dotenv files, private keys, local databases, caches, and generated evidence, while launch
+  scripts no longer print database or object-store URLs.
 - **Docs & cookbooks: corrected stale claims after a code audit.** Architecture
   docs were realigned with the shipped code: `10-gateways` now lists the
   guardrail-governance / usage / pricing routes and their scopes (not a single
@@ -590,8 +684,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Sync `urllib.request.urlopen` runs on a thread via
     `asyncio.to_thread` so a slow receiver doesn't block the loop.
     Per-URL failures are logged and isolated; one bad receiver
-    doesn't taint the others. Best-effort delivery for v1 — retries
-    with a queue table land in a follow-up.
+    doesn't taint the others. This was the initial best-effort implementation;
+    the durable acceptance, bounded retry, lease recovery, and dead-letter work
+    recorded earlier in this Unreleased section supersedes that original boundary.
   - **Signature format** matches the Stripe convention so receiver-
     side OSS libraries already know how to verify:
     `X-Caliber-Signature: t=<unix-ts>,v1=<hex of HMAC-SHA256(secret,
@@ -746,7 +841,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     end-to-end through the approve endpoint.
 - **SPA ship-side wiring.** The Vite build now ships inside the Python
   wheel, served by the plugin itself.
-  - New [`caliber.routes.static`](caliber/src/caliber/routes/static.py)
+  - New [`caliber.routes.static`](src/caliber/routes/static.py)
     module registers `GET /caliber/` and `GET /caliber/{path:path}`.
     Existing files in the bundled `ui/` dir stream via
     `FileResponse`; everything else falls back to `index.html` so the
@@ -774,7 +869,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       artifact, stages it into `src/caliber/ui/`, runs `python -m
       build`, and sanity-checks that `caliber/ui/index.html` made it
       into the wheel.
-  - 16 new tests in [`tests/test_routes_static.py`](caliber/tests/test_routes_static.py)
+  - 16 new tests in [`tests/test_routes_static.py`](tests/test_routes_static.py)
     pin the prefix-injection logic, the asset/index fallback, the
     traversal guard, and the 503-when-missing behavior.
 - **All eight Phase 3 frontend pages.** The SPA now matches the page set
@@ -802,13 +897,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     checkpoint (subject to the same 409/502 surface the backend
     exposes).
 - Reusable UI components:
-  [`SeverityBadge`](caliber/caliber-ui/src/components/SeverityBadge.tsx),
-  [`StatusBadge`](caliber/caliber-ui/src/components/StatusBadge.tsx),
-  [`PipelineProgress`](caliber/caliber-ui/src/components/PipelineProgress.tsx)
+  [`SeverityBadge`](caliber-ui/src/components/SeverityBadge.tsx),
+  [`StatusBadge`](caliber-ui/src/components/StatusBadge.tsx),
+  [`PipelineProgress`](caliber-ui/src/components/PipelineProgress.tsx)
   (compact dots + expanded labelled mode),
-  [`EvalComparison`](caliber/caliber-ui/src/components/EvalComparison.tsx)
-  (shared across Job Detail and Approval Detail), and
-  [`CommentThread`](caliber/caliber-ui/src/components/CommentThread.tsx).
+  [`EvalComparison`](caliber-ui/src/components/EvalComparison.tsx)
+  (shared across Job Detail and Approval Detail), and the historical
+  `CommentThread` component (since removed from the current tree).
 - SSE auto-refresh wired into every list/detail page — `useEventStream`
   subscribes to the event-type subset each page cares about and triggers
   a `refresh()` on any match (scoped to the matching ID for detail

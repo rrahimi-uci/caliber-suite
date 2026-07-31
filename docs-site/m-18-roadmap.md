@@ -1,6 +1,13 @@
 # CALIBER — Roadmap
 
-*A feasibility-grounded, quarter-by-quarter plan derived from the [competitive analysis](./competitive-analysis.md) and **verified against the actual codebase**. Built for a **two-person team — you (product/strategy lead) and me (AI pair-programmer)** — and scoped to what that team can realistically ship and, above all, *review*.*
+*A feasibility-grounded, quarter-by-quarter plan derived from the [competitive analysis](m-17-competitive-analysis.md) and **verified against the actual codebase**. Built for a **two-person team — you (product/strategy lead) and me (AI pair-programmer)** — and scoped to what that team can realistically ship and, above all, *review*.*
+
+> **Status:** planning snapshot, not a current capability reference. The original
+> audit baseline found historical nine-optimizer claims; those claims have since
+> been reconciled. As of 2026-07-31, five provider paths are implemented,
+> automatic rules can choose four, explicit job/agent pins can reach all five, and
+> the prompt form exposes two. Roadmap deliverables remain proposed until current
+> code and release evidence prove them landed.
 
 > **This roadmap was adversarially critiqued against the code before publication** (three skeptic passes: feasibility-vs-architecture, competitive-alignment, capacity). Several first-draft assumptions turned out to be wrong — most importantly that human-approval governance was merely "dormant." The corrections are recorded in **[§12 Feasibility review](#12-feasibility-review)**; the plan below is the corrected version.
 >
@@ -12,31 +19,31 @@
 
 ## TL;DR
 
-CALIBER's wedge is real but narrow: **the only open-source, self-hosted, MLflow-native control plane that closes the loop — diagnosis-driven optimization → eval-gated, audited, reversible promotion — across a multi-artifact registry with native graph-RAG.** The analysis showed the wedge is *unoccupied but narrowing* (MLflow is absorbing the primitives; every cloud now ships a prompt optimizer).
+CALIBER's wedge is real but narrow: an open-source, self-hosted, MLflow-integrated control plane that connects policy-selected optimization, evaluation evidence, human action, audit, and asset-specific rollback beside a multi-asset registry with native graph-RAG. The current gate and lifecycle contracts are not uniform across assets; closing those gaps is work in this roadmap. The analysis showed the wedge is thinly populated but narrowing as MLflow and cloud platforms absorb the primitives.
 
 The corrected plan does four things, in priority order:
 
-1. **Earn trust & tell the truth about the code** (Q1) — reconcile docs↔code (the engine ships fewer optimizers than the docs claim; approval governance for prompts was removed), hit a *realistic* coverage bar, and publish a quality benchmark **that includes a graph-RAG dimension**.
-2. **Deepen the two moats MLflow structurally won't build** (Q2–Q3) — the diagnosis-driven multi-optimizer (starting by making the dispatch pluggable) and **human-in-the-loop governed promotion** (re-activate it for workflows; **rebuild** it for prompts), fused with the **sovereign/air-gap** story that no hyperscaler and no Databricks-hosted MLflow can match.
+1. **Earn trust & tell the truth about the code** (Q1) — reconcile the historical docs↔code optimizer mismatch and the removal of prompt approval governance, hit a *realistic* coverage bar, and publish a quality benchmark **that includes a graph-RAG dimension**.
+2. **Deepen the two moats MLflow is less likely to build** (Q2–Q3) — the policy/diagnosis-informed multi-optimizer (starting by making dispatch pluggable) and **human-in-the-loop governed promotion** (re-activate it for workflows; **rebuild** it for prompts), fused with the **sovereign/air-gap** story.
 3. **Grow adoption via extensibility, not hand-built adapters** (Q4) — ship a **Plugin SDK** so the community builds importers/optimizers, plus a scoped Langflow happy-path import.
 4. **Then scale** (H2) — extend governance to the remaining artifacts, finish the optimizer taxonomy, and run a go/no-go on an optional managed tier.
 
 | Quarter | Theme | Committed majors (2 + tax) | Answers |
 |---|---|---|---|
 | **Q1** | Truth & foundation | Docs↔code + optimizer-count unit test · Quality benchmark (**incl. graph-RAG**) | "docs outrun code", coverage, quality proof |
-| **Q2** | Optimization moat | **De-hardcode optimizer dispatch** + adopt orphaned DSPyMIPRO + UI parity · Wire **TextGrad** end-to-end | MLflow encroachment; differentiation |
+| **Q2** | Optimization moat | **De-hardcode optimizer dispatch** + surface/configure explicit-only DSPy MIPRO + UI parity · Wire **TextGrad** end-to-end | MLflow encroachment; differentiation |
 | **Q3** | Governed promotion + sovereign | Env-mode as real config · Governed promotion: **workflows (re-activate) + prompts (rebuild)** | single-env v1; regulated/sovereign buyers |
 | **Q4** | Extensibility & adoption | **Plugin SDK** (needs Q2 registry) · Scoped **Langflow happy-path import** | narrow ecosystem; community cold-start |
 | **Q5** | Remaining-artifact governance + scale | Promotion for skills/KBs/test-sets/tools · finish optimizer taxonomy · load/HA + design partner | "6-artifact" governance; unproven at scale |
 | **Q6** | Optional managed tier | Multi-tenant discovery → MVP (go/no-go) · deeper Aria · case studies | self-host adoption barrier |
 
-> **Two claims this roadmap deliberately does *not* make** (corrected from the draft): governed promotion exists for **1** artifact today (workflows), not 6; and the optimizer engine implements **5** (only 4 selectable, 2 surfaced in the UI), not 9.
+> **Two claims this roadmap deliberately does *not* make** (corrected from the draft): governed promotion exists for **1** artifact in the roadmap's audited baseline (workflows), not 6; and the optimizer engine implements **5** (4 automatic-policy paths, all 5 explicit-reachable, 2 surfaced in the prompt UI), not 9.
 
 ---
 
 ## 1. Guiding strategy (from the competitive analysis)
 
-- **Own the wedge; don't chase breadth.** We are the *eval-gated, self-hosted refinement & governance control plane for teams on MLflow* — not a builder, automation hub, or BPM engine. Every quarter is tested against: *does this deepen or defend the wedge?*
+- **Own the wedge; don't chase breadth.** Position the current product as an *evidence-backed, self-hosted refinement and governance control plane for teams on MLflow*; make unbypassable governed promotion a roadmap outcome, not a present-tense blanket claim. It is not a builder, automation hub, or BPM engine.
 - **Bet the moat on what MLflow structurally won't build.** MLflow is a library/toolkit; it is unlikely to ship an opinionated **human-approval UI + cross-artifact release control room + a native graph store**. Those — plus **sovereign/air-gapped** deployment (a self-hosted MLflow shop *cannot* adopt Databricks-hosted governance) — are the least-copyable arcs. Invest there; treat MLflow as substrate (contribute upstream opportunistically).
 - **Fund the differentiators the draft ignored.** Native **graph-RAG** (no MLflow/Vertex/Azure answer) and **sovereign/air-gap** (the analysis's #2 recommended segment) were named as moats but unfunded in the first draft — they are now first-class.
 - **Neutralize named weaknesses on schedule** and **interoperate above the builders** (Plugin SDK + scoped import) rather than hand-maintaining fragile adapters.
@@ -67,8 +74,8 @@ Sized for **one human lead + one AI pair-programmer**. The AI implements fast, w
 ```mermaid
 timeline
     title CALIBER — 18-month roadmap (corrected)
-    Q1 Truth & foundation : Docs=code + optimizer-count unit test (5 impl / 4 selectable / 2 UI) : Realistic coverage bar (92% / 90% hot modules) : Quality benchmark with a graph-RAG dimension : (continuous) start design-partner pipeline
-    Q2 Optimization moat : De-hardcode optimizer dispatch into a registry : Adopt orphaned DSPyMIPRO + UI parity (surface all 5) : Wire TextGrad end-to-end : (stretch) measured-selection leaderboard
+    Q1 Truth & foundation : Docs=code + optimizer-count unit test (5 impl / 4 automatic / 5 explicit / 2 UI) : Realistic coverage bar (92% / 90% hot modules) : Quality benchmark with a graph-RAG dimension : (continuous) start design-partner pipeline
+    Q2 Optimization moat : De-hardcode optimizer dispatch into a registry : Surface/configure explicit-only DSPy MIPRO + UI parity (surface all 5) : Wire TextGrad end-to-end : (stretch) measured-selection leaderboard
     Q3 Governed promotion + sovereign : Env-mode as real CaliberConfig (default single-env) : Re-activate workflow gated promotion : Rebuild prompt approval (undo born-approved) : (stretch) sovereign/air-gap install bundle + no-egress audit
     Q4 Extensibility & adoption : Plugin SDK (optimizers/judges/tools/storage) : Scoped Langflow happy-path import (compilable node-types) : (stretch) webhook feedback triggers : Independence positioning + cookbooks
     Q5 Remaining-artifact governance + scale : Promotion state machines for skills/KBs/test-sets/tools : Finish optimizer taxonomy (MultiAgentCoord, MemAlign, PromptDistill) : Load/HA benchmark + design-partner deployment
@@ -105,7 +112,7 @@ Note the **Q2 → Q4 edge**: the "de-hardcode optimizer dispatch into a registry
 
 ## 4. Q1 — Truth & foundation  *(verdict: realistic — the light quarter)*
 
-**Why.** The analysis's sharpest internal finding was that the product is "ahead of itself in spots." The code critique confirmed it is *worse* than we thought: the docs claim 9 optimizers, the engine implements 5 (only 4 are ever selected; DSPyMIPRO is orphaned), the UI shows 2, and internal docstrings contradict each other. None of the later moat/enterprise claims are safe to make until this is fixed — and it's the low-risk warm-up quarter.
+**Why.** The analysis's sharpest internal finding was that the product was "ahead of itself in spots." At the roadmap's audit baseline, historical docs claimed 9 optimizers while the engine implemented 5, automatic rules selected 4, explicit configuration could reach all 5 (including MIPRO), and the prompt UI showed 2; internal docstrings also contradicted each other. None of the later moat/enterprise claims were safe until that baseline was reconciled — making it the low-risk warm-up quarter.
 
 | # | Deliverable | Owner | Grounding (verified) | Exit criteria | Effort/Risk |
 |---|---|---|---|---|---|
@@ -121,17 +128,17 @@ Note the **Q2 → Q4 edge**: the "de-hardcode optimizer dispatch into a registry
 
 ## 5. Q2 — Optimization moat  *(verdict: split & de-scoped — the draft was over-committed)*
 
-**Why.** Optimizers are now widespread (MLflow experimental, Phoenix OSS, Vertex/AWS/Azure). Our edge is *diagnosis-driven selection across many optimizers, wired into a gated loop* — but the critique showed the "selector already maps to N optimizers, just wire them" premise was **false**: `select_optimizer()` hand-returns only 4, the provider **hard-raises `NotImplementedError`** for anything else, and the extra optimizers are docstring-only. So Q2 first makes the dispatch *pluggable*, then adds **one** genuinely new optimizer.
+**Why.** Optimizers are now widespread (MLflow experimental, Phoenix OSS, Vertex/AWS/Azure). Our edge is *diagnosis-driven selection across many optimizers, wired into a gated loop* — but the critique showed the "selector already maps to N optimizers, just wire them" premise was **false**: automatic rules return only 4 implemented names, the provider rejects unsupported names, and the extra taxonomy entries are docstring-only. MIPRO is already an implemented explicit-pin path, not a sixth optimizer. So Q2 first makes the dispatch *pluggable*, then adds **one** genuinely new optimizer.
 
 | # | Deliverable | Owner | Grounding (verified) | Exit criteria | Effort/Risk |
 |---|---|---|---|---|---|
-| 2.1 | **De-hardcode the optimizer dispatch into a registry** + **adopt the orphaned DSPyMIPRO** into `select_optimizer` + **UI parity** (surface all 5 real optimizers; the form shows 2). This is the honest, high-leverage, mostly-cheap major — and it unblocks the Q4 Plugin SDK. | 🤝 Pair | `llm/openai_agents.py:373-380` hard-coded dispatch; `optimizer_select.py`; calibration form | Optimizers dispatched via a registry; DSPyMIPRO selectable ("6 selectable"); UI shows all implemented | M / Med |
+| 2.1 | **De-hardcode the optimizer dispatch into a registry** + define an automatic-selection policy (or retain an explicit-only policy) for **DSPy MIPRO** + **UI parity** (surface all 5 implemented paths; the form shows 2). This is the honest, high-leverage, mostly-cheap major — and it unblocks the Q4 Plugin SDK. | 🤝 Pair | `llm/openai_agents.py` hard-coded dispatch; `optimizer_select.py`; calibration form | Optimizers dispatched via a registry; all 5 current paths remain explicit-reachable; the MIPRO policy is documented; UI shows all implemented | M / Med |
 | 2.2 | **Wire TextGrad end-to-end** — 🌱 green-field: new selection heuristic + a new iterative candidate-generation strategy class (TextGrad is multi-call, unlike single-pass MetaPrompt) + fake-provider support + UI + tests + one benchmark slice. | 🤝 Pair (design), 🤖 impl | follows the *module* pattern of `dspy_optimizer.py` (424 lines) — i.e., a real new module, not a config tweak | TextGrad selectable + tested; beats MetaPrompt on ≥1 benchmark slice **(research outcome — if it doesn't, that's a documented finding, not a failure)** | L / **High** (green-field + research risk) |
 | 2.3 | *(stretch)* **Measured-selection leaderboard** across the **implemented** set on the Q1 benchmark; improve ≥1 keyword heuristic with evidence. | 🤖 AI-led | `optimizer_select.py` keyword heuristics + benchmark | Selection quality reported per diagnosis class | M / Med |
 | — | **Upstream MLflow PR → continuous track** (§9), not a committed major. "Open a PR" (ours) not "merged" (theirs). | 🧑 | — | — | — |
 
 **Committed majors:** 2.1 + 2.2. **Stretch:** 2.3. **Moved:** MultiAgentCoord → Q5; upstream PR → continuous.
-**Q2 exit:** dispatch is pluggable, 6 optimizers selectable (5 real + adopted MIPRO), the UI is honest, and TextGrad is live (or its non-win is documented). *If 2.2's research risk bites, ship 2.1 + a documented TextGrad finding and pull 2.3 in.*
+**Q2 exit:** dispatch is pluggable, 6 provider paths are selectable (the current 5, already including MIPRO, plus the new TextGrad path), the UI is honest, and TextGrad is live (or its non-win is documented). *If 2.2's research risk bites, ship 2.1 + a documented TextGrad finding and pull 2.3 in.*
 
 ---
 
@@ -146,7 +153,7 @@ Note the **Q2 → Q4 edge**: the "de-hardcode optimizer dispatch into a registry
 | 3.3 | *(stretch)* **Separation-of-duties + Releases room.** Enforce approver ≠ author (depends on 3.2 recording an author); scope the existing `/releases` timeline/live hub to artifacts with real rollback (workflows, KBs, prompts). | 🤖 AI-led | RBAC scopes in `auth.py` (real; already references "separation of duties"); `routes/releases.py` (real) | Approver≠author enforced; releases room covers the rollback-capable artifacts | M / Med |
 | 3.4 | *(stretch)* **Sovereign/air-gap install bundle.** A no-egress install profile (docker-compose/offline), an offline model/gateway story, and a "no outbound calls" audit — the *cheap half* of "remove self-host barrier," pulled forward because it's the same buyer as governance. | 🧑 leads, 🤝 | existing single-stack `deploy/` compose; config | An air-gapped install runs the loop with a documented no-egress audit | M / Med |
 
-**Committed majors:** 3.1 + 3.2. **Stretch:** 3.3, 3.4. **Explicitly deferred:** governance for skills/KBs/test-sets/tools → **Q5** (it is ~5 net-new promotion state machines, *not* a fast-follow).
+**Committed majors:** 3.1 + 3.2. **Stretch:** 3.3, 3.4. **Explicitly deferred:** governance for skills/KBs/test-sets/tools → **Q5** (it is four asset-specific promotion/rollback implementations, *not* a fast-follow).
 **Q3 exit:** governed `dev→staging→prod` for **workflows and prompts** with eval gates, human sign-off, and audited rollback, toggleable to single-env — and, ideally, an air-gapped install profile for the regulated segment.
 
 ---
@@ -171,7 +178,7 @@ Note the **Q2 → Q4 edge**: the "de-hardcode optimizer dispatch into a registry
 
 Re-committed at the H1 review. **Q5 is intentionally the overflow catch-basin** for work pushed out of Q2/Q3 (MultiAgentCoord, remaining-artifact governance) — it will itself need scoping at H1, not treated as free.
 
-- **Q5 · Remaining-artifact governance + scale.** Build promotion/rollback state machines for **skills, KBs, test-sets, tools** (the ~5 net-new subsystems that make "6-artifact governance" real); finish the optimizer taxonomy (MultiAgentCoord, MemAlign, PromptDistill); **load/HA benchmark** for queued workers + larger KB corpora (the *scale* proof the Q1 benchmark deliberately did not attempt); land a **design-partner deployment**.
+- **Q5 · Remaining-artifact governance + scale.** Build promotion/rollback state machines for **skills, KBs, test-sets, tools** (four asset-specific implementations that make "6-artifact governance" real alongside prompts and workflows); finish the optimizer taxonomy (MultiAgentCoord, MemAlign, PromptDistill); **load/HA benchmark** for queued workers + larger KB corpora (the *scale* proof the Q1 benchmark deliberately did not attempt); land a **design-partner deployment**.
 - **Q6 · Optional managed tier.** The biggest lift — **explicitly a discovery→MVP arc with a human-led go/no-go gate** (multi-tenancy, isolation, ops span >1 quarter). Also deeper Aria goal-plan autonomy; reference case studies.
 - **Split of "remove self-host barrier":** the *cheap* half (air-gap install bundle) is pulled forward to Q3; the *expensive* half (managed multi-tenant SaaS) stays a gated H2 bet.
 
@@ -215,8 +222,8 @@ We will **not**, in this horizon: become a general automation tool (n8n) or BPM 
 **A. Factual grounding errors caught in the first draft (now fixed):**
 
 1. **"Approval governance is dormant" was wrong for prompts.** `CaliberApprovalRequest` (models.py) is a *born-approved* provenance anchor — human-feedback approval was **removed**. It is genuinely dormant only for **workflows** (`GATED_ALIASES` machinery intact). → Q3 reframed as *re-activate (workflows) + **rebuild** (prompts)*; sized L/High.
-2. **"Governed promotion across 6 artifacts" was aspirational.** Only workflows have a promotion state machine; skills/KBs/test-sets/tools have none, and tools lack alias/rollback entirely. → the other four move to **Q5** as ~5 net-new subsystems; the "6-artifact" language is removed from the headline.
-3. **The optimizer "selector seam" was mostly fiction.** `select_optimizer()` returns 4; the provider hard-raises `NotImplementedError`; TextGrad/MultiAgentCoord/etc. are docstring-only; DSPyMIPRO is implemented but **orphaned** (never selected). → Q2 adds a **dispatch registry** first, adopts DSPyMIPRO cheaply, and commits to **one** green-field optimizer (TextGrad), not two.
+2. **"Governed promotion across 6 artifacts" was aspirational at that audit baseline.** Only workflows then had a promotion state machine; skills/KBs/test-sets/tools had none, and tools lacked alias/rollback entirely. → the other four moved to **Q5** as four asset-specific implementations; the "6-artifact" language was removed from the headline.
+3. **The optimizer "selector seam" was mostly fiction.** Automatic rules return 4 implemented names; the provider rejects unsupported names; TextGrad/MultiAgentCoord/etc. are docstring-only; DSPy MIPRO is implemented and explicit-reachable but has no automatic rule or prompt-form option. → Q2 adds a **dispatch registry** first, makes the MIPRO policy/UI explicit, and commits to **one** green-field optimizer (TextGrad), not two.
 4. **`SINGLE_ENVIRONMENT` is a UI constant, not config.** → Q3.1 is real config plumbing across two subsystems + the UI, with a migration and compat test — a full major, not a flag flip.
 5. **97% coverage is a vanity number.** → target lowered to a realistic 92%/90%.
 6. **Plugin SDK's flagship extension point sits behind a hard-coded dispatch.** → the Q2 registry is an explicit prerequisite for Q4's SDK.

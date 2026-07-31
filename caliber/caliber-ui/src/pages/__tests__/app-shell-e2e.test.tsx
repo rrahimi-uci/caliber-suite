@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -7,6 +14,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -17,6 +25,7 @@ import { App } from "@/App";
 import {
   clearLocalAuthSession,
   createLocalAuthSession,
+  getStoredAuthSession,
   saveLocalAuthSession,
 } from "@/auth/localAuth";
 import { server } from "@/test/server";
@@ -43,17 +52,24 @@ class MockEventSource {
     MockEventSource.instances.push(this);
   }
 
-  addEventListener(event: string, handler: (event: MessageEvent) => void): void {
-    const handlers = this.listeners.get(event) ?? new Set<(event: MessageEvent) => void>();
+  addEventListener(
+    event: string,
+    handler: (event: MessageEvent) => void,
+  ): void {
+    const handlers =
+      this.listeners.get(event) ?? new Set<(event: MessageEvent) => void>();
     handlers.add(handler);
     this.listeners.set(event, handlers);
   }
 
-  removeEventListener(event: string, handler: (event: MessageEvent) => void): void {
+  removeEventListener(
+    event: string,
+    handler: (event: MessageEvent) => void,
+  ): void {
     this.listeners.get(event)?.delete(handler);
   }
 
-  close(): void { }
+  close(): void {}
 
   emit(event: string, payload: Record<string, unknown>): void {
     const frame = { data: JSON.stringify(payload) } as MessageEvent;
@@ -70,21 +86,29 @@ function CurrentPath(): JSX.Element {
 
 function renderApp(
   initialPath: string,
-  { authenticated = true }: { authenticated?: boolean } = {},
+  {
+    authenticated = true,
+    queryClient: providedQueryClient,
+  }: { authenticated?: boolean; queryClient?: QueryClient } = {},
 ): ReturnType<typeof render> {
   if (authenticated) {
     saveLocalAuthSession(createLocalAuthSession("admin"));
   }
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0 },
-      mutations: { retry: false },
-    },
-  });
+  const queryClient =
+    providedQueryClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: 0 },
+        mutations: { retry: false },
+      },
+    });
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={[initialPath]}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={[initialPath]}
+      >
         <CurrentPath />
         <App />
       </MemoryRouter>
@@ -106,6 +130,23 @@ beforeAll(() => {
   vi.stubGlobal("EventSource", MockEventSource);
 });
 
+beforeEach(() => {
+  server.use(
+    http.get(`${API_BASE}/auth/session`, () =>
+      HttpResponse.json(
+        envelope({
+          user_id: "admin",
+          scopes: ["admin"],
+          is_admin: true,
+          auth_mode: "session",
+          authenticated_by: "session",
+          login_required: false,
+        }),
+      ),
+    ),
+  );
+});
+
 afterEach(() => {
   cleanup();
   server.resetHandlers();
@@ -123,6 +164,18 @@ afterAll(() => {
 describe("App shell end-to-end journeys", () => {
   it("shows the login page and signs in against the server", async () => {
     server.use(
+      http.get(`${API_BASE}/auth/session`, () =>
+        HttpResponse.json(
+          envelope({
+            user_id: "anonymous",
+            scopes: [],
+            is_admin: false,
+            auth_mode: "session",
+            authenticated_by: "none",
+            login_required: true,
+          }),
+        ),
+      ),
       http.get(`${API_BASE}/health`, () =>
         HttpResponse.json(envelope({ status: "ok", version: "test" })),
       ),
@@ -130,7 +183,10 @@ describe("App shell end-to-end journeys", () => {
       // no browser-synthesised identity, so this journey needs the real endpoint.
       http.post(`${API_BASE}/auth/login`, () =>
         HttpResponse.json(
-          envelope({ user_id: "@local-admin", expires_at: "2026-12-31T00:00:00Z" }),
+          envelope({
+            user_id: "@local-admin",
+            expires_at: "2026-12-31T00:00:00Z",
+          }),
         ),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
@@ -154,9 +210,13 @@ describe("App shell end-to-end journeys", () => {
     );
 
     renderApp("/tools", { authenticated: false });
-    await waitFor(() => expect(screen.getByTestId("current-path")).toHaveTextContent("/login"));
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent("/login"),
+    );
     expect(
-      screen.getByRole("heading", { name: "Build Trusted Agentic Workflows with Verification and Calibration" }),
+      screen.getByRole("heading", {
+        name: "Build Trusted Agentic Workflows with Verification and Calibration",
+      }),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -165,14 +225,323 @@ describe("App shell end-to-end journeys", () => {
     ).toBeInTheDocument();
     // Typed, not prefilled: the form used to arrive with admin/admin already in it.
     await userEvent.type(screen.getByLabelText(/username/i), "@local-admin");
-    await userEvent.type(screen.getByLabelText(/^password$/i), "correct-horse-battery");
+    await userEvent.type(
+      screen.getByLabelText(/^password$/i),
+      "correct-horse-battery",
+    );
     await userEvent.click(screen.getByRole("button", { name: /^Sign in$/ }));
-    expect(await screen.findByLabelText("CALIBER navigation")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("current-path")).toHaveTextContent("/"));
+    expect(
+      await screen.findByLabelText("CALIBER navigation"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent("/"),
+    );
     // Local storage holds display state only. The session is an HttpOnly cookie the
     // browser cannot read, which is the point — so no token may appear here.
-    expect(window.localStorage.getItem("caliber.auth.session")).toContain("@local-admin");
-    expect(window.localStorage.getItem("caliber.auth.session")).not.toContain("token");
+    expect(window.localStorage.getItem("caliber.auth.session")).toContain(
+      "@local-admin",
+    );
+    expect(window.localStorage.getItem("caliber.auth.session")).not.toContain(
+      "token",
+    );
+  });
+
+  it("converges a delayed login to the authoritative session after a cross-tab race", async () => {
+    let loginStarted = false;
+    let loginCompleted = false;
+    let finishLogin!: () => void;
+    const loginGate = new Promise<void>((resolve) => {
+      finishLogin = resolve;
+    });
+    server.use(
+      http.get(`${API_BASE}/auth/session`, () =>
+        HttpResponse.json(
+          envelope(
+            loginCompleted
+              ? {
+                  user_id: "user-b",
+                  scopes: ["viewer"],
+                  is_admin: false,
+                  auth_mode: "session",
+                  authenticated_by: "session",
+                  login_required: false,
+                }
+              : {
+                  user_id: "anonymous",
+                  scopes: [],
+                  is_admin: false,
+                  auth_mode: "session",
+                  authenticated_by: "none",
+                  login_required: true,
+                },
+          ),
+        ),
+      ),
+      http.post(`${API_BASE}/auth/login`, async () => {
+        loginStarted = true;
+        await loginGate;
+        loginCompleted = true;
+        return HttpResponse.json(
+          envelope({
+            user_id: "user-b",
+            expires_at: "2026-12-31T00:00:00Z",
+          }),
+        );
+      }),
+      http.get(`${API_BASE}/health`, () =>
+        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+      ),
+      http.get(`${API_BASE}/dashboard/summary`, () =>
+        HttpResponse.json(
+          envelope({
+            agents_total: 0,
+            agents_enabled: 0,
+            verification_pending: 0,
+            verification_pending_critical: 0,
+            jobs_queued: 0,
+            jobs_running: 0,
+            jobs_awaiting_approval: 0,
+            jobs_completed: 0,
+            jobs_failed: 0,
+            jobs_rejected: 0,
+            approvals_pending: 0,
+            generated_at: "2026-07-31T00:00:00Z",
+          }),
+        ),
+      ),
+    );
+
+    renderApp("/login", { authenticated: false });
+    await userEvent.type(await screen.findByLabelText(/username/i), "user-b");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "password-b");
+    await userEvent.click(screen.getByRole("button", { name: /^Sign in$/ }));
+    await waitFor(() => expect(loginStarted).toBe(true));
+
+    // A competing tab reports user-a while user-b's successful Set-Cookie response
+    // is delayed. The completed login must not become a 409 or leave this shell on A.
+    act(() => saveLocalAuthSession(createLocalAuthSession("user-a")));
+    finishLogin();
+
+    await waitFor(() =>
+      expect(getStoredAuthSession()?.username).toBe("user-b"),
+    );
+    expect(await screen.findByText("user-b")).toBeInTheDocument();
+  });
+
+  it("rejects stale local display state when server session validation returns 401", async () => {
+    server.use(
+      http.get(`${API_BASE}/auth/session`, () =>
+        HttpResponse.json({ detail: "session expired" }, { status: 401 }),
+      ),
+    );
+
+    renderApp("/tools");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent("/login"),
+    );
+    expect(window.localStorage.getItem("caliber.auth.session")).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Sign in" }),
+    ).toBeInTheDocument();
+  });
+
+  it("clears user-scoped query data when authentication is lost", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    queryClient.setQueryData(["auth", "accounts"], {
+      users: ["user-a-secret"],
+    });
+    server.use(
+      http.get(`${API_BASE}/auth/session`, () =>
+        HttpResponse.json({ detail: "session expired" }, { status: 401 }),
+      ),
+    );
+
+    renderApp("/administration", { queryClient });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent("/login"),
+    );
+    expect(queryClient.getQueryData(["auth", "accounts"])).toBeUndefined();
+  });
+
+  it("clears user-scoped query data when canonical user IDs differ but display identities match", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    queryClient.setQueryData(["auth", "accounts"], {
+      users: ["admin-private"],
+    });
+    server.use(
+      http.get(`${API_BASE}/auth/session`, () =>
+        HttpResponse.json(
+          envelope({
+            user_id: "@admin",
+            scopes: ["admin"],
+            is_admin: true,
+            auth_mode: "session",
+            authenticated_by: "session",
+            login_required: false,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/dashboard/summary`, () =>
+        HttpResponse.json(
+          envelope({
+            agents_total: 0,
+            agents_enabled: 0,
+            verification_pending: 0,
+            verification_pending_critical: 0,
+            jobs_queued: 0,
+            jobs_running: 0,
+            jobs_awaiting_approval: 0,
+            jobs_completed: 0,
+            jobs_failed: 0,
+            jobs_rejected: 0,
+            approvals_pending: 0,
+            generated_at: "2026-06-02T00:00:00Z",
+          }),
+        ),
+      ),
+    );
+
+    renderApp("/", { queryClient });
+
+    expect(
+      await screen.findByLabelText("CALIBER navigation"),
+    ).toBeInTheDocument();
+    expect(queryClient.getQueryData(["auth", "accounts"])).toBeUndefined();
+    expect(window.localStorage.getItem("caliber.auth.session")).toContain(
+      '"username":"@admin"',
+    );
+  });
+
+  it("preserves the login generation when bootstrap validates the same account", async () => {
+    const initial = createLocalAuthSession("admin");
+    saveLocalAuthSession(initial);
+    server.use(
+      http.get(`${API_BASE}/dashboard/summary`, () =>
+        HttpResponse.json(
+          envelope({
+            agents_total: 0,
+            agents_enabled: 0,
+            verification_pending: 0,
+            verification_pending_critical: 0,
+            jobs_queued: 0,
+            jobs_running: 0,
+            jobs_awaiting_approval: 0,
+            jobs_completed: 0,
+            jobs_failed: 0,
+            jobs_rejected: 0,
+            approvals_pending: 0,
+            generated_at: "2026-06-02T00:00:00Z",
+          }),
+        ),
+      ),
+    );
+
+    renderApp("/", { authenticated: false });
+
+    expect(
+      await screen.findByLabelText("CALIBER navigation"),
+    ).toBeInTheDocument();
+    expect(
+      JSON.parse(window.localStorage.getItem("caliber.auth.session") ?? "{}"),
+    ).toMatchObject({
+      username: "admin",
+      generation: initial.generation,
+    });
+  });
+
+  it("ignores a stale successful bootstrap after a cross-tab login generation", async () => {
+    let finishValidation!: () => void;
+    let validationStarted = false;
+    const validationGate = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    saveLocalAuthSession(createLocalAuthSession("user-a"));
+    server.use(
+      http.get(`${API_BASE}/auth/session`, async () => {
+        validationStarted = true;
+        await validationGate;
+        return HttpResponse.json(
+          envelope({
+            user_id: "user-a",
+            scopes: ["viewer"],
+            is_admin: false,
+            auth_mode: "session",
+            authenticated_by: "session",
+            login_required: false,
+          }),
+        );
+      }),
+    );
+
+    renderApp("/", { authenticated: false });
+    await waitFor(() => expect(validationStarted).toBe(true));
+    act(() => saveLocalAuthSession(createLocalAuthSession("user-b")));
+    finishValidation();
+
+    await waitFor(() =>
+      expect(getStoredAuthSession()?.username).toBe("user-b"),
+    );
+    expect(getStoredAuthSession()?.username).not.toBe("user-a");
+  });
+
+  it("does not let a stale bootstrap 401 clear a newer cross-tab login", async () => {
+    let finishValidation!: () => void;
+    let validationStarted = false;
+    const validationGate = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    saveLocalAuthSession(createLocalAuthSession("user-a"));
+    server.use(
+      http.get(`${API_BASE}/auth/session`, async () => {
+        validationStarted = true;
+        await validationGate;
+        return HttpResponse.json(
+          { detail: "old session expired" },
+          { status: 401 },
+        );
+      }),
+    );
+
+    renderApp("/", { authenticated: false });
+    await waitFor(() => expect(validationStarted).toBe(true));
+    act(() => saveLocalAuthSession(createLocalAuthSession("user-b")));
+    finishValidation();
+
+    await waitFor(() =>
+      expect(getStoredAuthSession()?.username).toBe("user-b"),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Sign in" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clears cache and remounts authenticated state on a same-user generation change", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+    });
+    renderApp("/", { queryClient });
+    expect(
+      await screen.findByLabelText("CALIBER navigation"),
+    ).toBeInTheDocument();
+    queryClient.setQueryData(["private", "draft"], { secret: "old-session" });
+    const eventSourcesBefore = MockEventSource.instances.length;
+
+    act(() => saveLocalAuthSession(createLocalAuthSession("admin")));
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(["private", "draft"])).toBeUndefined(),
+    );
+    await waitFor(() =>
+      expect(MockEventSource.instances.length).toBeGreaterThan(
+        eventSourcesBefore,
+      ),
+    );
   });
 
   it("logs out and clears the local session", async () => {
@@ -212,16 +581,174 @@ describe("App shell end-to-end journeys", () => {
 
     renderApp("/");
 
-    expect(await screen.findByLabelText("CALIBER navigation")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("CALIBER navigation"),
+    ).toBeInTheDocument();
     // "@admin", not "@local-admin": identityForUsername no longer special-cases the
     // old default username, because there is no default credential to special-case.
-    expect(window.localStorage.getItem("caliber.auth.session")).toContain("@admin");
+    expect(window.localStorage.getItem("caliber.auth.session")).toContain(
+      "@admin",
+    );
 
     await userEvent.click(screen.getByRole("button", { name: /Log out/i }));
 
     await waitFor(() => expect(revoked).toBe(true));
-    await waitFor(() => expect(screen.getByTestId("current-path")).toHaveTextContent("/login"));
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent("/login"),
+    );
     expect(window.localStorage.getItem("caliber.auth.session")).toBeNull();
+  });
+
+  it("does not expose login until a delayed server logout has settled", async () => {
+    let finishLogout!: () => void;
+    let logoutCompleted = false;
+    const logoutGate = new Promise<void>((resolve) => {
+      finishLogout = resolve;
+    });
+    server.use(
+      http.get(`${API_BASE}/auth/session`, () =>
+        HttpResponse.json(
+          envelope(
+            logoutCompleted
+              ? {
+                  user_id: "anonymous",
+                  scopes: [],
+                  is_admin: false,
+                  auth_mode: "session",
+                  authenticated_by: "none",
+                  login_required: true,
+                }
+              : {
+                  user_id: "admin",
+                  scopes: ["admin"],
+                  is_admin: true,
+                  auth_mode: "session",
+                  authenticated_by: "session",
+                  login_required: false,
+                },
+          ),
+        ),
+      ),
+      http.get(`${API_BASE}/health`, () =>
+        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+      ),
+      http.get(`${API_BASE}/dashboard/summary`, () =>
+        HttpResponse.json(
+          envelope({
+            agents_total: 0,
+            agents_enabled: 0,
+            verification_pending: 0,
+            verification_pending_critical: 0,
+            jobs_queued: 0,
+            jobs_running: 0,
+            jobs_awaiting_approval: 0,
+            jobs_completed: 0,
+            jobs_failed: 0,
+            jobs_rejected: 0,
+            approvals_pending: 0,
+            generated_at: "2026-06-02T00:00:00Z",
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/auth/logout`, async () => {
+        await logoutGate;
+        logoutCompleted = true;
+        return HttpResponse.json(envelope({ revoked: true }));
+      }),
+    );
+    renderApp("/");
+    expect(
+      await screen.findByLabelText("CALIBER navigation"),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Log out/i }));
+    expect(
+      screen.queryByRole("heading", { name: "Sign in" }),
+    ).not.toBeInTheDocument();
+
+    // A different tab may finish login before this older logout response. The response
+    // deletes the shared HttpOnly cookie, so its newer display generation must be cleared
+    // rather than retained as a false authenticated UI.
+    act(() => saveLocalAuthSession(createLocalAuthSession("user-b")));
+    finishLogout();
+    expect(
+      await screen.findByRole("heading", { name: "Sign in" }),
+    ).toBeInTheDocument();
+    expect(getStoredAuthSession()).toBeNull();
+  });
+
+  it("returns to login with an explanation after resetting the current account password", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: 30_000 },
+        mutations: { retry: false },
+      },
+    });
+    const account = {
+      user_id: "admin",
+      disabled: false,
+      created_at: "2026-01-01T00:00:00Z",
+      password_updated_at: "2026-01-01T00:00:00Z",
+      last_login_at: null,
+    };
+    server.use(
+      http.get(`${API_BASE}/dashboard/summary`, () =>
+        HttpResponse.json(
+          envelope({
+            agents_total: 0,
+            agents_enabled: 0,
+            verification_pending: 0,
+            verification_pending_critical: 0,
+            jobs_queued: 0,
+            jobs_running: 0,
+            jobs_awaiting_approval: 0,
+            jobs_completed: 0,
+            jobs_failed: 0,
+            jobs_rejected: 0,
+            approvals_pending: 0,
+            generated_at: "2026-06-02T00:00:00Z",
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/auth/accounts`, () =>
+        HttpResponse.json(envelope({ accounts: [account], total: 1 })),
+      ),
+      http.get(`${API_BASE}/secrets`, () =>
+        HttpResponse.json(
+          envelope({
+            secrets: [],
+            total: 0,
+            enabled: true,
+            reference_scheme: "secret://",
+          }),
+        ),
+      ),
+      http.patch(`${API_BASE}/auth/accounts/admin`, () =>
+        HttpResponse.json(
+          envelope({ user_id: "admin", changed: ["password"] }),
+        ),
+      ),
+    );
+
+    renderApp("/administration", { queryClient });
+    await userEvent.type(
+      await screen.findByLabelText("New password for admin"),
+      "correct-horse-battery",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Reset password for admin" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent("/login"),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Sign in" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Changed the password for admin. Sign in again with the new password.",
+    );
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
   });
 
   it("renders workflow detail deep links through the real app router", async () => {
@@ -318,12 +845,17 @@ describe("App shell end-to-end journeys", () => {
             supported_objectives: ["quality", "tool_adherence"],
             supported_move_set: ["add_grounding_guardrail"],
             scorer_options: ["quality_match", "tool_adherence"],
-            default_budget: { max_candidates: 3, max_eval_examples: 20, min_examples: 2 },
+            default_budget: {
+              max_candidates: 3,
+              max_eval_examples: 20,
+              min_examples: 2,
+            },
             data: {
               workflow_version_id: null,
               deploy_gate_dataset: {
                 available: false,
-                reason: "No active deploy-gate eval dataset with non-superseded examples.",
+                reason:
+                  "No active deploy-gate eval dataset with non-superseded examples.",
               },
             },
           }),
@@ -333,9 +865,15 @@ describe("App shell end-to-end journeys", () => {
 
     renderApp("/workflows/WF-170c47e2");
 
-    expect(await screen.findByTestId("workflow-detail", {}, { timeout: 5000 })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Support Workflow" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-detail", {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Support Workflow" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Not found" }),
+    ).not.toBeInTheDocument();
   });
 
   it("resolves workflow run routes through the real app router", async () => {
@@ -540,7 +1078,11 @@ describe("App shell end-to-end journeys", () => {
       http.get(`${API_BASE}/workflows/WF-170c47e2/runs`, ({ request }) => {
         const url = new URL(request.url);
         const hasCursor = url.searchParams.has("cursor");
-        if (hasCursor || url.searchParams.has("limit") || url.searchParams.has("search")) {
+        if (
+          hasCursor ||
+          url.searchParams.has("limit") ||
+          url.searchParams.has("search")
+        ) {
           return HttpResponse.json({ data: [run], next_cursor: null });
         }
         return HttpResponse.json(envelope([run]));
@@ -587,12 +1129,17 @@ describe("App shell end-to-end journeys", () => {
             supported_objectives: ["quality", "tool_adherence"],
             supported_move_set: ["add_grounding_guardrail"],
             scorer_options: ["quality_match", "tool_adherence"],
-            default_budget: { max_candidates: 3, max_eval_examples: 20, min_examples: 2 },
+            default_budget: {
+              max_candidates: 3,
+              max_eval_examples: 20,
+              min_examples: 2,
+            },
             data: {
               workflow_version_id: "WFV-170c47e2",
               deploy_gate_dataset: {
                 available: false,
-                reason: "No active deploy-gate eval dataset with non-superseded examples.",
+                reason:
+                  "No active deploy-gate eval dataset with non-superseded examples.",
               },
             },
           }),
@@ -604,11 +1151,15 @@ describe("App shell end-to-end journeys", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByTestId("current-path")).toHaveTextContent("/workflows/WF-170c47e2");
+        expect(screen.getByTestId("current-path")).toHaveTextContent(
+          "/workflows/WF-170c47e2",
+        );
       },
       { timeout: 12000 },
     );
-    expect(screen.queryByTestId("workflow-run-redirect-error")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("workflow-run-redirect-error"),
+    ).not.toBeInTheDocument();
   }, 15000);
 
   it("navigates across routes and refreshes sidebar badges from SSE-triggered summary reload", async () => {
@@ -662,13 +1213,17 @@ describe("App shell end-to-end journeys", () => {
 
     // First we verify the app boot path: route content renders and the dashboard
     // summary is fetched once at app scope.
-    expect(await screen.findByRole("heading", { name: "Prompts" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Prompts" }),
+    ).toBeInTheDocument();
     await waitFor(() => expect(summaryCallCount).toBe(1));
 
     // Then we navigate through the *real* app router using the sidebar link,
     // validating that shell + route composition works end-to-end.
     await userEvent.click(screen.getByRole("link", { name: "Skills" }));
-    expect(await screen.findByRole("heading", { name: "Skills" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Skills" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("reasoning-v1")).toBeInTheDocument();
 
     // Finally, emulate a backend SSE frame that should trigger
@@ -716,19 +1271,25 @@ describe("App shell end-to-end journeys", () => {
 
     // Mount #1: collapse the sidebar and assert the preference is written.
     const firstMount = renderApp("/prompts");
-    expect(await screen.findByRole("heading", { name: "Prompts" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(
+      await screen.findByRole("heading", { name: "Prompts" }),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Collapse sidebar" }),
+    );
     await waitFor(() => {
-      expect(
-        window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY)
-      ).toBe("true");
+      expect(window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY)).toBe("true");
     });
     firstMount.unmount();
 
     // Mount #2: the app should boot in collapsed mode by reading localStorage.
     renderApp("/prompts");
-    expect(await screen.findByRole("heading", { name: "Prompts" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Prompts" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Expand sidebar" }),
+    ).toBeInTheDocument();
   });
 
   it("reserves page space when assistant drawer is open", async () => {
@@ -757,7 +1318,9 @@ describe("App shell end-to-end journeys", () => {
     );
 
     renderApp("/prompts");
-    expect(await screen.findByRole("heading", { name: "Prompts" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Prompts" }),
+    ).toBeInTheDocument();
 
     const main = screen.getByRole("main");
     expect(main).toHaveAttribute("data-assistant-open", "false");
@@ -798,26 +1361,34 @@ describe("App shell end-to-end journeys", () => {
     );
 
     renderApp("/prompts");
-    expect(await screen.findByRole("heading", { name: "Prompts" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Prompts" }),
+    ).toBeInTheDocument();
 
     const main = screen.getByRole("main");
     await userEvent.click(screen.getByRole("button", { name: "Ask Aria" }));
     expect(await screen.findByTestId("assistant-panel")).toBeInTheDocument();
     expect(main).toHaveAttribute("data-assistant-width", "380");
 
-    fireEvent.mouseDown(screen.getByLabelText("Resize assistant panel"), { clientX: 1000 });
+    fireEvent.mouseDown(screen.getByLabelText("Resize assistant panel"), {
+      clientX: 1000,
+    });
     fireEvent.mouseMove(window, { clientX: 900 });
     fireEvent.mouseUp(window);
     await waitFor(() => {
       expect(main).toHaveAttribute("data-assistant-width", "480");
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Collapse assistant" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Collapse assistant" }),
+    );
     await waitFor(() => {
       expect(main).toHaveAttribute("data-assistant-width", "64");
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Expand assistant" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Expand assistant" }),
+    );
     await waitFor(() => {
       expect(main).toHaveAttribute("data-assistant-width", "480");
     });
@@ -833,9 +1404,8 @@ describe("App shell end-to-end journeys", () => {
     expect(notFound).toHaveTextContent("Page not found");
     expect(notFound).toHaveTextContent(/doesn.t match any CALIBER page/);
     expect(notFound).not.toHaveTextContent(/follow-up milestone/);
-    expect(screen.getByRole("link", { name: "Go to the dashboard" })).toHaveAttribute(
-      "href",
-      "/",
-    );
+    expect(
+      screen.getByRole("link", { name: "Go to the dashboard" }),
+    ).toHaveAttribute("href", "/");
   });
 });

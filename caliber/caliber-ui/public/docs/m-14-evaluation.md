@@ -6,8 +6,8 @@ operator-facing **scorecard** surface, where a dataset is run through scorers an
 inspected example by example, and by the **refinement and calibration pipeline**,
 where a candidate artifact is scored against a baseline and gated before it can be
 promoted. The dataset model that supplies the examples is documented separately in
-[Test Sets](../11-test-sets/architecture.md), and the pipeline that consumes the
-gate is documented in [Calibration](../15-calibration/architecture.md); this
+[Test Sets](m-11-test-sets.md), and the pipeline that consumes the
+gate is documented in [Calibration](m-15-calibration.md); this
 document covers the engine that sits between them.
 
 Throughout, all HTTP routes are mounted under the `/ajax-api/2.0/mlflow/caliber`

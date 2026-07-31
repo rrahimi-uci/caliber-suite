@@ -22,6 +22,7 @@ from caliber.bundle import (
 )
 from caliber.db.models import CaliberRefinementJob
 from caliber.promoter import (
+    PromoterConflictError,
     PromoterError,
     PromotionRequest,
     PromotionResult,
@@ -57,6 +58,20 @@ def test_resolve_synthesizes_single_target_when_empty() -> None:
     assert t.agent_id == "agent-primary"
     assert t.artifact_type == "prompt"
     assert t.content == "new prompt body"
+
+
+def test_resolve_skill_uses_skill_name_not_agent_id() -> None:
+    job = _job()
+    job.artifact_type = "skill"
+    job.skill_name = "tool-use"
+    targets = resolve_bundle_targets(
+        job,
+        candidate_content="new skill body",
+        candidate_rationale="why",
+    )
+    assert [(target.agent_id, target.artifact_type) for target in targets] == [
+        ("tool-use", "skill")
+    ]
 
 
 def test_resolve_emits_one_target_per_row() -> None:
@@ -239,6 +254,20 @@ def test_promote_bundle_first_target_failure_no_rollback() -> None:
     assert promoter.rollback_calls == []
     # Second target was never attempted.
     assert [r.agent_id for r in promoter.promote_calls] == ["a-1"]
+
+
+def test_promote_bundle_preserves_retryable_conflict_type() -> None:
+    class _ConflictPromoter(_RecordingPromoter):
+        def promote(self, request: PromotionRequest) -> PromotionResult:
+            raise PromoterConflictError("version already claimed")
+
+    with pytest.raises(PromoterConflictError, match="version already claimed"):
+        promote_bundle(
+            _ConflictPromoter(),
+            [BundleTarget("tool-use", "skill", "c", "r")],
+            approval_id="AP-1",
+            session=object(),
+        )
 
 
 def test_promote_bundle_continues_rollback_when_one_fails() -> None:

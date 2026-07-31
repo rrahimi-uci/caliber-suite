@@ -151,7 +151,7 @@
         ["Owner", "your handle (required, e.g. <code>@you</code>)"]
       ],
       "click": "Create",
-      "see": "A dataset <code>doc-extraction-cases</code> appears; add its golden, edge (missing-field), and negative rows from Observability per <a href=\"../cookbooks/04-document-extraction-structuring-lab/assets/dataset/extraction-cases.jsonl\">extraction-cases.jsonl</a>.",
+      "see": "A dataset <code>doc-extraction-cases</code> appears; add its golden, edge (missing-field), and negative rows from Observability per <a href=\"cookbooks/04-document-extraction-structuring-lab/assets/dataset/extraction-cases.jsonl\">extraction-cases.jsonl</a>.",
       "asset": "test set: doc-extraction-cases",
       "assetlink": [{"href": "../cookbooks/04-document-extraction-structuring-lab/assets/dataset/extraction-cases.jsonl", "label": "extraction-cases.jsonl"}]
     },

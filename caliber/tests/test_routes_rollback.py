@@ -13,6 +13,8 @@ from caliber.db.models import (
     CaliberAuditLog,
     CaliberRefinementJob,
     CaliberRollbackCheckpoint,
+    CaliberSkill,
+    CaliberSkillVersion,
     CaliberVerificationItem,
 )
 
@@ -271,6 +273,101 @@ def test_rollback_writes_audit_row(client: TestClient, db_session: Session) -> N
     assert len(rows) == 1
     assert rows[0].actor == "@admin"
     assert rows[0].details["checkpoint_id"] == "CK-1"  # type: ignore[index]
+
+
+def test_skill_rollback_restores_snapshot_as_new_version_atomically(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_agent(db_session, agent_id="support-agent")
+    db_session.add(
+        CaliberSkill(
+            skill_id="SK-one",
+            name="tool-use",
+            description="",
+            summary="Improved summary",
+            content="IMPROVED",
+            owner="@owner",
+            tags=[],
+            version=2,
+        )
+    )
+    db_session.add_all(
+        [
+            CaliberSkillVersion(
+                skill_version_id="SKV-one-v1",
+                skill_id="SK-one",
+                version_number=1,
+                content="ORIGINAL",
+                summary="Original summary",
+                created_by="@owner",
+            ),
+            CaliberSkillVersion(
+                skill_version_id="SKV-one-v2",
+                skill_id="SK-one",
+                version_number=2,
+                content="IMPROVED",
+                summary="Improved summary",
+                created_by="@operator",
+            ),
+        ]
+    )
+    db_session.commit()
+    checkpoint = _seed_checkpoint(
+        db_session,
+        checkpoint_id="CK-skill",
+        agent_id="support-agent",
+        version_after=2,
+    )
+    checkpoint.artifact_type = "skill"
+    checkpoint.artifact_name = "tool-use"
+    checkpoint.artifact_ref_before = "skill://tool-use/v1"
+    checkpoint.artifact_ref_after = "skill://tool-use/v2"
+    checkpoint.snapshot_payload = {
+        "content_before": "ORIGINAL",
+        "summary_before": "Original summary",
+        "version_before": 1,
+    }
+    db_session.commit()
+
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/agents/support-agent/rollback",
+        json={"checkpoint_id": "CK-skill"},
+        headers={"X-CALIBER-User": "@admin"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["rotated_to"] == "skill://tool-use/v3"
+
+    db_session.expire_all()
+    skill = db_session.get(CaliberSkill, "SK-one")
+    assert skill is not None
+    assert (skill.content, skill.summary, skill.version) == (
+        "ORIGINAL",
+        "Original summary",
+        3,
+    )
+    versions = (
+        db_session.query(CaliberSkillVersion)
+        .filter(CaliberSkillVersion.skill_id == "SK-one")
+        .order_by(CaliberSkillVersion.version_number)
+        .all()
+    )
+    assert [row.version_number for row in versions] == [1, 2, 3]
+    assert versions[-1].created_by == "@admin"
+    refreshed = db_session.get(CaliberRollbackCheckpoint, "CK-skill")
+    assert refreshed is not None and refreshed.rolled_back_at is not None
+    rollback_audit = (
+        db_session.query(CaliberAuditLog)
+        .filter_by(action="rollback", entity_id="support-agent")
+        .one()
+    )
+    assert rollback_audit.details["restored_from_version"] == 1  # type: ignore[index]
+    assert rollback_audit.details["new_live_version"] == 3  # type: ignore[index]
+
+    repeat = client.post(
+        "/ajax-api/2.0/mlflow/caliber/agents/support-agent/rollback",
+        json={"checkpoint_id": "CK-skill"},
+    )
+    assert repeat.status_code == 409
 
 
 def test_rollback_cold_start_returns_502(client: TestClient, db_session: Session) -> None:

@@ -1,6 +1,6 @@
 # Vanilla MLflow tracking server (no plugin). Part of the `app` profile.
 #
-#   docker compose -f deploy/compose.yaml --profile app up -d --build
+#   docker compose -f deploy/compose.yaml --profile app --profile nats up -d --build
 #
 # Artifacts live in MinIO under a single `mlflow` bucket: run artifacts at
 # s3://mlflow/mlruns/<experiment>/<run>/artifacts/ (via http://minio:9000).
@@ -29,7 +29,7 @@ services:
       minio:
         condition: service_started
     ports:
-      - "${MLFLOW_PORT:-5000}:5000"
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
     environment:
       MLFLOW_HOST: 0.0.0.0
       MLFLOW_PORT: 5000

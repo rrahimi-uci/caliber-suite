@@ -1,8 +1,24 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import type { ReactElement } from "react";
@@ -37,7 +53,12 @@ vi.mock("@/lib/environment", () => ({
 }));
 
 vi.mock("@/lib/toast", () => ({
-  showToast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+  showToast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+  },
 }));
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -47,16 +68,31 @@ function envelope<T>(data: T): { data: T } {
   return { data };
 }
 
-function renderAt(ui: ReactElement, initialPath: string, routePath: string) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+function renderAt(
+  ui: ReactElement,
+  initialPath: string,
+  routePath: string,
+  qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  }),
+) {
   const renderTree = () => (
     <QueryClientProvider client={qc}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={[initialPath]}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={[initialPath]}
+      >
         <Routes>
           <Route path={routePath} element={ui} />
           <Route path="/workflows" element={<div>WORKFLOWS ROUTE</div>} />
-          <Route path="/workflows/:workflowId/editor/:versionId" element={<div>EDITOR ROUTE</div>} />
-          <Route path="/workflows/:workflowId" element={<div>DETAIL ROUTE</div>} />
+          <Route
+            path="/workflows/:workflowId/editor/:versionId"
+            element={<div>EDITOR ROUTE</div>}
+          />
+          <Route
+            path="/workflows/:workflowId"
+            element={<div>DETAIL ROUTE</div>}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -99,7 +135,11 @@ function makeVersion(overrides: Record<string, unknown> = {}) {
       workflow_id: "WF-1",
       name: "Support",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         support_agent: {
           id: "support_agent",
           type: "agent",
@@ -110,11 +150,25 @@ function makeVersion(overrides: Record<string, unknown> = {}) {
           inputs: { input: { type: "string" } },
           outputs: { final_output: { type: "string" } },
         },
-        final: { id: "final", type: "output", inputs: { response: { type: "string" } } },
+        final: {
+          id: "final",
+          type: "output",
+          inputs: { response: { type: "string" } },
+        },
       },
       edges: [
-        { id: "e1", from: "start", to: "support_agent", map: { user_message: "input" } },
-        { id: "e2", from: "support_agent", to: "final", map: { final_output: "response" } },
+        {
+          id: "e1",
+          from: "start",
+          to: "support_agent",
+          map: { user_message: "input" },
+        },
+        {
+          id: "e2",
+          from: "support_agent",
+          to: "final",
+          map: { final_output: "response" },
+        },
       ],
     },
     manifest_hash: "hash1",
@@ -169,7 +223,9 @@ describe("Workflows page", () => {
   });
 
   it("shows empty state when no workflows", async () => {
-    server.use(http.get(`${API_BASE}/workflows`, () => HttpResponse.json(envelope([]))));
+    server.use(
+      http.get(`${API_BASE}/workflows`, () => HttpResponse.json(envelope([]))),
+    );
     renderAt(<Workflows />, "/workflows", "/workflows");
     expect(await screen.findByTestId("workflows-empty")).toBeInTheDocument();
   });
@@ -193,9 +249,12 @@ describe("Workflows page", () => {
         ),
       ),
       http.post(`${API_BASE}/workflows/WF-9/versions`, () =>
-        HttpResponse.json(envelope(makeVersion({ version_id: "WFV-9", workflow_id: "WF-9" })), {
-          status: 201,
-        }),
+        HttpResponse.json(
+          envelope(makeVersion({ version_id: "WFV-9", workflow_id: "WF-9" })),
+          {
+            status: 201,
+          },
+        ),
       ),
     );
     renderAt(<Workflows />, "/workflows", "/workflows");
@@ -226,18 +285,25 @@ describe("Workflows page", () => {
       ),
       http.post(`${API_BASE}/workflows/WF-9/versions`, async ({ request }) => {
         versionBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(envelope(makeVersion({ version_id: "WFV-9", workflow_id: "WF-9" })), {
-          status: 201,
-        });
+        return HttpResponse.json(
+          envelope(makeVersion({ version_id: "WFV-9", workflow_id: "WF-9" })),
+          {
+            status: 201,
+          },
+        );
       }),
     );
     renderAt(<Workflows />, "/workflows", "/workflows");
     await userEvent.click(await screen.findByTestId("new-workflow"));
-    await userEvent.type(screen.getByTestId("new-workflow-name"), "Reviewed WF");
+    await userEvent.type(
+      screen.getByTestId("new-workflow-name"),
+      "Reviewed WF",
+    );
     await userEvent.click(screen.getByTestId("template-hitl_review"));
 
     expect(await screen.findByText("EDITOR ROUTE")).toBeInTheDocument();
-    const nodes = (versionBody!.manifest as { nodes: Record<string, unknown> }).nodes;
+    const nodes = (versionBody!.manifest as { nodes: Record<string, unknown> })
+      .nodes;
     expect(nodes.pii_guard).toBeDefined();
     expect(nodes.review).toBeDefined();
   });
@@ -287,7 +353,9 @@ describe("Workflows page", () => {
     await user.type(nameInput, "Support Concierge");
     fireEvent.blur(nameInput);
 
-    await waitFor(() => expect(patchBody).toMatchObject({ name: "Support Concierge" }));
+    await waitFor(() =>
+      expect(patchBody).toMatchObject({ name: "Support Concierge" }),
+    );
   });
 
   it("opens delete confirmation and deletes a workflow", async () => {
@@ -419,32 +487,37 @@ describe("Workflows page", () => {
     ["view icon", "View Support Refund"],
     ["name button", "Support Refund"],
     ["open affordance", "Open Support Refund"],
-  ])("navigates to workflow detail from the card %s", async (_label, accessibleName) => {
-    server.use(
-      http.get(`${API_BASE}/workflows`, () =>
-        HttpResponse.json(
-          envelope([
-            {
-              workflow_id: "WF-NAV",
-              name: "Support Refund",
-              description: "",
-              owner: "@sarah",
-              status: "active",
-              default_experiment_id: null,
-              created_at: NOW,
-              updated_at: NOW,
-            },
-          ]),
+  ])(
+    "navigates to workflow detail from the card %s",
+    async (_label, accessibleName) => {
+      server.use(
+        http.get(`${API_BASE}/workflows`, () =>
+          HttpResponse.json(
+            envelope([
+              {
+                workflow_id: "WF-NAV",
+                name: "Support Refund",
+                description: "",
+                owner: "@sarah",
+                status: "active",
+                default_experiment_id: null,
+                created_at: NOW,
+                updated_at: NOW,
+              },
+            ]),
+          ),
         ),
-      ),
-    );
+      );
 
-    const user = userEvent.setup();
-    renderAt(<Workflows />, "/workflows", "/workflows");
-    await user.click(await screen.findByRole("button", { name: accessibleName }));
+      const user = userEvent.setup();
+      renderAt(<Workflows />, "/workflows", "/workflows");
+      await user.click(
+        await screen.findByRole("button", { name: accessibleName }),
+      );
 
-    expect(await screen.findByText("DETAIL ROUTE")).toBeInTheDocument();
-  });
+      expect(await screen.findByText("DETAIL ROUTE")).toBeInTheDocument();
+    },
+  );
 
   it("filters workflow cards by search query", async () => {
     server.use(
@@ -526,7 +599,9 @@ describe("ToolRegistry page", () => {
   function useToolHandlers(tool: Record<string, unknown>): void {
     server.use(
       http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([tool]))),
-      http.get(`${API_BASE}/tools/:toolId`, () => HttpResponse.json(envelope(tool))),
+      http.get(`${API_BASE}/tools/:toolId`, () =>
+        HttpResponse.json(envelope(tool)),
+      ),
       http.get(`${API_BASE}/tools/:toolId/source`, () =>
         HttpResponse.json(
           envelope({
@@ -561,7 +636,9 @@ describe("ToolRegistry page", () => {
   it("lists tools with side-effect badges", async () => {
     useToolHandlers(toolFixture({ description: "" }));
     renderAt(<ToolRegistry />, "/tools", "/tools");
-    expect(await screen.findByTestId("tool-row-lookup_policy")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("tool-row-lookup_policy"),
+    ).toBeInTheDocument();
     expect(screen.getByText(/🟢 read/)).toBeInTheDocument();
   });
 
@@ -570,7 +647,9 @@ describe("ToolRegistry page", () => {
       http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([]))),
     );
     renderAt(<ToolRegistry />, "/tools", "/tools");
-    await userEvent.click(await screen.findByRole("button", { name: "Register Tool" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Register Tool" }),
+    );
     expect(screen.getByTestId("tool-wizard")).toBeInTheDocument();
     expect(screen.getByTestId("step-identity")).toBeInTheDocument();
   });
@@ -581,14 +660,29 @@ describe("ToolRegistry page", () => {
     await userEvent.click(await screen.findByTestId("tool-open-lookup_policy"));
 
     // Workspace header + lifecycle pill + the six stage tabs.
-    expect(await screen.findByTestId("tool-workspace-header")).toBeInTheDocument();
-    expect(screen.getByTestId("tool-workspace-status-badge")).toHaveTextContent("Tested");
-    for (const label of ["Spec", "Sandbox", "Fixtures", "Test Runs", "Hardening", "Publish"]) {
+    expect(
+      await screen.findByTestId("tool-workspace-header"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("tool-workspace-status-badge")).toHaveTextContent(
+      "Tested",
+    );
+    for (const label of [
+      "Spec",
+      "Sandbox",
+      "Fixtures",
+      "Test Runs",
+      "Hardening",
+      "Publish",
+    ]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
 
-    await userEvent.click(screen.getByRole("button", { name: "Back to tools" }));
-    expect(await screen.findByTestId("tool-row-lookup_policy")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Back to tools" }),
+    );
+    expect(
+      await screen.findByTestId("tool-row-lookup_policy"),
+    ).toBeInTheDocument();
   });
 
   it("shows input and output signatures on the Sandbox stage", async () => {
@@ -614,15 +708,31 @@ describe("ToolRegistry page", () => {
     );
     renderAt(<ToolRegistry />, "/tools", "/tools");
     await userEvent.click(await screen.findByTestId("tool-open-lookup_policy"));
-    await userEvent.click(await screen.findByRole("button", { name: "Sandbox" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Sandbox" }),
+    );
 
-    expect(await screen.findByTestId("tool-input-signature")).toHaveTextContent("Input Signature");
-    expect(screen.getByTestId("tool-input-signature")).toHaveTextContent("query");
-    expect(screen.getByTestId("tool-input-signature")).toHaveTextContent("string");
-    expect(screen.getByTestId("tool-input-signature")).toHaveTextContent("required");
-    expect(screen.getByTestId("tool-output-signature")).toHaveTextContent("Output Signature");
-    expect(screen.getByTestId("tool-output-signature")).toHaveTextContent("policy_id");
-    expect(screen.getByTestId("tool-output-signature")).toHaveTextContent("confidence");
+    expect(await screen.findByTestId("tool-input-signature")).toHaveTextContent(
+      "Input Signature",
+    );
+    expect(screen.getByTestId("tool-input-signature")).toHaveTextContent(
+      "query",
+    );
+    expect(screen.getByTestId("tool-input-signature")).toHaveTextContent(
+      "string",
+    );
+    expect(screen.getByTestId("tool-input-signature")).toHaveTextContent(
+      "required",
+    );
+    expect(screen.getByTestId("tool-output-signature")).toHaveTextContent(
+      "Output Signature",
+    );
+    expect(screen.getByTestId("tool-output-signature")).toHaveTextContent(
+      "policy_id",
+    );
+    expect(screen.getByTestId("tool-output-signature")).toHaveTextContent(
+      "confidence",
+    );
   });
 
   it("generates and runs tool unit tests from the Hardening stage", async () => {
@@ -651,7 +761,9 @@ describe("ToolRegistry page", () => {
             enabled: true,
             disabled_intents: [],
             disabled_domains: [],
-            available_models: [{ id: "gpt-test", name: "GPT Test", provider: "openai" }],
+            available_models: [
+              { id: "gpt-test", name: "GPT Test", provider: "openai" },
+            ],
           }),
         ),
       ),
@@ -659,7 +771,9 @@ describe("ToolRegistry page", () => {
         const body = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(
           envelope({
-            session_id: String(body.title).startsWith("Judge") ? "ASST-JUDGE" : "ASST-GEN",
+            session_id: String(body.title).startsWith("Judge")
+              ? "ASST-JUDGE"
+              : "ASST-GEN",
             title: body.title ?? "Tool Unit Tests",
             owner: "@test",
             status: "active",
@@ -672,28 +786,31 @@ describe("ToolRegistry page", () => {
           { status: 201 },
         );
       }),
-      http.post(`${API_BASE}/assistant/sessions/:sessionId/messages`, ({ params }) => {
-        const isJudge = params.sessionId === "ASST-JUDGE";
-        return HttpResponse.json(
-          envelope({
-            assistant_message: {
-              message_id: isJudge ? "AMSG-JUDGE" : "AMSG-GEN",
-              session_id: params.sessionId,
-              role: "assistant",
-              content: isJudge
-                ? '{"verdict":"pass","score":1,"reasoning":"Policy id matches."}'
-                : '[{"input":{"query":"refund"},"expectedOutput":{"policy_id":"refund-30"},"expectedBehavior":"Returns refund policy id","tags":["happy-path"]}]',
-              metadata_: {},
-              sequence_number: 1,
-              created_at: NOW,
-            },
-            questions: [],
-            draft_updates: [],
-            run: null,
-          }),
-          { status: 201 },
-        );
-      }),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/messages`,
+        ({ params }) => {
+          const isJudge = params.sessionId === "ASST-JUDGE";
+          return HttpResponse.json(
+            envelope({
+              assistant_message: {
+                message_id: isJudge ? "AMSG-JUDGE" : "AMSG-GEN",
+                session_id: params.sessionId,
+                role: "assistant",
+                content: isJudge
+                  ? '{"verdict":"pass","score":1,"reasoning":"Policy id matches."}'
+                  : '[{"input":{"query":"refund"},"expectedOutput":{"policy_id":"refund-30"},"expectedBehavior":"Returns refund policy id","tags":["happy-path"]}]',
+                metadata_: {},
+                sequence_number: 1,
+                created_at: NOW,
+              },
+              questions: [],
+              draft_updates: [],
+              run: null,
+            }),
+            { status: 201 },
+          );
+        },
+      ),
       http.post(`${API_BASE}/tools/TL-1/test-run`, async ({ request }) => {
         toolRunBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(
@@ -710,9 +827,13 @@ describe("ToolRegistry page", () => {
 
     renderAt(<ToolRegistry />, "/tools", "/tools");
     await userEvent.click(await screen.findByTestId("tool-open-lookup_policy"));
-    await userEvent.click(await screen.findByRole("button", { name: "Hardening" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Hardening" }),
+    );
     await userEvent.click(await screen.findByTestId("tool-tests-generate"));
-    expect(await screen.findByText(/Returns refund policy id/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Returns refund policy id/i),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("tool-tests-run"));
 
     expect(await screen.findByText(/Policy id matches/i)).toBeInTheDocument();
@@ -758,7 +879,10 @@ describe("McpServers playground", () => {
                   output_schema: {
                     type: "object",
                     properties: {
-                      results: { type: "array", description: "Matched documents" },
+                      results: {
+                        type: "array",
+                        description: "Matched documents",
+                      },
                     },
                   },
                 },
@@ -771,15 +895,31 @@ describe("McpServers playground", () => {
       ),
     );
     renderAt(<McpServers />, "/mcp-servers", "/mcp-servers");
-    await userEvent.click(await screen.findByRole("button", { name: /Playground/i }));
-    await userEvent.click(await screen.findByRole("button", { name: /search_docs/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Playground/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /search_docs/i }),
+    );
 
-    expect(await screen.findByTestId("mcp-tool-input-signature")).toHaveTextContent("Input Signature");
-    expect(screen.getByTestId("mcp-tool-input-signature")).toHaveTextContent("query");
-    expect(screen.getByTestId("mcp-tool-input-signature")).toHaveTextContent("required");
-    expect(screen.getByTestId("mcp-tool-output-signature")).toHaveTextContent("Output Signature");
-    expect(screen.getByTestId("mcp-tool-output-signature")).toHaveTextContent("results");
-    expect(screen.getByTestId("mcp-tool-output-signature")).toHaveTextContent("array");
+    expect(
+      await screen.findByTestId("mcp-tool-input-signature"),
+    ).toHaveTextContent("Input Signature");
+    expect(screen.getByTestId("mcp-tool-input-signature")).toHaveTextContent(
+      "query",
+    );
+    expect(screen.getByTestId("mcp-tool-input-signature")).toHaveTextContent(
+      "required",
+    );
+    expect(screen.getByTestId("mcp-tool-output-signature")).toHaveTextContent(
+      "Output Signature",
+    );
+    expect(screen.getByTestId("mcp-tool-output-signature")).toHaveTextContent(
+      "results",
+    );
+    expect(screen.getByTestId("mcp-tool-output-signature")).toHaveTextContent(
+      "array",
+    );
   });
 
   it("generates and runs MCP tool tests in the playground", async () => {
@@ -872,7 +1012,9 @@ describe("McpServers playground", () => {
             enabled: true,
             disabled_intents: [],
             disabled_domains: [],
-            available_models: [{ id: "gpt-test", name: "GPT Test", provider: "openai" }],
+            available_models: [
+              { id: "gpt-test", name: "GPT Test", provider: "openai" },
+            ],
           }),
         ),
       ),
@@ -880,7 +1022,9 @@ describe("McpServers playground", () => {
         const body = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(
           envelope({
-            session_id: String(body.title).startsWith("Judge") ? "ASST-MCP-JUDGE" : "ASST-MCP-GEN",
+            session_id: String(body.title).startsWith("Judge")
+              ? "ASST-MCP-JUDGE"
+              : "ASST-MCP-GEN",
             title: body.title ?? "MCP Tool Tests",
             owner: "@test",
             status: "active",
@@ -893,51 +1037,65 @@ describe("McpServers playground", () => {
           { status: 201 },
         );
       }),
-      http.post(`${API_BASE}/assistant/sessions/:sessionId/messages`, ({ params }) => {
-        const isJudge = params.sessionId === "ASST-MCP-JUDGE";
-        return HttpResponse.json(
-          envelope({
-            assistant_message: {
-              message_id: isJudge ? "AMSG-MCP-JUDGE" : "AMSG-MCP-GEN",
-              session_id: params.sessionId,
-              role: "assistant",
-              content: isJudge
-                ? '{"verdict":"pass","score":1,"reasoning":"Returned matching docs."}'
-                : '[{"input":{"query":"calibration"},"expectedOutput":{"results":["calibration guide"]},"expectedBehavior":"Returns matching docs","tags":["search"]}]',
-              metadata_: {},
-              sequence_number: 1,
-              created_at: NOW,
-            },
-            questions: [],
-            draft_updates: [],
-            run: null,
-          }),
-          { status: 201 },
-        );
-      }),
-      http.post(`${API_BASE}/mcp-servers/MCP-1/invoke-tool`, async ({ request }) => {
-        invokeBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope({
-            server_id: "MCP-1",
-            tool_name: "search_docs",
-            success: true,
-            error: null,
-            result: { results: ["calibration guide"] },
-            duration_ms: 5,
-          }),
-        );
-      }),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/messages`,
+        ({ params }) => {
+          const isJudge = params.sessionId === "ASST-MCP-JUDGE";
+          return HttpResponse.json(
+            envelope({
+              assistant_message: {
+                message_id: isJudge ? "AMSG-MCP-JUDGE" : "AMSG-MCP-GEN",
+                session_id: params.sessionId,
+                role: "assistant",
+                content: isJudge
+                  ? '{"verdict":"pass","score":1,"reasoning":"Returned matching docs."}'
+                  : '[{"input":{"query":"calibration"},"expectedOutput":{"results":["calibration guide"]},"expectedBehavior":"Returns matching docs","tags":["search"]}]',
+                metadata_: {},
+                sequence_number: 1,
+                created_at: NOW,
+              },
+              questions: [],
+              draft_updates: [],
+              run: null,
+            }),
+            { status: 201 },
+          );
+        },
+      ),
+      http.post(
+        `${API_BASE}/mcp-servers/MCP-1/invoke-tool`,
+        async ({ request }) => {
+          invokeBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              server_id: "MCP-1",
+              tool_name: "search_docs",
+              success: true,
+              error: null,
+              result: { results: ["calibration guide"] },
+              duration_ms: 5,
+            }),
+          );
+        },
+      ),
     );
 
     renderAt(<McpServers />, "/mcp-servers", "/mcp-servers");
-    await userEvent.click(await screen.findByRole("button", { name: /Playground/i }));
-    await userEvent.click(await screen.findByRole("button", { name: /search_docs/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Playground/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /search_docs/i }),
+    );
     await userEvent.click(await screen.findByTestId("mcp-tests-generate"));
-    expect(await screen.findByText(/Returns matching docs/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Returns matching docs/i),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("mcp-tests-run"));
 
-    expect(await screen.findByText(/Returned matching docs/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Returned matching docs/i),
+    ).toBeInTheDocument();
     expect(invokeBody).toMatchObject({
       tool_name: "search_docs",
       arguments: { query: "calibration" },
@@ -986,13 +1144,22 @@ describe("WorkflowEditor page", () => {
         HttpResponse.json(envelope(runs)),
       ),
       http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([]))),
-      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([])),
+      ),
       // Default save handler so autosave (debounced) + manual Save are always
       // handled; advances the hash like the real optimistic-locking endpoint.
       http.patch(`${API_BASE}/workflow-versions/WFV-1`, async ({ request }) => {
-        const body = (await request.json()) as { manifest: Record<string, unknown> };
+        const body = (await request.json()) as {
+          manifest: Record<string, unknown>;
+        };
         return HttpResponse.json(
-          envelope(makeVersion({ manifest: body.manifest, manifest_hash: "hash-autosave" })),
+          envelope(
+            makeVersion({
+              manifest: body.manifest,
+              manifest_hash: "hash-autosave",
+            }),
+          ),
         );
       }),
     ];
@@ -1121,7 +1288,11 @@ describe("WorkflowEditor page", () => {
 
   it("renders the three panels and node outline", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
     expect(screen.getByTestId("wf-node-palette")).toBeInTheDocument();
     expect(screen.getByTestId("outline-support_agent")).toBeInTheDocument();
@@ -1130,7 +1301,11 @@ describe("WorkflowEditor page", () => {
 
   it("selecting a node from the outline shows its inspector", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("outline-support_agent"));
     const inspector = await screen.findByTestId("wf-inspector");
     expect(inspector).toHaveAttribute("data-node-type", "agent");
@@ -1138,19 +1313,35 @@ describe("WorkflowEditor page", () => {
 
   it("adds a node from the palette to the outline", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await screen.findByTestId("workflow-editor");
     await userEvent.click(screen.getByTestId("palette-guardrail"));
     expect(await screen.findByTestId("outline-guardrail")).toBeInTheDocument();
-    expect(screen.getByTestId("wf-inspector")).toHaveAttribute("data-node-type", "guardrail");
+    expect(screen.getByTestId("wf-inspector")).toHaveAttribute(
+      "data-node-type",
+      "guardrail",
+    );
     await userEvent.click(screen.getByTestId("palette-folder_input"));
-    expect(await screen.findByTestId("outline-folder_input")).toBeInTheDocument();
-    expect(screen.getByTestId("wf-inspector")).toHaveAttribute("data-node-type", "folder_input");
+    expect(
+      await screen.findByTestId("outline-folder_input"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("wf-inspector")).toHaveAttribute(
+      "data-node-type",
+      "folder_input",
+    );
   });
 
   it("undoes and redoes a palette add from the toolbar", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await screen.findByTestId("workflow-editor");
     // Undo/redo are disabled until there's history.
     expect(screen.getByTestId("editor-undo")).toBeDisabled();
@@ -1170,7 +1361,11 @@ describe("WorkflowEditor page", () => {
 
   it("removes the selected node with the Delete key", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await screen.findByTestId("workflow-editor");
     await userEvent.click(screen.getByTestId("palette-guardrail"));
     await screen.findByTestId("outline-guardrail");
@@ -1183,7 +1378,11 @@ describe("WorkflowEditor page", () => {
 
   it("duplicates the selected node with Cmd+D", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("outline-support_agent"));
 
     fireEvent.keyDown(document, { key: "d", metaKey: true });
@@ -1194,18 +1393,26 @@ describe("WorkflowEditor page", () => {
 
   it("select-all enters multi-select and bulk-deletes everything but start", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await screen.findByTestId("workflow-editor");
     expect(screen.getByTestId("outline-support_agent")).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "a", metaKey: true });
     // The right rail yields to a bulk-actions panel for the 3-node selection.
-    expect(await screen.findByTestId("wf-bulk-panel")).toHaveTextContent("3 nodes selected");
+    expect(await screen.findByTestId("wf-bulk-panel")).toHaveTextContent(
+      "3 nodes selected",
+    );
 
     await userEvent.click(screen.getByTestId("wf-bulk-delete"));
     // support_agent + final removed; the unique start node is preserved.
     await waitFor(() =>
-      expect(screen.queryByTestId("outline-support_agent")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByTestId("outline-support_agent"),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.queryByTestId("outline-final")).not.toBeInTheDocument();
     expect(screen.getByTestId("outline-start")).toBeInTheDocument();
@@ -1213,7 +1420,11 @@ describe("WorkflowEditor page", () => {
 
   it("bulk-duplicates the selection with Cmd+D (skipping start/output)", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await screen.findByTestId("workflow-editor");
     fireEvent.keyDown(document, { key: "a", metaKey: true });
     await screen.findByTestId("wf-bulk-panel");
@@ -1226,7 +1437,11 @@ describe("WorkflowEditor page", () => {
 
   it("copies and pastes a node with Cmd+C / Cmd+V", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("outline-support_agent"));
 
     fireEvent.keyDown(document, { key: "c", metaKey: true });
@@ -1243,34 +1458,63 @@ describe("WorkflowEditor page", () => {
           envelope({
             valid: false,
             errors: [
-              { code: "missing_tool", path: "nodes.support_agent.tools", message: "Tool X not registered.", severity: "error" },
+              {
+                code: "missing_tool",
+                path: "nodes.support_agent.tools",
+                message: "Tool X not registered.",
+                severity: "error",
+              },
             ],
             warnings: [],
           }),
         ),
       ),
     );
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("editor-validate"));
-    expect(await screen.findByTestId("problem-missing_tool")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("problem-missing_tool"),
+    ).toBeInTheDocument();
   });
 
   it("saves agent tool selections with manifest registry bindings", async () => {
     let savedManifest: unknown = null;
     server.use(
       http.get(`${API_BASE}/tools`, () =>
-        HttpResponse.json(envelope([makeTool({ tool_id: "TL-GREP", name: "grep_files", callable_name: "grep_files" })])),
+        HttpResponse.json(
+          envelope([
+            makeTool({
+              tool_id: "TL-GREP",
+              name: "grep_files",
+              callable_name: "grep_files",
+            }),
+          ]),
+        ),
       ),
       // Listed before editorHandlers() so this capturing handler wins the
       // first-match over editorHandlers' default save handler.
       http.patch(`${API_BASE}/workflow-versions/WFV-1`, async ({ request }) => {
-        const body = (await request.json()) as { manifest: Record<string, unknown> };
+        const body = (await request.json()) as {
+          manifest: Record<string, unknown>;
+        };
         savedManifest = body.manifest;
-        return HttpResponse.json(envelope(makeVersion({ manifest: body.manifest, manifest_hash: "hash2" })));
+        return HttpResponse.json(
+          envelope(
+            makeVersion({ manifest: body.manifest, manifest_hash: "hash2" }),
+          ),
+        );
       }),
       ...editorHandlers(),
     );
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("outline-support_agent"));
     await userEvent.click(await screen.findByTestId("tools-add"));
     await userEvent.click(await screen.findByTestId("tool-grep_files"));
@@ -1279,7 +1523,9 @@ describe("WorkflowEditor page", () => {
     await waitFor(() => expect(savedManifest).not.toBeNull());
     const manifest = savedManifest as {
       nodes: { support_agent: { tools: string[] } };
-      tools: { grep_files: { registry_ref: string; version_constraint: string } };
+      tools: {
+        grep_files: { registry_ref: string; version_constraint: string };
+      };
     };
     expect(manifest.nodes.support_agent.tools).toContain("grep_files");
     expect(manifest.tools.grep_files).toMatchObject({
@@ -1291,56 +1537,75 @@ describe("WorkflowEditor page", () => {
   it("runs preview from the editor toolbar and shows execution output", async () => {
     server.use(
       ...editorHandlers(),
-      http.post(`${API_BASE}/workflow-versions/WFV-1/preview-run`, async ({ request }) => {
-        const body = (await request.json()) as { input: string };
-        return HttpResponse.json(
-          envelope({
-            status: "completed",
-            output: `Preview output for: ${body.input}`,
-            steps: [
-              {
-                node_id: "start",
-                node_type: "start",
-                status: "ok",
-                output: body.input,
-                tool_calls: [],
-                handoff_target: null,
-                detail: "",
-                duration_ms: 0,
-              },
-              {
-                node_id: "support_agent",
-                node_type: "agent",
-                status: "ok",
-                output: "handled",
-                tool_calls: [],
-                handoff_target: null,
-                detail: "",
-                duration_ms: 0,
-              },
-            ],
-            error: null,
-          }),
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflow-versions/WFV-1/preview-run`,
+        async ({ request }) => {
+          const body = (await request.json()) as { input: string };
+          return HttpResponse.json(
+            envelope({
+              status: "completed",
+              output: `Preview output for: ${body.input}`,
+              steps: [
+                {
+                  node_id: "start",
+                  node_type: "start",
+                  status: "ok",
+                  output: body.input,
+                  tool_calls: [],
+                  handoff_target: null,
+                  detail: "",
+                  duration_ms: 0,
+                },
+                {
+                  node_id: "support_agent",
+                  node_type: "agent",
+                  status: "ok",
+                  output: "handled",
+                  tool_calls: [],
+                  handoff_target: null,
+                  detail: "",
+                  duration_ms: 0,
+                },
+              ],
+              error: null,
+            }),
+          );
+        },
+      ),
     );
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("editor-preview"));
     await userEvent.clear(screen.getByTestId("preview-input"));
     await userEvent.type(screen.getByTestId("preview-input"), "Need a refund");
     await userEvent.click(screen.getByTestId("preview-run"));
-    expect(await screen.findByTestId("preview-result")).toHaveTextContent("completed");
-    expect(screen.getByTestId("preview-result")).toHaveTextContent("support_agent");
-    expect(screen.getByTestId("preview-result")).toHaveTextContent("Preview output for: Need a refund");
+    expect(await screen.findByTestId("preview-result")).toHaveTextContent(
+      "completed",
+    );
+    expect(screen.getByTestId("preview-result")).toHaveTextContent(
+      "support_agent",
+    );
+    expect(screen.getByTestId("preview-result")).toHaveTextContent(
+      "Preview output for: Need a refund",
+    );
   });
 
   it("opens quick-add from a node and inserts a connected guardrail", async () => {
     server.use(...editorHandlers());
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await screen.findByTestId("workflow-editor");
     fireEvent.click(await screen.findByTestId("quick-add-support_agent"));
     expect(await screen.findByText("Add & connect")).toBeInTheDocument();
-    const guardrailButtons = screen.getAllByRole("button", { name: /Guardrail/i });
+    const guardrailButtons = screen.getAllByRole("button", {
+      name: /Guardrail/i,
+    });
     fireEvent.click(guardrailButtons[guardrailButtons.length - 1]!);
     expect(await screen.findByTestId("outline-guardrail")).toBeInTheDocument();
   });
@@ -1355,11 +1620,21 @@ describe("WorkflowEditor page", () => {
       http.post(`${API_BASE}/workflow-versions/WFV-1/publish`, () => {
         publishCalls += 1;
         return HttpResponse.json(
-          envelope(makeVersion({ status: "published", published_by: "@release", published_at: NOW })),
+          envelope(
+            makeVersion({
+              status: "published",
+              published_by: "@release",
+              published_at: NOW,
+            }),
+          ),
         );
       }),
     );
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("editor-publish"));
     expect(await screen.findByTestId("publish-drawer")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("publish-run-validate"));
@@ -1367,7 +1642,9 @@ describe("WorkflowEditor page", () => {
     await userEvent.click(screen.getByTestId("publish-next-2"));
     await userEvent.click(screen.getByTestId("publish-confirm"));
     await waitFor(() => expect(publishCalls).toBe(1));
-    expect(screen.getByTestId("editor-message")).toHaveTextContent("Published.");
+    expect(screen.getByTestId("editor-message")).toHaveTextContent(
+      "Published.",
+    );
   });
 
   it("turns an empty editor run history into draft-first guidance", async () => {
@@ -1387,7 +1664,11 @@ describe("WorkflowEditor page", () => {
       }),
     );
 
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("editor-run-monitor"));
 
     expect(await screen.findByTestId("run-history-list")).toHaveTextContent(
@@ -1416,7 +1697,11 @@ describe("WorkflowEditor page", () => {
       }),
     );
 
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("editor-run-monitor"));
 
     expect(await screen.findByTestId("run-history-list")).toHaveTextContent(
@@ -1446,7 +1731,11 @@ describe("WorkflowEditor page", () => {
       }),
     );
 
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
     await userEvent.click(await screen.findByTestId("editor-run-monitor"));
 
     expect(await screen.findByTestId("run-history-list")).toHaveTextContent(
@@ -1482,7 +1771,12 @@ describe("WorkflowEditor page", () => {
         },
       },
       edges: [
-        { id: "e1", from: "start", to: "wait_gate", map: { user_message: "ticket_id" } },
+        {
+          id: "e1",
+          from: "start",
+          to: "wait_gate",
+          map: { user_message: "ticket_id" },
+        },
       ],
     };
 
@@ -1521,13 +1815,19 @@ describe("WorkflowEditor page", () => {
       }),
     );
 
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
-    await userEvent.click(await screen.findByTestId("editor-run-monitor"));
-    await userEvent.click(await screen.findByTestId("run-history-select-WR-SNAPSHOT-WAIT"));
-
-    expect(await screen.findByTestId("run-monitor-manifest-note")).toHaveTextContent(
-      "unsaved draft snapshot captured when you queued it",
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
     );
+    await userEvent.click(await screen.findByTestId("editor-run-monitor"));
+    await userEvent.click(
+      await screen.findByTestId("run-history-select-WR-SNAPSHOT-WAIT"),
+    );
+
+    expect(
+      await screen.findByTestId("run-monitor-manifest-note"),
+    ).toHaveTextContent("unsaved draft snapshot captured when you queued it");
     expect(screen.getByTestId("run-monitor-manifest-note")).toHaveTextContent(
       "recovery and checkpoint panels in this run monitor for authoritative resume state while the snapshot-backed run is paused",
     );
@@ -1539,7 +1839,11 @@ describe("WorkflowEditor page", () => {
       workflow_id: "WF-1",
       name: "Support v1",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         legacy_agent: {
           id: "legacy_agent",
           type: "agent",
@@ -1552,7 +1856,12 @@ describe("WorkflowEditor page", () => {
         },
       },
       edges: [
-        { id: "legacy-e1", from: "start", to: "legacy_agent", map: { user_message: "input" } },
+        {
+          id: "legacy-e1",
+          from: "start",
+          to: "legacy_agent",
+          map: { user_message: "input" },
+        },
       ],
     };
     const run = {
@@ -1607,13 +1916,19 @@ describe("WorkflowEditor page", () => {
       }),
     );
 
-    renderAt(<WorkflowEditor />, "/workflows/WF-1/editor/WFV-1", "/workflows/:workflowId/editor/:versionId");
-    await userEvent.click(await screen.findByTestId("editor-run-monitor"));
-    await userEvent.click(await screen.findByTestId("run-history-select-WR-HIST-DONE"));
-
-    expect(await screen.findByTestId("run-monitor-manifest-note")).toHaveTextContent(
-      "This monitor is replaying saved workflow version v1",
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
     );
+    await userEvent.click(await screen.findByTestId("editor-run-monitor"));
+    await userEvent.click(
+      await screen.findByTestId("run-history-select-WR-HIST-DONE"),
+    );
+
+    expect(
+      await screen.findByTestId("run-monitor-manifest-note"),
+    ).toHaveTextContent("This monitor is replaying saved workflow version v1");
     expect(screen.getByTestId("run-monitor-manifest-note")).toHaveTextContent(
       "Compare the debugger, final outputs, and generated artifacts in this run monitor before making follow-up edits to the current draft.",
     );
@@ -1661,13 +1976,15 @@ describe("WorkflowDetail calibration", () => {
     run: Record<string, unknown>,
   ): "failed" | "persisted" | null {
     const summary =
-      run.summary && typeof run.summary === "object" && !Array.isArray(run.summary)
+      run.summary &&
+      typeof run.summary === "object" &&
+      !Array.isArray(run.summary)
         ? (run.summary as Record<string, unknown>)
         : null;
     const artifactPersistence =
-      summary?.artifact_persistence
-      && typeof summary.artifact_persistence === "object"
-      && !Array.isArray(summary.artifact_persistence)
+      summary?.artifact_persistence &&
+      typeof summary.artifact_persistence === "object" &&
+      !Array.isArray(summary.artifact_persistence)
         ? (summary.artifact_persistence as Record<string, unknown>)
         : null;
     const status = artifactPersistence?.status;
@@ -1682,23 +1999,29 @@ describe("WorkflowDetail calibration", () => {
     return testRunArtifactPersistenceStatus(run) === artifactFilter;
   }
 
-  function testRunMatchesSearch(run: Record<string, unknown>, query: string | null): boolean {
+  function testRunMatchesSearch(
+    run: Record<string, unknown>,
+    query: string | null,
+  ): boolean {
     if (!query) return true;
     const normalized = query.trim().toLowerCase();
     if (!normalized) return true;
     const summary =
-      run.summary && typeof run.summary === "object" && !Array.isArray(run.summary)
+      run.summary &&
+      typeof run.summary === "object" &&
+      !Array.isArray(run.summary)
         ? (run.summary as Record<string, unknown>)
         : null;
     const artifactPersistence =
-      summary?.artifact_persistence
-      && typeof summary.artifact_persistence === "object"
-      && !Array.isArray(summary.artifact_persistence)
+      summary?.artifact_persistence &&
+      typeof summary.artifact_persistence === "object" &&
+      !Array.isArray(summary.artifact_persistence)
         ? (summary.artifact_persistence as Record<string, unknown>)
         : null;
     const artifactNames = Array.isArray(artifactPersistence?.artifact_names)
       ? artifactPersistence.artifact_names.filter(
-          (value): value is string => typeof value === "string" && value.trim().length > 0,
+          (value): value is string =>
+            typeof value === "string" && value.trim().length > 0,
         )
       : [];
     const searchable = [
@@ -1710,15 +2033,22 @@ describe("WorkflowDetail calibration", () => {
       run.error_summary,
       run.current_node_id,
       typeof summary?.error === "string" ? summary.error : null,
-      typeof artifactPersistence?.bucket === "string" ? artifactPersistence.bucket : null,
+      typeof artifactPersistence?.bucket === "string"
+        ? artifactPersistence.bucket
+        : null,
       testRunArtifactPersistenceStatus(run) === "failed"
         ? "artifact upload failed"
         : testRunArtifactPersistenceStatus(run) === "persisted"
           ? "artifacts stored"
           : null,
-      typeof artifactPersistence?.error === "string" ? artifactPersistence.error : null,
+      typeof artifactPersistence?.error === "string"
+        ? artifactPersistence.error
+        : null,
       ...artifactNames,
-    ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    ].filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0,
+    );
     return searchable.some((value) => value.toLowerCase().includes(normalized));
   }
 
@@ -1746,8 +2076,8 @@ describe("WorkflowDetail calibration", () => {
         persistedArtifactRuns += 1;
       }
       if (
-        testRunMatchesArtifactFilter(run, artifactFilter)
-        && testRunMatchesSearch(run, search)
+        testRunMatchesArtifactFilter(run, artifactFilter) &&
+        testRunMatchesSearch(run, search)
       ) {
         matchingRuns += 1;
       }
@@ -1870,7 +2200,9 @@ describe("WorkflowDetail calibration", () => {
     const datasetAvailable = overrides.datasetAvailable ?? true;
     const calibrationJobs = overrides.calibrationJobs ?? [];
     const judgeAvailable = overrides.judgeAvailable ?? false;
-    const versions = overrides.versions ?? [makeVersion({ status: "published" })];
+    const versions = overrides.versions ?? [
+      makeVersion({ status: "published" }),
+    ];
     const deployments = overrides.deployments ?? [];
     const runs = overrides.runs ?? [];
     const promotions = overrides.promotions ?? [];
@@ -1902,10 +2234,9 @@ describe("WorkflowDetail calibration", () => {
     const runManifestsById = overrides.runManifestsById ?? {};
     const runFilesById = overrides.runFilesById ?? {};
     const sessionMemoryBySessionId = Object.fromEntries(
-      Object.entries(overrides.sessionMemoryBySessionId ?? {}).map(([sessionId, entries]) => [
-        sessionId,
-        [...entries],
-      ]),
+      Object.entries(overrides.sessionMemoryBySessionId ?? {}).map(
+        ([sessionId, entries]) => [sessionId, [...entries]],
+      ),
     );
     const agents = overrides.agents ?? [
       {
@@ -1934,10 +2265,16 @@ describe("WorkflowDetail calibration", () => {
           }),
         ),
       ),
-      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope(calibrationJobs))),
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(envelope(calibrationJobs)),
+      ),
       http.post(`${API_BASE}/jobs/:jobId/apply`, ({ params }) =>
         HttpResponse.json(
-          envelope({ job_id: String(params.jobId), status: "applied", promotion: {} }),
+          envelope({
+            job_id: String(params.jobId),
+            status: "applied",
+            promotion: {},
+          }),
         ),
       ),
       http.get(`${API_BASE}/workflows/WF-1`, () =>
@@ -1949,7 +2286,8 @@ describe("WorkflowDetail calibration", () => {
       http.get(`${API_BASE}/workflow-versions/:versionId`, ({ params }) => {
         const versionId = String(params.versionId);
         const version =
-          versions.find((item) => String(item.version_id) === versionId) ?? null;
+          versions.find((item) => String(item.version_id) === versionId) ??
+          null;
         if (!version) {
           return HttpResponse.json(
             { detail: `workflow version ${versionId} not found` },
@@ -1958,10 +2296,18 @@ describe("WorkflowDetail calibration", () => {
         }
         return HttpResponse.json(envelope(version));
       }),
-      http.get(`${API_BASE}/workflows/WF-1/deployments`, () => HttpResponse.json(envelope(deployments))),
-      http.get(`${API_BASE}/workflows/WF-1/promotions`, () => HttpResponse.json(envelope(promotions))),
-      http.get(`${API_BASE}/workflows/WF-1/patches`, () => HttpResponse.json(envelope(patches))),
-      http.get(`${API_BASE}/workflows/WF-1/runs`, () => HttpResponse.json(envelope(runs))),
+      http.get(`${API_BASE}/workflows/WF-1/deployments`, () =>
+        HttpResponse.json(envelope(deployments)),
+      ),
+      http.get(`${API_BASE}/workflows/WF-1/promotions`, () =>
+        HttpResponse.json(envelope(promotions)),
+      ),
+      http.get(`${API_BASE}/workflows/WF-1/patches`, () =>
+        HttpResponse.json(envelope(patches)),
+      ),
+      http.get(`${API_BASE}/workflows/WF-1/runs`, () =>
+        HttpResponse.json(envelope(runs)),
+      ),
       http.get(`${API_BASE}/workflows/WF-1/runs/stats`, ({ request }) => {
         const url = new URL(request.url);
         const search = url.searchParams.get("search");
@@ -2024,11 +2370,14 @@ describe("WorkflowDetail calibration", () => {
         }
 
         const workflowVersionId =
-          typeof run.workflow_version_id === "string" ? run.workflow_version_id : null;
+          typeof run.workflow_version_id === "string"
+            ? run.workflow_version_id
+            : null;
         const version =
           workflowVersionId === null
-            ? versions[0] ?? null
-            : versions.find((item) => item.version_id === workflowVersionId) ?? null;
+            ? (versions[0] ?? null)
+            : (versions.find((item) => item.version_id === workflowVersionId) ??
+              null);
         if (!version) {
           return HttpResponse.json(
             {
@@ -2042,7 +2391,9 @@ describe("WorkflowDetail calibration", () => {
             workflow_run_id: runId,
             workflow_id: "WF-1",
             workflow_version_id:
-              typeof version.version_id === "string" ? version.version_id : workflowVersionId,
+              typeof version.version_id === "string"
+                ? version.version_id
+                : workflowVersionId,
             manifest_mode: "saved_version",
             manifest_hash:
               typeof version.manifest_hash === "string"
@@ -2053,13 +2404,17 @@ describe("WorkflowDetail calibration", () => {
         );
       }),
       http.get(`${API_BASE}/workflow-runs/:runId/approvals`, ({ params }) =>
-        HttpResponse.json(envelope(runApprovalsById[String(params.runId)] ?? [])),
+        HttpResponse.json(
+          envelope(runApprovalsById[String(params.runId)] ?? []),
+        ),
       ),
       http.get(`${API_BASE}/workflow-runs/:runId/events`, ({ params }) =>
         HttpResponse.json(envelope(runEventsById[String(params.runId)] ?? [])),
       ),
       http.get(`${API_BASE}/workflow-runs/:runId/checkpoints`, ({ params }) =>
-        HttpResponse.json(envelope(runCheckpointsById[String(params.runId)] ?? [])),
+        HttpResponse.json(
+          envelope(runCheckpointsById[String(params.runId)] ?? []),
+        ),
       ),
       http.get(`${API_BASE}/workflow-runs/:runId/files`, ({ params }) =>
         HttpResponse.json(
@@ -2079,43 +2434,51 @@ describe("WorkflowDetail calibration", () => {
           : entries;
         return HttpResponse.json(envelope(filtered));
       }),
-      http.delete(`${API_BASE}/workflows/WF-1/session-memory`, ({ request }) => {
-        const url = new URL(request.url);
-        const sessionId = url.searchParams.get("session_id") ?? "";
-        const nodeId = url.searchParams.get("node_id");
-        const entries = [...(sessionMemoryBySessionId[sessionId] ?? [])];
-        const removed = nodeId
-          ? entries.filter((entry) => entry.node_id === nodeId)
-          : entries;
-        const remaining = nodeId
-          ? entries.filter((entry) => entry.node_id !== nodeId)
-          : [];
-        sessionMemoryBySessionId[sessionId] = remaining;
-        const deletedMessages = removed.reduce(
-          (sum, entry) =>
-            sum + (Array.isArray(entry.message_history) ? entry.message_history.length : 0),
-          0,
-        );
-        return HttpResponse.json(
-          envelope({
-            workflow_id: "WF-1",
-            session_id: sessionId,
-            node_id: nodeId,
-            deleted_entries: removed.length,
-            deleted_messages: deletedMessages,
-          }),
-        );
-      }),
-      http.get(`${API_BASE}/agents`, () =>
-        HttpResponse.json(envelope(agents)),
+      http.delete(
+        `${API_BASE}/workflows/WF-1/session-memory`,
+        ({ request }) => {
+          const url = new URL(request.url);
+          const sessionId = url.searchParams.get("session_id") ?? "";
+          const nodeId = url.searchParams.get("node_id");
+          const entries = [...(sessionMemoryBySessionId[sessionId] ?? [])];
+          const removed = nodeId
+            ? entries.filter((entry) => entry.node_id === nodeId)
+            : entries;
+          const remaining = nodeId
+            ? entries.filter((entry) => entry.node_id !== nodeId)
+            : [];
+          sessionMemoryBySessionId[sessionId] = remaining;
+          const deletedMessages = removed.reduce(
+            (sum, entry) =>
+              sum +
+              (Array.isArray(entry.message_history)
+                ? entry.message_history.length
+                : 0),
+            0,
+          );
+          return HttpResponse.json(
+            envelope({
+              workflow_id: "WF-1",
+              session_id: sessionId,
+              node_id: nodeId,
+              deleted_entries: removed.length,
+              deleted_messages: deletedMessages,
+            }),
+          );
+        },
       ),
+      http.get(`${API_BASE}/agents`, () => HttpResponse.json(envelope(agents))),
       http.get(`${API_BASE}/workflows/WF-1/calibration/options`, () =>
         HttpResponse.json(
           envelope({
             supported_objectives: ["quality", "tool_adherence"],
             supported_move_set: ["add_grounding_guardrail"],
             scorer_options: ["quality_match", "tool_adherence"],
-            default_budget: { max_candidates: 3, max_eval_examples: 20, min_examples: 2 },
+            default_budget: {
+              max_candidates: 3,
+              max_eval_examples: 20,
+              min_examples: 2,
+            },
             data: {
               workflow_version_id: "WFV-1",
               judge: judgeAvailable
@@ -2126,7 +2489,8 @@ describe("WorkflowDetail calibration", () => {
                   }
                 : {
                     available: false,
-                    reason: "Enable workflow_llm_judge_enabled to use LLM judge scoring.",
+                    reason:
+                      "Enable workflow_llm_judge_enabled to use LLM judge scoring.",
                   },
               deploy_gate_dataset: datasetAvailable
                 ? {
@@ -2139,7 +2503,8 @@ describe("WorkflowDetail calibration", () => {
                   }
                 : {
                     available: false,
-                    reason: "No active deploy-gate eval dataset with non-superseded examples.",
+                    reason:
+                      "No active deploy-gate eval dataset with non-superseded examples.",
                   },
             },
           }),
@@ -2178,12 +2543,18 @@ describe("WorkflowDetail calibration", () => {
       // First /jobs read returns the candidate_ready run; after Apply the
       // invalidation re-reads and the run reports as applied.
       http.get(`${API_BASE}/jobs`, () =>
-        HttpResponse.json(envelope(applyCount === 0 ? [candidateReadyJob] : [appliedJob])),
+        HttpResponse.json(
+          envelope(applyCount === 0 ? [candidateReadyJob] : [appliedJob]),
+        ),
       ),
       http.post(`${API_BASE}/jobs/:jobId/apply`, ({ params }) => {
         applyCount += 1;
         return HttpResponse.json(
-          envelope({ job_id: String(params.jobId), status: "applied", promotion: {} }),
+          envelope({
+            job_id: String(params.jobId),
+            status: "applied",
+            promotion: {},
+          }),
         );
       }),
       ...detailHandlers(),
@@ -2193,7 +2564,9 @@ describe("WorkflowDetail calibration", () => {
 
     await userEvent.click(await screen.findByTestId("workflow-calibrate"));
     const applyButton = await screen.findByTestId("job-apply-btn");
-    expect(screen.getByTestId("workflow-calibration-runs")).toHaveTextContent("RFN-CAL-READY");
+    expect(screen.getByTestId("workflow-calibration-runs")).toHaveTextContent(
+      "RFN-CAL-READY",
+    );
 
     await userEvent.click(applyButton);
 
@@ -2203,7 +2576,9 @@ describe("WorkflowDetail calibration", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("job-apply-btn")).not.toBeInTheDocument(),
     );
-    expect(screen.getByTestId("workflow-calibration-runs")).toHaveTextContent("applied");
+    expect(screen.getByTestId("workflow-calibration-runs")).toHaveTextContent(
+      "applied",
+    );
   });
 
   it("hydrates a deep-linked run from workflow detail query params", async () => {
@@ -2226,76 +2601,94 @@ describe("WorkflowDetail calibration", () => {
     );
 
     expect(await screen.findByTestId("workflow-run-panel")).toBeInTheDocument();
-    expect((await screen.findAllByText("WR-DEEP-LINK")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("WR-DEEP-LINK")).length).toBeGreaterThan(
+      0,
+    );
     expect(await screen.findByTestId("run-open-link")).toHaveAttribute(
       "href",
       "/workflow-runs/WR-DEEP-LINK",
     );
-    expect(await screen.findByTestId("run-waiting-event-chip")).toHaveTextContent(
-      "waiting event wait_gate",
-    );
+    expect(
+      await screen.findByTestId("run-waiting-event-chip"),
+    ).toHaveTextContent("waiting event wait_gate");
   });
 
   it("starts a workflow calibration run", async () => {
     let posted: Record<string, unknown> | null = null;
     server.use(
       ...detailHandlers(),
-      http.post(`${API_BASE}/workflows/WF-1/calibration/runs`, async ({ request }) => {
-        posted = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope({
-            item: {
-              item_id: "FB-1",
-              agent_id: "support-agent",
-              category: "workflow_calibration",
-              free_text: "",
-              severity: "standard",
-              status: "verified",
-              source: "manual",
-              workflow_id: "WF-1",
-              submitted_context: {},
-              created_at: NOW,
-              updated_at: NOW,
-            },
-            job: {
-              job_id: "RFN-CAL-1",
-              agent_id: "support-agent",
-              workflow_id: "WF-1",
-              primary_item_id: "FB-1",
-              mlflow_run_id: null,
-              artifact_type: "workflow_manifest",
-              optimizer_type: null,
-              status: "queued",
-              current_stage: "diagnosis",
-              attempt_count: 1,
-              error_message: null,
-              total_tokens: 0,
-              cost_usd: 0,
-              bundle_targets: [],
-              bundle_expansion_count: 0,
-              diagnosis: null,
-              candidate: null,
-              eval_results: null,
-              calibration_spec: { objective: { maximize: "tool_adherence", epsilon: 0.01 } },
-              created_at: NOW,
-              updated_at: NOW,
-            },
-          }),
-          { status: 201 },
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflows/WF-1/calibration/runs`,
+        async ({ request }) => {
+          posted = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              item: {
+                item_id: "FB-1",
+                agent_id: "support-agent",
+                category: "workflow_calibration",
+                free_text: "",
+                severity: "standard",
+                status: "verified",
+                source: "manual",
+                workflow_id: "WF-1",
+                submitted_context: {},
+                created_at: NOW,
+                updated_at: NOW,
+              },
+              job: {
+                job_id: "RFN-CAL-1",
+                agent_id: "support-agent",
+                workflow_id: "WF-1",
+                primary_item_id: "FB-1",
+                mlflow_run_id: null,
+                artifact_type: "workflow_manifest",
+                optimizer_type: null,
+                status: "queued",
+                current_stage: "diagnosis",
+                attempt_count: 1,
+                error_message: null,
+                total_tokens: 0,
+                cost_usd: 0,
+                bundle_targets: [],
+                bundle_expansion_count: 0,
+                diagnosis: null,
+                candidate: null,
+                eval_results: null,
+                calibration_spec: {
+                  objective: { maximize: "tool_adherence", epsilon: 0.01 },
+                },
+                created_at: NOW,
+                updated_at: NOW,
+              },
+            }),
+            { status: 201 },
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("workflow-calibrate"));
-    expect(await screen.findByTestId("workflow-calibration-dataset")).toHaveTextContent(
-      "support-eval-v3",
+    expect(
+      await screen.findByTestId("workflow-calibration-dataset"),
+    ).toHaveTextContent("support-eval-v3");
+    await userEvent.selectOptions(
+      screen.getByTestId("workflow-calibration-objective"),
+      "tool_adherence",
     );
-    await userEvent.selectOptions(screen.getByTestId("workflow-calibration-objective"), "tool_adherence");
     await userEvent.clear(screen.getByTestId("workflow-calibration-epsilon"));
-    await userEvent.type(screen.getByTestId("workflow-calibration-epsilon"), "0");
-    await userEvent.clear(screen.getByTestId("workflow-calibration-max-candidates"));
-    await userEvent.type(screen.getByTestId("workflow-calibration-max-candidates"), "2");
+    await userEvent.type(
+      screen.getByTestId("workflow-calibration-epsilon"),
+      "0",
+    );
+    await userEvent.clear(
+      screen.getByTestId("workflow-calibration-max-candidates"),
+    );
+    await userEvent.type(
+      screen.getByTestId("workflow-calibration-max-candidates"),
+      "2",
+    );
     await userEvent.click(screen.getByTestId("workflow-calibration-start"));
 
     await waitFor(() => expect(posted).not.toBeNull());
@@ -2307,73 +2700,76 @@ describe("WorkflowDetail calibration", () => {
     });
     // The latest run id + status now
     // render inline instead of linking to a job detail page.
-    expect(await screen.findByTestId("workflow-calibration-last-run")).toHaveTextContent(
-      "RFN-CAL-1",
-    );
+    expect(
+      await screen.findByTestId("workflow-calibration-last-run"),
+    ).toHaveTextContent("RFN-CAL-1");
   });
 
   it("can enable LLM judge scoring for a calibration run when available", async () => {
     let posted: Record<string, unknown> | null = null;
     server.use(
       ...detailHandlers({ judgeAvailable: true }),
-      http.post(`${API_BASE}/workflows/WF-1/calibration/runs`, async ({ request }) => {
-        posted = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope({
-            item: {
-              item_id: "FB-JUDGE-1",
-              agent_id: "support-agent",
-              category: "workflow_calibration",
-              free_text: "",
-              severity: "standard",
-              status: "verified",
-              source: "manual",
-              workflow_id: "WF-1",
-              submitted_context: {},
-              created_at: NOW,
-              updated_at: NOW,
-            },
-            job: {
-              job_id: "RFN-CAL-JUDGE-1",
-              agent_id: "support-agent",
-              workflow_id: "WF-1",
-              primary_item_id: "FB-JUDGE-1",
-              mlflow_run_id: null,
-              artifact_type: "workflow_manifest",
-              optimizer_type: null,
-              status: "queued",
-              current_stage: "diagnosis",
-              attempt_count: 1,
-              error_message: null,
-              total_tokens: 0,
-              cost_usd: 0,
-              bundle_targets: [],
-              bundle_expansion_count: 0,
-              diagnosis: null,
-              candidate: null,
-              eval_results: null,
-              calibration_spec: { judge: { enabled: true } },
-              created_at: NOW,
-              updated_at: NOW,
-            },
-          }),
-          { status: 201 },
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflows/WF-1/calibration/runs`,
+        async ({ request }) => {
+          posted = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              item: {
+                item_id: "FB-JUDGE-1",
+                agent_id: "support-agent",
+                category: "workflow_calibration",
+                free_text: "",
+                severity: "standard",
+                status: "verified",
+                source: "manual",
+                workflow_id: "WF-1",
+                submitted_context: {},
+                created_at: NOW,
+                updated_at: NOW,
+              },
+              job: {
+                job_id: "RFN-CAL-JUDGE-1",
+                agent_id: "support-agent",
+                workflow_id: "WF-1",
+                primary_item_id: "FB-JUDGE-1",
+                mlflow_run_id: null,
+                artifact_type: "workflow_manifest",
+                optimizer_type: null,
+                status: "queued",
+                current_stage: "diagnosis",
+                attempt_count: 1,
+                error_message: null,
+                total_tokens: 0,
+                cost_usd: 0,
+                bundle_targets: [],
+                bundle_expansion_count: 0,
+                diagnosis: null,
+                candidate: null,
+                eval_results: null,
+                calibration_spec: { judge: { enabled: true } },
+                created_at: NOW,
+                updated_at: NOW,
+              },
+            }),
+            { status: 201 },
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("workflow-calibrate"));
-    expect(await screen.findByTestId("workflow-calibration-judge-status")).toHaveTextContent(
-      "openai · gpt-4o-mini",
-    );
+    expect(
+      await screen.findByTestId("workflow-calibration-judge-status"),
+    ).toHaveTextContent("openai · gpt-4o-mini");
 
     const judgeToggle = screen.getByTestId("workflow-calibration-judge-toggle");
     expect(judgeToggle).toBeEnabled();
     await userEvent.click(judgeToggle);
-    expect(await screen.findByTestId("workflow-calibration-judge-enabled")).toHaveTextContent(
-      "LLM judge enabled for this run",
-    );
+    expect(
+      await screen.findByTestId("workflow-calibration-judge-enabled"),
+    ).toHaveTextContent("LLM judge enabled for this run");
 
     await userEvent.click(screen.getByTestId("workflow-calibration-start"));
 
@@ -2390,11 +2786,13 @@ describe("WorkflowDetail calibration", () => {
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("workflow-calibrate"));
 
-    expect(await screen.findByTestId("workflow-calibration-dataset")).toHaveTextContent(
-      "No active deploy-gate eval dataset",
-    );
+    expect(
+      await screen.findByTestId("workflow-calibration-dataset"),
+    ).toHaveTextContent("No active deploy-gate eval dataset");
     expect(screen.getByTestId("workflow-calibration-start")).toBeDisabled();
-    expect(screen.getByTestId("workflow-calibration-judge-toggle")).toBeDisabled();
+    expect(
+      screen.getByTestId("workflow-calibration-judge-toggle"),
+    ).toBeDisabled();
   });
 
   it("renders empty states when a workflow has no versions, deployments, runs, promotions, or patches", async () => {
@@ -2432,14 +2830,20 @@ describe("WorkflowDetail calibration", () => {
     expect(screen.getByTestId("runs-table")).toHaveTextContent(
       "No published workflow version is available yet. Publish a version first, then queue the first execution from the run controls above.",
     );
-    expect(screen.getByTestId("workflow-run-target")).toHaveTextContent("no version");
+    expect(screen.getByTestId("workflow-run-target")).toHaveTextContent(
+      "no version",
+    );
     expect(screen.getByTestId("workflow-run-start")).toBeDisabled();
 
     await userEvent.click(screen.getByTestId("tab-promotions"));
-    expect(await screen.findByText("No promotion requests")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No promotion requests"),
+    ).toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("tab-patches"));
-    expect(await screen.findByText("No CALIBER patches yet")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No CALIBER patches yet"),
+    ).toBeInTheDocument();
   });
 
   it("turns an empty run history into first-execution guidance when a runnable version exists", async () => {
@@ -2490,7 +2894,9 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
 
-    expect(await screen.findByTestId("edit-draft")).toHaveTextContent("Edit Draft v2");
+    expect(await screen.findByTestId("edit-draft")).toHaveTextContent(
+      "Edit Draft v2",
+    );
     await userEvent.click(screen.getByTestId("tab-versions"));
     const table = await screen.findByTestId("versions-table");
     expect(table).toHaveTextContent("v1");
@@ -2553,56 +2959,75 @@ describe("WorkflowDetail calibration", () => {
           },
         ],
       }),
-      http.post(`${API_BASE}/workflows/WF-1/calibration/runs`, async ({ request }) => {
-        posted = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({ detail: "calibration service down" }, { status: 500 });
-      }),
+      http.post(
+        `${API_BASE}/workflows/WF-1/calibration/runs`,
+        async ({ request }) => {
+          posted = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            { detail: "calibration service down" },
+            { status: 500 },
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("workflow-calibrate"));
-    await userEvent.selectOptions(await screen.findByTestId("workflow-calibration-agent"), "review-agent");
+    await userEvent.selectOptions(
+      await screen.findByTestId("workflow-calibration-agent"),
+      "review-agent",
+    );
     await userEvent.click(screen.getByTestId("workflow-calibration-start"));
 
-    await waitFor(() => expect(posted).toMatchObject({ agent_id: "review-agent" }));
-    expect(await screen.findByTestId("workflow-calibration-error")).toHaveTextContent(
-      "calibration service down",
+    await waitFor(() =>
+      expect(posted).toMatchObject({ agent_id: "review-agent" }),
     );
+    expect(
+      await screen.findByTestId("workflow-calibration-error"),
+    ).toHaveTextContent("calibration service down");
   });
 
   it("deploys a published version to an alias from the deployments tab", async () => {
     let deployBody: Record<string, unknown> | null = null;
     server.use(
       ...detailHandlers(),
-      http.post(`${API_BASE}/workflows/WF-1/deployments/dev/promote`, async ({ request }) => {
-        deployBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope({
-            rotated: true,
-            deployment: {
-              deployment_id: "WFD-1",
-              workflow_id: "WF-1",
-              alias: "dev",
-              version_id: "WFV-1",
-              environment: null,
-              status: "active",
-              deployed_by: "@test",
-              deployed_at: NOW,
-              rollback_checkpoint: [],
-            },
-            promotion: null,
-            gate: { has_gate: false, passed: true, runs: [] },
-          }),
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflows/WF-1/deployments/dev/promote`,
+        async ({ request }) => {
+          deployBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              rotated: true,
+              deployment: {
+                deployment_id: "WFD-1",
+                workflow_id: "WF-1",
+                alias: "dev",
+                version_id: "WFV-1",
+                environment: null,
+                status: "active",
+                deployed_by: "@test",
+                deployed_at: NOW,
+                rollback_checkpoint: [],
+              },
+              promotion: null,
+              gate: { has_gate: false, passed: true, runs: [] },
+            }),
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-deployments"));
-    await userEvent.selectOptions(screen.getByTestId("deployment-version-select"), "WFV-1");
+    await userEvent.selectOptions(
+      screen.getByTestId("deployment-version-select"),
+      "WFV-1",
+    );
     await userEvent.click(screen.getByTestId("deployment-promote"));
 
-    await waitFor(() => expect(deployBody).toMatchObject({ version_id: "WFV-1" }));
+    await waitFor(() =>
+      expect(deployBody).toMatchObject({ version_id: "WFV-1" }),
+    );
     expect(await screen.findByTestId("deployment-message")).toHaveTextContent(
       "Alias dev now points to WFV-1.",
     );
@@ -2612,7 +3037,10 @@ describe("WorkflowDetail calibration", () => {
     server.use(
       ...detailHandlers(),
       http.post(`${API_BASE}/workflows/WF-1/deployments/dev/promote`, () =>
-        HttpResponse.json({ detail: "deploy gate unavailable" }, { status: 500 }),
+        HttpResponse.json(
+          { detail: "deploy gate unavailable" },
+          { status: 500 },
+        ),
       ),
     );
 
@@ -2629,39 +3057,50 @@ describe("WorkflowDetail calibration", () => {
     let deployBody: Record<string, unknown> | null = null;
     server.use(
       ...detailHandlers(),
-      http.post(`${API_BASE}/workflows/WF-1/deployments/prod/promote`, async ({ request }) => {
-        deployBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope({
-            rotated: false,
-            deployment: null,
-            promotion: {
-              promotion_id: "PROMO-PROD",
-              workflow_id: "WF-1",
-              alias: "prod",
-              version_id: "WFV-1",
-              status: "pending",
-              gate_result: { has_gate: true, passed: true, runs: [] },
-              requested_by: "@ops",
-              requested_at: NOW,
-              decided_by: null,
-              decided_at: null,
-              decision_reason: null,
-            },
-            gate: { has_gate: true, passed: true, runs: [] },
-          }),
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflows/WF-1/deployments/prod/promote`,
+        async ({ request }) => {
+          deployBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              rotated: false,
+              deployment: null,
+              promotion: {
+                promotion_id: "PROMO-PROD",
+                workflow_id: "WF-1",
+                alias: "prod",
+                version_id: "WFV-1",
+                status: "pending",
+                gate_result: { has_gate: true, passed: true, runs: [] },
+                requested_by: "@ops",
+                requested_at: NOW,
+                decided_by: null,
+                decided_at: null,
+                decision_reason: null,
+              },
+              gate: { has_gate: true, passed: true, runs: [] },
+            }),
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-deployments"));
     await userEvent.clear(screen.getByTestId("deployment-alias-input"));
-    await userEvent.type(screen.getByTestId("deployment-alias-input"), " Prod ");
-    await userEvent.selectOptions(screen.getByTestId("deployment-version-select"), "WFV-1");
+    await userEvent.type(
+      screen.getByTestId("deployment-alias-input"),
+      " Prod ",
+    );
+    await userEvent.selectOptions(
+      screen.getByTestId("deployment-version-select"),
+      "WFV-1",
+    );
     await userEvent.click(screen.getByTestId("deployment-promote"));
 
-    await waitFor(() => expect(deployBody).toMatchObject({ version_id: "WFV-1" }));
+    await waitFor(() =>
+      expect(deployBody).toMatchObject({ version_id: "WFV-1" }),
+    );
     expect(await screen.findByTestId("promotions-list")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("tab-deployments"));
     expect(await screen.findByTestId("deployment-message")).toHaveTextContent(
@@ -2684,8 +3123,16 @@ describe("WorkflowDetail calibration", () => {
           event_backend: "in_process",
         },
         versions: [
-          makeVersion({ version_id: "WFV-2", version_number: 2, status: "published" }),
-          makeVersion({ version_id: "WFV-1", version_number: 1, status: "published" }),
+          makeVersion({
+            version_id: "WFV-2",
+            version_number: 2,
+            status: "published",
+          }),
+          makeVersion({
+            version_id: "WFV-1",
+            version_number: 1,
+            status: "published",
+          }),
         ],
         deployments: [
           {
@@ -2719,8 +3166,14 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("workflow-run-open"));
-    await userEvent.selectOptions(screen.getByTestId("workflow-run-alias"), "prod");
-    await userEvent.type(screen.getByTestId("workflow-run-session-id"), "SESSION-prod");
+    await userEvent.selectOptions(
+      screen.getByTestId("workflow-run-alias"),
+      "prod",
+    );
+    await userEvent.type(
+      screen.getByTestId("workflow-run-session-id"),
+      "SESSION-prod",
+    );
     await userEvent.click(screen.getByTestId("workflow-run-start"));
 
     await waitFor(() =>
@@ -2731,7 +3184,9 @@ describe("WorkflowDetail calibration", () => {
         source: "manual",
       }),
     );
-    expect(screen.getByTestId("workflow-run-target")).toHaveTextContent("alias prod");
+    expect(screen.getByTestId("workflow-run-target")).toHaveTextContent(
+      "alias prod",
+    );
   });
 
   it("queues workflow runs through the async run endpoint for manual and alias targets", async () => {
@@ -2782,8 +3237,14 @@ describe("WorkflowDetail calibration", () => {
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("workflow-run-open"));
     await userEvent.clear(screen.getByTestId("workflow-run-input"));
-    await userEvent.type(screen.getByTestId("workflow-run-input"), "async input");
-    await userEvent.type(screen.getByTestId("workflow-run-session-id"), "SESSION-async");
+    await userEvent.type(
+      screen.getByTestId("workflow-run-input"),
+      "async input",
+    );
+    await userEvent.type(
+      screen.getByTestId("workflow-run-session-id"),
+      "SESSION-async",
+    );
     await userEvent.click(screen.getByTestId("workflow-run-start"));
 
     await waitFor(() => expect(postedRuns).toHaveLength(1));
@@ -2799,7 +3260,10 @@ describe("WorkflowDetail calibration", () => {
     );
     expect(screen.getByTestId("runs-back")).toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getByTestId("workflow-run-alias"), "prod");
+    await userEvent.selectOptions(
+      screen.getByTestId("workflow-run-alias"),
+      "prod",
+    );
     await userEvent.click(screen.getByTestId("workflow-run-start"));
 
     await waitFor(() => expect(postedRuns).toHaveLength(2));
@@ -2821,13 +3285,20 @@ describe("WorkflowDetail calibration", () => {
         ...baseVersion.manifest.nodes,
         start: {
           ...baseVersion.manifest.nodes.start,
-          trigger: { mode: "event", event_name: "object.created", enabled: true },
+          trigger: {
+            mode: "event",
+            event_name: "object.created",
+            enabled: true,
+          },
         },
       },
     };
     server.use(
       http.get(`${API_BASE}/capabilities`, () =>
-        HttpResponse.json({ detail: "capabilities unavailable" }, { status: 500 }),
+        HttpResponse.json(
+          { detail: "capabilities unavailable" },
+          { status: 500 },
+        ),
       ),
       ...detailHandlers({
         versions: [{ ...baseVersion, manifest }],
@@ -2866,19 +3337,23 @@ describe("WorkflowDetail calibration", () => {
       "title",
       "Workflow run capabilities could not be loaded. Refresh the page or verify deployment settings/API health.",
     );
-    expect(await screen.findByTestId("workflow-run-capabilities-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-run-capabilities-note"),
+    ).toHaveTextContent(
       "Run controls are disabled until workflow run capabilities can be loaded.",
     );
-    expect(screen.getByTestId("workflow-run-capabilities-note")).toHaveTextContent(
-      "Verify the CALIBER API and workflow-run settings.",
-    );
+    expect(
+      screen.getByTestId("workflow-run-capabilities-note"),
+    ).toHaveTextContent("Verify the CALIBER API and workflow-run settings.");
     await userEvent.click(screen.getByTestId("tab-deployments"));
-    expect(await screen.findByTestId("workflow-trigger-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-trigger-capability-note"),
+    ).toHaveTextContent(
       "Event-trigger launches are disabled until workflow run capabilities can be loaded.",
     );
-    expect(screen.getByTestId("workflow-trigger-capability-note")).toHaveTextContent(
-      "Verify the CALIBER API and workflow-run settings.",
-    );
+    expect(
+      screen.getByTestId("workflow-trigger-capability-note"),
+    ).toHaveTextContent("Verify the CALIBER API and workflow-run settings.");
   });
 
   it("triggers event-start deployments from the deployments table", async () => {
@@ -2889,7 +3364,11 @@ describe("WorkflowDetail calibration", () => {
         ...baseVersion.manifest.nodes,
         start: {
           ...baseVersion.manifest.nodes.start,
-          trigger: { mode: "event", event_name: "object.created", enabled: true },
+          trigger: {
+            mode: "event",
+            event_name: "object.created",
+            enabled: true,
+          },
         },
       },
     };
@@ -2937,9 +3416,9 @@ describe("WorkflowDetail calibration", () => {
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
-    expect(await screen.findByTestId("workflow-trigger-badge")).toHaveTextContent(
-      "Event: object.created",
-    );
+    expect(
+      await screen.findByTestId("workflow-trigger-badge"),
+    ).toHaveTextContent("Event: object.created");
     await userEvent.click(screen.getByTestId("tab-deployments"));
     const triggerButton = await screen.findByTestId("trigger-now-prod");
     expect(triggerButton).toBeEnabled();
@@ -2961,7 +3440,12 @@ describe("WorkflowDetail calibration", () => {
         ...baseVersion.manifest.nodes,
         start: {
           ...baseVersion.manifest.nodes.start,
-          trigger: { mode: "event", event_name: "object.created", alias: "prod", enabled: true },
+          trigger: {
+            mode: "event",
+            event_name: "object.created",
+            alias: "prod",
+            enabled: true,
+          },
         },
       },
     };
@@ -3020,7 +3504,11 @@ describe("WorkflowDetail calibration", () => {
         ...baseVersion.manifest.nodes,
         start: {
           ...baseVersion.manifest.nodes.start,
-          trigger: { mode: "event", event_name: "object.created", enabled: true },
+          trigger: {
+            mode: "event",
+            event_name: "object.created",
+            enabled: true,
+          },
         },
       },
     };
@@ -3058,7 +3546,10 @@ describe("WorkflowDetail calibration", () => {
     const triggerButton = await screen.findByTestId("trigger-now-prod");
 
     expect(triggerButton).toBeDisabled();
-    expect(triggerButton).toHaveAttribute("title", "Enable the run queue to trigger runs");
+    expect(triggerButton).toHaveAttribute(
+      "title",
+      "Enable the run queue to trigger runs",
+    );
   });
 
   it("keeps event trigger buttons disabled while a workflow is paused", async () => {
@@ -3069,7 +3560,11 @@ describe("WorkflowDetail calibration", () => {
         ...baseVersion.manifest.nodes,
         start: {
           ...baseVersion.manifest.nodes.start,
-          trigger: { mode: "event", event_name: "object.created", enabled: true },
+          trigger: {
+            mode: "event",
+            event_name: "object.created",
+            enabled: true,
+          },
         },
       },
     };
@@ -3122,7 +3617,11 @@ describe("WorkflowDetail calibration", () => {
         ...baseVersion.manifest.nodes,
         start: {
           ...baseVersion.manifest.nodes.start,
-          trigger: { mode: "event", event_name: "object.created", enabled: true },
+          trigger: {
+            mode: "event",
+            event_name: "object.created",
+            enabled: true,
+          },
         },
       },
     };
@@ -3212,7 +3711,12 @@ describe("WorkflowDetail calibration", () => {
                   node_type: "agent",
                   status: "ok",
                   output: "Policy-backed answer",
-                  tool_calls: [{ tool: "lookup_policy", result: { policy: "30-day refund" } }],
+                  tool_calls: [
+                    {
+                      tool: "lookup_policy",
+                      result: { policy: "30-day refund" },
+                    },
+                  ],
                   handoff_target: null,
                   detail: "",
                   duration_ms: 0,
@@ -3250,7 +3754,12 @@ describe("WorkflowDetail calibration", () => {
                     node_type: "agent",
                     status: "ok",
                     output: "Policy-backed answer",
-                    tool_calls: [{ tool: "lookup_policy", result: { policy: "30-day refund" } }],
+                    tool_calls: [
+                      {
+                        tool: "lookup_policy",
+                        result: { policy: "30-day refund" },
+                      },
+                    ],
                     handoff_target: null,
                     detail: "",
                     duration_ms: 0,
@@ -3284,7 +3793,10 @@ describe("WorkflowDetail calibration", () => {
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("workflow-run-open"));
     await userEvent.clear(screen.getByTestId("workflow-run-input"));
-    await userEvent.type(screen.getByTestId("workflow-run-input"), "refund policy");
+    await userEvent.type(
+      screen.getByTestId("workflow-run-input"),
+      "refund policy",
+    );
     await userEvent.click(screen.getByTestId("workflow-run-start"));
 
     await waitFor(() =>
@@ -3297,8 +3809,12 @@ describe("WorkflowDetail calibration", () => {
     );
     expect(await screen.findByTestId("runs-back")).toBeInTheDocument();
     const runLogs = await screen.findAllByTestId("workflow-run-logs");
-    expect(runLogs.some((entry) => entry.textContent?.includes("support_agent"))).toBe(true);
-    expect(screen.getByTestId("workflow-run-message")).toHaveTextContent("WR-1");
+    expect(
+      runLogs.some((entry) => entry.textContent?.includes("support_agent")),
+    ).toBe(true);
+    expect(screen.getByTestId("workflow-run-message")).toHaveTextContent(
+      "WR-1",
+    );
 
     await userEvent.click(screen.getByTestId("workflow-pause-toggle"));
     await waitFor(() => expect(patchBody).toMatchObject({ status: "paused" }));
@@ -3455,9 +3971,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-patches"));
-    expect(await screen.findByText("Add guardrail before output")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Add guardrail before output"),
+    ).toBeInTheDocument();
     expect(screen.getByText("Low risk patch")).toBeInTheDocument();
-    expect(screen.getByTestId("diff-added-node")).toHaveTextContent("guardrail");
+    expect(screen.getByTestId("diff-added-node")).toHaveTextContent(
+      "guardrail",
+    );
   });
 
   it("supports cancel, retry, approve, and resume run actions from run details", async () => {
@@ -3479,10 +3999,26 @@ describe("WorkflowDetail calibration", () => {
           event_backend: "in_process",
         },
         runs: [
-          makeRun({ workflow_run_id: "WR-RUNNING", status: "running", trace_id: "trace-running" }),
-          makeRun({ workflow_run_id: "WR-FAILED", status: "failed", trace_id: "trace-failed" }),
-          makeRun({ workflow_run_id: "WR-WAIT", status: "waiting_approval", trace_id: "trace-wait" }),
-          makeRun({ workflow_run_id: "WR-BLOCKED", status: "waiting_approval", trace_id: "trace-blocked" }),
+          makeRun({
+            workflow_run_id: "WR-RUNNING",
+            status: "running",
+            trace_id: "trace-running",
+          }),
+          makeRun({
+            workflow_run_id: "WR-FAILED",
+            status: "failed",
+            trace_id: "trace-failed",
+          }),
+          makeRun({
+            workflow_run_id: "WR-WAIT",
+            status: "waiting_approval",
+            trace_id: "trace-wait",
+          }),
+          makeRun({
+            workflow_run_id: "WR-BLOCKED",
+            status: "waiting_approval",
+            trace_id: "trace-blocked",
+          }),
           makeRun({
             workflow_run_id: "WR-RESUME",
             status: "waiting_approval",
@@ -3563,36 +4099,59 @@ describe("WorkflowDetail calibration", () => {
       }),
       http.post(`${API_BASE}/workflow-runs/WR-RUNNING/cancel`, () => {
         cancelCalls += 1;
-        return HttpResponse.json(envelope(makeRun({ workflow_run_id: "WR-RUNNING", status: "cancelled" })));
+        return HttpResponse.json(
+          envelope(
+            makeRun({ workflow_run_id: "WR-RUNNING", status: "cancelled" }),
+          ),
+        );
       }),
       http.post(`${API_BASE}/workflow-runs/WR-FAILED/retry`, () => {
         retryCalls += 1;
-        return HttpResponse.json(envelope(makeRun({ workflow_run_id: "WR-RETRY", status: "queued" })));
+        return HttpResponse.json(
+          envelope(makeRun({ workflow_run_id: "WR-RETRY", status: "queued" })),
+        );
       }),
-      http.post(`${API_BASE}/workflow-runs/WR-WAIT/approval/approve`, async ({ request }) => {
-        const body = (await request.json()) as { runtime_approval_id?: string };
-        expect(body.runtime_approval_id).toBe("RA-1");
-        approveCalls += 1;
-        return HttpResponse.json(envelope(makeRun({ workflow_run_id: "WR-WAIT", status: "running" })));
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-WAIT/approval/approve`,
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            runtime_approval_id?: string;
+          };
+          expect(body.runtime_approval_id).toBe("RA-1");
+          approveCalls += 1;
+          return HttpResponse.json(
+            envelope(
+              makeRun({ workflow_run_id: "WR-WAIT", status: "running" }),
+            ),
+          );
+        },
+      ),
       http.post(`${API_BASE}/workflow-runs/WR-RESUME/resume`, () => {
         resumeCalls += 1;
-        return HttpResponse.json(envelope(makeRun({ workflow_run_id: "WR-RESUME", status: "queued" })));
+        return HttpResponse.json(
+          envelope(makeRun({ workflow_run_id: "WR-RESUME", status: "queued" })),
+        );
       }),
-      http.post(`${API_BASE}/workflow-runs/WR-EVENT/resume`, async ({ request }) => {
-        eventResumeBody = (await request.json()) as Record<string, unknown>;
-        resumeCalls += 1;
-        return HttpResponse.json(envelope(makeRun({ workflow_run_id: "WR-EVENT", status: "queued" })));
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-EVENT/resume`,
+        async ({ request }) => {
+          eventResumeBody = (await request.json()) as Record<string, unknown>;
+          resumeCalls += 1;
+          return HttpResponse.json(
+            envelope(
+              makeRun({ workflow_run_id: "WR-EVENT", status: "queued" }),
+            ),
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
 
-    expect(await screen.findByTestId("run-open-link-WR-RUNNING")).toHaveAttribute(
-      "href",
-      "/workflow-runs/WR-RUNNING",
-    );
+    expect(
+      await screen.findByTestId("run-open-link-WR-RUNNING"),
+    ).toHaveAttribute("href", "/workflow-runs/WR-RUNNING");
     await userEvent.click(await screen.findByTestId("run-WR-RUNNING"));
     await userEvent.click(await screen.findByTestId("run-cancel"));
     await waitFor(() => expect(cancelCalls).toBe(1));
@@ -3611,9 +4170,9 @@ describe("WorkflowDetail calibration", () => {
 
     await userEvent.click(await screen.findByTestId("run-WR-BLOCKED"));
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-recovery-warning")).toHaveTextContent(
-      "no approved approval record is attached",
-    );
+    expect(
+      screen.getByTestId("workflow-run-recovery-warning"),
+    ).toHaveTextContent("no approved approval record is attached");
     await userEvent.click(screen.getByTestId("runs-back"));
 
     await userEvent.click(await screen.findByTestId("run-WR-RESUME"));
@@ -3622,12 +4181,17 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(screen.getByTestId("runs-back"));
 
     await userEvent.click(await screen.findByTestId("run-WR-EVENT"));
-    expect(await screen.findByTestId("run-waiting-event-chip")).toHaveTextContent("waiting event wait_gate");
+    expect(
+      await screen.findByTestId("run-waiting-event-chip"),
+    ).toHaveTextContent("waiting event wait_gate");
     expect(screen.getByTestId("run-waiting-event-note")).toHaveTextContent(
       "This run is paused at an event gate.",
     );
     await userEvent.clear(screen.getByTestId("run-resume-event-name"));
-    await userEvent.type(screen.getByTestId("run-resume-event-name"), "ticket.approved");
+    await userEvent.type(
+      screen.getByTestId("run-resume-event-name"),
+      "ticket.approved",
+    );
     await userEvent.clear(screen.getByTestId("run-resume-event-payload"));
     fireEvent.change(screen.getByTestId("run-resume-event-payload"), {
       target: { value: '{"ticket_id":"T-42","approved":true}' },
@@ -3804,9 +4368,9 @@ describe("WorkflowDetail calibration", () => {
     ).toHaveAttribute("title", expect.stringContaining("object store offline"));
 
     await userEvent.click(screen.getByTestId("run-WR-UPLOAD-FAILED"));
-    expect(await screen.findByTestId("selected-run-artifact-persistence")).toHaveTextContent(
-      "Artifact upload failed",
-    );
+    expect(
+      await screen.findByTestId("selected-run-artifact-persistence"),
+    ).toHaveTextContent("Artifact upload failed");
   });
 
   it("filters run history by artifact upload outcome and searches artifact metadata", async () => {
@@ -3899,13 +4463,19 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.clear(search);
     await userEvent.click(screen.getByTestId("runs-filter-all"));
     await userEvent.type(search, "object store offline");
-    expect(await screen.findByTestId("run-WR-UPLOAD-FAILED")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("run-WR-UPLOAD-FAILED"),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("run-WR-UPLOADED")).not.toBeInTheDocument();
   });
 
   it("loads paged run history and uses server-backed filters to find older runs", async () => {
     const recentRuns = [
-      makeRun({ workflow_run_id: "WR-RECENT", trace_id: "trace-recent", completed_at: NOW }),
+      makeRun({
+        workflow_run_id: "WR-RECENT",
+        trace_id: "trace-recent",
+        completed_at: NOW,
+      }),
     ];
     const pagedNewest = makeRun({
       workflow_run_id: "WR-PAGED-1",
@@ -3932,7 +4502,11 @@ describe("WorkflowDetail calibration", () => {
         },
       },
     });
-    const queryLog: Array<{ search: string | null; filter: string | null; cursor: string | null }> = [];
+    const queryLog: Array<{
+      search: string | null;
+      filter: string | null;
+      cursor: string | null;
+    }> = [];
 
     server.use(...detailHandlers({ runs: recentRuns }));
     server.use(
@@ -3947,10 +4521,16 @@ describe("WorkflowDetail calibration", () => {
         }
         queryLog.push({ search, filter, cursor });
         if (filter === "failed") {
-          return HttpResponse.json({ data: [searchOnlyRun], next_cursor: null });
+          return HttpResponse.json({
+            data: [searchOnlyRun],
+            next_cursor: null,
+          });
         }
         if (cursor === "2") {
-          return HttpResponse.json({ data: [searchOnlyRun], next_cursor: null });
+          return HttpResponse.json({
+            data: [searchOnlyRun],
+            next_cursor: null,
+          });
         }
         if (cursor === "1") {
           return HttpResponse.json({ data: [pagedNext], next_cursor: "2" });
@@ -3990,7 +4570,9 @@ describe("WorkflowDetail calibration", () => {
         "Showing 1 of 3 runs",
       ),
     );
-    expect(screen.getByTestId("runs-triage-summary")).toHaveTextContent("More runs available");
+    expect(screen.getByTestId("runs-triage-summary")).toHaveTextContent(
+      "More runs available",
+    );
 
     await userEvent.click(screen.getByTestId("runs-load-more"));
     expect(await screen.findByTestId("run-WR-PAGED-2")).toBeInTheDocument();
@@ -4008,7 +4590,10 @@ describe("WorkflowDetail calibration", () => {
         expect.objectContaining({ cursor: null, filter: null, search: null }),
         expect.objectContaining({ cursor: "1", filter: null, search: null }),
         expect.objectContaining({ filter: "failed" }),
-        expect.objectContaining({ filter: "failed", search: "object store offline" }),
+        expect.objectContaining({
+          filter: "failed",
+          search: "object store offline",
+        }),
       ]),
     );
   });
@@ -4070,7 +4655,8 @@ describe("WorkflowDetail calibration", () => {
               persisted: 3,
             },
           }),
-        )),
+        ),
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
@@ -4135,7 +4721,8 @@ describe("WorkflowDetail calibration", () => {
         HttpResponse.json(
           { detail: "run totals unavailable" },
           { status: 503 },
-        )),
+        ),
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
@@ -4213,27 +4800,36 @@ describe("WorkflowDetail calibration", () => {
           ],
         },
       }),
-      http.post(`${API_BASE}/workflow-runs/WR-WAIT-UNTIL/resume`, async ({ request }) => {
-        resumeBody = (await request.json()) as Record<string, unknown>;
-        resumeCalls += 1;
-        return HttpResponse.json(
-          envelope(makeRun({ workflow_run_id: "WR-WAIT-UNTIL", status: "queued" })),
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-WAIT-UNTIL/resume`,
+        async ({ request }) => {
+          resumeBody = (await request.json()) as Record<string, unknown>;
+          resumeCalls += 1;
+          return HttpResponse.json(
+            envelope(
+              makeRun({ workflow_run_id: "WR-WAIT-UNTIL", status: "queued" }),
+            ),
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-WAIT-UNTIL"));
 
-    expect(await screen.findByTestId("run-waiting-event-chip")).toHaveTextContent(
-      "scheduled wait wait_gate",
-    );
+    expect(
+      await screen.findByTestId("run-waiting-event-chip"),
+    ).toHaveTextContent("scheduled wait wait_gate");
     expect(screen.getByTestId("run-wait-until-note")).toHaveTextContent(
       "paused until 2026-02-01T10:00:00 (UTC)",
     );
-    expect(screen.queryByTestId("run-resume-event-name")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("run-resume-event-payload")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("run-resume-event-name"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("run-resume-event-payload"),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(await screen.findByTestId("run-resume"));
 
@@ -4283,7 +4879,9 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-WAIT-UNTIL-QUEUE-DISABLED"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-WAIT-UNTIL-QUEUE-DISABLED"),
+    );
 
     expect(await screen.findByTestId("run-wait-until-note")).toHaveTextContent(
       "Automatic and manual resume are unavailable until the workflow run queue is enabled for this deployment.",
@@ -4341,28 +4939,37 @@ describe("WorkflowDetail calibration", () => {
           ],
         },
       }),
-      http.post(`${API_BASE}/workflow-runs/WR-WAIT-CP/resume`, async ({ request }) => {
-        resumeBody = (await request.json()) as Record<string, unknown>;
-        resumeCalls += 1;
-        return HttpResponse.json(
-          envelope(makeRun({ workflow_run_id: "WR-WAIT-CP", status: "queued" })),
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-WAIT-CP/resume`,
+        async ({ request }) => {
+          resumeBody = (await request.json()) as Record<string, unknown>;
+          resumeCalls += 1;
+          return HttpResponse.json(
+            envelope(
+              makeRun({ workflow_run_id: "WR-WAIT-CP", status: "queued" }),
+            ),
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-WAIT-CP"));
 
-    expect(await screen.findByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "graph reconstructed from recorded run history and checkpoints",
     );
-    expect(screen.getByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      screen.getByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "rely on the recovery and checkpoint panels for authoritative resume state",
     );
-    expect(await screen.findByTestId("workflow-run-debugger-empty")).toHaveTextContent(
-      "No recorded step details yet",
-    );
+    expect(
+      await screen.findByTestId("workflow-run-debugger-empty"),
+    ).toHaveTextContent("No recorded step details yet");
     expect(screen.queryByTestId("run-version-missing")).not.toBeInTheDocument();
     expect(screen.getByTestId("run-waiting-event-chip")).toHaveTextContent(
       "scheduled wait wait_gate",
@@ -4370,8 +4977,12 @@ describe("WorkflowDetail calibration", () => {
     expect(screen.getByTestId("run-wait-until-note")).toHaveTextContent(
       "paused until 2026-01-02T12:00:00 (UTC)",
     );
-    expect(screen.queryByTestId("run-resume-event-name")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("run-resume-event-payload")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("run-resume-event-name"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("run-resume-event-payload"),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(await screen.findByTestId("run-resume"));
 
@@ -4450,22 +5061,29 @@ describe("WorkflowDetail calibration", () => {
           ],
         },
       }),
-      http.post(`${API_BASE}/workflow-runs/resume-by-event`, async ({ request }) => {
-        resumeByEventBody = (await request.json()) as Record<string, unknown>;
-        runRows[0] = queuedRun;
-        return HttpResponse.json(envelope(queuedRun));
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/resume-by-event`,
+        async ({ request }) => {
+          resumeByEventBody = (await request.json()) as Record<string, unknown>;
+          runRows[0] = queuedRun;
+          return HttpResponse.json(envelope(queuedRun));
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-EVENT-NO-RESUME"));
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent(
       "Use the event-match controls below to resume this event gate.",
     );
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
-    expect(screen.getByTestId("run-resume-event-name")).toHaveValue("ticket.approved");
+    expect(screen.getByTestId("run-resume-event-name")).toHaveValue(
+      "ticket.approved",
+    );
     await userEvent.clear(screen.getByTestId("run-resume-event-payload"));
     fireEvent.change(screen.getByTestId("run-resume-event-payload"), {
       target: { value: '{"ticket_id":"T-42","approved":true}' },
@@ -4473,7 +5091,11 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(screen.getByTestId("run-resume-by-event"));
 
     await waitFor(() =>
-      expect(screen.getByText(/Matched event ticket\.approved to run WR-EVENT-NO-RESUME/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(
+          /Matched event ticket\.approved to run WR-EVENT-NO-RESUME/,
+        ),
+      ).toBeInTheDocument(),
     );
     expect(resumeByEventBody).toEqual({
       workflow_id: "WF-1",
@@ -4547,9 +5169,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-EVENT-NO-CHECKPOINTING"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-EVENT-NO-CHECKPOINTING"),
+    );
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent(
       "event-match resume are unavailable until checkpoint persistence is enabled",
     );
     expect(screen.getByTestId("run-resume-by-event")).toBeDisabled();
@@ -4605,33 +5231,44 @@ describe("WorkflowDetail calibration", () => {
           ],
         },
       }),
-      http.post(`${API_BASE}/workflow-runs/WR-EVENT-CP/resume`, async ({ request }) => {
-        resumeBody = (await request.json()) as Record<string, unknown>;
-        resumeCalls += 1;
-        return HttpResponse.json(
-          envelope(makeRun({ workflow_run_id: "WR-EVENT-CP", status: "queued" })),
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-EVENT-CP/resume`,
+        async ({ request }) => {
+          resumeBody = (await request.json()) as Record<string, unknown>;
+          resumeCalls += 1;
+          return HttpResponse.json(
+            envelope(
+              makeRun({ workflow_run_id: "WR-EVENT-CP", status: "queued" }),
+            ),
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-EVENT-CP"));
 
-    expect(await screen.findByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "graph reconstructed from recorded run history and checkpoints",
     );
-    expect(screen.getByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      screen.getByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "rely on the recovery and checkpoint panels for authoritative resume state",
     );
-    expect(await screen.findByTestId("workflow-run-debugger-empty")).toHaveTextContent(
-      "No recorded step details yet",
-    );
+    expect(
+      await screen.findByTestId("workflow-run-debugger-empty"),
+    ).toHaveTextContent("No recorded step details yet");
     expect(screen.queryByTestId("run-version-missing")).not.toBeInTheDocument();
     expect(screen.getByTestId("run-waiting-event-note")).toHaveTextContent(
       "Resume it after ticket.approved has been handled.",
     );
-    expect(screen.getByTestId("run-resume-event-name")).toHaveValue("ticket.approved");
+    expect(screen.getByTestId("run-resume-event-name")).toHaveValue(
+      "ticket.approved",
+    );
     expect(screen.getByTestId("run-resume-event-payload")).toHaveValue(
       '{\n  "source": "manual_resume",\n  "node_id": "wait_gate"\n}',
     );
@@ -4722,21 +5359,26 @@ describe("WorkflowDetail calibration", () => {
           ],
         },
       }),
-      http.post(`${API_BASE}/workflow-runs/resume-by-event`, async ({ request }) => {
-        resumeByEventBody = (await request.json()) as Record<string, unknown>;
-        runRows[0] = queuedRun;
-        return HttpResponse.json(envelope(queuedRun));
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/resume-by-event`,
+        async ({ request }) => {
+          resumeByEventBody = (await request.json()) as Record<string, unknown>;
+          runRows[0] = queuedRun;
+          return HttpResponse.json(envelope(queuedRun));
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-EVENT-MATCH"));
 
-    expect(await screen.findByTestId("run-waiting-event-note")).toHaveTextContent(
-      "This run is paused at an event gate.",
+    expect(
+      await screen.findByTestId("run-waiting-event-note"),
+    ).toHaveTextContent("This run is paused at an event gate.");
+    expect(screen.getByTestId("run-resume-event-name")).toHaveValue(
+      "ticket.approved",
     );
-    expect(screen.getByTestId("run-resume-event-name")).toHaveValue("ticket.approved");
     await userEvent.clear(screen.getByTestId("run-resume-event-payload"));
     fireEvent.change(screen.getByTestId("run-resume-event-payload"), {
       target: { value: '{"ticket_id":"T-42","approved":true}' },
@@ -4745,7 +5387,11 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("run-resume-by-event"));
 
     await waitFor(() =>
-      expect(screen.getByText(/Matched event ticket\.approved to run WR-EVENT-MATCH/)).toBeInTheDocument(),
+      expect(
+        screen.getByText(
+          /Matched event ticket\.approved to run WR-EVENT-MATCH/,
+        ),
+      ).toBeInTheDocument(),
     );
     expect(resumeByEventBody).toEqual({
       workflow_id: "WF-1",
@@ -4921,19 +5567,25 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-EVENT-CORRELATION"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-EVENT-CORRELATION"),
+    );
 
     expect(
-      (await screen.findByTestId("run-resume-event-payload") as HTMLTextAreaElement).value,
+      (
+        (await screen.findByTestId(
+          "run-resume-event-payload",
+        )) as HTMLTextAreaElement
+      ).value,
     ).toContain('"ticket_id": "T-42"');
 
     fireEvent.change(screen.getByTestId("run-resume-event-payload"), {
       target: { value: '{"ticket_id":"T-99","approved":true}' },
     });
 
-    expect(await screen.findByTestId("run-resume-by-event-capability-note")).toHaveTextContent(
-      "requires correlation field ticket_id=T-42",
-    );
+    expect(
+      await screen.findByTestId("run-resume-by-event-capability-note"),
+    ).toHaveTextContent("requires correlation field ticket_id=T-42");
     expect(screen.getByTestId("run-resume-by-event")).toBeDisabled();
     expect(screen.getByTestId("run-resume")).toBeEnabled();
   });
@@ -5007,14 +5659,16 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-EVENT-CORRELATION-MISSING"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-EVENT-CORRELATION-MISSING"),
+    );
 
-    expect(await screen.findByTestId("run-resume-by-event-capability-note")).toHaveTextContent(
-      "requires correlation field ticket_id",
-    );
-    expect(screen.getByTestId("run-resume-by-event-capability-note")).toHaveTextContent(
-      "did not capture a correlation value",
-    );
+    expect(
+      await screen.findByTestId("run-resume-by-event-capability-note"),
+    ).toHaveTextContent("requires correlation field ticket_id");
+    expect(
+      screen.getByTestId("run-resume-by-event-capability-note"),
+    ).toHaveTextContent("did not capture a correlation value");
     expect(screen.getByTestId("run-resume-by-event")).toBeDisabled();
     expect(screen.getByTestId("run-resume")).toBeEnabled();
   });
@@ -5071,9 +5725,9 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-EVENT-LEGACY"));
 
-    expect(await screen.findByTestId("run-resume-by-event-capability-note")).toHaveTextContent(
-      "legacy wait_event shape",
-    );
+    expect(
+      await screen.findByTestId("run-resume-by-event-capability-note"),
+    ).toHaveTextContent("legacy wait_event shape");
     expect(screen.getByTestId("run-resume-by-event")).toBeDisabled();
     expect(screen.getByTestId("run-resume")).toBeEnabled();
   });
@@ -5151,9 +5805,9 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.clear(eventNameInput);
     await userEvent.type(eventNameInput, "ticket.rejected");
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
-      "configured for event ticket.approved",
-    );
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent("configured for event ticket.approved");
     expect(screen.getByTestId("run-resume-capability-note")).toHaveTextContent(
       "current event name is ticket.rejected",
     );
@@ -5175,7 +5829,13 @@ describe("WorkflowDetail calibration", () => {
           checkpointing_enabled: false,
           event_backend: "in_process",
         },
-        runs: [makeRun({ workflow_run_id: "WR-REJECT", status: "waiting_approval", trace_id: "trace-reject" })],
+        runs: [
+          makeRun({
+            workflow_run_id: "WR-REJECT",
+            status: "waiting_approval",
+            trace_id: "trace-reject",
+          }),
+        ],
         runApprovalsById: {
           "WR-REJECT": [
             {
@@ -5193,12 +5853,21 @@ describe("WorkflowDetail calibration", () => {
           ],
         },
       }),
-      http.post(`${API_BASE}/workflow-runs/WR-REJECT/approval/reject`, async ({ request }) => {
-        const body = (await request.json()) as { runtime_approval_id?: string };
-        expect(body.runtime_approval_id).toBe("RA-REJECT");
-        rejectCalls += 1;
-        return HttpResponse.json(envelope(makeRun({ workflow_run_id: "WR-REJECT", status: "rejected" })));
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-REJECT/approval/reject`,
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            runtime_approval_id?: string;
+          };
+          expect(body.runtime_approval_id).toBe("RA-REJECT");
+          rejectCalls += 1;
+          return HttpResponse.json(
+            envelope(
+              makeRun({ workflow_run_id: "WR-REJECT", status: "rejected" }),
+            ),
+          );
+        },
+      ),
     );
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
@@ -5259,7 +5928,9 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-EVENT-DRIFT"));
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent(
       "stored checkpoint no longer matches this run's active node",
     );
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
@@ -5315,11 +5986,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-EVENT-MISSING-NAME"));
-
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
-      "wait-for-event checkpoint has no expected event name",
+    await userEvent.click(
+      await screen.findByTestId("run-WR-EVENT-MISSING-NAME"),
     );
+
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent("wait-for-event checkpoint has no expected event name");
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
     expect(screen.getByTestId("run-resume-by-event")).toBeDisabled();
   });
@@ -5371,9 +6044,9 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-EVENT-CORRUPT"));
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
-      "checkpoint payload is corrupt",
-    );
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent("checkpoint payload is corrupt");
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
     expect(screen.getByTestId("run-resume-by-event")).toBeDisabled();
   });
@@ -5437,11 +6110,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-APPROVAL-DISABLED"));
-
-    expect(await screen.findByTestId("run-approval-capability-note")).toHaveTextContent(
-      "Enable runtime approvals for this deployment",
+    await userEvent.click(
+      await screen.findByTestId("run-WR-APPROVAL-DISABLED"),
     );
+
+    expect(
+      await screen.findByTestId("run-approval-capability-note"),
+    ).toHaveTextContent("Enable runtime approvals for this deployment");
     expect(screen.getByTestId("run-resume-capability-note")).toHaveTextContent(
       "Manual resume is unavailable until checkpoint persistence is enabled for workflow runs.",
     );
@@ -5509,9 +6184,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-APPROVAL-NO-CHECKPOINTING"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-APPROVAL-NO-CHECKPOINTING"),
+    );
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent(
       "Manual resume is unavailable until checkpoint persistence is enabled for workflow runs. Re-enable checkpointing for this deployment before continuing this paused approval run.",
     );
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
@@ -5568,11 +6247,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-EVENT-NO-CHECKPOINT"));
-
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
-      "paused run no longer has a stored checkpoint",
+    await userEvent.click(
+      await screen.findByTestId("run-WR-EVENT-NO-CHECKPOINT"),
     );
+
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent("paused run no longer has a stored checkpoint");
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
     expect(screen.getByTestId("run-resume-by-event")).toBeDisabled();
   });
@@ -5619,9 +6300,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-APPROVAL-QUEUE-DISABLED"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-APPROVAL-QUEUE-DISABLED"),
+    );
 
-    expect(await screen.findByTestId("run-approval-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-approval-capability-note"),
+    ).toHaveTextContent(
       "Approval actions are unavailable until the workflow run queue is enabled",
     );
     expect(screen.queryByTestId("run-approve")).not.toBeInTheDocument();
@@ -5654,7 +6339,9 @@ describe("WorkflowDetail calibration", () => {
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
 
-    await userEvent.click(await screen.findByTestId("run-WR-CANCEL-QUEUE-DISABLED"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-CANCEL-QUEUE-DISABLED"),
+    );
     expect(screen.queryByTestId("run-cancel")).not.toBeInTheDocument();
   });
 
@@ -5684,7 +6371,9 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-RETRY-QUEUE-DISABLED"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-RETRY-QUEUE-DISABLED"),
+    );
     expect(screen.queryByTestId("run-retry")).not.toBeInTheDocument();
   });
 
@@ -5784,9 +6473,13 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-RESUME-QUEUE-DISABLED"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-RESUME-QUEUE-DISABLED"),
+    );
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent(
       "Manual and event-match resume are unavailable until the workflow run queue is enabled",
     );
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
@@ -5807,10 +6500,26 @@ describe("WorkflowDetail calibration", () => {
           event_backend: "in_process",
         },
         runs: [
-          makeRun({ workflow_run_id: "WR-CANCEL", status: "running", trace_id: "trace-cancel" }),
-          makeRun({ workflow_run_id: "WR-RETRY", status: "failed", trace_id: "trace-retry" }),
-          makeRun({ workflow_run_id: "WR-APPROVE", status: "waiting_approval", trace_id: "trace-approve" }),
-          makeRun({ workflow_run_id: "WR-REJECT", status: "waiting_approval", trace_id: "trace-reject" }),
+          makeRun({
+            workflow_run_id: "WR-CANCEL",
+            status: "running",
+            trace_id: "trace-cancel",
+          }),
+          makeRun({
+            workflow_run_id: "WR-RETRY",
+            status: "failed",
+            trace_id: "trace-retry",
+          }),
+          makeRun({
+            workflow_run_id: "WR-APPROVE",
+            status: "waiting_approval",
+            trace_id: "trace-approve",
+          }),
+          makeRun({
+            workflow_run_id: "WR-REJECT",
+            status: "waiting_approval",
+            trace_id: "trace-reject",
+          }),
           makeRun({
             workflow_run_id: "WR-RESUME",
             status: "waiting_approval",
@@ -5902,27 +6611,37 @@ describe("WorkflowDetail calibration", () => {
 
     await userEvent.click(await screen.findByTestId("run-WR-CANCEL"));
     await userEvent.click(await screen.findByTestId("run-cancel"));
-    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent("Cancel failed: cancel denied");
+    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
+      "Cancel failed: cancel denied",
+    );
     await userEvent.click(screen.getByTestId("runs-back"));
 
     await userEvent.click(await screen.findByTestId("run-WR-RETRY"));
     await userEvent.click(await screen.findByTestId("run-retry"));
-    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent("Retry failed: retry denied");
+    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
+      "Retry failed: retry denied",
+    );
     await userEvent.click(screen.getByTestId("runs-back"));
 
     await userEvent.click(await screen.findByTestId("run-WR-APPROVE"));
     await userEvent.click(await screen.findByTestId("run-approve"));
-    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent("Approve failed: approve denied");
+    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
+      "Approve failed: approve denied",
+    );
     await userEvent.click(screen.getByTestId("runs-back"));
 
     await userEvent.click(await screen.findByTestId("run-WR-REJECT"));
     await userEvent.click(await screen.findByTestId("run-reject"));
-    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent("Reject failed: reject denied");
+    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
+      "Reject failed: reject denied",
+    );
     await userEvent.click(screen.getByTestId("runs-back"));
 
     await userEvent.click(await screen.findByTestId("run-WR-RESUME"));
     await userEvent.click(await screen.findByTestId("run-resume"));
-    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent("Resume failed: resume denied");
+    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
+      "Resume failed: resume denied",
+    );
   });
 
   it("turns stale retry, approval, and resume failures into recovery guidance", async () => {
@@ -5939,7 +6658,11 @@ describe("WorkflowDetail calibration", () => {
           event_backend: "in_process",
         },
         runs: [
-          makeRun({ workflow_run_id: "WR-RETRY-STALE", status: "failed", trace_id: "trace-retry-stale" }),
+          makeRun({
+            workflow_run_id: "WR-RETRY-STALE",
+            status: "failed",
+            trace_id: "trace-retry-stale",
+          }),
           makeRun({
             workflow_run_id: "WR-APPROVE-STALE",
             status: "waiting_approval",
@@ -5993,18 +6716,29 @@ describe("WorkflowDetail calibration", () => {
       }),
       http.post(`${API_BASE}/workflow-runs/WR-RETRY-STALE/retry`, () =>
         HttpResponse.json(
-          { detail: "workflow run retry checkpoint is missing its input snapshot" },
+          {
+            detail:
+              "workflow run retry checkpoint is missing its input snapshot",
+          },
           { status: 409 },
         ),
       ),
-      http.post(`${API_BASE}/workflow-runs/WR-APPROVE-STALE/approval/approve`, () =>
-        HttpResponse.json(
-          { detail: "workflow run approval checkpoint is missing its input snapshot" },
-          { status: 409 },
-        ),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-APPROVE-STALE/approval/approve`,
+        () =>
+          HttpResponse.json(
+            {
+              detail:
+                "workflow run approval checkpoint is missing its input snapshot",
+            },
+            { status: 409 },
+          ),
       ),
       http.post(`${API_BASE}/workflow-runs/WR-RESUME-STALE/resume`, () =>
-        HttpResponse.json({ detail: "workflow run has no resume checkpoint" }, { status: 409 }),
+        HttpResponse.json(
+          { detail: "workflow run has no resume checkpoint" },
+          { status: 409 },
+        ),
       ),
     );
 
@@ -6051,21 +6785,13 @@ describe("WorkflowDetail calibration", () => {
   });
 
   it.each([
-    [
-      "workflow.run.queued",
-      { status: "queued" },
-      "Run WR-STREAM queued.",
-    ],
+    ["workflow.run.queued", { status: "queued" }, "Run WR-STREAM queued."],
     [
       "workflow.run.recovered",
       { status: "queued", reason: "lease_expired", worker_id: "worker-7" },
       "Run WR-STREAM recovered and re-queued: worker lease expired.",
     ],
-    [
-      "workflow.run.started",
-      {},
-      "Run WR-STREAM started.",
-    ],
+    ["workflow.run.started", {}, "Run WR-STREAM started."],
     [
       "workflow.run.approval.approved",
       { runtime_approval_id: "RA-STREAM-APPROVED" },
@@ -6073,7 +6799,10 @@ describe("WorkflowDetail calibration", () => {
     ],
     [
       "workflow.run.approval.rejected",
-      { runtime_approval_id: "RA-STREAM-REJECTED", reason: "unsafe tool scope" },
+      {
+        runtime_approval_id: "RA-STREAM-REJECTED",
+        reason: "unsafe tool scope",
+      },
       "Runtime approval rejected for WR-STREAM: unsafe tool scope.",
     ],
     [
@@ -6125,7 +6854,9 @@ describe("WorkflowDetail calibration", () => {
       await userEvent.click(await screen.findByTestId("tab-runs"));
     }
 
-    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(expected);
+    expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
+      expected,
+    );
     expect(screen.getByText("WR-STREAM")).toBeInTheDocument();
   });
 
@@ -6150,13 +6881,12 @@ describe("WorkflowDetail calibration", () => {
     });
     let runListRequests = 0;
 
-    server.use(
-      ...detailHandlers({ runs: [existingRun] }),
-    );
+    server.use(...detailHandlers({ runs: [existingRun] }));
     server.use(
       http.get(`${API_BASE}/workflows/WF-1/runs`, ({ request }) => {
         runListRequests += 1;
-        const currentRuns = runListRequests > 1 ? [startedRun, existingRun] : [existingRun];
+        const currentRuns =
+          runListRequests > 1 ? [startedRun, existingRun] : [existingRun];
         const limit = new URL(request.url).searchParams.get("limit");
         if (!limit) {
           return HttpResponse.json(envelope(currentRuns));
@@ -6236,9 +6966,15 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
 
     expect(await screen.findByText("WR-STEP")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-logs")).toHaveTextContent("support_agent");
-    expect(screen.getByTestId("workflow-run-logs")).toHaveTextContent("streamed response");
-    expect(screen.getByTestId("workflow-run-logs")).toHaveTextContent("lookup_policy");
+    expect(screen.getByTestId("workflow-run-logs")).toHaveTextContent(
+      "support_agent",
+    );
+    expect(screen.getByTestId("workflow-run-logs")).toHaveTextContent(
+      "streamed response",
+    );
+    expect(screen.getByTestId("workflow-run-logs")).toHaveTextContent(
+      "lookup_policy",
+    );
   });
 
   it("turns empty run logs into active-gate guidance for waiting runs", async () => {
@@ -6260,8 +6996,14 @@ describe("WorkflowDetail calibration", () => {
     await user.click(screen.getByTestId("run-WR-NO-STEPS-WAIT"));
 
     expect(await screen.findByText("Run Logs")).toBeInTheDocument();
-    expect(screen.getByText(/This run only has a node path summary so far\./)).toBeInTheDocument();
-    expect(screen.getByText(/Use the recovery, checkpoint, and debugger panels above to inspect the active gate/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This run only has a node path summary so far\./),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Use the recovery, checkpoint, and debugger panels above to inspect the active gate/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("turns empty run logs into completed-run guidance when step logs were never persisted", async () => {
@@ -6284,8 +7026,14 @@ describe("WorkflowDetail calibration", () => {
     await user.click(screen.getByTestId("run-WR-NO-STEPS-DONE"));
 
     expect(await screen.findByText("Run Logs")).toBeInTheDocument();
-    expect(screen.getByText(/This run completed without persisted step logs\./)).toBeInTheDocument();
-    expect(screen.getByText(/Use the debugger, final outputs, and generated artifacts above to reconstruct how execution finished\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This run completed without persisted step logs\./),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Use the debugger, final outputs, and generated artifacts above to reconstruct how execution finished\./,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("turns sparse active debugger step state into in-flight transition and port guidance", async () => {
@@ -6317,20 +7065,26 @@ describe("WorkflowDetail calibration", () => {
     await user.click(await screen.findByTestId("tab-runs"));
     await user.click(screen.getByTestId("run-WR-SPARSE-ACTIVE"));
 
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-step-diff-transition")).toHaveTextContent(
-      "Earliest persisted step so far",
-    );
-    expect(screen.getByTestId("workflow-run-step-diff-transition")).toHaveTextContent(
-      "No previous recorded step is available yet.",
-    );
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transition"),
+    ).toHaveTextContent("Earliest persisted step so far");
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transition"),
+    ).toHaveTextContent("No previous recorded step is available yet.");
     expect(screen.getByTestId("workflow-run-step-ports")).toHaveTextContent(
       "In · Snapshot pending",
     );
-    expect(screen.getByTestId("workflow-run-step-input-ports-empty")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-step-input-ports-empty"),
+    ).toHaveTextContent(
       "Input port snapshot has not been persisted for this step yet.",
     );
-    expect(screen.getByTestId("workflow-run-step-output-ports-empty")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-step-output-ports-empty"),
+    ).toHaveTextContent(
       "Output port snapshot has not been persisted for this step yet.",
     );
   });
@@ -6365,20 +7119,28 @@ describe("WorkflowDetail calibration", () => {
     await user.click(await screen.findByTestId("tab-runs"));
     await user.click(screen.getByTestId("run-WR-SPARSE-DONE"));
 
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-step-diff-transition")).toHaveTextContent(
-      "Earliest persisted step in this completed run",
-    );
-    expect(screen.getByTestId("workflow-run-step-diff-transition")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transition"),
+    ).toHaveTextContent("Earliest persisted step in this completed run");
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transition"),
+    ).toHaveTextContent(
       "No previous recorded step was persisted for this completed run.",
     );
     expect(screen.getByTestId("workflow-run-step-ports")).toHaveTextContent(
       "Out · Snapshot unavailable",
     );
-    expect(screen.getByTestId("workflow-run-step-input-ports-empty")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-step-input-ports-empty"),
+    ).toHaveTextContent(
       "Input port snapshot was not persisted for this completed run step.",
     );
-    expect(screen.getByTestId("workflow-run-step-output-ports-empty")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-step-output-ports-empty"),
+    ).toHaveTextContent(
       "Output port snapshot was not persisted for this completed run step.",
     );
   });
@@ -6408,13 +7170,19 @@ describe("WorkflowDetail calibration", () => {
     );
 
     const user = userEvent.setup();
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     await user.click(await screen.findByTestId("tab-runs"));
     expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
       "Run WR-KEEP started.",
     );
     await user.click(await screen.findByTestId("run-WR-KEEP"));
-    expect(await screen.findByTestId("run-recovery-section")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("run-recovery-section"),
+    ).toBeInTheDocument();
 
     streamState.event = {
       type: "workflow.run.step",
@@ -6439,8 +7207,12 @@ describe("WorkflowDetail calibration", () => {
       ),
     );
     expect(screen.queryByText("WR-OTHER")).not.toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-logs")).not.toHaveTextContent("other_agent");
-    expect(screen.getByTestId("workflow-run-logs")).not.toHaveTextContent("other output");
+    expect(screen.getByTestId("workflow-run-logs")).not.toHaveTextContent(
+      "other_agent",
+    );
+    expect(screen.getByTestId("workflow-run-logs")).not.toHaveTextContent(
+      "other output",
+    );
   });
 
   it("refreshes the selected run debugger and session memory when a live step event arrives", async () => {
@@ -6480,15 +7252,23 @@ describe("WorkflowDetail calibration", () => {
       http.get(`${API_BASE}/workflows/WF-1/session-memory`, ({ request }) => {
         const url = new URL(request.url);
         const sessionId = url.searchParams.get("session_id");
-        return HttpResponse.json(envelope(sessionId === "thread-live" ? sessionEntries : []));
+        return HttpResponse.json(
+          envelope(sessionId === "thread-live" ? sessionEntries : []),
+        );
       }),
     );
 
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-LIVE"));
 
-    expect(await screen.findByTestId("workflow-session-memory-empty")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-session-memory-empty"),
+    ).toBeInTheDocument();
 
     sessionEntries = [
       {
@@ -6538,14 +7318,15 @@ describe("WorkflowDetail calibration", () => {
     view.rerenderAt();
 
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-run-event-timeline")).toHaveTextContent(
-        "workflow.run.step",
-      ),
+      expect(
+        screen.getByTestId("workflow-run-event-timeline"),
+      ).toHaveTextContent("workflow.run.step"),
     );
-    await waitFor(() =>
-      expect(screen.getByTestId("workflow-session-memory-entry-support_agent")).toHaveTextContent(
-        "Policy-backed answer",
-      ),
+    await waitFor(
+      () =>
+        expect(
+          screen.getByTestId("workflow-session-memory-entry-support_agent"),
+        ).toHaveTextContent("Policy-backed answer"),
       { timeout: 3500 },
     );
   });
@@ -6629,11 +7410,17 @@ describe("WorkflowDetail calibration", () => {
       }),
     );
 
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-LIVE-NODE"));
 
-    expect(await screen.findByTestId("node-detail-panel")).toHaveTextContent("support-agent");
+    expect(await screen.findByTestId("node-detail-panel")).toHaveTextContent(
+      "support-agent",
+    );
 
     streamState.event = {
       type: "workflow.run.node_started",
@@ -6645,9 +7432,13 @@ describe("WorkflowDetail calibration", () => {
     view.rerenderAt();
 
     await waitFor(() =>
-      expect(screen.getByTestId("node-detail-panel")).toHaveTextContent("final"),
+      expect(screen.getByTestId("node-detail-panel")).toHaveTextContent(
+        "final",
+      ),
     );
-    expect(screen.getByTestId("workflow-run-step-snapshot")).toHaveTextContent("final");
+    expect(screen.getByTestId("workflow-run-step-snapshot")).toHaveTextContent(
+      "final",
+    );
   });
 
   it("keeps a manual node selection pinned while the live run advances", async () => {
@@ -6729,12 +7520,20 @@ describe("WorkflowDetail calibration", () => {
       }),
     );
 
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-LIVE-PINNED"));
-    await userEvent.click(await screen.findByTestId("workflow-run-step-button-0"));
+    await userEvent.click(
+      await screen.findByTestId("workflow-run-step-button-0"),
+    );
 
-    expect(await screen.findByTestId("node-detail-panel")).toHaveTextContent("start");
+    expect(await screen.findByTestId("node-detail-panel")).toHaveTextContent(
+      "start",
+    );
 
     streamState.event = {
       type: "workflow.run.node_started",
@@ -6746,7 +7545,9 @@ describe("WorkflowDetail calibration", () => {
     view.rerenderAt();
 
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-run-step-snapshot")).toHaveTextContent("final"),
+      expect(
+        screen.getByTestId("workflow-run-step-snapshot"),
+      ).toHaveTextContent("final"),
     );
     expect(screen.getByTestId("node-detail-panel")).toHaveTextContent("start");
   });
@@ -6786,13 +7587,17 @@ describe("WorkflowDetail calibration", () => {
       }),
     );
 
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-APPROVAL"));
 
-    expect(await screen.findByTestId("workflow-run-recovery-panel")).toHaveTextContent(
-      "Actively executing",
-    );
+    expect(
+      await screen.findByTestId("workflow-run-recovery-panel"),
+    ).toHaveTextContent("Actively executing");
 
     liveRun.status = "waiting_approval";
     liveRun.current_node_id = "human_gate";
@@ -6845,15 +7650,17 @@ describe("WorkflowDetail calibration", () => {
     view.rerenderAt();
 
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
-        "Awaiting approval",
-      ),
+      expect(
+        screen.getByTestId("workflow-run-recovery-panel"),
+      ).toHaveTextContent("Awaiting approval"),
     );
-    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent("RA-1");
+    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
+      "RA-1",
+    );
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-run-checkpoint-item-1")).toHaveTextContent(
-        "Human approval",
-      ),
+      expect(
+        screen.getByTestId("workflow-run-checkpoint-item-1"),
+      ).toHaveTextContent("Human approval"),
     );
   });
 
@@ -6892,13 +7699,17 @@ describe("WorkflowDetail calibration", () => {
       }),
     );
 
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-TOOL-APPROVAL"));
 
-    expect(await screen.findByTestId("workflow-run-recovery-panel")).toHaveTextContent(
-      "Actively executing",
-    );
+    expect(
+      await screen.findByTestId("workflow-run-recovery-panel"),
+    ).toHaveTextContent("Actively executing");
 
     liveRun.status = "waiting_approval";
     liveRun.current_node_id = "tool_gate";
@@ -6953,16 +7764,20 @@ describe("WorkflowDetail calibration", () => {
     view.rerenderAt();
 
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
-        "Awaiting runtime approval",
-      ),
+      expect(
+        screen.getByTestId("workflow-run-recovery-panel"),
+      ).toHaveTextContent("Awaiting runtime approval"),
     );
-    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent("RA-TOOL-1");
-    expect(screen.getByText("pending runtime approval RA-TOOL-1")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
+      "RA-TOOL-1",
+    );
+    expect(
+      screen.getByText("pending runtime approval RA-TOOL-1"),
+    ).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-run-checkpoint-item-1")).toHaveTextContent(
-        "Runtime approval",
-      ),
+      expect(
+        screen.getByTestId("workflow-run-checkpoint-item-1"),
+      ).toHaveTextContent("Runtime approval"),
     );
   });
 
@@ -7035,13 +7850,19 @@ describe("WorkflowDetail calibration", () => {
     );
 
     const user = userEvent.setup();
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
-    await user.click(await screen.findByTestId("tab-runs"));
-    await user.click(await screen.findByTestId("run-WR-TOOL-APPROVAL-RECORDED"));
-
-    expect(await screen.findByTestId("workflow-run-recovery-panel")).toHaveTextContent(
-      "Awaiting runtime approval",
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
     );
+    await user.click(await screen.findByTestId("tab-runs"));
+    await user.click(
+      await screen.findByTestId("run-WR-TOOL-APPROVAL-RECORDED"),
+    );
+
+    expect(
+      await screen.findByTestId("workflow-run-recovery-panel"),
+    ).toHaveTextContent("Awaiting runtime approval");
 
     runApprovalsById["WR-TOOL-APPROVAL-RECORDED"] = [
       {
@@ -7077,9 +7898,9 @@ describe("WorkflowDetail calibration", () => {
       ),
     );
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
-        "Runtime approval recorded",
-      ),
+      expect(
+        screen.getByTestId("workflow-run-recovery-panel"),
+      ).toHaveTextContent("Runtime approval recorded"),
     );
     expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
       "RA-TOOL-RECORDED is approved on tool_gate",
@@ -7113,13 +7934,19 @@ describe("WorkflowDetail calibration", () => {
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
 
     expect(await screen.findByTestId("workflow-detail")).toBeInTheDocument();
-    expect(screen.queryByTestId("workflow-run-message")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("workflow-run-message"),
+    ).not.toBeInTheDocument();
   });
 
   it("redirects back to the workflow list when the live stream reports deletion", async () => {
     server.use(...detailHandlers());
 
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     expect(await screen.findByTestId("workflow-detail")).toBeInTheDocument();
 
     streamState.event = {
@@ -7135,7 +7962,9 @@ describe("WorkflowDetail calibration", () => {
     await waitFor(() =>
       expect(screen.getByText("WORKFLOWS ROUTE")).toBeInTheDocument(),
     );
-    expect(showToast.info).toHaveBeenCalledWith('Workflow "Support" was deleted.');
+    expect(showToast.info).toHaveBeenCalledWith(
+      'Workflow "Support" was deleted.',
+    );
   });
 
   it("applies workflow archive events even while a run is selected", async () => {
@@ -7147,7 +7976,12 @@ describe("WorkflowDetail calibration", () => {
         ...baseVersion.manifest.nodes,
         start: {
           ...baseVersion.manifest.nodes.start,
-          trigger: { mode: "event", event_name: "object.created", alias: "prod", enabled: true },
+          trigger: {
+            mode: "event",
+            event_name: "object.created",
+            alias: "prod",
+            enabled: true,
+          },
         },
       },
     };
@@ -7196,7 +8030,11 @@ describe("WorkflowDetail calibration", () => {
       ),
     );
 
-    const view = renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
     expect(await screen.findByTestId("workflow-detail")).toBeInTheDocument();
 
     await userEvent.click(await screen.findByTestId("workflow-run-open"));
@@ -7217,7 +8055,9 @@ describe("WorkflowDetail calibration", () => {
       expect(screen.getByTestId("workflow-run-start")).toBeDisabled(),
     );
     await waitFor(() =>
-      expect(screen.queryByTestId("workflow-pause-toggle")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByTestId("workflow-pause-toggle"),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.getByText("archived")).toBeInTheDocument();
 
@@ -7294,14 +8134,18 @@ describe("WorkflowDetail calibration", () => {
                   node_type: "agent",
                   status: "ok",
                   output: "Policy-backed answer",
-                  tool_calls: [{ tool: "lookup_policy", result: { policy: "refund" } }],
+                  tool_calls: [
+                    { tool: "lookup_policy", result: { policy: "refund" } },
+                  ],
                   handoff_target: null,
                   detail: "tool grounded",
                   duration_ms: 18,
                   input_by_port: { input: "customer message" },
                   output_by_port: {
                     final_output: "Policy-backed answer",
-                    tool_calls: [{ tool: "lookup_policy", result: { policy: "refund" } }],
+                    tool_calls: [
+                      { tool: "lookup_policy", result: { policy: "refund" } },
+                    ],
                   },
                 },
               },
@@ -7373,21 +8217,51 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-DBG"));
 
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("support_agent");
-    expect(screen.getByTestId("workflow-run-step-tools")).toHaveTextContent("lookup_policy");
-    expect(screen.getByTestId("node-detail-panel")).toHaveTextContent("support-agent");
-    expect(screen.getByTestId("workflow-run-step-button-1")).toHaveTextContent("Checkpoint");
-    expect(screen.getByTestId("workflow-run-step-input-ports")).toHaveTextContent("customer message");
-    expect(screen.getByTestId("workflow-run-step-output-ports")).toHaveTextContent("Policy-backed answer");
-    expect(screen.getByTestId("workflow-run-step-diff-transition")).toHaveTextContent("user_message");
-    expect(screen.getByTestId("workflow-run-step-diff-transition")).toHaveTextContent("input");
-    expect(screen.getByTestId("workflow-run-step-diff-transform")).toHaveTextContent("final_output");
-    expect(screen.getByTestId("workflow-run-step-diff-transform")).toHaveTextContent("tool_calls");
-    expect(screen.getByTestId("workflow-run-event-timeline")).toHaveTextContent("workflow.run.completed");
-    expect(screen.getByTestId("workflow-run-file-scope")).toHaveTextContent("Focused on support_agent");
-    expect(await screen.findByTestId("workflow-run-file-FILE-SUPPORT")).toBeInTheDocument();
-    expect(screen.queryByTestId("workflow-run-file-FILE-START")).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent(
+      "support_agent",
+    );
+    expect(screen.getByTestId("workflow-run-step-tools")).toHaveTextContent(
+      "lookup_policy",
+    );
+    expect(screen.getByTestId("node-detail-panel")).toHaveTextContent(
+      "support-agent",
+    );
+    expect(screen.getByTestId("workflow-run-step-button-1")).toHaveTextContent(
+      "Checkpoint",
+    );
+    expect(
+      screen.getByTestId("workflow-run-step-input-ports"),
+    ).toHaveTextContent("customer message");
+    expect(
+      screen.getByTestId("workflow-run-step-output-ports"),
+    ).toHaveTextContent("Policy-backed answer");
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transition"),
+    ).toHaveTextContent("user_message");
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transition"),
+    ).toHaveTextContent("input");
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transform"),
+    ).toHaveTextContent("final_output");
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transform"),
+    ).toHaveTextContent("tool_calls");
+    expect(screen.getByTestId("workflow-run-event-timeline")).toHaveTextContent(
+      "workflow.run.completed",
+    );
+    expect(screen.getByTestId("workflow-run-file-scope")).toHaveTextContent(
+      "Focused on support_agent",
+    );
+    expect(
+      await screen.findByTestId("workflow-run-file-FILE-SUPPORT"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("workflow-run-file-FILE-START"),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("workflow-run-step-button-0"));
 
@@ -7396,17 +8270,35 @@ describe("WorkflowDetail calibration", () => {
     expect(detail).toHaveTextContent("customer message");
     expect(detail).toHaveTextContent("captured trigger input");
     expect(screen.getByTestId("node-detail-panel")).toHaveTextContent("start");
-    expect(screen.getByTestId("workflow-run-step-output-ports")).toHaveTextContent("user_message");
-    expect(screen.getByTestId("workflow-run-step-diff-transform")).toHaveTextContent("user_message");
-    expect(screen.getByTestId("workflow-run-file-scope")).toHaveTextContent("Focused on start");
-    expect(await screen.findByTestId("workflow-run-file-FILE-START")).toBeInTheDocument();
-    expect(screen.queryByTestId("workflow-run-file-FILE-SUPPORT")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("workflow-run-step-output-ports"),
+    ).toHaveTextContent("user_message");
+    expect(
+      screen.getByTestId("workflow-run-step-diff-transform"),
+    ).toHaveTextContent("user_message");
+    expect(screen.getByTestId("workflow-run-file-scope")).toHaveTextContent(
+      "Focused on start",
+    );
+    expect(
+      await screen.findByTestId("workflow-run-file-FILE-START"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("workflow-run-file-FILE-SUPPORT"),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("trace-path-step-1"));
-    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("support_agent");
-    expect(screen.getByTestId("node-detail-panel")).toHaveTextContent("support-agent");
-    expect(screen.getByTestId("workflow-run-file-scope")).toHaveTextContent("Focused on support_agent");
-    expect(await screen.findByTestId("workflow-run-file-FILE-SUPPORT")).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent(
+      "support_agent",
+    );
+    expect(screen.getByTestId("node-detail-panel")).toHaveTextContent(
+      "support-agent",
+    );
+    expect(screen.getByTestId("workflow-run-file-scope")).toHaveTextContent(
+      "Focused on support_agent",
+    );
+    expect(
+      await screen.findByTestId("workflow-run-file-FILE-SUPPORT"),
+    ).toBeInTheDocument();
   });
 
   it("shows workflow session memory for a run and lets operators clear it", async () => {
@@ -7446,24 +8338,30 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-MEM"));
 
-    expect(await screen.findByTestId("workflow-session-memory-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-session-memory-entry-support_agent")).toHaveTextContent(
-      "Need the refund policy",
-    );
-    expect(screen.getByTestId("workflow-session-memory-entry-support_agent")).toHaveTextContent(
-      "Policy-backed answer",
-    );
+    expect(
+      await screen.findByTestId("workflow-session-memory-panel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("workflow-session-memory-entry-support_agent"),
+    ).toHaveTextContent("Need the refund policy");
+    expect(
+      screen.getByTestId("workflow-session-memory-entry-support_agent"),
+    ).toHaveTextContent("Policy-backed answer");
 
-    await userEvent.click(screen.getByTestId("workflow-session-memory-clear-session"));
+    await userEvent.click(
+      screen.getByTestId("workflow-session-memory-clear-session"),
+    );
 
     await waitFor(() =>
-      expect(screen.getByTestId("workflow-session-memory-empty")).toHaveTextContent(
+      expect(
+        screen.getByTestId("workflow-session-memory-empty"),
+      ).toHaveTextContent(
         "No persisted memory was recorded for this session during the completed run.",
       ),
     );
-    expect(screen.getByTestId("workflow-session-memory-empty")).toHaveTextContent(
-      "inspect the debugger or final outputs",
-    );
+    expect(
+      screen.getByTestId("workflow-session-memory-empty"),
+    ).toHaveTextContent("inspect the debugger or final outputs");
     expect(screen.getByTestId("workflow-run-message")).toHaveTextContent(
       "Cleared 2 message(s) from session thread-42.",
     );
@@ -7490,15 +8388,17 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-MEM-STOPPED"));
 
-    expect(await screen.findByTestId("workflow-session-memory-empty")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-session-memory-empty"),
+    ).toHaveTextContent(
       "No persisted memory was recorded for this session before the run stopped.",
     );
-    expect(screen.getByTestId("workflow-session-memory-empty")).toHaveTextContent(
-      "Inspect the debugger and recovery panels",
-    );
-    expect(screen.getByTestId("workflow-session-memory-empty")).toHaveTextContent(
-      "when you retry or rerun it",
-    );
+    expect(
+      screen.getByTestId("workflow-session-memory-empty"),
+    ).toHaveTextContent("Inspect the debugger and recovery panels");
+    expect(
+      screen.getByTestId("workflow-session-memory-empty"),
+    ).toHaveTextContent("when you retry or rerun it");
   });
 
   it("turns missing workflow session ids into stopped-run guidance", async () => {
@@ -7517,15 +8417,19 @@ describe("WorkflowDetail calibration", () => {
 
     renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
     await userEvent.click(await screen.findByTestId("tab-runs"));
-    await userEvent.click(await screen.findByTestId("run-WR-NO-SESSION-STOPPED"));
+    await userEvent.click(
+      await screen.findByTestId("run-WR-NO-SESSION-STOPPED"),
+    );
 
-    expect(await screen.findByTestId("workflow-session-memory-missing")).toHaveTextContent(
-      "This run stopped without setting a shared session_id",
-    );
-    expect(screen.getByTestId("workflow-session-memory-missing")).toHaveTextContent(
-      "Inspect the debugger and recovery panels",
-    );
-    expect(screen.getByTestId("workflow-session-memory-missing")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-session-memory-missing"),
+    ).toHaveTextContent("This run stopped without setting a shared session_id");
+    expect(
+      screen.getByTestId("workflow-session-memory-missing"),
+    ).toHaveTextContent("Inspect the debugger and recovery panels");
+    expect(
+      screen.getByTestId("workflow-session-memory-missing"),
+    ).toHaveTextContent(
       "retry or rerun it with the session_id you want to reuse",
     );
   });
@@ -7554,27 +8458,33 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-SESSION-ERROR"));
 
-    expect(await screen.findByTestId("workflow-session-memory-error")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-session-memory-error"),
+    ).toHaveTextContent(
       "Session memory could not be loaded for this stopped run",
     );
-    expect(screen.getByTestId("workflow-session-memory-error")).toHaveTextContent(
-      "Inspect the debugger and recovery panels",
-    );
-    expect(screen.getByTestId("workflow-session-memory-error")).toHaveTextContent(
-      "rerun with the same session_id",
-    );
-    expect(screen.getByTestId("workflow-session-memory-error")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-session-memory-error"),
+    ).toHaveTextContent("Inspect the debugger and recovery panels");
+    expect(
+      screen.getByTestId("workflow-session-memory-error"),
+    ).toHaveTextContent("rerun with the same session_id");
+    expect(
+      screen.getByTestId("workflow-session-memory-error"),
+    ).toHaveTextContent(
       "Latest lookup error: session memory backend timed out",
     );
   });
 
   it("turns checkpoint lookup failures into stopped-run recovery guidance in workflow detail", async () => {
     server.use(
-      http.get(`${API_BASE}/workflow-runs/WR-CHECKPOINT-ERROR/checkpoints`, () =>
-        HttpResponse.json(
-          { detail: "checkpoint store timed out" },
-          { status: 503 },
-        ),
+      http.get(
+        `${API_BASE}/workflow-runs/WR-CHECKPOINT-ERROR/checkpoints`,
+        () =>
+          HttpResponse.json(
+            { detail: "checkpoint store timed out" },
+            { status: 503 },
+          ),
       ),
       ...detailHandlers({
         runs: [
@@ -7597,18 +8507,20 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-CHECKPOINT-ERROR"));
 
-    expect(await screen.findByTestId("workflow-run-checkpoints-error")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-run-checkpoints-error"),
+    ).toHaveTextContent(
       "Resume checkpoints could not be loaded for this stopped run.",
     );
-    expect(screen.getByTestId("workflow-run-checkpoints-error")).toHaveTextContent(
-      "Inspect the recovery, debugger, and lineage panels",
-    );
-    expect(screen.getByTestId("workflow-run-checkpoints-error")).toHaveTextContent(
-      "checkpoint trail could be restored",
-    );
-    expect(screen.getByTestId("workflow-run-checkpoints-error")).toHaveTextContent(
-      "Latest checkpoint error: checkpoint store timed out",
-    );
+    expect(
+      screen.getByTestId("workflow-run-checkpoints-error"),
+    ).toHaveTextContent("Inspect the recovery, debugger, and lineage panels");
+    expect(
+      screen.getByTestId("workflow-run-checkpoints-error"),
+    ).toHaveTextContent("checkpoint trail could be restored");
+    expect(
+      screen.getByTestId("workflow-run-checkpoints-error"),
+    ).toHaveTextContent("Latest checkpoint error: checkpoint store timed out");
   });
 
   it("turns approval lookup failures into stopped-run recovery guidance in workflow detail", async () => {
@@ -7667,16 +8579,22 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-APPROVAL-ERROR"));
 
-    expect(await screen.findByTestId("workflow-run-recovery-approvals-error")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-run-recovery-approvals-error"),
+    ).toHaveTextContent(
       "Runtime approval history could not be loaded for this stopped run.",
     );
-    expect(screen.getByTestId("workflow-run-recovery-approvals-error")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-recovery-approvals-error"),
+    ).toHaveTextContent(
       "Recovery diagnostics may still show checkpoints and lifecycle history",
     );
-    expect(screen.getByTestId("workflow-run-recovery-approvals-error")).toHaveTextContent(
-      "Latest approval error: approval store timed out",
+    expect(
+      screen.getByTestId("workflow-run-recovery-approvals-error"),
+    ).toHaveTextContent("Latest approval error: approval store timed out");
+    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
+      "Terminal state",
     );
-    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent("Terminal state");
   });
 
   it("shows an explicit resume note when approval records fail to load for a paused detail run", async () => {
@@ -7731,16 +8649,22 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-APPROVAL-LOAD"));
 
-    expect(await screen.findByTestId("run-resume-capability-note")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-resume-capability-note"),
+    ).toHaveTextContent(
       "Manual resume is unavailable because runtime approval records could not be loaded.",
     );
     expect(screen.getByTestId("run-resume-capability-note")).toHaveTextContent(
       "inspect recovery diagnostics before continuing this run",
     );
-    expect(screen.getByTestId("run-approval-capability-note")).toHaveTextContent(
+    expect(
+      screen.getByTestId("run-approval-capability-note"),
+    ).toHaveTextContent(
       "Approval actions are unavailable because runtime approval records could not be loaded.",
     );
-    expect(screen.getByTestId("run-approval-capability-note")).toHaveTextContent(
+    expect(
+      screen.getByTestId("run-approval-capability-note"),
+    ).toHaveTextContent(
       "inspect recovery diagnostics before continuing this run",
     );
     expect(screen.queryByTestId("run-resume")).not.toBeInTheDocument();
@@ -7780,13 +8704,19 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-RETRIED"));
 
-    expect(await screen.findByTestId("workflow-run-checkpoint-source-error")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-run-checkpoint-source-error"),
+    ).toHaveTextContent(
       "CALIBER could not load the original source checkpoint details",
     );
-    expect(screen.getByTestId("workflow-run-checkpoint-source-error")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-checkpoint-source-error"),
+    ).toHaveTextContent(
       "Inspect the lineage, recovery, and debugger panels to trace where the inherited resume path failed",
     );
-    expect(screen.getByTestId("workflow-run-checkpoint-source-error")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-checkpoint-source-error"),
+    ).toHaveTextContent(
       "Latest source checkpoint error: source checkpoint store timed out",
     );
   });
@@ -7794,10 +8724,7 @@ describe("WorkflowDetail calibration", () => {
   it("turns run-event lookup failures into stopped-run replay guidance in workflow detail", async () => {
     server.use(
       http.get(`${API_BASE}/workflow-runs/WR-EVENTS-ERROR/events`, () =>
-        HttpResponse.json(
-          { detail: "event store timed out" },
-          { status: 503 },
-        ),
+        HttpResponse.json({ detail: "event store timed out" }, { status: 503 }),
       ),
       ...detailHandlers({
         runs: [
@@ -7819,27 +8746,33 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-EVENTS-ERROR"));
 
-    expect(await screen.findByTestId("run-trace-replay-events-error")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-trace-replay-events-error"),
+    ).toHaveTextContent(
       "Persisted run events could not be loaded for this stopped run.",
     );
-    expect(screen.getByTestId("run-trace-replay-events-error")).toHaveTextContent(
-      "inspect the recovery, checkpoint, and lineage panels",
-    );
-    expect(screen.getByTestId("run-trace-replay-events-error")).toHaveTextContent(
-      "Latest event error: event store timed out",
-    );
+    expect(
+      screen.getByTestId("run-trace-replay-events-error"),
+    ).toHaveTextContent("inspect the recovery, checkpoint, and lineage panels");
+    expect(
+      screen.getByTestId("run-trace-replay-events-error"),
+    ).toHaveTextContent("Latest event error: event store timed out");
     expect(screen.getByTestId("run-debugger-events-error")).toHaveTextContent(
       "manifest-aware debugging are unavailable",
     );
-    expect(screen.getByTestId("workflow-run-recovery-events-error")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-recovery-events-error"),
+    ).toHaveTextContent(
       "Recovery timeline events could not be loaded for this stopped run.",
     );
-    expect(screen.getByTestId("workflow-run-recovery-events-error")).toHaveTextContent(
+    expect(
+      screen.getByTestId("workflow-run-recovery-events-error"),
+    ).toHaveTextContent(
       "Use the current status and debugger state above to trace where execution stopped.",
     );
-    expect(screen.getByTestId("workflow-run-recovery-events-error")).toHaveTextContent(
-      "Latest recovery event error: event store timed out",
-    );
+    expect(
+      screen.getByTestId("workflow-run-recovery-events-error"),
+    ).toHaveTextContent("Latest recovery event error: event store timed out");
     expect(screen.getByTestId("run-recovery-section")).toBeInTheDocument();
     expect(screen.getByTestId("run-checkpoints-section")).toBeInTheDocument();
   });
@@ -7936,22 +8869,42 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-CP"));
 
-    expect(await screen.findByTestId("workflow-run-checkpoint-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-checkpoint-item-2")).toHaveTextContent("Scheduled wait");
-    expect(screen.getByTestId("workflow-run-checkpoint-detail")).toHaveTextContent(
-      "Current resume target",
+    expect(
+      await screen.findByTestId("workflow-run-checkpoint-panel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("workflow-run-checkpoint-item-2"),
+    ).toHaveTextContent("Scheduled wait");
+    expect(
+      screen.getByTestId("workflow-run-checkpoint-detail"),
+    ).toHaveTextContent("Current resume target");
+    expect(
+      screen.getByTestId("workflow-run-checkpoint-detail"),
+    ).toHaveTextContent("2026-01-02T12:00:00Z");
+    expect(
+      screen.getByTestId("workflow-run-checkpoint-json"),
+    ).toHaveTextContent('"timezone": "UTC"');
+    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent(
+      "Scheduled resume",
     );
-    expect(screen.getByTestId("workflow-run-checkpoint-detail")).toHaveTextContent(
-      "2026-01-02T12:00:00Z",
+    expect(
+      screen.getByTestId("workflow-run-recovery-events"),
+    ).toHaveTextContent("Waiting for event");
+    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent(
+      "Scheduled wait",
     );
-    expect(screen.getByTestId("workflow-run-checkpoint-json")).toHaveTextContent("\"timezone\": \"UTC\"");
-    expect(screen.getByTestId("workflow-run-recovery-panel")).toHaveTextContent("Scheduled resume");
-    expect(screen.getByTestId("workflow-run-recovery-events")).toHaveTextContent("Waiting for event");
-    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent("Scheduled wait");
-    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent("Resume target");
-    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent("Paused for event");
-    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent("Resumed");
-    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent("Resume 2026-01-02T12:00:00Z (UTC)");
+    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent(
+      "Resume target",
+    );
+    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent(
+      "Paused for event",
+    );
+    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent(
+      "Resumed",
+    );
+    expect(screen.getByTestId("trace-path-step-1")).toHaveTextContent(
+      "Resume 2026-01-02T12:00:00Z (UTC)",
+    );
   });
 
   it("retries a failed run from the selected checkpoint", async () => {
@@ -8025,28 +8978,31 @@ describe("WorkflowDetail calibration", () => {
           ],
         },
       }),
-      http.post(`${API_BASE}/workflow-runs/WR-CP-FAILED/retry`, async ({ request }) => {
-        retryBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(
-          envelope(
-            makeRun({
-              workflow_run_id: "WR-CP-FAILED-RETRY",
-              status: "queued",
-              current_node_id: null,
-              completed_at: null,
-              summary: {
-                output: "",
-                node_path: [],
-                steps: [],
-                retry_of: "WR-CP-FAILED",
-                retry_mode: "checkpoint",
-                resume_checkpoint_id: "CP-1",
-                resume_checkpoint_run_id: "WR-CP-FAILED",
-              },
-            }),
-          ),
-        );
-      }),
+      http.post(
+        `${API_BASE}/workflow-runs/WR-CP-FAILED/retry`,
+        async ({ request }) => {
+          retryBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope(
+              makeRun({
+                workflow_run_id: "WR-CP-FAILED-RETRY",
+                status: "queued",
+                current_node_id: null,
+                completed_at: null,
+                summary: {
+                  output: "",
+                  node_path: [],
+                  steps: [],
+                  retry_of: "WR-CP-FAILED",
+                  retry_mode: "checkpoint",
+                  resume_checkpoint_id: "CP-1",
+                  resume_checkpoint_run_id: "WR-CP-FAILED",
+                },
+              }),
+            ),
+          );
+        },
+      ),
     );
 
     const user = userEvent.setup();
@@ -8054,23 +9010,25 @@ describe("WorkflowDetail calibration", () => {
     await user.click(await screen.findByTestId("tab-runs"));
     await user.click(await screen.findByTestId("run-WR-CP-FAILED"));
 
-    expect(await screen.findByTestId("workflow-run-checkpoint-retry")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-run-checkpoint-retry"),
+    ).toBeInTheDocument();
     await user.click(screen.getByTestId("workflow-run-checkpoint-item-1"));
     await user.click(screen.getByTestId("workflow-run-checkpoint-retry"));
 
-    await waitFor(() =>
-      expect(retryBody).toEqual({ checkpoint_id: "CP-1" }),
-    );
+    await waitFor(() => expect(retryBody).toEqual({ checkpoint_id: "CP-1" }));
     expect(await screen.findByTestId("workflow-run-message")).toHaveTextContent(
       "Retry from checkpoint CP-1 queued as WR-CP-FAILED-RETRY.",
     );
-    expect(await screen.findByTestId("workflow-run-checkpoint-panel")).toHaveTextContent(
-      "resumes from CP-1 captured on WR-CP-FAILED",
-    );
-    expect(screen.getByTestId("workflow-run-checkpoint-item-source")).toHaveTextContent(
-      "Inherited",
-    );
-    expect(screen.queryByTestId("workflow-run-checkpoint-retry")).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-run-checkpoint-panel"),
+    ).toHaveTextContent("resumes from CP-1 captured on WR-CP-FAILED");
+    expect(
+      screen.getByTestId("workflow-run-checkpoint-item-source"),
+    ).toHaveTextContent("Inherited");
+    expect(
+      screen.queryByTestId("workflow-run-checkpoint-retry"),
+    ).not.toBeInTheDocument();
   });
 
   it("pins run replay and debugger to the selected run's workflow version", async () => {
@@ -8079,7 +9037,11 @@ describe("WorkflowDetail calibration", () => {
       workflow_id: "WF-1",
       name: "Support v1",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         legacy_agent: {
           id: "legacy_agent",
           type: "agent",
@@ -8090,11 +9052,25 @@ describe("WorkflowDetail calibration", () => {
           inputs: { input: { type: "string" } },
           outputs: { final_output: { type: "string" } },
         },
-        final: { id: "final", type: "output", inputs: { response: { type: "string" } } },
+        final: {
+          id: "final",
+          type: "output",
+          inputs: { response: { type: "string" } },
+        },
       },
       edges: [
-        { id: "legacy-e1", from: "start", to: "legacy_agent", map: { user_message: "input" } },
-        { id: "legacy-e2", from: "legacy_agent", to: "final", map: { final_output: "response" } },
+        {
+          id: "legacy-e1",
+          from: "start",
+          to: "legacy_agent",
+          map: { user_message: "input" },
+        },
+        {
+          id: "legacy-e2",
+          from: "legacy_agent",
+          to: "final",
+          map: { final_output: "response" },
+        },
       ],
     };
 
@@ -8156,13 +9132,21 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-LEGACY"));
 
-    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent("workflow v1");
+    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent(
+      "workflow v1",
+    );
     expect(await screen.findByTestId("run-version-notice")).toHaveTextContent(
       "latest published version is v2",
     );
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
-    expect(screen.getByTestId("step-preview-input")).toHaveTextContent("start:");
-    expect(screen.getByTestId("step-preview-input")).toHaveTextContent("legacy customer message");
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("step-preview-input")).toHaveTextContent(
+      "start:",
+    );
+    expect(screen.getByTestId("step-preview-input")).toHaveTextContent(
+      "legacy customer message",
+    );
   });
 
   it("falls back to directly loading a historical workflow version when the run manifest is unavailable", async () => {
@@ -8171,7 +9155,11 @@ describe("WorkflowDetail calibration", () => {
       workflow_id: "WF-1",
       name: "Support v1",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         legacy_agent: {
           id: "legacy_agent",
           type: "agent",
@@ -8182,11 +9170,25 @@ describe("WorkflowDetail calibration", () => {
           inputs: { input: { type: "string" } },
           outputs: { final_output: { type: "string" } },
         },
-        final: { id: "final", type: "output", inputs: { response: { type: "string" } } },
+        final: {
+          id: "final",
+          type: "output",
+          inputs: { response: { type: "string" } },
+        },
       },
       edges: [
-        { id: "legacy-e1", from: "start", to: "legacy_agent", map: { user_message: "input" } },
-        { id: "legacy-e2", from: "legacy_agent", to: "final", map: { final_output: "response" } },
+        {
+          id: "legacy-e1",
+          from: "start",
+          to: "legacy_agent",
+          map: { user_message: "input" },
+        },
+        {
+          id: "legacy-e2",
+          from: "legacy_agent",
+          to: "final",
+          map: { final_output: "response" },
+        },
       ],
     };
 
@@ -8257,17 +9259,25 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-LEGACY-FALLBACK"));
 
-    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent("workflow v1");
+    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent(
+      "workflow v1",
+    );
     expect(await screen.findByTestId("run-version-notice")).toHaveTextContent(
       "latest published version is v2",
     );
-    expect(await screen.findByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "workflow version v1 because the persisted run manifest could not be loaded separately",
     );
-    expect(screen.getByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      screen.getByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "confirm the terminal result with the debugger, final outputs, and generated artifacts",
     );
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("trace-steps")).toHaveTextContent("legacy_agent");
     expect(screen.queryByTestId("run-version-missing")).not.toBeInTheDocument();
   });
@@ -8278,7 +9288,11 @@ describe("WorkflowDetail calibration", () => {
       workflow_id: "WF-1",
       name: "Support v1",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         wait_gate: {
           id: "wait_gate",
           type: "wait_for_event",
@@ -8287,7 +9301,12 @@ describe("WorkflowDetail calibration", () => {
         },
       },
       edges: [
-        { id: "legacy-e1", from: "start", to: "wait_gate", map: { user_message: "ticket_id" } },
+        {
+          id: "legacy-e1",
+          from: "start",
+          to: "wait_gate",
+          map: { user_message: "ticket_id" },
+        },
       ],
     };
 
@@ -8352,10 +9371,14 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-LEGACY-WAIT"));
 
-    expect(await screen.findByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "workflow version v1 because the persisted run manifest could not be loaded separately",
     );
-    expect(screen.getByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      screen.getByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "rely on the recovery and checkpoint panels for authoritative resume state",
     );
     expect(screen.queryByTestId("run-version-missing")).not.toBeInTheDocument();
@@ -8367,7 +9390,11 @@ describe("WorkflowDetail calibration", () => {
       workflow_id: "WF-1",
       name: "Support v1",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         legacy_agent: {
           id: "legacy_agent",
           type: "agent",
@@ -8378,11 +9405,25 @@ describe("WorkflowDetail calibration", () => {
           inputs: { input: { type: "string" } },
           outputs: { final_output: { type: "string" } },
         },
-        final: { id: "final", type: "output", inputs: { response: { type: "string" } } },
+        final: {
+          id: "final",
+          type: "output",
+          inputs: { response: { type: "string" } },
+        },
       },
       edges: [
-        { id: "legacy-e1", from: "start", to: "legacy_agent", map: { user_message: "input" } },
-        { id: "legacy-e2", from: "legacy_agent", to: "final", map: { final_output: "response" } },
+        {
+          id: "legacy-e1",
+          from: "start",
+          to: "legacy_agent",
+          map: { user_message: "input" },
+        },
+        {
+          id: "legacy-e2",
+          from: "legacy_agent",
+          to: "final",
+          map: { final_output: "response" },
+        },
       ],
     };
 
@@ -8450,11 +9491,15 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-LEGACY-PERSISTED"));
 
-    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent("workflow v1");
+    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent(
+      "workflow v1",
+    );
     expect(await screen.findByTestId("run-version-notice")).toHaveTextContent(
       "latest published version is v2",
     );
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("trace-steps")).toHaveTextContent("legacy_agent");
     expect(screen.queryByTestId("run-version-missing")).not.toBeInTheDocument();
   });
@@ -8499,10 +9544,14 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-SYNTH-DONE"));
 
-    expect(await screen.findByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "graph reconstructed from recorded run history and checkpoints",
     );
-    expect(screen.getByTestId("run-manifest-fallback-notice")).toHaveTextContent(
+    expect(
+      screen.getByTestId("run-manifest-fallback-notice"),
+    ).toHaveTextContent(
       "confirm the terminal result with the debugger, final outputs, and generated artifacts",
     );
     expect(screen.queryByTestId("run-version-missing")).not.toBeInTheDocument();
@@ -8514,7 +9563,11 @@ describe("WorkflowDetail calibration", () => {
       workflow_id: "WF-1",
       name: "Support draft snapshot",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         snapshot_agent: {
           id: "snapshot_agent",
           type: "agent",
@@ -8525,11 +9578,25 @@ describe("WorkflowDetail calibration", () => {
           inputs: { input: { type: "string" } },
           outputs: { final_output: { type: "string" } },
         },
-        final: { id: "final", type: "output", inputs: { response: { type: "string" } } },
+        final: {
+          id: "final",
+          type: "output",
+          inputs: { response: { type: "string" } },
+        },
       },
       edges: [
-        { id: "snapshot-e1", from: "start", to: "snapshot_agent", map: { user_message: "input" } },
-        { id: "snapshot-e2", from: "snapshot_agent", to: "final", map: { final_output: "response" } },
+        {
+          id: "snapshot-e1",
+          from: "start",
+          to: "snapshot_agent",
+          map: { user_message: "input" },
+        },
+        {
+          id: "snapshot-e2",
+          from: "snapshot_agent",
+          to: "final",
+          map: { final_output: "response" },
+        },
       ],
     };
 
@@ -8597,14 +9664,24 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-SNAPSHOT"));
 
-    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent("workflow v2");
-    expect(await screen.findByTestId("run-manifest-mode-chip")).toHaveTextContent("draft snapshot");
-    expect(await screen.findByTestId("run-manifest-mode-notice")).toHaveTextContent(
-      "queued draft snapshot captured for this run",
+    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent(
+      "workflow v2",
     );
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
-    expect(screen.getByTestId("trace-steps")).toHaveTextContent("snapshot_agent");
-    expect(screen.getByTestId("step-preview-input")).toHaveTextContent("snapshot customer message");
+    expect(
+      await screen.findByTestId("run-manifest-mode-chip"),
+    ).toHaveTextContent("draft snapshot");
+    expect(
+      await screen.findByTestId("run-manifest-mode-notice"),
+    ).toHaveTextContent("queued draft snapshot captured for this run");
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("trace-steps")).toHaveTextContent(
+      "snapshot_agent",
+    );
+    expect(screen.getByTestId("step-preview-input")).toHaveTextContent(
+      "snapshot customer message",
+    );
   });
 
   it("keeps selected run details visible when only the per-run snapshot remains", async () => {
@@ -8613,7 +9690,11 @@ describe("WorkflowDetail calibration", () => {
       workflow_id: "WF-1",
       name: "Support draft snapshot",
       nodes: {
-        start: { id: "start", type: "start", outputs: { user_message: { type: "string" } } },
+        start: {
+          id: "start",
+          type: "start",
+          outputs: { user_message: { type: "string" } },
+        },
         snapshot_agent: {
           id: "snapshot_agent",
           type: "agent",
@@ -8624,11 +9705,25 @@ describe("WorkflowDetail calibration", () => {
           inputs: { input: { type: "string" } },
           outputs: { final_output: { type: "string" } },
         },
-        final: { id: "final", type: "output", inputs: { response: { type: "string" } } },
+        final: {
+          id: "final",
+          type: "output",
+          inputs: { response: { type: "string" } },
+        },
       },
       edges: [
-        { id: "snapshot-e1", from: "start", to: "snapshot_agent", map: { user_message: "input" } },
-        { id: "snapshot-e2", from: "snapshot_agent", to: "final", map: { final_output: "response" } },
+        {
+          id: "snapshot-e1",
+          from: "start",
+          to: "snapshot_agent",
+          map: { user_message: "input" },
+        },
+        {
+          id: "snapshot-e2",
+          from: "snapshot_agent",
+          to: "final",
+          map: { final_output: "response" },
+        },
       ],
     };
 
@@ -8691,13 +9786,21 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-ORPHAN-SNAPSHOT"));
 
-    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent("workflow v2");
-    expect(await screen.findByTestId("run-manifest-mode-chip")).toHaveTextContent("draft snapshot");
-    expect(await screen.findByTestId("run-manifest-mode-notice")).toHaveTextContent(
-      "queued draft snapshot captured for this run",
+    expect(await screen.findByTestId("run-version-chip")).toHaveTextContent(
+      "workflow v2",
     );
-    expect(await screen.findByTestId("workflow-run-debugger")).toBeInTheDocument();
-    expect(screen.getByTestId("trace-steps")).toHaveTextContent("snapshot_agent");
+    expect(
+      await screen.findByTestId("run-manifest-mode-chip"),
+    ).toHaveTextContent("draft snapshot");
+    expect(
+      await screen.findByTestId("run-manifest-mode-notice"),
+    ).toHaveTextContent("queued draft snapshot captured for this run");
+    expect(
+      await screen.findByTestId("workflow-run-debugger"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("trace-steps")).toHaveTextContent(
+      "snapshot_agent",
+    );
     expect(screen.queryByTestId("run-version-missing")).not.toBeInTheDocument();
     expect(screen.queryByTestId("run-version-notice")).not.toBeInTheDocument();
   });
@@ -8748,7 +9851,9 @@ describe("WorkflowDetail calibration", () => {
     expect(screen.getByTestId("run-version-missing")).toHaveTextContent(
       "Use the checkpoint, recovery, and retry-lineage panels below to keep tracing the persisted execution evidence until the graph can be restored.",
     );
-    expect(screen.queryByTestId("workflow-run-debugger")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("workflow-run-debugger"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("run-checkpoints-section")).toBeInTheDocument();
     expect(screen.getByTestId("run-recovery-section")).toBeInTheDocument();
     expect(screen.getByTestId("run-lineage-section")).toBeInTheDocument();
@@ -8785,13 +9890,25 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-A2"));
 
-    expect(await screen.findByTestId("workflow-run-lineage-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("workflow-run-lineage-panel")).toHaveTextContent("Attempt 2 of 3");
-    expect(screen.getByTestId("workflow-run-lineage-item-WR-A1")).toHaveTextContent("root");
-    expect(screen.getByTestId("workflow-run-lineage-item-WR-A3")).toHaveTextContent("child");
+    expect(
+      await screen.findByTestId("workflow-run-lineage-panel"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-run-lineage-panel")).toHaveTextContent(
+      "Attempt 2 of 3",
+    );
+    expect(
+      screen.getByTestId("workflow-run-lineage-item-WR-A1"),
+    ).toHaveTextContent("root");
+    expect(
+      screen.getByTestId("workflow-run-lineage-item-WR-A3"),
+    ).toHaveTextContent("child");
 
-    await userEvent.click(screen.getByTestId("workflow-run-lineage-item-WR-A1"));
-    expect(await screen.findByTestId("workflow-run-lineage-panel")).toHaveTextContent("Attempt 1 of 3");
+    await userEvent.click(
+      screen.getByTestId("workflow-run-lineage-item-WR-A1"),
+    );
+    expect(
+      await screen.findByTestId("workflow-run-lineage-panel"),
+    ).toHaveTextContent("Attempt 1 of 3");
   });
 
   it("keeps fallback retry lineage visible when canonical lineage lookup fails", async () => {
@@ -8832,7 +9949,9 @@ describe("WorkflowDetail calibration", () => {
     await userEvent.click(await screen.findByTestId("tab-runs"));
     await userEvent.click(await screen.findByTestId("run-WR-A2"));
 
-    expect(await screen.findByTestId("workflow-run-lineage-error")).toHaveTextContent(
+    expect(
+      await screen.findByTestId("workflow-run-lineage-error"),
+    ).toHaveTextContent(
       "Canonical retry lineage could not be loaded for this stopped run.",
     );
     expect(screen.getByTestId("workflow-run-lineage-error")).toHaveTextContent(
@@ -8841,9 +9960,15 @@ describe("WorkflowDetail calibration", () => {
     expect(screen.getByTestId("workflow-run-lineage-error")).toHaveTextContent(
       "Latest lineage error: lineage store timed out",
     );
-    expect(screen.getByTestId("workflow-run-lineage-panel")).toHaveTextContent("Attempt 2 of 3");
-    expect(screen.getByTestId("workflow-run-lineage-item-WR-A1")).toHaveTextContent("root");
-    expect(screen.getByTestId("workflow-run-lineage-item-WR-A3")).toHaveTextContent("child");
+    expect(screen.getByTestId("workflow-run-lineage-panel")).toHaveTextContent(
+      "Attempt 2 of 3",
+    );
+    expect(
+      screen.getByTestId("workflow-run-lineage-item-WR-A1"),
+    ).toHaveTextContent("root");
+    expect(
+      screen.getByTestId("workflow-run-lineage-item-WR-A3"),
+    ).toHaveTextContent("child");
   });
 
   it("links selected runs to MLflow when the workflow experiment id is known", async () => {
@@ -8876,6 +10001,60 @@ import { ToolDetail } from "@/pages/ToolDetail";
 import { WorkflowVersionDetail } from "@/pages/WorkflowVersionDetail";
 
 describe("WorkflowVersionDetail page", () => {
+  it("shows a recoverable error instead of loading forever when the version request fails", async () => {
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(
+          { detail: "workflow version not found" },
+          { status: 404 },
+        ),
+      ),
+    );
+
+    renderAt(
+      <WorkflowVersionDetail />,
+      "/workflow-versions/WFV-1",
+      "/workflow-versions/:versionId",
+    );
+
+    expect(
+      await screen.findByTestId("workflow-version-detail-error"),
+    ).toHaveTextContent("workflow version not found");
+    expect(screen.queryByText("Loading version…")).not.toBeInTheDocument();
+  });
+
+  it("keeps cached version content visible when a background refresh fails", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    qc.setQueryData(["workflow-version", "WFV-1"], makeVersion());
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(
+          { detail: "version refresh unavailable" },
+          { status: 503 },
+        ),
+      ),
+    );
+
+    renderAt(
+      <WorkflowVersionDetail />,
+      "/workflow-versions/WFV-1",
+      "/workflow-versions/:versionId",
+      qc,
+    );
+
+    expect(await screen.findByTestId("version-detail")).toHaveTextContent(
+      "Version v1",
+    );
+    expect(
+      await screen.findByTestId("workflow-version-refresh-warning"),
+    ).toHaveTextContent("version refresh unavailable");
+    expect(
+      screen.queryByTestId("workflow-version-detail-error"),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the manifest, validates, and shows export mode metadata", async () => {
     server.use(
       http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
@@ -8883,7 +10062,8 @@ describe("WorkflowVersionDetail page", () => {
           envelope(
             makeVersion({
               compiled_bundle: {
-                generated_python: "def run(input_text: str):\n    return input_text\n",
+                generated_python:
+                  "def run(input_text: str):\n    return input_text\n",
                 compiler_report: { export_mode: "runtime_ir" },
               },
             }),
@@ -8894,14 +10074,61 @@ describe("WorkflowVersionDetail page", () => {
         HttpResponse.json(envelope({ valid: true, errors: [], warnings: [] })),
       ),
     );
-    renderAt(<WorkflowVersionDetail />, "/workflow-versions/WFV-1", "/workflow-versions/:versionId");
+    renderAt(
+      <WorkflowVersionDetail />,
+      "/workflow-versions/WFV-1",
+      "/workflow-versions/:versionId",
+    );
     expect(await screen.findByTestId("version-detail")).toBeInTheDocument();
-    expect(screen.getByTestId("vd-manifest")).toHaveTextContent("support_agent");
-    expect(screen.getByTestId("vd-export-mode")).toHaveTextContent("Full runtime export");
+    expect(screen.getByTestId("vd-manifest")).toHaveTextContent(
+      "support_agent",
+    );
+    expect(screen.getByTestId("vd-export-mode")).toHaveTextContent(
+      "Full runtime export",
+    );
     await userEvent.click(screen.getByTestId("vd-validate"));
     await waitFor(() =>
-      expect(screen.getByTestId("wf-problems")).toHaveTextContent("No problems"),
+      expect(screen.getByTestId("wf-problems")).toHaveTextContent(
+        "No problems",
+      ),
     );
+  });
+
+  it("fetches version exports through the authenticated API client", async () => {
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    let manifestExports = 0;
+    let pythonExports = 0;
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion())),
+      ),
+      http.get(`${API_BASE}/workflow-versions/WFV-1/export/manifest`, () => {
+        manifestExports += 1;
+        return new HttpResponse("name: support", {
+          headers: { "Content-Type": "application/yaml" },
+        });
+      }),
+      http.get(`${API_BASE}/workflow-versions/WFV-1/export/python`, () => {
+        pythonExports += 1;
+        return new HttpResponse("def run(): pass", {
+          headers: { "Content-Type": "text/x-python" },
+        });
+      }),
+    );
+    renderAt(
+      <WorkflowVersionDetail />,
+      "/workflow-versions/WFV-1",
+      "/workflow-versions/:versionId",
+    );
+    await screen.findByTestId("version-detail");
+
+    await userEvent.click(screen.getByTestId("vd-export-manifest"));
+    await waitFor(() => expect(manifestExports).toBe(1));
+    await userEvent.click(screen.getByTestId("vd-export-python"));
+    await waitFor(() => expect(pythonExports).toBe(1));
+    clickSpy.mockRestore();
   });
 
   it("shows fresh compile outputs, requirements, and refetches the persisted version", async () => {
@@ -8916,8 +10143,12 @@ describe("WorkflowVersionDetail page", () => {
                 compiler_version: "compiler-2",
                 compiled_artifact_uri: "s3://compiled/workflows/WFV-1.py",
                 compiled_bundle: {
-                  generated_python: "def persisted_run(input_text: str):\n    return input_text.upper()\n",
-                  compiler_report: { export_mode: "runtime_ir", persisted: true },
+                  generated_python:
+                    "def persisted_run(input_text: str):\n    return input_text.upper()\n",
+                  compiler_report: {
+                    export_mode: "runtime_ir",
+                    persisted: true,
+                  },
                   requirements: ["openai-agents>=0.1.0", "mlflow>=3.12,<4"],
                 },
               }),
@@ -8934,7 +10165,8 @@ describe("WorkflowVersionDetail page", () => {
             compiler_version: "compiler-2",
             manifest_hash: "hash-compiled",
             report: { export_mode: "runtime_ir", compile_path: "fresh" },
-            generated_python: "def fresh_compile(input_text: str):\n    return input_text.upper()\n",
+            generated_python:
+              "def fresh_compile(input_text: str):\n    return input_text.upper()\n",
             requirements: ["openai-agents>=0.1.0", "mlflow>=3.12,<4"],
             compile_ms: 182,
             cached: false,
@@ -8943,23 +10175,41 @@ describe("WorkflowVersionDetail page", () => {
       ),
     );
 
-    renderAt(<WorkflowVersionDetail />, "/workflow-versions/WFV-1", "/workflow-versions/:versionId");
+    renderAt(
+      <WorkflowVersionDetail />,
+      "/workflow-versions/WFV-1",
+      "/workflow-versions/:versionId",
+    );
     expect(await screen.findByTestId("version-detail")).toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("vd-compile"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("vd-compiled-code")).toHaveTextContent("def fresh_compile"),
+      expect(screen.getByTestId("vd-compiled-code")).toHaveTextContent(
+        "def fresh_compile",
+      ),
     );
-    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent("hash-compiled");
-    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent("compiler-2");
-    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent("WFV-1.py");
-    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent("Fresh compile");
-    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent("182 ms");
+    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent(
+      "hash-compiled",
+    );
+    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent(
+      "compiler-2",
+    );
+    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent(
+      "WFV-1.py",
+    );
+    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent(
+      "Fresh compile",
+    );
+    expect(screen.getByTestId("vd-compile-summary")).toHaveTextContent(
+      "182 ms",
+    );
     expect(screen.getByTestId("vd-compile-requirements")).toHaveTextContent(
       "openai-agents>=0.1.0",
     );
-    expect(screen.getByTestId("vd-compile-report")).toHaveTextContent("runtime_ir");
+    expect(screen.getByTestId("vd-compile-report")).toHaveTextContent(
+      "runtime_ir",
+    );
 
     await waitFor(() => expect(getVersionCalls).toBeGreaterThanOrEqual(2));
   });
@@ -8974,7 +10224,10 @@ function makeTool(overrides: Record<string, unknown> = {}) {
     module_path: "m",
     callable_name: "lookup_policy",
     input_schema: null,
-    output_schema: { type: "object", properties: { policy: { type: "string" } } },
+    output_schema: {
+      type: "object",
+      properties: { policy: { type: "string" } },
+    },
     side_effect_level: "read",
     requires_approval: false,
     allow_in_preview: true,
@@ -8990,16 +10243,84 @@ function makeTool(overrides: Record<string, unknown> = {}) {
 }
 
 describe("ToolDetail page", () => {
+  beforeEach(() => {
+    server.use(
+      http.get(`${API_BASE}/tools/TL-1/versions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+  });
+
+  it("shows a recoverable error instead of loading forever when the tool request fails", async () => {
+    server.use(
+      http.get(`${API_BASE}/tools/TL-1`, () =>
+        HttpResponse.json({ detail: "tool not found" }, { status: 404 }),
+      ),
+      http.get(`${API_BASE}/tools/TL-1/usage`, () =>
+        HttpResponse.json(
+          envelope({ tool_id: "TL-1", name: "missing", usage: [] }),
+        ),
+      ),
+      http.get(`${API_BASE}/tools/TL-1/source`, () =>
+        HttpResponse.json({ detail: "tool source not found" }, { status: 404 }),
+      ),
+    );
+
+    renderAt(<ToolDetail />, "/tools/TL-1", "/tools/:toolId");
+
+    expect(await screen.findByTestId("tool-detail-error")).toHaveTextContent(
+      "tool not found",
+    );
+    expect(screen.queryByText("Loading tool…")).not.toBeInTheDocument();
+  });
+
+  it("keeps cached tool content visible when a background refresh fails", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    qc.setQueryData(["tool", "TL-1"], makeTool());
+    server.use(
+      http.get(`${API_BASE}/tools/TL-1`, () =>
+        HttpResponse.json(
+          { detail: "tool refresh unavailable" },
+          { status: 503 },
+        ),
+      ),
+      http.get(`${API_BASE}/tools/TL-1/usage`, () =>
+        HttpResponse.json(
+          envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] }),
+        ),
+      ),
+    );
+
+    renderAt(<ToolDetail />, "/tools/TL-1", "/tools/:toolId", qc);
+
+    expect(await screen.findByTestId("tool-detail")).toHaveTextContent(
+      "lookup_policy",
+    );
+    expect(
+      await screen.findByTestId("tool-detail-refresh-warning"),
+    ).toHaveTextContent("tool refresh unavailable");
+    expect(screen.queryByTestId("tool-detail-error")).not.toBeInTheDocument();
+  });
+
   it("renders the tool, schema, and usage", async () => {
     server.use(
-      http.get(`${API_BASE}/tools/TL-1`, () => HttpResponse.json(envelope(makeTool()))),
+      http.get(`${API_BASE}/tools/TL-1`, () =>
+        HttpResponse.json(envelope(makeTool())),
+      ),
       http.get(`${API_BASE}/tools/TL-1/usage`, () =>
         HttpResponse.json(
           envelope({
             tool_id: "TL-1",
             name: "lookup_policy",
             usage: [
-              { workflow_id: "WF-1", version_id: "WFV-1", version_number: 1, status: "published" },
+              {
+                workflow_id: "WF-1",
+                version_id: "WFV-1",
+                version_number: 1,
+                status: "published",
+              },
             ],
           }),
         ),
@@ -9007,17 +10328,25 @@ describe("ToolDetail page", () => {
     );
     renderAt(<ToolDetail />, "/tools/TL-1", "/tools/:toolId");
     expect(await screen.findByTestId("tool-detail")).toBeInTheDocument();
-    expect(screen.getByTestId("tool-edit-description")).toHaveValue("Reads policy");
-    expect(screen.getByTestId("tool-agent-binding")).toHaveTextContent("tool.lookup_policy.v1");
+    expect(screen.getByTestId("tool-edit-description")).toHaveValue(
+      "Reads policy",
+    );
+    expect(screen.getByTestId("tool-agent-binding")).toHaveTextContent(
+      "tool.lookup_policy.v1",
+    );
     expect(screen.getByTestId("tool-usage")).toHaveTextContent("WF-1");
   });
 
   it("deprecates the tool", async () => {
     let patched = false;
     server.use(
-      http.get(`${API_BASE}/tools/TL-1`, () => HttpResponse.json(envelope(makeTool()))),
+      http.get(`${API_BASE}/tools/TL-1`, () =>
+        HttpResponse.json(envelope(makeTool())),
+      ),
       http.get(`${API_BASE}/tools/TL-1/usage`, () =>
-        HttpResponse.json(envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] })),
+        HttpResponse.json(
+          envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] }),
+        ),
       ),
       http.patch(`${API_BASE}/tools/TL-1`, () => {
         patched = true;
@@ -9033,9 +10362,13 @@ describe("ToolDetail page", () => {
     let current = makeTool();
     let patchBody: Record<string, unknown> | null = null;
     server.use(
-      http.get(`${API_BASE}/tools/TL-1`, () => HttpResponse.json(envelope(current))),
+      http.get(`${API_BASE}/tools/TL-1`, () =>
+        HttpResponse.json(envelope(current)),
+      ),
       http.get(`${API_BASE}/tools/TL-1/usage`, () =>
-        HttpResponse.json(envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] })),
+        HttpResponse.json(
+          envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] }),
+        ),
       ),
       http.patch(`${API_BASE}/tools/TL-1`, async ({ request }) => {
         patchBody = (await request.json()) as Record<string, unknown>;
@@ -9047,9 +10380,18 @@ describe("ToolDetail page", () => {
     await screen.findByTestId("tool-detail");
 
     await userEvent.clear(screen.getByTestId("tool-edit-description"));
-    await userEvent.type(screen.getByTestId("tool-edit-description"), "Updated policy lookup");
-    await userEvent.selectOptions(screen.getByTestId("tool-edit-side-effect"), "write");
-    await userEvent.selectOptions(screen.getByTestId("tool-edit-status"), "deprecated");
+    await userEvent.type(
+      screen.getByTestId("tool-edit-description"),
+      "Updated policy lookup",
+    );
+    await userEvent.selectOptions(
+      screen.getByTestId("tool-edit-side-effect"),
+      "write",
+    );
+    await userEvent.selectOptions(
+      screen.getByTestId("tool-edit-status"),
+      "deprecated",
+    );
     await userEvent.clear(screen.getByTestId("tool-edit-owner"));
     await userEvent.type(screen.getByTestId("tool-edit-owner"), "@ops");
     await userEvent.click(screen.getByTestId("tool-edit-requires-approval"));
@@ -9066,22 +10408,31 @@ describe("ToolDetail page", () => {
       allow_in_preview: false,
       successor_tool_id: null,
     });
-    expect(await screen.findByTestId("tool-save-status")).toHaveTextContent("Saved");
+    expect(await screen.findByTestId("tool-save-status")).toHaveTextContent(
+      "Saved",
+    );
   });
 
   it("runs a tool with JSON input from the detail page", async () => {
     let runBody: Record<string, unknown> | null = null;
     server.use(
-      http.get(`${API_BASE}/tools/TL-1`, () => HttpResponse.json(envelope(makeTool()))),
+      http.get(`${API_BASE}/tools/TL-1`, () =>
+        HttpResponse.json(envelope(makeTool())),
+      ),
       http.get(`${API_BASE}/tools/TL-1/usage`, () =>
-        HttpResponse.json(envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] })),
+        HttpResponse.json(
+          envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] }),
+        ),
       ),
       http.post(`${API_BASE}/tools/TL-1/test-run`, async ({ request }) => {
         runBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(
           envelope({
             tool_id: "TL-1",
-            output: { policy: "Refunds are available.", query: (runBody.input as { query: string }).query },
+            output: {
+              policy: "Refunds are available.",
+              query: (runBody.input as { query: string }).query,
+            },
             mocked: false,
             duration_ms: 2,
             error: null,
@@ -9097,30 +10448,52 @@ describe("ToolDetail page", () => {
     });
     await userEvent.click(screen.getByTestId("tool-run"));
 
-    await waitFor(() => expect(runBody).toEqual({ input: { query: "refund" } }));
-    expect(await screen.findByTestId("tool-run-result")).toHaveTextContent("Refunds are available.");
-    expect(screen.getByTestId("tool-run-result")).toHaveTextContent("\"mocked\": false");
+    await waitFor(() =>
+      expect(runBody).toEqual({ input: { query: "refund" } }),
+    );
+    expect(await screen.findByTestId("tool-run-result")).toHaveTextContent(
+      "Refunds are available.",
+    );
+    expect(screen.getByTestId("tool-run-result")).toHaveTextContent(
+      '"mocked": false',
+    );
   });
 
   it("validates tool run input before calling the backend", async () => {
     let called = false;
     server.use(
-      http.get(`${API_BASE}/tools/TL-1`, () => HttpResponse.json(envelope(makeTool()))),
+      http.get(`${API_BASE}/tools/TL-1`, () =>
+        HttpResponse.json(envelope(makeTool())),
+      ),
       http.get(`${API_BASE}/tools/TL-1/usage`, () =>
-        HttpResponse.json(envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] })),
+        HttpResponse.json(
+          envelope({ tool_id: "TL-1", name: "lookup_policy", usage: [] }),
+        ),
       ),
       http.post(`${API_BASE}/tools/TL-1/test-run`, () => {
         called = true;
-        return HttpResponse.json(envelope({ tool_id: "TL-1", output: {}, mocked: false, duration_ms: 1, error: null }));
+        return HttpResponse.json(
+          envelope({
+            tool_id: "TL-1",
+            output: {},
+            mocked: false,
+            duration_ms: 1,
+            error: null,
+          }),
+        );
       }),
     );
     renderAt(<ToolDetail />, "/tools/TL-1", "/tools/:toolId");
     await screen.findByTestId("tool-detail");
 
-    fireEvent.change(screen.getByTestId("tool-run-input"), { target: { value: "[]" } });
+    fireEvent.change(screen.getByTestId("tool-run-input"), {
+      target: { value: "[]" },
+    });
     await userEvent.click(screen.getByTestId("tool-run"));
 
-    expect(await screen.findByTestId("tool-run-input-error")).toHaveTextContent("Tool input must be a JSON object.");
+    expect(await screen.findByTestId("tool-run-input-error")).toHaveTextContent(
+      "Tool input must be a JSON object.",
+    );
     expect(called).toBe(false);
   });
 });

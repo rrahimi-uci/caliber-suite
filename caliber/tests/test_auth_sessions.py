@@ -19,6 +19,7 @@ authorization. They pin four properties:
 from __future__ import annotations
 
 from collections.abc import Iterator
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -73,6 +74,9 @@ def session_client(tmp_path: object) -> Iterator[TestClient]:
             # trusted_header, and this file's whole subject is session mode.
             "CALIBER_AUTH_MODE": "session",
             "CALIBER_ADMIN_USERS": ADMIN_ID,
+            # This fixture creates its own named admin below. Keep the local
+            # bootstrap out so inventory assertions remain about that account.
+            "CALIBER_AUTH_BOOTSTRAP_ADMIN_USER": "",
             "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
             "CALIBER_ASSISTANT_ENGINE": "fake",
             # Plain HTTP in tests: a Secure cookie would be dropped by the client.
@@ -91,6 +95,33 @@ def session_client(tmp_path: object) -> Iterator[TestClient]:
     with TestClient(app) as client:
         yield client
     engine.dispose()
+
+
+@pytest.fixture
+def default_admin_client(tmp_path: object) -> Iterator[TestClient]:
+    """A fresh zero-credential app bootstraps the requested local superuser."""
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'default-admin.db'}",
+            "CALIBER_AUTH_MODE": "session",
+            "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
+            "CALIBER_ASSISTANT_ENGINE": "fake",
+            "CALIBER_AUTH_SESSION_COOKIE_SECURE": "false",
+            "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT": "true",
+            # The development launchers grant the bootstrap identity its admin
+            # scope explicitly.  Keep that authorization opt-in separate from
+            # merely creating an account named ``admin``.
+            "CALIBER_ADMIN_USERS": "admin",
+        }
+    )
+    engine = create_engine(config.database_url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+    with TestClient(create_app(config=config)) as client:
+        yield client
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +156,132 @@ def test_well_known_and_short_passwords_are_rejected(db_session: Session, weak: 
     """The specific thing this replaces is a four-character well-known default."""
     with pytest.raises(AccountError):
         create_account(db_session, user_id="@x", password=weak)
+
+
+def test_fresh_app_bootstraps_admin_admin_as_a_hashed_superuser(
+    default_admin_client: TestClient,
+) -> None:
+    login = default_admin_client.post(
+        LOGIN_PATH,
+        json={"user_id": "admin", "password": "admin"},
+    )
+
+    assert login.status_code == 200, login.text
+    info = default_admin_client.get(SESSION_PATH).json()["data"]
+    assert info["user_id"] == "admin"
+    assert info["is_admin"] is True
+    with default_admin_client.app.state.session_factory() as session:
+        account = session.get(CaliberUserAccount, "admin")
+        assert account is not None
+        assert account.password_hash != "admin"
+        assert "admin" not in account.password_hash
+        assert verify_password("admin", account.password_hash) is True
+
+
+def test_bootstrap_does_not_reset_an_existing_admin_password(
+    tmp_path: object,
+) -> None:
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'default-admin-restart.db'}",
+            "CALIBER_AUTH_MODE": "session",
+            "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
+            "CALIBER_ASSISTANT_ENGINE": "fake",
+            "CALIBER_AUTH_SESSION_COOKIE_SECURE": "false",
+            "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT": "true",
+        }
+    )
+    engine = create_engine(config.database_url)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as session:
+        create_account(session, user_id="admin", password=GOOD_PASSWORD, actor="test")
+        session.commit()
+    engine.dispose()
+
+    with TestClient(create_app(config=config)) as client:
+        assert (
+            client.post(
+                LOGIN_PATH,
+                json={"user_id": "admin", "password": "admin"},
+            ).status_code
+            == 401
+        )
+        existing_admin = client.post(
+            LOGIN_PATH,
+            json={"user_id": "admin", "password": GOOD_PASSWORD},
+        )
+        assert existing_admin.status_code == 200, existing_admin.text
+
+
+def test_secure_cookie_config_does_not_invent_the_local_default_password(
+    tmp_path: object,
+) -> None:
+    """The implicit known password belongs to plain-HTTP local startup only."""
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'secure-no-default.db'}",
+            "CALIBER_AUTH_MODE": "session",
+            "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
+            "CALIBER_ASSISTANT_ENGINE": "fake",
+            "CALIBER_AUTH_SESSION_COOKIE_SECURE": "true",
+            # Even an explicit opt-in cannot make a known credential available to
+            # a configuration intended to use Secure cookies.
+            "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT": "true",
+        }
+    )
+    engine = create_engine(config.database_url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    with TestClient(create_app(config=config)) as client:
+        assert (
+            client.post(
+                LOGIN_PATH,
+                json={"user_id": "admin", "password": "admin"},
+            ).status_code
+            == 401
+        )
+        with client.app.state.session_factory() as session:
+            assert session.get(CaliberUserAccount, "admin") is None
+
+
+def test_known_password_source_is_rejected_without_the_explicit_local_opt_in(
+    tmp_path: object,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Naming a secret source must not silently turn the normal password-policy bypass on."""
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    monkeypatch.setenv("KNOWN_BOOTSTRAP_PASSWORD", "admin")
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'known-source.db'}",
+            "CALIBER_AUTH_MODE": "session",
+            "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
+            "CALIBER_ASSISTANT_ENGINE": "fake",
+            "CALIBER_AUTH_SESSION_COOKIE_SECURE": "false",
+            "CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV": "KNOWN_BOOTSTRAP_PASSWORD",
+        }
+    )
+    engine = create_engine(config.database_url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    with TestClient(create_app(config=config)) as client:
+        assert (
+            client.post(LOGIN_PATH, json={"user_id": "admin", "password": "admin"}).status_code
+            == 401
+        )
+        with client.app.state.session_factory() as session:
+            assert session.get(CaliberUserAccount, "admin") is None
 
 
 @pytest.mark.parametrize("bad_id", ["", "  ", "@a,@admin", "with space", "x" * 300])
@@ -171,6 +328,24 @@ def test_a_wrong_password_and_an_unknown_user_are_indistinguishable(
     with pytest.raises(AuthenticationError) as unknown:
         authenticate(db_session, user_id="@nobody", password=GOOD_PASSWORD, ttl_seconds=60)
     assert str(wrong.value) == str(unknown.value)
+
+
+def test_unknown_user_does_not_build_a_second_scrypt_hash_per_attempt(
+    db_session: Session,
+) -> None:
+    """The dummy verifier must cost one hash operation, like a wrong real password.
+
+    Building the dummy hash inside ``authenticate`` costs one scrypt and verifying it
+    costs another, making unknown accounts measurably slower and restoring enumeration.
+    """
+    with (
+        patch("caliber.sessions.verify_password", return_value=False) as verify,
+        patch("caliber.sessions.hash_password") as build_hash,
+        pytest.raises(AuthenticationError),
+    ):
+        authenticate(db_session, user_id="@nobody", password=GOOD_PASSWORD, ttl_seconds=60)
+    verify.assert_called_once()
+    build_hash.assert_not_called()
 
 
 def test_a_revoked_session_stops_resolving(db_session: Session) -> None:
@@ -249,6 +424,7 @@ def test_login_then_authenticated_request_then_logout(session_client: TestClient
     login = session_client.post(LOGIN_PATH, json={"user_id": ADMIN_ID, "password": GOOD_PASSWORD})
     assert login.status_code == 200, login.text
     assert login.json()["data"]["user_id"] == ADMIN_ID
+    assert "token" not in login.json()["data"], "the HttpOnly bearer must not be echoed to JS"
 
     # The cookie is HttpOnly, so a browser would not expose it to script.
     set_cookie = login.headers.get("set-cookie", "")
@@ -271,9 +447,16 @@ def test_login_then_authenticated_request_then_logout(session_client: TestClient
 
 
 def test_a_bearer_token_works_for_non_browser_clients(session_client: TestClient) -> None:
-    token = session_client.post(
-        LOGIN_PATH, json={"user_id": ADMIN_ID, "password": GOOD_PASSWORD}
-    ).json()["data"]["token"]
+    # The browser login endpoint no longer echoes the HttpOnly credential in JSON.
+    # A separately provisioned bearer still works for API clients.
+    with session_client.app.state.session_factory() as session:
+        token = authenticate(
+            session,
+            user_id=ADMIN_ID,
+            password=GOOD_PASSWORD,
+            ttl_seconds=3600,  # gitleaks:allow
+        ).token
+        session.commit()
     session_client.cookies.clear()
     response = session_client.get(ACCOUNTS_PATH, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
@@ -309,6 +492,22 @@ def test_repeated_failures_are_throttled(session_client: TestClient) -> None:
     )
 
 
+def test_username_spray_hits_the_client_wide_login_budget(session_client: TestClient) -> None:
+    """A new user id per request must not grant a fresh five-attempt budget forever."""
+    with patch("caliber.routes.auth.authenticate", side_effect=AuthenticationError):
+        for index in range(20):
+            response = session_client.post(
+                LOGIN_PATH,
+                json={"user_id": f"@spray-{index}", "password": "wrong"},
+            )
+            assert response.status_code == 401, response.text
+        blocked = session_client.post(
+            LOGIN_PATH,
+            json={"user_id": "@spray-next", "password": "wrong"},
+        )
+    assert blocked.status_code == 429
+
+
 def test_login_requires_both_fields(session_client: TestClient) -> None:
     assert session_client.post(LOGIN_PATH, json={"user_id": ADMIN_ID}).status_code == 400
     assert session_client.post(LOGIN_PATH, json={"password": GOOD_PASSWORD}).status_code == 400
@@ -332,6 +531,9 @@ def test_account_administration_requires_an_authenticated_admin(
     # A weak password is refused even by an admin.
     weak = session_client.post(ACCOUNTS_PATH, json={"user_id": "@weak", "password": "admin"})
     assert weak.status_code == 400
+    # The one-time bootstrap exception must not leak into the normal reset path.
+    weak_reset = session_client.patch(f"{ACCOUNTS_PATH}/@new", json={"password": "admin"})
+    assert weak_reset.status_code == 400
 
 
 def test_disabling_an_account_over_http_kills_its_session(session_client: TestClient) -> None:

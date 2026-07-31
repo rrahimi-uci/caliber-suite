@@ -14,8 +14,9 @@ import inspect
 import io
 import json
 import math as _math
+import os as _os
 import re as _re
-import signal
+import threading as _threading
 
 try:
     import resource as _resource
@@ -104,10 +105,22 @@ class _BoundedWriter(io.TextIOBase):
 
 #: Fallback when the parent sends no limit (older payloads / direct invocation).
 _DEFAULT_CAPTURE_LIMIT = 65_536
+# A dedicated exit status lets the parent distinguish the watchdog from a crash even
+# though a hard deadline deliberately cannot serialize a normal JSON result first.
+_DEADLINE_EXIT_CODE = 124
+# Parent/child synchronization keeps interpreter startup outside the authored-code
+# budget without turning that startup allowance into extra tool runtime. The child
+# announces that trusted initialization is complete, then waits until the parent has
+# armed its own deadline before any authored source or registered module is touched.
+_PARENT_READY_MARKER = "__CALIBER_SANDBOX_READY_V1__"
+_PARENT_START_MARKER = "__CALIBER_SANDBOX_START_V1__"
 
 
 def main() -> None:
-    request = json.loads(sys.stdin.read() or "{}")
+    # One JSON line leaves stdin open for the explicit start acknowledgement used by
+    # the parent-owned deadline. ``readline`` also preserves direct/legacy invocation:
+    # at EOF it returns the final unterminated JSON payload exactly as ``read`` did.
+    request = json.loads(sys.stdin.readline() or "{}")
     limits = request.get("_limits")
     _apply_resource_limits(limits)
     capture_limit = _DEFAULT_CAPTURE_LIMIT
@@ -118,57 +131,64 @@ def main() -> None:
     # Bounded in the child, so the JSON envelope the parent parses is bounded too.
     stdout = _BoundedWriter(capture_limit)
     stderr = _BoundedWriter(capture_limit)
+    if request.get("_parent_deadline_handshake"):
+        print(_PARENT_READY_MARKER, file=sys.__stdout__, flush=True)
+        if sys.stdin.readline().rstrip("\r\n") != _PARENT_START_MARKER:
+            raise RuntimeError("sandbox parent did not acknowledge child readiness")
     start = time.monotonic()
     result: dict[str, Any]
     with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-        try:
-            mode = request.get("mode")
-            if mode == "tests":
-                result = _run_tests(request)
-            elif mode == "inspect":
-                result = _inspect_callable(request, max_source_chars=capture_limit)
-            else:
-                result = _run_once(request)
-        except _DeadlineExceededError as exc:
-            # Its own status, so the parent reports a timeout rather than a tool failure —
-            # they mean different things to an operator and to a retry policy.
-            result = {
-                "status": "timed_out",
-                "error": str(exc),
-                "error_type": "DeadlineExceeded",
-            }
-        except Exception as exc:
-            result = {
-                "status": "failed",
-                "error": f"{type(exc).__name__}: {exc}",
-                # Carried separately from the message so the parent can branch on the
-                # kind of failure. Across a process boundary the exception object is
-                # gone, and string-sniffing a prefix is fragile — a tool whose message
-                # happens to start with "TypeError:" would be misread as a binding
-                # problem and its call retried.
-                "error_type": type(exc).__name__,
-                "traceback": traceback.format_exc(limit=5),
-            }
-    result["stdout"] = stdout.getvalue()
-    result["stderr"] = stderr.getvalue()
-    result["duration_ms"] = round((time.monotonic() - start) * 1000, 1)
-    # Serialize inside a guard: a tool returning a non-JSON-serializable or
-    # self-referential value must surface as a structured failure (preserving
-    # captured stdout/stderr), not crash the runner with an opaque exit status.
-    try:
-        payload = json.dumps(_json_safe(result), sort_keys=True)
-    except (TypeError, ValueError, RecursionError) as exc:
-        payload = json.dumps(
-            {
-                "status": "failed",
-                "error": f"tool output is not JSON-serializable: {type(exc).__name__}: {exc}",
-                "stdout": result.get("stdout", ""),
-                "stderr": result.get("stderr", ""),
-                "duration_ms": result.get("duration_ms", 0.0),
-            },
-            sort_keys=True,
-        )
-    print(payload, file=sys.__stdout__)
+        mode = request.get("mode")
+        budget = float(request.get("deadline_seconds") or 0.0)
+        # One boundary around every authored-code mode *and its result conversion*. This
+        # starts after the interpreter has decoded the request, but before source
+        # execution/module import, and stays armed through exception rendering,
+        # ``_json_safe``/``repr``, JSON serialization, and the final write. Authored return
+        # objects can execute code from ``__repr__``; disarming before serialization would
+        # turn the nominal hard deadline into an escape. os._exit cannot be caught by user
+        # code.
+        with _deadline(budget):
+            try:
+                if mode == "tests":
+                    result = _run_tests(request)
+                elif mode == "inspect":
+                    result = _inspect_callable(request, max_source_chars=capture_limit)
+                else:
+                    result = _run_once(request)
+            except Exception as exc:
+                result = {
+                    "status": "failed",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    # Carried separately from the message so the parent can branch on the
+                    # kind of failure. Across a process boundary the exception object is
+                    # gone, and string-sniffing a prefix is fragile — a tool whose message
+                    # happens to start with "TypeError:" would be misread as a binding
+                    # problem and its call retried.
+                    "error_type": type(exc).__name__,
+                    "traceback": traceback.format_exc(limit=5),
+                }
+            result["stdout"] = stdout.getvalue()
+            result["stderr"] = stderr.getvalue()
+            result["duration_ms"] = round((time.monotonic() - start) * 1000, 1)
+            # Serialize inside a guard: a tool returning a non-JSON-serializable or
+            # self-referential value must surface as a structured failure (preserving
+            # captured stdout/stderr), not crash the runner with an opaque exit status.
+            try:
+                payload = json.dumps(_json_safe(result), sort_keys=True)
+            except (TypeError, ValueError, RecursionError) as exc:
+                payload = json.dumps(
+                    {
+                        "status": "failed",
+                        "error": (
+                            f"tool output is not JSON-serializable: {type(exc).__name__}: {exc}"
+                        ),
+                        "stdout": result.get("stdout", ""),
+                        "stderr": result.get("stderr", ""),
+                        "duration_ms": result.get("duration_ms", 0.0),
+                    },
+                    sort_keys=True,
+                )
+            print(payload, file=sys.__stdout__)
 
 
 def _apply_resource_limits(raw: Any) -> None:
@@ -272,58 +292,52 @@ def _resolve_callable(request: dict[str, Any]) -> Any:
     return fn
 
 
-class _DeadlineExceededError(Exception):
-    """The user callable outran the caller's budget, measured from after import."""
-
-
 @contextlib.contextmanager
 def _deadline(seconds: float) -> Any:
-    """Bound the user call by wall clock, inside the child.
+    """Terminate the child when authored code outruns its wall-clock budget.
 
-    The parent also has a timeout, but it necessarily covers interpreter start and module
-    import too, so it cannot be the caller's budget without charging them for overhead they
-    did not ask for. Extending the parent's wait to compensate then made the *effective*
-    deadline the budget plus the allowance — a 1s budget waited 5s for a sleeping tool,
-    because ``RLIMIT_CPU`` bounds CPU time and a blocked process consumes none.
+    The parent also has a longer startup backstop, but that necessarily includes cold
+    interpreter startup. This watchdog starts only after the request is decoded, then
+    covers source execution/module import, inspection, every test case, and invocation.
 
-    So the authoritative deadline lives here, starting after the import is done, and the
-    parent's longer wait is only a backstop for a child that never reports at all.
-
-    ``setitimer`` rather than a watchdog thread: it interrupts a blocking syscall, which a
-    thread cannot, and blocking is exactly the case the parent's CPU limit misses.
+    A signal handler that raises an exception is not a hard boundary: authored code can
+    catch ``Exception`` and continue, and the prior test-suite path installed no signal at
+    all. A daemon thread calling :func:`os._exit` is mode-independent, portable, interrupts
+    blocking I/O by terminating the process, and cannot be caught by the callable. The
+    parent maps the dedicated exit status back to ``timed_out``.
     """
-    if seconds <= 0 or not hasattr(signal, "setitimer"):
+    if seconds <= 0:
         yield
         return
+    cancelled = _threading.Event()
+    # Capture the real primitive before authored module code starts. A registered
+    # callable can import ``os`` and replace ``os._exit`` on the shared module object;
+    # resolving the attribute later would let it disarm this defense-in-depth watchdog.
+    hard_exit = _os._exit
 
-    def _fire(_signum: int, _frame: Any) -> None:
-        raise _DeadlineExceededError(f"tool exceeded its {seconds:.2f}s budget")
+    def _terminate() -> None:
+        if not cancelled.wait(seconds):
+            hard_exit(_DEADLINE_EXIT_CODE)
 
-    previous = signal.signal(signal.SIGALRM, _fire)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
+    watchdog = _threading.Thread(target=_terminate, name="caliber-sandbox-deadline", daemon=True)
+    watchdog.start()
     try:
         yield
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0.0)
-        signal.signal(signal.SIGALRM, previous)
+        cancelled.set()
 
 
 def _run_once(request: dict[str, Any]) -> dict[str, Any]:
-    # Resolution (the import) happens outside the deadline: the caller's budget is for
-    # their code, and charging them for a cold import is what the parent-side timeout got
-    # wrong. The deadline starts once the callable is in hand.
     fn = _resolve_callable(request)
-    budget = float(request.get("deadline_seconds") or 0.0)
     shapes = request.get("shapes") or []
-    with _deadline(budget):
-        if shapes:
-            return _run_selected_shape(fn, shapes)
-        # Positional args are carried separately from keyword input: the runtime calls
-        # some tools positionally, and collapsing both into one dict would silently
-        # reorder or drop them.
-        args = request.get("args") or []
-        output = fn(*args, **request.get("input", {}))
-        return {"status": "completed", "output": output}
+    if shapes:
+        return _run_selected_shape(fn, shapes)
+    # Positional args are carried separately from keyword input: the runtime calls
+    # some tools positionally, and collapsing both into one dict would silently
+    # reorder or drop them.
+    args = request.get("args") or []
+    output = fn(*args, **request.get("input", {}))
+    return {"status": "completed", "output": output}
 
 
 def _inspect_callable(request: dict[str, Any], *, max_source_chars: int) -> dict[str, Any]:

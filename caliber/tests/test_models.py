@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from caliber.db.models import CaliberAgentConfig, CaliberVerificationItem
+from caliber.db.models import CaliberAgentConfig, CaliberIncident, CaliberVerificationItem
 
 
 def _make_agent(session: Session, **overrides: object) -> CaliberAgentConfig:
@@ -142,3 +142,82 @@ def test_select_returns_inserted_rows(db_session: Session) -> None:
     _make_agent(db_session, agent_id="a-2", experiment_id="e-2")
     rows = db_session.execute(select(CaliberAgentConfig)).scalars().all()
     assert {row.agent_id for row in rows} == {"a-1", "a-2"}
+
+
+def test_incident_index_allows_history_but_only_one_open_row(db_session: Session) -> None:
+    """Resolved history may repeat an objective; its current open state may not."""
+    now = datetime.now()
+    db_session.add_all(
+        [
+            CaliberIncident(
+                incident_id="INC-history",
+                objective="latency<=1",
+                signal="latency",
+                severity="warning",
+                status="resolved",
+                detail="old breach",
+                opened_at=now,
+                resolved_at=now,
+            ),
+            CaliberIncident(
+                incident_id="INC-current",
+                objective="latency<=1",
+                signal="latency",
+                severity="critical",
+                status="open",
+                detail="current breach",
+                opened_at=now,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    db_session.add(
+        CaliberIncident(
+            incident_id="INC-duplicate-open",
+            objective="latency<=1",
+            signal="latency",
+            severity="critical",
+            status="open",
+            detail="racing replica",
+            opened_at=now,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+    rows = db_session.execute(
+        select(CaliberIncident).where(CaliberIncident.objective == "latency<=1")
+    ).scalars()
+    assert {row.incident_id for row in rows} == {"INC-history", "INC-current"}
+
+
+def test_incident_notification_markers_track_open_and_resolution_independently(
+    db_session: Session,
+) -> None:
+    now = datetime.now()
+    row = CaliberIncident(
+        incident_id="INC-notification-markers",
+        objective="latency<=1",
+        signal="latency",
+        severity="warning",
+        status="resolved",
+        detail="independent notification lifecycle",
+        opened_at=now,
+        resolved_at=now,
+        notified_at=now,
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    assert row.notified_at == now
+    assert row.resolved_notified_at is None
+
+    row.resolved_notified_at = now
+    db_session.commit()
+
+    stored = db_session.get(CaliberIncident, row.incident_id)
+    assert stored is not None
+    assert stored.notified_at == now
+    assert stored.resolved_notified_at == now

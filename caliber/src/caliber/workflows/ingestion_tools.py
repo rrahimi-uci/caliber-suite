@@ -6,12 +6,12 @@ This is a *registered function tool* (real in-process callable) rather than a
 file I/O — so binary parsing (PyPDF, python-pptx, openpyxl, …) cannot run there.
 
 Parser libraries are imported lazily and are an optional extra
-(``caliber[ingest]``: ``pypdf``, ``python-pptx``, ``openpyxl``,
+(``caliber-suite[ingest]``: ``pypdf``, ``python-pptx``, ``openpyxl``,
 ``python-docx``, ``markdown``). A missing library yields a clear error for that
 format only; plain text / markdown always work.
 
 Scanned / image-only PDFs (no extractable text layer) fall back to OCR when the
-``caliber[ocr]`` extra is installed (``pymupdf`` rasterizes each page,
+``caliber-suite[ocr]`` extra is installed (``pymupdf`` rasterizes each page,
 ``pytesseract`` runs the system ``tesseract`` binary). The fallback is automatic
 (``ocr="auto"``): it only fires when PyPDF returns little/no text, so text-based
 PDFs never pay the OCR cost.
@@ -76,7 +76,8 @@ def _require(module: str, fmt: str, *, extra: str = "ingest") -> Any:
         return __import__(module)
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise IngestionError(
-            f"{fmt} ingestion needs the optional dependency {module!r}; install caliber[{extra}]"
+            f"{fmt} ingestion needs the optional dependency {module!r}; "
+            f"install caliber-suite[{extra}]"
         ) from exc
 
 
@@ -90,7 +91,7 @@ def _extract_pdf(path: Path) -> str:
 def _ensure_ocr_dependency(module: str) -> None:
     if importlib.util.find_spec(module) is None:
         raise IngestionError(
-            f"scanned-PDF OCR needs the optional dependency {module!r}; install caliber[ocr]"
+            f"scanned-PDF OCR needs the optional dependency {module!r}; install caliber-suite[ocr]"
         )
 
 

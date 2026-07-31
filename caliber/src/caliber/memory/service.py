@@ -171,7 +171,7 @@ class MemoryService:
             from mem0 import Memory  # noqa: PLC0415 -- optional [memory] extra
         except ImportError as exc:  # pragma: no cover - exercised via dep-absent envs
             raise MemoryDependencyError(
-                "agent memory requires the [memory] extra: pip install 'caliber[memory]'"
+                "agent memory requires the [memory] extra: pip install 'caliber-suite[memory]'"
             ) from exc
         memory = Memory.from_config(build_mem0_config(config))
         return cls(memory, default_infer=config.memory_infer)

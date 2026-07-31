@@ -19,12 +19,13 @@ services:
     container_name: caliber-mlflow-gateway
     profiles: ["app"]
     ports:
-      - "${MLFLOW_GATEWAY_PORT:-5002}:5002"
+      - "127.0.0.1:${MLFLOW_GATEWAY_PORT:-5002}:5002"
     environment:
       MLFLOW_GATEWAY_PORT: 5002
       MLFLOW_GATEWAY_CONFIG: /etc/mlflow/gateway.yaml
       # Provider keys resolved into the endpoint config at startup ($VAR refs).
-      # Sourced from the suite-root .env (interpolated via the include's env_file).
+      # Launch helpers pass the suite-root .env through --env-file; a direct
+      # invocation from the suite root can use Compose's normal .env discovery.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     restart: unless-stopped

@@ -49,8 +49,9 @@ are to do the following:
   calibration, workflow calibration, assistant promotion proposals, and human
   trace feedback.
 - Move artifact-level issues through the triage -> evidence -> diagnosis ->
-  candidate -> eval -> apply lifecycle with replay-safe provenance, so that
-  every promotion can be traced back to the signal that prompted it.
+  candidate -> eval -> apply lifecycle with replay-safe provenance. Applications
+  originating in refinement retain their signal-to-job lineage; direct release
+  actions follow their asset-specific audit path instead of inventing that lineage.
 - Enforce runtime approval pauses and checkpoint-based resume semantics for live
   workflow runs without conflating them with offline artifact promotion.
 - Provide one-command test orchestration for backend, frontend, and browser

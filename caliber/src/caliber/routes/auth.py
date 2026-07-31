@@ -1,10 +1,9 @@
 """``/caliber/auth/*`` — server-validated login, logout, and session inspection.
 
 Replaces the browser-side `admin/admin` check. The password is verified against
-``caliber_user_accounts`` here, and the session token is returned as an **HttpOnly**
-cookie so injected script cannot read it. The token is also returned in the body for
-non-browser clients, which is why the cookie exists at all — a bearer token pasted
-into JavaScript-accessible storage is the thing HttpOnly avoids.
+``caliber_user_accounts`` here, and the session token is returned only as an
+**HttpOnly** cookie so injected script cannot read it. Returning the same bearer in
+JSON would defeat that boundary.
 
 Endpoints:
 
@@ -16,10 +15,10 @@ Endpoints:
 * ``PATCH /caliber/auth/accounts/{user_id}`` — admin-only password reset / disable.
 * ``GET  /caliber/auth/accounts`` — admin-only inventory (never hashes).
 
-Login is deliberately **rate-limited per user id and per client address**: without
-it, a server-side password check is just a slower oracle. The limiter is
-process-local, which is stated rather than hidden — it bounds a single instance, not
-a fleet.
+Login is deliberately rate-limited both per ``(user id, client address)`` and per
+client across user IDs: without the second budget, an attacker can spray a new name on
+every request and never reach the first. The limiter is process-local, which is stated
+rather than hidden — it bounds a single instance, not a fleet.
 """
 
 from __future__ import annotations
@@ -75,9 +74,13 @@ ACCOUNT_DETAIL_PATH = PREFIX + "/accounts/{user_id}"
 #: server-side password check that can be attempted without limit is still an
 #: oracle, just a slower one.
 _MAX_FAILED_LOGINS = 5
+# A client-wide ceiling prevents username spray from creating a fresh five-attempt
+# budget for every guessed account while leaving room for several users behind one NAT.
+_MAX_FAILED_LOGINS_PER_CLIENT = 20
 _LOGIN_WINDOW_SECONDS = 300.0
 _LOGIN_LOCK = threading.Lock()
 _FAILED_LOGINS: dict[tuple[str, str], deque[float]] = {}
+_ALL_USERS = "*"
 #: Bounds the tracking dict so a spray across many user ids cannot grow memory.
 _MAX_TRACKED_LOGIN_KEYS = 10_000
 
@@ -91,12 +94,16 @@ def _login_blocked(user_id: str, client: str, *, now: float | None = None) -> bo
     now = now if now is not None else time.monotonic()
     cutoff = now - _LOGIN_WINDOW_SECONDS
     with _LOGIN_LOCK:
-        window = _FAILED_LOGINS.get((user_id, client))
-        if window is None:
-            return False
-        while window and window[0] < cutoff:
-            window.popleft()
-        return len(window) >= _MAX_FAILED_LOGINS
+        user_window = _FAILED_LOGINS.get((user_id, client))
+        client_window = _FAILED_LOGINS.get((_ALL_USERS, client))
+        for window in (user_window, client_window):
+            if window is not None:
+                while window and window[0] < cutoff:
+                    window.popleft()
+        return bool(
+            (user_window is not None and len(user_window) >= _MAX_FAILED_LOGINS)
+            or (client_window is not None and len(client_window) >= _MAX_FAILED_LOGINS_PER_CLIENT)
+        )
 
 
 def _record_failed_login(user_id: str, client: str, *, now: float | None = None) -> None:
@@ -105,6 +112,7 @@ def _record_failed_login(user_id: str, client: str, *, now: float | None = None)
         if len(_FAILED_LOGINS) > _MAX_TRACKED_LOGIN_KEYS:
             _FAILED_LOGINS.clear()
         _FAILED_LOGINS.setdefault((user_id, client), deque()).append(now)
+        _FAILED_LOGINS.setdefault((_ALL_USERS, client), deque()).append(now)
 
 
 def _clear_failed_logins(user_id: str, client: str) -> None:
@@ -174,7 +182,6 @@ async def login(request: Request) -> JSONResponse:
         )
         session.commit()
         expires_at = issued.expires_at.isoformat()
-        token = issued.token
         resolved_user = issued.user_id
 
     _clear_failed_logins(user_id, client)
@@ -183,12 +190,9 @@ async def login(request: Request) -> JSONResponse:
         {
             "user_id": resolved_user,
             "expires_at": expires_at,
-            # Returned once for non-browser clients. The cookie is what the SPA
-            # uses, and it is HttpOnly precisely so the SPA never holds this value.
-            "token": token,
         }
     )
-    _set_session_cookie(response, config, token, max_age)
+    _set_session_cookie(response, config, issued.token, max_age)
     return response
 
 

@@ -15,6 +15,7 @@ use); the existing worker picks it up. This module never runs the workflow itsel
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import secrets
 import uuid
@@ -23,7 +24,8 @@ from typing import Any, cast
 
 import jsonschema
 from pydantic import ValidationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -65,7 +67,6 @@ from caliber.workflows.run_launch import enqueue_workflow_run
 from caliber.workflows.run_state import (
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
-    RUN_STATUS_QUEUED,
 )
 from caliber.workflows.service_schema import derive_service_schemas
 
@@ -81,12 +82,80 @@ OPENAPI_PATH = PREFIX + "/services/{workflow_id}/openapi.json"
 DEFAULT_ALIAS = "prod"
 INVOKE_SCOPE = "invoke"
 _TOKEN_PLAINTEXT_PREFIX = "cal_svc_"  # noqa: S105 — token namespace prefix, not a credential
+_HTTP_NOT_FOUND = 404
 
 logger = logging.getLogger("caliber.routes.services")
 
 
 def _hash_token(plaintext: str) -> str:
     return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+
+
+def _scoped_service_idempotency_key(actor: str, external_key: str | None) -> str | None:
+    """Namespace a caller's retry key without persisting its plaintext value.
+
+    Workflow-run idempotency is unique per workflow/source, while service tokens are
+    independent callers. Storing a caller-provided key directly therefore let one token
+    collide with another token's request and receive that run's identifier and status.
+    Hashing the authenticated actor and external key creates a stable, bounded namespace
+    and avoids treating a potentially sensitive client key as database metadata.
+    """
+    if not external_key:
+        return None
+    material = f"service-idempotency\0{actor}\0{external_key}".encode()
+    return f"svc:{hashlib.sha256(material).hexdigest()}"
+
+
+def _assert_matching_service_replay(run: CaliberWorkflowRun, input_text: str) -> None:
+    """Reject reuse of one scoped key for different work."""
+    stored = run.input_payload or ""
+    matches = stored == input_text
+    if not matches:
+        # Pre-canonical rows used json.dumps' default whitespace/order. Normalize them
+        # during comparison so an upgrade preserves safe replays for the same actor.
+        try:
+            matches = _input_to_text(json.loads(stored)) == input_text
+        except (json.JSONDecodeError, TypeError, ValueError):
+            matches = False
+    if matches:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail="service idempotency key was already used with different input",
+    )
+
+
+def _legacy_service_replay(
+    session: Session,
+    *,
+    workflow_id: str,
+    actor: str,
+    external_key: str | None,
+    input_text: str,
+) -> CaliberWorkflowRun | None:
+    """Honor safe pre-namespace replays during an upgrade.
+
+    Older rows stored the external key directly. They remain a replay only when the row
+    belongs to this authenticated actor; a row created by another token is deliberately
+    ignored and the caller receives its own newly namespaced run.
+    """
+    if not external_key:
+        return None
+    existing = (
+        session.execute(
+            select(CaliberWorkflowRun).where(
+                CaliberWorkflowRun.workflow_id == workflow_id,
+                CaliberWorkflowRun.source == "service",
+                CaliberWorkflowRun.idempotency_key == external_key,
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if existing is None or existing.created_by != actor:
+        return None
+    _assert_matching_service_replay(existing, input_text)
+    return existing
 
 
 def _emit_queue_event(request: Request, payload: dict[str, object]) -> None:
@@ -313,6 +382,7 @@ async def get_service_openapi(request: Request) -> JSONResponse:
             workflow_id=workflow_id,
             title=workflow.name,
             service=service,
+            max_body_bytes=request.app.state.config.service_invoke_max_body_bytes,
         )
     return JSONResponse(spec)
 
@@ -323,19 +393,10 @@ async def delete_service(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         _get_authorized_workflow(session, request, workflow_id)
-        service = (
-            session.execute(
-                select(CaliberWorkflowService).where(
-                    CaliberWorkflowService.workflow_id == workflow_id
-                )
-            )
-            .scalars()
-            .first()
-        )
-        if service is None:
-            raise HTTPException(
-                status_code=404, detail=f"no service published for workflow {workflow_id!r}"
-            )
+        # Token minting and unpublishing share this row lock. Without it, a mint that
+        # read the service before this transaction enumerated tokens could commit an
+        # active orphan afterwards; re-publishing would make that old token valid again.
+        service = _lock_service_configuration(session, workflow_id=workflow_id)
         service_id = service.service_id
         # Drop the service and all its tokens.
         for token in (
@@ -346,6 +407,13 @@ async def delete_service(request: Request) -> JSONResponse:
             .all()
         ):
             session.delete(token)
+        # Rate rows are owned by the published service lifecycle just like tokens. They
+        # intentionally have no FK so historical migrations can run across both storage
+        # backends; delete them explicitly rather than leaking one window forever on
+        # every unpublish/re-publish cycle.
+        session.execute(
+            delete(CaliberServiceRateCall).where(CaliberServiceRateCall.service_id == service_id)
+        )
         session.delete(service)
         audit_record(
             session,
@@ -367,20 +435,18 @@ async def create_service_token(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         _get_authorized_workflow(session, request, workflow_id)
-        service = (
-            session.execute(
-                select(CaliberWorkflowService).where(
-                    CaliberWorkflowService.workflow_id == workflow_id
-                )
-            )
-            .scalars()
-            .first()
-        )
-        if service is None:
+        try:
+            # Serialize with unpublish through the same service-row write lock so the
+            # plaintext token is returned only from a transaction whose service still
+            # exists at commit.
+            _lock_service_configuration(session, workflow_id=workflow_id)
+        except HTTPException as exc:
+            if exc.status_code != _HTTP_NOT_FOUND:
+                raise
             raise HTTPException(
                 status_code=409,
                 detail=f"no service published for workflow {workflow_id!r}; publish it first",
-            )
+            ) from exc
         plaintext = _TOKEN_PLAINTEXT_PREFIX + secrets.token_urlsafe(32)
         token = CaliberServiceToken(
             token_id=new_service_token_id(),
@@ -488,63 +554,76 @@ def _bearer_token(request: Request) -> str:
     return value.strip()
 
 
-def _load_enabled_service(request: Request, workflow_id: str) -> CaliberWorkflowService:
-    """Load the published service for ``workflow_id`` (404 if none, 403 if disabled).
+def _validate_service_token_in_session(
+    session: Session,
+    *,
+    plaintext: str,
+    workflow_id: str,
+    scope: str = INVOKE_SCOPE,
+) -> str:
+    """Validate a service token without opening a second transaction.
 
-    Auth is not enforced here. Callers gate the Bearer check on
-    :attr:`CaliberWorkflowService.auth_required` via
-    :func:`_validate_service_token`; new services set that bit by default while
-    legacy or explicitly public services may leave it disabled.
+    Invocation uses this form after locking and reloading the service row, so the
+    ``auth_required`` decision and the token check belong to the same configuration
+    snapshot as enablement, schema, alias, and quota enforcement.
     """
-    factory = get_session_factory(request)
-    with factory() as session:
-        service = (
-            session.execute(
-                select(CaliberWorkflowService).where(
-                    CaliberWorkflowService.workflow_id == workflow_id
-                )
-            )
-            .scalars()
-            .first()
-        )
-        if service is None:
-            raise HTTPException(
-                status_code=404, detail=f"no service published for workflow {workflow_id!r}"
-            )
-        if not service.enabled:
-            raise HTTPException(status_code=403, detail="service is disabled")
-        session.expunge(service)
-    return service
-
-
-def _validate_service_token(request: Request, workflow_id: str, scope: str = INVOKE_SCOPE) -> str:
-    """Enforce a Bearer service token for ``workflow_id``/``scope`` (raises 401).
-
-    Returns a stable audit actor derived from the matched token id. The
-    plaintext token and its hash never enter the audit trail.
-    """
-    plaintext = _bearer_token(request)
-    factory = get_session_factory(request)
     token_hash = _hash_token(plaintext)
     now = datetime.now(timezone.utc)
-    with factory() as session:
-        token = (
-            session.execute(
-                select(CaliberServiceToken).where(
-                    CaliberServiceToken.workflow_id == workflow_id,
-                    CaliberServiceToken.token_hash == token_hash,
-                )
+    token = (
+        session.execute(
+            select(CaliberServiceToken).where(
+                CaliberServiceToken.workflow_id == workflow_id,
+                CaliberServiceToken.token_hash == token_hash,
             )
-            .scalars()
-            .first()
         )
-        if token is None or token.revoked_at is not None:
-            raise HTTPException(status_code=401, detail="invalid service token")
-        if token.expires_at is not None and _as_aware(token.expires_at) <= now:
-            raise HTTPException(status_code=401, detail="service token expired")
-        if scope not in (token.scopes or []):
-            raise HTTPException(status_code=401, detail=f"service token missing scope {scope!r}")
-        return f"service_token:{token.token_id}"
+        .scalars()
+        .first()
+    )
+    if token is None or token.revoked_at is not None:
+        raise HTTPException(status_code=401, detail="invalid service token")
+    if token.expires_at is not None and _as_aware(token.expires_at) <= now:
+        raise HTTPException(status_code=401, detail="service token expired")
+    if scope not in (token.scopes or []):
+        raise HTTPException(status_code=401, detail=f"service token missing scope {scope!r}")
+    return f"service_token:{token.token_id}"
+
+
+def _preauthorize_service_invocation(
+    session: Session,
+    *,
+    request: Request,
+    workflow_id: str,
+) -> None:
+    """Reject unauthorized invoke traffic before consuming its request body.
+
+    This read-only admission check is deliberately not the authoritative policy
+    decision. An operator can change enablement/auth or revoke a token while the body
+    arrives, so :func:`invoke_service` repeats every check under its locked policy
+    snapshot before schema validation or enqueue. The preliminary pass exists only to
+    prevent a caller with no valid token from making a protected service buffer/parse
+    even the bounded request allowance.
+    """
+    service = (
+        session.execute(
+            select(CaliberWorkflowService).where(CaliberWorkflowService.workflow_id == workflow_id)
+        )
+        .scalars()
+        .first()
+    )
+    if service is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no service published for workflow {workflow_id!r}",
+        )
+    if not service.enabled:
+        raise HTTPException(status_code=403, detail="service is disabled")
+    if service.auth_required:
+        _validate_service_token_in_session(
+            session,
+            plaintext=_bearer_token(request),
+            workflow_id=workflow_id,
+            scope=INVOKE_SCOPE,
+        )
 
 
 def _as_aware(value: datetime) -> datetime:
@@ -557,7 +636,61 @@ def _as_aware(value: datetime) -> datetime:
 _RATE_WINDOW_SECONDS = 60.0
 
 
-def _enforce_service_rate_limit(service: Any, session: Session) -> None:
+def _lock_service_configuration(
+    session: Session,
+    *,
+    workflow_id: str | None = None,
+    service_id: str | None = None,
+) -> CaliberWorkflowService:
+    """Lock and reload one service row, using a primitive supported by both databases.
+
+    The no-op UPDATE is the cross-dialect row-lock operation. Crucially, it happens before
+    reading *any* policy field: a detached object saying ``rate_limit_per_minute == 0``
+    must not bypass a limit an operator committed since that object was loaded.
+    """
+    if (workflow_id is None) == (service_id is None):
+        raise ValueError("exactly one of workflow_id or service_id is required")
+    predicate = (
+        CaliberWorkflowService.workflow_id == workflow_id
+        if workflow_id is not None
+        else CaliberWorkflowService.service_id == service_id
+    )
+    locked = cast(
+        "CursorResult[Any]",
+        session.execute(
+            update(CaliberWorkflowService)
+            .where(predicate)
+            # Supplying ``updated_at`` explicitly prevents SQLAlchemy's ``onupdate``
+            # default from making ordinary invocations look like configuration edits.
+            .values(
+                service_id=CaliberWorkflowService.service_id,
+                updated_at=CaliberWorkflowService.updated_at,
+            )
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    if locked.rowcount != 1:
+        if workflow_id is not None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"no service published for workflow {workflow_id!r}",
+            )
+        raise HTTPException(status_code=404, detail="workflow service no longer exists")
+    return (
+        session.execute(
+            select(CaliberWorkflowService)
+            .where(predicate)
+            .execution_options(populate_existing=True)
+        )
+        .scalars()
+        .one()
+    )
+
+
+def _enforce_service_rate_limit(
+    service: Any,
+    session: Session,
+) -> CaliberWorkflowService:
     """Refuse an invocation that exceeds the service's per-minute budget.
 
     A published service was authenticated but otherwise unbounded, so any token holder
@@ -574,16 +707,20 @@ def _enforce_service_rate_limit(service: Any, session: Session) -> None:
     a fixed window permits up to twice the limit across a boundary and the configuration
     says "per minute".
 
-    Not a distributed lock: two replicas can both observe a count under the ceiling and both
-    insert, so a burst may exceed the limit by roughly the replica count. This is a spend
-    guard, not an authorization boundary, and a row lock on every invocation is the wrong
-    trade for it. 429 with ``Retry-After``, not 400, because this is temporary and a client
-    should back off rather than hammer.
+    The service row is touched before the sliding-window count. That obtains a row lock on
+    PostgreSQL and the corresponding write lock on SQLite, serializing charges for this
+    service across replicas. Without it, concurrent check-then-insert requests could all
+    observe the same spare slot and exceed the configured spend ceiling. 429 with
+    ``Retry-After``, not 400, because this is temporary and a client should back off rather
+    than hammer.
     """
-    limit = int(getattr(service, "rate_limit_per_minute", 0) or 0)
+    # Lock/reload before inspecting the limit. The former early return read a detached
+    # object first, so a stale ``0`` silently bypassed a newly configured quota.
+    current = _lock_service_configuration(session, service_id=str(service.service_id))
+    limit = int(current.rate_limit_per_minute or 0)
     if limit <= 0:
-        return
-    service_id = str(service.service_id)
+        return current
+    service_id = str(current.service_id)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     window_start = now - timedelta(seconds=_RATE_WINDOW_SECONDS)
 
@@ -610,7 +747,6 @@ def _enforce_service_rate_limit(service: Any, session: Session) -> None:
     if len(rows) >= limit:
         oldest = rows[0]
         retry_after = max(1, int(_RATE_WINDOW_SECONDS - (now - oldest).total_seconds()))
-        session.commit()  # keep the pruning above; the refusal is not a rollback-worthy error
         raise HTTPException(
             status_code=429,
             detail=(f"service rate limit of {limit}/minute exceeded; retry in {retry_after}s"),
@@ -623,9 +759,9 @@ def _enforce_service_rate_limit(service: Any, session: Session) -> None:
             called_at=now,
         )
     )
-    # Committed immediately so a concurrent request in another replica sees this charge
-    # rather than counting a window that silently excludes in-flight work.
-    session.commit()
+    # The caller commits this charge in the same transaction as the queued run. Holding
+    # the service-row lock until then is what makes the ceiling exact across replicas.
+    return current
 
 
 def _cors_headers(service: Any, request: Request) -> dict[str, str]:
@@ -652,37 +788,54 @@ def _cors_headers(service: Any, request: Request) -> dict[str, str]:
 
 async def invoke_service(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
-    service = _load_enabled_service(request, workflow_id)
-    # Charged **after** authentication, deliberately, and this is a correction.
-    #
-    # It was originally charged before, reasoning that a limit applying only to valid
-    # tokens does not stop a flood of invalid ones. A review pass pointed out the cost:
-    # that flood then exhausts the budget and denies legitimate callers. Splitting the
-    # buckets does not help either, because before authenticating you cannot tell a valid
-    # caller from an invalid one — the pre-auth bucket is shared, so the denial just moves.
-    #
-    # The resolution is that these are two different jobs. Flood protection is
-    # ``RateLimitMiddleware``'s, applied per-caller across the whole app; this limit is
-    # the per-service budget an operator configured, which should mean "how much work may
-    # this service actually do", so only real invocations should charge it. Token
-    # verification is a hash comparison, not the expensive part of the path.
-    actor = (
-        _validate_service_token(request, workflow_id, INVOKE_SCOPE)
-        if service.auth_required
-        else f"anonymous_service:{workflow_id}"
-    )
-    with get_session_factory(request)() as rate_session:
-        _enforce_service_rate_limit(service, rate_session)
-    body = await parse_json_object(request, allow_empty=True)
-    payload = ServiceInvokeRequest.model_validate(body)
-    try:
-        jsonschema.validate(instance=payload.input, schema=service.input_schema or {})
-    except jsonschema.ValidationError as exc:
-        raise HTTPException(status_code=400, detail=exc.message) from exc
-
-    alias = service.alias
     factory = get_session_factory(request)
+
+    # Admission is a short read transaction, not the locked enqueue transaction.
+    # Holding the service-row lock while a client streams a body would turn slow
+    # uploads into a configuration/token-management DoS. Protected services
+    # authenticate here before body consumption; public services retain the same
+    # raw-byte ceiling. The final locked block below revalidates everything.
+    with factory() as admission_session:
+        _preauthorize_service_invocation(
+            admission_session,
+            request=request,
+            workflow_id=workflow_id,
+        )
+    body = await parse_json_object(
+        request,
+        allow_empty=True,
+        max_body_bytes=request.app.state.config.service_invoke_max_body_bytes,
+    )
+    payload = ServiceInvokeRequest.model_validate(body)
+
     with factory() as session:
+        # Lock first, then reload every mutable policy field. The old flow detached a
+        # service before body parsing and later enforced enablement/auth/schema/alias/quota
+        # from that stale object. Most dangerously, a detached limit of zero returned
+        # before obtaining any lock and bypassed a newly configured spend ceiling.
+        service = _lock_service_configuration(session, workflow_id=workflow_id)
+        if not service.enabled:
+            raise HTTPException(status_code=403, detail="service is disabled")
+
+        # Charged **after** authentication, deliberately. Flood protection belongs to
+        # ``RateLimitMiddleware``; this service budget counts work authorized under the
+        # same locked configuration snapshot as the run it creates.
+        actor = (
+            _validate_service_token_in_session(
+                session,
+                plaintext=_bearer_token(request),
+                workflow_id=workflow_id,
+                scope=INVOKE_SCOPE,
+            )
+            if service.auth_required
+            else f"anonymous_service:{workflow_id}"
+        )
+        try:
+            jsonschema.validate(instance=payload.input, schema=service.input_schema or {})
+        except jsonschema.ValidationError as exc:
+            raise HTTPException(status_code=400, detail=exc.message) from exc
+
+        alias = service.alias
         workflow = session.get(CaliberWorkflow, workflow_id)
         if workflow is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
@@ -701,18 +854,43 @@ async def invoke_service(request: Request) -> JSONResponse:
                     f"{deployment.version_id!r}"
                 ),
             )
-        run, _created = enqueue_workflow_run(
+        # Resolve idempotency before charging. A replay returns an existing run and performs
+        # no paid work, so consuming another quota slot would let network retries exhaust a
+        # service's budget without creating any work. New-run insertion, quota accounting,
+        # and the audit row remain one transaction: a 429 rolls all three back.
+        input_text = _input_to_text(payload.input)
+        run = _legacy_service_replay(
             session,
-            workflow=workflow,
-            version=version,
-            alias=alias,
-            source="service",
+            workflow_id=workflow_id,
             actor=actor,
-            input_text=_input_to_text(payload.input),
-            idempotency_key=payload.idempotency_key,
-            publish=lambda evt: _emit_queue_event(request, evt),
+            external_key=payload.idempotency_key,
+            input_text=input_text,
         )
+        if run is None:
+            run, created = enqueue_workflow_run(
+                session,
+                workflow=workflow,
+                version=version,
+                alias=alias,
+                source="service",
+                actor=actor,
+                input_text=input_text,
+                idempotency_key=_scoped_service_idempotency_key(actor, payload.idempotency_key),
+                # Publish only after the transaction commits. Otherwise a quota refusal
+                # could emit a queued event for the run this transaction rolls back.
+                publish=None,
+            )
+            if not created:
+                _assert_matching_service_replay(run, input_text)
+        else:
+            created = False
+        if created:
+            # The helper deliberately re-locks/reloads so direct callers cannot hand it a
+            # stale detached object. This transaction already owns the row lock, making
+            # the second no-op update cheap while preserving that standalone contract.
+            service = _enforce_service_rate_limit(service, session)
         run_id = run.workflow_run_id
+        run_status = str(run.status)
         # A service invocation starts a real workflow run — record it like the
         # other service state changes (publish/update/token) so there's a trail.
         audit_record(
@@ -723,12 +901,30 @@ async def invoke_service(request: Request) -> JSONResponse:
             entity_id=workflow_id,
             details={"run_id": run_id, "alias": alias, "auth_required": service.auth_required},
         )
+        cors_headers = _cors_headers(service, request)
+        queued_event: dict[str, object] | None
+        queued_event = (
+            {
+                "type": "workflow.run.queued",
+                "workflow_id": run.workflow_id,
+                "workflow_version_id": run.workflow_version_id,
+                "workflow_run_id": run.workflow_run_id,
+                "status": run.status,
+                "alias": run.deployment_alias,
+            }
+            if created
+            else None
+        )
         session.commit()
-    data = ServiceInvokeResponse(run_id=run_id, status=RUN_STATUS_QUEUED)
+    if queued_event is not None:
+        _emit_queue_event(request, queued_event)
+    # A replay reports the existing run's actual state. Returning ``queued`` for a run that
+    # had already completed was a second idempotency bug, separate from quota overcharging.
+    data = ServiceInvokeResponse(run_id=run_id, status=run_status)
     response = envelope_response(data, status_code=202)
     # Emitted only for an origin the operator listed; absent otherwise, so a browser
     # cannot read a token-authorized response from an unapproved site.
-    for header, value in _cors_headers(service, request).items():
+    for header, value in cors_headers.items():
         response.headers[header] = value
     return response
 
@@ -738,10 +934,10 @@ def _input_to_text(value: object) -> str:
         return ""
     if isinstance(value, str):
         return value
-    import json  # noqa: PLC0415
-
     try:
-        return json.dumps(value)
+        # Canonical JSON makes a retry insensitive to object-key order while still
+        # detecting a genuinely different request under the same idempotency key.
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     except (TypeError, ValueError):
         return str(value)
 
@@ -749,11 +945,21 @@ def _input_to_text(value: object) -> str:
 async def get_service_run_status(request: Request) -> JSONResponse:
     workflow_id = request.path_params["workflow_id"]
     run_id = request.path_params["run_id"]
-    service = _load_enabled_service(request, workflow_id)
-    if service.auth_required:
-        _validate_service_token(request, workflow_id, INVOKE_SCOPE)
     factory = get_session_factory(request)
     with factory() as session:
+        # Policy, token authorization, run read, and CORS are one locked snapshot. The
+        # former three-transaction flow could read ``auth_required=False``, race an
+        # operator enabling auth, and still return a completed run without a token.
+        service = _lock_service_configuration(session, workflow_id=workflow_id)
+        if not service.enabled:
+            raise HTTPException(status_code=403, detail="service is disabled")
+        if service.auth_required:
+            _validate_service_token_in_session(
+                session,
+                plaintext=_bearer_token(request),
+                workflow_id=workflow_id,
+                scope=INVOKE_SCOPE,
+            )
         run = session.get(CaliberWorkflowRun, run_id)
         if run is None or run.workflow_id != workflow_id:
             raise HTTPException(
@@ -773,11 +979,12 @@ async def get_service_run_status(request: Request) -> JSONResponse:
             error=error,
             trace_id=run.trace_id,
         )
+        cors_headers = _cors_headers(service, request)
     response = envelope_response(data)
     # The poll response needs the allow-origin header for the same reason the invoke
     # response does: without it the browser blocks the read, so a browser client could
     # start a run and never learn the outcome.
-    for header, value in _cors_headers(service, request).items():
+    for header, value in cors_headers.items():
         response.headers[header] = value
     return response
 
@@ -809,6 +1016,7 @@ def _build_service_openapi_spec(
     workflow_id: str,
     title: str,
     service: CaliberWorkflowService,
+    max_body_bytes: int,
 ) -> dict[str, object]:
     """Build the canonical OpenAPI document used by both read surfaces."""
     invoke_path = INVOKE_PATH.format(workflow_id=workflow_id)
@@ -827,6 +1035,7 @@ def _build_service_openapi_spec(
                     "security": security,
                     "requestBody": {
                         "required": True,
+                        "x-caliber-max-request-body-bytes": max_body_bytes,
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -858,6 +1067,11 @@ def _build_service_openapi_spec(
                             },
                         },
                         "400": {"description": "Input failed schema validation."},
+                        "413": {
+                            "description": (
+                                f"Raw JSON request envelope exceeds {max_body_bytes} bytes."
+                            )
+                        },
                     },
                 }
             },
@@ -918,23 +1132,31 @@ async def service_openapi(request: Request) -> JSONResponse:
     Returns the raw spec (not enveloped).
     """
     workflow_id = request.path_params["workflow_id"]
-    service = _load_enabled_service(request, workflow_id)
-    if service.auth_required:
-        _validate_service_token(request, workflow_id, INVOKE_SCOPE)
     factory = get_session_factory(request)
     with factory() as session:
+        service = _lock_service_configuration(session, workflow_id=workflow_id)
+        if not service.enabled:
+            raise HTTPException(status_code=403, detail="service is disabled")
+        if service.auth_required:
+            _validate_service_token_in_session(
+                session,
+                plaintext=_bearer_token(request),
+                workflow_id=workflow_id,
+                scope=INVOKE_SCOPE,
+            )
         workflow = session.get(CaliberWorkflow, workflow_id)
         title = workflow.name if workflow is not None else workflow_id
-    response = JSONResponse(
-        _build_service_openapi_spec(
+        spec = _build_service_openapi_spec(
             workflow_id=workflow_id,
             title=title,
             service=service,
+            max_body_bytes=request.app.state.config.service_invoke_max_body_bytes,
         )
-    )
+        cors_headers = _cors_headers(service, request)
+    response = JSONResponse(spec)
     # Same policy as invoke/poll, so a browser-based API explorer on an approved origin
     # can actually fetch the spec it is meant to import.
-    for header, value in _cors_headers(service, request).items():
+    for header, value in cors_headers.items():
         response.headers[header] = value
     return response
 
@@ -999,9 +1221,10 @@ def _with_cors_on_errors(handler: Any) -> Any:
     path, and a browser client on a listed origin could invoke a service but **not read
     why a call failed**.
 
-    Wrapping once here rather than at each known client-error raise keeps the policy from
-    drifting. Unexpected server exceptions still follow the application's normal 500
-    handling and deliberately do not trigger a second database lookup here.
+    Wrapping once here rather than at each known raise keeps the policy from drifting.
+    Unexpected exceptions are logged server-side and rendered as a fixed, non-disclosing
+    JSON 500 with the same origin policy; otherwise an approved browser client receives an
+    opaque network failure precisely when it most needs the service's error envelope.
 
     The lookup is unauthenticated, like the preflight's, and discloses nothing — headers are
     emitted only for an origin the operator listed, and an unknown service yields none.
@@ -1046,6 +1269,16 @@ def _with_cors_on_errors(handler: Any) -> Any:
             for header, value in error_headers(request).items():
                 response.headers[header] = value
             return response
+        except Exception:
+            logger.exception(
+                "published service request failed",
+                extra={"workflow_id": request.path_params.get("workflow_id", "")},
+            )
+            return JSONResponse(
+                {"detail": "internal server error", "status_code": 500},
+                status_code=500,
+                headers=error_headers(request),
+            )
 
     # Starlette derives the endpoint name for diagnostics; keep the real one.
     wrapped.__name__ = getattr(handler, "__name__", "wrapped")

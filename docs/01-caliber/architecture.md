@@ -15,12 +15,12 @@ paths are shown relative to that prefix once the convention has been stated.
 
 | Dimension | Where CALIBER stands |
 | --- | --- |
-| **What it is** | A system-level control plane shipped as an MLflow `mlflow.app` plugin — not a gateway in front of MLflow. |
-| **Where it runs** | In the MLflow server process, sharing its lifecycle, origin, and failure domain. |
+| **What it is** | A system-level ASGI control plane with two MLflow-integrated topologies: embedded `mlflow.app` or standalone service. |
+| **Where it runs** | Either in the MLflow server process, or as the bundled standalone CALIBER service that calls MLflow over HTTP. |
 | **How users reach it** | A React SPA served under `/caliber/`; every action flows through the API under `/ajax-api/2.0/mlflow/caliber/*`. |
 | **Source of truth** | SQLAlchemy relational metadata is authoritative; object storage owns file bytes; MLflow owns prompt versions and traces. |
-| **Work model** | Request-path actions return inline; durable work is queued to background workers (refinement, workflow runs, KB builds, janitor, webhooks). |
-| **Trust model** | Identity arrives via `X-CALIBER-User` / `X-CALIBER-Project` headers; `auth.py` resolves the `viewer` / `operator` / `approver` / `admin` scopes. |
+| **Work model** | Request-path actions return inline; durable work is queued to in-process background loops (refinement, calibration, workflow/Aria/KB work, janitor, and webhooks). |
+| **Trust model** | Session mode verifies a database-backed account and resolves the `viewer` / `operator` / `approver` / `admin` scopes; trusted identity headers are an explicit proxy-mode option. |
 
 The sections below start from this picture and drill down — scope, boundaries,
 runtime, state, surfaces, lifecycle, security, operations, and the seams the
@@ -30,20 +30,20 @@ system is extended along.
 assets/platform-overview.svg
 ```
 
-*Platform overview — CALIBER lives inside the MLflow server process, exposes one
-same-origin control plane, and uses durable state plus background workers rather
-than process-local orchestration.*
+*Platform overview — the same CALIBER ASGI application can be embedded in MLflow or
+served separately, exposes one same-origin browser control plane in either topology,
+and coordinates off-request work through durable state.*
 
 ## Reference
 
 ## 1. Scope and responsibilities
 
-The `caliber` module is the system-level control plane for the product. It is
-implemented as an MLflow `mlflow.app` plugin and runs in the same Python process
-as the MLflow server, which means CALIBER shares MLflow's lifecycle, origin, and
-runtime rather than sitting in front of it. Its responsibilities are
-correspondingly broad — wider than those of any single feature module — and span
-the following concerns:
+The `caliber` module is the system-level control plane for the product. Its
+`create_app()` factory is used in two ways: MLflow can load it as an in-process
+`mlflow.app`, or Uvicorn can serve it independently while it uses MLflow's HTTP APIs.
+The first topology shares MLflow's process failure domain; the second does not.
+Its responsibilities are correspondingly broad — wider than those of any single
+feature module — and span the following concerns:
 
 - It bootstraps the Starlette application and the shared runtime dependencies on
   which every feature depends.
@@ -52,8 +52,8 @@ the following concerns:
   `/ajax-api/2.0/mlflow/caliber/*`.
 - It owns persistence, authorization, CSRF, rate limiting, project scoping, and
   audit.
-- It orchestrates background workers for refinement, workflow runs,
-  knowledge-base builds, janitor work, and webhook dispatch.
+- It orchestrates background loops for refinement, tool calibration, workflow runs,
+  Aria plans, knowledge-base builds, janitor work, and webhook dispatch/recovery.
 - It integrates with MLflow tracing, the MLflow prompt registry, object storage,
   and optional event-bus backends.
 
@@ -133,19 +133,22 @@ flowchart LR
 ```legend
 ```
 
-Several structural properties follow from this topology and are worth making
+Several structural properties follow from these topologies and are worth making
 explicit, because they shape every design decision downstream:
 
-- CALIBER is not a separate gateway placed in front of MLflow. It is loaded into
-  the MLflow server process as a sibling ASGI application surface, which is why
-  same-origin behavior comes for free and why CALIBER and MLflow share a single
-  failure domain.
+- Embedded mode loads CALIBER into the MLflow server as a sibling ASGI surface.
+  Standalone mode serves the same application separately and points
+  `MLFLOW_TRACKING_URI` at MLflow. Neither mode makes CALIBER a transparent gateway
+  in front of MLflow.
 - The frontend shell is bundled separately with Vite, but it is served through
-  the plugin package by `routes/static.py` rather than from a distinct origin.
+  the CALIBER package by `routes/static.py` rather than from a distinct origin.
 - Shared dependencies are constructed once in `create_app()` and injected via
   `app.state`. They comprise the SQLAlchemy engine and session factory, the
   artifact store, the LLM provider, the eval provider, the promoter, the event
   bus, the assistant service, and the background workers.
+- `CALIBER_DATABASE_URL` independently owns CALIBER's tables. It is not required to
+  equal MLflow's backend-store URL; the bundled stack uses separate logical databases
+  so the two Alembic histories never compete for one version table.
 - The codebase uses sync SQLAlchemy consistently, even inside Starlette. Sync
   route handlers execute in Starlette's threadpool; this keeps the ORM model
   aligned with MLflow's own sync behavior and avoids the impedance mismatch of
@@ -187,21 +190,26 @@ ownership rules, and they hold consistently across the platform:
   the synchronization mechanism precisely because the two writers do not share a
   process-local view.
 
-Versioning is a cross-artifact concern with one shared model. Prompts (registry
-versions behind a `@prod` alias), workflows (immutable versions behind a
-deployment alias), knowledge bases (build versions behind an `active_version_id`
-pointer), skills (per-version snapshots), test sets (copy-on-write), and tools
-(a `(name, version)` family) each keep real history, and each promotion,
-rollback, or activation writes an audit row. Rollback is derived from that audit
-trail rather than an ordinal guess: the walk reads only the *promotion/activation*
-rows (never the rollback rows a rollback itself writes), so repeated rollbacks
-step strictly backward through real history instead of oscillating. An advisory
-eval-gate verdict is attached per version and shown before a promotion but never
-blocks the rotation. The frontend renders all of this through one shared
-`VersionPanel` component (per-artifact adapters, no type branching), and the
-read-only `/releases/timeline` and `/releases/live` surfaces answer "what changed"
-and "what is live" across artifact types in one place — the live view attributing
-each entry to the actor and moment of its activation from the audit trail.
+Versioning is a cross-artifact UI concern, not one shared persistence or release
+contract. The normalized frontend model maps several deliberately different
+idioms:
+
+| Artifact | History and liveness | Gate and rollback semantics |
+| --- | --- | --- |
+| Prompt | Immutable MLflow registry versions behind an alias such as `@prod` | The prompt panel shows a persisted advisory verdict. Audited promote records the exact outgoing alias target; rollback restores that recorded target. |
+| Workflow | Editable drafts become published workflow-version rows; deployment aliases select a published version | Promotion evaluates the workflow deploy-gate policy and uses an optimistic alias check. Rollback pops the deployment's recorded checkpoint stack. |
+| Knowledge base | Immutable build versions behind `active_version_id` | No prompt-style gate verdict. Activation and rollback are audited; rollback derives the prior active build from activation history. |
+| Skill | A mutable current skill plus immutable `CaliberSkillVersion` snapshots | No alias, promotion, or gate. Rollback restores the prior snapshot as a new current version. |
+| Test set | A dataset version counter plus example validity intervals (`dataset_version` / `superseded_version`) | Version filtering preserves historical example sets; there is no live alias or generic rollback action. |
+| Tool | Separate `(name, version)` registry rows with lifecycle status | Read-only family history in the version panel; no live alias, gate, or rollback. |
+
+The shared `VersionPanel` is mounted for prompts, workflows, knowledge bases,
+skills, and tools through per-artifact adapters; sharing the component does not
+make their guarantees uniform. The read-only `/releases/timeline` aggregates
+audited release actions, while `/releases/live` enumerates the database-backed
+workflow deployments and active knowledge-base versions. Prompt liveness remains
+in MLflow and is shown on the per-prompt page rather than inferred by that
+aggregate.
 
 ## 5. API and interaction surfaces
 
@@ -288,16 +296,31 @@ request handling, and shutdown — and each has well-defined checkpoints:
 - During request handling, the route module validates the headers, body, and
   query, uses the `app.state` dependencies together with a DB session, and
   either returns directly or enqueues durable work.
-- At shutdown, the workers stop in a controlled order, the event bus is closed,
-  and the SQLAlchemy engine is disposed. The ordering matters: workers are
-  drained before their shared resources are torn down.
+- At shutdown, workers receive a stop signal and bounded grace before the event bus
+  and SQLAlchemy engine are torn down. Most loops settle or release their durable
+  claims. Tool calibration immediately fences its active generation, waits at most its
+  grace for the tracked drain, and performs no stop-time database settlement. An interrupted
+  claim may remain visibly `running`/ambiguous, while the retained fence rejects any late
+  terminal persistence. This is bounded shutdown rather than an unconditional drain guarantee.
 
 ## 7. Security and trust boundaries
 
-Because CALIBER runs inside the MLflow process, it inherits authentication from
-the hosting MLflow server or an upstream proxy and does not implement its own
-login service. The trust model therefore centers on resolving an explicit
-request identity and scope rather than on session establishment:
+CALIBER implements its own default session login in both deployment topologies.
+Credentials are checked against scrypt hashes in the account table,
+and successful login creates a revocable server-side session carried by an HttpOnly
+cookie. The product default
+`CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false` does not create a known
+credential. The native launcher opts into `admin` / `admin` only when MLflow binds
+to loopback, and the bundled Compose stack opts in only while every published port
+is pinned to `127.0.0.1`; the operator must replace that credential immediately.
+The bootstrap runs only while the account table is empty and never resets an
+existing account. Any network-reachable deployment must keep the opt-in false,
+configure a strong bootstrap password source, and use TLS/Secure cookies. Normal
+account creation and reset continue to reject `admin` and other weak passwords.
+
+An installation that already has an identity-aware proxy can explicitly select
+`trusted_header` mode instead. In that mode, and only that mode, request headers
+provide the identity:
 
 - The `X-CALIBER-User` header identifies the caller.
 - The `X-CALIBER-Project` header supplies the active project for multi-project
@@ -305,6 +328,10 @@ request identity and scope rather than on session establishment:
 - `auth.py` resolves the `viewer`, `operator`, `approver`, and `admin` scopes.
 - Route handlers call `require_user()` or `require_scopes()` before any
   mutation.
+
+The shipped local launchers assign `admin` every scope. Before exposing a deployment,
+set `CALIBER_BOOTSTRAP_PASSWORD` to a strong value before first boot or reset the
+password in Administration; password changes revoke the account's existing sessions.
 
 Layered over this identity model is a set of controls that protect both the
 request path and the data it touches:
@@ -316,20 +343,27 @@ request path and the data it touches:
 - Secrets are referenced indirectly through `*_source` fields rather than
   carried as raw secret material.
 - Manifest validation rejects inline secrets in workflow definitions.
-- User-authored Python Code and Aria draft tests use a short-lived local
-  subprocess with an empty environment, private working directory, bounded
-  output, timeout/process-group termination, and best-effort POSIX resource
-  limits. This is process containment, not a container, VM, or kernel sandbox.
+- User-authored Python Code, Aria draft tests, and registered-tool execution use
+  a short-lived local subprocess with an empty environment, private working
+  directory, bounded output, process-group termination, and best-effort POSIX
+  resource limits. The child signals ready and waits for the parent to start
+  authored work; the parent then owns the exact runtime deadline and kills the
+  process group, while an uncatchable child watchdog independently covers
+  source/module resolution, inspection, every test case, invocation, result
+  representation, and serialization. A positive startup grace is a separate
+  pre-ready allowance; with zero grace, startup consumes the caller's overall
+  budget. Sandbox HTTP execution runs off the ASGI event loop. This is process
+  containment, not a container, VM, or kernel sandbox.
 
 The dominant trust boundary runs between control-plane state and code execution.
 Route handlers may accept user-authored manifests, prompt text, tool metadata,
 and skill content, but only specific runtime paths are permitted to execute code
-or make external calls. The local subprocess contains Python Code and Aria draft
-execution. Registered tool and external-app callables are still imported into a
-CALIBER process, so those extension points remain trusted-operator code and need
-a separate worker/container boundary before mutually untrusted authors can use
-them safely. MCP admission is separately mediated by command/host allowlists and
-deployment preflight; local stdio containment is likewise not an OS sandbox.
+or make external calls. The local subprocess contains Python Code, Aria draft,
+and default registered-tool execution; it still retains ambient host filesystem
+and network authority. `external_app` callables remain trusted-operator code and
+need a separate worker/container boundary before mutually untrusted authors can
+use them safely. MCP admission is separately mediated by command/host allowlists
+and deployment preflight; local stdio containment is likewise not an OS sandbox.
 
 ## 8. Observability and operations
 
@@ -368,8 +402,8 @@ The primary extension points follow the layering described earlier:
 Set against those seams are the architectural constraints the system currently
 accepts, stated plainly so that future work can weigh them deliberately:
 
-- CALIBER and MLflow share the same process boundary. This simplifies
-  same-origin behavior but couples their failure domains.
+- Embedded mode couples CALIBER and MLflow to one process failure domain; standalone
+  mode trades that coupling for an HTTP dependency and a second service process.
 - SQLAlchemy usage is sync throughout the server.
 - Many feature modules still perform orchestration directly in the route files
   rather than through deeper service layers.
@@ -379,7 +413,7 @@ accepts, stated plainly so that future work can weigh them deliberately:
 - Workflow execution and assistant logic remain substantially in-process, even
   though both are structured well enough to be extracted later.
 
-Taken together, the picture is consistent: CALIBER is a plugin-hosted control
-plane with feature modules layered on a common runtime substrate. The
+Taken together, the picture is consistent: CALIBER is one ASGI control-plane
+codebase, deployable embedded or standalone, with feature modules layered on a common runtime substrate. The
 per-feature documents take it from here, describing how each major bounded
 context plugs into that substrate.

@@ -91,6 +91,18 @@ afterAll(() => {
 describe("Sidebar Build routes", () => {
   it("opens the wired sidebar routes without falling through to Not found", async () => {
     server.use(
+      http.get(`${API_BASE}/auth/session`, () =>
+        HttpResponse.json(
+          envelope({
+            user_id: "admin",
+            scopes: ["admin"],
+            is_admin: true,
+            auth_mode: "session",
+            authenticated_by: "session",
+            login_required: false,
+          }),
+        ),
+      ),
       http.get(`${API_BASE}/health`, () =>
         HttpResponse.json(envelope({ status: "ok", version: "test" })),
       ),
@@ -278,11 +290,7 @@ describe("Sidebar Build routes", () => {
 
     await user.click(screen.getByRole("link", { name: "Agents" }));
     expect(
-      await screen.findByRole(
-        "heading",
-        { name: "Agents" },
-        { timeout: 5000 },
-      ),
+      await screen.findByRole("heading", { name: "Agents" }, { timeout: 5000 }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Not found" }),

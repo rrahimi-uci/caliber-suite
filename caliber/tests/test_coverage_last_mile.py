@@ -166,6 +166,43 @@ def test_build_bundle_checkpoint_version_int() -> None:
     assert cp.version_before == 2
 
 
+def test_build_bundle_checkpoint_skill_keeps_agent_fk_and_skill_snapshot() -> None:
+    from caliber.apply import _build_bundle_checkpoint
+    from caliber.bundle import BundleTarget
+    from caliber.promoter import PromotionResult
+
+    approval = MagicMock()
+    approval.approval_id = "AP-skill"
+    approval.agent_id = "support-agent"
+    target = BundleTarget(
+        agent_id="tool-use",
+        artifact_type="skill",
+        content="IMPROVED",
+        rationale="r",
+    )
+    result = PromotionResult(
+        artifact_ref="skill://tool-use/v2",
+        rotated_at=datetime.now(timezone.utc),
+        details={
+            "version": 2,
+            "version_before": 1,
+            "content_before": "ORIGINAL",
+            "summary_before": "Original summary",
+        },
+    )
+
+    cp = _build_bundle_checkpoint(approval, target, result)
+    assert cp.agent_id == "support-agent"
+    assert cp.artifact_name == "tool-use"
+    assert cp.artifact_ref_before == "skill://tool-use/v1"
+    assert cp.snapshot_payload == {
+        "bundle_target": True,
+        "content_before": "ORIGINAL",
+        "summary_before": "Original summary",
+        "version_before": 1,
+    }
+
+
 # ══════════════════════════════════════════════════════════════════════
 # 4. routes/jobs.py L163 — _coerce_str fallback
 # ══════════════════════════════════════════════════════════════════════

@@ -85,9 +85,9 @@ The user-facing surface is implemented in a parallel set of frontend code paths:
 - `caliber/caliber-ui/src/components/assistant/AriaPlanCard.tsx` (inline goal-plan card) plus `caliber/caliber-ui/src/{pages/AriaPlans.tsx,components/aria/planView.tsx}` (the standalone Plans page and shared plan-rendering atoms — the orchestrator surface of §9)
 - `caliber/caliber-ui/src/api/{caliberApi.ts,assistantTypes.ts}`
 
-A separate proposal, [`aria-microservice-proposal.md`](./aria-microservice-proposal.md),
-discusses extracting the reasoning layer into its own service; this document
-describes the **current embedded architecture** as it ships today.
+The reasoning layer could be extracted behind the existing engine boundary in a
+future deployment. This document describes only the **current embedded
+architecture** that ships in this repository.
 
 ## 2. Module boundaries
 
@@ -378,8 +378,8 @@ the UI.
 
 Aria is an authoring agent with access to platform state, so its security model
 assumes that engine output is untrusted and that every mutation must clear the
-same gates as a human author's would. The following controls enforce that
-assumption.
+same authorization and asset-specific lifecycle controls as the corresponding
+human-driven route. The following controls enforce that assumption.
 
 - Every route requires an authenticated user (`require_user`), and the mutating
   intent-workbench routes — sessions, messages, attachments, drafts, intent-plan
@@ -548,9 +548,6 @@ Two behaviors make the executor durable rather than a one-shot walk:
   (skipping the step). This reuses the same interaction infrastructure as
   permission pauses.
 
-The full design rationale lives in
-[`aria-agentic-orchestration.md`](./aria-agentic-orchestration.md).
-
 ## 10. Extension points and current constraints
 
 Aria's seams make it straightforward to extend along a few well-defined axes:
@@ -563,8 +560,8 @@ Aria's seams make it straightforward to extend along a few well-defined axes:
   `capabilities.py` (§9); they are picked up by both the conversational tool
   loop and the goal-plan orchestrator with no further wiring, and a richer
   planner can be supplied behind the `Planner` protocol.
-- The reasoning layer can be extracted into a remote backend (see
-  [`aria-microservice-proposal.md`](./aria-microservice-proposal.md)).
+- The reasoning layer can be extracted into a remote backend behind the engine
+  protocol; no such service is shipped here.
 
 Equally important are the constraints that hold in the current design, which
 callers should plan around:

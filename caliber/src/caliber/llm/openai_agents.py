@@ -214,8 +214,8 @@ class OpenAIAgentsLLMProvider:
         # ``api_key`` on ``self`` so an accidental log of the provider
         # object can't leak the secret.
         self._diagnosis_model = diagnosis_model
-        # Both agents reuse the same model knob for now. When TextGrad/GEPA/etc.
-        # land, each gets its own model field on the config.
+        # The diagnosis and MetaPrompt/skill/DSPy paths reuse this model knob.
+        # GEPA has the separate reflection-model setting below.
         self._candidate_model = diagnosis_model
         self._gepa_reflection_model = _normalize_reflection_model(
             gepa_reflection_model or diagnosis_model
@@ -261,7 +261,7 @@ class OpenAIAgentsLLMProvider:
         except ImportError as exc:
             raise LLMProviderError(
                 "openai-agents is not installed. Install with "
-                "`pip install caliber[llm]` to enable LLM providers."
+                "`pip install caliber-suite[llm]` to enable LLM providers."
             ) from exc
         return Agent
 
@@ -290,11 +290,11 @@ class OpenAIAgentsLLMProvider:
         return self._diagnosis_agent
 
     def _ensure_candidate_agent(self) -> Any:
-        """Lazy-construct the MetaPrompt candidate Agent.
+        """Lazy-construct the MetaPrompt Agent used by two paths and fallbacks.
 
-        When GEPA / TextGrad / DSPy* lands, this branch dispatches on
-        ``optimizer_type`` to pick the right Agent. For now there's only
-        MetaPrompt, so the dispatch is implicit.
+        :meth:`generate_candidate` dispatches GEPA and DSPy before reaching this
+        helper. MetaPrompt and SkillMetaPrompt share this OpenAI Agent, and the
+        optional optimizer paths also use it for their documented fallback.
         """
         if self._candidate_agent is not None:
             return self._candidate_agent
@@ -661,7 +661,7 @@ class OpenAIAgentsLLMProvider:
         except ImportError as exc:
             raise LLMProviderError(
                 "openai-agents is not installed. Install with "
-                "`pip install caliber[llm]` to enable LLM providers."
+                "`pip install caliber-suite[llm]` to enable LLM providers."
             ) from exc
 
         try:
@@ -736,7 +736,7 @@ def _load_dspy_optimizer_bridge() -> tuple[type[Exception], _DSPY_OPTIMIZER, _DS
     except ImportError as exc:
         raise LLMProviderError(
             "DSPy optimizer dependencies are not installed. Install with "
-            "`pip install caliber[dspy]` to enable DSPy refinement paths."
+            "`pip install caliber-suite[dspy]` to enable DSPy refinement paths."
         ) from exc
     return EmptyTrainsetError, run_bootstrap_fewshot, run_mipro
 

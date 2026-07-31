@@ -1,5 +1,9 @@
 # MinIO (object storage)
 
+> Development service: both published ports bind to `127.0.0.1`, and the
+> example credentials are intentionally well known. Do not expose this Compose
+> service or reuse those credentials outside a local workstation.
+
 S3-compatible object storage that backs three things in the suite:
 
 | Use | App env var | Default bucket |

@@ -363,7 +363,8 @@ def _load_spacy_model(model_name: str) -> Any:
         import spacy  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - depends on optional install
         raise ImportError(
-            "spaCy graph extraction needs the optional 'spacy' package. Install caliber[knowledge] "
+            "spaCy graph extraction needs the optional 'spacy' package. "
+            "Install caliber-suite[knowledge] "
             "and the desired language model."
         ) from exc
     try:

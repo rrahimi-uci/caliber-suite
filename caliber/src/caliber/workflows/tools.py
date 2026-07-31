@@ -199,6 +199,7 @@ class InMemoryToolResolver:
 #: leaving the unthreaded paths open. ``None`` means unrestricted (see the config
 #: field for why that is the shipped default, and how it is surfaced).
 _MODULE_ALLOWLIST: str | None = None
+_BOUND_MODULE_ALLOWLIST: object = object()
 
 
 def bind_module_allowlist(allowlist: str | None) -> None:
@@ -241,6 +242,7 @@ def bind_registered_tool(
     entry: ToolRegistryEntry,
     *,
     callable_override: Callable[..., Any] | None = None,
+    module_allowlist: str | object | None = _BOUND_MODULE_ALLOWLIST,
 ) -> Callable[..., Any]:
     """Resolve a registry entry to a concrete callable.
 
@@ -261,7 +263,14 @@ def bind_registered_tool(
         raise ToolBindingError(
             f"tool {entry.registry_ref!r} has no importable module and no override callable"
         )
-    if not registered_tool_module_allowed(entry.module_path):
+    allowed = (
+        registered_tool_module_allowed(entry.module_path)
+        if module_allowlist is _BOUND_MODULE_ALLOWLIST
+        # Passing an explicit empty/None value means unrestricted for this binding;
+        # use "" so registered_tool_module_allowed does not fall back to the global.
+        else registered_tool_module_allowed(entry.module_path, str(module_allowlist or ""))
+    )
+    if not allowed:
         raise ToolBindingError(
             f"tool {entry.registry_ref!r} module {entry.module_path!r} is not in "
             "CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST; this module is imported and "

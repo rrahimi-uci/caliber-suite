@@ -19,7 +19,7 @@ its behaviour is fully described by its type and its configuration.
 This page explains the anatomy of a component, how to add, configure, connect,
 inspect, and run one, the data-type port system, and a complete reference for
 every built-in component. For the engine internals (manifest schema, compiler,
-runtime, deployments) see the [Workflows Architecture](architecture.md).
+runtime, deployments) see the [Workflows Architecture](m-06-workflows.md).
 
 ## At a glance
 
@@ -336,4 +336,4 @@ The catalog is the shared source of truth between the runtime and the designer,
 so the palette, the inspector, the setup badges, and this reference all stay in
 sync with the validated node shape. For the full engine design — manifest
 hashing, deterministic compilation, the runtime interpreter, deployments, and
-calibration — see the [Workflows Architecture](architecture.md).
+calibration — see the [Workflows Architecture](m-06-workflows.md).

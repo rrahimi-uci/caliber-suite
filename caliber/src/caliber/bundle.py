@@ -1,4 +1,4 @@
-"""Atomic bundle promotion helper.
+"""Transactional and compensating bundle-promotion helper.
 
 When a refinement job spans multiple agents/artifacts (its
 ``bundle_targets`` list has more than zero entries beyond the primary
@@ -9,20 +9,19 @@ that share a prompt now disagree, downstream callers see a mix of old
 and new behavior, and rolling back is non-obvious because each
 artifact lives in a separate registry slot.
 
-This module owns the all-or-nothing semantic so :mod:`caliber.apply`
-can stay readable. The flow:
+This module centralizes the best available failure handling so
+:mod:`caliber.apply` can stay readable. Database-resident skill writes share
+the caller transaction; external registry/provider effects use best-effort
+compensation and are not SQL-atomic. The flow:
 
 1. Build a :class:`BundleTarget` list from the job's ``bundle_targets``
    (or a single-element list synthesized from the job's own
    ``agent_id`` / ``artifact_type`` for non-bundle jobs — that way the
    approve path takes the same code path uniformly).
 2. Promote each target in order, accumulating successful results.
-3. If any promotion raises :class:`PromoterError`, *roll back* the
-   already-promoted targets (calling :meth:`Promoter.rollback` for
-   each in reverse order) and re-raise so the approval endpoint
-   surfaces a 502 to the caller. The state at that point is the same
-   as before the approve was called — modulo durable side effects
-   like emitted webhook events, which are out of scope.
+3. If a promotion raises :class:`PromoterError`, let the caller transaction
+   unwind DB-resident skill writes and best-effort roll back already-promoted
+   external targets in reverse order before re-raising.
 
 Rollback-on-failure is best-effort. If a rollback itself fails, we
 log the inconsistency clearly (operator-actionable) but continue
@@ -39,6 +38,7 @@ from typing import Any
 from caliber.db.models import CaliberRefinementJob
 from caliber.promoter import (
     Promoter,
+    PromoterConflictError,
     PromoterError,
     PromotionRequest,
     PromotionResult,
@@ -152,11 +152,16 @@ def resolve_bundle_targets(
     keys fall back to the job-level defaults rather than coercing to
     literal ``"None"`` strings.
     """
+    primary_target_id = (
+        job.skill_name
+        if job.artifact_type == "skill" and isinstance(job.skill_name, str) and job.skill_name
+        else job.agent_id
+    )
     raw = job.bundle_targets or []
     if not raw:
         return [
             BundleTarget(
-                agent_id=job.agent_id,
+                agent_id=primary_target_id,
                 artifact_type=job.artifact_type,
                 content=candidate_content,
                 rationale=candidate_rationale,
@@ -168,7 +173,7 @@ def resolve_bundle_targets(
             continue
         targets.append(
             BundleTarget(
-                agent_id=_coerce_str(entry.get("agent_id"), job.agent_id),
+                agent_id=_coerce_str(entry.get("agent_id"), primary_target_id),
                 artifact_type=_coerce_str(entry.get("artifact_type"), job.artifact_type),
                 content=_coerce_str(entry.get("content"), candidate_content),
                 rationale=_coerce_str(entry.get("rationale"), candidate_rationale),
@@ -177,7 +182,7 @@ def resolve_bundle_targets(
     if not targets:
         return [
             BundleTarget(
-                agent_id=job.agent_id,
+                agent_id=primary_target_id,
                 artifact_type=job.artifact_type,
                 content=candidate_content,
                 rationale=candidate_rationale,
@@ -191,14 +196,15 @@ def promote_bundle(
     targets: list[BundleTarget],
     *,
     approval_id: str,
+    session: Any | None = None,
+    actor: str = "",
 ) -> list[PromotionResult]:
-    """Promote every target atomically, rolling back on any failure.
+    """Promote every target with transactional or compensating rollback.
 
     Returns the list of results in the same order as ``targets``.
-    Raises :class:`PromoterError` (re-raised from the underlying
-    failure) if any single promotion fails — but only after best-
-    effort rollback of the already-promoted targets, so the caller's
-    own catch sees a state consistent with "nothing was promoted."
+    DB-resident skill writes use ``session`` and roll back with the caller's
+    transaction. External targets are compensated best-effort when a later
+    target fails; those provider effects cannot be made SQL-atomic.
     """
     succeeded: list[tuple[BundleTarget, PromotionResult]] = []
     for target in targets:
@@ -210,10 +216,17 @@ def promote_bundle(
                     new_content=target.content,
                     rationale=target.rationale,
                     approval_id=approval_id,
+                    session=session if target.artifact_type == "skill" else None,
+                    actor=actor,
                 )
             )
         except PromoterError as exc:
-            rollback_failures = _rollback_succeeded(promoter, succeeded)
+            rollback_failures = _rollback_succeeded(
+                promoter,
+                succeeded,
+                session=session,
+                actor=actor,
+            )
             failure = BundlePromotionError(
                 failing_target=target,
                 underlying=exc,
@@ -225,10 +238,10 @@ def promote_bundle(
                 approval_id,
                 failure,
             )
-            # Surface as PromoterError so the existing except branch
-            # in caliber.apply.apply_candidate handles it uniformly
-            # (502 with the message).
-            raise PromoterError(str(failure)) from exc
+            error_type = (
+                PromoterConflictError if isinstance(exc, PromoterConflictError) else PromoterError
+            )
+            raise error_type(str(failure)) from exc
         succeeded.append((target, result))
 
     return [result for _, result in succeeded]
@@ -237,6 +250,9 @@ def promote_bundle(
 def _rollback_succeeded(
     promoter: Promoter,
     succeeded: list[tuple[BundleTarget, PromotionResult]],
+    *,
+    session: Any | None,
+    actor: str,
 ) -> list[BundleTarget]:
     """Roll back already-promoted targets in reverse order.
 
@@ -246,6 +262,11 @@ def _rollback_succeeded(
     """
     failures: list[BundleTarget] = []
     for target, result in reversed(succeeded):
+        # SkillPromoter writes only into the caller-owned transaction. A later
+        # failure unwinds that session, so invoking generic rollback here would
+        # both be unnecessary and require a checkpoint that is not created yet.
+        if target.artifact_type == "skill" and session is not None:
+            continue
         details = getattr(result, "details", None) or {}
         version_after = _coerce_int(details.get("version") if isinstance(details, dict) else None)
         version_before = (
@@ -262,6 +283,8 @@ def _rollback_succeeded(
                     # marker. The promoter implementations only use this
                     # for logging, not for state.
                     checkpoint_id=f"bundle-rollback:{target.agent_id}:{target.artifact_type}",
+                    session=session if target.artifact_type == "skill" else None,
+                    actor=actor,
                 )
             )
         except Exception:

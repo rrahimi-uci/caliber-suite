@@ -17,6 +17,7 @@ from caliber.db.models import (
     CaliberRefinementJob,
     CaliberRollbackCheckpoint,
     CaliberSkill,
+    CaliberSkillVersion,
     CaliberVerificationItem,
 )
 from caliber.eval.fake import FakeEvalProvider
@@ -680,6 +681,7 @@ class TestSkillPromoter:
                     skill_id="SK-roll",
                     name="tool-use",
                     description="",
+                    summary="Original summary",
                     content="ORIGINAL",
                     owner="@me",
                     tags=[],
@@ -688,20 +690,25 @@ class TestSkillPromoter:
             )
             session.commit()
 
-        promoter = SkillPromoter(session_factory=session_factory)
+        promoter = SkillPromoter()
 
         # Promote v3 -> v4; the result must carry the prior content so a
         # checkpoint can snapshot it.
-        result = promoter.promote(
-            PromotionRequest(
-                agent_id="tool-use",
-                artifact_type="skill",
-                new_content="IMPROVED",
-                rationale="test",
-                approval_id="APR-1",
+        with session_factory() as session:
+            result = promoter.promote(
+                PromotionRequest(
+                    agent_id="tool-use",
+                    artifact_type="skill",
+                    new_content="IMPROVED",
+                    rationale="test",
+                    approval_id="APR-1",
+                    session=session,
+                    actor="@operator",
+                )
             )
-        )
+            session.commit()
         assert result.details["content_before"] == "ORIGINAL"
+        assert result.details["summary_before"] == "Original summary"
         assert result.details["version"] == 4
         assert result.details["version_before"] == 3
         with session_factory() as session:
@@ -722,25 +729,146 @@ class TestSkillPromoter:
                     artifact_ref_after=result.artifact_ref,
                     version_before=3,
                     version_after=4,
-                    snapshot_payload={"content_before": "ORIGINAL", "version_before": 3},
+                    snapshot_payload={
+                        "content_before": "ORIGINAL",
+                        "summary_before": "Original summary",
+                        "version_before": 3,
+                    },
                 )
             )
             session.commit()
 
-        # Roll back -> content + version restored to the pre-promotion state.
-        rb = promoter.rollback(
-            RollbackRequest(
-                agent_id="tool-use",
-                artifact_type="skill",
-                version_before=3,
-                checkpoint_id="CKP-roll",
+        # Roll back -> prior content restored as a new, forward-only version.
+        with session_factory() as session:
+            rb = promoter.rollback(
+                RollbackRequest(
+                    agent_id="tool-use",
+                    artifact_type="skill",
+                    version_before=3,
+                    checkpoint_id="CKP-roll",
+                    session=session,
+                    actor="@operator",
+                )
             )
-        )
+            session.commit()
         assert rb.details["rolled_back"] is True
+        assert rb.details["restored_from_version"] == 3
+        assert rb.details["new_version"] == 5
         with session_factory() as session:
             skill = session.query(CaliberSkill).filter(CaliberSkill.name == "tool-use").one()
             assert skill.content == "ORIGINAL"
-            assert skill.version == 3
+            assert skill.summary == "Original summary"
+            assert skill.version == 5
+            versions = (
+                session.query(CaliberSkillVersion)
+                .filter(CaliberSkillVersion.skill_id == skill.skill_id)
+                .order_by(CaliberSkillVersion.version_number)
+                .all()
+            )
+            assert [row.version_number for row in versions] == [3, 4, 5]
+            assert versions[-1].content == "ORIGINAL"
+            assert versions[-1].summary == "Original summary"
+
+    def test_promotion_rolls_back_with_the_callers_transaction(
+        self, session_factory: sessionmaker[Session]
+    ) -> None:
+        with session_factory() as session:
+            session.add(
+                CaliberSkill(
+                    skill_id="SK-atomic",
+                    name="atomic-skill",
+                    description="",
+                    summary="Before",
+                    content="ORIGINAL",
+                    owner="@me",
+                    tags=[],
+                    version=1,
+                )
+            )
+            session.commit()
+
+        promoter = SkillPromoter()
+        with session_factory() as session:
+            promoter.promote(
+                PromotionRequest(
+                    agent_id="atomic-skill",
+                    artifact_type="skill",
+                    new_content="UNCOMMITTED",
+                    rationale="test",
+                    approval_id="APR-atomic",
+                    session=session,
+                    actor="@operator",
+                )
+            )
+            session.rollback()
+
+        with session_factory() as session:
+            skill = session.get(CaliberSkill, "SK-atomic")
+            assert skill is not None
+            assert skill.content == "ORIGINAL"
+            assert skill.version == 1
+            assert (
+                session.query(CaliberSkillVersion)
+                .filter(CaliberSkillVersion.skill_id == "SK-atomic")
+                .count()
+                == 0
+            )
+
+    def test_promotion_repairs_reused_legacy_version_without_overwriting_history(
+        self, session_factory: sessionmaker[Session]
+    ) -> None:
+        with session_factory() as session:
+            session.add(
+                CaliberSkill(
+                    skill_id="SK-reused",
+                    name="reused-version",
+                    description="",
+                    summary="Live D",
+                    content="Content D",
+                    owner="@me",
+                    tags=[],
+                    version=2,
+                )
+            )
+            session.add(
+                CaliberSkillVersion(
+                    skill_version_id="SKV-reused-v2",
+                    skill_id="SK-reused",
+                    version_number=2,
+                    content="Content C",
+                    summary="Summary C",
+                    created_by="@legacy",
+                )
+            )
+            session.commit()
+
+        with session_factory() as session:
+            result = SkillPromoter().promote(
+                PromotionRequest(
+                    agent_id="reused-version",
+                    artifact_type="skill",
+                    new_content="Content E",
+                    rationale="repair then promote",
+                    approval_id="APR-reused",
+                    session=session,
+                    actor="@operator",
+                )
+            )
+            session.commit()
+
+        assert result.details["version_before"] == 3
+        assert result.details["version"] == 4
+        with session_factory() as session:
+            skill = session.get(CaliberSkill, "SK-reused")
+            assert skill is not None and skill.version == 4
+            versions = (
+                session.query(CaliberSkillVersion)
+                .filter(CaliberSkillVersion.skill_id == "SK-reused")
+                .order_by(CaliberSkillVersion.version_number)
+                .all()
+            )
+            assert [row.version_number for row in versions] == [2, 3, 4]
+            assert [row.content for row in versions] == ["Content C", "Content D", "Content E"]
 
     def test_rollback_without_snapshot_is_a_clean_error(
         self, session_factory: sessionmaker[Session]
@@ -772,16 +900,18 @@ class TestSkillPromoter:
                 )
             )
             session.commit()
-        promoter = SkillPromoter(session_factory=session_factory)
-        with pytest.raises(PromoterError, match="no skill content snapshot"):
-            promoter.rollback(
-                RollbackRequest(
-                    agent_id="no-snap",
-                    artifact_type="skill",
-                    version_before=2,
-                    checkpoint_id="CKP-nosnap",
+        promoter = SkillPromoter()
+        with session_factory() as session:
+            with pytest.raises(PromoterError, match="no skill content snapshot"):
+                promoter.rollback(
+                    RollbackRequest(
+                        agent_id="no-snap",
+                        artifact_type="skill",
+                        version_before=2,
+                        checkpoint_id="CKP-nosnap",
+                        session=session,
+                    )
                 )
-            )
 
     def test_build_checkpoint_records_skill_snapshot(self) -> None:
         from types import SimpleNamespace
@@ -790,12 +920,21 @@ class TestSkillPromoter:
 
         approval = SimpleNamespace(approval_id="APR-1", agent_id="tool-use")
         result = SimpleNamespace(
-            details={"version": 4, "content_before": "ORIGINAL", "version_before": 3},
+            details={
+                "version": 4,
+                "content_before": "ORIGINAL",
+                "summary_before": "Original summary",
+                "version_before": 3,
+            },
             artifact_ref="skill://tool-use/v4",
         )
         checkpoint = _build_checkpoint(approval, {"artifact_type": "skill"}, result)  # type: ignore[arg-type]
         assert checkpoint.artifact_type == "skill"
-        assert checkpoint.snapshot_payload == {"content_before": "ORIGINAL", "version_before": 3}
+        assert checkpoint.snapshot_payload == {
+            "content_before": "ORIGINAL",
+            "summary_before": "Original summary",
+            "version_before": 3,
+        }
         assert checkpoint.artifact_ref_before == "skill://tool-use/v3"
 
     def test_rollback_rejects_non_skill(self) -> None:
@@ -870,11 +1009,8 @@ class TestCompositePromoter:
             version_before=1,
             checkpoint_id="CKP-1",
         )
-        # Routed to the (session-less) SkillPromoter, which now performs a real
-        # restore and so fails on the missing session_factory rather than the
-        # old "not yet implemented" stub — either way it proves the skill
-        # request did not go to the default promoter.
-        with pytest.raises(PromoterError, match="requires a session_factory"):
+        # Routed to the DB promoter and rejected without a caller transaction.
+        with pytest.raises(PromoterError, match="requires a caller-owned session"):
             composite.rollback(request)
         # The FakePromoter should NOT have been called
         assert len(fake.rollback_calls) == 0

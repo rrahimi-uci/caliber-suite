@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Final
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, update
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -224,17 +224,30 @@ async def apply_job(request: Request) -> JSONResponse:
     promoter: Promoter = request.app.state.promoter
     factory = get_session_factory(request)
     with factory() as session:
-        job = session.get(CaliberRefinementJob, job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
-        if job.status != "candidate_ready":
+        # Claim with a conditional write rather than relying only on
+        # SELECT FOR UPDATE (which SQLite ignores). The transient status lives
+        # in this transaction: failure rolls it back to candidate_ready, while
+        # a racing request blocks and then observes rowcount=0 before any
+        # promoter/provider effect runs.
+        claim = session.execute(
+            update(CaliberRefinementJob)
+            .where(CaliberRefinementJob.job_id == job_id)
+            .where(CaliberRefinementJob.status == "candidate_ready")
+            .values(status="applying")
+        )
+        if int(getattr(claim, "rowcount", 0) or 0) != 1:
+            current = session.get(CaliberRefinementJob, job_id)
+            if current is None:
+                raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
             raise HTTPException(
                 status_code=409,
                 detail=(
                     f"job {job_id!r} cannot be applied: "
-                    f"current status is {job.status!r} (expected 'candidate_ready')"
+                    f"current status is {current.status!r} (expected 'candidate_ready')"
                 ),
             )
+        job = session.get(CaliberRefinementJob, job_id)
+        assert job is not None
         if not job.candidate:
             raise HTTPException(
                 status_code=409,

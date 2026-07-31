@@ -6,6 +6,8 @@ manifest_hash: 0522972e41d58cee5977a855b423a99c8510bf47c171398c598a6dec95fa7b89
 compiler_version: 0.1.0
 """
 
+from typing import Any
+
 from agents import Agent, Runner, handoff
 import mlflow
 
@@ -14,16 +16,18 @@ from caliber.workflows.runtime import run_with_caliber_context, workflow_model
 from caliber.workflows.runtime import bind_exported_tool
 from caliber.workflows.tools import ToolRegistryEntry
 
-# node: agent
-agent = Agent(
-    name="test-agent",
-    model=workflow_model("agent"),
-    instructions="You are helpful.",
-    tools=[],
-    handoffs=[],
-)
+def _build_agent_graph(*, config: Any | None = None):
+    # node: agent
+    agent = Agent(
+        name="test-agent",
+        model=workflow_model("agent"),
+        instructions="You are helpful.",
+        tools=[],
+        handoffs=[],
+    )
+    return agent
 
-def run(input_text: str, *, session_id: str | None = None):
+def run(input_text: str, *, session_id: str | None = None, config: Any | None = None):
     with run_with_caliber_context(
         workflow_id="single_agent_wf",
         workflow_version="1",
@@ -34,5 +38,6 @@ def run(input_text: str, *, session_id: str | None = None):
         extra_tags={},
         session_id=session_id,
     ):
-        result = Runner.run_sync(agent, input_text)
+        entry_agent = _build_agent_graph(config=config)
+        result = Runner.run_sync(entry_agent, input_text)
         return result.final_output

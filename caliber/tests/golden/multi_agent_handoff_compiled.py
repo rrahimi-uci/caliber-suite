@@ -6,6 +6,8 @@ manifest_hash: c4ed4d884854cca251af90a74427fe2412e72552ad0c8192dabf8379dd2c6335
 compiler_version: 0.1.0
 """
 
+from typing import Any
+
 from agents import Agent, Runner, handoff
 import mlflow
 
@@ -14,29 +16,29 @@ from caliber.workflows.runtime import run_with_caliber_context, workflow_model
 from caliber.workflows.runtime import bind_exported_tool
 from caliber.workflows.tools import ToolRegistryEntry
 
-# Tool bindings (resolved from the CALIBER tool registry).
-get_order = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
-lookup_policy = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}))
+def _build_agent_graph(*, config: Any | None = None):
+    # Tool bindings (resolved from the CALIBER tool registry).
+    get_order = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    lookup_policy = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    # node: billing
+    billing = Agent(
+        name="billing-agent",
+        model=workflow_model("billing"),
+        instructions="Handle billing.",
+        tools=[get_order],
+        handoffs=[],
+    )
+    # node: agent
+    agent = Agent(
+        name="test-agent",
+        model=workflow_model("agent"),
+        instructions="You are helpful.",
+        tools=[lookup_policy],
+        handoffs=[handoff(billing, tool_description_override="billing issues")],
+    )
+    return agent
 
-# node: billing
-billing = Agent(
-    name="billing-agent",
-    model=workflow_model("billing"),
-    instructions="Handle billing.",
-    tools=[get_order],
-    handoffs=[],
-)
-
-# node: agent
-agent = Agent(
-    name="test-agent",
-    model=workflow_model("agent"),
-    instructions="You are helpful.",
-    tools=[lookup_policy],
-    handoffs=[handoff(billing, tool_description_override="billing issues")],
-)
-
-def run(input_text: str, *, session_id: str | None = None):
+def run(input_text: str, *, session_id: str | None = None, config: Any | None = None):
     with run_with_caliber_context(
         workflow_id="multi_agent_wf",
         workflow_version="1",
@@ -47,5 +49,6 @@ def run(input_text: str, *, session_id: str | None = None):
         extra_tags={},
         session_id=session_id,
     ):
-        result = Runner.run_sync(agent, input_text)
+        entry_agent = _build_agent_graph(config=config)
+        result = Runner.run_sync(entry_agent, input_text)
         return result.final_output

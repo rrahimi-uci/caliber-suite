@@ -164,11 +164,11 @@ def _build_lifespan(
 ) -> Lifespan:
     """Create the Starlette lifespan callback that starts/stops background tasks.
 
-    Startup order: worker → workflow-run-worker → knowledge-build-worker
-    → janitor → webhooks.
-    Shutdown order: webhooks first (drains its bus subscription quickly),
-    then knowledge-build-worker, workflow-run-worker and worker (so each can
-    finish its in-flight unit of work), then janitor, then engine dispose.
+    Startup order: refinement worker → workflow-run worker → Aria worker →
+    knowledge-build worker → scheduler → janitor → calibration drain → webhooks.
+    Shutdown reverses the dependency edge: webhooks and scheduler stop first,
+    followed by the knowledge, Aria, workflow-run, refinement, and calibration
+    workers; the janitor and event bus stop before the database engine is disposed.
 
     When ``background_tasks_enabled`` is False the loops are not started (the
     ``stop`` calls are no-ops on an unstarted task). This is used by unit/route
@@ -207,7 +207,7 @@ def _build_lifespan(
             if workflow_run_worker is not None:
                 await workflow_run_worker.stop(grace_seconds=grace_seconds)
             await worker.stop(grace_seconds=grace_seconds)
-            await calibration_drain_task.stop()
+            await calibration_drain_task.stop(grace_seconds=grace_seconds)
             await janitor.stop()
             stop_bus = getattr(_event_bus, "stop", None)
             if callable(stop_bus):
@@ -255,47 +255,97 @@ def _bootstrap_admin_account(config: CaliberConfig, session_factory: Any) -> Non
     """Create the configured bootstrap admin when no account exists yet.
 
     Only when the account table is **empty**: this seeds a reachable deployment, it
-    does not reset a password on every restart. The password is read from an env var
-    or ``caliber.secrets`` URI and is validated by the same strength rules as any
-    other account, so a well-known default cannot be seeded — which is the specific
-    thing the previous ``admin/admin`` login did.
+    does not reset a password on every restart. A configured secret keeps the normal
+    password policy. For the requested zero-configuration local experience, session
+    mode with a non-Secure development cookie may seed ``admin/admin``; the exception
+    is not available to normal account creation or password reset.
 
     Failures are logged and swallowed. A control plane that cannot seed an optional
     convenience account must still start; the operator sees the warning and can create
     the account explicitly.
     """
+    from caliber.sessions import (  # noqa: PLC0415
+        DEFAULT_BOOTSTRAP_ADMIN_PASSWORD,
+        DEFAULT_BOOTSTRAP_ADMIN_USER,
+        AccountError,
+        account_count,
+        create_account,
+        verify_password,
+    )
+
+    if str(getattr(config, "auth_mode", "session") or "session") != "session":
+        return
     user_id = str(getattr(config, "auth_bootstrap_admin_user", "") or "").strip()
     secret_source = str(getattr(config, "auth_bootstrap_admin_password_env", "") or "").strip()
-    if not user_id or not secret_source:
+    if not user_id:
         return
     from caliber.secrets import resolve_secret  # noqa: PLC0415
-    from caliber.sessions import AccountError, account_count, create_account  # noqa: PLC0415
 
-    password = resolve_secret(secret_source) or ""
+    password = (resolve_secret(secret_source) or "") if secret_source else ""
+    allow_insecure_default = bool(
+        getattr(config, "auth_bootstrap_allow_insecure_default", False)
+    ) and not bool(getattr(config, "auth_session_cookie_secure", True))
+    using_default = False
+    if (
+        not password
+        and not secret_source
+        and user_id == DEFAULT_BOOTSTRAP_ADMIN_USER
+        and allow_insecure_default
+    ):
+        password = DEFAULT_BOOTSTRAP_ADMIN_PASSWORD
+        using_default = True
     if not password:
-        logger.warning(
-            "auth bootstrap admin %r is configured but %s resolved no password; "
-            "no account was created",
-            user_id,
-            secret_source,
-        )
+        if secret_source:
+            logger.warning(
+                "auth bootstrap admin %r is configured but %s resolved no password; "
+                "no account was created",
+                user_id,
+                secret_source,
+            )
         return
+    using_default = using_default or (
+        allow_insecure_default
+        and user_id == DEFAULT_BOOTSTRAP_ADMIN_USER
+        and password == DEFAULT_BOOTSTRAP_ADMIN_PASSWORD
+    )
     try:
         with session_factory() as session:
             if account_count(session) > 0:
+                from caliber.db.models import CaliberUserAccount  # noqa: PLC0415
+
+                existing = session.get(CaliberUserAccount, DEFAULT_BOOTSTRAP_ADMIN_USER)
+                if existing is not None and verify_password(
+                    DEFAULT_BOOTSTRAP_ADMIN_PASSWORD, existing.password_hash
+                ):
+                    logger.warning(
+                        "INSECURE DEFAULT CREDENTIAL admin/admin is still active; "
+                        "change it immediately in Administration"
+                    )
                 return
-            create_account(session, user_id=user_id, password=password, actor="bootstrap")
+            create_account(
+                session,
+                user_id=user_id,
+                password=password,
+                actor="bootstrap",
+                allow_insecure_default=using_default,
+            )
             session.commit()
     except AccountError as exc:
         logger.warning("auth bootstrap admin %r was not created: %s", user_id, exc)
     except Exception:  # pragma: no cover - a seeding failure must not block startup
         logger.warning("auth bootstrap admin %r could not be created", user_id, exc_info=True)
     else:
-        logger.info(
-            "created bootstrap admin account %r (no accounts existed); grant it scopes via "
-            "CALIBER_ADMIN_USERS",
-            user_id,
-        )
+        if using_default:
+            logger.warning(
+                "created local bootstrap account with INSECURE DEFAULT CREDENTIAL "
+                "admin/admin; change it immediately in Administration"
+            )
+        else:
+            logger.info(
+                "created bootstrap admin account %r (no accounts existed); grant it scopes via "
+                "CALIBER_ADMIN_USERS",
+                user_id,
+            )
 
 
 def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
@@ -405,10 +455,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         session_factory=session_factory,
         config=resolved,
     )
-    promoter = build_promoter(
-        resolved.promoter_provider,
-        session_factory=session_factory,
-    )
+    promoter = build_promoter(resolved.promoter_provider)
     event_bus = build_event_bus(resolved, session_factory=session_factory)
     worker = RefinementWorker(
         session_factory=session_factory,

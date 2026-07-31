@@ -110,7 +110,7 @@ protect tools that are still in use. The table summarizes their roles.
 | --- | --- |
 | `CaliberToolRegistry` | Canonical tool registry row including version, callable location, schemas, safety metadata, fixtures, calibration summary, and pinned baseline. |
 | `CaliberToolTestRun` | Durable test-run history for sandbox, suite, and hardening runs. |
-| `CaliberCalibrationJob` | Queued/running/finished calibration work, with the test cases snapshotted at submission so a result is never attributed to a definition that did not produce it. |
+| `CaliberCalibrationJob` | Queued/running/finished calibration work with executable definition, cases, and monotonic revision snapshotted at submission. |
 | `CaliberWorkflowDeployment` and `CaliberWorkflowVersion` | Referenced during archive protection and usage analysis so in-use tool families cannot be removed unsafely. |
 
 The `CaliberToolRegistry` row carries the fields that define a tool and govern how
@@ -121,8 +121,10 @@ contract. The `side_effect_level`, `requires_approval`, and `allow_in_preview`
 fields capture runtime safety. The `secret_refs` field provides secret
 indirection rather than literal secrets. The `test_cases` field holds the saved
 fixture suite. The `last_calibration` field records the latest aggregate scored
-result. And `baseline_run_id` pins the comparison baseline used for workspace
-diffs.
+result. `calibration_revision` advances with a database expression and clears that
+result on every supported definition/fixture mutation; workers conditionally attach
+new evidence only at the submitted revision. And `baseline_run_id` pins the comparison
+baseline used for workspace diffs.
 
 As with the other asset modules, lifecycle state is derived from both registry
 status and historical evidence rather than stored as one column, and it advances
@@ -163,11 +165,18 @@ or a closed laptop lid:
 - `GET /tools/{tool_id}/calibration-jobs` — recent jobs, newest first
 - `GET /tools/{tool_id}/calibration-jobs/{job_id}` — poll one job
 
-A background drain claims a job with a conditional `UPDATE`, runs it off the event loop,
-and records the outcome. A crashed drain deliberately leaves the job claimed rather than
+A background drain claims a job with a conditional `UPDATE`, runs it off the event loop
+without holding a database session, and records the outcome. It attaches a result to the
+tool only if the executable definition, cases, and revision still match the submission;
+otherwise the job keeps a stale-result diagnosis without presenting it as current evidence.
+A crashed drain deliberately leaves the job claimed rather than
 re-queueing it: calibration invokes tools, so silently re-running one after an ambiguous
-failure is the wrong default. The synchronous `POST /tools/{tool_id}/calibrate` remains
-for small fixture sets.
+failure is the wrong default. Bounded shutdown fences the active generation immediately and
+waits at most the configured grace for the tracked drain; it performs no stop-time database
+settlement. An interrupted claim therefore remains visibly `running`/ambiguous, while the
+retained generation fence prevents a late scorer from persisting a terminal result or failure.
+The synchronous `POST /tools/{tool_id}/calibrate` remains for small
+fixture sets and is still the path used by the current Tool workspace.
 
 The second area covers testing and calibration against the sandbox and fixtures:
 
@@ -203,6 +212,7 @@ sequenceDiagram
     participant API as routes/tools.py
     participant DB as CALIBER DB
     participant SB as Tool sandbox
+    participant D as Calibration drain
     participant WF as Workflow compiler/runtime
 
     U->>UI: Register tool metadata
@@ -217,10 +227,19 @@ sequenceDiagram
     API->>DB: Persist CaliberToolTestRun
     API-->>UI: Return durable run detail
 
-    U->>UI: Save fixtures and calibrate
+    U->>UI: Save fixtures and calibrate inline
     UI->>API: PUT /test-cases, POST /calibrate
-    API->>SB: Execute fixture suite
-    API->>DB: Store aggregate calibration on tool row
+    API->>DB: Snapshot definition, cases, revision
+    API->>SB: Execute fixture suite off event loop
+    API->>DB: Conditionally attach at submitted revision
+
+    opt Durable API client
+        U->>API: POST /calibration-jobs
+        API->>DB: Persist immutable snapshot, return 202
+        D->>DB: Conditionally claim queued job
+        D->>SB: Execute fixture suite
+        D->>DB: Settle job + conditionally attach result
+    end
 
     WF->>API: No direct call
     WF->>DB: Read tool metadata through resolver inputs
@@ -228,13 +247,21 @@ sequenceDiagram
 ```
 
 The runtime rules that govern these flows reinforce the registry/execution split.
-The module in `routes/tools.py` reflects source code for inspection but never
-executes it inline in the request process. The `LocalSubprocessToolSandbox` runs
+The module in `routes/tools.py` reflects source code for inspection and, with the
+default sandbox enabled, never executes it in the request process. The
+`LocalSubprocessToolSandbox` runs
 the code under `python -I` inside a temporary directory, with an empty
 environment, clipped output, and a hard timeout. Workflow compilation resolves
 tool references without importing the callable. And the workflow runtime binds and
 imports only the resolved tool version that has already passed resolution and
 safety checks.
+
+On POSIX, timeout cleanup targets the sandbox process group so descendants cannot
+normally outlive the request. A constrained host that denies group signalling falls back
+to killing the direct child instead of converting an already-detected timeout into a 500;
+such a host cannot claim descendant containment from this fallback and must supply an
+external container/VM boundary. Windows likewise requires Job Objects or external
+containment for process-tree guarantees.
 
 ## 7. Security and trust boundaries
 
@@ -285,13 +312,20 @@ supplies its own factory via `CALIBER_TOOL_SANDBOX_BACKEND` rather than forking.
 
 **Cost.** Running out of process is not free: measured on an idle machine, a cold child
 costs roughly 0.05s for a trivial module and 0.55s for one importing the caliber
-package, per call. A caller's configured timeout budgets *their code* — the child starts
-its own deadline after its import, so interpreter startup is not charged to it. A warm
-worker pool would recover most of that cost and is not implemented.
+package, per call. The child signals ready and waits; the parent then starts authored
+work and owns the exact runtime deadline, with process-group termination even if authored
+code mutates `os._exit` or monopolizes the GIL. The child's uncatchable watchdog still
+covers source/module resolution, import, inspection, every test/invocation, result
+representation, and serialization. A positive startup grace is separate from that runtime
+clock; with zero grace, startup consumes the caller's overall budget. The standalone ASGI
+service offloads synchronous execution so another request can still reach its health route.
+A warm worker pool would recover most of the process cost and is not implemented.
 
 **Generated exports take the same decision.** A compiled standalone export binds through
-the same path and reads operator configuration from the environment, so a workflow does
-not change behaviour by being exported.
+the same path after entering the explicit run configuration context; absent explicit
+configuration it resolves the environment normally. The selected sandbox backend and an
+intentionally empty module allowlist are therefore preserved, so a workflow does not
+silently change binding policy by being exported.
 
 ## 8. Observability and operations
 
@@ -301,7 +335,9 @@ time. The operational signals it exposes are the following. Durable
 baseline support enables run comparisons in the workspace. A lifecycle summary is
 computed from fixtures, test history, calibration, and registry status.
 Source-code introspection and signature reflection are available for debugging.
-And usage inspection runs against workflow versions and deployments.
+Usage inspection runs against workflow versions and deployments. Durable calibration
+jobs expose claim identity, timestamps, result/error and stale reasons; the registry
+revision records whether current evidence still belongs to the current definition.
 
 To keep history listings fast, the module separates heavy payloads from cheap
 summaries:

@@ -18,6 +18,8 @@ from caliber.db.models import (
     CaliberAuditLog,
     CaliberRefinementJob,
     CaliberRollbackCheckpoint,
+    CaliberSkill,
+    CaliberSkillVersion,
     CaliberVerificationItem,
 )
 
@@ -31,6 +33,7 @@ def _seed_candidate_ready_job(
     status: str = "candidate_ready",
     candidate: dict[str, object] | None = None,
     artifact_type: str = "prompt",
+    skill_name: str | None = None,
 ) -> None:
     if session.get(CaliberAgentConfig, "support-agent") is None:
         session.add(
@@ -64,6 +67,7 @@ def _seed_candidate_ready_job(
             workflow_id="WF-1",
             primary_item_id="FB-A",
             artifact_type=artifact_type,
+            skill_name=skill_name,
             status=status,
             current_stage="done" if status == "candidate_ready" else "candidate",
             attempt_count=1,
@@ -144,6 +148,104 @@ def test_apply_writes_apply_and_promote_audit_rows(client: TestClient, db_sessio
     }
     assert "apply_candidate" in actions
     assert "promote" in actions
+
+
+def test_apply_skill_commits_live_row_history_checkpoint_and_audit_together(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_candidate_ready_job(
+        db_session,
+        artifact_type="skill",
+        skill_name="tool-use",
+        candidate={
+            # The job type is authoritative even when candidate metadata is
+            # stale or wrong; the checkpoint must still be a skill snapshot.
+            "artifact_type": "prompt",
+            "content": "Improved instructions",
+            "rationale": "measured improvement",
+        },
+    )
+    db_session.add(
+        CaliberSkill(
+            skill_id="SK-support",
+            name="tool-use",
+            description="Support skill",
+            summary="Original summary",
+            content="Original instructions",
+            owner="@owner",
+            tags=[],
+            version=1,
+        )
+    )
+    db_session.add(
+        CaliberSkillVersion(
+            skill_version_id="SKV-support-v1",
+            skill_id="SK-support",
+            version_number=1,
+            content="Original instructions",
+            summary="Original summary",
+            created_by="@owner",
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        APPLY_PATH.format(job_id="RFN-A"),
+        headers={"X-CALIBER-User": "@reza"},
+    )
+    assert response.status_code == 200, response.text
+
+    db_session.expire_all()
+    skill = db_session.get(CaliberSkill, "SK-support")
+    assert skill is not None
+    assert skill.content == "Improved instructions"
+    assert skill.version == 2
+    versions = (
+        db_session.query(CaliberSkillVersion)
+        .filter(CaliberSkillVersion.skill_id == skill.skill_id)
+        .order_by(CaliberSkillVersion.version_number)
+        .all()
+    )
+    assert [row.version_number for row in versions] == [1, 2]
+    assert versions[-1].created_by == "@reza"
+
+    checkpoint = db_session.query(CaliberRollbackCheckpoint).one()
+    assert checkpoint.snapshot_payload == {
+        "content_before": "Original instructions",
+        "summary_before": "Original summary",
+        "version_before": 1,
+    }
+    assert checkpoint.agent_id == "support-agent"
+    assert checkpoint.artifact_name == "tool-use"
+    assert checkpoint.artifact_ref_before == "skill://tool-use/v1"
+    actions = {
+        row.action
+        for row in db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.entity_id == "RFN-A")
+        .all()
+    }
+    assert {"promote", "apply_candidate"} <= actions
+
+
+def test_apply_skill_without_target_name_fails_before_promotion(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_candidate_ready_job(
+        db_session,
+        artifact_type="skill",
+        skill_name=None,
+        candidate={
+            "artifact_type": "skill",
+            "content": "orphan candidate",
+            "rationale": "invalid fixture",
+        },
+    )
+
+    response = client.post(APPLY_PATH.format(job_id="RFN-A"))
+    assert response.status_code == 409
+    assert "skill_name" in response.json()["detail"]
+    assert db_session.query(CaliberApprovalRequest).count() == 0
+    assert db_session.query(CaliberRollbackCheckpoint).count() == 0
 
 
 def test_apply_on_non_candidate_ready_job_returns_409(

@@ -896,12 +896,13 @@ class CaliberConfig(BaseModel):
         ),
     )
     auth_bootstrap_admin_user: str = Field(
-        default="",
+        default="admin",
         description=(
             "User id to create on startup when no account exists yet, so a fresh "
-            "session-mode deployment is reachable. Requires "
-            "auth_bootstrap_admin_password_env; the password must pass the same "
-            "strength rules as any other, so a well-known default cannot be seeded."
+            "session-mode deployment is reachable. Loopback development launchers may "
+            "explicitly opt into a one-time admin/admin bootstrap when no password "
+            "source is set. Set auth_bootstrap_admin_password_env to use an operator "
+            "secret instead."
         ),
     )
     auth_bootstrap_admin_password_env: str = Field(
@@ -909,6 +910,14 @@ class CaliberConfig(BaseModel):
         description=(
             "Env var or caliber.secrets URI holding the bootstrap admin's password. "
             "Never the password itself, so it cannot land in a config dump."
+        ),
+    )
+    auth_bootstrap_allow_insecure_default: bool = Field(
+        default=False,
+        description=(
+            "Explicitly allow the one-time admin/admin bootstrap when the session cookie "
+            "is also non-Secure. OFF by default; local loopback launchers may opt in, but "
+            "a network-reachable deployment must supply a strong password source instead."
         ),
     )
 
@@ -994,11 +1003,11 @@ class CaliberConfig(BaseModel):
     #: importing the caliber package, on an idle machine. Under a saturated host that
     #: startup alone exceeded the 5s budget and a working tool was reported as timed out.
     #:
-    #: This is the requested tool-call budget. On POSIX, the child wall timer currently
-    #: starts after module resolution while CPU limits and the parent's budget-plus-startup-
-    #: grace backstop cover the whole child lifetime. It therefore interrupts ordinary
-    #: blocking calls near this value, but it is not yet one portable wall deadline over
-    #: interpreter startup, import, and execution.
+    #: This is the requested tool-call budget. The isolated child starts an uncatchable
+    #: watchdog after decoding the request; that one deadline covers source/module
+    #: resolution, signature inspection, test-suite execution, and invocation. Interpreter
+    #: startup necessarily happens before the child can start the watchdog and is bounded
+    #: separately by the parent's budget-plus-startup-grace backstop.
     registered_tool_sandbox_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     tool_sandbox_backend: str = Field(
         default="",
@@ -1341,7 +1350,8 @@ class CaliberConfig(BaseModel):
     webhook_event_filter: str = Field(
         default=(
             "approval.promoted,approval.rejected,approval.changes_requested,"
-            "verification.verified,job.failed,agent.rolled_back"
+            "verification.verified,job.failed,agent.rolled_back,"
+            "slo.incident.opened,slo.incident.resolved"
         ),
         description=(
             "Comma-separated event types the dispatcher subscribes to. The "
@@ -1435,6 +1445,23 @@ class CaliberConfig(BaseModel):
             "is the conventional sweet spot — short enough that a leaked "
             "token is mostly useless, long enough that an active user "
             "doesn't have to re-fetch every few seconds."
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # Published workflow-service ingress. This limit is intentionally
+    # independent of the optional per-user request-rate limiter: public
+    # services have no CALIBER user identity, while protected services must
+    # reject a bad Bearer token before consuming their request body.
+    # ------------------------------------------------------------------
+
+    service_invoke_max_body_bytes: int = Field(
+        default=1_048_576,
+        ge=1,
+        description=(
+            "Maximum raw JSON-envelope bytes accepted by a published workflow-service "
+            "invoke request. The route counts streamed ASGI chunks rather than trusting "
+            "Content-Length, so chunked and understated requests remain bounded."
         ),
     )
 
@@ -1768,6 +1795,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         "auth_bootstrap_admin_password_env",
         str,
     ),
+    (
+        "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT",
+        "auth_bootstrap_allow_insecure_default",
+        _flag,
+    ),
     ("CALIBER_ASSISTANT_ENABLED", "assistant_enabled", _flag),
     (
         "CALIBER_ASSISTANT_SKILL_RUNTIME_ENABLED",
@@ -1910,6 +1942,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_CSRF_ENABLED", "csrf_enabled", _flag),
     ("CALIBER_CSRF_SIGNING_SECRET_ENV", "csrf_signing_secret_env", str),
     ("CALIBER_CSRF_TOKEN_TTL_SECONDS", "csrf_token_ttl_seconds", int),
+    (
+        "CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES",
+        "service_invoke_max_body_bytes",
+        int,
+    ),
     ("CALIBER_RATE_LIMIT_ENABLED", "rate_limit_enabled", _flag),
     ("CALIBER_RATE_LIMIT_REQUESTS_PER_MINUTE", "rate_limit_requests_per_minute", float),
     ("CALIBER_RATE_LIMIT_BURST", "rate_limit_burst", int),

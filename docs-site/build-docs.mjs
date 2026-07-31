@@ -33,6 +33,7 @@ const OUT_DIR = here; // caliber-suite/docs-site
 const BRAND_SHORT = "CALIBER";
 const BRAND_FULL = "CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement";
 const DOCS_HOME_LABEL = `${BRAND_FULL} docs home`;
+const STRICT = process.env.CALIBER_DOCS_STRICT === "1";
 
 function writeTextAtomic(dest, contents) {
   const tmp = `${dest}.tmp-${process.pid}-${Date.now()}`;
@@ -63,8 +64,8 @@ const GROUPS = [
 ];
 
 const MODULES = [
-  { md: "01-caliber/architecture.md", out: "m-01-platform.html", group: "platform", label: "Platform", blurb: "Boot and dependency graph, same-origin MLflow plugin model, shared runtime state, async workers, and the trust boundary the whole product stands on." },
-  { md: "refinement-loop.md", out: "m-00-refinement-loop.html", group: "platform", label: "The refinement loop", blurb: "The closed, eval-gated loop that ties the platform together — verify, diagnose, optimize, evaluate, approve, promote — with humans at exactly two gates, and a map of how every other topic serves it. Read this first." },
+  { md: "01-caliber/architecture.md", out: "m-01-platform.html", group: "platform", label: "Platform", blurb: "Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on." },
+  { md: "refinement-loop.md", out: "m-00-refinement-loop.html", group: "platform", label: "The refinement loop", blurb: "The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and promote — plus the evidence and audit boundaries that differ across other asset families. Read this first." },
   { md: "02-prompts/architecture.md", out: "m-02-prompts.html", group: "authoring", label: "Prompts", blurb: "MLflow Prompt Registry authoring, render/test history, hidden runtime targets, and queued optimizer-backed calibration." },
   { md: "03-tools/architecture.md", out: "m-03-tools.html", group: "authoring", label: "Tools", blurb: "Versioned callable registry, sandboxed test runs, fixture suites and baselines, and deterministic replay calibration." },
   { md: "04-skills/architecture.md", out: "m-04-skills.html", group: "authoring", label: "Skills", blurb: "Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration." },
@@ -75,9 +76,9 @@ const MODULES = [
   { md: "08-knowledge-bases/architecture.md", out: "m-08-knowledge-bases.html", group: "data", label: "Knowledge bases", blurb: "Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration." },
   { md: "11-test-sets/architecture.md", out: "m-11-test-sets.html", group: "quality", label: "Test sets", blurb: "Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring." },
   { md: "14-evaluation/architecture.md", out: "m-14-evaluation.html", group: "quality", label: "Evaluation", blurb: "Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation." },
-  { md: "15-calibration/architecture.md", out: "m-15-calibration.html", group: "quality", label: "Calibration", blurb: "Optimizer-driven calibration for prompts, skills, and workflows on one unified make_judge scoring path, plus deterministic inline tool calibration from saved fixtures." },
-  { md: "09-observability/architecture.md", out: "m-09-observability.html", group: "operations", label: "Observability", blurb: "MLflow traces with multimodal attachments, feedback, Prometheus metrics, SSE live events, service visibility, and trace retention." },
-  { md: "10-gateways/architecture.md", out: "m-10-gateways.html", group: "operations", label: "Gateways", blurb: "Read-only discovery of an external MLflow AI Gateway and a clear account of whether CALIBER routes outbound traffic through it." },
+  { md: "15-calibration/architecture.md", out: "m-15-calibration.html", group: "quality", label: "Calibration", blurb: "Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued." },
+  { md: "09-observability/architecture.md", out: "m-09-observability.html", group: "operations", label: "Observability", blurb: "MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention." },
+  { md: "10-gateways/architecture.md", out: "m-10-gateways.html", group: "operations", label: "Gateways", blurb: "External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility." },
   { md: "13-qa-plan/architecture.md", out: "m-13-qa-plan.html", group: "operations", label: "QA plan", blurb: "Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model." },
   { md: "12-assistant/architecture.md", out: "m-12-assistant.html", group: "aria", label: "Overview", blurb: "Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution." },
   // The Aria orchestration / execution-plan / microservice-proposal docs are
@@ -174,6 +175,47 @@ function classifyLink(href, fromMdRel) {
   }
   // Source files and any other repo-relative path: show as code, not a link.
   return { kind: "code" };
+}
+
+/**
+ * Rewrite links between source documentation modules for the flattened raw
+ * Markdown copies served beside the generated HTML pages.
+ *
+ * The source tree is nested (for example
+ * `14-evaluation/architecture.md -> ../11-test-sets/architecture.md`), while
+ * the published Markdown files are siblings (`m-14-evaluation.md ->
+ * m-11-test-sets.md`). Copying source bytes verbatim therefore leaves links in
+ * the machine-readable docs broken. Reuse the same manifest-aware resolution
+ * as the HTML renderer and preserve anchors, angle brackets, optional titles,
+ * and every non-module destination exactly as authored.
+ */
+function rewriteMarkdownCrossReferences(markdown, fromMdRel) {
+  return markdown.replace(/(!?\[[^\]\n]*\]\()([^\n)]*)(\))/g, (whole, prefix, rawDestination, suffix) => {
+    const leading = rawDestination.match(/^\s*/)?.[0] ?? "";
+    const body = rawDestination.slice(leading.length);
+    if (!body) return whole;
+
+    let href;
+    let remainder;
+    let angleWrapped = false;
+    if (body.startsWith("<")) {
+      const close = body.indexOf(">");
+      if (close < 0) return whole;
+      href = body.slice(1, close);
+      remainder = body.slice(close + 1);
+      angleWrapped = true;
+    } else {
+      const match = body.match(/^(\S+)([\s\S]*)$/);
+      if (!match) return whole;
+      [, href, remainder] = match;
+    }
+
+    const info = classifyLink(href, fromMdRel);
+    if (info.kind !== "page") return whole;
+    const rewritten = info.href.replace(/\.html(?=#|$)/, ".md");
+    const destination = angleWrapped ? `<${rewritten}>` : rewritten;
+    return `${prefix}${leading}${destination}${remainder}${suffix}`;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -728,13 +770,18 @@ function main() {
   const cookbookBuild = resolve(here, "cookbooks/training/build.py");
   if (existsSync(cookbookBuild)) {
     try {
-      execFileSync("python3", [cookbookBuild], { stdio: "inherit" });
+      // Keep the published docs tree byte-only. Without -B, importing the
+      // cookbook content module leaves __pycache__/*.pyc under docs-site/, and
+      // the Pages workflow uploads that entire directory.
+      execFileSync("python3", ["-B", cookbookBuild], { stdio: "inherit" });
     } catch (err) {
+      if (STRICT) throw err;
       console.warn(`[build-docs] cookbook build skipped (${err.message}) — using committed cookbook pages.`);
     }
   }
 
   if (!existsSync(DOCS_DIR)) {
+    if (STRICT) throw new Error(`[build-docs] required source directory ${DOCS_DIR} not found`);
     console.log(`[build-docs] ${DOCS_DIR} not found — nothing to generate.`);
     return;
   }
@@ -743,6 +790,7 @@ function main() {
   for (const mod of MODULES) {
     const src = resolve(DOCS_DIR, mod.md);
     if (!existsSync(src)) {
+      if (STRICT) throw new Error(`[build-docs] required source ${mod.md} not found`);
       console.warn(`[build-docs] missing source ${mod.md} — skipping ${mod.out}`);
       const staleOut = resolve(OUT_DIR, mod.out);
       if (existsSync(staleOut)) {
@@ -756,10 +804,15 @@ function main() {
       throw new Error(`[build-docs] refusing to write invalid output for ${mod.out}`);
     }
     writeTextAtomic(resolve(OUT_DIR, mod.out), html);
-    // Emit the raw Markdown alongside each page (e.g. m-01-platform.md) so
-    // llms.txt can point at a clean, agent-consumable source — the doc is
-    // literally about agentic workflows, so this matters.
-    writeTextAtomic(resolve(OUT_DIR, mod.out.replace(/\.html$/, ".md")), readFileSync(resolve(DOCS_DIR, mod.md), "utf8"));
+    // Emit clean, agent-consumable Markdown beside each page. The output is
+    // flattened, so rewrite known module cross-references to their sibling
+    // m-*.md names; otherwise source-relative links would escape docs-site or
+    // point at directories that do not exist in the published layout.
+    const markdown = readFileSync(resolve(DOCS_DIR, mod.md), "utf8");
+    writeTextAtomic(
+      resolve(OUT_DIR, mod.out.replace(/\.html$/, ".md")),
+      rewriteMarkdownCrossReferences(markdown, mod.md)
+    );
     present.push(mod);
   }
 
@@ -777,9 +830,9 @@ function main() {
   const llmsLines = [
     "# CALIBER",
     "",
-    "> MLflow-native control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the embedded Aria copilot.",
+    "> MLflow-integrated control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the Aria copilot — in embedded-plugin or standalone-service topologies.",
     "",
-    "The pages below are the architecture reference, one per module. Each link is the raw Markdown source, built for programmatic access.",
+    "The pages below are the published architecture, workflow, and strategy documentation. Each link is a flattened Markdown copy built for programmatic access.",
     "",
   ];
   for (const g of GROUPS) {
@@ -800,4 +853,4 @@ function main() {
 
 main();
 
-export { renderBlocks, renderInline, MODULES };
+export { renderBlocks, renderInline, rewriteMarkdownCrossReferences, MODULES };

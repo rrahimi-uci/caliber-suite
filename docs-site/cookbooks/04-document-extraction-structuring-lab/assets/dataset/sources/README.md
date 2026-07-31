@@ -47,7 +47,7 @@ soffice --headless --convert-to docx invoice-partial.md
 soffice --headless --convert-to xlsx invoice-clean.csv
 ```
 
-### Option B — Python (`python-docx` + `openpyxl`, from the `caliber[ingest]` extra)
+### Option B — Python (`python-docx` + `openpyxl`, from the `caliber-suite[ingest]` extra)
 
 ```python
 # invoice-clean.docx (D01)

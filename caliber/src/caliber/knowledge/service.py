@@ -4667,7 +4667,7 @@ class KnowledgeBaseService:
             boto_config_cls = importlib.import_module("botocore.config").Config
         except ImportError as exc:  # pragma: no cover - only without optional deps
             raise KnowledgeDependencyError(
-                "Knowledge-base object-store access needs boto3. Install caliber[s3]."
+                "Knowledge-base object-store access needs boto3. Install caliber-suite[s3]."
             ) from exc
         access_key = resolve_secret(self._config.object_store_access_key_source)
         secret_key = resolve_secret(self._config.object_store_secret_key_source)

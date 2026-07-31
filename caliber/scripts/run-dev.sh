@@ -68,7 +68,24 @@ export MLFLOW_ARTIFACT_ROOT="${MLFLOW_ARTIFACT_ROOT:-s3://mlflow/mlruns}"
 export MLFLOW_HOST="${MLFLOW_HOST:-127.0.0.1}"
 export MLFLOW_PORT="${MLFLOW_PORT:-5000}"
 export CALIBER_LOG_LEVEL="${CALIBER_LOG_LEVEL:-INFO}"
-export CALIBER_DEV_USER="${CALIBER_DEV_USER:-@local-admin}"
+export CALIBER_AUTH_MODE="${CALIBER_AUTH_MODE:-session}"
+export CALIBER_AUTH_BOOTSTRAP_ADMIN_USER="${CALIBER_AUTH_BOOTSTRAP_ADMIN_USER:-admin}"
+case "$MLFLOW_HOST" in
+  127.0.0.1 | localhost | ::1)
+    local_insecure_bootstrap_default=true
+    local_session_cookie_secure=false
+    ;;
+  *)
+    local_insecure_bootstrap_default=false
+    # A network-reachable bind must not default to a cookie the browser may send
+    # over plaintext. Operators terminating TLS upstream can still use this host
+    # bind; the Secure attribute remains the correct browser boundary.
+    local_session_cookie_secure=true
+    ;;
+esac
+export CALIBER_AUTH_SESSION_COOKIE_SECURE="${CALIBER_AUTH_SESSION_COOKIE_SECURE:-$local_session_cookie_secure}"
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT="${CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT:-$local_insecure_bootstrap_default}"
+export CALIBER_DEV_USER="${CALIBER_DEV_USER:-admin}"
 export CALIBER_ADMIN_USERS="${CALIBER_ADMIN_USERS:-${CALIBER_DEV_USER}}"
 export CALIBER_APPROVER_USERS="${CALIBER_APPROVER_USERS:-${CALIBER_DEV_USER}}"
 export CALIBER_OPERATOR_USERS="${CALIBER_OPERATOR_USERS:-${CALIBER_DEV_USER}}"
@@ -101,15 +118,22 @@ MLFLOW="$VENV_DIR/bin/mlflow"
 ALEMBIC="$VENV_DIR/bin/alembic"
 
 echo ">> caliber dev server"
-echo "   database         : $CALIBER_DATABASE_URL"
-echo "   artifact root    : $MLFLOW_ARTIFACT_ROOT"
+echo "   database         : configured (URL hidden)"
+echo "   artifact root    : configured (location hidden)"
 if [[ "$MLFLOW_ARTIFACT_ROOT" == s3://* ]]; then
-    echo "   s3 endpoint      : $MLFLOW_S3_ENDPOINT_URL"
+    echo "   s3 endpoint      : configured (URL hidden)"
 fi
 echo "   listen           : http://$MLFLOW_HOST:$MLFLOW_PORT"
 echo "   caliber UI       : http://$MLFLOW_HOST:$MLFLOW_PORT/caliber/"
 echo "   caliber API      : http://$MLFLOW_HOST:$MLFLOW_PORT/ajax-api/2.0/mlflow/caliber/"
 echo "   dev identity     : $CALIBER_DEV_USER"
+if [[ "${CALIBER_AUTH_BOOTSTRAP_ADMIN_USER}" == "admin" \
+  && "${CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT}" == "true" \
+  && -z "${CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV:-}" ]]; then
+  echo "   initial login    : admin / admin (empty account table only; change immediately)"
+else
+  echo "   initial login    : configured strong bootstrap account (empty account table only)"
+fi
 echo "   workflow queue   : $CALIBER_WORKFLOW_RUN_QUEUE_ENABLED"
 echo "   approvals        : $CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED"
 echo "   checkpointing    : $CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED"

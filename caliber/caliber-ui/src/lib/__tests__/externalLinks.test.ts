@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   appendThemeHintToUrl,
   buildCaliberHref,
+  buildCaliberRouteHref,
   buildMlflowHref,
 } from "@/lib/externalLinks";
 
@@ -29,6 +30,9 @@ describe("externalLinks", () => {
     window.localStorage.setItem("caliber.theme", "light");
     expect(buildMlflowHref()).toBe("/mlflow/?theme=light");
     expect(buildCaliberHref()).toBe("/mlflow/caliber/?theme=light");
+    expect(buildCaliberRouteHref("workflow-runs/WR-1")).toBe(
+      "/mlflow/caliber/workflow-runs/WR-1",
+    );
   });
 
   it("appends theme hints to absolute URLs", () => {
@@ -36,9 +40,8 @@ describe("externalLinks", () => {
     expect(appendThemeHintToUrl("http://127.0.0.1:9001")).toBe(
       "http://127.0.0.1:9001/?theme=dark",
     );
-    expect(
-      appendThemeHintToUrl("http://127.0.0.1:8081/?pgsql=postgres"),
-    ).toBe("http://127.0.0.1:8081/?pgsql=postgres&theme=dark");
+    expect(appendThemeHintToUrl("http://127.0.0.1:8081/?pgsql=postgres")).toBe(
+      "http://127.0.0.1:8081/?pgsql=postgres&theme=dark",
+    );
   });
 });
-

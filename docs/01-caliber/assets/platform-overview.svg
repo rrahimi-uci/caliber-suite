@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 840" width="100%" role="img" aria-labelledby="platform-overview-title platform-overview-desc">
   <title id="platform-overview-title">CALIBER platform overview</title>
-  <desc id="platform-overview-desc">A presentation diagram showing browser entry surfaces, the CALIBER control plane inside the MLflow server process, durable state and external integrations, and the background workers that reuse the same shared systems off the request path.</desc>
+  <desc id="platform-overview-desc">A presentation diagram showing browser entry surfaces, the CALIBER control plane deployable as an embedded MLflow app or standalone ASGI service, durable state and external integrations, and the background workers that reuse the same shared systems off the request path.</desc>
   <style>
     .copy {
       font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -150,8 +150,8 @@
   <text class="copy section-copy muted" x="62" y="162">Every action stays behind one API boundary.</text>
 
   <text class="copy kicker muted" x="326" y="92">Control plane</text>
-  <text class="copy section-title" x="326" y="122">CALIBER runtime inside MLflow</text>
-  <text class="copy section-copy muted" x="326" y="144">Boot happens once.</text>
+  <text class="copy section-title" x="326" y="122">CALIBER runtime, two topologies</text>
+  <text class="copy section-copy muted" x="326" y="144">Boot happens once in either mode.</text>
   <text class="copy section-copy muted" x="326" y="162">Feature routes consume shared services.</text>
 
   <text class="copy kicker muted" x="760" y="92">Durable systems</text>
@@ -172,7 +172,7 @@
   <text class="copy card-title" x="82" y="321">React SPA</text>
   <text class="copy card-copy muted" x="82" y="343">Page modules, shared shell,</text>
   <text class="copy card-copy muted" x="82" y="360">assistant panel, and docs</text>
-  <text class="copy card-copy muted" x="82" y="377">served from the plugin package.</text>
+  <text class="copy card-copy muted" x="82" y="377">served from the backend package.</text>
 
   <rect class="card ctrl" x="62" y="434" width="184" height="86" rx="22" />
   <text class="copy card-title" x="82" y="468">Static route handler</text>
@@ -180,8 +180,8 @@
   <text class="copy card-copy muted" x="82" y="507">and packaged UI assets.</text>
 
   <rect class="stage" x="326" y="176" width="352" height="56" rx="18" />
-  <text class="copy card-title" x="350" y="211">MLflow <tspan font-family="JetBrains Mono, monospace">mlflow.app</tspan> plugin</text>
-  <text class="copy card-copy muted" x="350" y="228">Shared process, shared origin, one failure domain.</text>
+  <text class="copy card-title" x="350" y="203">Embedded app or standalone ASGI</text>
+  <text class="copy card-copy muted" x="350" y="224">Same API; failure domain depends on topology.</text>
 
   <rect class="card ctrl" x="326" y="260" width="352" height="126" rx="24" />
   <text class="copy card-title" x="350" y="296">Starlette route modules</text>
@@ -222,7 +222,7 @@
   <rect class="card ext" x="760" y="384" width="336" height="82" rx="22" />
   <text class="copy card-title" x="784" y="418">MLflow APIs and traces</text>
   <text class="copy card-copy muted" x="784" y="438">Prompt registry versions, runs, traces,</text>
-  <text class="copy card-copy muted" x="784" y="455">and host services CALIBER builds alongside.</text>
+  <text class="copy card-copy muted" x="784" y="455">reached in-process or through HTTP.</text>
 
   <rect class="card ext" x="760" y="488" width="336" height="96" rx="22" />
   <text class="copy card-title" x="784" y="522">Provider adapters</text>
@@ -236,8 +236,8 @@
 
   <rect class="card async" x="534" y="674" width="240" height="116" rx="24" />
   <text class="copy card-title" x="558" y="709">Background workers</text>
-  <text class="copy card-copy muted" x="558" y="731">Workflow runs, KB builds, refinement,</text>
-  <text class="copy card-copy muted" x="558" y="748">janitor work, and webhooks.</text>
+  <text class="copy card-copy muted" x="558" y="731">Workflows, KBs, refinement, calibration,</text>
+  <text class="copy card-copy muted" x="558" y="748">Aria, janitor work, and webhooks.</text>
   <text class="copy card-copy muted" x="558" y="765">The async path mutates the same durable state.</text>
 
   <rect class="note" x="804" y="690" width="292" height="84" rx="22" />

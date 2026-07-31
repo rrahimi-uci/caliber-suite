@@ -185,6 +185,10 @@ def test_runtime_settings_lists_grouped_config_surface(client: TestClient) -> No
     assert settings["log_bucket"]["display_value"] == "caliber-log"
     assert settings["log_sink"]["env_var"] == "CALIBER_LOG_SINK"
     assert settings["database_url"]["sensitive"] is True
+    assert settings["service_invoke_max_body_bytes"]["env_var"] == (
+        "CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES"
+    )
+    assert settings["service_invoke_max_body_bytes"]["display_value"] == "1.0 MB"
     assert data["summary"]["total"] == len(settings)
 
 

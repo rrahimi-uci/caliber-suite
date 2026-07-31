@@ -1,13 +1,13 @@
 # CALIBER UI
 
-Single-page application served by the CALIBER MLflow plugin.
+Single-page application served by the CALIBER backend in either embedded-MLflow or standalone mode.
 
 ## Overview
 
 This app is the browser control plane for CALIBER. It covers login, overview,
 prompts, tools, skills, MCP servers, file directories, workflows, workflow runs,
 approvals, settings, and assistant authoring. In development it runs on Vite; in
-production the Python plugin serves the built bundle at `/caliber/`.
+production the Python backend serves the built bundle at `/caliber/` in both supported topologies.
 
 ## Stack
 
@@ -35,26 +35,26 @@ The SPA is served from `http://localhost:5173/caliber/` in dev. Open that URL â€
 
 ## Configuration
 
-| Env var | Where | Default | Notes |
-| --- | --- | --- | --- |
-| `CALIBER_API_TARGET` | Vite dev | `http://localhost:5000` | Backend URL the dev proxy forwards `/ajax-api/*` to. |
-| `CALIBER_UI_BASE` | Vite build | `/caliber/` | Public base path of the built SPA. Override for non-default reverse-proxy mounts. |
+| Env var              | Where      | Default                 | Notes                                                                             |
+| -------------------- | ---------- | ----------------------- | --------------------------------------------------------------------------------- |
+| `CALIBER_API_TARGET` | Vite dev   | `http://localhost:5000` | Backend URL the dev proxy forwards `/ajax-api/*` to.                              |
+| `CALIBER_UI_BASE`    | Vite build | `/caliber/`             | Public base path of the built SPA. Override for non-default reverse-proxy mounts. |
 
 At runtime the hosting backend stamps `window.__CALIBER_STATIC_PREFIX__` into the served `index.html` (e.g. `"/mlflow"`) so the API client and the router agree on the deployment's mount point. Locally the value defaults to `""` (no prefix).
 
 ## Scripts
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Vite dev server with HMR + backend proxy. |
-| `npm run typecheck` | `tsc --noEmit -p tsconfig.app.json` (strict app-code typecheck; excludes test fixtures). |
-| `npm run build` | Type-check, then build to `dist/`. CI copies `dist/` into the Python wheel via the Hatchling `force-include` hook (added in a Phase 4 milestone). |
-| `npm run preview` | Serve `dist/` locally to sanity-check the production build. |
-| `npm run lint` | ESLint over `src/`. |
-| `npm run format` | Prettier write-in-place over the tree. |
-| `npm run test:coverage` | Vitest unit/integration suite with V8 coverage. |
-| `npm run test:e2e` | Playwright E2E suite. |
-| `npm run playwright:install` | Install Chromium for Playwright. |
+| Command                      | What it does                                                                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                | Vite dev server with HMR + backend proxy.                                                                                                      |
+| `npm run typecheck`          | `tsc --noEmit -p tsconfig.app.json` (strict app-code typecheck; excludes test fixtures).                                                       |
+| `npm run build`              | Regenerate/sync docs, type-check, then build to `dist/`. CI explicitly stages `dist/` into `src/caliber/ui` before Hatchling builds the wheel. |
+| `npm run preview`            | Serve `dist/` locally to sanity-check the production build.                                                                                    |
+| `npm run lint`               | ESLint over the UI tree.                                                                                                                       |
+| `npm run format`             | Prettier write-in-place over the tree.                                                                                                         |
+| `npm run test:coverage`      | Vitest unit/integration suite with V8 coverage.                                                                                                |
+| `npm run test:e2e`           | Playwright E2E suite.                                                                                                                          |
+| `npm run playwright:install` | Install Chromium for Playwright.                                                                                                               |
 
 ## Project layout
 
@@ -89,34 +89,27 @@ caliber-ui/
 
 ## How the SPA is served in production
 
-The CALIBER backend serves the built bundle from `caliber.routes.static`. The
+The CALIBER ASGI backend serves the built bundle from `caliber.routes.static`, whether it
+is mounted as an MLflow app or started as a standalone service. The
 Python wheel includes packaged SPA assets from `src/caliber/ui`; CI or release
 automation should build `caliber-ui/dist` and copy it there before producing the
 wheel. If the bundle is absent, the backend returns an operator-facing 503 with
 instructions to start the SPA dev server or rebuild the package.
 
-## Current Validation
+## Current validation
 
-Latest local run on 2026-06-07:
-
-| Gate | Result |
-| --- | --- |
-| ESLint | Passed. |
-| TypeScript | Passed. |
-| Production build | Passed on Vite 8.0.16. |
-| Vitest coverage | 475 tests passed; 85.02% statements, 75.79% branches, 87.35% lines. |
-| Playwright | 8 tests passed across auth/shell, navigation, workflow creation, and file-directory storage. |
-| npm audit | 0 vulnerabilities at `--audit-level=moderate`. |
-
-The 97% coverage goal is not yet met. The largest frontend gaps are large page
-components such as `Overview`, `WorkflowEditor`, `VerificationDetail`,
-`WorkflowDetail`, `NodeDetailPanel`, and the broad API client.
+CI type-checks, runs Vitest, builds the production bundle, enforces generated-doc
+parity, and publishes test evidence when account-level artifact storage is
+available. Playwright is part of `test-all.sh` / `make allure-report`, not the UI
+unit-test job. See the suite-level
+[`product-complete-report.md`](../../product-complete-report.md) for dated evidence
+and residual limitations; historical totals are not a current pass claim.
 
 ## Troubleshooting
 
-| Symptom | Check |
-| --- | --- |
-| E2E browser is missing | Run `npm run playwright:install`. |
-| API calls hit the wrong backend | Set `CALIBER_API_TARGET` before `npm run dev`. |
-| Routes render 404 in production | Verify the app is served under the same base path as `CALIBER_UI_BASE`. |
+| Symptom                           | Check                                                                                   |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| E2E browser is missing            | Run `npm run playwright:install`.                                                       |
+| API calls hit the wrong backend   | Set `CALIBER_API_TARGET` before `npm run dev`.                                          |
+| Routes render 404 in production   | Verify the app is served under the same base path as `CALIBER_UI_BASE`.                 |
 | Test coverage is unexpectedly low | Run `npm run test:coverage`; Playwright coverage is not included in Vitest's V8 report. |

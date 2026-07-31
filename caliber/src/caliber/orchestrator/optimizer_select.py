@@ -1,20 +1,12 @@
-"""Optimizer selection — picks which optimizer the candidate stage will use.
+"""Select the implemented provider path for the candidate stage.
 
-The full selection logic:
-
-* Bundle shape → MultiAgentCoord
-* Conversation policy → MemAlign
-* Cost optimization mode → PromptDistill
-* Iterative retry → TextGrad
-* DSPy program → DSPyMIPRO
-* Few-shot with exemplar diagnosis → DSPyBootstrapFewShot
-* Low diagnosis confidence → GEPA
-* Default → MetaPrompt
-
-Phase 2.8+ supports MetaPrompt, SkillMetaPrompt, and GEPA.
-The seam is in place so the remaining selection rules can land without
-touching the orchestrator. The agent's per-agent override is also
-respected so an operator can pin a specific optimizer for testing.
+Explicit job and agent overrides take precedence; the production provider
+validates the selected name. Without an override, current automatic rules choose
+GEPA for uncertain/multi-objective diagnoses, opt-in DSPyBootstrapFewShot for a
+prompt diagnosis that calls for exemplars, SkillMetaPrompt for skills, and
+MetaPrompt otherwise. DSPyMIPRO is implemented but explicit-only: no automatic
+rule selects it. Names such as TextGrad, MultiAgentCoord, MemAlign, and
+PromptDistill remain roadmap taxonomy, not selectable implementations.
 """
 
 from __future__ import annotations
@@ -120,9 +112,10 @@ def select_optimizer(agent: CaliberAgentConfig, job: CaliberRefinementJob) -> st
        prompt job's diagnosis points at a missing-exemplars failure →
        ``"DSPyBootstrapFewShot"``. Default-off so existing agents are
        unaffected.
-    5. For ``artifact_type="skill"`` jobs: ``"SkillMetaPrompt"`` — a
-       specialization of MetaPrompt that preserves XML structure and
-       validates ``allowed_tools`` constraints.
+    5. For ``artifact_type="skill"`` jobs: ``"SkillMetaPrompt"``. The
+       production provider currently sends that name through the same
+       MetaPrompt agent and prompt formatter; skill-specific structure and
+       ``allowed_tools`` validation remain future specialization work.
     6. Otherwise ``"MetaPrompt"`` — the default optimizer.
 
     The signature takes the full agent and job rows rather than just the

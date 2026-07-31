@@ -6,6 +6,8 @@ test engine (SELECT 1 on the fixture SQLite), exercising that path end-to-end.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -137,24 +139,30 @@ def test_the_slo_endpoint_records_and_routes_an_incident(client) -> None:
 
         bus.publish = _spy  # type: ignore[method-assign]
 
-    # An objective that cannot hold: no runs in the window means no success ratio, so pick
-    # a queue-depth bound of -1, which any real depth breaches.
+    # An objective that cannot hold: a stale-lease count is always non-negative, so the
+    # valid supported objective below must fire even on an otherwise empty fixture.
     client.app.state.config = client.app.state.config.model_copy(
-        update={"slo_objectives": "queue_depth<=-1", "slo_severities": "queue_depth<=-1=critical"}
+        update={
+            "slo_objectives": "queue_stale_leases<=-1",
+            "slo_severities": "queue_stale_leases<=-1=critical",
+        }
     )
 
     response = client.get("/ajax-api/2.0/mlflow/caliber/system/alerts")
     assert response.status_code == 200, response.text
     body = response.json()["data"]
     assert "incidents" in body, "evaluation must reconcile the durable record"
+    assert body["incidents"]["opened"] == ["queue_stale_leases<=-1"], (
+        "a firing objective must reach incident reconciliation; an empty result would "
+        "make the history/routing assertions below vacuous"
+    )
 
     history = client.get("/ajax-api/2.0/mlflow/caliber/system/incidents")
     assert history.status_code == 200, history.text
     rows = history.json()["data"]["incidents"]
-    if body["incidents"]["opened"]:
-        assert rows, "an opened incident must appear in history"
-        assert rows[0]["severity"] == "critical", "severity comes from operator config"
-        assert any(e.get("type") == "slo.incident.opened" for e in published)
+    assert rows, "an opened incident must appear in history"
+    assert rows[0]["severity"] == "critical", "severity comes from operator config"
+    assert any(e.get("type") == "slo.incident.opened" for e in published)
 
 
 def test_silencing_an_unknown_incident_is_404(client) -> None:
@@ -163,3 +171,89 @@ def test_silencing_an_unknown_incident_is_404(client) -> None:
         json={"minutes": 30},
     )
     assert response.status_code == 404, response.text
+
+
+@pytest.mark.parametrize(
+    ("action", "body", "changed_fields"),
+    [
+        ("silence", {"minutes": 30}, ("silenced_until",)),
+        ("acknowledge", {}, ("acknowledged_at", "acknowledged_by")),
+    ],
+)
+def test_incident_mutation_rolls_back_when_its_audit_write_fails(
+    client: TestClient,
+    session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    action: str,
+    body: dict[str, int],
+    changed_fields: tuple[str, ...],
+) -> None:
+    """The route, not the mutation helper, owns the shared commit boundary."""
+    from caliber.db.models import CaliberAuditLog, CaliberIncident
+
+    incident_id = "INC-audit-atomicity"
+    with session_factory() as session:
+        session.add(
+            CaliberIncident(
+                incident_id=incident_id,
+                objective="success_ratio>=0.9",
+                signal="success_ratio",
+                severity="warning",
+                status="open",
+                detail="audit must share the transaction",
+                opened_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+        )
+        session.commit()
+
+    def _audit_failure(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr(svc, "audit_record", _audit_failure)
+
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        client.post(
+            f"/ajax-api/2.0/mlflow/caliber/system/incidents/{incident_id}/{action}",
+            json=body,
+        )
+
+    with session_factory() as session:
+        stored = session.get(CaliberIncident, incident_id)
+        audits = session.query(CaliberAuditLog).filter_by(entity_id=incident_id).all()
+
+    assert stored is not None
+    assert all(getattr(stored, field) is None for field in changed_fields)
+    assert audits == []
+
+
+def test_incident_mutation_and_audit_commit_together(client: TestClient, session_factory) -> None:
+    from caliber.db.models import CaliberAuditLog, CaliberIncident
+
+    incident_id = "INC-audit-success"
+    with session_factory() as session:
+        session.add(
+            CaliberIncident(
+                incident_id=incident_id,
+                objective="success_ratio>=0.9",
+                signal="success_ratio",
+                severity="warning",
+                status="open",
+                detail="successful atomic mutation",
+                opened_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
+        )
+        session.commit()
+
+    response = client.post(
+        f"/ajax-api/2.0/mlflow/caliber/system/incidents/{incident_id}/acknowledge",
+        json={},
+    )
+
+    assert response.status_code == 200, response.text
+    with session_factory() as session:
+        stored = session.get(CaliberIncident, incident_id)
+        audit = session.query(CaliberAuditLog).filter_by(entity_id=incident_id).one()
+
+    assert stored is not None
+    assert stored.acknowledged_by == "@test"
+    assert audit.action == "acknowledge_incident"

@@ -53,7 +53,7 @@ help: ## show available commands
 	@echo "  $(GREEN)make logs$(NC)     — tail container logs"
 	@echo ""
 	@echo "$(CYAN)Infra (containers):$(NC)"
-	@echo "  $(GREEN)make infra-up$(NC)    — start MinIO + Postgres (NATS=1 / REDIS=1 bus · APP=1 app tier)"
+	@echo "  $(GREEN)make infra-up$(NC)    — start MinIO + Postgres (NATS=1 bus · APP=1 app tier)"
 	@echo "  $(GREEN)make infra-build$(NC) — build the app-tier images (mlflow, mlflow-gateway, caliber)"
 	@echo "  $(GREEN)make infra-down$(NC)  — stop the infra stack"
 	@echo "  $(GREEN)make infra-status$(NC)— show running infra containers"
@@ -111,17 +111,16 @@ setup: check ## one-time: create venv, install deps, build UI
 # ── Infra (containers) ───────────────────────────────────────
 # Backing services live in deploy/ (see deploy/README.md).
 #   NATS=1   also start the NATS message bus           (e.g. make infra-up NATS=1)
-#   REDIS=1  also start the Redis event bus            (e.g. make infra-up REDIS=1)
 #   APP=1    also start the app tier (mlflow + mlflow-gateway + caliber) and default
-#            the shared bus to NATS unless REDIS=1 is selected
+#            the shared bus to NATS unless NATS=1 was already selected explicitly
 #   BUILD=1  force-rebuild images (otherwise existing images are reused;
 #            missing ones are still built automatically on first run)
 
-DEFAULT_BUS_PROFILE := $(if $(APP),$(if $(or $(NATS),$(REDIS)),, --profile nats),)
-PROFILES     := $(DEFAULT_BUS_PROFILE) $(if $(NATS),--profile nats,) $(if $(REDIS),--profile redis,) $(if $(APP),--profile app,)
-ALL_PROFILES := --profile redis --profile nats --profile app
+DEFAULT_BUS_PROFILE := $(if $(APP),$(if $(NATS),, --profile nats),)
+PROFILES     := $(DEFAULT_BUS_PROFILE) $(if $(NATS),--profile nats,) $(if $(APP),--profile app,)
+ALL_PROFILES := --profile nats --profile app
 
-infra-up: ## start MinIO + Postgres (NATS=1 / REDIS=1 bus · APP=1 app tier · BUILD=1 rebuild)
+infra-up: ## start MinIO + Postgres (NATS=1 bus · APP=1 app tier · BUILD=1 rebuild)
 	@command -v docker >/dev/null 2>&1 || { echo "$(RED)docker not found — install Docker Desktop.$(NC)"; exit 1; }
 	@# Ensure the Allure report dir exists (user-owned) before the bind mount, so
 	@# `make allure-report` on the host can write into it (Docker would otherwise
@@ -193,20 +192,21 @@ logs: ## tail suite container logs
 # ── Quality ──────────────────────────────────────────────────
 
 test: ## run Python + UI tests
-	cd $(PLUGIN_DIR) && $(MAKE) test
+	cd $(PLUGIN_DIR) && $(MAKE) VENV=../$(VENV) test
 	cd $(UI_DIR) && npm test
 
 test-all: ## run backend + UI unit + Playwright e2e tests (ALLURE=0 skips report build)
 	ALLURE=$(ALLURE) ./test-all.sh
 
 test-allure: ## run all tests emitting Allure results (backend + UI unit)
-	cd $(PLUGIN_DIR) && $(MAKE) test-allure
+	cd $(PLUGIN_DIR) && $(MAKE) VENV=../$(VENV) test-allure
 	# Wipe stale FE results first (vitest/playwright reporters APPEND, otherwise
 	# the report accumulates duplicate/old tests across runs). E2E (test-all.sh)
 	# runs after this and appends into the same freshly-cleaned dir.
 	cd $(UI_DIR) && rm -rf allure-results && npm test
 
-allure-report: test-allure ## run all suites + build the combined report CALIBER serves in-app
+allure-report: ## run backend, UI unit, and Playwright suites; then build the combined report
+	ALLURE=0 ./test-all.sh
 	cd $(UI_DIR) && npm run allure:generate:all
 	@echo "$(GREEN)Combined Allure report built:$(NC) $(UI_DIR)/allure-report"
 	@echo "Open it in-app: CALIBER → Settings → Allure Report (served by the backend)."
@@ -219,7 +219,7 @@ allure: ## render + open the Allure report via a local/Dockerized Java server
 	cd $(UI_DIR) && bash scripts/allure-report.sh generate
 
 lint: ## ruff + mypy + typecheck
-	cd $(PLUGIN_DIR) && $(MAKE) lint
+	cd $(PLUGIN_DIR) && $(MAKE) VENV=../$(VENV) lint
 	cd $(UI_DIR) && npm run typecheck
 
 # ── Cleanup ──────────────────────────────────────────────────

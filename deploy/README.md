@@ -1,5 +1,12 @@
 # `deploy/` — containerized infra for the CALIBER suite
 
+> **Development only.** Every published port is pinned to `127.0.0.1`, several
+> services use documented convenience credentials, and the app profile opts into
+> the first-boot `admin` / `admin` account. Do not expose this Compose stack on a
+> network. A network-reachable deployment needs a separate hardened overlay,
+> TLS/Secure cookies, least-privilege credentials, and a strong bootstrap password
+> source with `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false`.
+
 This is the home for the suite's open-source backing services, each
 **containerized** and each in its **own folder**, tied together by one umbrella
 compose file. The goal: stand up everything the apps depend on with a single
@@ -64,9 +71,12 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml down
 | Adminer (Postgres UI) | 8081 | [prefill link](http://localhost:8081/?pgsql=postgres&username=caliber&db=caliber) fills all but password (`caliber`) |
 | AGE Viewer (graph console) | 8082 | <http://localhost:8082> — **auto-connects** to graph `knowledge_graph` (no login) |
 | NATS *(profile `nats`)* | 4222 (client), 8222 (monitor) | <http://localhost:8222> |
-| CALIBER *(profile `app`)* | 5001 | <http://localhost:5001/caliber/> ← start here |
+| CALIBER *(profile `app`)* | 5001 | <http://localhost:5001/caliber/> — initial local login `admin` / `admin`; change immediately |
 | MLflow *(profile `app`)* | 5000 | vanilla tracking server |
 | MLflow AI Gateway *(profile `app`)* | 5002 | <http://localhost:5002/api/2.0/endpoints/> (LLM gateway) |
+
+All host mappings in that table are loopback-only. `localhost` is intentional,
+not shorthand for a remotely reachable server.
 
 Run the full, separated app tier in containers too:
 
@@ -77,12 +87,11 @@ docker compose --env-file deploy/.env --env-file .env -f deploy/compose.yaml --p
 
 ## Why containers?
 
-The apps themselves (MLflow + CALIBER) run today as native
-Python processes via `make start` for fast local dev. Their **stateful
-dependencies** — object storage, the graph/vector database, and (later) a
-broker — are the right things to containerize: pinned versions, isolated data
-volumes, and reproducible across machines without per-developer install steps.
-This `deploy/` folder is exactly that boundary.
+The stack pins the local service topology and keeps state in named volumes, so a
+developer can reproduce Postgres/AGE, MinIO, NATS, MLflow, the gateway, and the
+standalone CALIBER server without installing each dependency on the host. Native
+plugin development remains available through `cd caliber && make dev`; it is a
+different topology, not what `make start` launches from the suite root.
 
 ## Add a new service
 
@@ -114,6 +123,5 @@ knowledge-base builds can parse common office documents and scanned PDFs inside
 the container without extra manual layering.
 
 > The app tier (MLflow, MLflow AI Gateway, CALIBER) is containerized too — see the
-> `app`-profile services above. They mirror the native `make start` topology, so
-> that dev loop keeps working unchanged; the containers are an alternative, not a
-> replacement.
+> `app`-profile services above. The suite-root `make start` uses this container
+> topology; `cd caliber && make dev` runs the embedded-plugin development topology.

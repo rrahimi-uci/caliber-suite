@@ -1,5 +1,8 @@
 # Adminer (Postgres web UI)
 
+> Development console: the published port binds to `127.0.0.1` and the table
+> below contains known local credentials. Do not expose it on a network.
+
 The database counterpart of the MinIO console — a lightweight web UI for the
 Postgres container (CALIBER metadata, the MLflow tracking store, and the MCP
 pgvector/AGE data all live there).

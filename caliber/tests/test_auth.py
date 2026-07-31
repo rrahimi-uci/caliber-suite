@@ -154,6 +154,25 @@ def test_resolve_identity_no_project_header_is_none() -> None:
     assert identity.has_scope(SCOPE_VIEWER) is True
 
 
+def test_literal_admin_identity_is_not_privileged_without_explicit_configuration() -> None:
+    """The local bootstrap name must not become a global RBAC default.
+
+    Trusted-header deployments may already have an unrelated identity named ``admin``;
+    upgrading must not silently grant it every CALIBER scope when the local bootstrap is
+    disabled. Loopback launchers set ``CALIBER_ADMIN_USERS=admin`` explicitly.
+    """
+    request = _make_request(
+        {"X-CALIBER-User": "admin"},
+        config=_trusted_header_config(),
+    )
+
+    identity = resolve_identity(request)
+
+    assert identity.user_id == "admin"
+    assert identity.has_scope(SCOPE_ADMIN) is False
+    assert identity.has_scope(SCOPE_VIEWER) is True
+
+
 def test_resolve_identity_blank_project_header_is_none() -> None:
     request = _make_request(
         {"X-CALIBER-User": "@viewer", "X-CALIBER-Project": "   "},

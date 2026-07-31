@@ -7,13 +7,14 @@ from typing import Any
 
 from pydantic import ValidationError
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.config import CaliberConfig
 from caliber.tool_sandbox.models import ToolSandboxRunRequest, ToolSandboxTestSuiteRequest
-from caliber.tool_sandbox.service import LocalSubprocessToolSandbox, ToolSandbox
+from caliber.tool_sandbox.service import ToolSandbox, sandbox_from_optional_config
 
 HEALTH_PATH = "/health"
 RUN_PATH = "/v1/tool-sandbox/run"
@@ -31,7 +32,10 @@ async def run_tool(request: Request) -> JSONResponse:
         payload = ToolSandboxRunRequest.model_validate(body)
     except ValidationError as exc:
         return JSONResponse({"detail": f"invalid sandbox run request: {exc}"}, status_code=400)
-    result = sandbox.run_tool(payload)
+    # Sandbox backends expose a synchronous protocol. Running one directly in this
+    # async handler monopolizes the ASGI event loop for the full authored timeout,
+    # making even /health unresponsive while a tool executes.
+    result = await run_in_threadpool(sandbox.run_tool, payload)
     return JSONResponse({"data": result.model_dump(mode="json")})
 
 
@@ -42,7 +46,7 @@ async def run_tests(request: Request) -> JSONResponse:
         payload = ToolSandboxTestSuiteRequest.model_validate(body)
     except ValidationError as exc:
         return JSONResponse({"detail": f"invalid sandbox test request: {exc}"}, status_code=400)
-    result = sandbox.run_tests(payload)
+    result = await run_in_threadpool(sandbox.run_tests, payload)
     return JSONResponse({"data": result.model_dump(mode="json")})
 
 
@@ -60,7 +64,7 @@ def create_app(
         ],
     )
     app.state.config = resolved
-    app.state.sandbox = sandbox or LocalSubprocessToolSandbox.from_config(resolved)
+    app.state.sandbox = sandbox if sandbox is not None else sandbox_from_optional_config(resolved)
     return app
 
 
