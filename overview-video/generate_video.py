@@ -67,84 +67,85 @@ SCENES = [
     {
         "id": 3,
         "title": "The Market Gap",
-        "duration": 30,
+        "duration": 48,
         "narration": (
-            "This is not a niche worry. Two independent firms put the "
-            "AI-agents market near fifty billion dollars by 2030, growing "
-            "roughly forty-six percent a year, and Gartner expects agentic AI "
-            "in a third of enterprise software by 2028, up from under one "
-            "percent in 2024. But the trust gap is just as large. Deloitte "
-            "finds about eighty percent of organizations lack mature "
-            "governance. The Cloud Security Alliance finds only twenty-eight "
-            "percent can trace an agent's actions back to a human. The "
-            "opportunity is enormous. So is the gap underneath it."
+            "This is not a niche worry. Two independent firms put the AI-agents "
+            "market near fifty billion dollars by 2030, and Gartner expects "
+            "agentic AI in a third of enterprise software by 2028. But the trust "
+            "gap is just as large. On the same forecast, more than forty percent "
+            "of agentic-AI projects will be canceled by 2027. Deloitte finds only "
+            "one organization in five has mature governance for agentic AI, and "
+            "the Cloud Security Alliance puts the share that can trace an agent's "
+            "actions back to a human at twenty-eight percent. The opportunity is "
+            "enormous. So is the gap underneath it."
         ),
     },
     {
         "id": 4,
         "title": "A Patchwork Stack",
-        "duration": 30,
+        "duration": 45,
         "narration": (
             "So why do projects stall? The stack is fragmented. Teams run one "
-            "tool to orchestrate, another to trace, another to evaluate, "
-            "another to manage prompts. Most cover only one or two lifecycle "
-            "stages, so lineage scatters across chat threads and notebooks. "
-            "With seventy-six percent of enterprise AI use cases bought rather "
-            "than built, that is even more vendors to integrate. And here is "
-            "the deepest gap: these tools measure. They surface scores and "
-            "stop. None of them close the loop."
+            "tool to orchestrate, another to trace, another to evaluate, another "
+            "to manage prompts. Most cover only one or two lifecycle stages, so "
+            "lineage scatters across chat threads and notebooks. Menlo Ventures "
+            "finds seventy-six percent of enterprise AI use cases are bought "
+            "rather than built — more vendors to integrate. And here is the "
+            "deepest gap: these tools measure, then stop. Optimizers exist. "
+            "Almost none are wired to regression evidence, human authorization, "
+            "and audited rollback — so almost none close the loop."
         ),
     },
     {
         "id": 5,
         "title": "Introducing CALIBER",
-        "duration": 28,
+        "duration": 29,
         "narration": (
             "CALIBER is one ASGI control-plane codebase for agentic workflows. "
-            "It can mount inside MLflow for a same-process development loop, "
-            "or run as a standalone service that reaches vanilla MLflow over "
-            "HTTP. In both modes, its interface unifies authoring, evidence, "
-            "and governance while CALIBER and MLflow retain explicit state "
-            "ownership. Compose, measure, govern."
+            "Mount it inside MLflow as a single process, or run it beside vanilla "
+            "MLflow over HTTP. The API and the interface are identical — you "
+            "choose how the two fail and are operated, not what you get. Either "
+            "way, one interface unifies authoring, evidence, and governance. "
+            "Compose, measure, govern."
         ),
     },
     {
         "id": 6,
         "title": "One Platform, Many Assets",
-        "duration": 28,
+        "duration": 23,
         "narration": (
             "Build composes; the Library supplies. Prompts, tools, skills, "
             "MCP servers, knowledge bases, and workflows are first-class "
-            "registered assets with asset-specific versioning, testing, "
-            "aliases, and rollback. Their workspaces expose the evidence each "
-            "family actually records, so you can inspect and verify an asset "
-            "before a workflow uses it without pretending every family has "
-            "one uniform lifecycle."
+            "registered assets. Their workspaces expose the controls and "
+            "evidence each family actually implements, so you can verify an "
+            "asset without pretending every family has one uniform lifecycle."
         ),
     },
     {
         "id": 7,
         "title": "Build · Workflows",
-        "duration": 28,
+        "duration": 30,
         "narration": (
             "Workflows are composed in a visual Studio. Wire prompts, tools, "
             "skills, and knowledge bases into a graph, preview-run a draft "
             "without publishing, then enqueue real runs governed by runtime "
-            "approvals and checkpointing. Every run carries an MLflow trace "
-            "with per-tool-call spans."
+            "approvals and checkpointing. Runs arrive from the Studio, an API "
+            "call, a published service, or a cron trigger — all into one queue, "
+            "and every run carries an MLflow trace."
         ),
     },
     {
         "id": 8,
         "title": "Data & Knowledge",
-        "duration": 26,
+        "duration": 27,
         "narration": (
             "Behind every workflow is the data plane. Knowledge bases provide "
             "hybrid retrieval — BM25 and dense vectors fused with "
             "reciprocal rank fusion, optionally tri-hybrid with a knowledge "
             "graph — and report their own calibration metrics. The object "
-            "store is the file interface over S3-compatible storage, and "
-            "test sets are the versioned datasets every scored run draws from."
+            "store is CALIBER's own file interface over local or "
+            "S3-compatible storage, and test sets are the versioned datasets "
+            "every scored run draws from."
         ),
     },
     {
@@ -166,14 +167,15 @@ SCENES = [
     {
         "id": 10,
         "title": "Observe",
-        "duration": 26,
+        "duration": 34,
         "narration": (
-            "Every run is a trace you can open. Observability is built on "
-            "MLflow tracing: each workflow run records per-tool-call spans, "
-            "and the Evaluations surface turns those traces into scorecards, "
-            "per-example results, and run-to-run comparisons. A readiness "
-            "endpoint honestly reports which providers are real versus "
-            "simulated — no fabricated scores, ever."
+            "Every run is a trace you can open. Each run records per-tool-call "
+            "spans, and the Evaluations surface turns those traces into "
+            "scorecards, per-example results, and run comparisons — with "
+            "readiness reporting which providers are real versus simulated, so no "
+            "score is ever fabricated. Operating it is the other half: the queue "
+            "reports depth, oldest wait, and worker heartbeats, and each "
+            "evaluation turns a breached objective into a durable incident."
         ),
     },
     {
@@ -193,73 +195,73 @@ SCENES = [
     {
         "id": 12,
         "title": "Aria · A Single Turn",
-        "duration": 26,
+        "duration": 34,
         "narration": (
-            "Here's a single turn. In build mode with auto-safe approvals, "
-            "ask Aria to build a tool and test it. It checks for a name "
-            "clash, drafts the tool, validates the schema, and runs it in the "
-            "sandbox — then reports exactly what it observed and leaves the "
-            "draft at the tested gate. Every action is recorded in the turn."
+            "Here's a single turn. In build mode with auto-safe approvals, ask "
+            "Aria to build a tool and test it. It checks for a name clash, drafts "
+            "the tool, validates the schema, and runs it in a sandbox — a "
+            "separate interpreter with hard time, memory, and output limits — "
+            "then reports what it observed and leaves the draft at the tested "
+            "gate. Every action is recorded in the turn."
         ),
     },
     {
         "id": 13,
         "title": "Governance",
-        "duration": 28,
+        "duration": 38,
         "narration": (
-            "Governance follows the asset's real lifecycle rather than one "
-            "fictional universal gate. Aria uses the same RBAC, permission "
-            "checks, sandbox decisions, and audit trail as human-driven "
-            "routes; it does not gain a separate authorization bypass. "
-            "Validation, tests, explicit apply or publish actions, and alias "
-            "rollback exist where the asset implements them. Workflow runtime "
-            "approvals remain separate from offline artifact promotion."
+            "Governance follows each asset's real lifecycle rather than one "
+            "universal gate. Identity is server-validated — password accounts, "
+            "revocable sessions, four scopes — and Aria reuses those same scopes, "
+            "permission checks, and audit path as human-driven routes. Tool code "
+            "runs behind a swappable execution boundary; the shipped one is a "
+            "bounded subprocess. Validation, tests, an explicit apply or publish, "
+            "and alias rollback exist where the asset implements them, and "
+            "credentials stay encrypted behind a reference no route reads back."
         ),
     },
     {
         "id": 14,
         "title": "Why Different: Unified & Closed-Loop",
-        "duration": 30,
+        "duration": 27,
         "narration": (
             "CALIBER collapses the patchwork into one control-plane interface, "
             "deployed either inside MLflow or beside it. CALIBER metadata and "
-            "MLflow evidence keep explicit owners, while prompts, tools, skills, "
-            "knowledge bases, and workflows share one inventory with "
-            "asset-specific lifecycle controls. Then the signature difference: "
-            "an integrated prompt-refinement path that evaluates, searches with "
-            "provider paths such as Meta-Prompt, GEPA, and DSPy, records "
-            "regression evidence, and requires explicit apply. It connects "
-            "measurement to action without overstating one lifecycle for every "
-            "asset."
+            "MLflow evidence keep explicit owners, while every asset family "
+            "keeps the lifecycle controls it actually implements. Then the "
+            "signature difference: an integrated prompt-refinement path that "
+            "evaluates, searches with provider paths such as Meta-Prompt, "
+            "GEPA, and DSPy, records per-dimension regression evidence, and "
+            "requires an explicit human apply before anything goes live."
         ),
     },
     {
         "id": 15,
         "title": "Why Different: Open & Governed",
-        "duration": 30,
+        "duration": 27,
         "narration": (
-            "Asset-specific controls govern each change whether a person "
-            "initiates it or Aria does. The copilot uses the same RBAC and "
-            "permission boundaries; the audit trail records actor, action, "
-            "and entity. That matters: only twenty-eight percent of "
-            "organizations can trace an agent's actions back to a human, and "
-            "sixty-one percent of executives now require a human in the loop. "
-            "With EU AI Act high-risk obligations landing August 2026, and "
-            "CALIBER open source under Apache 2.0, your data and lineage can "
-            "stay in infrastructure you control."
+            "Whether a person or Aria initiates a change, the audit trail "
+            "records the same actor, action, and entity. That matters: only "
+            "twenty-eight percent of organizations can trace an agent's "
+            "actions back to a human, and sixty-one percent of executives "
+            "surveyed in 2025 required a human in the loop. EU AI Act "
+            "high-risk obligations phase in from August 2026, and CALIBER is "
+            "open source under Apache 2.0 — your data and lineage stay in "
+            "infrastructure you control."
         ),
     },
     {
         "id": 16,
         "title": "Vision",
-        "duration": 30,
+        "duration": 33,
         "narration": (
             "CALIBER is open source and MLflow-integrated, deployable embedded "
             "or standalone. Agentic with Aria's permissioned tool loop. "
             "Measured by evaluation and calibration. Refined through "
             "asset-specific lifecycles that preserve evidence and human "
-            "authority. Governed by explicit permissions and actions. "
-            "Observable through tracing. "
+            "authority. Governed by server-validated identity, a bounded "
+            "execution boundary, and recorded actions. Observable through "
+            "tracing and durable incidents. "
             "Apache 2 licensed, with no vendor lock-in. A contextual, adaptive "
             "lifecycle for intelligent build, evaluation, and refinement — "
             "agentic workflows you can measure, refine, govern, and trust."
