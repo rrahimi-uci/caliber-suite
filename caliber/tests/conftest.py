@@ -33,6 +33,37 @@ from pathlib import Path
 os.environ.setdefault("MLFLOW_DISABLE_TELEMETRY", "true")
 os.environ.setdefault("DO_NOT_TRACK", "true")
 
+# Stop litellm loading the developer's ``caliber/.env`` into ``os.environ`` at
+# import time. ``litellm/__init__.py`` calls ``_dotenv.load_dotenv()`` unless
+# ``LITELLM_MODE`` is set to something other than ``DEV``, and its ``find_dotenv``
+# walks up to the repository. ``tests/test_dspy_optimizer.py`` imports
+# ``dspy`` -> ``litellm`` at module scope, so this happens during *collection* —
+# before any test runs, and regardless of which tests were selected.
+#
+# The injected values are a real developer configuration (a Postgres
+# ``CALIBER_DATABASE_URL``, ``CALIBER_AUTH_MODE=session``,
+# ``CALIBER_WORKFLOW_RUN_EVENT_BACKEND=database``), so tests that build an app
+# from the ambient environment then get a DatabaseEventBus pointed at a database
+# with no ``caliber_live_events`` table. That surfaces as errors in
+# ``test_csrf.py`` and ``test_rate_limit.py``, which look like isolation defects
+# in those files but originate in an unrelated module's import.
+#
+# ``caliber/.env`` is gitignored, so this only ever affected developer machines —
+# CI has no file to find. Setting the mode here makes a local run match CI.
+os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+
+# Second, independent guard: never let an *ambient* event backend reach a test.
+# The line above stops one library injecting the variable, but a developer who
+# exports it in their shell reproduces the same failure, and the blast radius is
+# wider than it looks — ``test_routes_capabilities`` asserts the default backend
+# is ``in_process``, so it fails too. Any test that genuinely needs another
+# backend constructs ``CaliberConfig(workflow_run_event_backend=...)`` or passes
+# its own environ dict, so nothing depends on inheriting this from the shell.
+# Popped rather than defaulted: the ambient value is precisely what must not
+# survive. Integration runs opt out below and keep their own configuration.
+if os.environ.get("CALIBER_INTEGRATION_TESTS") != "1":
+    os.environ.pop("CALIBER_WORKFLOW_RUN_EVENT_BACKEND", None)
+
 # Isolate MLflow's tracking/registry store to a throwaway temp file for the test
 # session. Without this, any test that touches real ``mlflow`` (e.g. importing
 # ``mlflow.genai``) creates a stray ``./mlflow.db`` in the repo cwd — and a dev

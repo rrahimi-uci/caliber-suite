@@ -506,6 +506,20 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         secret_env_var=resolved.csrf_signing_secret_env,
         ttl_seconds=resolved.csrf_token_ttl_seconds,
     )
+    if resolved.csrf_enabled and not csrf_manager.is_enabled:
+        # ``build_token_manager`` returns the disabled sentinel when the secret
+        # source resolves empty, and it is right not to sign with an empty key.
+        # But an explicitly requested security control must not downgrade itself
+        # to "off" and let the process start: CSRFMiddleware short-circuits on a
+        # disabled manager, so every state-changing request would pass untokened
+        # while the configuration, the Settings page, and the operator all say
+        # protection is on. A log line is not a control. Fail closed instead.
+        raise RuntimeError(
+            "CSRF protection is enabled but its signing secret is missing: "
+            f"{resolved.csrf_signing_secret_env!r} resolved to an empty value. "
+            "Set that source, or set CALIBER_CSRF_ENABLED=false to run without "
+            "CSRF protection deliberately rather than by accident."
+        )
     rate_limiter = build_limiter(
         enabled=resolved.rate_limit_enabled,
         requests_per_minute=resolved.rate_limit_requests_per_minute,

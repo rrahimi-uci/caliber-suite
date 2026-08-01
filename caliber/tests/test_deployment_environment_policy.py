@@ -40,6 +40,7 @@ from caliber.mcp_policy import (
     deployment_blockers,
     extract_dependencies,
 )
+from caliber.workflows import promoter as promoter_module
 from caliber.workflows.promoter import AliasPreflightError, rollback
 from tests.workflow_helpers import make_manifest
 
@@ -619,3 +620,136 @@ def test_a_shallow_version_that_does_not_reference_the_server_is_still_deletable
     assert _version_reference_reason(db_session, root_version_id, "MCP-UNRELATED") is None
     # And it correctly still reports the one it does reference.
     assert _version_reference_reason(db_session, root_version_id, "MCP-OTHER") == ""
+
+
+# ---------------------------------------------------------------------------
+# Unmanaged host-filesystem nodes at the promotion boundary
+# ---------------------------------------------------------------------------
+
+
+def _host_path_version(db_session: Session, version_id: str) -> None:
+    """Publish a version carrying all three unmanaged host-filesystem node kinds."""
+    workflow = CaliberWorkflow(
+        workflow_id=f"wf-{version_id}", project_id=None, name="Host paths", owner="@test"
+    )
+    db_session.add(workflow)
+    manifest = make_manifest(f"wf-{version_id}")
+    nodes = manifest["nodes"]
+    assert isinstance(nodes, dict)
+    nodes["legacy_read"] = {"id": "legacy_read", "type": "file_input", "path": "/etc/passwd"}
+    nodes["legacy_dir"] = {"id": "legacy_dir", "type": "folder_input", "path": "/etc/ssl"}
+    nodes["legacy_write"] = {"id": "legacy_write", "type": "output_folder", "path": "/tmp/escaped"}
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id=version_id,
+            workflow_id=f"wf-{version_id}",
+            version_number=1,
+            status="published",
+            manifest=manifest,
+            manifest_hash=f"hash-{version_id}",
+        )
+    )
+    db_session.flush()
+
+
+def test_production_alias_refuses_unmanaged_host_filesystem_nodes(db_session: Session) -> None:
+    """A plain operator must not be able to put arbitrary host reads/writes live.
+
+    Authoring, publishing, and promoting are all ``operator`` scope, and these
+    nodes resolve paths with no root confinement, so before this gate an operator
+    could point a production alias at a workflow that reads ``/etc/passwd`` and
+    writes a file of its choosing into a directory of its choosing.
+    """
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _host_path_version(db_session, "wfv-hostpath-prod")
+
+    with pytest.raises(AliasPreflightError) as excinfo:
+        require_alias_target_ready(db_session, "prod", "wfv-hostpath-prod", config=CaliberConfig())
+
+    blob = "; ".join(excinfo.value.blockers)
+    # Every offending node is named, so the operator knows what to change.
+    assert "legacy_read (file_input without a managed file)" in blob
+    assert "legacy_dir (folder_input)" in blob
+    assert "legacy_write (output_folder)" in blob
+    assert "production-class" in blob
+
+
+def test_development_alias_still_allows_host_filesystem_nodes(db_session: Session) -> None:
+    """The same version stays deployable where the affordance is intended."""
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _host_path_version(db_session, "wfv-hostpath-dev")
+
+    require_alias_target_ready(db_session, "dev", "wfv-hostpath-dev", config=CaliberConfig())
+
+
+def test_host_path_refusal_is_widenable_by_configuration(db_session: Session) -> None:
+    """A deployment whose authors are as trusted as its operators can opt in."""
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _host_path_version(db_session, "wfv-hostpath-optin")
+    config = CaliberConfig(
+        workflow_host_path_nodes_allowed_environment_classes="development,production"
+    )
+
+    require_alias_target_ready(db_session, "prod", "wfv-hostpath-optin", config=config)
+
+
+def test_host_path_allowlist_falls_back_to_development_on_a_typo(db_session: Session) -> None:
+    """An unrecognised class must not silently open production."""
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _host_path_version(db_session, "wfv-hostpath-typo")
+    config = CaliberConfig(workflow_host_path_nodes_allowed_environment_classes="prodcution")
+
+    with pytest.raises(AliasPreflightError):
+        require_alias_target_ready(db_session, "prod", "wfv-hostpath-typo", config=config)
+
+
+def test_managed_file_input_is_not_refused_by_the_host_path_gate(db_session: Session) -> None:
+    """The gate matches Preview's predicate, which exempts a pinned managed object.
+
+    Refusing a managed ``file_ref`` here would break the supported path this
+    feature exists to steer authors toward.
+    """
+    workflow = CaliberWorkflow(
+        workflow_id="wf-managed-ok", project_id=None, name="Managed", owner="@test"
+    )
+    db_session.add(workflow)
+    manifest = make_manifest("wf-managed-ok")
+    nodes = manifest["nodes"]
+    assert isinstance(nodes, dict)
+    # ``file_ref`` present -> managed; content is verified separately by
+    # ``_managed_file_blockers``, which is not what this test is about.
+    nodes["managed_read"] = {
+        "id": "managed_read",
+        "type": "file_input",
+        "file_ref": {
+            "file_id": "F1",
+            "file_ref": "caliber://project/PRJ/file/F1@1",
+            "sha256": "0" * 64,
+            "name": "source.md",
+            "size_bytes": 14,
+            "media_type": "text/markdown",
+            "object_version_id": "1",
+        },
+    }
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="wfv-managed-ok",
+            workflow_id="wf-managed-ok",
+            version_number=1,
+            status="published",
+            manifest=manifest,
+            manifest_hash="hash-managed-ok",
+        )
+    )
+    db_session.flush()
+
+    blockers = promoter_module._host_path_blockers(
+        db_session.get(CaliberWorkflowVersion, "wfv-managed-ok"),
+        alias="prod",
+        config=CaliberConfig(),
+    )
+    assert blockers == []

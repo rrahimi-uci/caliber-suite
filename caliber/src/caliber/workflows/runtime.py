@@ -6673,23 +6673,35 @@ def _run_node_with_policy(
 ) -> tuple[int, NodeStep]:
     attempts = max(1, node.execution_policy.max_retries + 1)
     last_exc: Exception | None = None
+    ledger = plan.effect_ledger
     for attempt in range(attempts):
         started = time.monotonic()
+        # Reset effect-occurrence numbering for each attempt. Without this a retry
+        # re-derives occurrence 1 for an effect the previous attempt claimed as 0,
+        # producing a different idempotency key, so the ledger judges an effect it
+        # already recorded to be fresh and the node re-sends it. The module
+        # docstring already specifies "it resets per attempt" — this is where.
+        scope = (
+            ledger.attempt_scope()
+            if ledger is not None and hasattr(ledger, "attempt_scope")
+            else contextlib.nullcontext()
+        )
         try:
-            tokens, step = _run_node_traced(
-                node,
-                ir,
-                plan,
-                executor=executor,
-                preview=preview,
-                inputs=inputs,
-                run_input=run_input,
-                port_values=port_values,
-                guardrail_results=guardrail_results,
-                extra_tools=extra_tools,
-                runtime_approvals_enabled=runtime_approvals_enabled,
-                approved_human_approval_nodes=approved_human_approval_nodes,
-            )
+            with scope:
+                tokens, step = _run_node_traced(
+                    node,
+                    ir,
+                    plan,
+                    executor=executor,
+                    preview=preview,
+                    inputs=inputs,
+                    run_input=run_input,
+                    port_values=port_values,
+                    guardrail_results=guardrail_results,
+                    extra_tools=extra_tools,
+                    runtime_approvals_enabled=runtime_approvals_enabled,
+                    approved_human_approval_nodes=approved_human_approval_nodes,
+                )
             elapsed = time.monotonic() - started
             timeout = node.execution_policy.timeout_seconds
             if timeout is not None and elapsed > timeout:

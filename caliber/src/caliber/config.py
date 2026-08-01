@@ -1200,6 +1200,17 @@ class CaliberConfig(BaseModel):
             "caliber.deployment_environments, so spelling variants cannot bypass it."
         ),
     )
+    workflow_host_path_nodes_allowed_environment_classes: str = Field(
+        default="development",
+        description=(
+            "Comma-separated environment classes (production/staging/development) whose "
+            "deployments may use unmanaged host-filesystem nodes — a file_input without "
+            "a managed file_ref, a folder_input, or an output_folder. Everywhere else, "
+            "promotion refuses the version. These nodes read and write arbitrary paths "
+            "as the server user, so they are a development affordance; widen this only "
+            "for a deployment whose authors are as trusted as its operators."
+        ),
+    )
     deployment_environment_classes: str = Field(
         default="",
         description=(

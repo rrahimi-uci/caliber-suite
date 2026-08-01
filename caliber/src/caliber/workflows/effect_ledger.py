@@ -72,9 +72,11 @@ rather than papered over.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -160,6 +162,38 @@ class SqlEffectLedger:
     @property
     def workflow_run_id(self) -> str:
         return self._run_id
+
+    @contextlib.contextmanager
+    def attempt_scope(self) -> Iterator[None]:
+        """Make occurrence numbering stable across retries of the same node.
+
+        The counter exists so that a node which legitimately fires the *same*
+        effect several times — a loop body, a ``for_each`` branch — gets a
+        distinct key per firing rather than being mistaken for a replay. That is
+        correct within one attempt and wrong across attempts: a retry re-runs the
+        node from the top, so it re-derives occurrence 1 instead of 0, gets a
+        different effect key, and the ledger judges an already-delivered webhook
+        to be fresh.
+
+        The visible consequence is a slow-but-*successful* call under a short
+        node timeout: the deadline is evaluated after the call returns, the
+        success is converted into a retry, and the retry re-sends. Restoring the
+        counter at each attempt boundary means the retry re-derives the same key
+        and the ledger recognises the effect it already recorded.
+
+        This is what the module docstring's "it resets per attempt" already
+        promises; the reset previously happened only between processes.
+
+        Snapshot and restore both happen under the lock, so a parallel branch
+        claiming concurrently cannot observe a half-restored map.
+        """
+        with self._lock:
+            snapshot = dict(self._occurrences)
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._occurrences = snapshot
 
     def _next_occurrence(self, fingerprint: str) -> int:
         with self._lock:

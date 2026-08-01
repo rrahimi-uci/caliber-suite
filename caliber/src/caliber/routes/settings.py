@@ -903,7 +903,11 @@ def _runtime_groups(config: CaliberConfig) -> list[dict[str, Any]]:
                     key="csrf_enabled",
                     env_var="CALIBER_CSRF_ENABLED",
                     label="CSRF protection",
-                    description="Requires state-changing requests to include X-CALIBER-CSRF.",
+                    description=(
+                        "Requires state-changing requests to include X-CALIBER-CSRF. "
+                        "The server refuses to start if this is on without a resolvable "
+                        "signing secret, so this row reflects enforcement, not intent."
+                    ),
                     formatter=_bool,
                 ),
                 _setting(

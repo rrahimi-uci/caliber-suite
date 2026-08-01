@@ -453,3 +453,62 @@ def test_an_unknown_resolution_or_key_is_rejected(db_session: Session) -> None:
         resolve_effect(
             db_session, effect_key_value="eff-nope", resolution=RESOLUTION_SKIP, actor="@ops"
         )
+
+
+def test_a_node_retry_replays_instead_of_re_firing(ledger: SqlEffectLedger) -> None:
+    """A retry must not manufacture a second external effect out of the first.
+
+    The occurrence counter distinguishes a loop's repeated identical effects from a
+    replay, which is correct *within* one attempt. Across attempts it inverted the
+    guarantee: a retry re-derived occurrence 1 for the effect the previous attempt
+    claimed as 0, produced a different idempotency key, and the ledger judged an
+    already-delivered call to be fresh.
+
+    The visible path is a slow-but-successful call under a short node timeout. The
+    deadline is checked only after the call returns, so a *success* is converted
+    into a retry — and the retry re-sends.
+    """
+    calls: list[dict[str, object]] = []
+    plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None, effect_ledger=ledger
+    )  # type: ignore[arg-type]
+    request = {"url": "https://x.example/charge", "method": "POST", "body": {"amount": 100}}
+
+    def _perform() -> dict[str, object]:
+        calls.append(request)
+        return {"status_code": 200, "n": len(calls)}
+
+    # Attempt 1 succeeds. The runtime then decides it overran its deadline.
+    with ledger.attempt_scope():
+        first = _perform_guarded_effect(plan, node_id="charge", request=request, perform=_perform)
+    # Attempt 2 re-runs the node from the top.
+    with ledger.attempt_scope():
+        second = _perform_guarded_effect(plan, node_id="charge", request=request, perform=_perform)
+
+    assert len(calls) == 1, f"the retry re-sent a completed effect: {len(calls)} calls"
+    assert second == first, "the retry must observe the recorded result, not a new one"
+
+
+def test_attempt_scope_still_lets_a_loop_repeat_within_one_attempt(
+    ledger: SqlEffectLedger,
+) -> None:
+    """Restoring the counter must not collapse legitimately repeated effects.
+
+    Guards the opposite error from the test above: two iterations of a loop body
+    inside a single attempt are two real effects and must both be performed.
+    """
+    calls: list[int] = []
+    plan = RuntimePlan(
+        egress_policy=_ALLOW_UNRESOLVABLE, ir=None, resolver=None, effect_ledger=ledger
+    )  # type: ignore[arg-type]
+    request = {"url": "https://x.example/notify", "body": {"msg": "same"}}
+
+    def _perform() -> dict[str, object]:
+        calls.append(1)
+        return {"status_code": 200}
+
+    with ledger.attempt_scope():
+        _perform_guarded_effect(plan, node_id="notify", request=request, perform=_perform)
+        _perform_guarded_effect(plan, node_id="notify", request=request, perform=_perform)
+
+    assert len(calls) == 2, "both loop iterations are real effects"
