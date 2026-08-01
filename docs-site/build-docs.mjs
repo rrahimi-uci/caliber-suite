@@ -85,9 +85,9 @@ const MODULES = [
   { md: "10-gateways/architecture.md", out: "m-10-gateways.html", group: "operations", label: "Gateways", blurb: "External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility." },
   { md: "13-qa-plan/architecture.md", out: "m-13-qa-plan.html", group: "operations", label: "QA plan", blurb: "Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model." },
   { md: "12-assistant/architecture.md", out: "m-12-assistant.html", group: "aria", label: "Overview", blurb: "Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution." },
-  // The Aria orchestration / execution-plan / microservice-proposal docs are
-  // design specs kept as source under docs/12-assistant/ but intentionally not
-  // published in the doc-site; the published Aria docs are the overview only.
+  // The Aria group publishes the overview only. Any further Aria design specs
+  // (orchestration, execution plans, service proposals) are deliberately kept out
+  // of the manifest rather than published alongside it.
   { md: "competitive-analysis.md", out: "m-17-competitive-analysis.html", group: "strategy", label: "Competitive analysis", blurb: "How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources." },
   { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];

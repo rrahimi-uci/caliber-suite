@@ -181,11 +181,12 @@ fi
 
 # Worker-process count for the MLflow server. Unset keeps MLflow's own default
 # (4 gunicorn workers). Every worker process runs its OWN copy of all eight
-# CALIBER background loops, which is safe for the queue consumers (they claim
-# rows atomically) but collapses the worker-heartbeat table: worker_id is derived
-# from id(self), a per-process memory address that collides across forks, so N
-# processes register as one row and the rest log an IntegrityError warning.
-# Set MLFLOW_WORKERS=1 for a single set of loops and an accurate Services page.
+# CALIBER background loops. That is safe for the queue consumers (they claim rows
+# atomically) and each process now registers its own heartbeat row, because
+# worker_id includes the pid. What stays per-process is in-memory state: the
+# failed-login throttle and the API rate limiter budget each worker separately, so
+# the effective ceiling scales with this count. Set MLFLOW_WORKERS=1 for a single
+# set of loops and one budget per limit.
 MLFLOW_WORKERS="${MLFLOW_WORKERS:-}"
 if [[ -n "$MLFLOW_WORKERS" ]]; then
     WORKER_ARGS=(--workers "$MLFLOW_WORKERS")

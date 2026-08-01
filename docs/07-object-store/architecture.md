@@ -9,7 +9,7 @@
 | **Runtime model** | The console talks to S3 directly via `routes/object_store.py`; scoped storage flows through `WorkingDirectoryService` over `local` or `s3` backends. |
 | **Key surfaces** | HTTP routes under `/ajax-api/2.0/mlflow/caliber`: `/object-store/...` console routes, `/workflow-files` and run-scoped file routes, and `/projects` workspace routes. |
 | **Reference grammar** | Runtime code uses `caliber://` refs resolved against physical objects, never raw bucket keys. |
-| **Trust / safety** | Reads need an authenticated user; console mutations require `SCOPE_ADMIN` and scoped writes `SCOPE_OPERATOR`; `safe_relative_path` and `local_realpath_guard` block traversal/symlink escape. |
+| **Trust / safety** | Reads need an authenticated user and visibility of the owning run or project; console mutations require `SCOPE_ADMIN` and scoped writes `SCOPE_OPERATOR`; `safe_relative_path` and `local_realpath_guard` block traversal/symlink escape. |
 | **Extends via** | New backends implement the `StorageBackend` protocol through `build_backend(...)`. |
 
 The sections below start from this picture and drill down into the scope, boundaries, runtime paths, data model, surfaces, and trust boundaries in detail.
@@ -298,7 +298,8 @@ held to a higher bar than scoped file writes. The access rules are:
 
 - Object-store reads require an authenticated user.
 - Object-store mutations require `SCOPE_ADMIN`.
-- Workflow and project file reads require an authenticated user.
+- Workflow and project file reads require an authenticated user *and* visibility
+  of the resource the files hang off.
 - Workflow and project file writes require `SCOPE_OPERATOR`.
 
 On top of authorization, the module enforces a set of core protections at the
@@ -309,7 +310,16 @@ boundary between CALIBER and untrusted storage:
 - `safe_relative_path` and `local_realpath_guard` block traversal and symlink
   escape on the local backend.
 - `routes/files.py` enforces run binding, so a file ID from one run cannot be
-  fetched through another run's path.
+  fetched through another run's path. Run binding alone is not sufficient,
+  because a file genuinely does belong to the run it is requested through, so
+  the run itself is resolved only through its parent workflow's visibility: a
+  caller who knows a run ID but cannot see that workflow gets a `404`, not the
+  bytes.
+- Playground files have no parent workflow to scope through, so they are scoped
+  by uploader instead. Both the list and content routes match on `created_by`,
+  which is the only ownership a playground row carries — `project_id` defaults to
+  `default` for these uploads and isolates nobody. A row with an empty
+  `created_by` matches no caller rather than every caller.
 - Server-side media sniffing defeats basic extension and declared-type spoofing.
 - The S3 backend uses the configured public endpoint when generating presigned
   URLs, avoiding internal endpoint leakage when browser-direct access is used.
