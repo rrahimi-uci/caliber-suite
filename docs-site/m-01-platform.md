@@ -279,6 +279,28 @@ All configured loops share `background_tasks_enabled` as their lifecycle gate.
 have independent enable flags; the other five loops, including `AriaPlanWorker`,
 do not.
 
+The loops are in-process, so **each server worker process runs its own full set**.
+`mlflow server` defaults to four gunicorn workers, which means all eight loops
+exist four times over. Where arbitration is durable that is safe: queue consumers
+claim rows with a single conditional `UPDATE ... WHERE status='queued' RETURNING`,
+so exactly one process wins each row, and the cron scheduler is idempotent by a
+minute-bucketed key backed by a unique partial index. Two consequences do not
+follow that rule and are worth sizing for:
+
+- **Worker identity must survive forking.** A heartbeat row in
+  `caliber_worker_heartbeats` is keyed by a worker id built from the process id as
+  well as the instance (`worker_registry.new_worker_id`), because that key is
+  shared by every process pointed at the same database. It is deliberately not a
+  fresh UUID per start: an unclean exit leaves its row behind as the outage
+  signal, so a random id would accumulate one stale row per crash-restart.
+- **In-memory limits are per process.** The failed-login throttle
+  (`routes/auth.py`) and the API `RateLimiter` (`rate_limit.py`) are token/attempt
+  buckets behind a thread lock, not shared state, so their effective ceiling
+  scales with the worker count. Size the configured limits accordingly, or pin the
+  server to one worker (`MLFLOW_WORKERS=1` for `scripts/run-dev.sh`, `--workers 1`
+  otherwise). See [the layered architecture](m-00-layered-architecture.md) for the same
+  point at the platform tier.
+
 ```mermaid
 sequenceDiagram
     participant U as User

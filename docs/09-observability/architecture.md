@@ -8,7 +8,7 @@
 | **Tracing** | MLflow is the system of record for spans, tags, token/cost rollups, and assessments; CALIBER reads and annotates rather than originates. |
 | **Metrics** | A CALIBER-owned Prometheus `CollectorRegistry` scraped at `GET /metrics`. |
 | **Live events** | Ephemeral event-bus frames pushed to the SPA over `GET /events/stream` via a swappable fanout backend. |
-| **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`), structured review queues that write back to MLflow, and operator alert/incident/dead-letter APIs. |
+| **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`), structured review queues that write back to MLflow, and operator queue/alert/incident/dead-letter APIs. |
 | **Retention** | Server-owned MLflow trace archival (Postgres → MinIO) via `MLFLOW_TRACE_ARCHIVAL_CONFIG`, opt-in and read transparently. |
 | **Alerting** | Operator-declared SLO objectives evaluated on read, with incidents opened/resolved in `caliber_incidents` and routed over the event bus to the webhook dispatcher. Silencing and acknowledgement are recorded, not inferred. |
 | **Trust / safety** | Authenticated trace surfaces, redaction and byte-caps before MLflow, and safe degradation to empty responses when MLflow is unavailable. |
@@ -84,6 +84,7 @@ maps each responsibility to the file that owns it.
 | SLO incident state | `observability/slo.py` + `observability/incidents.py` | Evaluates objectives and reconciles durable open/resolved/acknowledged/silenced incident rows. |
 | Outbound delivery | `events/webhooks.py` + `routes/system_effects.py` | Signs and retries webhook deliveries, persists acceptance leases/dead letters, and exposes acknowledgement/replay operations. |
 | Trace data access | `trace_client.py` | Normalizes MLflow trace reads into CALIBER's trace-detail shape for the UI and downstream consumers. |
+| Queue and worker liveness | `observability/queue_health.py` + `observability/worker_registry.py` | Summarizes queue depth from durable run state and worker health from self-reported heartbeats, so an idle queue and a dead worker are distinguishable. |
 | Operator service probes | `routes/system_services.py` + `routes/health.py` | Adjacent operational truth surfaces for backing service status and readiness honesty. |
 | Frontend observability UX | `Observability.tsx` + `TraceMetricsCharts.tsx` | Provides trace list/detail, compare mode, filters, feedback UI, and time-series monitoring charts. |
 
@@ -96,7 +97,7 @@ and lifetime.
 - Ephemeral live events are short-lived event-bus frames used to update the SPA
   in near real time.
 - Durable operational memory is CALIBER relational state for SLO incidents,
-  accepted webhook leases, and delivery dead letters.
+  accepted webhook leases, delivery dead letters, and worker heartbeats.
 - Process-local telemetry consists of Prometheus registry samples and structured
   log records emitted by the current server process.
 
@@ -175,6 +176,7 @@ where each lives and why.
 | SLO incident lifecycle | `caliber_incidents` | Durable open/resolved history, acknowledgement, silence, routing metadata, and database arbitration for one open row per objective. |
 | Accepted outbound targets | `caliber_webhook_accepted_events` | Per-occurrence, per-target acceptance and lease state until that target is settled or dead-lettered. |
 | Exhausted/ambiguous deliveries | `caliber_webhook_dead_letters` | Durable operator-visible failure record with acknowledgement and manual replay state. |
+| Background worker liveness | `caliber_worker_heartbeats` | One self-reported row per worker identity, rewritten every poll cycle, so an idle worker's health is observable without queued work. |
 
 The relational tables cover both cross-replica fanout and operational memory:
 
@@ -184,6 +186,7 @@ The relational tables cover both cross-replica fanout and operational memory:
 | `CaliberIncident` | Durable SLO transition record; a partial unique index arbitrates concurrent openers, and conditional updates arbitrate concurrent resolvers. |
 | `CaliberWebhookAcceptedEvent` | Accepted-but-unsettled occurrence/target snapshot and renewable recovery lease. |
 | `CaliberWebhookDeadLetter` | Per-target terminal/ambiguous delivery record retained for acknowledgement or manual replay. |
+| `CaliberWorkerHeartbeat` | Worker self-registration (migration `0069`): kind, host hint, start/last-beat timestamps, and a cumulative `ticks` count that separates a wedged loop from an idle one. |
 
 A handful of runtime semantics govern how that state is produced and consumed,
 and they are worth stating explicitly.
@@ -198,6 +201,19 @@ and they are worth stating explicitly.
   returns empty results instead of surfacing internal exceptions.
 - `app.state.event_bus` is the single fanout abstraction consumed by the SSE
   route, which is what keeps the transport swappable.
+- `observability/worker_registry.py` inverts the direction of worker evidence.
+  Liveness used to be *inferred* from claimed `running` rows, which says nothing
+  while the queue is empty; each worker now writes its own row every cycle, so a
+  fresh row proves the loop is turning, a stale row names the worker that stopped,
+  and no row at all means none ever started. Staleness is judged against the
+  worker's own poll interval rather than a second configured threshold, and a
+  failed heartbeat write is swallowed and logged — losing an observability write
+  must never fail the tick it was observing.
+- Worker ids include the process id (`worker_registry.new_worker_id`) because the
+  heartbeat table is shared by every process pointed at the same database. Under a
+  multi-worker server each process runs its own copy of all eight loops, so an
+  id derived from the instance alone would collide and N live workers would report
+  as one.
 
 Operators tuning the module reach for a small set of high-value configuration
 knobs:
@@ -237,9 +253,10 @@ The platform telemetry routes are the machine-facing surfaces:
 - `GET /metrics`
 - `GET /events/stream`
 
-The adjacent operational-memory routes expose alerts, incidents, and delivery
-failures:
+The adjacent operational-memory routes expose queue health, alerts, incidents, and
+delivery failures:
 
+- `GET /system/queue`
 - `GET /system/alerts`
 - `GET /system/incidents`
 - `POST /system/incidents/{incident_id}/silence`
@@ -369,6 +386,13 @@ The behaviors that matter most in operation are these:
 - `GET /observability/metrics` computes time buckets over recent traces for the
   in-app charts, while `GET /metrics` remains the machine-scrape surface for
   Prometheus.
+- `GET /system/queue` reports queue depth alongside worker liveness —
+  `workers_alive`, `workers_stale`, per-worker detail, stale leases, and the
+  oldest queued age — which is the signal `/health` cannot give, because an API
+  that answers proves nothing about whether anything is consuming the queue. A
+  missing registration is only a fault where execution is actually queue-backed;
+  under synchronous execution there is deliberately no worker, and reporting its
+  absence would be a permanent false alarm.
 
 ### 8.1 SLO objectives, incidents, and alert routing
 
@@ -409,7 +433,15 @@ cancelling async tasks. A blocking sender that returns late cannot begin another
 target, and an old generation cannot settle a restarted dispatcher's in-memory claim. A POST
 already in progress at shutdown can still have an externally ambiguous outcome.
 
-Four behaviours are deliberate and worth knowing before relying on this:
+**A delivery is settled before it is counted.** The dispatcher clears the durable
+accept row first and only then increments the operations-visible `delivered`
+counter. The reverse order published a state that had not happened yet: a reader
+could observe `delivered == N` while N accept rows still sat in the table looking
+unsettled, which is the exact ambiguity those rows exist to remove. The settle step
+swallows its own errors and prunes in a `finally`, so ordering it first cannot skip
+the count.
+
+Four further behaviours are deliberate and worth knowing before relying on this:
 
 - **One synchronous local publisher wins each notification claim.** The partial unique
   index arbitrates open races, a conditional update arbitrates resolution races, and
