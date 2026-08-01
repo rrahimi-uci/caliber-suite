@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 from caliber.workflows import component_catalog as cc
+from caliber.workflows.component_catalog import build_workflow_component_catalog
 from caliber.workflows.manifest import PortSpec, ToolNode
 
 # --- _component_docs --------------------------------------------------------
@@ -38,6 +39,118 @@ def test_component_docs_unknown_node_humanizes_type() -> None:
 
     description, _ = cc._component_docs(node_type="my_node_xyz", model_cls=WhitespaceDoc)
     assert description == "My Node Xyz."
+
+
+def test_component_docs_ignores_inherited_docstring() -> None:
+    """A model with no docstring of its own must publish the fallback, not its base's."""
+
+    class DocumentedBase(BaseModel):
+        """Inherited prose that must never reach the designer."""
+
+    class Undocumented(DocumentedBase):
+        x: int = 1
+
+    # The trap this guards: the class dict has no docstring, but ``inspect.getdoc``
+    # walks the MRO and happily returns the base's.
+    assert Undocumented.__dict__.get("__doc__") is None
+    assert inspect.getdoc(Undocumented) == "Inherited prose that must never reach the designer."
+
+    description, docs = cc._component_docs(node_type="note", model_cls=Undocumented)
+    assert description == cc._FALLBACK_DESCRIPTIONS["note"]
+    assert docs == list(cc._COMPONENT_DOCS["note"])
+
+
+def test_component_docs_uses_own_summary_line_only() -> None:
+    """A model's own docstring supplies the description; its body is not a tip source.
+
+    The body is written for someone reading the module, so appending it line by line
+    published mid-sentence fragments and reST markup as designer copy. Tips come from
+    the curated table alone.
+    """
+
+    class OwnDoc(BaseModel):
+        """Summary line.
+
+        Body detail mentioning ``literals`` and :class:`SomeNode` that designers
+        should never be shown.
+        """
+
+    description, docs = cc._component_docs(node_type="note", model_cls=OwnDoc)
+    assert description == "Summary line."
+    assert docs == list(cc._COMPONENT_DOCS["note"])
+
+
+def test_catalog_docstring_free_nodes_use_curated_copy() -> None:
+    """Every node model lacking its own docstring falls back to curated designer copy."""
+
+    undocumented = [
+        node_type
+        for node_type, model_cls in cc._COMPONENT_ORDER
+        if model_cls.__dict__.get("__doc__") is None
+    ]
+    assert undocumented, "expected at least one node model without its own docstring"
+
+    catalog = {item["type"]: item for item in build_workflow_component_catalog()["components"]}
+    for node_type in undocumented:
+        component = catalog[node_type]
+        # Assert the curated entry exists before reading it, so a node shipped with
+        # neither a docstring nor curated copy names itself instead of raising KeyError.
+        fallback = cc._FALLBACK_DESCRIPTIONS.get(node_type)
+        assert fallback is not None, (
+            f"{node_type} has no docstring of its own and no _FALLBACK_DESCRIPTIONS entry, "
+            f"so it would publish the bare humanized type name"
+        )
+        assert component["description"] == fallback
+        assert component["docs"] == list(cc._COMPONENT_DOCS.get(node_type, ()))
+
+
+def test_catalog_never_publishes_source_markup() -> None:
+    """Designer copy must never carry text written for someone reading the source.
+
+    Two distinct leaks produced this: ``inspect.getdoc`` walking the MRO into
+    pydantic's ``BaseModel`` docstring, and the docstring body being appended one
+    tip per physical source line. Both surfaced reST roles, literals, and internal
+    references in the component palette.
+    """
+
+    markers = (
+        # pydantic's BaseModel docstring
+        "Usage Documentation",
+        "A base class for creating Pydantic models",
+        "__pydantic",
+        "__class_vars__",
+        "__fields_set__",
+        "__private_attributes__",
+        "../concepts/models.md",
+        # reST / Sphinx markup and internal references from CALIBER docstrings
+        "``",
+        ":class:",
+        ":mod:",
+        ":func:",
+        ":meth:",
+        ":attr:",
+        "(plan:",
+    )
+
+    for component in build_workflow_component_catalog()["components"]:
+        for text in [component["description"], *component["docs"]]:
+            for marker in markers:
+                assert marker not in text, f"{component['type']} leaks {marker!r}: {text!r}"
+
+
+def test_catalog_copy_reads_as_whole_sentences() -> None:
+    """No description or tip may be a fragment chopped at a source-line boundary.
+
+    The docstring body was published one tip per physical line, so a wrapped
+    sentence arrived as several tips each ending mid-clause. Requiring terminal
+    punctuation catches a regression to that shape.
+    """
+
+    for component in build_workflow_component_catalog()["components"]:
+        for text in [component["description"], *component["docs"]]:
+            assert text.rstrip().endswith((".", "!", "?")), (
+                f"{component['type']} publishes a sentence fragment: {text!r}"
+            )
 
 
 # --- _default_ports ---------------------------------------------------------

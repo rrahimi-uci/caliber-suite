@@ -234,6 +234,8 @@ _COMPONENT_DOCS: dict[str, tuple[str, ...]] = {
     ),
     "human_approval": (
         "Runtime approvals appear in the run monitor and can be resolved directly from the workflow detail and editor surfaces.",
+        "Every field is enforced at runtime: the required role gates who may decide, the approval count is a quorum of distinct approvers, and whoever started the run cannot approve it themselves by default.",
+        "Timeout behavior is restricted to blocking. Escalation has no target to escalate to and auto-reject has no deadline to enforce, so both are rejected while you author rather than becoming a control that silently does nothing.",
     ),
     "knowledge_query": (
         "Supports dense retrieval, GraphRAG hybrid, and Apache AGE graph retrieval with query-time overrides.",
@@ -1098,15 +1100,23 @@ def _build_component_item(*, node_type: str, model_cls: type[BaseModel]) -> dict
 
 
 def _component_docs(*, node_type: str, model_cls: type[BaseModel]) -> tuple[str, list[str]]:
-    raw = inspect.getdoc(model_cls)
+    # Only the model's own docstring may become designer copy. ``inspect.getdoc``
+    # walks the MRO, so the six node models that carry no docstring of their own
+    # published pydantic's ``BaseModel`` docstring as their palette description and
+    # tips. A node without its own prose wants the curated fallback below instead.
+    own_doc = model_cls.__dict__.get("__doc__")
+    raw = inspect.cleandoc(own_doc) if isinstance(own_doc, str) else None
+    # Tips come from ``_COMPONENT_DOCS`` alone. The docstring *body* used to be
+    # appended one tip per physical source line, which turned engineering prose
+    # into a stack of mid-sentence fragments carrying reST roles and literals
+    # (``:class:`FolderInputNode```, ``` ``prefix`` ```) — copy written for someone
+    # reading the module, rendered to someone configuring a node. Only the summary
+    # line, which is a real one-sentence description, is published.
     docs = list(_COMPONENT_DOCS.get(node_type, ()))
     if raw:
-        cleaned = [line.strip() for line in raw.splitlines() if line.strip()]
-        if cleaned:
-            description = cleaned[0]
-            extras = [line for line in cleaned[1:] if line not in docs]
-            docs.extend(extras)
-            return description, docs
+        summary = next((line.strip() for line in raw.splitlines() if line.strip()), "")
+        if summary:
+            return summary, docs
     return _FALLBACK_DESCRIPTIONS.get(node_type, _humanize(node_type) + "."), docs
 
 
