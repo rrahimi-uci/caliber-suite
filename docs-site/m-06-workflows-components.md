@@ -258,7 +258,7 @@ considered configured.
 | Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
 | --- | --- | --- | --- | --- | --- |
 | **Guardrail** | `guardrail` | Apply validation or safety checks before or after an agent step, with block/redact/escalate behavior and bounded retries. | `response` → `passthrough` | `mode`, `checks`, `on_failure`, `max_retries` | Configure at least one guardrail check |
-| **Human Approval** | `human_approval` | Pause the workflow until a human reviewer approves or rejects it; resolved from the run monitor. | `request` → `request` | `required_role`, `approval_count`, `timeout_behavior` | — |
+| **Human Approval** | `human_approval` | Pause the workflow until a human reviewer approves or rejects it; resolved from the run monitor. Every field is enforced at runtime: `required_role` gates the decision endpoint, `approval_count` is a quorum of distinct approvers, and the run's initiator cannot approve their own run by default. | `request` → `request` | `required_role`, `approval_count`, `timeout_behavior` (`block` only — `escalate` has no target and `auto_reject` no deadline, so both are rejected at authoring time) | — |
 | **Error Boundary** | `error_boundary` | Execute a target node with fallback text or a compensation node when it fails. | `input` → `output`, `error` | `target_node_id`, `fallback_text`, `compensate_with` | Use executable target / compensation nodes when set |
 
 ### Integrations
