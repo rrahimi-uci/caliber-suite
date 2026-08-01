@@ -297,9 +297,9 @@
         <div class="stat-desc">of agentic-AI projects by end of 2027 — cost, unclear value, weak controls (Gartner, 2025)</div>
       </div>
       <div style="flex:1 1 440px; max-width:540px;" class="stat-card amber">
-        <div class="stat-value" style="color:var(--amber)">~80%</div>
-        <div class="stat-label">Lack mature governance</div>
-        <div class="stat-desc">for agentic AI; only 21% are mature (Deloitte, 2026)</div>
+        <div class="stat-value" style="color:var(--amber)">21%</div>
+        <div class="stat-label">Have mature governance</div>
+        <div class="stat-desc">for agentic AI — the other ~79% do not (Deloitte, 2026)</div>
       </div>
       <div style="flex:1 1 440px; max-width:540px;" class="stat-card red">
         <div class="stat-value" style="color:var(--red)">28%</div>
@@ -307,7 +307,7 @@
         <div class="stat-desc">of orgs across all environments; ~72% cannot (Cloud Security Alliance, 2025)</div>
       </div>
     </div>
-    <div class="reveal" style="--d:2.2s"><div style="color:var(--text3); font-size:14px; margin-top:14px; letter-spacing:.04em;">A large, fast-growing market — held back by a governance and trust gap.</div></div>
+    <div class="reveal" style="--d:2.2s"><div style="color:var(--text3); font-size:14px; margin-top:14px; letter-spacing:.04em;">A large, fast-growing market — held back by a governance and trust gap.</div><div style="color:var(--text3); font-size:12px; margin-top:8px; letter-spacing:.03em;">Figures as published on the dates cited; each horizon is its source's own.</div></div>
   </div>
 </section>
 
@@ -315,8 +315,8 @@
 <section class="scene" data-scene="4">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag" style="color:#fcd34d; border-color:rgba(245,158,11,.32)">Why projects stall</span></div>
-    <div class="reveal" style="--d:.5s"><div class="section-title">A patchwork stack measures — it never closes the loop.</div></div>
-    <div class="reveal" style="--d:.9s"><div class="section-subtitle">Teams stitch the lifecycle together from point tools — and the deepest gap is what none of them do.</div></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">A patchwork stack measures — almost none close the loop.</div></div>
+    <div class="reveal" style="--d:.9s"><div class="section-subtitle">Teams stitch the lifecycle together from point tools — and the deepest gap is what almost none of them do.</div></div>
     <div class="diagram-row reveal" style="--d:1.5s">
       <div class="diagram-box">
         <h4>Point tools</h4>
@@ -324,7 +324,7 @@
           <li>Orchestrate in one tool, trace in another, evaluate in a third, manage prompts in a fourth</li>
           <li>Most cover only 1–2 lifecycle stages</li>
           <li>Lineage scatters across chat threads and notebooks</li>
-          <li>Leaders are SaaS-first, self-hosting paywalled; open options are observability-led, not full-lifecycle</li>
+          <li>Leaders are SaaS-first, self-hosting paywalled; open options are observability-led, not full-lifecycle (CALIBER competitive analysis, mid-2026)</li>
         </ul>
       </div>
       <div class="diagram-box">
@@ -332,12 +332,11 @@
         <ul>
           <li>76% of enterprise AI use cases are bought, not built — more vendors to integrate (Menlo Ventures, 2025)</li>
           <li>They <strong>measure</strong> — surface scores and dashboards, then stop</li>
-          <li>No widely-available tool ships an automated, gated optimize → re-evaluate → promote loop</li>
-          <li>They do not close the loop</li>
+          <li>Optimizers are widespread; a gated optimize → re-evaluate → authorize → promote path packaged as one product is not</li>
         </ul>
       </div>
     </div>
-    <div class="reveal" style="--d:2.3s"><div style="color:var(--text3); font-size:14px; margin-top:18px; letter-spacing:.04em;">Most tools measure quality. None of them close the loop on it.</div></div>
+    <div class="reveal" style="--d:2.3s"><div style="color:var(--text3); font-size:14px; margin-top:18px; letter-spacing:.04em;">Most tools measure quality. Almost none close the loop on it.</div></div>
   </div>
 </section>
 
@@ -347,7 +346,7 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">Introducing</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">One <span class="glow-text">MLflow-integrated</span> control plane for agentic workflows.</div></div>
     <div class="reveal" style="--d:1.0s">
-      <div class="section-subtitle">CALIBER is one <strong>ASGI control-plane codebase</strong>: mount it inside MLflow for a same-process development loop, or run it beside vanilla MLflow over HTTP. Both modes share one browser interface while CALIBER metadata and MLflow evidence retain explicit owners.</div>
+      <div class="section-subtitle">CALIBER is one <strong>ASGI control-plane codebase</strong>: mount it inside MLflow as one process, or run it beside vanilla MLflow over HTTP. The API and the interface are identical in both — the choice is a failure-domain and operations decision, not a feature decision — while CALIBER metadata and MLflow evidence retain explicit owners.</div>
     </div>
     <div class="diagram-row reveal" style="--d:1.6s">
       <div class="diagram-box">
@@ -370,8 +369,8 @@
         <h4>Govern</h4>
         <ul>
           <li>Asset-specific validation, testing, apply, and publish</li>
-          <li>Runtime approvals &amp; checkpoints</li>
-          <li>RBAC, audit, object-storage artifacts</li>
+          <li>Runtime approvals: role, quorum, checkpoints</li>
+          <li>Server-validated identity, RBAC, audit</li>
         </ul>
       </div>
     </div>
@@ -384,13 +383,13 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">The platform</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Build composes. The Library supplies.</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Agent resources are first-class registered assets with asset-specific versioning, tests, aliases, rollback, and evidence. Their workspaces expose the controls each family actually implements, so you can verify an asset without pretending every family has one uniform lifecycle.</div>
+      <div class="section-subtitle">Agent resources are first-class registered assets. Each workspace exposes the controls that family actually implements — immutable versions and aliases where they exist, tests and evidence where they are recorded — so you can verify an asset without pretending every family has one uniform lifecycle.</div>
     </div>
     <div class="vision-grid reveal" style="--d:1.4s">
       <div class="vision-card"><h4>Prompts</h4><p>Versioned against MLflow's Prompt Registry, with aliases and a per-prompt test workspace.</p></div>
-      <div class="vision-card"><h4>Tools</h4><p>Definitions runnable in a subprocess sandbox; test a draft against inputs before publishing.</p></div>
+      <div class="vision-card"><h4>Tools</h4><p>Definitions run in a bounded subprocess: separate interpreter, empty environment, private working directory, and hard time, memory, and output limits.</p></div>
       <div class="vision-card"><h4>Skills</h4><p>Named capabilities with selection logic; preview which skills resolve for an input.</p></div>
-      <div class="vision-card"><h4>MCP Servers</h4><p>Registered Model Context Protocol servers — including a first-party database server — exposed as tools.</p></div>
+      <div class="vision-card"><h4>MCP Servers</h4><p>Registered Model Context Protocol servers — including a first-party database server — exposed as tools under command and host allowlists.</p></div>
       <div class="vision-card"><h4>Knowledge Bases</h4><p>Hybrid retrieval (BM25 + dense RRF, tri-hybrid with graph) plus retrieval calibration.</p></div>
       <div class="vision-card"><h4>Workflows</h4><p>Agentic graphs composed in Studio, preview-run, published, and traced end to end.</p></div>
     </div>
@@ -421,7 +420,7 @@
       <div class="pipe-step">
         <div class="pn">step 3</div>
         <div class="pt">Enqueue</div>
-        <div class="pd">Queued run, approvals, checkpoints</div>
+        <div class="pd">One queue — Studio, API, service, cron</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step glow">
@@ -432,7 +431,7 @@
     </div>
     <div class="reveal" style="--d:2.2s">
       <div style="color:var(--text2); font-size:15px; margin-top:32px; max-width:1300px; margin-left:auto; margin-right:auto;">
-        Runs land in a queue with atomic claims for multi-replica workers; every run carries an MLflow trace, and checkpointing makes long runs resumable.
+        Runs land in one queue with atomic claims for multi-replica workers; every run carries an MLflow trace, and checkpointing makes long runs resumable. Webhook and API nodes are checked against the resolved address, with internal ranges — metadata, loopback, RFC1918 — blocked by default, and they claim an effect-ledger row so an outbound call is made at most once across a restart.
       </div>
     </div>
   </div>
@@ -444,7 +443,7 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">Data &amp; knowledge</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">The data plane behind every workflow</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Knowledge bases provide hybrid retrieval with their own calibration metrics; File Directory is the UI over configured local or S3-compatible storage; test sets are the versioned datasets every scored run draws from.</div>
+      <div class="section-subtitle">Knowledge bases provide hybrid retrieval with their own calibration metrics; the Object Store is CALIBER's own file UI over configured local or S3-compatible storage; test sets are the versioned datasets every scored run draws from.</div>
     </div>
     <div class="diagram-row reveal" style="--d:1.6s">
       <div class="diagram-box">
@@ -456,11 +455,11 @@
         </ul>
       </div>
       <div class="diagram-box">
-        <h4>File Directory</h4>
+        <h4>Object Store</h4>
         <ul>
           <li>Local or S3-compatible storage</li>
           <li>The file UI for the whole platform</li>
-          <li>Backs MLflow &amp; CALIBER artifacts</li>
+          <li>CALIBER's own file store — separate from MLflow's artifact root</li>
         </ul>
       </div>
       <div class="diagram-box">
@@ -525,10 +524,10 @@
 <!-- SCENE 10 — OBSERVE -->
 <section class="scene" data-scene="10">
   <div class="scene-inner">
-    <div class="reveal" style="--d:.2s"><span class="section-tag">Observe</span></div>
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Observe &amp; operate</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Every run is a trace you can open</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Observability is built on MLflow tracing: each workflow run records per-tool-call spans, and the Evaluations surface turns those traces into scorecards, per-example results, and run-to-run comparisons.</div>
+      <div class="section-subtitle">Observability is built on MLflow tracing: each workflow run records per-tool-call spans, and Evaluations turns those traces into scorecards and comparisons. Operating it is the other half — dependency readiness, queue and worker health, and operator-declared objectives that open a durable incident when they breach.</div>
     </div>
     <div class="diagram-row reveal" style="--d:1.6s">
       <div class="diagram-box">
@@ -545,14 +544,15 @@
           <li>Run a dataset through scorers</li>
           <li>Per-example results &amp; run compare</li>
           <li>Add a trace to a dataset in one click</li>
+          <li>Real vs simulated providers — no fabricated scores</li>
         </ul>
       </div>
       <div class="diagram-box">
-        <h4>Honesty</h4>
+        <h4>Runtime health</h4>
         <ul>
-          <li>Readiness reports real vs simulated</li>
-          <li>Provider posture shown in the banner</li>
-          <li>No fabricated scores, ever</li>
+          <li>Readiness probes dependencies: ready · not ready · skipped</li>
+          <li>Queue depth, oldest wait, worker heartbeats</li>
+          <li>Declared objectives open durable incidents</li>
         </ul>
       </div>
     </div>
@@ -580,6 +580,7 @@
         <h4>Permissioned tools</h4>
         <ul>
           <li>Read in every mode</li>
+          <li><span class="mono" style="color:var(--accent-light)">manual</span> is the default — the operator runs each gate</li>
           <li>Sandboxed/reversible in auto_safe</li>
           <li>Runs &amp; publish only in auto_all</li>
         </ul>
@@ -602,7 +603,7 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">Aria · run, observe, fix</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Build and test an artifact in one turn</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">In <span class="mono" style="color:var(--accent-light)">build</span> mode with <span class="mono" style="color:var(--accent-light)">auto_safe</span> approvals, Aria drafts the artifact, validates it, runs it in the sandbox, and reports exactly what it observed — every action recorded in the turn.</div>
+      <div class="section-subtitle">In <span class="mono" style="color:var(--accent-light)">build</span> mode with <span class="mono" style="color:var(--accent-light)">auto_safe</span> approvals, Aria drafts the artifact, validates it, and runs it in the tool sandbox — a separate interpreter with an empty environment, a private working directory, and hard time, memory, and output limits — then reports exactly what it observed.</div>
     </div>
     <div class="terminal reveal" style="--d:1.4s">
       <div class="c"># Aria panel · mode = build · approval = auto_safe</div>
@@ -621,36 +622,42 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">Govern</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Asset-specific controls, one authorization boundary</div></div>
     <div class="reveal" style="--d:.9s">
-      <div class="section-subtitle">Governance follows each asset's implemented lifecycle. Aria uses the same RBAC, permission checks, sandbox decisions, and audit path as human-driven routes; it does not gain a separate authorization bypass.</div>
+      <div class="section-subtitle">Governance follows each asset's implemented lifecycle. Identity is server-validated, and Aria reuses the same account scopes, permission checks, sandbox decisions, and audit path as human-driven routes rather than a separate authorization path.</div>
     </div>
     <div class="pipeline-flow reveal" style="--d:1.3s">
       <div class="pipe-step glow">
         <div class="pn">control 1</div>
         <div class="pt">Authorize</div>
-        <div class="pd">RBAC &amp; permission checks</div>
+        <div class="pd">Accounts, revocable sessions, four scopes</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step">
         <div class="pn">control 2</div>
+        <div class="pt">Contain</div>
+        <div class="pd">Bounded tool subprocess · internal-range egress blocks · MCP allowlists</div>
+      </div>
+      <div class="pipe-arrow">›</div>
+      <div class="pipe-step">
+        <div class="pn">control 3</div>
         <div class="pt">Verify</div>
         <div class="pd">Asset-specific validation &amp; tests</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step">
-        <div class="pn">control 3</div>
+        <div class="pn">control 4</div>
         <div class="pt">Act</div>
         <div class="pd">Explicit apply or publish</div>
       </div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step glow">
-        <div class="pn">control 4</div>
+        <div class="pn">control 5</div>
         <div class="pt">Record</div>
         <div class="pd">Audit actor, action &amp; entity</div>
       </div>
     </div>
     <div class="reveal" style="--d:2.2s">
       <div style="color:var(--text2); font-size:15px; margin-top:32px; max-width:1300px; margin-left:auto; margin-right:auto;">
-        Validation, tests, explicit apply or publish actions, and alias rollback exist where the asset implements them. Workflow <em>runtime</em> approvals govern live execution separately from offline artifact promotion.
+        Validation, tests, explicit apply or publish actions, and alias rollback exist where the asset implements them. Runtime approvals honour the node's own required role and a quorum of distinct approvers, and by default whoever triggered the run cannot approve it. Credentials live in an encrypted store with versions, rotation, and revocation; an asset holds a <span class="mono" style="color:var(--accent-light)">secret://</span> reference and no route reads a value back.
       </div>
     </div>
   </div>
@@ -665,7 +672,7 @@
     <div class="pipeline-flow reveal" style="--d:1.4s">
       <div class="pipe-step glow"><div class="pn">step 1</div><div class="pt">Evaluate</div><div class="pd">Held-out test set through scorers — real scores, no fabricated numbers</div></div>
       <div class="pipe-arrow">›</div>
-      <div class="pipe-step"><div class="pn">step 2</div><div class="pt">Search</div><div class="pd">Optimizers (Meta-Prompt, GEPA, DSPy) find a better asset version</div></div>
+      <div class="pipe-step"><div class="pn">step 2</div><div class="pt">Search</div><div class="pd">Provider paths (Meta-Prompt, GEPA, DSPy) search for a better prompt candidate</div></div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step"><div class="pn">step 3</div><div class="pt">Check</div><div class="pd">Record per-dimension regression evidence</div></div>
       <div class="pipe-arrow">›</div>
@@ -684,10 +691,10 @@
     <div class="reveal" style="--d:.5s"><div class="section-title">Open, and <span class="glow-text">governed</span>.</div></div>
     <div class="reveal" style="--d:.9s"><div class="section-subtitle">Asset-specific controls govern each change, while humans and the Aria copilot share the same authorization boundary.</div></div>
     <div class="vision-grid reveal" style="--d:1.4s; grid-template-columns:repeat(2,1fr); max-width:1280px;">
-      <div class="vision-card"><h4>Same authorization boundary</h4><p>Humans and the Aria copilot use the same RBAC and permission checks. Each asset follows the lifecycle it actually implements, and the audit trail records actor, action, and entity.</p></div>
+      <div class="vision-card"><h4>Same authorization boundary</h4><p>Humans and the Aria copilot resolve the same server-validated identity — password accounts, revocable sessions, and four scopes. Each asset follows the lifecycle it actually implements, and the audit trail records actor, action, and entity.</p></div>
       <div class="vision-card"><h4>Traceable to a human</h4><p>Only 28% of organizations can trace an agent's actions back to a human across all environments — ~72% cannot (Cloud Security Alliance, 2025). CALIBER ties every change to an actor in one audit trail.</p></div>
-      <div class="vision-card"><h4>Human in the loop</h4><p>61% of executives require a human in the loop, up from 45% the prior quarter (KPMG, Q3 2025). Workflow runtime approvals govern live execution separately from offline promotion.</p></div>
-      <div class="vision-card"><h4>Open, ahead of the clock</h4><p>EU AI Act fines reach €35M or 7% of global annual turnover; high-risk obligations land Aug 2, 2026 (Article 99). Apache 2.0 and self-hostable — no lock-in, data and lineage stay in your own environment.</p></div>
+      <div class="vision-card"><h4>Human in the loop</h4><p>61% of executives required a human in the loop when surveyed (KPMG, Q3 2025). Runtime approvals honour the node's required role and a quorum of distinct approvers, and by default whoever triggered the run cannot approve it.</p></div>
+      <div class="vision-card"><h4>Open, and audit-ready</h4><p>EU AI Act high-risk obligations phase in from 2 August 2026; penalties reach €35M or 7% of global annual turnover (Article 99). Apache 2.0 and self-hostable — no lock-in, data and lineage stay in your own environment.</p></div>
     </div>
     <div class="reveal" style="--d:2.4s"><div style="color:var(--text3); font-size:14px; margin-top:18px; letter-spacing:.04em;">Governance binds humans and the copilot equally. Open source, no lock-in.</div></div>
   </div>
@@ -716,11 +723,11 @@
       </div>
       <div class="vision-card">
         <h4>Governed</h4>
-        <p>Asset-specific controls with shared RBAC, audit, and explicit operator apply or publish actions.</p>
+        <p>Server-validated identity and shared RBAC scopes, a bounded and swappable tool execution boundary, SSRF-checked workflow HTTP, and explicit operator apply or publish.</p>
       </div>
       <div class="vision-card">
         <h4>Observable</h4>
-        <p>MLflow tracing with per-tool-call spans on every run; readiness honestly reports real vs simulated providers.</p>
+        <p>MLflow tracing with per-tool-call spans, dependency readiness, queue and worker health, and operator-declared objectives that open durable incidents.</p>
       </div>
       <div class="vision-card">
         <h4>Open</h4>
