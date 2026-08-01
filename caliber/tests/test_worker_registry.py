@@ -21,6 +21,7 @@ An injected ``now`` keeps every boundary deterministic.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from unittest import mock
 
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,7 @@ from caliber.observability.worker_registry import (
     KIND_WORKFLOW_RUN,
     deregister,
     list_workers,
+    new_worker_id,
     record_heartbeat,
     stale_after_seconds,
 )
@@ -230,3 +232,57 @@ def test_workers_appear_in_the_serialized_payload(db_session: Session) -> None:
     assert payload["workers"][0]["worker_id"] == "w-1"
     assert payload["workers"][0]["alive"] is True
     assert payload["workers"][0]["ticks"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Worker id uniqueness across processes
+# ---------------------------------------------------------------------------
+
+
+def test_worker_id_differs_across_processes_for_the_same_object() -> None:
+    """The regression this exists for.
+
+    ``worker_id`` used to be ``f"...-{id(self):x}"``. Under a multi-worker server
+    every process builds the same loops in the same order, so the addresses match,
+    and the id — a durable primary key in a table shared by all of them — collided.
+    Holding the instance fixed and varying only the pid is exactly that scenario.
+    """
+    sentinel = object()
+
+    with mock.patch("caliber.observability.worker_registry.os.getpid", return_value=111):
+        first = new_worker_id("workflow-run-worker", sentinel)
+    with mock.patch("caliber.observability.worker_registry.os.getpid", return_value=222):
+        second = new_worker_id("workflow-run-worker", sentinel)
+
+    assert first != second, "same object in two processes must not share a worker id"
+    assert "111" in first and "222" in second
+
+
+def test_worker_id_differs_for_two_instances_in_one_process() -> None:
+    """The pid alone is not enough: the tests construct several workers of one kind
+    inside a single process, and those must not collide either."""
+    assert new_worker_id("knowledge-build-worker", object()) != new_worker_id(
+        "knowledge-build-worker", object()
+    )
+
+
+def test_worker_id_keeps_its_kind_prefix() -> None:
+    """Operators read these ids straight off the Services page, so the prefix has to
+    survive — an opaque id would name the outage without naming the worker."""
+    assert new_worker_id("workflow-run-worker", object()).startswith("workflow-run-worker-")
+
+
+def test_two_processes_register_two_rows_not_one(db_session: Session) -> None:
+    """The observable symptom: with colliding ids the second INSERT violated
+    ``caliber_worker_heartbeats_pkey``, so N live workers reported as one."""
+    sentinel = object()
+    with mock.patch("caliber.observability.worker_registry.os.getpid", return_value=111):
+        a = new_worker_id("workflow-run-worker", sentinel)
+    with mock.patch("caliber.observability.worker_registry.os.getpid", return_value=222):
+        b = new_worker_id("workflow-run-worker", sentinel)
+
+    record_heartbeat(db_session, worker_id=a, kind=KIND_WORKFLOW_RUN, now=NOW)
+    record_heartbeat(db_session, worker_id=b, kind=KIND_WORKFLOW_RUN, now=NOW)
+
+    assert db_session.query(CaliberWorkerHeartbeat).count() == 2
+    assert _collect(db_session).workers_alive == 2

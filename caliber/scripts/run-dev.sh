@@ -179,7 +179,21 @@ if [[ "$CALIBER_DATABASE_URL" == sqlite* ]]; then
     fi
 fi
 
-echo ">> starting mlflow server with --app-name caliber"
+# Worker-process count for the MLflow server. Unset keeps MLflow's own default
+# (4 gunicorn workers). Every worker process runs its OWN copy of all eight
+# CALIBER background loops, which is safe for the queue consumers (they claim
+# rows atomically) but collapses the worker-heartbeat table: worker_id is derived
+# from id(self), a per-process memory address that collides across forks, so N
+# processes register as one row and the rest log an IntegrityError warning.
+# Set MLFLOW_WORKERS=1 for a single set of loops and an accurate Services page.
+MLFLOW_WORKERS="${MLFLOW_WORKERS:-}"
+if [[ -n "$MLFLOW_WORKERS" ]]; then
+    WORKER_ARGS=(--workers "$MLFLOW_WORKERS")
+    echo ">> starting mlflow server with --app-name caliber (--workers $MLFLOW_WORKERS)"
+else
+    WORKER_ARGS=()
+    echo ">> starting mlflow server with --app-name caliber"
+fi
 
 # Auto-build UI if stale or missing (mirrored from caliber/start.sh).
 UI_OUT="src/caliber/ui/index.html"
@@ -209,4 +223,5 @@ exec "$MLFLOW" server \
     --backend-store-uri "$MLFLOW_BACKEND_STORE_URI" \
     --default-artifact-root "$MLFLOW_ARTIFACT_ROOT" \
     --host "$MLFLOW_HOST" \
-    --port "$MLFLOW_PORT"
+    --port "$MLFLOW_PORT" \
+    "${WORKER_ARGS[@]}"

@@ -1005,8 +1005,15 @@ class WebhookDispatcher:
                 # recorded for one delivery that actually went through.
                 if tracked and not self._claim_in_flight_target(url, event):
                     return
-                self._delivered += 1
+                # Settle the durable accept row BEFORE advertising the delivery.
+                # ``delivered`` is operations-visible via ``dead_letters()``, so
+                # incrementing first published a state that had not happened yet:
+                # a reader could observe delivered==N while N accept rows still sat
+                # in the table looking unsettled — the exact ambiguity those rows
+                # exist to remove. ``_clear_accepted`` swallows its own errors and
+                # prunes in a ``finally``, so it cannot skip the increment.
                 self._clear_accepted(url, event)
+                self._delivered += 1
                 return
             except WebhookDeliveryError as exc:
                 last_reason = str(exc)

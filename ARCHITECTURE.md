@@ -442,7 +442,7 @@ flowchart TB
     classDef async fill:#fef3c7,stroke:#d97706,color:#78350f;
 ```
 
-Two consequences worth stating plainly:
+Three consequences worth stating plainly:
 
 - **Route handlers and workers both mutate the same tables.** Durable queue and
   run arbitration uses database status, claim, and lease state. Live SSE fan-out
@@ -451,6 +451,17 @@ Two consequences worth stating plainly:
 - **Sync SQLAlchemy throughout**, even though route callables are predominantly
   async. Selected blocking work is explicitly sent through `run_in_threadpool`
   or `asyncio.to_thread`; there is no async ORM.
+- **Every process runs its own full set of loops, and some limits are per-process.**
+  `mlflow server` defaults to four gunicorn workers, so all eight loops exist four
+  times over. That is safe where arbitration is durable — the claim-based consumers
+  compete for rows atomically, and the cron scheduler is idempotent by a
+  minute-bucketed key backed by a unique partial index, so duplicate fires are
+  impossible. It is *not* uniform: the failed-login throttle
+  ([routes/auth.py](caliber/src/caliber/routes/auth.py)) and the API `RateLimiter`
+  ([rate_limit.py](caliber/src/caliber/rate_limit.py)) are in-memory token/attempt
+  buckets guarded by a thread lock, so their budgets are per worker process and the
+  effective ceiling scales with the worker count. Size those limits accordingly, or
+  pin `--workers 1`.
 
 ---
 

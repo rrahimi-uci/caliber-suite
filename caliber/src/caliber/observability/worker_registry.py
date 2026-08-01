@@ -50,6 +50,25 @@ _STALE_INTERVAL_MULTIPLE = 3.0
 _STALE_FLOOR_SECONDS = 30.0
 
 
+def new_worker_id(prefix: str, instance: object) -> str:
+    """Build a worker id that is unique across *processes*, not just within one.
+
+    ``id(instance)`` alone is a CPython address: unique inside a process, but this
+    id is a durable primary key in a table shared by every process pointed at the
+    same database. Under a multi-worker server (``mlflow server`` defaults to four
+    gunicorn workers) each process constructs the same loops in the same order, so
+    the addresses collide, every process after the first fails its INSERT on
+    ``caliber_worker_heartbeats_pkey``, and N live workers report as one.
+
+    The pid disambiguates processes; ``id(instance)`` still disambiguates several
+    instances of one kind inside a single process (which the tests do construct).
+    Deliberately *not* a fresh uuid: a graceful stop deregisters its own row while
+    an unclean exit leaves it behind as the outage signal, and nothing prunes those,
+    so a per-start random id would accumulate a stale row on every crash-restart.
+    """
+    return f"{prefix}-{os.getpid()}-{id(instance):x}"
+
+
 def stale_after_seconds(interval_seconds: float, lease_seconds: float = 0.0) -> float:
     """How old a heartbeat may be before its worker is presumed dead.
 

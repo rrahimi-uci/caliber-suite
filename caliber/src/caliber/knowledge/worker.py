@@ -38,7 +38,9 @@ class KnowledgeBaseWorker:
         self._config = config
         self._interval_seconds = float(config.knowledge_build_worker_interval_seconds)
         self._lease_duration = timedelta(seconds=float(config.knowledge_build_lease_seconds))
-        self._worker_id = f"knowledge-build-worker-{id(self):x}"
+        from caliber.observability.worker_registry import new_worker_id  # noqa: PLC0415
+
+        self._worker_id = new_worker_id("knowledge-build-worker", self)
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
         self._service = KnowledgeBaseService(

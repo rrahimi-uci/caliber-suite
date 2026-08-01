@@ -440,7 +440,9 @@ class WorkflowRunWorker:
         self._event_bus = event_bus
         self._interval_seconds = float(config.workflow_run_worker_interval_seconds)
         self._lease_duration = timedelta(seconds=float(config.workflow_run_lease_seconds))
-        self._worker_id = f"workflow-run-worker-{id(self):x}"
+        from caliber.observability.worker_registry import new_worker_id  # noqa: PLC0415
+
+        self._worker_id = new_worker_id("workflow-run-worker", self)
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
         self._s3_client: Any = None  # lazily built for run-artifact persistence
