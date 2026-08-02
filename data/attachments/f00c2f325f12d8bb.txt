@@ -1,0 +1,7 @@
+INFO     caliber:server.py:394 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:236 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:639 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1090 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-023dc0ec "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-023dc0ec/approve "HTTP/1.1 200 OK"

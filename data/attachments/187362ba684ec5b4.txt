@@ -1,0 +1,1 @@
+{"t":"2026-08-02T14:08:20.243Z","severity":"WARNING","logger":"caliber.llm.openai_agents","message":"DSPyBootstrapFewShot disabled for job=RFN-D: DSPy stack is blocked"}
