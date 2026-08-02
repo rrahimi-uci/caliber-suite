@@ -209,6 +209,14 @@ packages = ["src/caliber"]
 # Python build. For `pip install -e .` against a fresh checkout the
 # directory may be absent; the static route degrades to an operator-
 # facing 503 with instructions to start the SPA dev server.
+#
+# ``artifacts`` is what actually does that. Without it hatchling honours
+# .gitignore and silently drops src/caliber/ui, so the wheel shipped without a
+# SPA while this comment said otherwise — the sdist target had the key and the
+# wheel target only had the prose. The packaging gate that checks for
+# caliber/ui/index.html had been skipped on every recent CI run, because it runs
+# only after every other job passes, so nothing contradicted the comment.
+artifacts = ["src/caliber/ui/**"]
 
 # ---------------------------------------------------------------------------
 # Ruff — single tool for lint + format (replaces black + isort + flake8).
