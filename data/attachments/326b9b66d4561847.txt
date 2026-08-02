@@ -1,2 +1,0 @@
-INFO     caliber.events.webhooks:webhooks.py:127 webhook dispatcher started (urls=1, events=*)
-INFO     caliber.events.webhooks:webhooks.py:143 webhook dispatcher stopped

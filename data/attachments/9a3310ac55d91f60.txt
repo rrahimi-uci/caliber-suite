@@ -1,0 +1,27 @@
+WARNING  caliber.events.webhooks:webhooks.py:894 could not read webhook accept records
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/events/webhooks.py", line 879, in recover_accepted_events
+    with self._session_factory() as session:
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_events_webhooks.py", line 756, in _broken_factory
+    raise RuntimeError("database is gone")
+RuntimeError: database is gone
+INFO     caliber.events.webhooks:webhooks.py:476 webhook dispatcher started (urls=1, events=*, pending_capacity=2048)
+WARNING  caliber.events.webhooks:webhooks.py:759 could not persist webhook accept record
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/events/webhooks.py", line 742, in _persist_accepted
+    with self._session_factory() as session:
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_events_webhooks.py", line 756, in _broken_factory
+    raise RuntimeError("database is gone")
+RuntimeError: database is gone
+ERROR    caliber.events.webhooks:webhooks.py:660 webhook accept persistence failed; refusing delivery for event='run.completed'
+WARNING  caliber.events.webhooks:webhooks.py:428 could not persist webhook dead letter
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/events/webhooks.py", line 397, in _persist_dead_letter
+    with self._session_factory() as session:
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_events_webhooks.py", line 756, in _broken_factory
+    raise RuntimeError("database is gone")
+RuntimeError: database is gone
+INFO     caliber.events.webhooks:webhooks.py:531 webhook dispatcher stopped

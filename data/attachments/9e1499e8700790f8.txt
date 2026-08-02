@@ -1,0 +1,3 @@
+INFO     caliber.events.webhooks:webhooks.py:458 webhook delivery disabled (no URLs configured); durable recovery remains active
+WARNING  caliber.events.webhooks:webhooks.py:940 recovered 1 webhook event(s) accepted by a previous process; recorded as 'shutdown' dead letters for replay
+INFO     caliber.events.webhooks:webhooks.py:531 webhook dispatcher stopped

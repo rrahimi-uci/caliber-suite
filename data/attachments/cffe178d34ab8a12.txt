@@ -1,1 +1,0 @@
-INFO     httpx2:_client.py:1027 HTTP Request: POST http://testserver/v1/tool-sandbox/run "HTTP/1.1 400 Bad Request"

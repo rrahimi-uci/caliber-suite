@@ -1,6 +1,0 @@
-{"t":"2026-07-03T23:39:13.305Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-03T23:39:13.318Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-03T23:39:13.319Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-03T23:39:13.339Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/eval-datasets/ED-1/examples?version=0 \"HTTP/1.1 400 Bad Request\""}
-{"t":"2026-07-03T23:39:13.343Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/eval-datasets/ED-1/examples?version=-1 \"HTTP/1.1 400 Bad Request\""}
-{"t":"2026-07-03T23:39:13.346Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/eval-datasets/ED-1/examples?version=-999 \"HTTP/1.1 400 Bad Request\""}

@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.optimizer_select:optimizer_select.py:160 DSPyBootstrapFewShot selected for job=RFN-D (agent opt-in + few-shot diagnosis)

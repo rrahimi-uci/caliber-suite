@@ -1,3 +1,0 @@
-INFO     caliber:server.py:257 CALIBER plugin starting (log_level=INFO, log_sink=s3)
-INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
-INFO     caliber:server.py:465 CALIBER assistant engine: anthropic (configured=auto)

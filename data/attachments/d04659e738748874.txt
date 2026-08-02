@@ -1,1 +1,0 @@
-{"t":"2026-07-03T23:46:04.324Z","severity":"WARNING","logger":"caliber.workflows.memory_tools","message":"memory_search failed for agent=wf-1: pgvector down"}

@@ -1,2 +1,0 @@
-{"t":"2026-07-03T23:34:08.863Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
-{"t":"2026-07-03T23:34:09.042Z","severity":"WARNING","logger":"caliber.knowledge.service","message":"knowledge-base build failed (version=KBV-F): No source objects were found in the selected files or folders."}

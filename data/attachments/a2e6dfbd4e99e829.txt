@@ -1,3 +1,0 @@
-INFO     caliber.events.webhooks:webhooks.py:127 webhook dispatcher started (urls=1, events=*)
-WARNING  caliber.events.webhooks:webhooks.py:218 webhook receiver returned non-2xx: url=https://broken.example/hook status=500
-INFO     caliber.events.webhooks:webhooks.py:143 webhook dispatcher stopped

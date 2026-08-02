@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.candidate:candidate.py:265 candidate complete: job=RFN-D optimizer=DSPyBootstrapFewShot cost_usd=0.0040

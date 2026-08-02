@@ -1,5 +1,0 @@
-{"t":"2026-07-03T23:40:04.578Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-07-03T23:40:04.591Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-07-03T23:40:04.593Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-07-03T23:40:04.606Z","severity":"WARNING","logger":"caliber.routes.gateway","message":"gateway-guardrail API unavailable: RuntimeError: gateway not enabled","trace_id":"75bd6ae81c0044ad"}
-{"t":"2026-07-03T23:40:04.608Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/gateway/guardrails \"HTTP/1.1 200 OK\""}
