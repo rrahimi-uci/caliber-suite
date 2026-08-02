@@ -6854,6 +6854,40 @@ def _select_input(inputs: dict[str, Any], run_input: str) -> str:
     return run_input
 
 
+def confine_to_file_root(path: Path, *, what: str) -> Path:
+    """Resolve ``path`` and refuse it if it escapes ``CALIBER_WORKFLOW_FILE_ROOT``.
+
+    Unmanaged host-filesystem nodes resolve a caller- or author-supplied string
+    and open it with the server's own authority. The promotion gate in
+    :mod:`caliber.workflows.promoter` keeps those nodes out of production
+    aliases, but that leaves a single layer: anything reachable before promotion
+    — a development alias, a preview that slipped the unisolated-node list, a
+    future caller — has no boundary at all.
+
+    Resolution happens **before** any existence check and covers symlinks, which
+    is the whole point: ``~/safe/link -> /etc`` passes a string comparison and
+    fails this one. An unset root means unconfined, preserving the shipped
+    behaviour for existing development workflows; the setting is the opt-in for
+    deployments whose authors are not as trusted as their operators.
+    """
+    from caliber.config import workflow_file_root  # noqa: PLC0415
+
+    root = workflow_file_root()
+    if root is None:
+        return path
+    try:
+        resolved = path.resolve()
+    except OSError as exc:  # pragma: no cover - platform-specific resolution failure
+        raise ValueError(f"{what} path cannot be resolved: {exc}") from exc
+    if resolved != root and root not in resolved.parents:
+        raise ValueError(
+            f"{what} path {str(resolved)!r} is outside the configured workflow file "
+            f"root {str(root)!r}. Bind a managed project file, or widen "
+            f"CALIBER_WORKFLOW_FILE_ROOT."
+        )
+    return resolved
+
+
 def _path_from_inputs(
     inputs: dict[str, Any],
     *,
@@ -6867,7 +6901,7 @@ def _path_from_inputs(
         raise ValueError(
             "file/folder input node requires a path from its path input or node configuration"
         )
-    return Path(raw).expanduser()
+    return confine_to_file_root(Path(raw).expanduser(), what="file/folder input")
 
 
 def _read_text_file_node(
@@ -7106,7 +7140,10 @@ def _write_output_folder_node(
     """Write the run's collected artifacts as files under a local folder."""
     if not path:
         raise ValueError("output_folder node requires a folder path")
-    base = Path(path)
+    # Confine before ``mkdir``: this node creates the directory tree it writes
+    # into, so an unconfined path is a create-anywhere primitive, and the
+    # artifact filenames come from upstream node output.
+    base = confine_to_file_root(Path(path).expanduser(), what="output_folder")
     base.mkdir(parents=True, exist_ok=True)
     artifacts = _gather_run_artifacts(port_values, direct_input)
     written: list[str] = []

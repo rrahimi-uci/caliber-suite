@@ -240,3 +240,44 @@ def test_flag_accepts_common_truthy_spellings() -> None:
 
     assert all(_flag(v) for v in ["true", "True", "TRUE", "1", "yes", "on", " on "])
     assert not any(_flag(v) for v in ["false", "0", "no", "off", "", "nope"])
+
+
+def test_every_config_field_is_reachable_from_the_environment() -> None:
+    """A field with no entry in the env table is a setting that silently does nothing.
+
+    This is not hypothetical: ``workflow_host_path_nodes_allowed_environment_classes``
+    shipped as the documented escape hatch for the host-path promotion gate while
+    having no mapping, so setting
+    ``CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES`` did nothing and
+    the field silently kept its default. The failure mode is the worst kind — the
+    operator believes they configured a security boundary and the config object
+    agrees with the default.
+
+    ``workflow_storage`` is excluded because it is a nested model populated from
+    its own table (``_WORKFLOW_STORAGE_ENV_TABLE``).
+    """
+    from caliber.config import _ENV_VAR_TABLE
+
+    mapped = {field_name for _, field_name, _ in _ENV_VAR_TABLE}
+    nested = {"workflow_storage"}
+    unmapped = sorted(set(CaliberConfig.model_fields) - mapped - nested)
+
+    assert not unmapped, (
+        "config fields with no CALIBER_* env mapping (they cannot be set by an "
+        f"operator and will silently keep their default): {unmapped}"
+    )
+
+
+def test_env_table_has_no_entry_for_a_field_that_does_not_exist() -> None:
+    """The mirror error: a mapping whose field was renamed or removed.
+
+    Pydantic ignores unknown kwargs here only because ``load`` builds them
+    explicitly, so a stale entry would raise at construction for anyone who set
+    that variable — a failure nobody sees until a specific deployment tries it.
+    """
+    from caliber.config import _ENV_VAR_TABLE
+
+    fields = set(CaliberConfig.model_fields)
+    stale = sorted({field_name for _, field_name, _ in _ENV_VAR_TABLE} - fields)
+
+    assert not stale, f"env table maps fields that no longer exist: {stale}"

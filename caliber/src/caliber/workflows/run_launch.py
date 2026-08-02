@@ -13,7 +13,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,10 +22,10 @@ from caliber.db.models import (
     CaliberProject,
     CaliberWorkflow,
     CaliberWorkflowRun,
-    CaliberWorkflowRunEvent,
     CaliberWorkflowVersion,
 )
 from caliber.ids import new_workflow_run_id
+from caliber.workflows.run_events import append_run_event
 from caliber.workflows.run_state import RUN_STATUS_QUEUED
 
 
@@ -57,25 +57,13 @@ def _append_run_event(
     event_type: str,
     payload: dict[str, Any] | None = None,
 ) -> None:
-    sequence = (
-        session.execute(
-            select(func.max(CaliberWorkflowRunEvent.sequence)).where(
-                CaliberWorkflowRunEvent.workflow_run_id == workflow_run_id
-            )
-        )
-        .scalars()
-        .first()
+    append_run_event(
+        session,
+        workflow_run_id=workflow_run_id,
+        project_id=project_id,
+        event_type=event_type,
+        payload=payload,
     )
-    session.add(
-        CaliberWorkflowRunEvent(
-            workflow_run_id=workflow_run_id,
-            project_id=project_id,
-            sequence=(sequence or 0) + 1,
-            event_type=event_type,
-            payload=payload,
-        )
-    )
-    session.flush()
 
 
 def _clone_manifest(manifest: dict[str, Any]) -> dict[str, Any]:

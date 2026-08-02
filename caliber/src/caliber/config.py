@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -1228,6 +1229,20 @@ class CaliberConfig(BaseModel):
             "for a deployment whose authors are as trusted as its operators."
         ),
     )
+    workflow_file_root: str = Field(
+        default="",
+        description=(
+            "Absolute directory that unmanaged host-filesystem nodes (file_input "
+            "without a managed file_ref, folder_input, output_folder) may read and "
+            "write within. Paths are resolved — symlinks included — and refused if "
+            "they land outside. Empty means unconfined, which is the shipped default "
+            "so existing development workflows reading /etc or a home directory keep "
+            "working; the promotion gate "
+            "(CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES) is what "
+            "keeps those workflows out of production. Set this in any deployment "
+            "where workflow authors are not as trusted as the server's own user."
+        ),
+    )
     deployment_environment_classes: str = Field(
         default="",
         description=(
@@ -1854,6 +1869,12 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ),
     ("CALIBER_ASSISTANT_TOOL_SOURCE_MAX_BYTES", "assistant_tool_source_max_bytes", int),
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
+    ("CALIBER_WORKFLOW_FILE_ROOT", "workflow_file_root", str),
+    (
+        "CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES",
+        "workflow_host_path_nodes_allowed_environment_classes",
+        str,
+    ),
     (
         "CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS",
         "provider_request_timeout_seconds",
@@ -2061,3 +2082,21 @@ def provider_request_timeout(environ: Mapping[str, str] | None = None) -> float:
     except ValueError:
         return _PROVIDER_REQUEST_TIMEOUT_DEFAULT
     return value if value > 0 else _PROVIDER_REQUEST_TIMEOUT_DEFAULT
+
+
+def workflow_file_root(environ: Mapping[str, str] | None = None) -> Path | None:
+    """Resolved root that unmanaged host-filesystem nodes may not escape.
+
+    ``None`` means unconfined, which is the shipped default. Read from the
+    environment for the same reason as :func:`provider_request_timeout`: the
+    node executors resolve paths deep in a call path that carries no
+    ``CaliberConfig``, and both read the variable the config field maps.
+
+    The root is resolved once here so callers compare two resolved paths — a
+    root given as a symlink would otherwise never match its own contents.
+    """
+    source = os.environ if environ is None else environ
+    raw = str(source.get("CALIBER_WORKFLOW_FILE_ROOT", "")).strip()
+    if not raw:
+        return None
+    return Path(raw).expanduser().resolve()

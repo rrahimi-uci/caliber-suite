@@ -23,7 +23,6 @@ from caliber.db.models import (
     CaliberWorkflow,
     CaliberWorkflowRun,
     CaliberWorkflowRunCheckpoint,
-    CaliberWorkflowRunEvent,
     CaliberWorkflowVersion,
 )
 from caliber.events.bus import EventBus
@@ -42,6 +41,7 @@ from caliber.workflows.file_tools import (
 from caliber.workflows.manifest import WorkflowManifestError
 from caliber.workflows.memory_tools import bind_run_memory_tools
 from caliber.workflows.promoter import build_executor, build_plan, workflow_run_summary
+from caliber.workflows.run_events import append_run_event
 from caliber.workflows.run_state import (
     RUN_STATUS_CANCELLED,
     RUN_STATUS_COMPLETED,
@@ -544,24 +544,13 @@ class WorkflowRunWorker:
         payload: dict[str, Any] | None = None,
         node_id: str | None = None,
     ) -> None:
-        current = (
-            session.execute(
-                select(func.max(CaliberWorkflowRunEvent.sequence)).where(
-                    CaliberWorkflowRunEvent.workflow_run_id == workflow_run_id
-                )
-            )
-            .scalars()
-            .first()
-        )
-        session.add(
-            CaliberWorkflowRunEvent(
-                workflow_run_id=workflow_run_id,
-                project_id=project_id,
-                sequence=(current or 0) + 1,
-                event_type=event_type,
-                node_id=node_id,
-                payload=payload,
-            )
+        append_run_event(
+            session,
+            workflow_run_id=workflow_run_id,
+            project_id=project_id,
+            event_type=event_type,
+            payload=payload,
+            node_id=node_id,
         )
 
     def _recover_expired_leases(self) -> None:
