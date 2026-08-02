@@ -598,7 +598,7 @@ touching the substrate.
 | An **architect** evaluating fit | §5 topologies, §6 execution, §7 state ownership, §8 trust — then [docs/01-caliber/architecture.md](docs/01-caliber/architecture.md) |
 | A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](caliber/CONTRIBUTING.md) and [server.py](caliber/src/caliber/server.py) |
 | An **operator** bringing it up | The [walkthrough runbook](docs-site/walkthrough.html) and [deploy/README.md](deploy/README.md) |
-| Anyone asking **"what is actually built?"** | [product-complete-report.md](product-complete-report.md) — current evidence, remaining defects, and the production-boundary limits |
+| Anyone asking **"what is actually built?"** | [product-completness-review-report.md](product-completness-review-report.md) — current implementation status, and [product-completness-developement-report.md](product-completness-developement-report.md) for what has been validated and closed against it |
 
 Per-area design specs live under [docs/](docs/), one `architecture.md` per numbered
 area, rendered at [docs-site/](docs-site/). This document is the layered map above
