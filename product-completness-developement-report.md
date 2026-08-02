@@ -15,10 +15,14 @@ All 22 findings in the review were re-derived from source rather than accepted. 
 confirmed, 6 partly confirmed, 1 refuted**, and several were materially different from
 their description — including the report's own headline claim.
 
-Ten fixes landed, each with a regression test; seven of those tests were proven red
-against the pre-fix code rather than merely asserted. The remaining findings are real but
-genuinely XL or blocked on a product decision, and are triaged in §7 with what each would
-actually take.
+Fixes landed across three waves, each with a regression test; twelve of those tests were
+proven red against the pre-fix code rather than merely asserted. The remaining findings
+are real but genuinely XL or blocked on a product decision, and are triaged in §7 with
+what each would actually take.
+
+The third wave was not in the review at all — it is what landing the work exposed in the
+verification machinery, including a packaging defect that had been shipping wheels without
+a bundled SPA behind a correct check that had never once executed (§3c).
 
 Three corrections to the review are worth stating up front, because they change decisions:
 
@@ -293,6 +297,88 @@ as a *backstop* with grace, after it pre-empted more specific per-node timeout
 messages. F-11 converted the heaviest handler and added a ratchet over the
 remaining 224 rather than a blind sweep.
 
+## 3c. Third wave — the toolchain, and what CI found
+
+Landing the work exposed a set of defects in the verification machinery itself.
+These were not in the review's 22 findings, and one of them is the most
+consequential single thing in this report.
+
+### The development interpreter was outside the supported range
+
+Every "green" result reported during waves 1 and 2 came from Python **3.14**,
+while the package declares `>=3.10,<3.13` and CI runs 3.11. Root cause was
+`Makefile`'s venv rule invoking bare `python3`, which takes whatever the machine
+ships — so this was never one workstation's mistake.
+
+`CALIBER_PYTHON` now prefers 3.12 and `scripts/check_python_version.py` refuses
+anything outside the range *before* the venv is created. pip's `requires-python`
+does eventually refuse the editable install, but only after building a venv and
+resolving dependencies.
+
+The dev venv was rebuilt on 3.12 and the suite re-verified there. Both
+interpreters produce 5,868 passed, so the risk did not materialize — but it was
+unmeasured until the last moment before publishing.
+
+### Two blockers the rebuild uncovered
+
+**numpy broke `mypy` on any clean install.** numpy is an unpinned transitive
+dependency whose bundled stubs moved to PEP 695 `type` statements in 2.5. mypy
+parses third-party stubs with the target grammar, so `python_version = "3.10"`
+failed with a syntax error *inside numpy*. Per-module overrides cannot suppress
+it — `follow_imports` and `ignore_errors` both apply after parsing; both were
+tried. Resolved by targeting mypy at 3.12, with the tradeoff recorded next to the
+setting: static 3.11+ detection is lost, but the 3.10 CI leg installs and imports
+the package, and an audit of `src/` found no 3.11+ constructs at all.
+
+**`make install-extended` did not reproduce CI.** `tests/test_memory_service.py`
+imports mem0 at module scope and CI installs the `memory` extra — its own env
+comment says so — but the Makefile did not. A contributor following the
+documented profile got a red suite for a missing dependency rather than a real
+failure.
+
+### Three CI failures after the first push
+
+| Failure | Cause | Whose |
+| --- | --- | --- |
+| `ruff format --check` | Ran `ruff check` throughout and read it as covering formatting; they are separate commands and CI runs both | Mine |
+| Docs generation gate | Committing the report deletion left dangling links in `ARCHITECTURE.md` and `README.md`; the generator classifies a link by whether its target exists, so the deletion silently changed generated output | Mine |
+| `bucket-select.test.tsx` | Flake — passed on the next run with no frontend change | Neither |
+
+### The wheel has been shipping without a SPA
+
+`[tool.hatch.build.targets.wheel]` carried a comment stating it includes the
+built SPA and **no `artifacts` key to do it**. The sdist target had the key; the
+wheel target had only the prose. Hatchling honours `.gitignore` and
+`src/caliber/ui` is gitignored, so the bundle was silently dropped.
+
+The check that asserts `caliber/ui/index.html` is present in the wheel is
+correct and has existed all along. It runs last, gated behind six other jobs,
+and had been **skipped on all twelve recent CI runs**. It executed for the first
+time only because this branch made every prerequisite pass. A correct gate
+behind a gate that never opened.
+
+This is the third instance of one pattern in this work, and the pattern is the
+review's own subject:
+
+1. CSRF **logged a warning** where it should have refused to start (F-08).
+2. A config escape hatch was **documented with no env-var mapping**, so setting
+   it did nothing (introduced by this work, in wave 1).
+3. Packaging **described a behaviour it did not implement**.
+
+Each is a control whose description outran its implementation, and in each case
+the surrounding text asserted the control was working.
+
+### Verification after the third wave
+
+**GitHub CI is fully green — all 11 jobs**, including the wheel build, for the
+first time in recent history. Verified on the remote, not inferred from a local
+run.
+
+Separately, **GitHub Pages fails and has done since before this work**
+(`635f001f5`, `c74e2eb2e`, and every run since). It is
+`Create Pages site failed: Resource not accessible by integration` — Pages is
+not enabled in repository settings. Not a code defect; requires an owner action.
+
 ## 4. Architectural and design changes
 
 Three additions, all following patterns already in the tree:
@@ -433,6 +519,14 @@ The review's central judgement stands: **feature-rich Alpha, credible for a cont
 technical pilot, not ready for supported production or untrusted authoring.** Nothing in this
 work changes that verdict, and it was not intended to — six of the eight blocking items are
 XL by construction.
+
+One finding outranks the rest and did not come from the review. The packaging gate that
+asserts the wheel contains a SPA is correct, has existed all along, and had been **skipped
+on all twelve recent CI runs** because it sits behind six other jobs. It executed for the
+first time only when this branch made every prerequisite pass — and immediately failed. A
+gate that never runs is indistinguishable from a gate that passes, and the release
+checklist counted it as coverage. Any assessment of production readiness should treat
+"which gates have actually executed recently?" as a first-order question.
 
 What did change is the quality of the evidence. The release gate is closed and a local run
 now matches CI: **5,822 passed, 0 failed**, where the same checkout previously produced
