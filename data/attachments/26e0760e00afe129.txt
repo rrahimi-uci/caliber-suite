@@ -1,0 +1,97 @@
+{"t":"2026-08-02T09:48:19.301Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-02T09:48:19.328Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-02T09:48:19.331Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-02T09:48:19.333Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-02T09:48:19.351Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"refinement worker started (interval=5.0s)"}
+{"t":"2026-08-02T09:48:19.352Z","severity":"INFO","logger":"caliber.orchestrator.workflow_run_worker","message":"workflow-run worker started (interval=2.0s lease=60.0s worker=workflow-run-worker-2197-7f0bf04438d0)"}
+{"t":"2026-08-02T09:48:19.354Z","severity":"INFO","logger":"caliber.assistant.plan_worker","message":"aria-plan worker started (interval=10.0s)"}
+{"t":"2026-08-02T09:48:19.355Z","severity":"INFO","logger":"caliber.knowledge.worker","message":"knowledge-base worker started (interval=2.0s lease=120.0s worker=knowledge-build-worker-2197-7f0bf0440c50)"}
+{"t":"2026-08-02T09:48:19.356Z","severity":"INFO","logger":"caliber.orchestrator.scheduler","message":"workflow scheduler started (interval=60.0s)"}
+{"t":"2026-08-02T09:48:19.357Z","severity":"INFO","logger":"caliber.orchestrator.janitor","message":"janitor started (interval=60.0s, stale_threshold=300s)"}
+{"t":"2026-08-02T09:48:19.364Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook delivery disabled (no URLs configured); durable recovery remains active"}
+{"t":"2026-08-02T09:48:19.451Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/agents \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T09:48:19.468Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T09:48:19.477Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T09:48:19.485Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T09:48:19.507Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T09:48:19.524Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2a34980a/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T09:48:19.547Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-0abfb003/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:24.297Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2a34980a/deployments/dev/promote \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:24.331Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2a34980a/calibration/runs \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T09:48:24.337Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:24.412Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"job=RFN-87b70447 skipping mlflow run binding: experiment 'exp-support-calibration-e2e' is not resolvable","trace_id":"349530c047cec5ef"}
+{"t":"2026-08-02T09:48:24.424Z","severity":"INFO","logger":"caliber.orchestrator.workflow_stages","message":"workflow diagnosis complete: job=RFN-87b70447 components=['prompt']","trace_id":"349530c047cec5ef"}
+{"t":"2026-08-02T09:48:24.644Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:24.951Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:25.258Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:25.565Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:25.872Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:26.183Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:26.496Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:26.807Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:27.130Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:27.443Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:27.751Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:28.062Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:28.374Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:28.687Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:29.002Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:29.313Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:29.622Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:29.934Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:30.252Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:30.565Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:30.877Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:31.192Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:31.506Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:31.816Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:32.128Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:32.450Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:32.763Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:33.071Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:33.382Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:33.693Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:34.004Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:34.316Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:34.629Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:34.938Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:35.249Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:35.560Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:35.872Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:36.182Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:36.496Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:36.803Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:37.116Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:37.429Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:37.741Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:38.054Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:38.365Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:38.673Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:38.987Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:39.297Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:39.607Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:39.917Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:40.229Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:40.552Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:40.863Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:41.175Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:41.487Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:41.799Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:42.111Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:42.421Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:42.733Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:43.045Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:43.178Z","severity":"INFO","logger":"caliber.orchestrator.workflow_stages","message":"workflow calibration candidate complete: job=RFN-87b70447 patch=WP-68720898 winner=cal-0","trace_id":"349530c047cec5ef"}
+{"t":"2026-08-02T09:48:43.192Z","severity":"INFO","logger":"caliber.orchestrator.workflow_stages","message":"workflow calibration eval passed: job=RFN-87b70447 status=candidate_ready","trace_id":"349530c047cec5ef"}
+{"t":"2026-08-02T09:48:43.355Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:43.363Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:43.373Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2a34980a/patches \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:43.415Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/jobs/RFN-87b70447/apply \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:43.424Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2a34980a/deployments \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-02T09:48:43.432Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}
+{"t":"2026-08-02T09:48:43.434Z","severity":"INFO","logger":"caliber.orchestrator.scheduler","message":"workflow scheduler stopped"}
+{"t":"2026-08-02T09:48:43.435Z","severity":"INFO","logger":"caliber.knowledge.worker","message":"knowledge-base worker stopped"}
+{"t":"2026-08-02T09:48:43.439Z","severity":"INFO","logger":"caliber.assistant.plan_worker","message":"aria-plan worker stopped"}
+{"t":"2026-08-02T09:48:43.444Z","severity":"INFO","logger":"caliber.orchestrator.workflow_run_worker","message":"workflow-run worker stopped"}
+{"t":"2026-08-02T09:48:43.445Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"refinement worker stopped"}
+{"t":"2026-08-02T09:48:43.447Z","severity":"INFO","logger":"caliber.orchestrator.janitor","message":"janitor stopped"}
