@@ -127,6 +127,26 @@ def isolation_required_classes(config: CaliberConfig | None = None) -> frozenset
     return frozenset(selected or {PRODUCTION})
 
 
+def host_path_nodes_allowed_classes(config: CaliberConfig | None = None) -> frozenset[str]:
+    """Environment classes whose deployments may use unmanaged host-path nodes.
+
+    Expressed as an allowlist rather than a refusal list because the safe set is
+    the small one: these nodes read and write arbitrary paths as the server user,
+    so a class that is not named here is refused. An empty or unrecognised
+    configuration falls back to development-only rather than to permitting
+    everything, so a typo cannot silently open production.
+    """
+    raw = getattr(config, "workflow_host_path_nodes_allowed_environment_classes", "") or ""
+    values = {item.strip().casefold() for item in str(raw).split(",") if item.strip()}
+    selected = values & set(ENVIRONMENT_CLASSES)
+    return frozenset(selected or {DEVELOPMENT})
+
+
+def allows_host_path_nodes(alias: str, config: CaliberConfig | None = None) -> bool:
+    """Whether promoting to ``alias`` may carry unmanaged host-filesystem nodes."""
+    return environment_class(alias, config) in host_path_nodes_allowed_classes(config)
+
+
 def requires_external_isolation(alias: str, config: CaliberConfig | None = None) -> bool:
     """Whether promoting to ``alias`` must have an external isolation boundary.
 
@@ -148,8 +168,10 @@ __all__ = [
     "ENVIRONMENT_CLASSES",
     "PRODUCTION",
     "STAGING",
+    "allows_host_path_nodes",
     "default_environment_class",
     "environment_class",
+    "host_path_nodes_allowed_classes",
     "isolation_required_classes",
     "normalize_alias",
     "requires_external_isolation",

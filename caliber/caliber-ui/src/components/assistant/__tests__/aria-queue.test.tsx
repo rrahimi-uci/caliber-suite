@@ -181,4 +181,55 @@ describe("CaliberAssistantPanel — queue & steer", () => {
     await openPanel();
     await waitFor(() => expect(sentContent).toBe("do this next"));
   });
+
+  it("keeps a queued message when the send fails instead of deleting it", async () => {
+    // Regression: the dispatcher issued a hard DELETE of the queue row *before*
+    // sending, swallowed the DELETE's failure, and fired the send from a
+    // `.finally()` so it ran on both branches. A send that then failed left the
+    // user's typed message deleted server-side, absent from the panel, and with
+    // no error shown. The row must survive a failed send.
+    window.localStorage.setItem(ACTIVE_SESSION_KEY, "ASST-q2");
+    let deleted = false;
+    let sendAttempts = 0;
+    server.use(
+      http.get(`${API_BASE}/assistant/sessions`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              session_id: "ASST-q2",
+              title: "Queued session",
+              owner: "@test",
+              status: "active",
+              goal: "",
+              metadata_: {},
+              active_draft_id: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/sessions/:sessionId/messages`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      // The queue keeps reporting the row; nothing has legitimately removed it.
+      http.get(`${API_BASE}/assistant/sessions/:sessionId/queue`, () =>
+        HttpResponse.json(envelope(deleted ? [] : [queuedItem()])),
+      ),
+      http.delete(`${API_BASE}/assistant/queue/:queueId`, () => {
+        deleted = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post(`${API_BASE}/assistant/sessions/:sessionId/messages`, () => {
+        sendAttempts += 1;
+        return HttpResponse.json({ error: "upstream unavailable" }, { status: 500 });
+      }),
+    );
+
+    await openPanel();
+    await waitFor(() => expect(sendAttempts).toBeGreaterThan(0));
+
+    // The send failed, so the queue row must not have been destroyed.
+    expect(deleted).toBe(false);
+  });
 });

@@ -25,6 +25,7 @@ from caliber.assistant.models import (
     DraftDelta,
 )
 from caliber.assistant.prompt_builder import build_assistant_system_prompt
+from caliber.config import provider_request_timeout
 
 if TYPE_CHECKING:
     from caliber.assistant.tools import AssistantToolDispatcher
@@ -72,7 +73,7 @@ class AnthropicAssistantEngine:
                 error="anthropic package not installed",
             )
 
-        client = Anthropic(api_key=self._api_key)
+        client = Anthropic(api_key=self._api_key, timeout=provider_request_timeout())
         system_prompt = self._build_system_prompt(request)
         messages: list[dict[str, Any]] = []
         for msg in request.history:

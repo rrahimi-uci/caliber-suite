@@ -5269,3 +5269,46 @@ def test_run_external_app_entrypoint_enforces_timeout() -> None:
             )
     finally:
         sys.modules.pop(module_name, None)
+
+
+def test_resilient_callable_timeout_returns_control_without_joining_the_orphan() -> None:
+    """The timeout must bound the *wall clock*, not just the error message.
+
+    The pool was entered with ``with``, whose ``__exit__`` calls
+    ``shutdown(wait=True)`` and joins the thread the timeout just abandoned. So a
+    tool declaring a 0.2s timeout and sleeping 3s raised "timed out after 0.2s"
+    at t=3.0 — the deadline appeared in the exception and nowhere in reality,
+    which is exactly what makes a cancellation or SLO claim untrue.
+
+    The existing timeout test above uses a 10ms body, too short to tell a
+    blocking shutdown from a non-blocking one; this one is deliberately far
+    apart so the assertion cannot pass by accident.
+    """
+    released = threading.Event()
+    binding = IRToolBinding(
+        local_name="slow",
+        registry_ref="tool.slow.v1",
+        version_constraint=">=1",
+        requires_approval=False,
+        side_effect_level="read",
+        allow_in_preview=True,
+        module_path="<in-memory>",
+        callable_name="slow",
+        timeout_seconds=0.2,
+    )
+
+    def slow() -> str:
+        # Long enough that joining it would be unmistakable in the timing below.
+        time.sleep(3.0)
+        released.set()
+        return "late"
+
+    started = time.monotonic()
+    with pytest.raises(ToolExecutionError, match="timed out"):
+        _resilient_callable(binding, slow)()
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0, f"timeout joined the abandoned worker: returned after {elapsed:.2f}s"
+    # The orphan is still running — that is the honest state. Python cannot kill
+    # it; the contract is only that the workflow stops waiting on it.
+    assert not released.is_set()

@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from caliber.config import provider_request_timeout
 from caliber.llm.models import is_reasoning_model
 from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
@@ -670,7 +671,14 @@ class OpenAIChatWorkflowExecutor:
             # ``base_url`` routes calls through an OpenAI-compatible endpoint (e.g.
             # the MLflow AI Gateway at .../gateway/mlflow/v1) instead of api.openai.com.
             # ``None`` (the default) preserves the direct-OpenAI behaviour exactly.
-            self._client = OpenAI(api_key=api_key, base_url=base_url or None)
+            self._client = OpenAI(
+                api_key=api_key,
+                base_url=base_url or None,
+                # Without this the SDK default governs (openai ships a 600s read
+                # timeout with 2 automatic retries), so one call could hold a
+                # worker far past any CALIBER-side deadline.
+                timeout=provider_request_timeout(),
+            )
         self._default_model = default_model
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
@@ -846,7 +854,14 @@ class OpenAIResponsesWorkflowExecutor:
                     "openai is not installed. Install with "
                     "`pip install caliber-suite[llm]` to enable real workflow LLM runs."
                 ) from exc
-            self._client = OpenAI(api_key=api_key, base_url=base_url or None)
+            self._client = OpenAI(
+                api_key=api_key,
+                base_url=base_url or None,
+                # Without this the SDK default governs (openai ships a 600s read
+                # timeout with 2 automatic retries), so one call could hold a
+                # worker far past any CALIBER-side deadline.
+                timeout=provider_request_timeout(),
+            )
         self._default_model = default_model
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
@@ -1357,7 +1372,7 @@ class AnthropicChatWorkflowExecutor:
                 "anthropic is not installed. Install the Anthropic SDK to enable "
                 "`CALIBER_LLM_PROVIDER=anthropic` workflow runs."
             ) from exc
-        self._client = Anthropic(api_key=self._api_key)
+        self._client = Anthropic(api_key=self._api_key, timeout=provider_request_timeout())
         return self._client
 
     def run_agent(  # noqa: PLR0912, PLR0915 - bounded Anthropic tool loop
@@ -2328,6 +2343,15 @@ def _resilient_callable(
     ``timeout_seconds`` is enforced by running the call in a worker thread and
     abandoning it if it overruns (the orphaned thread can't be force-killed in
     Python, but the workflow no longer blocks on it). Both are no-ops when unset.
+
+    That last claim used to be false. The pool was entered with ``with``, whose
+    ``__exit__`` calls ``shutdown(wait=True)`` and therefore *joins* the very
+    thread the timeout just abandoned — so a tool declaring a 0.2s timeout and
+    sleeping 3s returned control at 3s, not 0.2s. The deadline was observable in
+    the raised error and nowhere in the wall clock, which is the failure mode
+    that makes cancellation and SLO claims untrue. The pool is now shut down
+    explicitly without waiting when the call overran, matching
+    ``_run_external_app_entrypoint`` below.
     """
     timeout = binding.timeout_seconds
     attempts = max(1, binding.max_retries + 1)
@@ -2338,8 +2362,18 @@ def _resilient_callable(
             try:
                 if timeout is None:
                     return fn(*args, **kwargs)
-                with ThreadPoolExecutor(max_workers=1) as pool:
+                pool = ThreadPoolExecutor(max_workers=1)
+                timed_out = False
+                try:
                     return pool.submit(fn, *args, **kwargs).result(timeout=timeout)
+                except FuturesTimeout:
+                    timed_out = True
+                    raise
+                finally:
+                    # ``wait=False`` on the timeout path is the whole point: the
+                    # abandoned thread cannot be killed, but the workflow must not
+                    # block on it. On the success path we still join normally.
+                    pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
             except FuturesTimeout:
                 last_exc = ToolExecutionError(
                     f"tool {binding.local_name!r} timed out after {timeout}s"
@@ -6673,23 +6707,35 @@ def _run_node_with_policy(
 ) -> tuple[int, NodeStep]:
     attempts = max(1, node.execution_policy.max_retries + 1)
     last_exc: Exception | None = None
+    ledger = plan.effect_ledger
     for attempt in range(attempts):
         started = time.monotonic()
+        # Reset effect-occurrence numbering for each attempt. Without this a retry
+        # re-derives occurrence 1 for an effect the previous attempt claimed as 0,
+        # producing a different idempotency key, so the ledger judges an effect it
+        # already recorded to be fresh and the node re-sends it. The module
+        # docstring already specifies "it resets per attempt" — this is where.
+        scope = (
+            ledger.attempt_scope()
+            if ledger is not None and hasattr(ledger, "attempt_scope")
+            else contextlib.nullcontext()
+        )
         try:
-            tokens, step = _run_node_traced(
-                node,
-                ir,
-                plan,
-                executor=executor,
-                preview=preview,
-                inputs=inputs,
-                run_input=run_input,
-                port_values=port_values,
-                guardrail_results=guardrail_results,
-                extra_tools=extra_tools,
-                runtime_approvals_enabled=runtime_approvals_enabled,
-                approved_human_approval_nodes=approved_human_approval_nodes,
-            )
+            with scope:
+                tokens, step = _run_node_traced(
+                    node,
+                    ir,
+                    plan,
+                    executor=executor,
+                    preview=preview,
+                    inputs=inputs,
+                    run_input=run_input,
+                    port_values=port_values,
+                    guardrail_results=guardrail_results,
+                    extra_tools=extra_tools,
+                    runtime_approvals_enabled=runtime_approvals_enabled,
+                    approved_human_approval_nodes=approved_human_approval_nodes,
+                )
             elapsed = time.monotonic() - started
             timeout = node.execution_policy.timeout_seconds
             if timeout is not None and elapsed > timeout:

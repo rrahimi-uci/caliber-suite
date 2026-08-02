@@ -51,7 +51,11 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
-from caliber.deployment_environments import environment_class
+from caliber.deployment_environments import (
+    allows_host_path_nodes,
+    environment_class,
+    host_path_nodes_allowed_classes,
+)
 from caliber.egress import EgressPolicy
 from caliber.eval.scorecard import expected_text, run_scorecard
 from caliber.ids import (
@@ -2012,6 +2016,7 @@ def require_alias_target_ready(
         require_resolvable_subworkflows=True,
     )
     blockers.extend(_managed_file_blockers(session, version, config=config))
+    blockers.extend(_host_path_blockers(version, alias=alias, config=config))
     if blockers:
         raise AliasPreflightError(
             f"deployment preflight failed for alias {alias!r}: " + "; ".join(blockers),
@@ -2068,6 +2073,63 @@ def _managed_file_blockers(
         # the validation errors would let a missing object escape as a 500.
         return [f"managed file preflight failed: {exc}"]
     return []
+
+
+def _host_path_blockers(
+    version: CaliberWorkflowVersion,
+    *,
+    alias: str,
+    config: CaliberConfig | None,
+) -> list[str]:
+    """Refuse a rotation that would put unmanaged host-filesystem nodes live.
+
+    A ``file_input`` without a managed ``file_ref``, a ``folder_input``, or an
+    ``output_folder`` reads or writes an arbitrary path as the server user, with
+    no root confinement. Authoring, publishing, and promoting are all
+    ``operator`` scope, so without this gate a plain operator can put a workflow
+    that reads ``/etc/passwd`` — or writes a file of its own choosing into a
+    directory of its own choosing — behind a production alias.
+
+    ``docs/06-workflows/architecture.md`` already calls these "an explicitly
+    advanced, operator-controlled development option". This makes the word
+    *development* enforced rather than aspirational.
+
+    The predicate deliberately matches the one Preview already applies
+    (``runtime._PREVIEW_UNISOLATED_NODE_TYPES``), including its exemption for a
+    ``file_input`` bound to a managed object: preview refusing a node that
+    promotion accepts was the inconsistency worth closing.
+    """
+    if allows_host_path_nodes(alias, config):
+        return []
+    manifest_dict = version.manifest or {}
+    try:
+        manifest = parse_manifest(manifest_dict)
+    except Exception as exc:
+        return [f"version {version.version_id!r} manifest is not parseable: {exc}"]
+
+    offenders: list[str] = []
+    for node_id, node in manifest.nodes.items():
+        kind = getattr(node, "type", None)
+        if kind == "file_input":
+            # A pinned managed object is content-verified at rotation by
+            # ``_managed_file_blockers``; only the raw-path form is unmanaged.
+            if getattr(node, "file_ref", None) is None:
+                offenders.append(f"{node_id} (file_input without a managed file)")
+        elif kind == "folder_input":
+            offenders.append(f"{node_id} (folder_input)")
+        elif kind == "output_folder":
+            offenders.append(f"{node_id} (output_folder)")
+    if not offenders:
+        return []
+
+    klass = environment_class(alias, config)
+    allowed = ", ".join(sorted(host_path_nodes_allowed_classes(config)))
+    return [
+        f"alias {alias!r} is {klass}-class and cannot deploy unmanaged host-filesystem "
+        f"nodes: {', '.join(sorted(offenders))}. Bind a managed project file, or widen "
+        f"CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES "
+        f"(currently: {allowed})."
+    ]
 
 
 def _rotate_alias(

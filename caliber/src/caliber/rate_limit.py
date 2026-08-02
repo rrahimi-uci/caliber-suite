@@ -291,13 +291,46 @@ class RateLimitMiddleware:
             await self._app(scope, receive, send)  # type: ignore[operator]
             return
 
-        user = _read_user_header(scope, fallback_user=self._dev_user)
+        user = self._identity(scope)
         admitted, retry_after = self._limiter.try_acquire(user)
         if not admitted:
             await _send_429(send, user=user, retry_after_seconds=retry_after)
             return
 
         await self._app(scope, receive, send)  # type: ignore[operator]
+
+    def _identity(self, scope: dict[str, object]) -> str:
+        """Resolve the caller the **same way the routes do**, sessions included.
+
+        This used to read ``X-CALIBER-User`` directly. In the shipped ``session``
+        mode the routes *ignore* that header and resolve a server-side session, so
+        the limiter was keying buckets on a value the authenticator does not
+        trust: a caller could send a different ``X-CALIBER-User`` on every request
+        and get a fresh budget each time, while still executing with their real
+        signed-in authority. That does not weaken the limit, it removes it.
+
+        :class:`caliber.csrf.CSRFMiddleware` hit the identical trap and fixed it
+        the same way; delegating keeps all three (routes, CSRF, limiter) aligned
+        by construction rather than by comment. ``current_user`` caches on the
+        request scope, so the handler's later call reuses this lookup.
+
+        Unauthenticated callers still collapse onto the shared ``anonymous``
+        bucket, which is the existing deliberate choice: it keeps one
+        unauthenticated flood from consuming an authenticated user's budget.
+
+        Falls back to the header reader when the app is not wired far enough for
+        identity resolution (a bare middleware unit test), because rate limiting
+        must never be the reason a request 500s.
+        """
+        try:
+            from starlette.requests import Request  # noqa: PLC0415
+
+            from caliber.auth import current_user  # noqa: PLC0415
+
+            resolved = str(current_user(Request(scope)) or "").strip()
+            return resolved or _ANONYMOUS_KEY
+        except Exception:
+            return _read_user_header(scope, fallback_user=self._dev_user)
 
 
 def _read_user_header(

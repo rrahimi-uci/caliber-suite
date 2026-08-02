@@ -395,3 +395,51 @@ def test_csrf_disabled_passes_writes_through(csrf_disabled_client: TestClient) -
         },
     )
     assert response.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed startup
+# ---------------------------------------------------------------------------
+
+
+def test_enabling_csrf_without_a_secret_refuses_to_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicitly requested security control must not silently turn itself off.
+
+    ``build_token_manager`` correctly declines to sign with an empty key and
+    returns the disabled sentinel. Before this gate the process then started
+    anyway: ``CSRFMiddleware`` short-circuits on a disabled manager, so every
+    state-changing request passed untokened while the config said protection was
+    on. The only signal was a log line, which is not a control.
+    """
+    db_path = tmp_path / "caliber-csrf-failclosed.db"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", f"sqlite+pysqlite:///{db_path}")
+    monkeypatch.setenv("CALIBER_CSRF_ENABLED", "true")
+    monkeypatch.setenv("CALIBER_CSRF_SIGNING_SECRET_ENV", "CSRF_MISSING_KEY")
+    monkeypatch.delenv("CSRF_MISSING_KEY", raising=False)
+
+    config = CaliberConfig.load()
+    with pytest.raises(RuntimeError) as excinfo:
+        create_app(config=config)
+
+    message = str(excinfo.value)
+    # Names the source the operator has to set, not just "misconfigured".
+    assert "CSRF_MISSING_KEY" in message
+    assert "CALIBER_CSRF_ENABLED=false" in message
+
+
+def test_disabling_csrf_without_a_secret_still_starts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail-closed applies to the enabled case only — the default must still boot."""
+    db_path = tmp_path / "caliber-csrf-off.db"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", f"sqlite+pysqlite:///{db_path}")
+    monkeypatch.setenv("CALIBER_CSRF_ENABLED", "false")
+    monkeypatch.setenv("CALIBER_CSRF_SIGNING_SECRET_ENV", "CSRF_MISSING_KEY")
+    monkeypatch.delenv("CSRF_MISSING_KEY", raising=False)
+
+    app = create_app(config=CaliberConfig.load())
+    assert app.state.csrf_manager.is_enabled is False

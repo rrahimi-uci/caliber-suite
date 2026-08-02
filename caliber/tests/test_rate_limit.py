@@ -390,3 +390,46 @@ def test_rate_limiting_disabled_does_not_install_middleware(
         for _ in range(10):
             response = client.get("/ajax-api/2.0/mlflow/caliber/agents")
             assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Bucket identity cannot be chosen by the caller
+# ---------------------------------------------------------------------------
+
+
+def test_rotating_the_identity_header_cannot_mint_fresh_budgets(
+    tmp_path: Path,
+    engine: Engine,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller must not be able to pick their own bucket.
+
+    In the shipped ``session`` auth mode the routes ignore ``X-CALIBER-User``
+    and resolve a server-side session, but the limiter used to key buckets on
+    that header. Sending a different value per request therefore produced a
+    fresh full bucket every time — the limit was not weakened, it was absent.
+    The limiter now resolves identity the same way the routes do, so all of
+    these collapse onto one bucket and the burst is enforced.
+    """
+    monkeypatch.setenv("CALIBER_AUTH_MODE", "session")
+    client = _build_rate_client(
+        tmp_path=tmp_path,
+        engine=engine,
+        session_factory=session_factory,
+        monkeypatch=monkeypatch,
+        burst=3,
+        requests_per_minute=1.0,
+    )
+    with client:
+        statuses = [
+            client.get(
+                "/ajax-api/2.0/mlflow/caliber/workflows",
+                headers={"X-CALIBER-User": f"@rotating-{index}"},
+            ).status_code
+            for index in range(12)
+        ]
+
+    # Every request presented a distinct identity. Before the fix all 12 were
+    # admitted; now the shared bucket runs dry and the limiter engages.
+    assert 429 in statuses, f"header rotation still mints fresh budgets: {statuses}"

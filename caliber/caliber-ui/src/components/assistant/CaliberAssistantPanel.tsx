@@ -544,31 +544,55 @@ export function CaliberAssistantPanel(): JSX.Element | null {
   // queued follow-ups (and priority steers, which sit at the front) flow in
   // order — the OpenAI-chat / Claude-Code behavior.
   const dispatchingRef = useRef(false);
+  // Queue ids this panel has already dispatched. The row is only removed from the
+  // server queue *after* the send succeeds (see below), so without this the same
+  // head would be re-dispatched on every re-render until the request completed.
+  const dispatchedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!activeSessionId || !open) return;
     if (sendMessage.isPending || isPlanning || createSession.isPending) return;
     if (dispatchingRef.current || queued.length === 0) return;
     const head = queued[0];
     if (!head) return;
+    if (dispatchedRef.current.has(head.queue_id)) return;
     dispatchingRef.current = true;
-    void caliberApi
-      .cancelAssistantQueued(head.queue_id)
-      .catch(() => undefined)
-      .finally(() => {
-        invalidate(QK.queue(activeSessionId));
-        sendMessage.mutate(
-          {
-            content: head.content,
-            mode: head.mode,
-            steer: head.kind === "steer",
-          },
-          {
-            onSettled: () => {
-              dispatchingRef.current = false;
-            },
-          },
-        );
-      });
+    dispatchedRef.current.add(head.queue_id);
+    // Send first, remove second. The previous order deleted the queue row before
+    // sending, swallowed the delete's failure, and issued the send from a
+    // ``.finally()`` so it ran on both branches — so a send that failed left the
+    // user's message deleted server-side, absent from the panel, and unreported.
+    // Losing typed input is worse than a visible retry, so the row now survives
+    // until the turn is accepted.
+    sendMessage.mutate(
+      {
+        content: head.content,
+        mode: head.mode,
+        steer: head.kind === "steer",
+      },
+      {
+        onSuccess: () => {
+          void caliberApi
+            .cancelAssistantQueued(head.queue_id)
+            .catch(() => {
+              // The turn was accepted, so the message is not lost; the queue row
+              // is. Report it rather than swallowing, because the stale row is
+              // visible to the user and would otherwise look like a stuck item.
+              showToast.error("Sent, but the queued copy could not be cleared.");
+            })
+            .finally(() => {
+              invalidate(QK.queue(activeSessionId));
+            });
+        },
+        onError: () => {
+          // Leave the row queued and allow another attempt.
+          dispatchedRef.current.delete(head.queue_id);
+          showToast.error("Could not send the queued message. It is still in the queue.");
+        },
+        onSettled: () => {
+          dispatchingRef.current = false;
+        },
+      },
+    );
   }, [
     queued,
     sendMessage,
