@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from starlette.testclient import TestClient
+
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 
 
