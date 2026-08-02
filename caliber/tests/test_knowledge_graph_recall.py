@@ -59,9 +59,7 @@ def test_a_graph_referenced_chunk_outside_the_ann_pool_is_materialized() -> None
     session = _Session({"CH-graph-only": outside})
     entity = SimpleNamespace(source_chunks=["CH-in-pool", "CH-graph-only"])
 
-    result = _service()._augment_with_graph_chunks(
-        session, _Version(), [in_pool], [entity], []
-    )
+    result = _service()._augment_with_graph_chunks(session, _Version(), [in_pool], [entity], [])
 
     ids = {chunk.knowledge_base_chunk_id for chunk in result}
     assert ids == {"CH-in-pool", "CH-graph-only"}, (
@@ -76,9 +74,7 @@ def test_relationship_evidence_chunks_are_materialized_too() -> None:
     session = _Session({"CH-evidence": outside})
     relationship = SimpleNamespace(evidence_chunk_ids=["CH-evidence"])
 
-    result = _service()._augment_with_graph_chunks(
-        session, _Version(), [], [], [relationship]
-    )
+    result = _service()._augment_with_graph_chunks(session, _Version(), [], [], [relationship])
 
     assert [chunk.knowledge_base_chunk_id for chunk in result] == ["CH-evidence"]
 
@@ -89,9 +85,7 @@ def test_no_extra_query_when_the_graph_adds_nothing() -> None:
     session = _Session({})
     entity = SimpleNamespace(source_chunks=["CH-1"])
 
-    result = _service()._augment_with_graph_chunks(
-        session, _Version(), [present], [entity], []
-    )
+    result = _service()._augment_with_graph_chunks(session, _Version(), [present], [entity], [])
 
     assert result == [present]
     assert session.queried is False, "an unnecessary round trip on every graph query"

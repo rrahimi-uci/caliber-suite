@@ -766,9 +766,7 @@ def _tool_version(db_session: Session, version_id: str) -> None:
     )
     db_session.add(workflow)
     manifest = make_manifest(f"wf-{version_id}")
-    manifest["tools"] = {
-        "lookup": {"registry_ref": "tool.lookup.v1", "version_constraint": ">=1"}
-    }
+    manifest["tools"] = {"lookup": {"registry_ref": "tool.lookup.v1", "version_constraint": ">=1"}}
     db_session.add(
         CaliberWorkflowVersion(
             version_id=version_id,

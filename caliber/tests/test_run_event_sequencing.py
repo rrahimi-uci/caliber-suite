@@ -46,9 +46,7 @@ def seeded_run(db_session: Session) -> str:
 
 def _seed_first_event(session_factory: sessionmaker[Session], run_id: str) -> None:
     with session_factory() as setup:
-        append_run_event(
-            setup, workflow_run_id=run_id, project_id="PRJ-seq", event_type="first"
-        )
+        append_run_event(setup, workflow_run_id=run_id, project_id="PRJ-seq", event_type="first")
         setup.commit()
 
 

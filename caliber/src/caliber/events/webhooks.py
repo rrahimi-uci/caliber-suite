@@ -85,6 +85,7 @@ from caliber.observability.trace import bind_trace_id
 
 logger = logging.getLogger("caliber.events.webhooks")
 
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     """Refuse to follow a redirect away from the configured destination.
 

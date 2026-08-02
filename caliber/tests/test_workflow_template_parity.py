@@ -53,7 +53,9 @@ def test_frontend_fallback_templates_match_the_backend_catalog() -> None:
 
     # Order matters: the fallback renders in array order, so a reordered backend
     # catalog would silently present a different gallery when the query fails.
-    assert fallback_kinds == backend_kinds, "template order differs between SPA fallback and backend"
+    assert fallback_kinds == backend_kinds, (
+        "template order differs between SPA fallback and backend"
+    )
 
     mismatched = [
         (kind, backend_label, fallback_label)

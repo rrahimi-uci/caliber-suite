@@ -196,9 +196,7 @@ def test_metrics_requires_the_token_when_one_is_configured(
             gated.get(METRICS_PATH, headers={"Authorization": "Basic s3cret-scrape"}).status_code
             == 401
         )
-        assert (
-            gated.get(METRICS_PATH, headers={"Authorization": "Bearer wrong"}).status_code == 401
-        )
+        assert gated.get(METRICS_PATH, headers={"Authorization": "Bearer wrong"}).status_code == 401
 
         ok = gated.get(METRICS_PATH, headers={"Authorization": "Bearer s3cret-scrape"})
         assert ok.status_code == 200

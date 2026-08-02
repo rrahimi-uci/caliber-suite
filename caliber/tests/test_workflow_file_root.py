@@ -20,9 +20,7 @@ def test_unset_root_is_unconfined_so_existing_workflows_keep_working() -> None:
     assert resolved == Path("/etc/hosts")
 
 
-def test_a_path_inside_the_root_is_allowed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_path_inside_the_root_is_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(tmp_path))
     target = tmp_path / "inputs" / "data.txt"
     assert confine_to_file_root(target, what="file/folder input") == target.resolve()
@@ -84,9 +82,10 @@ def test_a_symlinked_root_still_matches_its_own_contents(
     link.symlink_to(real)
     monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(link))
 
-    assert confine_to_file_root(real / "data.txt", what="file/folder input") == (
-        real / "data.txt"
-    ).resolve()
+    assert (
+        confine_to_file_root(real / "data.txt", what="file/folder input")
+        == (real / "data.txt").resolve()
+    )
 
 
 def test_the_node_path_resolver_enforces_the_root(

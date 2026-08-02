@@ -100,11 +100,7 @@ def _authorize_scope(request: Request, scope: dict[str, str]) -> None:
     identity = resolve_identity(request)
 
     requested_user = scope.get("user_id")
-    if (
-        requested_user
-        and requested_user != identity.user_id
-        and SCOPE_ADMIN not in identity.scopes
-    ):
+    if requested_user and requested_user != identity.user_id and SCOPE_ADMIN not in identity.scopes:
         raise HTTPException(
             status_code=403,
             detail="user_id memory scope must be your own identity",

@@ -260,8 +260,6 @@ async def answer_interaction(request: Request) -> JSONResponse:
     return envelope_response_dict(result)
 
 
-
-
 async def list_capabilities(request: Request) -> JSONResponse:
     """``GET /caliber/aria/capabilities`` — what Aria can actually execute.
 
