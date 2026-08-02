@@ -16,8 +16,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.auth import (
-    SCOPE_ADMIN,
-    SCOPE_APPROVER,
     SCOPE_OPERATOR,
     SCOPE_VIEWER,
     CaliberIdentity,
@@ -55,21 +53,34 @@ def _sleep(seconds: float) -> None:
 def _default_identity(*, active_project_id: str | None) -> CaliberIdentity:
     """Identity used when an exported module runs outside request auth.
 
-    Exported modules are trusted automation artifacts rather than user-scoped UI
-    requests, so the default is an internal service identity with broad
-    visibility. Callers can override this with an explicit ``identity``.
+    Exported modules are automation artifacts rather than user-scoped UI
+    requests, so they need a service identity — but "service" is not a reason to
+    hold every scope. This previously granted all four, which gave an exported
+    module two authorities it never exercises:
+
+    ``admin``
+        The visibility layer treats admin as a bypass rather than a wider scope
+        (:mod:`caliber.db.scoping` drops the project predicate entirely), so an
+        exported workflow read across *every* project regardless of the
+        ``active_project_id`` it was handed. That is the opposite of what
+        exporting a project's workflow implies.
+    ``approver``
+        Nothing in this module approves anything. Holding it meant an exported
+        artifact carried standing authority to satisfy a human-approval gate.
+
+    ``operator`` is retained because exported runtimes legitimately write —
+    ``knowledge_build`` creates versions through
+    :meth:`KnowledgeBaseService.create_version`. Neither knowledge path gates on
+    a scope (both filter on *visibility*), so this is about what the identity
+    could reach if a future path did check, not about unblocking today's calls.
+
+    Callers needing something else pass an explicit ``identity``; that remains
+    the supported way to widen or narrow this.
     """
 
     return CaliberIdentity(
         user_id="@exported-workflow",
-        scopes=frozenset(
-            {
-                SCOPE_ADMIN,
-                SCOPE_APPROVER,
-                SCOPE_OPERATOR,
-                SCOPE_VIEWER,
-            }
-        ),
+        scopes=frozenset({SCOPE_OPERATOR, SCOPE_VIEWER}),
         active_project_id=active_project_id,
     )
 

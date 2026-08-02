@@ -15,7 +15,7 @@ All 22 findings in the review were re-derived from source rather than accepted. 
 confirmed, 6 partly confirmed, 1 refuted**, and several were materially different from
 their description — including the report's own headline claim.
 
-Seven fixes landed, each with a regression test; four of those tests were proven red
+Ten fixes landed, each with a regression test; seven of those tests were proven red
 against the pre-fix code rather than merely asserted. The remaining findings are real but
 genuinely XL or blocked on a product decision, and are triaged in §7 with what each would
 actually take.
@@ -70,10 +70,10 @@ senders, two policies, one documented.
 | F-14 | Confirmed | High | **Implemented** |
 | F-15 | Partly — wrong cause | Medium | **Implemented** (see §1) |
 | F-16 | Confirmed | Medium | **Rejected as a defect** — a scope statement; its own validation said no fix exists |
-| F-17 | Confirmed | Medium | Deferred — S, first item to pull forward |
-| F-18 | Confirmed | High | Deferred — S, second item to pull forward |
+| F-17 | Confirmed | Medium | **Implemented** |
+| F-18 | Confirmed | High | **Implemented** (F-18a scope narrowing); export fidelity deferred |
 | F-19 | Confirmed | Medium | Deferred — needs deploy-side artifacts in the same commit |
-| F-20 | Partly | Low | Deferred — half refuted; template parity test is S |
+| F-20 | Partly | Low | **Implemented** (parity test); shared layout deferred |
 | F-21 | Partly | Medium | Deferred — 2 of 5 anchors wrong; ticket needs rewriting first |
 | F-22 | Confirmed | Low | Deferred — a small feature, not a repair |
 
@@ -174,6 +174,51 @@ that then failed left the user's typed message deleted server-side, absent from 
 and unreported. Now sends first and removes second, keeps a dispatched-id set so the head is
 not re-dispatched while in flight, and surfaces both failure modes.
 
+### F-17 — webhook redirects (`events/webhooks.py`)
+
+`_post` called `urllib.request.urlopen`, which installs the default opener and
+follows redirects — turning an operator-configured URL into one the *receiver*
+chooses. Measured against a local server pair before the fix: **a 302 was followed
+to the second host carrying `X-Caliber-Signature` and `X-Caliber-Timestamp`
+intact.** urllib rewrites POST to GET on a 302 so the body was dropped, but a valid
+HMAC for that payload had already reached an unauthorized host. 307 happened to
+raise rather than follow, so only the 301/302/303 path was exposed.
+
+Now delivers through a module-level opener built with a `_NoRedirect` handler.
+A refused redirect surfaces as an `HTTPError`, which `_post` already classifies:
+3xx is neither 2xx nor a 4xx client error, so it retries and finally dead-letters
+with the status visible — the right reading for a destination pointing elsewhere.
+
+Fixed a real leak found while testing: the `HTTPError` branch never closed the
+response, so the socket was reclaimed by the GC later and surfaced as a
+`ResourceWarning` in whichever test was running.
+
+**The test seam moved.** 22 sites patched `caliber.events.webhooks.urllib.request.urlopen`;
+`_OPENER.open` bypassed that patch, so the dispatcher briefly made real network
+calls — 16 failures and a 5.6 s → 251 s runtime. The patch target is now the
+module's own opener, which is better encapsulation regardless.
+
+### F-18a — exported runtimes started over-privileged (`workflows/export_runtime.py`)
+
+`_default_identity` granted all four scopes. Two were never exercised and both
+mattered: **`admin`**, because the visibility layer treats it as a bypass —
+`db/scoping.py` drops the project predicate entirely, so an exported workflow read
+across *every* project regardless of the `active_project_id` it was handed; and
+**`approver`**, standing authority to satisfy a human-approval gate. Narrowed to
+`{operator, viewer}`. `operator` is retained because exported runtimes legitimately
+write via `knowledge_build`. Verified first that neither knowledge path gates on a
+scope — both filter on visibility — so this bounds reach rather than unblocking
+calls. Callers can still pass an explicit `identity`.
+
+### F-20 — silent template drift (`tests/test_workflow_template_parity.py`)
+
+`Workflows.tsx` ships `FALLBACK_TEMPLATES`, rendered whenever the catalog query
+fails. Because the fallback is silent, a template added, removed, renamed, or
+reordered server-side yields a UI that looks correct and offers a different set.
+The two lists agree today; a parity test asserting kinds, labels, and order keeps
+them agreeing and names which side moved. Half of F-20's original claim (shared
+layout) was refuted or deferred; this is the half that survived.
+
 ## 4. Architectural and design changes
 
 Three additions, all following patterns already in the tree:
@@ -217,7 +262,17 @@ assistant (14 files) · 159 frontend workflow. `ruff check src tests` clean; `my
 on 309 files; `npm run typecheck` clean.
 
 **Full backend suite**, run as CI does (`pytest -n auto --dist loadgroup`):
-**5,822 passed, 9 skipped, 0 failed** in 262 s. The 9 skips are opt-in integration
+**5,824 passed, 9 skipped, 0 failed** in 358 s.
+
+One observed flake, not fixed and not caused by this work. An earlier run of the
+same commit produced `1 failed` —
+`test_a_dead_letter_is_persisted_when_a_session_factory_is_bound` — while the
+machine was heavily loaded (570 s wall time versus 349-358 s unloaded). The test
+passes in isolation (0.26 s), serially with its whole file (43/43), and across
+three consecutive `-n 4` runs of that file. It waits on a background delivery
+loop to persist a row, so it has a latent timing sensitivity that surfaces under
+CPU contention. Recorded rather than silently re-run: an intermittent test is a
+real defect in the evidence, even when the code under it is correct. The 9 skips are opt-in integration
 and Postgres-marked tests, unchanged from baseline.
 
 The first full run after the provider-timeout change was **3 failed, 5,819 passed** —
@@ -248,13 +303,6 @@ than up to 30 minutes.
 
 Ordered by what each would actually take.
 
-**Bounded, next up (S each):**
-- **F-17** webhook redirects — a `_NoRedirect` handler and a module-level opener; ~10 lines.
-- **F-18a** exported runtimes default to broad admin/approver/operator/viewer scopes; narrow
-  `_default_identity` to viewer after verifying what `knowledge_build` needs.
-- **F-20 (template half)** a parity test asserting frontend and backend template catalogs
-  match, modelled on `test_cookbook_doc_contract.py`.
-
 **Bounded but blocked on a decision:**
 - **F-19** metrics scrape token, Redis readiness, provider connectivity — each needs a
   deploy-side artifact in the same commit.
@@ -281,14 +329,13 @@ enterprise identity. These are correctly scoped as XL and gated behind each othe
 
 | # | Item | Impact | Effort | Why this order |
 | --- | --- | --- | --- | --- |
-| 1 | F-17, F-18a, F-20 template parity | Medium–high | S each | Bounded, verified, no decisions pending |
-| 2 | F-04 memory scoping | High | M | Real cross-resource visibility gap; half is bounded today |
-| 3 | F-19 + fail-closed production preflight | High | M | Completes the review's Wave 0; needs deploy artifacts |
-| 4 | F-09 sequencing + F-10 drop callback | High | M | Removes silent event loss |
-| 5 | F-01b confined file root | High | M/L | Retires the promotion gate as the *only* defence |
-| 6 | F-05 workspace identity | Medium | M | One trap; do it deliberately |
-| 7 | F-11 async offload, tier 1 | Medium/high | L | Mechanical; the target pattern exists in-tree |
-| 8 | C-5 / C-2B / H-1 | Very high | XL | Unchanged; these define the supported-production and enterprise gates |
+| 1 | F-04 memory scoping | High | M | Real cross-resource visibility gap; half is bounded today |
+| 2 | F-19 + fail-closed production preflight | High | M | Completes the review's Wave 0; needs deploy artifacts |
+| 3 | F-09 sequencing + F-10 drop callback | High | M | Removes silent event loss |
+| 4 | F-01b confined file root | High | M/L | Retires the promotion gate as the *only* defence |
+| 5 | F-05 workspace identity | Medium | M | One trap; do it deliberately |
+| 6 | F-11 async offload, tier 1 | Medium/high | L | Mechanical; the target pattern exists in-tree |
+| 7 | C-5 / C-2B / H-1 | Very high | XL | Unchanged; these define the supported-production and enterprise gates |
 
 ## 9. Overall assessment
 

@@ -62,6 +62,7 @@ loop.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import json
@@ -83,6 +84,39 @@ from caliber.events.bus import EventBus
 from caliber.observability.trace import bind_trace_id
 
 logger = logging.getLogger("caliber.events.webhooks")
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow a redirect away from the configured destination.
+
+    ``urllib.request.urlopen`` installs the default opener, which follows
+    redirects. That turns an operator-configured URL into a URL the *receiver*
+    chooses: a compromised or merely misconfigured endpoint answering 302 sends
+    CALIBER wherever it likes, including the cloud metadata endpoint and
+    CALIBER's own loopback API.
+
+    Measured before this handler existed, against a local pair of servers: a 302
+    was followed to the second host and arrived carrying ``X-Caliber-Signature``
+    and ``X-Caliber-Timestamp`` intact. urllib rewrites POST to GET on a 302, so
+    the body was dropped — but a valid HMAC signature for that payload had
+    already been handed to an unauthorized host, which is the disclosure that
+    matters. (307 raised rather than following, so only the 301/302/303 path was
+    exposed; refusing all of them is the only durable answer.)
+
+    Returning ``None`` makes urllib stop and surface the redirect as an
+    ``HTTPError``, which ``_post`` already classifies: 3xx is neither 2xx nor a
+    4xx client error, so it becomes a transient failure, retries, and finally
+    dead-letters with the status visible to an operator. A redirect is a
+    misconfigured destination, and that is exactly how it now reads.
+    """
+
+    def redirect_request(self, *args: object, **kwargs: object) -> None:  # noqa: ARG002
+        return None
+
+
+#: Shared opener with redirects disabled. Module-level so every delivery uses
+#: the same policy and no call site can forget it.
+_OPENER: Final[urllib.request.OpenerDirector] = urllib.request.build_opener(_NoRedirect)
+
 
 _TIMESTAMP_HEADER: Final[str] = "X-Caliber-Timestamp"
 _SIGNATURE_HEADER: Final[str] = "X-Caliber-Signature"
@@ -1059,15 +1093,25 @@ class WebhookDispatcher:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=self._timeout) as response:  # noqa: S310
+            with _OPENER.open(req, timeout=self._timeout) as response:
                 status = response.status
         except urllib.error.HTTPError as exc:
             # urllib raises for 4xx/5xx rather than returning them, so the
-            # permanent/transient split has to be made here too.
-            permanent = _HTTP_CLIENT_ERROR_FLOOR <= exc.code < _HTTP_SERVER_ERROR_FLOOR
-            raise WebhookDeliveryError(
-                f"receiver returned HTTP {exc.code}", permanent=permanent
-            ) from exc
+            # permanent/transient split has to be made here too. A refused
+            # redirect also lands here as a 3xx, which is neither 2xx nor a 4xx
+            # client error and therefore retries and finally dead-letters with
+            # the status visible — the right reading for a destination that
+            # points somewhere else.
+            #
+            # ``HTTPError`` is itself a file object holding the response body.
+            # The success path closes via ``with``; this path has to close
+            # explicitly or the socket is reclaimed by the GC later, surfacing
+            # as a ResourceWarning in whichever test happens to be running.
+            with contextlib.closing(exc):
+                permanent = _HTTP_CLIENT_ERROR_FLOOR <= exc.code < _HTTP_SERVER_ERROR_FLOOR
+                raise WebhookDeliveryError(
+                    f"receiver returned HTTP {exc.code}", permanent=permanent
+                ) from exc
         if status >= _HTTP_2XX_CEILING:
             permanent = _HTTP_CLIENT_ERROR_FLOOR <= status < _HTTP_SERVER_ERROR_FLOOR
             raise WebhookDeliveryError(f"receiver returned HTTP {status}", permanent=permanent)

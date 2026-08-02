@@ -151,7 +151,7 @@ def test_dispatcher_skips_remote_nats_fanout_events() -> None:
 
 
 class _FakeResponse:
-    """Minimal duck-type matching ``urllib.request.urlopen``'s context manager."""
+    """Minimal duck-type matching the opener's response context manager."""
 
     def __init__(self, status: int = 200) -> None:
         self.status = status
@@ -165,7 +165,7 @@ class _FakeResponse:
 
 @pytest.fixture
 def captured_requests() -> Iterator[list[Any]]:
-    """Intercept every ``urllib.request.urlopen`` call so tests can
+    """Intercept every delivery on the dispatcher's opener so tests can
     inspect the request object the dispatcher built."""
     captured: list[Any] = []
 
@@ -173,7 +173,7 @@ def captured_requests() -> Iterator[list[Any]]:
         captured.append(req)
         return _FakeResponse(status=200)
 
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _fake_urlopen):
         yield captured
 
 
@@ -365,7 +365,7 @@ async def test_dispatch_swallows_per_url_failure() -> None:
             raise ConnectionError("simulated failure")
         return _FakeResponse(status=200)
 
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _fake_urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -403,7 +403,7 @@ async def test_dispatch_retries_a_5xx_then_dead_letters(
         urls=["https://broken.example/hook"],
         max_attempts=3,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _fake_urlopen):
         await dispatcher.start()
         try:
             with caplog.at_level("WARNING", logger="caliber.events.webhooks"):
@@ -444,7 +444,7 @@ async def test_dispatch_does_not_retry_a_4xx(
         urls=["https://picky.example/hook"],
         max_attempts=5,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _fake_urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -483,7 +483,7 @@ async def test_a_transient_failure_that_recovers_is_delivered_not_dead_lettered(
         urls=["https://flaky.example/hook"],
         max_attempts=3,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _fake_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _fake_urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -510,7 +510,7 @@ def test_retry_backoff_is_exponential() -> None:
         sleep=slept.append,
     )
     with patch(
-        "caliber.events.webhooks.urllib.request.urlopen",
+        "caliber.events.webhooks._OPENER.open",
         side_effect=OSError("connection refused"),
     ):
         dispatcher._post_to_all({"type": "approval.promoted"})
@@ -533,7 +533,7 @@ def test_the_dead_letter_ring_is_bounded_and_reports_what_it_dropped() -> None:
     )
     overflow = 5
     with patch(
-        "caliber.events.webhooks.urllib.request.urlopen",
+        "caliber.events.webhooks._OPENER.open",
         side_effect=OSError("connection refused"),
     ):
         for index in range(_DEAD_LETTER_CAPACITY + overflow):
@@ -579,7 +579,7 @@ async def test_double_start_raises() -> None:
     bus = EventBus()
     dispatcher = WebhookDispatcher(bus=bus, urls=["https://hook.example"], secret="k")
     captured = MagicMock()
-    with patch("caliber.events.webhooks.urllib.request.urlopen", captured):
+    with patch("caliber.events.webhooks._OPENER.open", captured):
         await dispatcher.start()
         try:
             with pytest.raises(RuntimeError, match=r"already running"):
@@ -625,7 +625,7 @@ async def test_a_slow_receiver_does_not_make_the_bus_drop_later_events() -> None
         return _FakeResponse(status=200)
 
     bus, dispatcher = _build_dispatcher_with(urls=["https://slow.example/hook"])
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _blocking_urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -666,7 +666,7 @@ async def test_overflowing_the_pending_queue_dead_letters_instead_of_dropping() 
         sleep=lambda _seconds: None,
         pending_capacity=2,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _blocking_urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -714,7 +714,7 @@ async def test_a_dead_letter_is_persisted_when_a_session_factory_is_bound(
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _always_500):
+    with patch("caliber.events.webhooks._OPENER.open", _always_500):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -765,7 +765,7 @@ async def test_a_failing_accept_persist_refuses_delivery(session_factory) -> Non
         sleep=lambda _seconds: None,
         session_factory=_broken_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _capture):
+    with patch("caliber.events.webhooks._OPENER.open", _capture):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -823,7 +823,7 @@ async def test_stopping_dead_letters_events_that_were_never_sent(session_factory
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _blocking_urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -902,7 +902,7 @@ async def test_stopping_records_the_event_that_was_in_flight(session_factory) ->
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _blocking_urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -970,7 +970,7 @@ async def test_stop_prevents_detached_sender_from_posting_later_targets_after_re
                 old_worker_done.set()
 
     dispatcher._post_to_all = _observe_worker_completion  # type: ignore[method-assign]
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _generation_aware_urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _generation_aware_urlopen):
         await dispatcher.start()
         await _await_subscription(bus)
         bus.publish({"type": "run.completed", "id": "old"})
@@ -1042,7 +1042,7 @@ async def test_a_target_is_recorded_once_when_delivery_and_shutdown_race(
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking_then_failing):
+    with patch("caliber.events.webhooks._OPENER.open", _blocking_then_failing):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -1103,7 +1103,7 @@ async def test_an_abruptly_killed_process_leaves_a_recoverable_record(
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking):
+    with patch("caliber.events.webhooks._OPENER.open", _blocking):
         await doomed.start()
         await _await_subscription(bus)
         bus.publish({"type": "run.completed", "id": "killed-mid-flight"})
@@ -1385,7 +1385,7 @@ async def test_successful_delivery_prunes_accept_markers(session_factory) -> Non
         session_factory=session_factory,
     )
     with patch(
-        "caliber.events.webhooks.urllib.request.urlopen",
+        "caliber.events.webhooks._OPENER.open",
         lambda req, timeout=0: _FakeResponse(status=200),
     ):
         await dispatcher.start()
@@ -1421,7 +1421,7 @@ async def test_republishing_the_same_event_object_tracks_each_occurrence(session
     )
     event = {"type": "run.completed", "id": "same-object"}
     with patch(
-        "caliber.events.webhooks.urllib.request.urlopen",
+        "caliber.events.webhooks._OPENER.open",
         lambda req, timeout=0: _FakeResponse(status=200),
     ):
         await dispatcher.start()
@@ -1474,7 +1474,7 @@ async def test_overflow_does_not_erase_a_different_events_in_flight_marker(
         # Capacity 1 so the third event overflows while the first is still blocked.
         pending_capacity=1,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _blocking):
+    with patch("caliber.events.webhooks._OPENER.open", _blocking):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -1532,7 +1532,7 @@ async def test_shutdown_records_every_target_still_owed_an_outcome(session_facto
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -1580,7 +1580,7 @@ async def test_shutdown_does_not_dead_letter_an_already_delivered_target(
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
-    with patch("caliber.events.webhooks.urllib.request.urlopen", _urlopen):
+    with patch("caliber.events.webhooks._OPENER.open", _urlopen):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
@@ -1594,3 +1594,79 @@ async def test_shutdown_does_not_dead_letter_an_already_delivered_target(
         urls = {row.url for row in session.query(CaliberWebhookDeadLetter).all()}
     assert "https://fast.example/hook" not in urls, "a delivered target must not be dead-lettered"
     assert "https://slow.example/hook" in urls
+
+
+# ---------------------------------------------------------------------------
+# Redirects away from the configured destination
+# ---------------------------------------------------------------------------
+
+
+def test_delivery_refuses_to_follow_a_redirect_to_another_host() -> None:
+    """The receiver must not get to choose where CALIBER sends the signature.
+
+    ``urlopen`` installs the default opener, which follows redirects, so an
+    operator-configured URL became a URL the *receiver* selects. Measured
+    against this exact pair of servers before the fix: the 302 was followed and
+    the second host received ``X-Caliber-Signature`` and ``X-Caliber-Timestamp``
+    intact. urllib rewrites POST to GET on a 302 so the body was dropped — but a
+    valid HMAC for that payload had already reached a host the operator never
+    configured, which is the disclosure that matters.
+    """
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from caliber.events.webhooks import WebhookDeliveryError
+
+    unauthorized: list[dict[str, str]] = []
+
+    class Unauthorized(BaseHTTPRequestHandler):
+        def _record(self, method: str) -> None:
+            unauthorized.append(
+                {"method": method, "signature": self.headers.get("X-Caliber-Signature", "")}
+            )
+            self.send_response(200)
+            self.end_headers()
+
+        def do_GET(self) -> None:
+            self._record("GET")
+
+        def do_POST(self) -> None:
+            self._record("POST")
+
+        def log_message(self, *args: object) -> None:
+            return
+
+    class Redirector(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{sink.server_port}/internal")
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            return
+
+    sink = HTTPServer(("127.0.0.1", 0), Unauthorized)
+    threading.Thread(target=sink.serve_forever, daemon=True).start()
+    hop = HTTPServer(("127.0.0.1", 0), Redirector)
+    threading.Thread(target=hop.serve_forever, daemon=True).start()
+    try:
+        dispatcher = WebhookDispatcher(
+            bus=EventBus(),
+            urls=[f"http://127.0.0.1:{hop.server_port}/hook"],
+            secret="topsecret",
+        )
+        with pytest.raises(WebhookDeliveryError):
+            dispatcher._post(
+                f"http://127.0.0.1:{hop.server_port}/hook",
+                b'{"type":"approval.promoted"}',
+                "1700000000",
+                "deadbeef",
+            )
+    finally:
+        # ``shutdown`` stops serve_forever; ``server_close`` releases the
+        # listening socket. Without the second the suite's ResourceWarning
+        # policy fails whichever test the GC happens to be running in.
+        for server in (sink, hop):
+            server.shutdown()
+            server.server_close()
+
+    assert unauthorized == [], f"the redirect was followed: {unauthorized}"
