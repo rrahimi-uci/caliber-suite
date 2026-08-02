@@ -20,7 +20,12 @@ RUFF := $(VENV)/bin/ruff
 MYPY := $(VENV)/bin/mypy
 ALEMBIC := $(VENV)/bin/alembic
 CALIBER_DEV_EXTRAS ?= dev,postgres,ingest,ocr,llm,knowledge
-CALIBER_DEV_EXTENDED_EXTRAS ?= dspy,knowledge-local
+# ``memory`` is here because tests/test_memory_service.py imports mem0 at module
+# scope. CI installs it (see the env comment in .github/workflows/ci.yml) but the
+# Makefile did not, so ``make install-extended`` produced a red suite for a
+# missing extra rather than a real failure — the profile CI documents and the
+# profile the Makefile builds have to be the same thing.
+CALIBER_DEV_EXTENDED_EXTRAS ?= dspy,knowledge-local,memory
 
 .PHONY: help install install-extended migrate dev tracking-server test test-allure lint ui clean
 
@@ -41,8 +46,21 @@ MLFLOW_TRACKING_PORT ?= 5001
 help:
 	@awk 'BEGIN { FS = ":.*##" } /^[a-zA-Z_-]+:.*##/ { printf "  %-12s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
+# Interpreter used to create the venv. Bare ``python3`` is deliberately NOT the
+# default: it resolves to whatever the machine happens to ship, which is how a
+# development venv silently lands outside the range this package declares
+# (``requires-python = ">=3.10,<3.13"``). A contributor then gets green local
+# runs on an interpreter CI never exercises, which is worse than a red one —
+# it is confidence without coverage.
+#
+# Prefers 3.12, the top of the supported range and a CI compatibility leg.
+# Override with ``make install CALIBER_PYTHON=python3.10`` to develop against
+# the floor instead.
+CALIBER_PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3.10 || command -v python3)
+
 $(VENV)/bin/python:
-	python3 -m venv $(VENV)
+	@$(CALIBER_PYTHON) scripts/check_python_version.py
+	$(CALIBER_PYTHON) -m venv $(VENV)
 	$(PIP) install --upgrade pip
 
 install: $(VENV)/bin/python  ## create venv + editable install with the production-safe dev extras

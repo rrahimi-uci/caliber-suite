@@ -294,7 +294,19 @@ line-ending = "lf"
 # Mypy — strict type checking on src/, lenient on tests/ and migrations.
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.10"
+# 3.12, not the 3.10 floor, and the reason is a third-party stub rather than a
+# preference. numpy is an unpinned transitive dependency whose bundled stubs
+# moved to PEP 695 ``type`` statements in 2.5; mypy parses those stubs with the
+# target grammar, so ``python_version = "3.10"`` makes a clean install fail with
+# a syntax error inside numpy. Per-module overrides cannot suppress it —
+# ``follow_imports``/``ignore_errors`` apply after parsing, and this fails during.
+#
+# What that costs: mypy no longer flags 3.11+ syntax in *our* code. What still
+# covers it: the CI compatibility leg installs and imports the package on 3.10,
+# so incompatible syntax fails there, and an audit of src/ found no 3.11+
+# constructs (no tomllib, Self, PEP 695 generics, or except*). Running the code
+# on the floor is stronger evidence than statically pretending to.
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
