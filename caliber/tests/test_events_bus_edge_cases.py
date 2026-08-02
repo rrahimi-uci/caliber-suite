@@ -20,7 +20,8 @@ async def test_publish_to_closed_loop_does_not_crash() -> None:
     # Create a subscriber in a secondary loop, then close that loop.
     secondary_loop = asyncio.new_event_loop()
     queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_MAX)
-    bus._subscribers.add((queue, secondary_loop))
+    # Third element is the optional overflow reporter (see EventBus.subscribe).
+    bus._subscribers.add((queue, secondary_loop, None))
     secondary_loop.close()
 
     # Should not raise even though the loop is closed.
@@ -54,7 +55,7 @@ async def test_publish_fan_out_with_one_full_subscriber() -> None:
     # Subscriber A: will be full.
     queue_a: asyncio.Queue[dict] = asyncio.Queue(maxsize=1)
     await queue_a.put({"type": "fill"})
-    bus._subscribers.add((queue_a, loop))
+    bus._subscribers.add((queue_a, loop, None))
 
     # Subscriber B: normal.
     sub_b = bus.subscribe()
