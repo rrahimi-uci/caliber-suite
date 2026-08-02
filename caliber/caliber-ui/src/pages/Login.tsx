@@ -206,9 +206,8 @@ export function Login({ notice, onLogin }: LoginProps): JSX.Element {
               </h1>
               <p className="mt-4 max-w-md text-sm leading-6 text-slate-400">
                 Design, evaluate, and refine prompts, tools, skills, and
-                multi-agent workflows in a unified platform. Deliver versioned,
-                governed, and production-ready AI systems with traceability and
-                controlled promotion.
+                multi-agent workflows in a unified platform. Build versioned,
+                governed AI systems with traceability and controlled promotion.
               </p>
             </div>
 

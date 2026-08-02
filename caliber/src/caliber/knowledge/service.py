@@ -1626,6 +1626,9 @@ class KnowledgeBaseService:
                 entities, relationships = self._load_graph_context(
                     session, version, version_requested_modes
                 )
+                chunks = self._augment_with_graph_chunks(
+                    session, version, chunks, entities, relationships
+                )
                 # Two-stage retrieval: when reranking is on, the first stage
                 # gathers a larger candidate pool that the cross-encoder reorders
                 # down to ``payload.top_k``.
@@ -1853,6 +1856,62 @@ class KnowledgeBaseService:
             .all()
         )
         return list(chunks), self._dense_scores(chunks, query_vector)
+
+    def _augment_with_graph_chunks(
+        self,
+        session: Session,
+        version: CaliberKnowledgeBaseVersion,
+        chunks: list[CaliberKnowledgeBaseChunk],
+        entities: Sequence[CaliberKnowledgeBaseEntity],
+        relationships: Sequence[CaliberKnowledgeBaseRelationship],
+    ) -> list[CaliberKnowledgeBaseChunk]:
+        """Materialize chunks the graph can reach but the ANN pool did not return.
+
+        Under pgvector, ``_load_dense_candidates`` materializes only the ANN
+        top-k. Graph retrieval then scores chunks through
+        ``entity.source_chunks`` and ``relationship.evidence_chunk_ids`` — but a
+        chunk that is *not* in the ANN pool is not in ``chunks``, so no amount of
+        graph boost can surface it. The graph could identify exactly the right
+        passage and the query would still miss it, which defeats the reason to
+        run graph retrieval at all: it exists to find what vector similarity
+        does not.
+
+        The fallback path loads every chunk for the version, so this only
+        changes behaviour on the pgvector path — which is the path that scales
+        and therefore the one where the gap actually bites.
+
+        Bounded by what the graph references rather than by a second ANN sweep:
+        the extra chunks are exactly those some entity or relationship points at,
+        and the graph loader already caps how much of it is loaded.
+        """
+        if not entities and not relationships:
+            return chunks
+        present = {chunk.knowledge_base_chunk_id for chunk in chunks}
+        wanted: set[str] = set()
+        for entity in entities:
+            wanted.update(getattr(entity, "source_chunks", None) or [])
+        for relationship in relationships:
+            wanted.update(getattr(relationship, "evidence_chunk_ids", None) or [])
+        missing = [chunk_id for chunk_id in wanted if chunk_id and chunk_id not in present]
+        if not missing:
+            return chunks
+
+        extra = (
+            session.execute(
+                select(CaliberKnowledgeBaseChunk).where(
+                    CaliberKnowledgeBaseChunk.knowledge_base_version_id
+                    == version.knowledge_base_version_id,
+                    CaliberKnowledgeBaseChunk.knowledge_base_chunk_id.in_(missing),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        # No dense score for these: they were not in the ANN pool. Every graph
+        # scorer reads ``dense_scores.get(chunk_id, 0.0)``, so they compete on
+        # graph evidence alone, which is the correct basis for a chunk vector
+        # similarity did not surface.
+        return [*chunks, *extra]
 
     def _load_graph_context(
         self,
