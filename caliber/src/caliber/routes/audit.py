@@ -20,6 +20,7 @@ from typing import Any
 
 from sqlalchemy import Select, func, select
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
@@ -144,9 +145,19 @@ async def export_audit_log(request: Request) -> Response:
 
     page_stmt = _newest_first(_apply_filters(select(CaliberAuditLog), request))
     session_factory = get_session_factory(request)
-    with session_factory() as session:
-        rows = session.execute(page_stmt.limit(_EXPORT_CAP)).scalars().all()
-        entries = [_public_entry(row) for row in rows]
+
+    def _load() -> list[AuditLogEntrySchema]:
+        with session_factory() as session:
+            rows = session.execute(page_stmt.limit(_EXPORT_CAP)).scalars().all()
+            return [_public_entry(row) for row in rows]
+
+    # Offloaded because this is the heaviest synchronous read on the surface: up
+    # to _EXPORT_CAP rows materialized and serialized. Run inline on the event
+    # loop it stalls every other request on the process for the duration, which
+    # is how a single admin export degrades the whole deployment. The route
+    # layer is predominantly async while SQLAlchemy here is sync, so the offload
+    # is explicit rather than implied.
+    entries = await run_in_threadpool(_load)
 
     if fmt == "json":
         body = [entry.model_dump(mode="json") for entry in entries]
