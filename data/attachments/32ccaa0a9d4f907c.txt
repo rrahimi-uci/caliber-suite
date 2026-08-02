@@ -1,2 +1,0 @@
-INFO     caliber.events.webhooks:webhooks.py:476 webhook dispatcher started (urls=1, events=*, pending_capacity=2048)
-WARNING  caliber.events.webhooks:webhooks.py:524 webhook dispatcher stopped with 1 undelivered event(s); recorded as 'shutdown' dead letters for replay

@@ -1,3 +1,0 @@
-INFO     caliber.events.webhooks:webhooks.py:476 webhook dispatcher started (urls=1, events=*, pending_capacity=4096)
-ERROR    caliber.events.webhooks:webhooks.py:1102 webhook delivery exhausted, dead-lettering: url=https://picky.example/hook event='approval.promoted' err=receiver returned HTTP 422
-INFO     caliber.events.webhooks:webhooks.py:531 webhook dispatcher stopped

@@ -1,1 +1,0 @@
-WARNING  caliber.events.webhooks:webhooks.py:463 webhook dispatcher has URLs but no signing secret; events will *not* be sent. Set the secret-env-var named by config.webhook_signing_secret_env.

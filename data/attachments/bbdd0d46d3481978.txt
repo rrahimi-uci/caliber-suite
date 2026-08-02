@@ -1,0 +1,1 @@
+{"t":"2026-08-02T07:58:00.512Z","severity":"WARNING","logger":"caliber.llm.circuit_breaker","message":"llm circuit opening: 2 failures within 60.0s window"}
