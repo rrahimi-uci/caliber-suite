@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from starlette.testclient import TestClient
+
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 
 
@@ -66,3 +68,50 @@ def test_capabilities_keep_resume_disabled_without_checkpointing(client) -> None
     assert runs["runtime_approvals_enabled"] is True
     assert runs["checkpointing_enabled"] is False
     assert runs["event_backend"] == "database"
+
+
+# ---------------------------------------------------------------------------
+# Honest disclosure of the executable envelope
+# ---------------------------------------------------------------------------
+
+
+def test_capabilities_endpoint_reports_what_aria_can_actually_execute(
+    client: TestClient,
+) -> None:
+    """The drafting UI is broad; the executable registry is seven built-ins.
+
+    Nothing surfaced that number, so the envelope a user infers from the panel
+    was wider than the one the product implements.
+    """
+    from caliber.assistant.capabilities import registered_capabilities
+    from caliber.routes.aria_plans import CAPABILITIES_PATH
+
+    resp = client.get(CAPABILITIES_PATH)
+
+    assert resp.status_code == 200
+    body = resp.json()["data"] if "data" in resp.json() else resp.json()
+    assert body["count"] == len(registered_capabilities())
+    keys = {item["key"] for item in body["capabilities"]}
+    assert keys == {capability.key for capability in registered_capabilities()}
+
+
+def test_each_capability_carries_the_scopes_needed_to_invoke_it(
+    client: TestClient,
+) -> None:
+    """Disclosure without the authorization detail would invite the same wrong inference."""
+    from caliber.routes.aria_plans import CAPABILITIES_PATH
+
+    body = client.get(CAPABILITIES_PATH).json()
+    body = body["data"] if "data" in body else body
+
+    for item in body["capabilities"]:
+        assert "required_scopes" in item
+        assert "tier" in item
+        assert "input_schema" in item
+
+
+def test_capabilities_requires_authentication(client: TestClient) -> None:
+    from caliber.routes.aria_plans import CAPABILITIES_PATH
+
+    resp = client.get(CAPABILITIES_PATH, headers={"X-CALIBER-User": ""})
+    assert resp.status_code in {401, 403}

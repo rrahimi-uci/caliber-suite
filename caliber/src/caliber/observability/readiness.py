@@ -285,25 +285,30 @@ def _plan_event_bus(config: Any) -> _Plan:
     The in-process bus is always available and has nothing to probe.
     """
     backend = str(getattr(config, "workflow_run_event_backend", "") or "").strip().lower()
-    nats_url = str(getattr(config, "nats_url", "") or "").strip()
-    if backend != "nats" or not nats_url:
+    # Redis was configurable as an event backend but never probed, so a
+    # deployment with an unreachable Redis reported ready and then dropped every
+    # cross-replica event. A backend that is selected is a dependency.
+    url_attr = {"nats": "nats_url", "redis": "redis_url"}.get(backend, "")
+    broker_url = str(getattr(config, url_attr, "") or "").strip() if url_attr else ""
+    if not broker_url:
         return _Plan(
             check=_skipped(
                 "event_bus", f"no external broker to probe (backend={backend or 'in_process'})"
             )
         )
-    parsed = urlparse(nats_url.split(",")[0])
+    label = backend.upper()
+    parsed = urlparse(broker_url.split(",")[0])
     if not parsed.hostname or not parsed.port:
         return _Plan(
             check=Check(
                 name="event_bus",
                 ready=False,
                 required=True,
-                detail="configured NATS URL has no host:port",
+                detail=f"configured {label} URL has no host:port",
             )
         )
     return _Plan(
-        awaitable=_timed("event_bus", True, _probe_tcp(parsed.hostname, parsed.port, "NATS"))
+        awaitable=_timed("event_bus", True, _probe_tcp(parsed.hostname, parsed.port, label))
     )
 
 

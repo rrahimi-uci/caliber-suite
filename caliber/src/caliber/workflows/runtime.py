@@ -2130,6 +2130,11 @@ def _agent_instruction_text(agent: IRAgent) -> str:
 #: ``CALIBER_WORKFLOW_PARALLEL_BRANCH_MAX_WORKERS``.
 DEFAULT_PARALLEL_BRANCH_MAX_WORKERS = 8
 
+#: Head-room the node-level deadline allows before it fires, so a node kind that
+#: enforces the same timeout internally reports its own, more specific error
+#: first. Small enough that a hung node is still bounded promptly.
+_NODE_DEADLINE_GRACE_SECONDS = 0.25
+
 
 @dataclass
 class RuntimePlan:
@@ -6709,7 +6714,6 @@ def _run_node_with_policy(
     last_exc: Exception | None = None
     ledger = plan.effect_ledger
     for attempt in range(attempts):
-        started = time.monotonic()
         # Reset effect-occurrence numbering for each attempt. Without this a retry
         # re-derives occurrence 1 for an effect the previous attempt claimed as 0,
         # producing a different idempotency key, so the ledger judges an effect it
@@ -6720,26 +6724,64 @@ def _run_node_with_policy(
             if ledger is not None and hasattr(ledger, "attempt_scope")
             else contextlib.nullcontext()
         )
+        timeout = node.execution_policy.timeout_seconds
         try:
             with scope:
-                tokens, step = _run_node_traced(
-                    node,
-                    ir,
-                    plan,
-                    executor=executor,
-                    preview=preview,
-                    inputs=inputs,
-                    run_input=run_input,
-                    port_values=port_values,
-                    guardrail_results=guardrail_results,
-                    extra_tools=extra_tools,
-                    runtime_approvals_enabled=runtime_approvals_enabled,
-                    approved_human_approval_nodes=approved_human_approval_nodes,
-                )
-            elapsed = time.monotonic() - started
-            timeout = node.execution_policy.timeout_seconds
-            if timeout is not None and elapsed > timeout:
-                raise ToolExecutionError(f"node {node.node_id!r} timed out after {timeout}s")
+
+                def _execute() -> tuple[int, NodeStep]:
+                    return _run_node_traced(
+                        node,
+                        ir,
+                        plan,
+                        executor=executor,
+                        preview=preview,
+                        inputs=inputs,
+                        run_input=run_input,
+                        port_values=port_values,
+                        guardrail_results=guardrail_results,
+                        extra_tools=extra_tools,
+                        runtime_approvals_enabled=runtime_approvals_enabled,
+                        approved_human_approval_nodes=approved_human_approval_nodes,
+                    )
+
+                if timeout is None:
+                    tokens, step = _execute()
+                else:
+                    # The deadline used to be evaluated only *after* the node
+                    # returned, which made it two different wrong things at once: a
+                    # node that hung never reached the check, and a node that
+                    # SUCCEEDED but overran was turned into a failure and retried —
+                    # a penalize-slow-success mechanism rather than a deadline.
+                    #
+                    # Nodes already execute on worker threads for parallel branches
+                    # (see ``_run_parallel_branches``), including the
+                    # ``copy_context`` needed to carry tracing and run context, so
+                    # this is an established execution mode rather than a new one.
+                    #
+                    # Python cannot kill the worker; the guarantee is that the
+                    # workflow stops waiting on it. ``shutdown(wait=False)`` on the
+                    # timeout path is what makes that true — the same correction
+                    # made in ``_resilient_callable``.
+                    # A backstop, not a pre-emption. Several node kinds bound
+                    # themselves with this same value and raise a message naming
+                    # the node kind ("external_app node 'x' timed out"), which is
+                    # more actionable than a generic one. Enforcing the identical
+                    # deadline out here turned that into a race the generic
+                    # message could win. The grace lets a node that handles its
+                    # own deadline report first, and still bounds one that does
+                    # not — which is the case this exists for.
+                    pool = ThreadPoolExecutor(max_workers=1)
+                    timed_out = False
+                    try:
+                        future = pool.submit(contextvars.copy_context().run, _execute)
+                        tokens, step = future.result(timeout=timeout + _NODE_DEADLINE_GRACE_SECONDS)
+                    except FuturesTimeout as exc:
+                        timed_out = True
+                        raise ToolExecutionError(
+                            f"node {node.node_id!r} timed out after {timeout}s"
+                        ) from exc
+                    finally:
+                        pool.shutdown(wait=not timed_out, cancel_futures=timed_out)
             return tokens, step
         except Exception as exc:
             last_exc = exc
@@ -6854,6 +6896,40 @@ def _select_input(inputs: dict[str, Any], run_input: str) -> str:
     return run_input
 
 
+def confine_to_file_root(path: Path, *, what: str) -> Path:
+    """Resolve ``path`` and refuse it if it escapes ``CALIBER_WORKFLOW_FILE_ROOT``.
+
+    Unmanaged host-filesystem nodes resolve a caller- or author-supplied string
+    and open it with the server's own authority. The promotion gate in
+    :mod:`caliber.workflows.promoter` keeps those nodes out of production
+    aliases, but that leaves a single layer: anything reachable before promotion
+    — a development alias, a preview that slipped the unisolated-node list, a
+    future caller — has no boundary at all.
+
+    Resolution happens **before** any existence check and covers symlinks, which
+    is the whole point: ``~/safe/link -> /etc`` passes a string comparison and
+    fails this one. An unset root means unconfined, preserving the shipped
+    behaviour for existing development workflows; the setting is the opt-in for
+    deployments whose authors are not as trusted as their operators.
+    """
+    from caliber.config import workflow_file_root  # noqa: PLC0415
+
+    root = workflow_file_root()
+    if root is None:
+        return path
+    try:
+        resolved = path.resolve()
+    except OSError as exc:  # pragma: no cover - platform-specific resolution failure
+        raise ValueError(f"{what} path cannot be resolved: {exc}") from exc
+    if resolved != root and root not in resolved.parents:
+        raise ValueError(
+            f"{what} path {str(resolved)!r} is outside the configured workflow file "
+            f"root {str(root)!r}. Bind a managed project file, or widen "
+            f"CALIBER_WORKFLOW_FILE_ROOT."
+        )
+    return resolved
+
+
 def _path_from_inputs(
     inputs: dict[str, Any],
     *,
@@ -6867,7 +6943,7 @@ def _path_from_inputs(
         raise ValueError(
             "file/folder input node requires a path from its path input or node configuration"
         )
-    return Path(raw).expanduser()
+    return confine_to_file_root(Path(raw).expanduser(), what="file/folder input")
 
 
 def _read_text_file_node(
@@ -7106,7 +7182,10 @@ def _write_output_folder_node(
     """Write the run's collected artifacts as files under a local folder."""
     if not path:
         raise ValueError("output_folder node requires a folder path")
-    base = Path(path)
+    # Confine before ``mkdir``: this node creates the directory tree it writes
+    # into, so an unconfined path is a create-anywhere primitive, and the
+    # artifact filenames come from upstream node output.
+    base = confine_to_file_root(Path(path).expanduser(), what="output_folder")
     base.mkdir(parents=True, exist_ok=True)
     artifacts = _gather_run_artifacts(port_values, direct_input)
     written: list[str] = []

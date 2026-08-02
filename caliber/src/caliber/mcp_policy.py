@@ -312,6 +312,18 @@ def _remote_execution_parts(
         parts.blockers.append(
             f"remote MCP host {host!r} is not in CALIBER_MCP_REMOTE_HOST_ALLOWLIST"
         )
+    # The allowlist matched a *string*. Workflow HTTP resolves the host and
+    # checks the address, because a name is not a destination: an allowlisted
+    # name whose DNS answers 169.254.169.254 reaches the metadata endpoint, and
+    # nothing above would notice. MCP had the allowlist and not the resolution.
+    resolved_internal = _resolved_internal_category(str(getattr(server, "uri", "")), config)
+    if resolved_internal is not None:
+        parts.blockers.append(
+            f"remote MCP host {host!r} resolves into the blocked {resolved_internal} "
+            f"range; allowlisting a name does not authorize the address it points at"
+        )
+        parts.remote_host_allowed = False
+
     managed_sidecar = host in _csv_values(config.mcp_managed_sidecar_hosts)
     if (
         parsed.scheme == "http"
@@ -329,7 +341,7 @@ def _remote_execution_parts(
         parts.warnings.append(
             "managed-sidecar isolation is supplied and attested by the deployment operator"
         )
-    elif parsed.scheme == "https" and not _is_loopback(host):
+    elif parsed.scheme == "https" and not _is_loopback(host) and resolved_internal is None:
         parts.boundary = "remote_https"
         parts.production_isolated = True
     else:
@@ -851,3 +863,32 @@ __all__ = [
     "validate_tool_access",
     "validate_transport",
 ]
+
+
+def _resolved_internal_category(uri: str, config: CaliberConfig) -> str | None:
+    """Which blocked egress category ``uri``'s host resolves into, if any.
+
+    Reuses the workflow egress policy so MCP and workflow HTTP agree on what
+    "internal" means rather than growing a second, drifting definition.
+
+    A resolution failure is deliberately *not* a blocker here. Readiness runs on
+    a request path and a transient DNS failure must not silently mark a healthy
+    server unusable; the connection-time guard is what fails closed. This check
+    exists to catch the configuration that is wrong every time, not to be the
+    only thing standing between a run and the metadata endpoint.
+    """
+    from caliber.egress import EgressPolicy, _resolve_addresses  # noqa: PLC0415
+
+    policy = EgressPolicy.from_config(config)
+    host = (urlsplit(uri.strip()).hostname or "").lower()
+    if not host:
+        return None
+    try:
+        addresses = _resolve_addresses(host)
+    except Exception:
+        return None
+    for address in addresses:
+        category = policy.blocked_category(address)
+        if category is not None:
+            return category
+    return None

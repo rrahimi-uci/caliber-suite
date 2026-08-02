@@ -50,32 +50,32 @@ senders, two policies, one documented.
 
 | ID | Verdict | Severity (re-assessed) | Disposition |
 | --- | --- | --- | --- |
-| F-01 | Confirmed — understated | Critical | **Implemented** (promotion gate); data plane deferred |
-| F-02 | Confirmed | Critical | **Implemented** (2 of 4 slices); rest deferred |
+| F-01 | Confirmed — understated | Critical | **Implemented** (promotion gate + confined file root) |
+| F-02 | Confirmed | Critical | **Implemented** (3 of 4 slices); cancellation deferred |
 | F-03 | Confirmed | Critical | **Implemented** (retry scope); coverage extension deferred |
-| F-04 | Confirmed | High | Deferred — memory half bounded, trace half needs a product decision |
-| F-05 | Confirmed | Medium | Deferred — one trap makes it unsafe to rush |
+| F-04 | Confirmed | High | **Implemented** (memory half); trace half deferred |
+| F-05 | Confirmed | Medium | **Implemented** (centralized half); query keys deferred |
 | F-06 | Partly | Medium | **Rejected as a defect** — product-semantics decision, needs sign-off |
 | F-07 | Confirmed — worse | High | **Implemented** |
 | F-08 | Confirmed | High | **Implemented** |
-| F-09 | Confirmed | High | Deferred — mechanical, but needs test infrastructure that does not exist |
-| F-10 | Confirmed | High | Deferred — 4 separable pieces, framing fix is not bounded |
-| F-11 | Confirmed | High | Deferred — L, ~30 files, 224 sync sessions in async handlers |
-| F-12 | Confirmed | High | Deferred — needs a migration and a Postgres-marked test |
+| F-09 | Confirmed | High | **Implemented** |
+| F-10 | Confirmed | High | **Implemented** (drop-to-dead-letter); broker replay deferred |
+| F-11 | Confirmed | High | **Partly implemented** — heaviest handler converted + ratchet on 224 |
+| F-12 | Confirmed | High | **Implemented** (graph recall); lexical fusion deferred |
 | F-13 | Partly | — | **Rejected** — umbrella over F-13a–d, headline wrong in both directions |
 | F-13a | Partly | Low | **Rejected** — audit missed `tool_sandbox/_runner.py`'s builtins allowlist |
-| F-13b | Confirmed | Medium | Deferred — policy half S, transport half needs an SDK answer |
+| F-13b | Confirmed | Medium | **Implemented** (egress resolution) |
 | F-13c | **Refuted** | Not a defect | **Rejected** — disclosed fail-closed boundary, not a silent hole |
-| F-13d | Confirmed | Medium | Deferred — edits the same function as F-01a; needs rollout policy |
+| F-13d | Confirmed | Medium | **Implemented** (opt-in gate) |
 | F-14 | Confirmed | High | **Implemented** |
 | F-15 | Partly — wrong cause | Medium | **Implemented** (see §1) |
 | F-16 | Confirmed | Medium | **Rejected as a defect** — a scope statement; its own validation said no fix exists |
 | F-17 | Confirmed | Medium | **Implemented** |
 | F-18 | Confirmed | High | **Implemented** (F-18a scope narrowing); export fidelity deferred |
-| F-19 | Confirmed | Medium | Deferred — needs deploy-side artifacts in the same commit |
+| F-19 | Confirmed | Medium | **Implemented** (metrics token, Redis probe) |
 | F-20 | Partly | Low | **Implemented** (parity test); shared layout deferred |
-| F-21 | Partly | Medium | Deferred — 2 of 5 anchors wrong; ticket needs rewriting first |
-| F-22 | Confirmed | Low | Deferred — a small feature, not a repair |
+| F-21 | **Largely refuted** | Low | 2 of 5 anchors do not exist; one real claim fixed |
+| F-22 | Confirmed | Low | **Implemented** |
 
 ### Rejections, with rationale
 
@@ -219,6 +219,80 @@ The two lists agree today; a parity test asserting kinds, labels, and order keep
 them agreeing and names which side moved. Half of F-20's original claim (shared
 layout) was refuted or deferred; this is the half that survived.
 
+## 3b. Second wave — the deferred findings
+
+After the first pass the remaining validated findings were implemented as well.
+Eight commits on `fix/product-completeness-wave-1`.
+
+### F-01b — confined workflow file root
+
+The promotion gate from wave 1 was a single layer: anything reachable *before*
+promotion resolves a supplied path with the server's authority.
+`CALIBER_WORKFLOW_FILE_ROOT` confines `file_input`, `folder_input`, and
+`output_folder`. Resolution runs before any existence check and covers symlinks —
+`<root>/link → /etc` passes a string comparison and fails this one. Default
+unconfined so existing development workflows keep working.
+
+**Bug found in my own wave-1 commit:** the F-01a escape hatch
+`CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES` had no entry in
+the env-var table, so setting it did nothing while the config object reported
+the default. Fixed, plus two invariant tests — every field reachable from the
+environment, no mapping pointing at a dead field. A 173-field audit found it was
+the only gap.
+
+### F-09 — run-event sequence allocation
+
+Three writers each did an unlocked `SELECT max(sequence)` then `INSERT max+1`.
+The unique constraint makes the interleaving a *lost* event, not a duplicate.
+One shared allocator now serves all three: `FOR UPDATE` on the parent run (real
+on PostgreSQL, omitted on SQLite) plus bounded retry, each attempt in a savepoint
+so a retry cannot discard the caller's other work.
+
+The threaded test this wanted failed on SQLite's file-level write lock before
+reaching any CALIBER code; WAL, `busy_timeout`, and SQLAlchemy's pysqlite
+`SAVEPOINT` workaround did not clear it. Rather than tune a test until it passed,
+the race is driven deterministically through a named `_current_max` seam.
+
+### F-04 — memory scope authorization
+
+`user_id` must be the caller's own unless admin. `agent_id`/`run_id` are checked
+only when the value names a governed resource. My first attempt required those
+rows to exist and broke 7 tests — they are free-form partition labels. The
+residual limitation is documented and pinned by a test: a guessed free-form label
+still reads that partition, because a partition with no owner has nothing to
+enforce.
+
+### F-19, F-10 — operational surfaces
+
+Opt-in `/metrics` bearer token (closing it by default would break every existing
+scrape config). Redis probed for readiness like NATS — it was selectable as an
+event backend and never checked. Bus-queue overflow now writes a dead letter
+instead of a log line; that drop happens upstream of every durability mechanism
+the dispatcher has.
+
+### F-13b, F-13d — MCP and tool isolation
+
+The MCP host allowlist matched a hostname *string* and never resolved it, while
+workflow HTTP resolves and checks the address. Both now use the same
+`EgressPolicy`. The symmetric tool-isolation gate is **opt-in**, and that was a
+correction: modelled on the MCP rule it defaulted on and broke 8 existing prod
+promotions. MCP servers are a deliberate integration; registered tools are
+ubiquitous, so the same default is a gate in one case and a forced migration in
+the other.
+
+### F-22, F-05, F-21, F-12, F-02b, F-11
+
+`GET /caliber/aria/capabilities` discloses the real registry — seven built-ins,
+with `TIER_GATED` currently empty. `useApi` now listens for
+`WORKSPACE_CHANGED_EVENT`, which had **zero listeners app-wide**, so a switch
+invalidated half the application. F-21 was largely refuted: two of five anchors
+do not exist and the cookbooks are accurate; one real overclaim ("production-ready")
+removed from the login hero. Graph retrieval can now surface chunks outside the
+ANN pool. The node deadline bounds execution rather than reporting it afterwards —
+as a *backstop* with grace, after it pre-empted more specific per-node timeout
+messages. F-11 converted the heaviest handler and added a ratchet over the
+remaining 224 rather than a blind sweep.
+
 ## 4. Architectural and design changes
 
 Three additions, all following patterns already in the tree:
@@ -262,7 +336,23 @@ assistant (14 files) · 159 frontend workflow. `ruff check src tests` clean; `my
 on 309 files; `npm run typecheck` clean.
 
 **Full backend suite**, run as CI does (`pytest -n auto --dist loadgroup`):
-**5,824 passed, 9 skipped, 0 failed** in 358 s.
+**5,868 passed, 9 skipped, 0 failed** in 408 s — the final state after both waves.
+Frontend: `npm run typecheck` exit 0; 21 tests across the changed files.
+`ruff check src tests` clean; `mypy src` clean on 310 source files.
+
+The run before the last commit was 5,866 passed / **2 failed**, both in
+`test_events_bus_edge_cases.py`. The F-10 change widened the bus's `_subscribers`
+entries from `(queue, loop)` to `(queue, loop, on_drop)`, and those two tests
+construct the tuples directly to simulate a closed loop and a full queue. The
+per-area slices missed it because none of them reach into `_subscribers`. Fixed
+by updating the tests to the current shape rather than making `publish` accept
+both, since silently tolerating a stale shape would hide the change from the next
+reader.
+
+That was the second time in this work a change passed a focused slice and only
+the full suite disagreed — the first was a provider `timeout` kwarg breaking an
+incomplete test double. Both had the same shape: widening a structure that a test
+reaches into directly.
 
 One observed flake, not fixed and not caused by this work. An earlier run of the
 same commit produced `1 failed` —

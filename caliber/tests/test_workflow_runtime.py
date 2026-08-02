@@ -5312,3 +5312,58 @@ def test_resilient_callable_timeout_returns_control_without_joining_the_orphan()
     # The orphan is still running — that is the honest state. Python cannot kill
     # it; the contract is only that the workflow stops waiting on it.
     assert not released.is_set()
+
+
+def test_a_node_deadline_bounds_execution_rather_than_reporting_it_afterwards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung node must stop the workflow at its deadline, not at its completion.
+
+    The check ran *after* ``_run_node_traced`` returned, which made it two
+    different wrong things at once: a node that hung never reached the check at
+    all, and a node that SUCCEEDED but overran was converted into a failure and
+    retried — a penalize-slow-success mechanism rather than a deadline.
+    """
+    from caliber.workflows import runtime as runtime_mod
+    from caliber.workflows.ir import IRExecutionPolicy
+
+    released = threading.Event()
+
+    def _slow(*_args: object, **_kwargs: object) -> tuple[int, object]:
+        time.sleep(3.0)
+        released.set()
+        return 0, object()
+
+    monkeypatch.setattr(runtime_mod, "_run_node_traced", _slow)
+
+    node = types.SimpleNamespace(
+        node_id="slow-node",
+        execution_policy=IRExecutionPolicy(timeout_seconds=0.2, max_retries=0),
+    )
+    from caliber.egress import EgressPolicy
+
+    plan = RuntimePlan(
+        egress_policy=EgressPolicy(allow_unresolvable_hosts=True),
+        ir=None,  # type: ignore[arg-type]
+        resolver=None,  # type: ignore[arg-type]
+    )
+
+    started = time.monotonic()
+    with pytest.raises(ToolExecutionError, match="timed out"):
+        runtime_mod._run_node_with_policy(
+            node,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            plan,
+            executor=FakeWorkflowExecutor(),
+            preview=False,
+            inputs={},
+            run_input="go",
+            port_values={},
+            guardrail_results=[],
+        )
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 2.0, f"the deadline did not bound execution: returned after {elapsed:.2f}s"
+    # The orphan is still running. Python cannot kill it; the contract is that
+    # the workflow stops waiting on it.
+    assert not released.is_set()

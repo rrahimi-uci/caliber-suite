@@ -347,3 +347,68 @@ def test_direct_mcp_resource_cannot_hide_write_policy() -> None:
         config=_config(),
     )
     assert any("direct MCP resource cannot deploy" in item for item in blockers)
+
+
+# ---------------------------------------------------------------------------
+# An allowlisted name is not an authorized address
+# ---------------------------------------------------------------------------
+
+
+def test_an_allowlisted_host_resolving_internally_is_blocked(monkeypatch) -> None:
+    """Allowlisting a *name* must not authorize whatever address it points at.
+
+    Workflow HTTP resolves the host and checks the address, because that is the
+    only check SSRF cannot walk around: ``mcp.example.com`` with an A record of
+    169.254.169.254 passes any name-based allowlist. MCP had the allowlist and
+    not the resolution, so the two halves of the product disagreed about what
+    "internal" means.
+    """
+    from caliber import egress as egress_mod
+    from caliber.mcp_policy import execution_readiness
+
+    monkeypatch.setattr(egress_mod, "_resolve_addresses", lambda _host: ["169.254.169.254"])
+
+    server = _server(uri="https://mcp.example.com/sse", transport="streamable-http")
+    config = CaliberConfig(mcp_remote_host_allowlist="mcp.example.com")
+
+    readiness = execution_readiness(server, config=config)
+
+    assert readiness.ready is False
+    assert any("resolves into the blocked" in blocker for blocker in readiness.blockers)
+
+
+def test_an_allowlisted_host_resolving_publicly_is_still_allowed(monkeypatch) -> None:
+    """The check must not break the ordinary case it is protecting."""
+    from caliber import egress as egress_mod
+    from caliber.mcp_policy import execution_readiness
+
+    # 8.8.8.8 rather than a TEST-NET address: Python 3.12+ classifies
+    # 203.0.113.0/24 as private, so the "public" case has to be genuinely public.
+    monkeypatch.setattr(egress_mod, "_resolve_addresses", lambda _host: ["8.8.8.8"])
+
+    server = _server(uri="https://mcp.example.com/sse", transport="streamable-http")
+    config = CaliberConfig(mcp_remote_host_allowlist="mcp.example.com")
+
+    readiness = execution_readiness(server, config=config)
+
+    assert readiness.ready is True, readiness.blockers
+
+
+def test_a_dns_failure_is_not_treated_as_a_verdict(monkeypatch) -> None:
+    """Readiness runs on a request path; a transient DNS blip must not condemn a server.
+
+    The connection-time egress guard is what fails closed. This check exists to
+    catch the configuration that is wrong every time.
+    """
+    from caliber import egress as egress_mod
+    from caliber.mcp_policy import execution_readiness
+
+    def _boom(_host: str) -> list[str]:
+        raise OSError("temporary resolution failure")
+
+    monkeypatch.setattr(egress_mod, "_resolve_addresses", _boom)
+
+    server = _server(uri="https://mcp.example.com/sse", transport="streamable-http")
+    config = CaliberConfig(mcp_remote_host_allowlist="mcp.example.com")
+
+    assert execution_readiness(server, config=config).ready is True

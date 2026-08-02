@@ -66,6 +66,7 @@ from caliber.workflows.manifest import (
     compute_manifest_hash,
     parse_manifest,
 )
+from caliber.workflows.run_events import append_run_event
 from caliber.workflows.run_launch import enqueue_workflow_run
 from caliber.workflows.run_state import (
     RUN_STATUS_CANCELLED,
@@ -214,26 +215,14 @@ def _append_run_event(
     payload: dict[str, Any] | None = None,
     node_id: str | None = None,
 ) -> CaliberWorkflowRunEvent:
-    sequence = (
-        session.execute(
-            select(func.max(CaliberWorkflowRunEvent.sequence)).where(
-                CaliberWorkflowRunEvent.workflow_run_id == workflow_run_id
-            )
-        )
-        .scalars()
-        .first()
-    )
-    event = CaliberWorkflowRunEvent(
+    return append_run_event(
+        session,
         workflow_run_id=workflow_run_id,
         project_id=project_id,
-        sequence=(sequence or 0) + 1,
         event_type=event_type,
-        node_id=node_id,
         payload=payload,
+        node_id=node_id,
     )
-    session.add(event)
-    session.flush()
-    return event
 
 
 def _find_idempotent(

@@ -1670,3 +1670,47 @@ def test_delivery_refuses_to_follow_a_redirect_to_another_host() -> None:
             server.server_close()
 
     assert unauthorized == [], f"the redirect was followed: {unauthorized}"
+
+
+# ---------------------------------------------------------------------------
+# Loss upstream of the dispatcher's own durability
+# ---------------------------------------------------------------------------
+
+
+def test_a_bus_queue_overflow_is_dead_lettered_not_just_logged() -> None:
+    """The one loss this component exists to prevent had no record.
+
+    The bus gives each subscriber a bounded queue and drops on overflow with a
+    log line. That happens *upstream* of every mechanism here — before
+    acceptance, before retry, before the dead-letter table — so a burst could
+    lose a notification with nothing but a warning to show for it, which reads
+    to an operator as "nothing happened".
+    """
+    dispatcher = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://hooks.example/inbound"],
+        secret="topsecret",
+    )
+
+    dispatcher._record_bus_overflow({"type": "approval.promoted", "id": "EV-1"})
+
+    letters = dispatcher.dead_letters()
+    entries = letters["entries"] if isinstance(letters, dict) else letters
+    assert entries, "a bus-level drop must leave a durable record"
+    assert any("bus subscriber queue overflowed" in str(entry) for entry in entries)
+
+
+def test_a_filtered_out_event_dropped_by_the_bus_is_not_dead_lettered() -> None:
+    """Recording drops this dispatcher would never have delivered buries the real ones."""
+    dispatcher = WebhookDispatcher(
+        bus=EventBus(),
+        urls=["https://hooks.example/inbound"],
+        secret="topsecret",
+        event_filter="approval.promoted",
+    )
+
+    dispatcher._record_bus_overflow({"type": "something.unrelated", "id": "EV-2"})
+
+    letters = dispatcher.dead_letters()
+    entries = letters["entries"] if isinstance(letters, dict) else letters
+    assert not entries

@@ -435,3 +435,52 @@ def test_configured_allowlists_report_clean() -> None:
     )
     check = next(c for c in report.checks if c.name == "code_execution_allowlists")
     assert check.ready is True
+
+
+def test_redis_event_backend_is_probed_like_nats(monkeypatch) -> None:
+    """A selected backend is a dependency, so it has to be proven reachable.
+
+    Redis was configurable as an event backend but only NATS was probed, so a
+    deployment pointed at an unreachable Redis reported ready and then dropped
+    every cross-replica event — readiness asserting a capability it had never
+    checked.
+    """
+
+    async def _fail(host: str, port: int, label: str) -> str:
+        del host, port
+        raise ConnectionRefusedError(f"{label} refused")
+
+    monkeypatch.setattr(readiness_mod, "_probe_tcp", _fail)
+    result = _run(
+        config=CaliberConfig(workflow_run_event_backend="redis", redis_url="redis://cache:6379"),
+        session_factory=_working_factory,
+        environ={},
+    )
+
+    bus = next(check for check in result.checks if check.name == "event_bus")
+    assert bus.required is True, "a configured Redis must be required, not skipped"
+    assert bus.ready is False
+    assert result.ready is False
+
+
+def test_an_unconfigured_backend_is_still_skipped() -> None:
+    """The in-process bus has nothing to probe and must not fail readiness."""
+    from caliber.observability.readiness import _plan_event_bus
+
+    plan = _plan_event_bus(CaliberConfig())
+
+    assert plan.check is not None
+    assert plan.check.name == "event_bus"
+
+
+def test_a_redis_url_without_a_port_is_reported_not_ready() -> None:
+    """The malformed-URL branch must name the backend it is talking about."""
+    from caliber.observability.readiness import _plan_event_bus
+
+    plan = _plan_event_bus(
+        CaliberConfig(workflow_run_event_backend="redis", redis_url="redis://no-port-here")
+    )
+
+    assert plan.check is not None
+    assert plan.check.ready is False
+    assert "REDIS" in (plan.check.detail or "")

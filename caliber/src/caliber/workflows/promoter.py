@@ -35,6 +35,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from caliber import deployment_environments
 from caliber.audit import get_redactor
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_VIEWER, CaliberIdentity
@@ -2017,6 +2018,7 @@ def require_alias_target_ready(
     )
     blockers.extend(_managed_file_blockers(session, version, config=config))
     blockers.extend(_host_path_blockers(version, alias=alias, config=config))
+    blockers.extend(_tool_sandbox_blockers(version, alias=alias, config=config))
     if blockers:
         raise AliasPreflightError(
             f"deployment preflight failed for alias {alias!r}: " + "; ".join(blockers),
@@ -2129,6 +2131,70 @@ def _host_path_blockers(
         f"nodes: {', '.join(sorted(offenders))}. Bind a managed project file, or widen "
         f"CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES "
         f"(currently: {allowed})."
+    ]
+
+
+def _tool_sandbox_blockers(
+    version: CaliberWorkflowVersion,
+    *,
+    alias: str,
+    config: CaliberConfig | None,
+) -> list[str]:
+    """Hold registered tools to the isolation bar MCP servers already meet.
+
+    ``mcp_policy.deployment_blockers`` refuses a production-class alias whose MCP
+    dependencies run through the local stdio transport, because that is not an
+    isolation boundary. Registered tool code had no equivalent gate, yet it runs
+    through the same kind of boundary: ``LocalSubprocessToolSandbox`` is a
+    *process* boundary — separate interpreter, empty environment, private working
+    directory, POSIX rlimits — and its own docstring says the child "keeps ambient
+    filesystem and network authority on the host", which is "fine for trusted
+    authors and is not isolation for untrusted ones".
+
+    So the same version could be refused for its MCP dependency and accepted for
+    its Python tool, which is an inconsistency rather than a policy.
+
+    It is **opt-in**, unlike the MCP rule, and the asymmetry is deliberate: MCP
+    servers are a deliberate integration a few deployments configure, while
+    registered tools are ubiquitous. Defaulting this on refused every existing
+    prod promotion that uses a tool — 8 tests caught exactly that — which is a
+    migration, not a gate. So
+    ``CALIBER_TOOL_SANDBOX_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES``
+    starts empty and a deployment whose authors are not as trusted as its
+    operators turns it on, satisfying it the same way MCP does: point
+    ``CALIBER_TOOL_SANDBOX_BACKEND`` at a factory supplying OS-enforced isolation.
+    """
+    resolved = config or CaliberConfig()
+    raw = str(
+        getattr(resolved, "tool_sandbox_require_external_isolation_for_environment_classes", "")
+        or ""
+    )
+    required = {item.strip().casefold() for item in raw.split(",") if item.strip()}
+    if not required or deployment_environments.environment_class(alias, config) not in required:
+        return []
+    if str(getattr(resolved, "tool_sandbox_backend", "") or "").strip():
+        return []  # an operator-supplied backend is the attested boundary
+    if not getattr(resolved, "registered_tool_sandbox_enabled", True):
+        return [
+            f"alias {alias!r} requires an isolation boundary for tool execution, but "
+            f"CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED is false"
+        ]
+
+    manifest_dict = version.manifest or {}
+    try:
+        manifest = parse_manifest(manifest_dict)
+    except Exception as exc:
+        return [f"version {version.version_id!r} manifest is not parseable: {exc}"]
+    if not manifest.tools:
+        return []
+
+    klass = deployment_environments.environment_class(alias, config)
+    return [
+        f"alias {alias!r} is {klass}-class and its registered tools would run in the "
+        f"shipped subprocess sandbox, which is a process boundary rather than "
+        f"OS-enforced isolation. Point CALIBER_TOOL_SANDBOX_BACKEND at an isolating "
+        f"backend, or narrow CALIBER_TOOL_SANDBOX_REQUIRE_EXTERNAL_ISOLATION_FOR_"
+        f"ENVIRONMENT_CLASSES."
     ]
 
 
