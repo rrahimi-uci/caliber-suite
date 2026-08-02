@@ -159,3 +159,47 @@ def test_reset_clears_unlabeled_histogram() -> None:
     metrics.reset_metrics_for_test()
     body = metrics.render().decode()
     assert "caliber_workflow_compile_seconds_count 0.0" in body
+
+
+# ---------------------------------------------------------------------------
+# Opt-in scrape token
+# ---------------------------------------------------------------------------
+
+
+def test_metrics_stays_open_when_no_token_is_configured(client: TestClient) -> None:
+    """The default must not break existing Prometheus scrape configs on upgrade."""
+    assert client.get(METRICS_PATH).status_code == 200
+
+
+def test_metrics_requires_the_token_when_one_is_configured(
+    app_config, engine, session_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a token configured, an unauthenticated scrape is refused.
+
+    ``/metrics`` exposes queue depths, request rates, and token/cost rollups, so
+    an open endpoint discloses workload and spend. It could not simply be closed
+    by default — a Prometheus scrape config cannot carry a session cookie — so
+    the gate is opt-in, and this proves that when opted into it actually gates.
+    """
+    from caliber.server import create_app
+
+    monkeypatch.setenv("METRICS_SCRAPE_TOKEN", "s3cret-scrape")
+    config = app_config.model_copy(update={"metrics_token_env": "METRICS_SCRAPE_TOKEN"})
+    app = create_app(config=config)
+    app.state.engine = engine
+    app.state.session_factory = session_factory
+
+    with TestClient(app, headers={"X-CALIBER-User": "@admin"}) as gated:
+        assert gated.get(METRICS_PATH).status_code == 401
+        # Right token, wrong scheme.
+        assert (
+            gated.get(METRICS_PATH, headers={"Authorization": "Basic s3cret-scrape"}).status_code
+            == 401
+        )
+        assert (
+            gated.get(METRICS_PATH, headers={"Authorization": "Bearer wrong"}).status_code == 401
+        )
+
+        ok = gated.get(METRICS_PATH, headers={"Authorization": "Bearer s3cret-scrape"})
+        assert ok.status_code == 200
+        assert "caliber" in ok.text

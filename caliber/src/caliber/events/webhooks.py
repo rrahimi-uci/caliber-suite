@@ -617,7 +617,15 @@ class WebhookDispatcher:
         doesn't expose that method, even though the actual return type
         of ``bus.subscribe`` is the wider generator.
         """
-        subscription: AsyncGenerator[dict[str, Any], None] = self._bus.subscribe()  # type: ignore[assignment]
+        # Record what the *bus* sheds, not just what this dispatcher's own queue
+        # sheds. The bus gives each subscriber a bounded queue and drops on
+        # overflow with a log line, so an event could be lost upstream of every
+        # durability mechanism here — before acceptance, before retry, before the
+        # dead-letter table. That is the one loss this component exists to make
+        # impossible, and it was the only one with no record.
+        subscription: AsyncGenerator[dict[str, Any], None] = self._bus.subscribe(  # type: ignore[assignment]
+            on_drop=self._record_bus_overflow
+        )
         try:
             async for event in subscription:
                 if self._stopped.is_set():
@@ -678,6 +686,25 @@ class WebhookDispatcher:
                     kind=KIND_OVERFLOW,
                     attempts=0,
                 )
+
+    def _record_bus_overflow(self, event: dict[str, Any]) -> None:
+        """Dead-letter an event the bus dropped before this dispatcher saw it.
+
+        Runs on the subscriber's event loop from ``_safe_put``. Only events this
+        dispatcher would actually have delivered are recorded — an overflow of a
+        filtered-out event is not a lost notification, and recording it would
+        bury the real ones.
+        """
+        if not self._should_dispatch(event):
+            return
+        for url in self._urls:
+            self._record_dead_letter(
+                url,
+                event,
+                "event bus subscriber queue overflowed before delivery was attempted",
+                kind=KIND_OVERFLOW,
+                attempts=0,
+            )
 
     def _accepted_row_id(
         self,

@@ -1229,6 +1229,16 @@ class CaliberConfig(BaseModel):
             "for a deployment whose authors are as trusted as its operators."
         ),
     )
+    metrics_token_env: str = Field(
+        default="",
+        description=(
+            "Name of the secret source holding a bearer token that GET /metrics "
+            "requires. Accepts an env-var name or a caliber.secrets URI, like the "
+            "CSRF signing secret. Empty (the default) leaves /metrics open, which "
+            "preserves existing Prometheus scrape configs on upgrade and is only "
+            "safe behind a network policy that keeps the endpoint internal."
+        ),
+    )
     workflow_file_root: str = Field(
         default="",
         description=(
@@ -1870,6 +1880,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_ASSISTANT_TOOL_SOURCE_MAX_BYTES", "assistant_tool_source_max_bytes", int),
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
     ("CALIBER_WORKFLOW_FILE_ROOT", "workflow_file_root", str),
+    ("CALIBER_METRICS_TOKEN_ENV", "metrics_token_env", str),
     (
         "CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES",
         "workflow_host_path_nodes_allowed_environment_classes",

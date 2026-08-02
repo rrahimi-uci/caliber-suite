@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 logger = logging.getLogger("caliber.events.bus")
@@ -42,9 +42,14 @@ class EventBus:
         # (the worker dispatches its body via ``asyncio.to_thread``), so
         # we must hop back to the queue's owning loop before touching it
         # — ``asyncio.Queue.put_nowait`` is not thread-safe.
-        self._subscribers: set[tuple[asyncio.Queue[dict[str, Any]], asyncio.AbstractEventLoop]] = (
-            set()
-        )
+        # The third element is an optional overflow reporter — see ``subscribe``.
+        self._subscribers: set[
+            tuple[
+                asyncio.Queue[dict[str, Any]],
+                asyncio.AbstractEventLoop,
+                Callable[[dict[str, Any]], None] | None,
+            ]
+        ] = set()
 
     def subscriber_count(self) -> int:
         """Return the number of active subscribers. Useful for tests + metrics."""
@@ -64,9 +69,9 @@ class EventBus:
         """
         if not self._subscribers:
             return
-        for queue, loop in list(self._subscribers):
+        for queue, loop, on_drop in list(self._subscribers):
             try:
-                loop.call_soon_threadsafe(_safe_put, queue, event)
+                loop.call_soon_threadsafe(_safe_put, queue, event, on_drop)
             except RuntimeError:
                 # Loop was closed between subscribe and publish — drop
                 # the subscription on the next subscribe iteration's
@@ -76,17 +81,24 @@ class EventBus:
                     event.get("type"),
                 )
 
-    async def subscribe(self) -> AsyncIterator[dict[str, Any]]:
+    async def subscribe(
+        self, *, on_drop: Callable[[dict[str, Any]], None] | None = None
+    ) -> AsyncIterator[dict[str, Any]]:
         """Yield events for one subscriber.
 
         The async iterator is intentionally unbounded — the SSE endpoint
         cancels its task when the client disconnects, and the ``finally``
         block here removes the queue from the subscriber set so the bus
         doesn't leak.
+
+        ``on_drop`` is invoked with any event this subscriber's bounded queue
+        could not accept. A UI stream can ignore an overflow — the next frame
+        supersedes it — but a subscriber that promises delivery cannot, and
+        needs the drop as a record rather than a log line.
         """
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_MAX)
         loop = asyncio.get_running_loop()
-        entry = (queue, loop)
+        entry = (queue, loop, on_drop)
         self._subscribers.add(entry)
         try:
             while True:
@@ -95,12 +107,21 @@ class EventBus:
             self._subscribers.discard(entry)
 
 
-def _safe_put(queue: asyncio.Queue[dict[str, Any]], event: dict[str, Any]) -> None:
+def _safe_put(
+    queue: asyncio.Queue[dict[str, Any]],
+    event: dict[str, Any],
+    on_drop: Callable[[dict[str, Any]], None] | None = None,
+) -> None:
     """Enqueue ``event`` onto ``queue`` from the queue's owning loop.
 
     Scheduled via ``call_soon_threadsafe`` from :meth:`EventBus.publish`.
-    Bounded-queue overflow is downgraded to a warning so a slow SSE
-    consumer can't break unrelated subscribers.
+    Bounded-queue overflow does not break unrelated subscribers — but a warning
+    in a log is not a record. A subscriber that needs to know it lost something
+    (the webhook dispatcher, whose whole contract is "we will tell you") passes
+    ``on_drop`` and turns the drop into a durable dead letter.
+
+    ``on_drop`` failures are swallowed: an overflow handler that raised would
+    take down the publish path it was added to make observable.
     """
     try:
         queue.put_nowait(event)
@@ -109,3 +130,8 @@ def _safe_put(queue: asyncio.Queue[dict[str, Any]], event: dict[str, Any]) -> No
             "event bus subscriber queue full; dropping event of type=%r",
             event.get("type"),
         )
+        if on_drop is not None:
+            try:
+                on_drop(event)
+            except Exception:
+                logger.exception("event bus drop handler failed")
