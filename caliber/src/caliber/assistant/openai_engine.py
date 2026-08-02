@@ -20,6 +20,7 @@ from caliber.assistant.models import (
     DraftDelta,
 )
 from caliber.assistant.prompt_builder import build_assistant_system_prompt
+from caliber.config import provider_request_timeout
 from caliber.llm.models import is_reasoning_model
 
 if TYPE_CHECKING:
@@ -80,7 +81,7 @@ class OpenAIAssistantEngine:
                 error="openai package not installed",
             )
 
-        client = OpenAI(api_key=self._api_key)
+        client = OpenAI(api_key=self._api_key, timeout=provider_request_timeout())
 
         system_prompt = self._build_system_prompt(request)
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]

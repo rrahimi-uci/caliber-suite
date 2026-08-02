@@ -14,11 +14,17 @@ defaults, approval-policy defaults, observability sinks) so the import path
 from __future__ import annotations
 
 import os
-from typing import Any, Literal
+from collections.abc import Mapping
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from caliber.db_url import normalize_database_url
+
+#: Shipped ceiling for one LLM provider HTTP request. Referenced by both the
+#: ``CaliberConfig`` field and :func:`provider_request_timeout` so the default
+#: has exactly one definition.
+_PROVIDER_REQUEST_TIMEOUT_DEFAULT: Final[float] = 120.0
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 LogSink = Literal["stderr", "s3"]
@@ -977,6 +983,17 @@ class CaliberConfig(BaseModel):
     assistant_publish_requires_approval: bool = Field(default=True)
     assistant_tool_source_max_bytes: int = Field(default=200_000, ge=1)
     assistant_run_timeout_seconds: float = Field(default=60.0, gt=0)
+    provider_request_timeout_seconds: float = Field(
+        default=_PROVIDER_REQUEST_TIMEOUT_DEFAULT,
+        gt=0,
+        description=(
+            "Wall-clock ceiling for a single LLM provider HTTP request, applied to "
+            "the OpenAI and Anthropic clients the workflow runtime and Aria build. "
+            "Without it the SDK defaults govern — openai ships a 600s read timeout "
+            "with 2 automatic retries, so one model call could hold a worker for "
+            "half an hour and no CALIBER-side deadline would be reached."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # Tool sandbox
@@ -1837,6 +1854,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ),
     ("CALIBER_ASSISTANT_TOOL_SOURCE_MAX_BYTES", "assistant_tool_source_max_bytes", int),
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
+    (
+        "CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS",
+        "provider_request_timeout_seconds",
+        float,
+    ),
     ("CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED", "registered_tool_sandbox_enabled", _flag),
     ("CALIBER_TOOL_SANDBOX_TIMEOUT_SECONDS", "tool_sandbox_timeout_seconds", float),
     (
@@ -2013,3 +2035,29 @@ _RETENTION_ENV_TABLE: list[tuple[str, str, Any]] = [
 
 class ConfigError(Exception):
     """Raised when ``CALIBER_*`` environment variables fail validation."""
+
+
+def provider_request_timeout(environ: Mapping[str, str] | None = None) -> float:
+    """Resolve the per-request LLM provider timeout for a leaf client construction.
+
+    The workflow executors and the Aria engines build their OpenAI/Anthropic
+    clients deep inside a call path that never receives a ``CaliberConfig``, and
+    threading one through purely to carry a float would touch five constructors
+    and their callers. This reads the same environment variable the config field
+    maps, and falls back to the same default, so an operator sets one variable and
+    both paths agree.
+
+    Never raises: a malformed or non-positive value falls back to the default
+    rather than failing a run, because the point of this value is to *bound* a
+    call, and refusing to start over a typo in a safety margin would be worse
+    than applying the shipped bound.
+    """
+    source = os.environ if environ is None else environ
+    raw = str(source.get("CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS", "")).strip()
+    if not raw:
+        return _PROVIDER_REQUEST_TIMEOUT_DEFAULT
+    try:
+        value = float(raw)
+    except ValueError:
+        return _PROVIDER_REQUEST_TIMEOUT_DEFAULT
+    return value if value > 0 else _PROVIDER_REQUEST_TIMEOUT_DEFAULT

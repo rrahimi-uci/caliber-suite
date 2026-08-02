@@ -7,6 +7,7 @@ import types
 
 from caliber.assistant.anthropic_engine import AnthropicAssistantEngine
 from caliber.assistant.models import AssistantTurnRequest
+from caliber.config import provider_request_timeout
 
 
 def turn_request() -> AssistantTurnRequest:
@@ -51,8 +52,12 @@ def test_run_turn_sends_normalized_messages_and_parses_json(monkeypatch) -> None
             )
 
     class FakeAnthropic:
-        def __init__(self, *, api_key: str) -> None:
+        def __init__(self, *, api_key: str, timeout: float | None = None) -> None:
             calls["api_key"] = api_key
+            # Recorded so the bound is asserted, not merely tolerated: an
+            # unbounded provider call can hold a worker far past any
+            # CALIBER-side deadline.
+            calls["timeout"] = timeout
             self.messages = FakeMessages()
 
     monkeypatch.setitem(
@@ -66,6 +71,10 @@ def test_run_turn_sends_normalized_messages_and_parses_json(monkeypatch) -> None
     )
 
     assert calls["api_key"] == "secret"
+    # Every provider call carries a wall-clock ceiling. Without one the SDK
+    # default governs and a hung provider holds a worker far past any
+    # CALIBER-side deadline.
+    assert calls["timeout"] == provider_request_timeout()
     assert calls["model"] == "claude-test"
     assert calls["messages"] == [
         {"role": "user", "content": "normalize me"},
@@ -83,7 +92,7 @@ def test_run_turn_returns_api_errors(monkeypatch) -> None:
             raise RuntimeError("provider unavailable")
 
     class FakeAnthropic:
-        def __init__(self, *, api_key: str) -> None:
+        def __init__(self, *, api_key: str, timeout: float | None = None) -> None:
             self.messages = FailingMessages()
 
     monkeypatch.setitem(
@@ -123,7 +132,7 @@ def test_run_turn_tool_use_loop(monkeypatch) -> None:
             )
 
     class FakeAnthropic:
-        def __init__(self, *, api_key: str) -> None:
+        def __init__(self, *, api_key: str, timeout: float | None = None) -> None:
             self.messages = FakeMessages()
 
     monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(Anthropic=FakeAnthropic))
