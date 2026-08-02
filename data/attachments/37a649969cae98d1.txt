@@ -1,0 +1,7 @@
+{"t":"2026-08-02T05:53:36.459Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-02T05:53:36.469Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-02T05:53:36.471Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-02T05:53:36.472Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-02T05:53:36.562Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-08-02T05:53:36.867Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-02T05:53:36.882Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-79e82cbf/calibrate \"HTTP/1.1 404 Not Found\""}

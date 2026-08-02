@@ -1,0 +1,45 @@
+{"t":"2026-08-02T05:37:33.705Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-02T05:37:33.715Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-02T05:37:33.718Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-02T05:37:33.719Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-02T05:37:33.811Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-0' from testclient","trace_id":"c398a74188e86111"}
+{"t":"2026-08-02T05:37:33.813Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.815Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-1' from testclient","trace_id":"655aebce2d00ebf3"}
+{"t":"2026-08-02T05:37:33.816Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.818Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-2' from testclient","trace_id":"4ace8066d76bcc6c"}
+{"t":"2026-08-02T05:37:33.819Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.821Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-3' from testclient","trace_id":"e06b31393a2cb04f"}
+{"t":"2026-08-02T05:37:33.822Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.824Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-4' from testclient","trace_id":"4c3e0cdd087ea663"}
+{"t":"2026-08-02T05:37:33.826Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.828Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-5' from testclient","trace_id":"d4ec47442e22a59a"}
+{"t":"2026-08-02T05:37:33.829Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.831Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-6' from testclient","trace_id":"b89623dab7f20106"}
+{"t":"2026-08-02T05:37:33.832Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.833Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-7' from testclient","trace_id":"3b5f1901a82873d5"}
+{"t":"2026-08-02T05:37:33.835Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.837Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-8' from testclient","trace_id":"c25a4be5632a09ef"}
+{"t":"2026-08-02T05:37:33.838Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.840Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-9' from testclient","trace_id":"093caea407752562"}
+{"t":"2026-08-02T05:37:33.841Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.842Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-10' from testclient","trace_id":"5e9bb84ee3669c12"}
+{"t":"2026-08-02T05:37:33.843Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.845Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-11' from testclient","trace_id":"7a6a1f3dab2e1edd"}
+{"t":"2026-08-02T05:37:33.846Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.848Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-12' from testclient","trace_id":"8aba0036249c05eb"}
+{"t":"2026-08-02T05:37:33.849Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.851Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-13' from testclient","trace_id":"ac01778a2e6ddb03"}
+{"t":"2026-08-02T05:37:33.852Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.854Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-14' from testclient","trace_id":"5bf3d37451691df4"}
+{"t":"2026-08-02T05:37:33.855Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.857Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-15' from testclient","trace_id":"279d9814610599b6"}
+{"t":"2026-08-02T05:37:33.858Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.859Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-16' from testclient","trace_id":"34d7f12ed581a886"}
+{"t":"2026-08-02T05:37:33.860Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.865Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-17' from testclient","trace_id":"6bdc1a05fa7df01e"}
+{"t":"2026-08-02T05:37:33.867Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.869Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-18' from testclient","trace_id":"d3c4264c61300cf4"}
+{"t":"2026-08-02T05:37:33.870Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.872Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@spray-19' from testclient","trace_id":"3012b7803f025b4f"}
+{"t":"2026-08-02T05:37:33.873Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-08-02T05:37:33.875Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 429 Too Many Requests\""}
