@@ -10,6 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { WORKSPACE_CHANGED_EVENT } from "@/workspace/activeWorkspace";
+
 import { ApiError } from "@/api/caliberApi";
 
 export interface UseApiState<T> {
@@ -93,6 +95,28 @@ export function useApi<T>(
 
   const refresh = useCallback(() => {
     setTick((n) => n + 1);
+  }, []);
+
+  // Refetch when the active workspace changes.
+  //
+  // `WorkspaceSelector` dispatches WORKSPACE_CHANGED_EVENT and invalidates the
+  // TanStack Query cache, but this hook is a second, independent data layer and
+  // the event had **no listeners anywhere in the app**. So a switch invalidated
+  // half the application: TanStack-backed views refetched while every `useApi`
+  // call site kept rendering the previous project's rows, and the next action
+  // taken from those rows carried the new project header. Stale data is bad;
+  // stale data that is acted on under a different scope is the actual defect.
+  //
+  // Reusing `tick` rather than adding a parallel path means the refetch races
+  // with an in-flight call exactly the way `refresh()` already does — the
+  // AbortController above resolves to the newer result.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onWorkspaceChanged = (): void => setTick((n) => n + 1);
+    window.addEventListener(WORKSPACE_CHANGED_EVENT, onWorkspaceChanged);
+    return () => {
+      window.removeEventListener(WORKSPACE_CHANGED_EVENT, onWorkspaceChanged);
+    };
   }, []);
 
   return { data, error, loading, refresh };

@@ -52,6 +52,7 @@ EXECUTE_PATH = "/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute"
 POLL_PATH = "/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/poll"
 INTERACTIONS_PATH = "/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/interactions"
 ANSWER_PATH = "/ajax-api/2.0/mlflow/caliber/aria/interactions/{interaction_id}/answer"
+CAPABILITIES_PATH = "/ajax-api/2.0/mlflow/caliber/aria/capabilities"
 
 _service = PlanService()
 _executor = PlanExecutor(_service)
@@ -259,6 +260,43 @@ async def answer_interaction(request: Request) -> JSONResponse:
     return envelope_response_dict(result)
 
 
+
+
+async def list_capabilities(request: Request) -> JSONResponse:
+    """``GET /caliber/aria/capabilities`` — what Aria can actually execute.
+
+    The drafting UI is broad and the executable registry is not: seven built-ins.
+    Nothing surfaced that number, so the envelope a user infers from the panel is
+    wider than the one the product implements — which is the same
+    claim-exceeds-behaviour pattern this codebase has been removing elsewhere,
+    just pointed at the user instead of the operator.
+
+    Read-only and unfiltered by scope on purpose. This is a description of the
+    product's capability surface, not an authorization decision; a viewer asking
+    "what could this do?" should get the honest answer, and the capability's own
+    ``required_scopes`` travels with it so the UI can show what the caller may
+    actually invoke.
+    """
+    require_user(request)
+    from caliber.assistant.capabilities import registered_capabilities  # noqa: PLC0415
+
+    capabilities = [
+        {
+            "key": capability.key,
+            "title": capability.title,
+            "description": capability.description,
+            "tier": capability.tier,
+            "required_scopes": list(capability.required_scopes),
+            "input_schema": {
+                "properties": dict(capability.properties),
+                "required": list(capability.required),
+            },
+        }
+        for capability in sorted(registered_capabilities(), key=lambda item: item.key)
+    ]
+    return envelope_response_dict({"capabilities": capabilities, "count": len(capabilities)})
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(LIST_PATH, list_plans, methods=["GET"]))
     app.routes.append(Route(LIST_PATH, create_plan, methods=["POST"]))
@@ -269,3 +307,4 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(POLL_PATH, poll_plan, methods=["POST"]))
     app.routes.append(Route(INTERACTIONS_PATH, list_interactions, methods=["GET"]))
     app.routes.append(Route(ANSWER_PATH, answer_interaction, methods=["POST"]))
+    app.routes.append(Route(CAPABILITIES_PATH, list_capabilities, methods=["GET"]))
