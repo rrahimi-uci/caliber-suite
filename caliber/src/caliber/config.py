@@ -1239,6 +1239,19 @@ class CaliberConfig(BaseModel):
             "safe behind a network policy that keeps the endpoint internal."
         ),
     )
+    tool_sandbox_require_external_isolation_for_environment_classes: str = Field(
+        default="",
+        description=(
+            "Comma-separated environment classes (production/staging/development) whose "
+            "deployments refuse registered tools unless CALIBER_TOOL_SANDBOX_BACKEND "
+            "supplies an OS-enforced isolation boundary. Empty (the default) never "
+            "refuses, because the shipped subprocess sandbox is the right boundary for "
+            "trusted authors and requiring a backend by default would break every "
+            "existing promotion. Set it where workflow authors are not as trusted as "
+            "operators — the same bar CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_"
+            "ENVIRONMENT_CLASSES applies to MCP servers."
+        ),
+    )
     workflow_file_root: str = Field(
         default="",
         description=(
@@ -1881,6 +1894,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
     ("CALIBER_WORKFLOW_FILE_ROOT", "workflow_file_root", str),
     ("CALIBER_METRICS_TOKEN_ENV", "metrics_token_env", str),
+    (
+        "CALIBER_TOOL_SANDBOX_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES",
+        "tool_sandbox_require_external_isolation_for_environment_classes",
+        str,
+    ),
     (
         "CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES",
         "workflow_host_path_nodes_allowed_environment_classes",

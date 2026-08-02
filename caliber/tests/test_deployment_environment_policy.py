@@ -753,3 +753,115 @@ def test_managed_file_input_is_not_refused_by_the_host_path_gate(db_session: Ses
         config=CaliberConfig(),
     )
     assert blockers == []
+
+
+# ---------------------------------------------------------------------------
+# Registered tools meet the same isolation bar as MCP servers
+# ---------------------------------------------------------------------------
+
+
+def _tool_version(db_session: Session, version_id: str) -> None:
+    workflow = CaliberWorkflow(
+        workflow_id=f"wf-{version_id}", project_id=None, name="Tools", owner="@test"
+    )
+    db_session.add(workflow)
+    manifest = make_manifest(f"wf-{version_id}")
+    manifest["tools"] = {
+        "lookup": {"registry_ref": "tool.lookup.v1", "version_constraint": ">=1"}
+    }
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id=version_id,
+            workflow_id=f"wf-{version_id}",
+            version_number=1,
+            status="published",
+            manifest=manifest,
+            manifest_hash=f"hash-{version_id}",
+        )
+    )
+    db_session.flush()
+
+
+def test_production_refuses_registered_tools_without_an_isolating_backend(
+    db_session: Session,
+) -> None:
+    """The same version was refused for its MCP server and accepted for its tool.
+
+    ``LocalSubprocessToolSandbox`` is a process boundary — its own docstring says
+    the child keeps ambient filesystem and network authority — so gating MCP on
+    external isolation while letting tool code through was an inconsistency
+    rather than a policy.
+    """
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _tool_version(db_session, "wfv-tools-prod")
+
+    config = CaliberConfig(
+        tool_sandbox_require_external_isolation_for_environment_classes="production"
+    )
+    with pytest.raises(AliasPreflightError) as excinfo:
+        require_alias_target_ready(db_session, "prod", "wfv-tools-prod", config=config)
+
+    assert any("OS-enforced isolation" in blocker for blocker in excinfo.value.blockers)
+
+
+def test_an_operator_supplied_backend_satisfies_the_gate(db_session: Session) -> None:
+    """Pointing at an isolating backend is how the gate is meant to be cleared."""
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _tool_version(db_session, "wfv-tools-backend")
+    config = CaliberConfig(
+        tool_sandbox_backend="acme.sandboxes:docker_factory",
+        tool_sandbox_require_external_isolation_for_environment_classes="production",
+    )
+
+    require_alias_target_ready(db_session, "prod", "wfv-tools-backend", config=config)
+
+
+def test_development_still_deploys_registered_tools(db_session: Session) -> None:
+    """The shipped sandbox remains the right boundary for trusted authors."""
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _tool_version(db_session, "wfv-tools-dev")
+    config = CaliberConfig(
+        tool_sandbox_require_external_isolation_for_environment_classes="production"
+    )
+
+    require_alias_target_ready(db_session, "dev", "wfv-tools-dev", config=config)
+
+
+def test_a_version_with_no_tools_is_unaffected(db_session: Session) -> None:
+    """The gate must only fire for versions that actually execute tool code."""
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    workflow = CaliberWorkflow(
+        workflow_id="wf-no-tools", project_id=None, name="None", owner="@test"
+    )
+    db_session.add(workflow)
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="wfv-no-tools",
+            workflow_id="wf-no-tools",
+            version_number=1,
+            status="published",
+            manifest=make_manifest("wf-no-tools"),
+            manifest_hash="hash-no-tools",
+        )
+    )
+    db_session.flush()
+
+    require_alias_target_ready(db_session, "prod", "wfv-no-tools", config=CaliberConfig())
+
+
+def test_the_sandbox_gate_is_off_by_default(db_session: Session) -> None:
+    """Shipped behaviour must be unchanged: this is hardening, not a migration.
+
+    Requiring an isolating backend by default refused every existing prod
+    promotion that uses a registered tool. MCP can be strict because it is a
+    deliberate integration; tools are ubiquitous.
+    """
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _tool_version(db_session, "wfv-tools-default")
+
+    require_alias_target_ready(db_session, "prod", "wfv-tools-default", config=CaliberConfig())
