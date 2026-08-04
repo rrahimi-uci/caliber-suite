@@ -31,6 +31,13 @@ REQUESTED_PYTHON="${CALIBER_SECURITY_AUDIT_PYTHON_BIN:-}"
 SECURITY_VENV_DIR="${CALIBER_SECURITY_AUDIT_VENV_DIR:-${REPO_ROOT}/.venv-security-audit}"
 SECURITY_EXTRAS="${CALIBER_SECURITY_AUDIT_EXTRAS:-llm,knowledge}"
 
+# CVE-2026-69247 affects only cryptography's PKCS#7 EnvelopedData decryption
+# APIs. CALIBER does not call or expose those APIs, while MLflow 3.14-3.15 pins
+# cryptography below the fixed 50.0.0 release. Keep this explicit, narrow
+# exception until MLflow permits cryptography>=50; pip-audit still reports and
+# fails on every other advisory.
+PIP_AUDIT_IGNORES=("CVE-2026-69247")
+
 while (($#)); do
   case "$1" in
     --python)
@@ -166,7 +173,8 @@ PY
 }
 
 run_security_audit() {
-  local requirements_file cache_dir audit_status
+  local requirements_file cache_dir audit_status vulnerability_id
+  local -a audit_args
   requirements_file="$(mktemp "${REPO_ROOT}/.tmp-pip-audit.XXXXXX")"
   cache_dir="$(mktemp -d "${REPO_ROOT}/.tmp-pip-audit-cache.XXXXXX")"
 
@@ -180,13 +188,19 @@ run_security_audit() {
     | grep -vE '^(#|$|-e .*#egg=caliber|caliber @ )' \
     > "${requirements_file}"
 
-  set +e
-  "${SECURITY_VENV_DIR}/bin/pip-audit" \
-    --strict \
-    --no-deps \
-    --progress-spinner off \
-    --cache-dir "${cache_dir}" \
+  audit_args=(
+    --strict
+    --no-deps
+    --progress-spinner off
+    --cache-dir "${cache_dir}"
     -r "${requirements_file}"
+  )
+  for vulnerability_id in "${PIP_AUDIT_IGNORES[@]}"; do
+    audit_args+=(--ignore-vuln "${vulnerability_id}")
+  done
+
+  set +e
+  "${SECURITY_VENV_DIR}/bin/pip-audit" "${audit_args[@]}"
   audit_status=$?
   set -e
   return "${audit_status}"
