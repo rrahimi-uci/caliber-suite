@@ -1,0 +1,13 @@
+INFO     caliber:server.py:394 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:236 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:639 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-69313e8b/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-aa646cb0/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-69313e8b/deployments/prod/promote "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-promotions/WPR-3b5465da/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1090 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-promotions/WPR-3b5465da/reject "HTTP/1.1 409 Conflict"
