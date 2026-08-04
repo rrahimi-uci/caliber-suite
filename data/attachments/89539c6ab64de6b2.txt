@@ -1,0 +1,1 @@
+{"t":"2026-08-04T16:02:49.480Z","severity":"WARNING","logger":"caliber.eval.predict","message":"eval default predict_fn wanted a openai key at 'X' but none resolved; register a per-agent predict_fn or set the key."}
