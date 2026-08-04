@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:e2e:cookbooks": "playwright test --config=playwright.cookbooks.config.ts",
     "test:e2e:docs": "CALIBER_E2E_USE_EXISTING_SERVER=1 CALIBER_E2E_BASE_URL=http://127.0.0.1:5001/caliber playwright test e2e/docs.spec.ts",
     "test:e2e:workflow-platform": "playwright test e2e/build-workflows.spec.ts e2e/workflow-studio.spec.ts e2e/knowledge-bases.spec.ts",
     "test:e2e:age": "CALIBER_E2E_USE_EXISTING_SERVER=1 CALIBER_E2E_BASE_URL=http://127.0.0.1:5001/caliber CALIBER_EXPECT_AGE=1 playwright test e2e/knowledge-bases.spec.ts --grep @age",
