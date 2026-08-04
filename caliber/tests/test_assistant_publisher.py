@@ -123,7 +123,7 @@ class TestPublishPrompt:
             fake_set_prompt_alias_version,
         )
         monkeypatch.setattr(
-            "caliber.routes.prompts._load_prompt_info",
+            "caliber.routes.prompts._load_prompt_release_info",
             lambda name, alias: {"artifact_ref": f"prompts:/{name}@{alias}", "version": 2},
         )
 

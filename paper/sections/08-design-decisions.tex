@@ -1,0 +1,103 @@
+\section{Design Decisions}
+\label{sec:design}
+
+\input{tab-decisions}
+
+\tabref{tab:decisions} records \statDecisions{} decisions, each with the
+alternative it displaced and the price it charges. This section expands the four
+that are most contestable, on the principle that a design record is only useful if
+a reader can disagree with a specific decision rather than with the system as a
+whole.
+
+\subsection{D1: reuse \mlflow{} rather than owning the substrate}
+
+Building \sys's own trace store and prompt registry would have produced uniform
+semantics, one migration history, and one transaction domain --- which would have
+eliminated the dual-write boundaries of \figref{fig:dataflow} outright. That is a
+real architectural benefit and we gave it up.
+
+The reason is that the alternative competes with a mature system for no governance
+gain. \mlflow{} already provides experiment tracking, trace storage, assessments, a
+prompt registry with alias semantics, an artifact store, a dataset registry, and
+evaluation entry points~\cite{zaharia2018mlflow}. A team adopting \sys almost
+certainly already runs it. Reimplementing that surface would have consumed the
+engineering budget that the release path needed, and would have forced adopters to
+migrate trace history to gain governance --- a trade few would accept.
+
+The price is precisely stated in \secref{sec:components}: the audit guarantee holds
+for database-resident mutations and not across the \mlflow{} boundary. We consider
+a narrow checkable guarantee plus an explicitly named reconciliation boundary
+better than a broad guarantee that quietly does not hold, but a reader who weights
+uniform atomicity more heavily than adoption cost would reasonably choose
+differently.
+
+\subsection{D4: a human at \mode{Apply}, always}
+
+This is the decision most likely to be contested, since the obvious research
+direction is to close the loop fully, and the machinery to do so already exists ---
+the gate produces a decision and the promoter can act on it.
+
+We keep the human for three reasons. First, a score improvement on an assembled
+corpus is evidence about that corpus, and the corpus is a sample assembled from
+\emph{prior} failures; the failure modes that matter most in agent systems --- tool
+misuse, over-confident assertion, injection reached through retrieved
+content~\cite{greshake2023injection} --- are the ones such a corpus is least likely
+to represent. Second, judges are correlated with each other and with the model under
+evaluation~\cite{zheng2023judging}, so a multi-dimensional pass is less independent
+evidence than its dimensionality suggests. Third, and most decisively for a control
+plane: an auto-apply threshold converts a visible, attributable change into an
+invisible one. The value \sys provides is that a change is reviewable; a change
+nobody reviewed is one nobody can be asked about.
+
+The price is real and we do not minimize it: throughput is bounded by operator
+attention. If a fleet generates fifty candidates a day, \sys's design implies fifty
+reviews. \secref{sec:future} describes the two conditions under which we would
+revisit this --- calibrated per-family confidence, and evidence that the judges
+generalize off-corpus --- rather than treating the position as permanent.
+
+\subsection{D5: database-arbitrated queues, no worker tier}
+
+A broker with dedicated workers is the conventional choice and has real advantages:
+independent scaling of queue capacity, mature backpressure, and operational
+familiarity. We chose claim-and-lease columns on relational rows instead.
+
+The argument is that a broker introduces a second source of truth about job state.
+When the broker says a job is in flight and the database says it is queued, the
+resulting split-brain is an operational failure that requires reconciliation
+tooling to diagnose. Claim columns make the database the single arbiter: a consumer
+claims a row atomically, holds a lease, and heartbeats; the janitor reaps expired
+leases. This is the transactional-outbox and lease pattern rather than a novel
+mechanism~\cite{kleppmann2017ddia}, and it yields one deployable with no
+split-brain.
+
+The price appears in two places. Loop capacity is coupled to request capacity,
+because they share a process --- a burst of queued work competes with request
+serving for the same resources. And every process runs its own loops, which is what
+makes the in-memory limiters per-process (\secref{sec:exec}). A deployment that
+needs to scale drain capacity independently of request capacity would be better
+served by a broker, and we would not argue otherwise.
+
+\subsection{D9: a single environment in v1}
+
+Shipping without a \code{dev}\arrowto\code{staging}\arrowto\code{prod} ladder is the
+decision most likely to be read as immaturity, so it is worth stating what the
+ladder actually requires: per-stage configuration and secrets, approval routing with
+a requester-and-approver distinction, promotion state that survives stage
+transitions, and compatibility tests across stages. \sys's current prompt record is a
+born-approved provenance anchor, which means a future multi-environment mode must
+\emph{rebuild} a pending/approve/reject path rather than enable one. The workflow
+promotion state machine remains active for quality and graded-executor policy; only
+its human-approval policy ships disabled.
+
+The relevant constants that mark these seams are visible in the codebase, and we
+note deliberately that flipping them is not a supported activation --- a real
+activation needs configuration, migrations, authorization, and compatibility tests.
+Environment classification does still fail closed: production-class aliases require
+an attached passing deploy gate graded by a real configured executor by default.
+
+We judged that shipping a half-built ladder would be worse than shipping none,
+because a staging environment that does not actually gate is a false assurance ---
+the specific failure mode where a control plane becomes theatre. A reader who
+believes a partial ladder still beats none has a defensible position; we simply
+made the other call, and \secref{sec:future} treats the full ladder as the highest
+priority remaining work.

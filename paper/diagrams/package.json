@@ -1,0 +1,10 @@
+{
+  "name": "caliber-paper-diagrams",
+  "private": true,
+  "description": "Renders generated Excalidraw scenes to SVG with roughjs, the stroke library Excalidraw itself uses.",
+  "type": "module",
+  "dependencies": {
+    "opentype.js": "^1.3.4",
+    "roughjs": "^4.6.6"
+  }
+}

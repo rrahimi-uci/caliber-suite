@@ -1,0 +1,42 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+Production LLM-agent systems are instrumented for detection, and prompt platforms
+now provide real versioning, live labels, rollback, and permissions. Governance is
+still uneven across the workflows, tools, MCP configurations, skills, and retrieval
+corpora that determine agent behaviour. The remaining problem is therefore not an
+empty release ecosystem; it is a fragmented one with different guarantees by
+resource family.
+
+\sys occupies that position. Its organizing abstraction is the \gasset: a typed
+record with version history, an authority model, an audit trail, and --- where its
+family supports one --- a \livetarget{} that client code resolves at call time.
+Around it, \statLayersW{} layers and \statModesW{} lifecycle modes compose into a
+\chainname{} carrying a flagged trace to a measured candidate, an enforced gate, an
+explicit human decision, and an audited release with a recorded rollback target.
+
+The architectural result we would most want carried forward is a capability
+boundary. Adjacency in a layered stack confers capability \emph{availability}, not
+\emph{inheritance}: a family obtains lifecycle behaviour and governance enforcement
+only by explicitly wiring them. A meaningful base contract can still be uniform ---
+identity, history, authority, and audit --- while release, rollback, evaluation, and
+evidence remain declared capabilities. \sys states that guarantee surface per
+family but does not yet enforce every declaration mechanically, which is a limit of
+this implementation rather than an impossibility result. Two further results follow
+the same discipline: naming the two dual-write
+boundaries is what allows a precise, checkable audit guarantee to be stated at all,
+and distinguishing containment from isolation is what keeps a security claim
+falsifiable.
+
+We are equally clear about what this paper does not establish. The quantitative
+evaluation is specified and unrun; \tabref{tab:results} is empty by choice rather
+than by omission, because a plausible unmeasured number is more damaging than a
+visible gap. There is no user study, and the claim that governed releases are more
+\emph{reviewable} is therefore argued rather than demonstrated. And the evidence is
+from one implementation, which cannot show that a different factoring is impossible.
+
+What we believe the architecture does establish is narrower and, we hope, more
+durable: that the release path for non-code agent artifacts is a coherent
+first-class concern, that occupying it requires an organizing abstraction the
+adjacent systems do not have, and that being precise about where the resulting
+guarantees stop is what separates a control plane from a dashboard with opinions.

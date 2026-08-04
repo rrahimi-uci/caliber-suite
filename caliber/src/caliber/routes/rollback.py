@@ -177,7 +177,7 @@ async def rollback_agent(request: Request) -> JSONResponse:
             artifact_type=checkpoint.artifact_type,
             version_before=checkpoint.version_before,
             checkpoint_id=checkpoint.checkpoint_id,
-            session=session if checkpoint.artifact_type == "skill" else None,
+            session=session,
             actor=actor,
         )
         try:
@@ -185,8 +185,8 @@ async def rollback_agent(request: Request) -> JSONResponse:
         except PromoterConflictError as exc:
             raise HTTPException(status_code=409, detail=f"rollback conflict: {exc}") from exc
         except PromoterError as exc:
-            # No DB writes have happened yet. Surface 502 like the approve
-            # path does on promoter failure.
+            # A durable external-effect intent may already be committed. Surface
+            # the provider failure while leaving reconciliation observable.
             raise HTTPException(status_code=502, detail=f"rollback failed: {exc}") from exc
 
         audit_record(

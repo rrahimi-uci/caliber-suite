@@ -44,6 +44,7 @@ from caliber.db.models import (
     CaliberEvalDataset,
     CaliberPromptTestRun,
     CaliberRefinementJob,
+    CaliberReleaseOperation,
     CaliberVerificationItem,
     CaliberWorkflow,
     CaliberWorkflowVersion,
@@ -60,6 +61,12 @@ from caliber.prompt_targets import (
 from caliber.prompt_template_library import (
     list_prompt_template_catalog,
     preview_prompt_template,
+)
+from caliber.release_operations import (
+    ReleaseMutationNotStartedError,
+    ReleaseOperationConflictError,
+    execute_prompt_alias_release,
+    prepare_prompt_alias_release,
 )
 from caliber.routes._deps import get_session_factory, parse_json_object
 from caliber.schemas import (
@@ -261,7 +268,7 @@ def register_prompt_version(
     target_alias: str | None = None,
     set_prod_alias: bool | None = None,
 ) -> dict[str, Any]:
-    """Register a prompt version and best-effort point one alias at it.
+    """Register an immutable prompt version without mutating a live alias.
 
     This helper is intentionally shared across prompt routes and assistant
     intent execution adapters so all writes follow the same validations
@@ -280,17 +287,14 @@ def register_prompt_version(
     if not clean_template:
         raise HTTPException(status_code=400, detail="'template' is required")
 
-    alias_to_set: str | None = None
-    if isinstance(target_alias, str) and target_alias.strip():
-        clean_target_alias = target_alias.strip().lower()
-        if clean_target_alias not in _PROMPT_WRITE_ALIASES:
-            raise HTTPException(
-                status_code=400,
-                detail=(f"'target_alias' must be one of {sorted(_PROMPT_WRITE_ALIASES)}"),
-            )
-        alias_to_set = clean_target_alias
-    elif set_prod_alias is not False:
-        alias_to_set = "prod"
+    if (isinstance(target_alias, str) and target_alias.strip()) or set_prod_alias is True:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "prompt registration cannot mutate a live alias; use the durable "
+                "release-operation service"
+            ),
+        )
 
     payload_tags = dict(tags) if isinstance(tags, dict) else {}
     payload_tags["caliber.source"] = source
@@ -317,19 +321,6 @@ def register_prompt_version(
     version_number = int(getattr(version, "version", 0))
     uri = getattr(version, "uri", f"prompts:/{clean_name}/{version_number}")
 
-    set_alias = _resolve_api(mlflow, "set_prompt_alias")
-    if set_alias and version_number and alias_to_set:
-        try:
-            set_alias(clean_name, alias_to_set, version_number)
-        except Exception:
-            logger.debug(
-                "set_prompt_alias failed for %s@%s v%s",
-                clean_name,
-                alias_to_set,
-                version_number,
-                exc_info=True,
-            )
-
     return {
         "name": clean_name,
         "version": version_number,
@@ -338,8 +329,8 @@ def register_prompt_version(
         if len(clean_template) > _TEMPLATE_PREVIEW_CHARS
         else clean_template,
         "template_length": len(clean_template),
-        "alias_changed": bool(set_alias and version_number and alias_to_set),
-        "active_alias": alias_to_set or "",
+        "alias_changed": False,
+        "active_alias": "",
     }
 
 
@@ -622,6 +613,42 @@ def _load_prompt_info(agent_id: str, alias: str = "prod") -> dict[str, Any] | No
         "approval_id": tags.get("caliber.approval_id"),
         "artifact_ref": f"prompts:/{agent_id}@{alias}",
     }
+
+
+def _load_prompt_release_info(agent_id: str, alias: str = "prod") -> dict[str, Any] | None:
+    """Read a live target without conflating provider failure with cold start.
+
+    Release and reconciliation paths need the exact outgoing version. The
+    best-effort loader above is appropriate for list pages, but silently treating
+    an unavailable registry as an empty alias would make rollback metadata false.
+    """
+    mlflow = _get_mlflow_module()
+    if mlflow is None:
+        raise HTTPException(status_code=503, detail="mlflow not available")
+    load_prompt = _resolve_api(mlflow, "load_prompt")
+    if load_prompt is None:
+        raise HTTPException(status_code=503, detail="mlflow prompt load API not available")
+
+    ref = f"prompts:/{agent_id}@{alias}"
+    try:
+        prompt = load_prompt(ref, allow_missing=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"failed to resolve current prompt alias {alias!r}: {exc}",
+        ) from exc
+    if prompt is None:
+        return None
+
+    raw_version = getattr(prompt, "version", None)
+    try:
+        version = int(raw_version)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"prompt alias {alias!r} returned no concrete version",
+        ) from exc
+    return {"agent_id": agent_id, "alias": alias, "version": version}
 
 
 # Each prompt list row needs the live registry record for prod/staging/dev.
@@ -1260,7 +1287,14 @@ async def create_prompt(request: Request) -> JSONResponse:
     name = (body.get("name") or "").strip()
     template = (body.get("template") or "").strip()
     commit_message = body.get("commit_message", "created via CALIBER")
-    target_alias = str(body.get("target_alias") or "prod")
+    if body.get("target_alias") not in (None, ""):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "prompt creation is non-live; register the version first, then use the "
+                "audited alias-promotion endpoint"
+            ),
+        )
     # Optional model the author pins for this prompt; recorded on the hidden
     # runtime target so testing/calibration can default to it.
     raw_model = body.get("model")
@@ -1279,7 +1313,7 @@ async def create_prompt(request: Request) -> JSONResponse:
         commit_message=str(commit_message),
         tags=tags,
         source="caliber-ui",
-        target_alias=target_alias,
+        set_prod_alias=False,
     )
 
     # Auto-provision the hidden runtime identity so the prompt is immediately
@@ -1365,17 +1399,21 @@ async def create_prompt_version(request: Request) -> JSONResponse:
     template = (body.get("template") or "").strip()
     commit_message = body.get("commit_message", "new version via CALIBER")
 
-    # ``promote`` decouples authoring from going live. When false, the version is
-    # registered but NO alias is rotated, so a developer can iterate / evaluate a
-    # candidate before it serves the live alias. Defaults to true for backward
-    # compatibility (the historical behavior always promoted to ``prod``).
-    promote = body.get("promote", True)
+    # Authoring and release are separate operations.  The old endpoint defaulted
+    # to rotating ``prod`` and could therefore bypass evidence, durable intent,
+    # and the release audit trail.  All versions are drafts now; callers promote
+    # the returned immutable version through the alias endpoint.
+    promote = body.get("promote", False)
     if not isinstance(promote, bool):
         raise HTTPException(status_code=400, detail="'promote' must be a boolean")
-    raw_target_alias = body.get("target_alias")
-    target_alias: str | None = None
     if promote:
-        target_alias = str(raw_target_alias) if raw_target_alias else "prod"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "version authoring cannot mutate a live alias; create the draft, then "
+                "use the audited alias-promotion endpoint"
+            ),
+        )
 
     raw_tags = body.get("tags")
     if raw_tags is None:
@@ -1391,8 +1429,7 @@ async def create_prompt_version(request: Request) -> JSONResponse:
         commit_message=str(commit_message),
         tags=tags,
         source="caliber-ui",
-        target_alias=target_alias,
-        set_prod_alias=promote,
+        set_prod_alias=False,
     )
 
     return JSONResponse({"data": result}, status_code=201)
@@ -1527,11 +1564,15 @@ def set_prompt_alias_version(*, name: str, alias: str, version: int | str) -> di
 
     mlflow = _get_mlflow_module()
     if mlflow is None:
-        raise HTTPException(status_code=503, detail="mlflow not available")
+        raise ReleaseMutationNotStartedError(
+            HTTPException(status_code=503, detail="mlflow not available")
+        )
 
     set_alias = _resolve_api(mlflow, "set_prompt_alias")
     if set_alias is None:
-        raise HTTPException(status_code=503, detail="mlflow prompt alias API not available")
+        raise ReleaseMutationNotStartedError(
+            HTTPException(status_code=503, detail="mlflow prompt alias API not available")
+        )
 
     try:
         set_alias(name, alias, version_num)
@@ -1549,7 +1590,7 @@ def _extract_gate_details(body: dict[str, Any]) -> dict[str, Any]:
     operator override is attributable (who promoted past a FAIL, and why).
     """
     details: dict[str, Any] = {}
-    gate_state = body.get("gate_state")
+    gate_state = body.get("gate_state", "none")
     if gate_state is not None:
         if not isinstance(gate_state, str) or gate_state not in GATE_STATES:
             raise HTTPException(
@@ -1571,10 +1612,17 @@ def _extract_gate_details(body: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(override_reason, str):
             raise HTTPException(status_code=400, detail="'override_reason' must be a string")
         details["override_reason"] = override_reason
+    if overridden and not (isinstance(override_reason, str) and override_reason.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="'override_reason' is required when 'overridden' is true",
+        )
     return details
 
 
-async def set_prompt_alias(request: Request) -> JSONResponse:
+async def set_prompt_alias(  # noqa: PLR0915 - validation, idempotency, durable intent, and settlement are intentionally linear
+    request: Request,
+) -> JSONResponse:
     """``POST /caliber/prompts/{name}/aliases/{alias}`` — audited promote.
 
     Captures the alias's current (outgoing) version *before* rotating so the
@@ -1594,10 +1642,53 @@ async def set_prompt_alias(request: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail="'version' must be an integer")
 
     gate_details = _extract_gate_details(body)
+    try:
+        to_version = int(raw_version)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="'version' must be an integer") from exc
+    if to_version < 1:
+        raise HTTPException(status_code=400, detail="'version' must be a positive integer")
+
+    raw_operation_id = body.get("operation_id")
+    if raw_operation_id is not None and (
+        not isinstance(raw_operation_id, str) or not raw_operation_id.strip()
+    ):
+        raise HTTPException(status_code=400, detail="'operation_id' must be a non-empty string")
+    operation_id = raw_operation_id.strip() if isinstance(raw_operation_id, str) else None
+    factory = get_session_factory(request)
+    if operation_id is not None:
+        with factory() as session:
+            existing = session.get(CaliberReleaseOperation, operation_id)
+            if existing is not None:
+                expected_identity = ("promote", "prompt", name, alias, to_version)
+                actual_identity = (
+                    existing.operation_type,
+                    existing.resource_type,
+                    existing.resource_name,
+                    existing.target_name,
+                    existing.version_after,
+                )
+                if actual_identity != expected_identity:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"release operation {operation_id!r} already describes a "
+                            "different mutation"
+                        ),
+                    )
+                result = execute_prompt_alias_release(
+                    session,
+                    existing,
+                    mutate_alias=set_prompt_alias_version,
+                )
+                result["previous_live_version"] = existing.version_before
+                result["operation_id"] = existing.operation_id
+                result["release_status"] = "applied"
+                return JSONResponse({"data": result})
 
     # Read the currently-live version BEFORE rotating so rollback is exact
     # (not derived from ``version_after - 1``). ``None`` on cold start.
-    previous_info = _load_prompt_info(name, alias)
+    previous_info = _load_prompt_release_info(name, alias)
     previous_version = previous_info.get("version") if previous_info else None
 
     # Optimistic-concurrency guard: if the caller passed the version it believed
@@ -1621,26 +1712,10 @@ async def set_prompt_alias(request: Request) -> JSONResponse:
                 ),
             )
 
-    result = set_prompt_alias_version(name=name, alias=alias, version=raw_version)
-    to_version = result["version"]
-
-    factory = get_session_factory(request)
     with factory() as session:
-        audit_record(
-            session,
-            actor=actor,
-            action="promote_prompt",
-            entity_type="prompt",
-            entity_id=name,
-            details={
-                "alias": alias,
-                "from_version": previous_version,
-                "to_version": to_version,
-                **gate_details,
-            },
-        )
-        # Persist the operator-supplied verdict keyed by the now-live version so
-        # the Version panel can read it back (advisory gate; never blocks).
+        # Persist the supplied verdict in the same *pre-effect* commit as the
+        # release intent.  The verdict remains advisory for this direct operator
+        # path, but it can no longer disappear after production changes.
         gate_state = gate_details.get("gate_state")
         if isinstance(gate_state, str):
             record_gate_verdict(
@@ -1650,9 +1725,29 @@ async def set_prompt_alias(request: Request) -> JSONResponse:
                 state=gate_state,
                 score=gate_details.get("gate_score"),
             )
-        session.commit()
+        try:
+            operation = prepare_prompt_alias_release(
+                session,
+                name=name,
+                alias=alias,
+                version_before=int(previous_version) if previous_version is not None else None,
+                version_after=to_version,
+                actor=actor,
+                operation_id=operation_id,
+                effective_scopes=(SCOPE_OPERATOR,),
+                evidence=gate_details,
+            )
+        except ReleaseOperationConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        result = execute_prompt_alias_release(
+            session,
+            operation,
+            mutate_alias=set_prompt_alias_version,
+        )
 
     result["previous_live_version"] = previous_version
+    result["operation_id"] = operation.operation_id
+    result["release_status"] = "applied"
     return JSONResponse({"data": result})
 
 
@@ -1709,7 +1804,7 @@ async def rollback_prompt(request: Request) -> JSONResponse:
     if not re.match(r"^[a-zA-Z0-9_-]+$", alias):
         raise HTTPException(status_code=400, detail="invalid alias")
 
-    current_info = _load_prompt_info(name, alias)
+    current_info = _load_prompt_release_info(name, alias)
     current = current_info.get("version") if current_info else None
     if current is None:
         raise HTTPException(
@@ -1728,16 +1823,22 @@ async def rollback_prompt(request: Request) -> JSONResponse:
                     "rollback needs an audited promotion to restore"
                 ),
             )
-        set_prompt_alias_version(name=name, alias=alias, version=target)
-        audit_record(
+        operation = prepare_prompt_alias_release(
             session,
+            name=name,
+            alias=alias,
+            version_before=int(current),
+            version_after=target,
             actor=actor,
-            action="rollback_prompt",
-            entity_type="prompt",
-            entity_id=name,
-            details={"alias": alias, "from_version": int(current), "to_version": target},
+            operation_type="rollback",
+            effective_scopes=(SCOPE_OPERATOR,),
+            evidence={"rollback_source": "audited_promotion"},
         )
-        session.commit()
+        execute_prompt_alias_release(
+            session,
+            operation,
+            mutate_alias=set_prompt_alias_version,
+        )
 
     return JSONResponse(
         {
@@ -1746,6 +1847,8 @@ async def rollback_prompt(request: Request) -> JSONResponse:
                 "alias": alias,
                 "version": target,
                 "rolled_back_from": int(current),
+                "operation_id": operation.operation_id,
+                "release_status": "applied",
             }
         }
     )

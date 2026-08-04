@@ -24,6 +24,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+from caliber.release_operations import (
+    ReleaseOperationConflictError,
+    execute_prompt_alias_release,
+    prepare_prompt_alias_release,
+)
+
 logger = logging.getLogger("caliber.promoter")
 
 
@@ -154,7 +160,11 @@ class MLflowPromoter:
         # the rollback checkpoint records the EXACT prior target. Deriving it as
         # ``version_after - 1`` is wrong whenever intermediate versions were
         # registered without rotating the alias.
-        version_before = _current_alias_version(mlflow, prompt_name, self._alias)
+        version_before = (
+            _release_alias_version(mlflow, prompt_name, self._alias)
+            if request.session is not None
+            else _current_alias_version(mlflow, prompt_name, self._alias)
+        )
 
         # 1. Register the new version under the agent's prompt name.
         try:
@@ -176,30 +186,51 @@ class MLflowPromoter:
         version_number = int(getattr(version, "version", 0))
         artifact_ref = getattr(version, "uri", f"prompts:/{prompt_name}/{version_number}")
 
-        # 2. Rotate the alias to point at the new version.
+        # 2. Rotate the alias to point at the new version. Apply supplies its
+        # caller-owned session, allowing the same durable intent-first state
+        # machine used by direct/existing-version prompt releases. Keeping the
+        # session optional preserves this low-level adapter for isolated registry
+        # integration tests, but no in-repository release route omits it.
         try:
-            set_prompt_alias(name=prompt_name, alias=self._alias, version=version_number)
+            if request.session is not None:
+                operation = prepare_prompt_alias_release(
+                    request.session,
+                    name=prompt_name,
+                    alias=self._alias,
+                    version_before=version_before,
+                    version_after=version_number,
+                    actor=request.actor or "system:promoter",
+                    effective_scopes=("operator",),
+                    evidence={
+                        "gate_state": "pass",
+                        "source": "candidate_ready",
+                        "approval_id": request.approval_id,
+                    },
+                    approval_id=request.approval_id,
+                )
+
+                def mutate_alias(*, name: str, alias: str, version: int) -> dict[str, object]:
+                    set_prompt_alias(name=name, alias=alias, version=version)
+                    return {"name": name, "alias": alias, "version": version}
+
+                execute_prompt_alias_release(
+                    request.session,
+                    operation,
+                    mutate_alias=mutate_alias,
+                )
+            else:
+                set_prompt_alias(name=prompt_name, alias=self._alias, version=version_number)
+        except ReleaseOperationConflictError as exc:
+            raise PromoterConflictError(str(exc)) from exc
         except Exception as exc:
-            # The version is registered but the alias didn't rotate.
-            # Best-effort cleanup: delete the orphaned version so the
-            # retry path (operator clicks approve again, which calls
-            # ``promoter.promote`` again) doesn't keep stacking
-            # duplicate versions tagged with the same ``approval_id``.
-            # If the delete itself fails we log it; the operator gets
-            # the failing version_number in the surfaced PromoterError
-            # so they can manually reconcile.
+            # Once a provider call begins its outcome can be indeterminate. Do
+            # not delete the registered target here: the alias may already point
+            # at it. The durable operation (when a session was supplied) is the
+            # authority for reconciliation.
             logger.exception("set_prompt_alias failed for %s", prompt_name)
-            delete_failed = _try_delete_prompt_version(
-                mlflow, name=prompt_name, version=version_number
-            )
-            extra = (
-                ""
-                if not delete_failed
-                else f" Cleanup of v{version_number} also failed: {delete_failed}."
-            )
             raise PromoterError(
                 f"registered version {version_number} of {prompt_name!r} but "
-                f"alias rotation to {self._alias!r} failed: {exc}.{extra}"
+                f"alias rotation to {self._alias!r} needs reconciliation: {exc}"
             ) from exc
 
         return PromotionResult(
@@ -241,12 +272,45 @@ class MLflowPromoter:
             ) from exc
 
         set_prompt_alias = _resolve_prompt_api(mlflow, "set_prompt_alias")
+        version_live = (
+            _release_alias_version(mlflow, request.agent_id, self._alias)
+            if request.session is not None
+            else _current_alias_version(mlflow, request.agent_id, self._alias)
+        )
         try:
-            set_prompt_alias(
-                name=request.agent_id,
-                alias=self._alias,
-                version=request.version_before,
-            )
+            if request.session is not None:
+                operation = prepare_prompt_alias_release(
+                    request.session,
+                    name=request.agent_id,
+                    alias=self._alias,
+                    version_before=version_live,
+                    version_after=request.version_before,
+                    actor=request.actor or "system:promoter",
+                    operation_type="rollback",
+                    effective_scopes=("operator",),
+                    evidence={
+                        "source": "rollback_checkpoint",
+                        "checkpoint_id": request.checkpoint_id,
+                    },
+                )
+
+                def mutate_alias(*, name: str, alias: str, version: int) -> dict[str, object]:
+                    set_prompt_alias(name=name, alias=alias, version=version)
+                    return {"name": name, "alias": alias, "version": version}
+
+                execute_prompt_alias_release(
+                    request.session,
+                    operation,
+                    mutate_alias=mutate_alias,
+                )
+            else:
+                set_prompt_alias(
+                    name=request.agent_id,
+                    alias=self._alias,
+                    version=request.version_before,
+                )
+        except ReleaseOperationConflictError as exc:
+            raise PromoterConflictError(str(exc)) from exc
         except Exception as exc:
             logger.exception(
                 "rollback set_prompt_alias failed for %s -> v%s",
@@ -254,7 +318,8 @@ class MLflowPromoter:
                 request.version_before,
             )
             raise PromoterError(
-                f"failed to roll {request.agent_id!r} back to v{request.version_before}: {exc}"
+                f"rollback of {request.agent_id!r} to v{request.version_before} "
+                f"needs reconciliation: {exc}"
             ) from exc
 
         return PromotionResult(
@@ -266,48 +331,12 @@ class MLflowPromoter:
                 "alias": self._alias,
                 "rollback": True,
                 "checkpoint_id": request.checkpoint_id,
+                "version_before": version_live,
+                "operation_id": (
+                    operation.operation_id if request.session is not None else None
+                ),
             },
         )
-
-
-def _try_delete_prompt_version(
-    mlflow_mod: object,
-    *,
-    name: str,
-    version: int,
-) -> str | None:
-    """Best-effort delete of an orphaned prompt version.
-
-    Used by :meth:`MLflowPromoter.promote` when alias rotation fails
-    after a successful ``register_prompt`` — without the cleanup, a
-    retried approval would stack duplicate versions tagged with the
-    same ``approval_id``. Returns ``None`` on success or when the
-    delete API isn't exposed; returns a stringified error on failure
-    so the caller can surface it through the operator-facing
-    :class:`PromoterError`.
-    """
-    try:
-        delete_fn = _resolve_prompt_api(mlflow_mod, "delete_prompt_version")
-    except PromoterError:
-        # The installed mlflow build doesn't expose a delete API. Log
-        # and move on — the operator must manually reconcile in this
-        # rare case.
-        logger.warning(
-            "mlflow does not expose delete_prompt_version; orphaned v%d of %r left in place",
-            version,
-            name,
-        )
-        return None
-    try:
-        delete_fn(name=name, version=version)
-        return None
-    except Exception as exc:  # pragma: no cover — defensive
-        logger.exception(
-            "cleanup delete_prompt_version failed for %s v%d",
-            name,
-            version,
-        )
-        return str(exc)
 
 
 def _resolve_prompt_api(mlflow_mod: object, name: str) -> Any:
@@ -354,6 +383,26 @@ def _current_alias_version(mlflow_mod: object, name: str, alias: str) -> int | N
         return int(raw) if raw is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _release_alias_version(mlflow_mod: object, name: str, alias: str) -> int | None:
+    """Resolve the exact outgoing target or refuse to perform a release."""
+    load_prompt = _resolve_prompt_api(mlflow_mod, "load_prompt")
+    try:
+        prompt = load_prompt(f"prompts:/{name}@{alias}", allow_missing=True)
+    except Exception as exc:
+        raise PromoterError(
+            f"failed to resolve current alias {name!r}@{alias!r}: {exc}"
+        ) from exc
+    if prompt is None:
+        return None
+    raw = getattr(prompt, "version", None)
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise PromoterError(
+            f"current alias {name!r}@{alias!r} has no concrete version"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

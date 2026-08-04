@@ -1,0 +1,80 @@
+\section{Interface Surface and the Governed-Asset Contract}
+\label{app:api}
+
+\subsection{The shape every registry presents}
+
+\statRouteDecls{} route declarations across \statRouteModules{} modules is too many
+to enumerate, and enumerating them would not tell a reader anything structural. What
+is structural is that each family's registry presents the same shape, and that the
+\emph{semantics} behind identical-looking operations differ per family exactly as
+\tabref{tab:families} records.
+
+\begin{lstlisting}[caption={The shape shared by every family's registry surface.
+Identical operation names; per-family semantics. The comments mark where
+\tabref{tab:families} is the authority.},label={lst:contract},
+captionpos=b,language={}]
+GET    /{family}                 list, project-scoped
+POST   /{family}                 create a typed definition
+GET    /{family}/{id}            read the current record
+PATCH  /{family}/{id}            mutate  -- scope-checked, audited
+GET    /{family}/{id}/versions   history -- SEMANTICS VARY (Tab. 1)
+GET    /{family}/{id}/diff       compare two versions
+
+# Present only where the family implements the facet:
+POST   /{family}/{id}/test       bounded run against fixtures
+POST   /{family}/{id}/evaluate   scorecard over assembled evidence
+POST   /{family}/{id}/calibrate  enqueue a refinement job
+POST   /{family}/{id}/promote    rotate the live target -- operator/admin
+POST   /{family}/{id}/rollback   restore the recorded prior target
+\end{lstlisting}
+
+The lower block is the interesting one. Its endpoints exist per family only where
+that family wires the corresponding facet, which makes the interface surface itself
+a reflection of \secref{sec:arch:claim}: availability is structural, enforcement is
+wired. A client cannot discover a promote endpoint on a test set, because there is
+none to discover.
+
+\subsection{What a promote must record}
+
+The prompt-alias service records the following fields before its external effect
+(\algref{alg:promote}). Authoring routes cannot rotate an alias; the direct
+promotion, rollback, assistant-publish, and refinement \mode{Apply} call sites use
+the shared service. This is a verified prompt-family contract, not a system-wide
+invariant for every resource family (\secref{sec:limitations}).
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{The outgoing target.} What the \livetarget{} pointed to before the
+      rotation. Without this, rollback is a guess.
+\item \textbf{The incoming version identity.} Which version is becoming live, by
+      immutable identifier rather than by label.
+\item \textbf{The evidence reference.} A refinement Apply records its approval,
+      candidate/evaluation snapshots, and gate source; a direct operator release
+      records the advisory gate state and any attributed override. Missing evidence
+      is represented as \code{none}, not silently omitted.
+\item \textbf{The authorizing principal and scope.} Who acted, under which of the
+      \statScopesW{} scopes.
+\item \textbf{An audit row}, written on the caller's session where the mutation is
+      database-resident (\secref{sec:components}).
+\item \textbf{A release operation state}, progressing through
+      \code{prepared}, \code{applying}, and \code{applied}, or remaining visible
+      as \code{failed}/\code{reconcile\_required}.
+\end{enumerate}
+
+\subsection{Admission, in the order it happens}
+
+Order matters here, and stating it prevents a specific misreading of the body cap
+described in \secref{sec:components}.
+
+\begin{enumerate}[leftmargin=1.5em]
+\item For a protected published-service invoke, the Bearer token is validated
+      \emph{before} the request body is consumed. An unauthenticated caller cannot
+      make the server read a large body.
+\item For both public and protected invokes, raw request chunks are then counted
+      against the configured maximum during bounded parsing.
+\item Policy and token are revalidated under the enqueue lock, so a policy change
+      between admission and enqueue cannot be raced.
+\end{enumerate}
+
+This is a per-request application bound. It is not connection-level or IP-level
+flood protection, and step~1 does not change that --- it only ensures the bound is
+applied to authenticated callers only where a token is required.

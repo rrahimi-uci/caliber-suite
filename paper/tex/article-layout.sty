@@ -1,0 +1,186 @@
+%% article-layout.sty -- single-column article layout.
+%%
+%% The alternative to usenix-layout.sty, which is still in this directory: switch
+%% the \usepackage line in main.tex to move between the two. Everything else in
+%% the document is shared, including all eleven figures, five tables, and four
+%% algorithms.
+%%
+%% The design problem this file solves is that a single-column measure and a
+%% figure-dense systems paper pull in opposite directions. A measure wide enough
+%% to hold a 17cm architecture diagram is far too wide to read comfortably; a
+%% measure narrow enough to read leaves the wide diagrams either overflowing or
+%% shrunk below a legible type size. The resolution here:
+%%
+%%   * Body text is set to a ~78-character measure (15cm at 11pt), which is the
+%%     readable range for continuous prose.
+%%   * Figures authored at full conference width are centred in a box that is
+%%     allowed to overhang the margins symmetrically (\begin{cbwide}). They keep
+%%     their authored size, so the 7pt type floor is preserved exactly.
+%%   * Figures authored at conference *column* width are scaled UP to sit
+%%     comfortably in the measure (\begin{cbscaled}). Scaling up is safe: it moves
+%%     type further above the floor, never below it.
+%%
+%% Nothing is ever scaled down, which is the property that keeps every figure
+%% legible in both layouts.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{article-layout}[2026/08/03 v1.1 single-column editorial layout]
+
+% ---------------------------------------------------------------- options ----
+%   [nonumbers]  suppress page numbers
+%   [anonymous]  suppress the author block for blind review
+\newif\ifart@pagenumbers \art@pagenumberstrue
+\newif\ifart@anon        \art@anonfalse
+\DeclareOption{nonumbers}{\art@pagenumbersfalse}
+\DeclareOption{anonymous}{\art@anontrue}
+\DeclareOption*{\PackageWarning{article-layout}{Unknown option '\CurrentOption'}}
+\ProcessOptions\relax
+
+% -------------------------------------------------------------- page body ----
+% 15cm at 11pt Times is roughly 78 characters -- inside the readable range for
+% continuous prose. The margins that leaves (3.3cm) are what the wide figures
+% overhang into.
+\RequirePackage[letterpaper,textwidth=15.0cm,textheight=22.8cm,centering]{geometry}
+
+\ifart@pagenumbers
+  \RequirePackage{fancyhdr}
+  \pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}
+  \fancyfoot[C]{\normalfont\small\thepage}
+\else
+  \pagestyle{empty}
+\fi
+
+% ------------------------------------------------------------------- type ----
+\RequirePackage{times}
+\RequirePackage[T1]{fontenc}
+\RequirePackage{textcomp}
+\RequirePackage[protrusion=true,expansion=false]{microtype}
+
+% Deliberately NOT mathptmx: its virtual math fonts reference rsfs10, which ships
+% with the "rsfs" package and not with a TeX Live basic scheme, and the failure
+% surfaces only at shipout as an unloadable TFM.
+%
+% Both T1 and TS1 name Computer Modern as their substitution family, which on this
+% install resolves to Metafont bitmaps embedded as Type 3 fonts -- a routine
+% camera-ready rejection. Point both at Times so any fallback stays vector.
+\DeclareFontSubstitution{T1}{ptm}{m}{n}
+\DeclareFontSubstitution{TS1}{ptm}{m}{n}
+
+% times.sty points \ttfamily at Courier and \sffamily at Helvetica, whose T1
+% metrics are absent here; a declared-but-unbuildable family defeats the
+% substitutions above, because LaTeX only substitutes for a missing *shape*.
+\renewcommand{\ttdefault}{lmtt}
+\renewcommand{\sfdefault}{lmss}
+
+% 11pt on 13.6pt leading. Slightly open for a single-column measure.
+\renewcommand{\normalsize}{\@setfontsize\normalsize{11}{13.6}}
+\normalsize
+
+% Paragraphs: indent-only, no vertical space, which is the article convention and
+% keeps a figure-dense document from drifting.
+\setlength{\parskip}{0pt plus 0.5pt}
+\setlength{\parindent}{1.4em}
+
+% ---------------------------------------------------------------- floating ----
+% This paper carries twenty floats. Without loosening LaTeX's defaults they queue
+% up and strand text.
+\renewcommand{\topfraction}{0.88}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.72}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+\setlength{\textfloatsep}{14pt plus 3pt minus 3pt}
+\setlength{\floatsep}{12pt plus 3pt minus 2pt}
+\setlength{\intextsep}{12pt plus 3pt minus 2pt}
+
+% ---------------------------------------------------------------- headings ----
+\RequirePackage[explicit]{titlesec}
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{0.7em}{#1}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.7em}{#1}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.7em}{#1}
+\titlespacing*{\section}{0pt}{2.6ex plus .8ex minus .2ex}{1.3ex plus .2ex}
+\titlespacing*{\subsection}{0pt}{2.1ex plus .6ex minus .2ex}{0.9ex plus .2ex}
+\titlespacing*{\subsubsection}{0pt}{1.6ex plus .5ex minus .2ex}{0.6ex plus .2ex}
+\setcounter{secnumdepth}{3}
+
+% Run-in paragraph heading, the workhorse of a dense systems paper.
+\newcommand{\para}[1]{\vspace{0.5ex}\noindent\textbf{#1}\hspace{0.7em}\ignorespaces}
+
+% ------------------------------------------------------------------ title -----
+\renewcommand{\maketitle}{%
+  \begin{center}%
+    {\LARGE\bfseries\@title\par}%
+    \vspace{3.0ex}%
+    \ifart@anon
+      {\normalsize\itshape Submitted for blind review\par}%
+    \else
+      {\normalsize\@author\par}%
+    \fi
+    \vspace{1.2ex}%
+    {\small\@date\par}%
+  \end{center}%
+  \vspace{3.0ex}%
+  \thispagestyle{\ifart@pagenumbers fancy\else empty\fi}%
+}
+
+% A narrower abstract than the measure, which is the article convention and marks
+% it visually as front matter rather than as a first section.
+% Set in a quotation-like block narrower than the measure. \quotation rather than
+% a hand-rolled list, because the list version measures its \item against
+% \linewidth and overruns by the margin it just set.
+\renewenvironment{abstract}{%
+  \begin{center}%
+    {\large\bfseries Abstract}%
+  \end{center}%
+  \vspace{-0.4ex}%
+  \begingroup
+  \small
+  \leftskip=0.05\textwidth
+  \rightskip=0.05\textwidth
+  \parindent=1.4em
+  \noindent\ignorespaces
+}{%
+  \par\endgroup\vspace{1.8ex}%
+}
+
+% ------------------------------------------- content wider than the measure ----
+% Figures and tables authored at full conference width (about 17.4cm) are centred
+% in a \textwidth-wide box and allowed to overhang the 3.3cm margins by roughly
+% 1.2cm on each side. They keep their authored size, so the 7pt figure type floor
+% carries over from the two-column layout untouched.
+\newsavebox{\cb@widebox}
+\newenvironment{cbwide}%
+  {\begin{lrbox}{\cb@widebox}}%
+  {\end{lrbox}%
+   \par\noindent\makebox[\textwidth][c]{\usebox{\cb@widebox}}\par}
+
+% ------------------------------------------ content narrower than the measure ---
+% Figures authored at conference column width (about 9cm) would sit in a third of
+% this measure. They are scaled UP, which moves their type further above the
+% legibility floor rather than below it.
+%
+% The factor is per-figure rather than global because these figures differ in
+% aspect ratio by more than a factor of three: fig-asset is 8.7 x 5.3cm and
+% fig-execution is 9.0 x 15.3cm. One factor that suits the first overruns the page
+% with the second. Each figure declares the factor that leaves room for its own
+% caption; the numbers come from measuring the pictures, not from guessing.
+%   \begin{cbscaled}[0.70] ... \end{cbscaled}
+\newsavebox{\cb@upbox}
+\newenvironment{cbscaled}[1][0.90]%
+  {\def\cb@sf{#1}\begin{lrbox}{\cb@upbox}}%
+  {\end{lrbox}%
+   \par\noindent\makebox[\textwidth][c]{%
+     \resizebox{\cb@sf\textwidth}{!}{\usebox{\cb@upbox}}}\par}
+
+% ------------------------------------------------------------- bibliography ---
+\RequirePackage[numbers,sort&compress]{natbib}
+\renewcommand{\@biblabel}[1]{[#1]}
+\setlength{\bibsep}{0.9ex plus 0.3ex}
+\renewcommand{\bibfont}{\small}
+
+% \balance is a two-column tool. Absorb it so section files stay layout-agnostic.
+\providecommand{\balance}{\relax}
+
+\endinput

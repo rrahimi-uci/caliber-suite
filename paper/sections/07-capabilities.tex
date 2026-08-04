@@ -1,0 +1,129 @@
+\section{Capabilities}
+\label{sec:capabilities}
+
+The previous two sections described structure. This one describes what the
+structure enables, organized by the requirements of \secref{sec:motivation}.
+
+\subsection{R2 in practice: late-bound live targets}
+
+The single capability that most distinguishes \sys from a versioned prompt file is
+that client code resolves \emph{which} version to run at call time. An agent loads
+\prodalias{}; the platform decides what \prodalias{} points to. A remediation
+therefore requires no client deployment, and the outer lane of
+\figref{fig:system} exists to make exactly this visible.
+
+The consequences are worth separating, because they are usually collapsed into a
+vague claim about agility:
+
+\begin{itemize}
+\item \textbf{Remediation latency decouples from deployment latency.} The bound on
+      time-to-fix becomes the refinement path plus operator attention, not the CI
+      pipeline. We specify how to measure this in \appref{app:protocol} and have
+      not measured it.
+\item \textbf{Rollback is a pointer move, not a redeploy.} Where the governed path
+      committed a checkpoint, restoring the recorded target is a bounded database
+      and registry operation rather than a code revert. Where an authoring route
+      moved the alias instead, there is no checkpoint to restore from
+      (\secref{sec:limitations}).
+\item \textbf{Authority is scope-checked.} Rotating an alias requires the
+      \operator{} or \admin{} scope. We are careful not to call this separation of
+      duties: the sibling \approver{} scope exists, but nothing currently requires
+      that the principal who applies a change differ from the one who authored it,
+      and the approval record is minted already-approved naming the acting
+      operator. The Clark--Wilson property~\cite{clark1987integrity} is the target,
+      not the present state (\secref{sec:limitations}).
+\end{itemize}
+
+The honest caveat is that indirection is not free. A live target is a piece of
+mutable global state that determines production behaviour, so its integrity becomes
+critical. \sys's answer is that a rotation on the governed path is scope-checked,
+audited, and checkpointed --- but that answer does not yet cover every route that
+can perform one, which makes the trade sharper than it first appears.
+\secref{sec:limitations} returns to it.
+
+\subsection{R3 in practice: evidence bound to versions}
+
+A score in a report tells you a number. A score attached to a version tells you
+what you knew when you shipped. \sys binds per-dimension scores, the corpus
+identity and version, the diagnosis, the selected optimizer, and the gate decision
+to the candidate, and mints a provenance anchor at release carrying that bundle.
+
+The mechanism that keeps the corpus honest over time is trace-to-example capture: a
+verified production failure becomes durable test data, so the evidence base tracks
+what production actually does rather than what it did when the suite was written.
+This closes a specific drift problem that offline harnesses cannot close on their
+own, because they have no access to the production trace stream.
+
+\subsection{R4 in practice: one enforced gate, one human}
+
+\secref{sec:components} defined the gate taxonomy; here we state what it buys, and
+what it does not. The gate is enforced \emph{within the refinement state machine}:
+a candidate that fails it never reaches review. It is not a system-wide interlock,
+because the direct operator promotion endpoint can carry an advisory verdict and
+an attributed override without entering that machine (\secref{sec:limitations}).
+Authoring itself is non-live. Within the refinement path, the review
+queue contains only candidates that passed their own evaluation. An operator's attention is therefore
+spent on judgement rather than on triage --- which matters, because operator
+attention is the binding constraint on this path (\secref{sec:arch}). Because the
+per-version verdict is advisory, an urgent release is never blocked by a stale
+artifact, and the override path that would otherwise erode the enforced gate never
+needs to exist.
+
+\subsection{Automation reach, stated as a boundary}
+
+\sys automates diagnosis, candidate generation, evaluation, gating, evidence
+assembly, and the mechanics of release. It does not automate the decision. The
+reach is therefore: from a flagged trace to a scored, gated, reviewable candidate
+without human involvement, and from a reviewed candidate to an audited release
+without human involvement. The human sits at exactly one point in between, and at
+one point before (verification).
+
+We want to be precise that this is a design position rather than an unfinished
+state. An auto-apply threshold would be straightforward to implement; D4 in
+\tabref{tab:decisions} records why we consider it a mistake at the current state of
+the art, and \secref{sec:future} records the conditions under which we would revisit
+it.
+
+\subsection{Cross-family capabilities}
+
+\para{Knowledge bases.} Versioned retrieval corpora with chunking, embeddings,
+hybrid retrieval combining lexical and dense scoring~\cite{robertson2009bm25,
+lewis2020rag}, cross-encoder reranking~\cite{nogueira2019bertrerank}, and graph
+extraction over Apache~AGE~\cite{apacheage}. The governance-relevant property is
+that a build is an immutable version behind an active pointer, so ``which corpus
+answered that question'' is a resolvable query rather than an archaeological one.
+
+\para{Workflows.} A visual editor over a typed IR with \statNodeTypes{} node types,
+queued runs, runtime approvals, checkpointing, and publication as an HTTP service.
+The same IR backs the in-server interpreter and an Agents SDK export, which is what
+lets a workflow be governed here and executed elsewhere.
+
+\para{Tools and MCP servers.} Tool definitions carry deterministic test suites
+fenced to a revision, so a suite result is attributable to a specific tool version.
+MCP servers are managed definitions with discovered tool inventories, audited edit
+history, fail-closed connection and policy controls, and a production preflight
+that distinguishes containment from an attested boundary
+(\secref{sec:components}).
+
+\para{Observability.} \mlflow{} tracing with multimodal attachments --- extraction
+spans carry the source document, so a knowledge-graph or OCR pipeline's inputs are
+inspectable in the trace viewer --- plus server-sent live events, opt-in archival of
+aged traces to object storage, and SLO reconciliation that produces durable
+incidents~\cite{beyer2016sre}.
+
+\subsection{Capability coverage against comparable systems}
+
+\input{fig-capability}
+
+\figref{fig:capability} places these capabilities against the systems a reader is
+most likely to be choosing between. It is a coverage grid rather than a scorecard: a
+cell records whether a capability exists as a first-class, wired concern, and says
+nothing about quality, performance, or maturity. Levels are encoded by fill
+\emph{and} by glyph so the figure reads in greyscale.
+
+The two rows where \sys is behind are included deliberately and are not
+incidental. \sys is not a multi-agent orchestration framework and does not intend
+to become one. It has no managed cloud offering, which for many teams is the
+deciding factor regardless of architecture. A coverage grid whose leftmost column
+won every row would be advertising rather than evidence, and a reader is entitled to
+treat such a grid with suspicion.

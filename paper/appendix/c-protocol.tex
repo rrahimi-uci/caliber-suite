@@ -1,0 +1,257 @@
+\section{Measurement Protocol}
+\label{app:protocol}
+
+This appendix specifies the protocol for the questions in \tabref{tab:results} in
+enough detail to be executed by a party other than us. None of it has been executed
+for this draft (\secref{sec:eval}). Where a choice would materially affect the
+result, we state the choice and the reason, so that a different choice by a
+replicator is visible as a deviation rather than absorbed as noise.
+
+\subsection{Common setup}
+
+\para{Provider configuration.} All measurements run with the deterministic fake
+\code{LLMProvider}, \code{EvalProvider}, and \code{Promoter} unless a row explicitly
+requires a real provider. This is the protocol's most important decision: it makes
+E1 and E2 measure \sys rather than an inference service, and it makes results
+reproducible across time, since a hosted model's latency is not a stable quantity.
+Rows that need real providers (E3) say so.
+
+\para{Topology.} Standalone (topology~B, \figref{fig:topologies}), so that \sys and
+\mlflow{} are separate failure domains and \sys's own cost is separable. Report the
+embedded topology separately if measured at all; do not average the two.
+
+\para{Store configuration.} PostgreSQL~17 with pgvector and Apache~AGE; S3-compatible
+object storage; \mlflow{} 3.14 or later with its own logical database. Record the
+schema revision and the tree revision (\code{\statGitRev}) with every result.
+
+\para{Warm-up and reporting.} Discard the first 60~seconds of every throughput or
+latency run. Report p50, p95, and p99 --- never the mean alone, since the control
+plane's tail is the operationally relevant quantity. Report the number of trials and
+the interval, not a single figure.
+
+\subsection{E1 --- Control-plane cost}
+
+\para{E1(a), governed-read overhead.} Compare two clients issuing the same logical
+operation: one resolving a \gasset through \sys, one reading a hard-coded version
+from local configuration. Both must exercise the same downstream work, so the
+difference isolates the control-plane path. Vary offered load until p99 degrades,
+and report added latency at 50\% of the saturation point rather than at saturation ---
+added latency measured at saturation is dominated by queueing and is not the number
+an adopter needs.
+
+\para{E1(b), alias resolution.} Measure resolution alone, with the downstream call
+stubbed. Report cold (first resolution after process start) and warm separately;
+reporting only the warm figure would hide whatever cache-miss cost exists.
+
+\para{E1(c), throughput per replica.} Fix a p99 target, increase offered load until
+the target is violated, and report the sustained rate below it. Report the target,
+not just the rate: a throughput figure without a latency bound is uninterpretable.
+
+\subsection{E2 --- Queue arbitration}
+
+\para{E2(d), concurrent mutual exclusion under replication.} Enqueue a fixed
+population of $J$ jobs whose handlers record their own invocation to a
+uniquely-constrained table. Run $N \in \{1,2,4,8\}$ replicas against one database.
+\textbf{Assert zero concurrent double-ownership}, not a low rate: this is a
+correctness claim and a statistical result would not support it. Repeat with
+induced contention by starting all replicas simultaneously against a full queue.
+
+Note what this does \emph{not} test. Exclusion under contention is not
+exactly-once execution across crashes, and the two diverge by loop
+(\tabref{tab:loops}). Run E2(d) separately per loop and report its own semantics:
+at-most-once for refinement and calibration, at-least-once for the workflow-run
+worker, the knowledge-base worker, and webhook delivery. A single aggregate number
+across loops with different recovery policies would be meaningless.
+
+\para{E2(e), drain throughput versus replicas.} Same setup, measuring completion
+rate. Expect sub-linear scaling and report where it flattens --- the flattening point
+is the database arbitration limit and is the number that matters for capacity
+planning.
+
+\para{E2(f), recovery after a mid-claim kill.} Claim a job, kill the process
+uncleanly ($\mathtt{SIGKILL}$, so no lease is released), and record what happens.
+The expected outcome is loop-specific and the test must assert the right one:
+
+\begin{itemize}
+\item \textbf{WorkflowRun} --- the run is requeued on lease expiry and resumes from
+      its last checkpoint. Measure the interval and check it against the configured
+      lease timeout plus one sweep period.
+\item \textbf{Refinement} --- the job is marked \code{failed} by the janitor and
+      does \emph{not} resume. Assert that terminal state and measure time-to-reap.
+      An earlier version of this protocol expected resumption here; that
+      expectation was wrong about the implementation.
+\item \textbf{Calibration} --- no lease exists, so the row remains \code{running}
+      indefinitely. Assert that, and treat it as a defect to be fixed rather than a
+      behaviour to be certified.
+\end{itemize}
+
+Separately, kill the process \emph{after} an external effect has been issued but
+before its ledger entry settles, and assert the effect is surfaced as
+\code{indeterminate} rather than silently retried or silently dropped.
+
+\subsection{E3 --- The refinement path}
+
+E3 requires real providers, and results are therefore provider-specific. Record the
+model identifier and the date for every run.
+
+\para{E3(g), signal-to-candidate latency.} Measure wall-clock from a verified
+verification item to a candidate-ready job, broken down per stage
+(\figref{fig:pipeline}). Report the breakdown, not only the total: a total dominated
+by optimizer time and a total dominated by evidence assembly have entirely different
+engineering implications.
+
+\para{E3(h), gate agreement with expert judgement.} The sample size must come from
+a power analysis rather than from a round number: fix the smallest $\kappa$ worth
+detecting, the expected prevalence of withheld candidates, and the desired power,
+and derive $n$ from those. Stratify by \family and by task, because a gate that
+agrees well on prompts and poorly on workflows is not described by one pooled
+figure. Seal the test set and select the release threshold \emph{before} it is
+opened; a threshold chosen after looking is not a measurement.
+
+Have at least three annotators who \emph{did not author the judges} label each
+candidate independently, and adjudicate disagreements into an expert gold set
+rather than resolving them by majority alone. Report Cohen's $\kappa$ against the
+adjudicated label and Fleiss's $\kappa$ among annotators, both with confidence
+intervals that account for clustering within family and
+task~\cite{cohen1960kappa,fleiss1971kappa}. Report per-class sensitivity and
+specificity separately: the cost of a false advance and the cost of a false
+withhold are not symmetric, and a single agreement number hides which one the gate
+is making. Report inter-annotator agreement even --- especially --- if it is low,
+since a low value bounds what the gate could possibly agree with.
+
+\para{E3(i), off-corpus generalization.} This is the measurement designed to be able
+to embarrass the paper's own position (D4, \secref{sec:design}). Calibrate judges on
+corpus $A$. Evaluate agreement on corpus $B$ drawn from a \emph{different} task
+distribution --- not a held-out split of $A$, which would measure something else.
+Report the agreement drop from $A$ to $B$. A small drop weakens the argument for a
+mandatory human at \mode{Apply}; report it either way.
+
+\subsection{E4 --- Release and recovery}
+
+\para{E4(j), rollback latency.} Measure from the rollback request to the first
+production call observably resolving the restored target. Include the client-side
+resolution, since a rollback that has been recorded but not yet observed by clients
+is not complete from the operator's point of view.
+
+\para{E4(k), reconstructability.} The protocol's design matters more than its
+mechanics. Perform $R \geq 20$ releases with varied paths --- some rolled back, some
+superseded, some with failing gates that stopped a job. Then give an independent
+party read access to \emph{every authoritative store}: the relational database,
+object storage, \emph{and} \mlflow{} --- but nothing else: no access to the
+original operator, no chat logs, no tickets. Ask them to state, per release, what
+changed, what evidence justified it, who authorized it, and what the prior state
+was. Score each of the four elements as recoverable or not, and report per-element
+rather than as a single success rate --- the interesting failure is one element
+being systematically unrecoverable. Any element unrecoverable for any release
+falsifies the reconstructability claim in \secref{sec:overview}, and should be
+reported as such rather than averaged away.
+
+Including \mlflow{} in that access set is a correction rather than a convenience.
+\mlflow{} owns prompt versions, aliases, traces, and assessments
+(\figref{fig:dataflow}), so a protocol that withheld it could not reconstruct a
+prompt release even in principle, and would have measured the access model rather
+than the records. The stronger variant of this experiment --- and the one worth
+running second --- withholds \mlflow{} and asks whether \sys can emit a
+\emph{self-contained evidence bundle} that suffices on its own. That is a design
+requirement this paper does not yet meet, and \secref{sec:future} records it as
+work rather than as a property.
+
+\subsection{E6 --- Baselines}
+
+A control plane measured only against itself establishes nothing about whether it
+was worth building. Every E1, E4, and E6 measurement is therefore run against four
+baselines as well as \sys, on the same task set and by the same participants:
+
+\begin{enumerate}
+\item \textbf{Git plus CI.} Prompts in files, review by pull request, release by
+      deployment. This is what most teams do and is the baseline \sys must beat to
+      justify itself at all.
+\item \textbf{\mlflow{} alone.} Prompt Registry versions and aliases, with
+      \code{optimize\_prompts()} and evaluation run by
+      hand~\cite{mlflowpromptregistry,mlflowoptimize}. This is the sharpest
+      baseline, because it has most of \sys's mechanisms and none of its wiring;
+      the delta it isolates is precisely the wiring.
+\item \textbf{LangSmith}~\cite{langsmithprompts} and \textbf{Langfuse}
+      \cite{langfuseprompts}, using commit tags and labels respectively.
+\end{enumerate}
+
+\para{E6(o), task time and correctness.} Give each participant the same three
+tasks --- diagnose a reported failure, produce and release a fix, and roll it back
+--- on each system, counterbalanced for order. Report time-to-complete and, more
+importantly, the number of E4(k) elements a third party can later recover. A
+baseline that is faster but leaves nothing recoverable is a different point on the
+trade-off, not a worse system, and should be reported as such.
+
+\para{E6(p), the \mlflow{}-alone delta.} Run E4(k) against baseline~2 in
+isolation. The prediction \sys's design makes is that \emph{what changed}, \emph{what
+the prior state was}, and \emph{who moved the alias} are recoverable from
+\mlflow{} alone, and that \emph{what evidence justified it} is not, because the
+evaluation result is not bound to the alias move. If all four elements turn out to
+be recoverable, the paper's central value claim is substantially weakened and
+should be reported as such.
+
+\para{E6, applied to non-prompt families.} Baselines 2--4 cannot run the workflow,
+tool, or MCP-server tasks at all, since those artifacts are not registry citizens
+in any of them. Report that as a \emph{scope} result rather than as a score: the
+comparison is not that \sys performs the task better but that the baseline has no
+mechanism for it, which is a different and weaker kind of claim than a timing win.
+
+\subsection{E7 --- Operators}
+
+\secref{sec:arch:claim} argues that per-family guarantees are the honest factoring,
+and \secref{sec:arch} names the resulting risk: an operator who sees the same
+version-history panel in five places infers five equivalent rollback guarantees and
+gets five different ones. That is an empirical claim about people and cannot be
+settled by a table.
+
+\para{E7(q), guarantee comprehension.} Recruit $\geq 12$ participants with
+production LLM-operations experience and no prior exposure to \sys. After a fixed
+onboarding, show each a version-history panel for each of five families and ask
+what rolling back would do. Score against \tabref{tab:families}. Report per-family
+accuracy, not a pooled figure: the interesting result is \emph{which} family is
+misread, and the prediction is that tools --- which have no rollback at all --- are
+misread most often. Report confidence intervals and the onboarding materials
+verbatim, since comprehension is trivially inflated by better training.
+
+A falsifying outcome here is not that \sys is slow but that its central design
+position is unusable: if operators cannot state the guarantee, documenting it
+per-family is not a mitigation, and the capability-interface design of
+\secref{sec:arch:claim} becomes a requirement rather than future work.
+
+\subsection{Fault injection}
+
+E2(f) covers one fault. The following matrix is the minimum for a paper that claims
+a recovery story, and each cell states the expected observable so a run either
+matches it or does not:
+
+\begin{itemize}
+\item \textbf{Worker \code{SIGKILL}} --- per-loop outcome as in E2(f).
+\item \textbf{Database failover mid-transaction} --- either no intent commits and
+      no provider call begins, or a durable operation names the exact requested
+      effect. Inject failure before and after each state commit.
+\item \textbf{\mlflow{} unreachable during a release} --- the rotation fails and
+      the operation remains \code{reconcile\_required}; reconciliation observes
+      the prior target and settles it \code{failed}.
+\item \textbf{\mlflow{} unreachable after a rotation but before the commit} ---
+      the operation remains \code{applying} or \code{reconcile\_required};
+      reconciliation observes the requested target and settles it \code{applied}.
+\item \textbf{Object storage unavailable} --- evidence write fails closed; a
+      release does not proceed on missing evidence.
+\item \textbf{Clock skew across replicas} --- lease expiry does not permit two
+      owners. Skew each replica by more than one lease period.
+\item \textbf{Duplicate webhook delivery} --- the receiver's settlement path
+      absorbs it; report the observed duplicate rate rather than asserting zero.
+\end{itemize}
+
+Report each cell as pass, fail, or not run. A blank cell is more informative than a
+cell filled by argument.
+
+\subsection{Deviations to report}
+
+A replicator changing any of the following should say so, because each materially
+affects comparability: the provider configuration (fake versus real); the topology;
+the annotator pool's independence from judge authorship in E3(h); the distributional
+distance between corpora $A$ and $B$ in E3(i); and whether E4(k)'s independent party
+had any channel to the original operators; the baseline versions used in E6, since
+these are live products; and the onboarding materials used in E7, since
+comprehension results are not comparable across different training.

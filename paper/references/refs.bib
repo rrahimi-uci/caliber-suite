@@ -1,0 +1,701 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% refs.bib -- bibliography for the CALIBER technical paper.
+%%
+%% Organized by the argument each group supports:
+%%   1. ML/agent production practice and technical debt
+%%   2. Experiment tracking, lineage, and ML platforms
+%%   3. Agent architectures and orchestration frameworks
+%%   4. Prompt and program optimization
+%%   5. Evaluation, LLM-as-judge, and human alignment
+%%   6. Retrieval and knowledge infrastructure
+%%   7. Security, isolation, and access control
+%%   8. Provenance, supply chain, and release engineering
+%%   9. Distributed-systems foundations
+%%  10. Software artifacts and specifications (URLs)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% ----------------------------------------------------------------------------
+%% 1. ML/agent production practice and technical debt
+%% ----------------------------------------------------------------------------
+
+@inproceedings{sculley2015debt,
+  author    = {Sculley, D. and Holt, Gary and Golovin, Daniel and Davydov,
+               Eugene and Phillips, Todd and Ebner, Dietmar and Chaudhary,
+               Vinay and Young, Michael and Crespo, Jean-Fran{\c c}ois and
+               Dennison, Dan},
+  title     = {Hidden Technical Debt in Machine Learning Systems},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2015},
+}
+
+@inproceedings{amershi2019se4ml,
+  author    = {Amershi, Saleema and Begel, Andrew and Bird, Christian and
+               DeLine, Robert and Gall, Harald and Kamar, Ece and Nagappan,
+               Nachiappan and Nushi, Besmira and Zimmermann, Thomas},
+  title     = {Software Engineering for Machine Learning: A Case Study},
+  booktitle = {Proceedings of the 41st International Conference on Software
+               Engineering: Software Engineering in Practice (ICSE-SEIP)},
+  year      = {2019},
+}
+
+@inproceedings{breck2017mltest,
+  author    = {Breck, Eric and Cai, Shanqing and Nielsen, Eric and Salib,
+               Michael and Sculley, D.},
+  title     = {The {ML} Test Score: A Rubric for {ML} Production Readiness and
+               Technical Debt Reduction},
+  booktitle = {IEEE International Conference on Big Data (BigData)},
+  year      = {2017},
+}
+
+@inproceedings{mitchell2019modelcards,
+  author    = {Mitchell, Margaret and Wu, Simone and Zaldivar, Andrew and
+               Barnes, Parker and Vasserman, Lucy and Hutchinson, Ben and
+               Spitzer, Elena and Raji, Inioluwa Deborah and Gebru, Timnit},
+  title     = {Model Cards for Model Reporting},
+  booktitle = {Proceedings of the Conference on Fairness, Accountability, and
+               Transparency (FAT*)},
+  year      = {2019},
+}
+
+@article{gebru2021datasheets,
+  author  = {Gebru, Timnit and Morgenstern, Jamie and Vecchione, Briana and
+             Vaughan, Jennifer Wortman and Wallach, Hanna and Daum{\'e} III,
+             Hal and Crawford, Kate},
+  title   = {Datasheets for Datasets},
+  journal = {Communications of the ACM},
+  volume  = {64},
+  number  = {12},
+  year    = {2021},
+}
+
+%% ----------------------------------------------------------------------------
+%% 2. Experiment tracking, lineage, and ML platforms
+%% ----------------------------------------------------------------------------
+
+@article{zaharia2018mlflow,
+  author  = {Zaharia, Matei and Chen, Andrew and Davidson, Aaron and Ghodsi,
+             Ali and Hong, Sue Ann and Konwinski, Andy and Murching,
+             Siddharth and Nykodym, Tomas and Ogilvie, Paul and Parkhe, Mani
+             and Xie, Fen and Zumar, Corey},
+  title   = {Accelerating the Machine Learning Lifecycle with {MLflow}},
+  journal = {IEEE Data Engineering Bulletin},
+  volume  = {41},
+  number  = {4},
+  year    = {2018},
+}
+
+@inproceedings{baylor2017tfx,
+  author    = {Baylor, Denis and Breck, Eric and Cheng, Heng-Tze and Fiedel,
+               Noah and Foo, Chuan Yu and Haque, Zakaria and Haykal, Salem and
+               Ispir, Mustafa and Jain, Vihan and Koc, Levent and Koo, Chiu
+               Yuen and Lew, Lukasz and Mewald, Clemens and Modi, Akshay Naresh
+               and Polyzotis, Neoklis and Ramesh, Sukriti and Roy, Sudip and
+               Whang, Steven Euijong and Wicke, Martin and Wilkiewicz, Jarek
+               and Zhang, Xin and Zinkevich, Martin},
+  title     = {{TFX}: A {TensorFlow}-Based Production-Scale Machine Learning
+               Platform},
+  booktitle = {Proceedings of the 23rd ACM SIGKDD International Conference on
+               Knowledge Discovery and Data Mining (KDD)},
+  year      = {2017},
+}
+
+@inproceedings{schelter2017provenance,
+  author    = {Schelter, Sebastian and Boese, Joos-Hendrik and Kirschnick,
+               Johannes and Klein, Thoralf and Seufert, Stephan},
+  title     = {Automatically Tracking Metadata and Provenance of Machine
+               Learning Experiments},
+  booktitle = {Machine Learning Systems Workshop at NeurIPS},
+  year      = {2017},
+}
+
+%% ----------------------------------------------------------------------------
+%% 3. Agent architectures and orchestration frameworks
+%% ----------------------------------------------------------------------------
+
+@inproceedings{yao2023react,
+  author    = {Yao, Shunyu and Zhao, Jeffrey and Yu, Dian and Du, Nan and
+               Shafran, Izhak and Narasimhan, Karthik and Cao, Yuan},
+  title     = {{ReAct}: Synergizing Reasoning and Acting in Language Models},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2023},
+}
+
+@inproceedings{schick2023toolformer,
+  author    = {Schick, Timo and Dwivedi-Yu, Jane and Dess{\`i}, Roberto and
+               Raileanu, Roberta and Lomeli, Maria and Hambro, Eric and
+               Zettlemoyer, Luke and Cancedda, Nicola and Scialom, Thomas},
+  title     = {{Toolformer}: Language Models Can Teach Themselves to Use Tools},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+}
+
+@inproceedings{wu2024autogen,
+  author    = {Wu, Qingyun and Bansal, Gagan and Zhang, Jieyu and Wu, Yiran and
+               Li, Beibin and Zhu, Erkang and Jiang, Li and Zhang, Xiaoyun and
+               Zhang, Shaokun and Liu, Jiale and Awadallah, Ahmed Hassan and
+               White, Ryen W. and Burger, Doug and Wang, Chi},
+  title     = {{AutoGen}: Enabling Next-Gen {LLM} Applications via Multi-Agent
+               Conversation},
+  booktitle = {Conference on Language Modeling (COLM)},
+  year      = {2024},
+}
+
+@inproceedings{park2023generative,
+  author    = {Park, Joon Sung and O'Brien, Joseph C. and Cai, Carrie J. and
+               Morris, Meredith Ringel and Liang, Percy and Bernstein,
+               Michael S.},
+  title     = {Generative Agents: Interactive Simulacra of Human Behavior},
+  booktitle = {Proceedings of the 36th Annual ACM Symposium on User Interface
+               Software and Technology (UIST)},
+  year      = {2023},
+}
+
+@inproceedings{shinn2023reflexion,
+  author    = {Shinn, Noah and Cassano, Federico and Gopinath, Ashwin and
+               Narasimhan, Karthik and Yao, Shunyu},
+  title     = {{Reflexion}: Language Agents with Verbal Reinforcement Learning},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+}
+
+@inproceedings{madaan2023selfrefine,
+  author    = {Madaan, Aman and Tandon, Niket and Gupta, Prakhar and Hallinan,
+               Skyler and Gao, Luyu and Wiegreffe, Sarah and Alon, Uri and
+               Dziri, Nouha and Prabhumoye, Shrimai and Yang, Yiming and
+               Gupta, Shashank and Majumder, Bodhisattwa Prasad and
+               Hermann, Katherine and Welleck, Sean and Yazdanbakhsh, Amir and
+               Clark, Peter},
+  title     = {{Self-Refine}: Iterative Refinement with Self-Feedback},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+}
+
+@inproceedings{wei2022cot,
+  author    = {Wei, Jason and Wang, Xuezhi and Schuurmans, Dale and Bosma,
+               Maarten and Ichter, Brian and Xia, Fei and Chi, Ed and Le, Quoc
+               and Zhou, Denny},
+  title     = {Chain-of-Thought Prompting Elicits Reasoning in Large Language
+               Models},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2022},
+}
+
+%% ----------------------------------------------------------------------------
+%% 4. Prompt and program optimization
+%% ----------------------------------------------------------------------------
+
+@inproceedings{khattab2024dspy,
+  author    = {Khattab, Omar and Singhvi, Arnav and Maheshwari, Paridhi and
+               Zhang, Zhiyuan and Santhanam, Keshav and Vardhamanan, Sri and
+               Haq, Saiful and Sharma, Ashutosh and Joshi, Thomas T. and
+               Moazam, Hanna and Miller, Heather and Zaharia, Matei and
+               Potts, Christopher},
+  title     = {{DSPy}: Compiling Declarative Language Model Calls into
+               Self-Improving Pipelines},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+}
+
+@inproceedings{opsahlong2024mipro,
+  author    = {Opsahl-Ong, Krista and Ryan, Michael J. and Purtell, Josh and
+               Broman, David and Potts, Christopher and Zaharia, Matei and
+               Khattab, Omar},
+  title     = {Optimizing Instructions and Demonstrations for Multi-Stage
+               Language Model Programs},
+  booktitle = {Proceedings of the Conference on Empirical Methods in Natural
+               Language Processing (EMNLP)},
+  year      = {2024},
+}
+
+@article{agrawal2025gepa,
+  author  = {Agrawal, Lakshya A. and Tan, Shangyin and Soylu, Dilara and
+             Ziems, Noah and Khare, Rishi and Opsahl-Ong, Krista and Singhvi,
+             Arnav and Shandilya, Herumb and Ryan, Michael J. and Jiang, Meng
+             and Potts, Christopher and Sen, Koushik and Stoica, Ion and
+             Khattab, Omar and Zaharia, Matei},
+  title   = {{GEPA}: Reflective Prompt Evolution Can Outperform Reinforcement
+             Learning},
+  journal = {arXiv preprint arXiv:2507.19457},
+  year    = {2025},
+}
+
+@inproceedings{zhou2023ape,
+  author    = {Zhou, Yongchao and Muresanu, Andrei Ioan and Han, Ziwen and
+               Paster, Keiran and Pitis, Silviu and Chan, Harris and Ba,
+               Jimmy},
+  title     = {Large Language Models Are Human-Level Prompt Engineers},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2023},
+}
+
+@inproceedings{yang2024opro,
+  author    = {Yang, Chengrun and Wang, Xuezhi and Lu, Yifeng and Liu, Hanxiao
+               and Le, Quoc V. and Zhou, Denny and Chen, Xinyun},
+  title     = {Large Language Models as Optimizers},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+}
+
+@article{yuksekgonul2024textgrad,
+  author  = {Yuksekgonul, Mert and Bianchi, Federico and Boen, Joseph and Liu,
+             Sheng and Huang, Zhi and Guestrin, Carlos and Zou, James},
+  title   = {{TextGrad}: Automatic ``Differentiation'' via Text},
+  journal = {arXiv preprint arXiv:2406.07496},
+  year    = {2024},
+}
+
+%% ----------------------------------------------------------------------------
+%% 5. Evaluation, LLM-as-judge, and human alignment
+%% ----------------------------------------------------------------------------
+
+@inproceedings{zheng2023judging,
+  author    = {Zheng, Lianmin and Chiang, Wei-Lin and Sheng, Ying and Zhuang,
+               Siyuan and Wu, Zhanghao and Zhuang, Yonghao and Lin, Zi and Li,
+               Zhuohan and Li, Dacheng and Xing, Eric P. and Zhang, Hao and
+               Gonzalez, Joseph E. and Stoica, Ion},
+  title     = {Judging {LLM}-as-a-Judge with {MT-Bench} and Chatbot Arena},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)
+               Datasets and Benchmarks Track},
+  year      = {2023},
+}
+
+@inproceedings{liu2023geval,
+  author    = {Liu, Yang and Iter, Dan and Xu, Yichong and Wang, Shuohang and
+               Xu, Ruochen and Zhu, Chenguang},
+  title     = {{G-Eval}: {NLG} Evaluation using {GPT-4} with Better Human
+               Alignment},
+  booktitle = {Proceedings of the Conference on Empirical Methods in Natural
+               Language Processing (EMNLP)},
+  year      = {2023},
+}
+
+@article{liang2023helm,
+  author  = {Liang, Percy and Bommasani, Rishi and Lee, Tony and Tsipras,
+             Dimitris and Soylu, Dilara and Yasunaga, Michihiro and Zhang, Yian
+             and Narayanan, Deepak and Wu, Yuhuai and Kumar, Ananya and
+             others},
+  title   = {Holistic Evaluation of Language Models},
+  journal = {Transactions on Machine Learning Research (TMLR)},
+  year    = {2023},
+}
+
+@inproceedings{es2024ragas,
+  author    = {Es, Shahul and James, Jithin and Espinosa Anke, Luis and
+               Schockaert, Steven},
+  title     = {{RAGAS}: Automated Evaluation of Retrieval Augmented Generation},
+  booktitle = {Proceedings of the 18th Conference of the European Chapter of
+               the Association for Computational Linguistics (EACL): System
+               Demonstrations},
+  year      = {2024},
+}
+
+@article{cohen1960kappa,
+  author  = {Cohen, Jacob},
+  title   = {A Coefficient of Agreement for Nominal Scales},
+  journal = {Educational and Psychological Measurement},
+  volume  = {20},
+  number  = {1},
+  year    = {1960},
+}
+
+@article{fleiss1971kappa,
+  author  = {Fleiss, Joseph L.},
+  title   = {Measuring Nominal Scale Agreement Among Many Raters},
+  journal = {Psychological Bulletin},
+  volume  = {76},
+  number  = {5},
+  year    = {1971},
+}
+
+%% ----------------------------------------------------------------------------
+%% 6. Retrieval and knowledge infrastructure
+%% ----------------------------------------------------------------------------
+
+@inproceedings{lewis2020rag,
+  author    = {Lewis, Patrick and Perez, Ethan and Piktus, Aleksandra and
+               Petroni, Fabio and Karpukhin, Vladimir and Goyal, Naman and
+               K{\"u}ttler, Heinrich and Lewis, Mike and Yih, Wen-tau and
+               Rockt{\"a}schel, Tim and Riedel, Sebastian and Kiela, Douwe},
+  title     = {Retrieval-Augmented Generation for Knowledge-Intensive {NLP}
+               Tasks},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2020},
+}
+
+@article{robertson2009bm25,
+  author  = {Robertson, Stephen and Zaragoza, Hugo},
+  title   = {The Probabilistic Relevance Framework: {BM25} and Beyond},
+  journal = {Foundations and Trends in Information Retrieval},
+  volume  = {3},
+  number  = {4},
+  year    = {2009},
+}
+
+@article{nogueira2019bertrerank,
+  author  = {Nogueira, Rodrigo and Cho, Kyunghyun},
+  title   = {Passage Re-ranking with {BERT}},
+  journal = {arXiv preprint arXiv:1901.04085},
+  year    = {2019},
+}
+
+@article{malkov2020hnsw,
+  author  = {Malkov, Yu A. and Yashunin, D. A.},
+  title   = {Efficient and Robust Approximate Nearest Neighbor Search Using
+             Hierarchical Navigable Small World Graphs},
+  journal = {IEEE Transactions on Pattern Analysis and Machine Intelligence},
+  volume  = {42},
+  number  = {4},
+  year    = {2020},
+}
+
+%% ----------------------------------------------------------------------------
+%% 7. Security, isolation, and access control
+%% ----------------------------------------------------------------------------
+
+@article{saltzer1975protection,
+  author  = {Saltzer, Jerome H. and Schroeder, Michael D.},
+  title   = {The Protection of Information in Computer Systems},
+  journal = {Proceedings of the IEEE},
+  volume  = {63},
+  number  = {9},
+  year    = {1975},
+}
+
+@article{sandhu1996rbac,
+  author  = {Sandhu, Ravi S. and Coyne, Edward J. and Feinstein, Hal L. and
+             Youman, Charles E.},
+  title   = {Role-Based Access Control Models},
+  journal = {IEEE Computer},
+  volume  = {29},
+  number  = {2},
+  year    = {1996},
+}
+
+@inproceedings{clark1987integrity,
+  author    = {Clark, David D. and Wilson, David R.},
+  title     = {A Comparison of Commercial and Military Computer Security
+               Policies},
+  booktitle = {IEEE Symposium on Security and Privacy},
+  year      = {1987},
+}
+
+@inproceedings{agache2020firecracker,
+  author    = {Agache, Alexandru and Brooker, Marc and Iordache, Alexandra and
+               Liguori, Anthony and Neugebauer, Rolf and Piwonka, Phil and
+               Popa, Diana-Maria},
+  title     = {{Firecracker}: Lightweight Virtualization for Serverless
+               Applications},
+  booktitle = {17th USENIX Symposium on Networked Systems Design and
+               Implementation (NSDI)},
+  year      = {2020},
+}
+
+@inproceedings{greshake2023injection,
+  author    = {Greshake, Kai and Abdelnabi, Sahar and Mishra, Shailesh and
+               Endres, Christoph and Holz, Thorsten and Fritz, Mario},
+  title     = {Not What You've Signed Up For: Compromising Real-World
+               {LLM}-Integrated Applications with Indirect Prompt Injection},
+  booktitle = {Proceedings of the 16th ACM Workshop on Artificial Intelligence
+               and Security (AISec)},
+  year      = {2023},
+}
+
+@inproceedings{perez2022ignore,
+  author    = {Perez, F{\'a}bio and Ribeiro, Ian},
+  title     = {Ignore Previous Prompt: Attack Techniques for Language Models},
+  booktitle = {NeurIPS ML Safety Workshop},
+  year      = {2022},
+}
+
+%% ----------------------------------------------------------------------------
+%% 8. Provenance, supply chain, and release engineering
+%% ----------------------------------------------------------------------------
+
+@inproceedings{torresarias2019intoto,
+  author    = {Torres-Arias, Santiago and Afzali, Hammad and Kuppusamy,
+               Trishank Karthik and Curtmola, Reza and Cappos, Justin},
+  title     = {in-toto: Providing Farm-to-Table Guarantees for Bytes and Bits},
+  booktitle = {28th USENIX Security Symposium},
+  year      = {2019},
+}
+
+@book{humble2010cd,
+  author    = {Humble, Jez and Farley, David},
+  title     = {Continuous Delivery: Reliable Software Releases through Build,
+               Test, and Deployment Automation},
+  publisher = {Addison-Wesley},
+  year      = {2010},
+}
+
+@book{beyer2016sre,
+  editor    = {Beyer, Betsy and Jones, Chris and Petoff, Jennifer and Murphy,
+               Niall Richard},
+  title     = {Site Reliability Engineering: How Google Runs Production
+               Systems},
+  publisher = {O'Reilly Media},
+  year      = {2016},
+}
+
+%% ----------------------------------------------------------------------------
+%% 9. Distributed-systems foundations
+%% ----------------------------------------------------------------------------
+
+@inproceedings{garciamolina1987sagas,
+  author    = {Garcia-Molina, Hector and Salem, Kenneth},
+  title     = {Sagas},
+  booktitle = {Proceedings of the ACM SIGMOD International Conference on
+               Management of Data},
+  year      = {1987},
+}
+
+@book{kleppmann2017ddia,
+  author    = {Kleppmann, Martin},
+  title     = {Designing Data-Intensive Applications},
+  publisher = {O'Reilly Media},
+  year      = {2017},
+}
+
+@article{gray1981transaction,
+  author  = {Gray, Jim},
+  title   = {The Transaction Concept: Virtues and Limitations},
+  journal = {Proceedings of the 7th International Conference on Very Large Data
+             Bases (VLDB)},
+  year    = {1981},
+}
+
+@inproceedings{helland2007apostates,
+  author    = {Helland, Pat},
+  title     = {Life Beyond Distributed Transactions: An Apostate's Opinion},
+  booktitle = {3rd Biennial Conference on Innovative Data Systems Research
+               (CIDR)},
+  year      = {2007},
+}
+
+%% ----------------------------------------------------------------------------
+%% 10. Software artifacts and specifications
+%% ----------------------------------------------------------------------------
+
+@misc{mcp2024,
+  author       = {Anthropic},
+  title        = {Model Context Protocol Specification},
+  year         = {2024},
+  howpublished = {\url{https://modelcontextprotocol.io}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{langchain,
+  author       = {{LangChain, Inc.}},
+  title        = {{LangChain} and {LangGraph}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/langchain-ai/langchain}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{langsmith,
+  author       = {{LangChain, Inc.}},
+  title        = {{LangSmith}: Observability and Evaluation for {LLM}
+                  Applications},
+  year         = {2025},
+  howpublished = {\url{https://docs.smith.langchain.com}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{llamaindex,
+  author       = {{LlamaIndex, Inc.}},
+  title        = {{LlamaIndex}: Data Framework for {LLM} Applications},
+  year         = {2025},
+  howpublished = {\url{https://github.com/run-llama/llama_index}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{crewai,
+  author       = {{CrewAI, Inc.}},
+  title        = {{CrewAI}: Framework for Orchestrating Role-Playing
+                  Autonomous Agents},
+  year         = {2025},
+  howpublished = {\url{https://github.com/crewAIInc/crewAI}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{langfuse,
+  author       = {{Langfuse GmbH}},
+  title        = {{Langfuse}: Open Source {LLM} Engineering Platform},
+  year         = {2025},
+  howpublished = {\url{https://github.com/langfuse/langfuse}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{phoenix,
+  author       = {{Arize AI}},
+  title        = {{Phoenix}: {AI} Observability and Evaluation},
+  year         = {2025},
+  howpublished = {\url{https://github.com/Arize-ai/phoenix}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{promptfoo,
+  author       = {{promptfoo}},
+  title        = {{promptfoo}: Test and Evaluate {LLM} Prompts},
+  year         = {2025},
+  howpublished = {\url{https://github.com/promptfoo/promptfoo}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{openaievals,
+  author       = {{OpenAI}},
+  title        = {{OpenAI} Evals},
+  year         = {2025},
+  howpublished = {\url{https://github.com/openai/evals}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{guardrails,
+  author       = {{Guardrails AI}},
+  title        = {{Guardrails}: Adding Guardrails to Large Language Models},
+  year         = {2025},
+  howpublished = {\url{https://github.com/guardrails-ai/guardrails}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{opa,
+  author       = {{Cloud Native Computing Foundation}},
+  title        = {Open Policy Agent},
+  year         = {2025},
+  howpublished = {\url{https://www.openpolicyagent.org}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{opentelemetry,
+  author       = {{Cloud Native Computing Foundation}},
+  title        = {{OpenTelemetry} Specification},
+  year         = {2025},
+  howpublished = {\url{https://opentelemetry.io/docs/specs/otel/}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{kubeflow,
+  author       = {{Kubeflow Authors}},
+  title        = {{Kubeflow} Pipelines},
+  year         = {2025},
+  howpublished = {\url{https://www.kubeflow.org/docs/components/pipelines/}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{airflow,
+  author       = {{Apache Software Foundation}},
+  title        = {Apache {Airflow}},
+  year         = {2025},
+  howpublished = {\url{https://airflow.apache.org}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{dvc,
+  author       = {{Iterative, Inc.}},
+  title        = {{DVC}: Data Version Control},
+  year         = {2025},
+  howpublished = {\url{https://dvc.org}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{pgvector,
+  author       = {Kane, Andrew},
+  title        = {pgvector: Open-Source Vector Similarity Search for
+                  {PostgreSQL}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/pgvector/pgvector}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{apacheage,
+  author       = {{Apache Software Foundation}},
+  title        = {Apache {AGE}: A Graph Extension for {PostgreSQL}},
+  year         = {2025},
+  howpublished = {\url{https://age.apache.org}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{bubblewrap,
+  author       = {{Containers Project}},
+  title        = {{Bubblewrap}: Unprivileged Sandboxing Tool},
+  year         = {2025},
+  howpublished = {\url{https://github.com/containers/bubblewrap}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{slsa,
+  author       = {{Open Source Security Foundation}},
+  title        = {{SLSA}: Supply-chain Levels for Software Artifacts},
+  year         = {2025},
+  howpublished = {\url{https://slsa.dev}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{agentssdk,
+  author       = {{OpenAI}},
+  title        = {{OpenAI} Agents {SDK}},
+  year         = {2025},
+  howpublished = {\url{https://github.com/openai/openai-agents-python}},
+  note         = {Accessed 2026-08-03},
+}
+
+@misc{semanticconv,
+  author       = {{Cloud Native Computing Foundation}},
+  title        = {{OpenTelemetry} Semantic Conventions for {GenAI} Systems},
+  year         = {2025},
+  howpublished = {\url{https://opentelemetry.io/docs/specs/semconv/gen-ai/}},
+  note         = {Accessed 2026-08-03},
+}
+
+%% ---------------------------------------------------------------------------
+%% Product documentation for the closest systems.
+%%
+%% These are the primary sources behind Table 7 and Figure 9. Product
+%% capabilities move, so every entry carries the date the page was read, and the
+%% paper states its capability claims as of that date rather than in the present
+%% tense. A reader checking this comparison after the access date should expect
+%% drift and should re-read the page rather than the table.
+%% ---------------------------------------------------------------------------
+
+@misc{mlflowpromptregistry,
+  author       = {{MLflow Project}},
+  title        = {{MLflow} Prompt Registry},
+  year         = {2026},
+  howpublished = {\url{https://mlflow.org/docs/latest/genai/prompt-registry/}},
+  note         = {Documents commit-based prompt versioning, mutable aliases,
+                  prompt- and version-level tags, commit messages, and immutable
+                  versions. Accessed 2026-08-03},
+}
+
+@misc{mlflowoptimize,
+  author       = {{MLflow Project}},
+  title        = {Optimize Prompts with {MLflow}},
+  year         = {2026},
+  howpublished = {\url{https://mlflow.org/docs/latest/genai/prompt-registry/optimize-prompts/}},
+  note         = {Documents \texttt{mlflow.genai.optimize\_prompts()} with the
+                  \textsc{gepa} and metaprompting optimizers, driven by a labelled
+                  dataset and scorers. Accessed 2026-08-03},
+}
+
+@misc{langsmithprompts,
+  author       = {{LangChain, Inc.}},
+  title        = {Manage Prompts in {LangSmith}},
+  year         = {2026},
+  howpublished = {\url{https://docs.langchain.com/langsmith/manage-prompts}},
+  note         = {Documents commit-based version history, custom commit tags, the
+                  reserved \texttt{staging} and \texttt{production} tags,
+                  \texttt{client.pull\_prompt("name:production")} resolution,
+                  rollback to a previous commit, and owners-only tag permissions.
+                  Accessed 2026-08-03},
+}
+
+@misc{langfuseprompts,
+  author       = {{Langfuse GmbH}},
+  title        = {Prompt Version Control},
+  year         = {2026},
+  howpublished = {\url{https://langfuse.com/docs/prompt-management/features/prompt-version-control}},
+  note         = {Documents version identifiers, the \texttt{production} and
+                  \texttt{latest} labels plus custom labels, client-side
+                  resolution by label at fetch time, rollback by re-assigning the
+                  \texttt{production} label, and protected labels restricted by
+                  role. Accessed 2026-08-03},
+}

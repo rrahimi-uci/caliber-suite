@@ -341,7 +341,7 @@ def test_apply_prompt_alias_is_visible_to_prompt_rollback(
     # The alias was live on v5 before this rotation; capture-before-rotate must
     # record that as ``from_version`` so rollback lands exactly there.
     monkeypatch.setattr(
-        "caliber.routes.prompts._load_prompt_info",
+        "caliber.routes.prompts._load_prompt_release_info",
         lambda agent_id, alias="prod": {"version": 5, "alias": alias, "agent_id": agent_id},
     )
     monkeypatch.setattr(
@@ -374,3 +374,50 @@ def test_apply_prompt_alias_is_visible_to_prompt_rollback(
     checkpoint = db_session.query(CaliberRollbackCheckpoint).one()
     assert checkpoint.version_before == 5
     assert checkpoint.version_after == 7
+
+
+def test_failed_prompt_alias_apply_is_reconciled_back_to_candidate_ready(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An indeterminate provider failure stays durable and becomes retryable
+    only after reconciliation observes that the old alias target is still live."""
+    from starlette.exceptions import HTTPException
+
+    from caliber.db.models import CaliberReleaseOperation
+
+    _seed_candidate_ready_job(
+        db_session,
+        candidate={
+            "artifact_type": "prompt",
+            "promotion_type": "prompt_alias",
+            "source_version": 7,
+            "target_alias": "prod",
+            "content": "rewritten prompt body",
+        },
+    )
+    monkeypatch.setattr(
+        "caliber.routes.prompts._load_prompt_release_info",
+        lambda agent_id, alias="prod": {"version": 5, "alias": alias, "agent_id": agent_id},
+    )
+
+    def fail_alias(**_kwargs: object) -> dict[str, object]:
+        raise HTTPException(status_code=502, detail="provider timeout")
+
+    monkeypatch.setattr("caliber.routes.prompts.set_prompt_alias_version", fail_alias)
+    failed = client.post(APPLY_PATH.format(job_id="RFN-A"))
+    assert failed.status_code == 502
+
+    db_session.expire_all()
+    operation = db_session.query(CaliberReleaseOperation).one()
+    assert operation.status == "reconcile_required"
+    assert db_session.get(CaliberRefinementJob, "RFN-A").status == "applying"  # type: ignore[union-attr]
+
+    reconciled = client.post(
+        "/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile"
+    )
+    assert reconciled.status_code == 200
+    assert reconciled.json()["data"][0]["status"] == "failed"
+    db_session.expire_all()
+    assert db_session.get(CaliberRefinementJob, "RFN-A").status == "candidate_ready"  # type: ignore[union-attr]

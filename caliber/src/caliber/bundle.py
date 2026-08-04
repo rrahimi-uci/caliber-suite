@@ -216,7 +216,10 @@ def promote_bundle(
                     new_content=target.content,
                     rationale=target.rationale,
                     approval_id=approval_id,
-                    session=session if target.artifact_type == "skill" else None,
+                    # DB-resident skills mutate this session directly. External
+                    # prompt promoters use it only for the durable release intent
+                    # and settlement around their alias effect.
+                    session=session,
                     actor=actor,
                 )
             )
@@ -283,7 +286,7 @@ def _rollback_succeeded(
                     # marker. The promoter implementations only use this
                     # for logging, not for state.
                     checkpoint_id=f"bundle-rollback:{target.agent_id}:{target.artifact_type}",
-                    session=session if target.artifact_type == "skill" else None,
+                    session=session,
                     actor=actor,
                 )
             )

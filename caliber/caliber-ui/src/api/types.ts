@@ -370,6 +370,9 @@ export interface PromptAliasResult {
   name: string;
   alias: string;
   version: number;
+  previous_live_version?: number | null;
+  operation_id?: string;
+  release_status?: "prepared" | "applying" | "applied" | "failed" | "reconcile_required";
 }
 
 export interface PromptTemplateVariableSpec {

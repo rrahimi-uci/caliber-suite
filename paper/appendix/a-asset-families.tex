@@ -1,0 +1,41 @@
+\section{Asset Families in Detail}
+\label{app:families}
+
+\tabref{tab:families} gives the guarantee surface in tabular form. This appendix
+records the reasoning behind the three rows most likely to surprise a reader, since
+the table has room for the conclusion but not for the argument.
+
+\para{Why tools have no live alias.} A tool is a callable with a signature, and its
+callers bind to a specific \code{(name, version)} pair. Introducing an alias would
+mean a caller's tool could change signature underneath it between calls --- a
+strictly worse failure mode than an explicit version bump, because it converts a
+compile-time-visible incompatibility into a runtime one. Tools therefore expose
+read-only family history and no live-target indirection. The corollary is that tool
+remediation \emph{does} require a caller change, and we accept that cost rather than
+introducing silent signature drift.
+
+\para{Why skill rollback creates a new version.} A skill has a mutable current
+record plus immutable snapshots. Rolling back restores a prior snapshot \emph{as a
+new current version} rather than moving a pointer backward. The reason is that the
+skill's identity is the current record, and rewinding it would erase the fact that
+the intervening version ever existed --- which is exactly the history a governance
+system exists to preserve. The observable consequence is that a skill's version
+number is monotonic even under rollback, which differs from the prompt path's alias
+semantics and is listed separately in \tabref{tab:families} for that reason.
+
+\para{Why test sets have version counters and per-example validity intervals.} A
+test set is evidence, and evidence must be interpretable at the time a score was
+computed. A monolithic version counter alone would force a new version for every
+example edit, making the history unusably granular. Per-example validity intervals
+let the corpus evolve while keeping any historical score interpretable against the
+corpus as it stood: given a score and its timestamp, the exact example set that
+produced it is recoverable. This is the mechanism that makes \figref{fig:chain}'s
+durable-residue claim true for measurements specifically.
+
+\para{Why the agent family exists at all.} An agent in \sys is not an executable ---
+agents are composed elsewhere (\secref{sec:background}). It is the anchor record
+that verification items, refinement jobs, and approvals attach to, which gives those
+records a stable owner and gives operators one lever (\code{enabled}) that the
+workers read to pause and resume activity for a whole agent. Modelling it as a
+family rather than as a foreign key keeps the authority model uniform: pausing an
+agent is a scope-checked, audited mutation like any other.

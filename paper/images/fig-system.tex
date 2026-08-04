@@ -1,0 +1,182 @@
+%% fig-system.tex -- Figure: high-level system architecture and component
+%% interaction. One ASGI process, the clients that reach it, and the systems it
+%% integrates with but does not own.
+%%
+%% Routing convention: every long edge runs either in the gutter between the
+%% process band and the state column (lane A), in the outer lane to the right of
+%% everything (lane B), or in the reserved channel below the band. Nothing
+%% crosses a box.
+%%
+%% Type scale: \figH headings, \figB detail (7pt floor). Row detail lines were cut
+%% to a single short clause each to pay for the larger type; the full enumerations
+%% live in the prose of Sections 5 and 6.
+
+\begin{figure}[tbp]
+\centering
+\ifcbexcalidraw
+  \begin{cbwide}\cbdiagram{fig-system}\end{cbwide}
+\else
+\begin{cbwide}
+\begin{tikzpicture}[x=1cm,y=1cm]
+
+  \def\MX{3.30}   % process band left edge
+  \def\MW{9.90}   % process band width
+  \def\RX{13.66}  % state column left edge
+  \def\RW{4.06}   % state column width
+  \def\GA{13.36}  % lane A: control plane out to MLflow
+  \def\GB{17.70}  % lane B: the production agent's round trip
+  \def\CH{-7.72}  % channel below the band for long horizontal edges
+
+  % ======================= clients ==========================================
+  \node[anchor=north west, font=\figB\bfseries, text=cbMuted] at (0,0.46) {CLIENTS};
+  \node[surface, anchor=north west, text width=2.44cm, minimum height=0.68cm]
+    (br) at (0,-0.10) {\textbf{Browser}\\{\figB React SPA session}};
+  \node[surface, anchor=north west, text width=2.44cm, minimum height=0.68cm]
+    (ap) at (0,-0.98) {\textbf{API client}\\{\figB account-scoped}};
+  \node[surface, anchor=north west, text width=2.44cm, minimum height=0.68cm]
+    (sv) at (0,-1.86) {\textbf{Service caller}\\{\figB published workflow}};
+  \node[extern, anchor=north west, text width=2.44cm, minimum height=0.92cm]
+    (pa) at (0,-2.84)
+    {\textbf{Production agent}\\{\figB the consumer, outside\\the control plane}};
+
+  % ======================= the ASGI process =================================
+  \node[band, anchor=north west, minimum width=\MW cm, minimum height=7.34cm]
+    (proc) at (\MX,0.16) {};
+  \node[bandlab, anchor=north west, text width=9.6cm, align=left] at (\MX+0.12,0.50)
+    {ONE \sysbare{} ASGI APPLICATION \normalfont\itshape (embedded in \mlflow{}
+     or standalone --- \figref{fig:topologies})};
+
+  % ---- admission -----------------------------------------------------------
+  \node[govern, anchor=north west, text width=\MW cm-0.60cm, minimum height=0.56cm]
+    (adm) at (\MX+0.24,-0.10)
+    {\textbf{Admission}\ \ {\figB session or token \dt scopes \dt CSRF \dt rate
+     limit}};
+
+  % ---- surfaces ------------------------------------------------------------
+  \foreach [count=\i from 0] \t in {%
+      {\textbf{Route handlers}\\{\figB \statRouteDecls{} declarations}},
+      {\textbf{SSE + webhooks}\\{\figB live events}},
+      {\textbf{\aria tool loop}\\{\figB risk-tiered}}}
+  {
+    \pgfmathsetmacro{\w}{(\MW-0.48-2*0.18)/3}
+    \node[surface, anchor=north west, text width=\w cm-8pt, minimum height=0.78cm,
+          inner xsep=2pt] at ({\MX+0.24+\i*(\w+0.18)}, -0.80) {\t};
+  }
+
+  % ---- lifecycle modes -----------------------------------------------------
+  \node[control, anchor=north west, text width=\MW cm-0.60cm, minimum height=0.50cm,
+        font=\figB] (modes) at (\MX+0.24,-1.72)
+    {\mode{Author}\arrowto\mode{Test}\arrowto\mode{Evaluate}\arrowto%
+     \mode{Calibrate}\arrowto\mode{Release}\arrowto\mode{Observe}};
+
+  % ---- control-plane services ----------------------------------------------
+  \foreach [count=\i from 0] \t in {%
+      {\textbf{Orchestrator}\\{\figB triage, diagnose,\\candidate}},
+      {\textbf{Evaluation}\\{\figB scorecards,\\LLM judges}},
+      {\textbf{Calibration}\\{\figB \statOptimizers{} optimizer\\paths, replay}},
+      {\textbf{Apply +}\\\textbf{promote}\\{\figB gate, alias,\\checkpoint}}}
+  {
+    \pgfmathsetmacro{\w}{(\MW-0.48-3*0.18)/4}
+    \node[control, anchor=north west, text width=\w cm-8pt, minimum height=1.30cm,
+          inner xsep=2pt] at ({\MX+0.24+\i*(\w+0.18)}, -2.36) {\t};
+  }
+
+  % ---- governance substrate ------------------------------------------------
+  \node[govern, anchor=north west, text width=\MW cm-0.60cm, minimum height=0.48cm,
+        font=\figB] (gov) at (\MX+0.24,-3.82)
+    {execution policy \dt gate verdicts \dt release control \dt audit log \dt
+     effect ledger};
+
+  % ---- kernel --------------------------------------------------------------
+  \node[control, anchor=north west, text width=\MW cm-0.60cm, minimum height=0.48cm,
+        font=\figB] (kern) at (\MX+0.24,-4.44)
+    {config \& secrets \dt persistence \dt storage \dt tool execution \dt event
+     bus \dt provider adapters};
+
+  % ---- durable queues + loops ---------------------------------------------
+  \node[db, anchor=north west, text width=2.20cm, minimum height=1.86cm]
+    (q) at (\MX+0.24,-5.10)
+    {\textbf{Durable}\\\textbf{queues}\\[0.4ex]{\figB status, claim\\and lease
+      columns\\on rows}};
+  \node[async, anchor=north west, text width=\MW cm-3.60cm, minimum height=1.86cm]
+    (loops) at (\MX+0.24+2.86,-5.10)
+    {\textbf{Up to \statLoops{} in-process loops}\\{\figB no separate worker tier}\\[0.4ex]
+     {\figB Refinement \dt CalibrationDrain \dt WorkflowRun\\
+      AriaPlan \dt KnowledgeBase \dt Scheduler\\
+      Janitor \dt WebhookDispatcher}};
+  \draw[flow, draw=cbAsync] ($(q.east)+(0,0.24)$) -- ($(loops.west)+(0,0.24)$);
+  \draw[flow, draw=cbAsync] ($(loops.west)-(0,0.24)$) -- ($(q.east)-(0,0.24)$);
+
+  % ======================= state and external systems =======================
+  \node[anchor=north west, font=\figB\bfseries, text=cbMuted] at (\RX,0.46)
+    {STATE \& EXTERNAL};
+  \node[extern, anchor=north west, text width=\RW cm-8pt, minimum height=0.94cm]
+    (mlf) at (\RX,-0.10)
+    {\textbf{\mlflow{} 3.14+}\\{\figB prompt versions + aliases\\traces \dt
+     assessments}};
+  \node[db, anchor=north west, text width=\RW cm-8pt, minimum height=0.94cm]
+    (pg) at (\RX,-1.24)
+    {\textbf{PostgreSQL 17}\\{\figB \statModels{} tables --- metadata\\\emph{and}
+     the file inventory}};
+  \node[db, anchor=north west, text width=\RW cm-8pt, minimum height=0.76cm]
+    (obj) at (\RX,-2.38)
+    {\textbf{Object storage}\\{\figB file bytes only}};
+  \node[extern, anchor=north west, text width=\RW cm-8pt, minimum height=0.76cm]
+    (llm) at (\RX,-3.34)
+    {\textbf{LLM providers}\\{\figB OpenAI \dt Claude \dt Gateway}};
+  \node[extern, anchor=north west, text width=\RW cm-8pt, minimum height=0.76cm]
+    (mcp) at (\RX,-4.30)
+    {\textbf{MCP servers}\\{\figB containment or sidecar}};
+  \node[extern, anchor=north west, text width=\RW cm-8pt, minimum height=0.76cm]
+    (tx) at (\RX,-5.26)
+    {\textbf{Event transport}\\{\figB NATS \dt Redis \dt DB}};
+
+  % ======================= edges ============================================
+  % Account clients and service callers all funnel through admission.
+  \draw[flow] (br.east) -- ({\MX+0.22},-0.32);
+  \draw[flow] (ap.east) -- ({\MX+0.22},-0.38);
+  \draw[flow] (sv.east) -- ({\MX+0.22},-0.44);
+
+  % The layer spine: each row hands off to the one below it.
+  \foreach \ya/\yb in {-0.66/-0.76, -1.58/-1.68, -2.22/-2.32,
+                       -3.66/-3.78, -4.30/-4.40, -4.92/-5.06}
+    { \draw[flow, draw=cbMuted] ({\MX+\MW/2},\ya) -- ({\MX+\MW/2},\yb); }
+
+  % Only the kernel touches state; lane A carries the MLflow-owned effects.
+  \draw[flow] (kern.east) -- (pg.west);
+  \draw[flow] (kern.east) -- (obj.west);
+  \draw[flow] (kern.east) -- (llm.west);
+  \draw[flow] (kern.east) -- (mcp.west);
+  \draw[flow] (loops.east) -- (tx.west);
+  \draw[flow] ({\MX+\MW-0.12},-2.90) -- (\GA,-2.90) -- (\GA,-0.44) -- (mlf.west);
+
+  % Lane B: the round trip that closes the loop, kept outside both the process
+  % band and the state column so that it crosses nothing.
+  \draw[{Stealth[length=4pt,width=3pt]}-{Stealth[length=4pt,width=3pt]},
+        draw=cbExtern, line width=0.8pt]
+    (pa.south) -- (1.22,\CH) -- (\GB,\CH) -- (\GB,-0.60) -- (mlf.east);
+  \node[anchor=south, font=\figB, text=cbInk, align=center, inner sep=1.8pt]
+    at (9.6,\CH+0.04)
+    {the agent resolves \prodalias{} at call time and emits traces --- when
+     \mode{Release} rotates the alias, the next call runs the new version with
+     \textbf{no client redeploy}};
+
+\end{tikzpicture}
+\end{cbwide}
+\fi
+\caption{High-level architecture and component interaction. Every account client
+and service caller enters through one admission stage; \Lmode{} drives four
+control-plane service groups; and the kernel is the only tier that touches state
+or external systems. Two properties are load-bearing for the rest of the paper.
+First, \sys is a \emph{sibling} surface to \mlflow{}, not a proxy in front of it:
+each owns its own store, which is what makes the reconciliation boundary in
+\figref{fig:dataflow} necessary. Second, there is no separate worker tier ---
+queued work is arbitrated through claim and lease columns on relational rows, so
+one process both serves requests and drains queues. The paired arrows between the
+queue and the loop group are a consumer's atomic claim and the status transition it
+writes back (\algref{alg:claim}). The
+outer lane is the only path that leaves the platform entirely, and it is why a
+release needs no client deployment.}
+\label{fig:system}
+\figkey
+\end{figure}

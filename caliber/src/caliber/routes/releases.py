@@ -20,26 +20,41 @@ from typing import Any
 
 from sqlalchemy import select
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from caliber.auth import SCOPE_ADMIN, CaliberIdentity, require_user, resolve_identity
+from caliber.auth import (
+    SCOPE_ADMIN,
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberKnowledgeBase,
+    CaliberReleaseOperation,
     CaliberSkill,
     CaliberWorkflow,
     CaliberWorkflowDeployment,
 )
 from caliber.db.scoping import apply_visibility_filter
+from caliber.release_operations import (
+    reconcile_prompt_alias_releases,
+    serialize_release_operation,
+)
 from caliber.routes._deps import envelope_response_dict, get_session_factory
 
 logger = logging.getLogger("caliber.routes.releases")
 
 TIMELINE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/timeline"
 LIVE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/live"
+OPERATIONS_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations"
+RECONCILE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile"
 
 # The audit actions that constitute a "release" event (promote / rollback /
 # activate across artifact types). Skill content edits and other audit rows are
@@ -128,6 +143,37 @@ def _kb_live_entry(
         ),
         "by": activation.actor if activation else kb.owner,
     }
+
+
+def _load_release_operations(
+    factory: Any,
+    *,
+    status: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Load operation rows outside the async route's event-loop thread."""
+    with factory() as session:
+        stmt = select(CaliberReleaseOperation).order_by(
+            CaliberReleaseOperation.created_at.desc()
+        )
+        if status:
+            stmt = stmt.where(CaliberReleaseOperation.status == status)
+        rows = session.execute(stmt.limit(limit)).scalars().all()
+        return [serialize_release_operation(row) for row in rows]
+
+
+def _reconcile_release_operations(
+    factory: Any,
+    *,
+    resolve_alias: Any,
+) -> list[dict[str, Any]]:
+    """Reconcile provider state outside the async route's event-loop thread."""
+    with factory() as session:
+        rows = reconcile_prompt_alias_releases(
+            session,
+            resolve_alias=resolve_alias,
+        )
+        return [serialize_release_operation(row) for row in rows]
 
 
 async def timeline(request: Request) -> JSONResponse:
@@ -256,6 +302,41 @@ async def live(request: Request) -> JSONResponse:
     return envelope_response_dict(data)
 
 
+async def release_operations(request: Request) -> JSONResponse:
+    """List durable release intents, including incomplete external effects."""
+    require_scopes(request, [SCOPE_OPERATOR])
+    raw_limit = request.query_params.get("limit", "100")
+    try:
+        limit = max(1, min(int(raw_limit), 500))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="'limit' must be an integer") from exc
+    status = (request.query_params.get("status") or "").strip()
+    factory = get_session_factory(request)
+    data = await run_in_threadpool(
+        _load_release_operations,
+        factory,
+        status=status,
+        limit=limit,
+    )
+    return envelope_response_dict(data)
+
+
+async def reconcile_release_operations(request: Request) -> JSONResponse:
+    """Observe provider aliases and settle incomplete prompt release intents."""
+    require_scopes(request, [SCOPE_OPERATOR])
+    from caliber.routes import prompts as prompt_routes  # noqa: PLC0415
+
+    factory = get_session_factory(request)
+    data = await run_in_threadpool(
+        _reconcile_release_operations,
+        factory,
+        resolve_alias=prompt_routes._load_prompt_release_info,
+    )
+    return envelope_response_dict(data)
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(TIMELINE_PATH, timeline, methods=["GET"]))
     app.routes.append(Route(LIVE_PATH, live, methods=["GET"]))
+    app.routes.append(Route(OPERATIONS_PATH, release_operations, methods=["GET"]))
+    app.routes.append(Route(RECONCILE_PATH, reconcile_release_operations, methods=["POST"]))

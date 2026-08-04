@@ -1,0 +1,104 @@
+%% fig-pipeline.tex -- Figure (single column): inside one refinement job.
+%%
+%% The internals of the middle stages of Figure fig:chain, at the resolution where
+%% the gate semantics become visible. The structural fact the figure exists to
+%% make unmissable: the enforced gate governs *candidate advancement*, and the
+%% persisted per-version verdict is separate and advisory. They are drawn with
+%% different borders so a reader cannot merge them.
+%%
+%% Rows are placed from the previous row's anchor, so the layout survives a change
+%% of wording or of type scale.
+
+\begin{figure}[tbp]
+\centering
+\begin{cbscaled}[0.82]
+\begin{tikzpicture}[x=1cm,y=1cm]
+
+  \def\W{8.06}
+  \def\HW{3.78}
+  \tikzset{prow/.style  = {anchor=north west, font=\figB, align=left},
+           pfull/.style = {prow, text width=\W cm-8pt}}
+
+  % ---- inputs --------------------------------------------------------------
+  \node[store, prow, text width=2.30cm] (tr) at (0,0)
+    {\textbf{Trace evidence}\\assessments, spans,\\captured examples};
+  \node[store, prow, text width=2.30cm] (ts) at ([xshift=2.78cm]tr.north west)
+    {\textbf{Test set}\\versioned examples,\\validity intervals};
+  \node[store, prow, text width=2.30cm] (bl) at ([xshift=5.56cm]tr.north west)
+    {\textbf{Baseline}\\the current \livetarget{}\\and its scores};
+
+  % ---- evidence assembly ---------------------------------------------------
+  \node[control, pfull] (ev) at ([yshift=-4.4mm]tr.south west)
+    {\textbf{Evidence assembly}\ \ fold traces and examples into one scored
+     corpus};
+  \foreach \n in {tr,ts,bl} { \draw[flow] (\n.south) -- (\n.south |- ev.north); }
+
+  % ---- diagnosis -----------------------------------------------------------
+  \node[control, pfull] (dg) at ([yshift=-3.4mm]ev.south west)
+    {\textbf{Diagnosis}\ \ LLM root cause, persisted as a durable artifact};
+  \draw[flow] (ev.south) -- (dg.north);
+
+  % ---- optimizer selection -------------------------------------------------
+  \node[control, pfull] (op) at ([yshift=-3.4mm]dg.south west)
+    {\textbf{Policy selects an optimizer}\ \ by \family and configuration\\[0.4ex]
+     \mbox{MetaPrompt}~\dt~\mbox{GEPA}\ \ {\itshape prompt form}\\
+     \mbox{SkillMetaPrompt}~\dt~\mbox{BootstrapFewShot}\ \ {\itshape policy}\\
+     \mbox{MIPRO}\ \ {\itshape explicit configuration}};
+  \draw[flow] (dg.south) -- (op.north);
+
+  % ---- candidate -----------------------------------------------------------
+  \node[asset, pfull] (cd) at ([yshift=-3.4mm]op.south west)
+    {\textbf{Candidate artifact}\ \ a proposed version, not yet live};
+  \draw[flow] (op.south) -- (cd.north);
+
+  % ---- evaluation ----------------------------------------------------------
+  \node[control, pfull] (evl) at ([yshift=-3.4mm]cd.south west)
+    {\textbf{Evaluation}\ \ scorecard over the assembled corpus\\
+     deterministic scorers \dt authored judges as \code{Judge.<id>} \dt
+     per-dimension scores against the baseline};
+  \draw[flow] (cd.south) -- (evl.north);
+
+  % ---- the two gates, drawn differently -----------------------------------
+  \node[govern, prow, text width=\HW cm, line width=1.3pt] (g1)
+    at ([yshift=-4.6mm]evl.south west)
+    {\textbf{\advgate}\\[0.2ex]
+     \textsc{enforced}. Decides whether the job advances to
+     \code{candidate\_ready}. A failing gate stops it here.};
+  \node[govern, prow, text width=\HW cm, densely dashed] (g2)
+    at ([xshift=4.22cm]g1.north west)
+    {\textbf{\relverdict}\\[0.2ex]
+     \textsc{advisory}. Persisted per version as release evidence. Never blocks
+     alias rotation.};
+  \draw[flow] ([xshift=0.9cm]g1.north west) -- ++(0,0.46);
+  \draw[flow, densely dashed, draw=cbGovern]
+    ([xshift=0.9cm]g2.north west) -- ++(0,0.46);
+
+  % ---- human decision + release -------------------------------------------
+  \coordinate (bg) at ([yshift=-4.8mm]$(g1.south)!0.5!(g2.south)$);
+  \node[human, pfull] (ap) at (0,0 |- bg)
+    {\textbf{Operator \mode{Apply}}\ \ an explicit human action over the diff and
+     the evaluation --- never automatic};
+  \draw[flow] (g1.south) -- (g1.south |- ap.north);
+  \draw[weak, densely dashed, draw=cbGovern] (g2.south) -- (g2.south |- ap.north);
+
+  \node[extern, pfull] (pr) at ([yshift=-3.4mm]ap.south west)
+    {\textbf{\mode{Promote}}\ \ audited alias rotation; the outgoing target is
+     recorded first, so rollback restores (\algref{alg:promote})};
+  \draw[flow] (ap.south) -- (pr.north);
+
+\end{tikzpicture}
+\end{cbscaled}
+\caption{Inside one refinement job --- the resolution at which the gate semantics
+become visible. Evidence assembly folds trace evidence and versioned examples
+into one corpus; diagnosis is persisted as an artifact rather than kept in a
+prompt; a policy selects among \statOptimizers{} implemented optimizer paths; and
+the resulting candidate is scored per dimension against the incumbent. The two
+gates are drawn differently because they are different mechanisms, and the paper
+depends on the distinction. The heavy-bordered \advgate{} is \emph{enforced}: it
+decides whether the job may advance to \code{candidate\_ready}, and a failure
+stops the job. The dashed \relverdict{} is persisted per version as release
+evidence and never blocks alias rotation. Between them sits a human: \mode{Apply}
+is an explicit operator action over the diff and the scores, not a threshold that
+fires on its own.}
+\label{fig:pipeline}
+\end{figure}

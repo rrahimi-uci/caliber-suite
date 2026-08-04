@@ -1,0 +1,21 @@
+# Keep the checked reader artifact; ignore disposable TeX intermediates.
+build/*
+!build/caliber-paper.pdf
+
+# Node dependencies for the diagram renderer; `make diagrams` installs them.
+diagrams/node_modules/
+__pycache__/
+
+# Editor and OS noise.
+*.swp
+.DS_Store
+
+# generated/ IS tracked on purpose, for two reasons:
+#   * stats.tex records the counts the committed PDF was built from, so a reader can
+#     see which tree revision the paper describes without re-running the generator.
+#   * generated/diagrams/*.pdf are what an ordinary `make` consumes, which is what
+#     keeps the paper buildable with nothing but pdflatex -- no Node, no npm.
+# Regenerate with `make stats` and `make diagrams`.
+#
+# The intermediate scene JSON is build output, not an artifact worth reviewing.
+generated/diagrams/*.scene.json

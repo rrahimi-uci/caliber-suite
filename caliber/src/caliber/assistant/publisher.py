@@ -146,15 +146,41 @@ class AssistantPublisher:
         }
         if target_alias:
             prior_info = None
-            load_prompt_info = getattr(prompt_routes, "_load_prompt_info", None)
+            load_prompt_info = getattr(prompt_routes, "_load_prompt_release_info", None)
             if callable(load_prompt_info):
                 prior_info = load_prompt_info(name, target_alias)
             try:
-                alias_result = prompt_routes.set_prompt_alias_version(
-                    name=name,
-                    alias=target_alias,
-                    version=cast("int | str", version_number),
+                from caliber.release_operations import (  # noqa: PLC0415
+                    execute_prompt_alias_release,
+                    prepare_prompt_alias_release,
                 )
+
+                with session_factory() as release_session:
+                    operation = prepare_prompt_alias_release(
+                        release_session,
+                        name=name,
+                        alias=target_alias,
+                        version_before=(
+                            int(prior_info["version"])
+                            if isinstance(prior_info, dict)
+                            and isinstance(prior_info.get("version"), int)
+                            else None
+                        ),
+                        version_after=int(cast("int | str", version_number)),
+                        actor=user,
+                        effective_scopes=("operator",),
+                        evidence={
+                            "gate_state": "none",
+                            "source": "assistant_publish",
+                            "draft_id": draft_id,
+                        },
+                        approval_id=approval_id or None,
+                    )
+                    alias_result = execute_prompt_alias_release(
+                        release_session,
+                        operation,
+                        mutate_alias=prompt_routes.set_prompt_alias_version,
+                    )
             except Exception as exc:
                 return {
                     "success": False,
@@ -169,6 +195,7 @@ class AssistantPublisher:
                     "result": result,
                 }
             alias_changed = True
+            alias_result["operation_id"] = operation.operation_id
             rollback_metadata = {
                 "available": bool(approval_id),
                 "approval_id": approval_id or None,

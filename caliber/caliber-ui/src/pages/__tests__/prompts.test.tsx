@@ -5,6 +5,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -103,6 +104,23 @@ async function openWorkspaceStage(
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+beforeEach(() => {
+  // Authoring and release are deliberately separate requests. Individual
+  // promotion tests may override this handler to inspect failures/payloads.
+  server.use(
+    http.post(`${API_BASE}/prompts/:name/aliases/:alias`, ({ params }) =>
+      HttpResponse.json(
+        envelope({
+          name: String(params.name),
+          alias: String(params.alias),
+          version: 1,
+          operation_id: "REL-ui-test",
+          release_status: "applied",
+        }),
+      ),
+    ),
+  );
+});
 afterEach(() => {
   server.resetHandlers();
   window.localStorage.clear();
@@ -401,10 +419,10 @@ describe("Prompts", () => {
         expect.objectContaining({
           name: "support-agent-variant",
           template: "Forked source template v3",
-          target_alias: "staging",
         }),
       ),
     );
+    expect(createPayload).not.toHaveProperty("target_alias");
     const tags =
       (createPayload as { tags?: Record<string, string> }).tags ?? {};
     expect(tags["caliber.builder.source"]).toBe("clone");
@@ -504,10 +522,10 @@ describe("Prompts", () => {
           name: "new-support-agent",
           template: expect.stringContaining("Help answer support questions."),
           commit_message: "Initial release",
-          target_alias: "staging",
         }),
       ),
     );
+    expect(createPayload).not.toHaveProperty("target_alias");
     // After create, the page flips into the saved prompt's Workspace (Author
     // stage) — the create surface is gone and the status header is shown.
     expect(await screen.findByTestId("workspace-header")).toBeInTheDocument();
@@ -568,10 +586,10 @@ describe("Prompts", () => {
         expect.objectContaining({
           name: "pasted-agent",
           template: "You are a helpful assistant. Answer {user_input}.",
-          target_alias: "staging",
         }),
       ),
     );
+    expect(createPayload).not.toHaveProperty("target_alias");
   });
 
   it("prefills extraction templates with starter examples instead of raw required-field errors", async () => {
@@ -663,10 +681,10 @@ describe("Prompts", () => {
         expect.objectContaining({
           name: "custom-billing-agent",
           template: expect.stringContaining("You are a billing assistant."),
-          target_alias: "staging",
         }),
       ),
     );
+    expect(createPayload).not.toHaveProperty("target_alias");
   });
 
   it("shows library templates directly from template_library.json", async () => {

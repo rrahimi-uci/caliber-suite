@@ -1,0 +1,114 @@
+%% fig-sequence.tex -- Figure: end-to-end sequence for one prompt refinement,
+%% from a flagged production trace to a rotated alias and its next trace.
+%%
+%% Seven lifelines. Activation bars show which component holds the work. The two
+%% human decisions are named in the message labels, because "how many people are
+%% in this loop, and where" is the question the architecture actually answers.
+%%
+%% Geometry note: lifelines start at x=2.55 to reserve a left margin for the
+%% phase braces, and the rightmost lifeline sits at 16.55 so the widest header
+%% node still lands inside the 7.0in text block.
+
+\begin{figure}[tbp]
+\centering
+\begin{cbwide}
+\begin{tikzpicture}[x=1cm,y=1cm]
+
+  \def\BOT{-9.86}
+
+  % ---- lifelines -----------------------------------------------------------
+  \foreach \x/\s/\n in {%
+      2.55/extern/{Production\\agent},
+      4.88/surface/{Operator\\(browser)},
+      7.22/surface/{Route\\handler},
+      9.55/async/{Refinement\\worker},
+      11.88/control/{Optimizer +\\EvalProvider},
+      14.22/govern/{Governance\\substrate},
+      16.55/extern/{\mlflow{}}}
+  {
+    \node[\s, anchor=north, text width=2.00cm, minimum height=0.60cm,
+          font=\figB\bfseries] at (\x,0) {\n};
+    \draw[lifeline] (\x,-0.80) -- (\x,\BOT);
+  }
+
+  % ---- a message: from-x, to-x, y, style, label ----------------------------
+  \newcommand{\msgline}[5]{%
+    \draw[#4] (#1,#3) -- (#2,#3);
+    \node[elab, anchor=south, font=\figB] at ({(#1+#2)/2},{#3+0.04}) {#5};}
+
+  % ---- activation bars: who is holding the work ---------------------------
+  \fill[activation] (9.42,-2.81) rectangle (9.68,-5.87);
+  \fill[activation] (11.75,-3.64) rectangle (12.01,-4.96);
+  \fill[activation] (7.09,-7.06) rectangle (7.35,-8.72);
+  \fill[activation] (14.09,-7.43) rectangle (14.35,-8.72);
+
+  % ---- the sequence --------------------------------------------------------
+  \msgline{2.55}{16.55}{-1.19}{msg}{1.~the agent emits a trace during normal
+    operation}
+  \msgline{16.55}{4.88}{-1.70}{retmsg}{2.~a reviewer flags the response, writing
+    an \mlflow{} assessment}
+
+  \msgline{4.88}{7.22}{-2.23}{msg}{3.~\mode{Verify} --- \textbf{human decision}}
+  \msgline{7.22}{9.55}{-2.76}{msg}{4.~enqueue a refinement job as a durable row}
+
+  \msgline{9.55}{16.55}{-3.27}{msg}{5.~assemble evidence --- traces,
+    assessments, captured examples}
+  \msgline{9.55}{11.88}{-3.69}{msg}{6.~diagnose, then run the optimizer}
+  \msgline{11.88}{16.55}{-4.13}{msg}{7.~score the candidate against the baseline
+    corpus}
+  \msgline{16.55}{11.88}{-4.54}{retmsg}{8.~per-dimension scores}
+  \msgline{11.88}{9.55}{-4.96}{retmsg}{9.~candidate + scores}
+
+  \msgline{9.55}{14.22}{-5.47}{msg}{10.~submit to the \advgate{}}
+  \msgline{14.22}{9.55}{-5.93}{retmsg}{11.~\textsc{enforced} verdict --- advance
+    to \code{candidate\_ready}, or stop here}
+
+  \msgline{9.55}{4.88}{-6.51}{retmsg}{12.~the candidate surfaces for review ---
+    diff, scores, diagnosis}
+  \msgline{4.88}{7.22}{-7.06}{msg}{13.~\mode{Apply} --- \textbf{human decision}}
+
+  \msgline{7.22}{14.22}{-7.52}{msg}{14.~authorize (\operator{} or \admin{}), then
+    write the audit row in the same transaction}
+  \msgline{14.22}{16.55}{-8.01}{msg}{15.~read the outgoing target, rotate,
+    \emph{then} commit}
+
+  \msgline{14.22}{7.22}{-8.72}{retmsg}{16.~rollback checkpoint written --- the
+    release is now reconstructable from records}
+
+  % ---- the loop closes -----------------------------------------------------
+  \draw[feedback] (16.55,-9.04) -- (16.55,-9.60) -- (2.55,-9.60) -- (2.55,-9.24);
+  \node[anchor=south, font=\figB, text=cbAsync, inner sep=1.8pt] at (9.55,-9.58)
+    {17.~the next production call resolves \prodalias{} and gets the new version
+     --- no client deployment, and its trace is the next signal};
+
+  % ---- phase braces in the reserved left margin ---------------------------
+  \foreach \ya/\yb/\lab in {%
+      -0.94/-1.98/{observe},
+      -2.02/-2.72/{verify},
+      -2.76/-5.20/{refine},
+      -5.24/-6.72/{gate},
+      -6.76/-8.92/{release}}
+  {
+    \draw[decorate, decoration={brace, amplitude=2.6pt}, draw=cbMuted,
+          line width=0.4pt] (1.42,\ya) -- (1.42,\yb);
+    \node[anchor=east, font=\figB\itshape, text=cbMuted, inner sep=1.5pt]
+      at (1.30,{(\ya+\yb)/2}) {\lab};
+  }
+
+\end{tikzpicture}
+\end{cbwide}
+\caption{End-to-end sequence for one prompt refinement, from a flagged production
+trace to a rotated alias and the trace that closes the loop. Activation bars mark
+which component holds the work; the left-hand braces group messages into the
+phases of \figref{fig:chain}. Three properties are meant to be read off this
+figure directly. First, exactly two steps are human decisions --- step~3 confirms
+the failure is real and step~13 is an explicit operator action over the diff and
+the scores. Nothing between them requires a person, and nothing after step~13
+asks for one. Second, the enforced gate at step~11 sits \emph{before} the
+candidate reaches review, so an operator is never asked to adjudicate a candidate
+that failed its own evaluation. Third, step~15 reads the outgoing alias target and
+commits a release intent before rotation, so a crash leaves a durable reconciliation
+obligation with the exact value rollback must restore (\algref{alg:promote}).}
+\label{fig:sequence}
+\figkey
+\end{figure}

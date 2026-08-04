@@ -1,0 +1,86 @@
+%% tab-families.tex -- Table: what each asset family actually guarantees.
+%%
+%% This is the paper's most important table and the hardest to write honestly.
+%% Its whole function is to refute the reading that a shared substrate implies
+%% shared guarantees. Every row is deliberately allowed to differ.
+
+\begin{table}[tp]
+\centering
+\caption{What each \family actually guarantees. The nine families are not even
+the same \emph{kind} of thing: six are authored runtime assets, test sets and
+judges are evidence and scoring assets rather than things one deploys, and
+\emph{agent} is the anchor record that verification items, refinement jobs, and
+approvals hang off. Sharing a substrate does not make the guarantees uniform, and
+this table is the refutation of that inference. Note in particular that the
+shared version-history component is mounted for five families through per-artifact
+adapters --- \emph{sharing the component does not share the semantics}.}
+\label{tab:families}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{cbwide}
+\begin{tabular}{@{}L{1.86cm}L{3.44cm}L{3.34cm}L{3.38cm}L{2.72cm}@{}}
+\toprule
+\theadrow
+\thead{Family} & \thead{History \& liveness} & \thead{Gate semantics} &
+\thead{Release / rollback} & \thead{Calibration idiom} \\
+\midrule
+
+\textbf{Prompt} &
+immutable \mlflow{} registry versions behind an alias such as \prodalias{} &
+\chipenf{} advancement to \code{candidate\_ready}\newline\chipadv{} per-version verdict &
+operator- or admin-scoped; records and restores the outgoing alias target &
+provider optimizer + EvalProvider \\
+\zebra
+\textbf{Workflow} &
+editable drafts promoted to published version rows; deployment aliases select one &
+\chipenf{} readiness\newline\chipenf{} \depgate{}, optimistic alias check &
+rollback pops the deployment's checkpoint stack &
+manifest replay \\
+\textbf{Knowledge base} &
+immutable build versions behind \code{active\_version\_id} &
+\chipnone{} prompt-style verdict &
+audited activation; rollback derives the prior build from history &
+retrieval-quality calibration \\
+\zebra
+\textbf{Skill} &
+mutable current record plus immutable snapshots &
+\chipenf{} advancement\newline\chipnone{} release gate &
+rollback restores the prior snapshot as a \emph{new} version &
+agent-free optimizer path \\
+\textbf{Tool} &
+separate \code{(name, version)} rows with lifecycle status &
+\chipnone{} &
+read-only history; \emph{no} live alias &
+revision-fenced deterministic suites \\
+\zebra
+\textbf{Test set} &
+version counter plus per-example validity intervals &
+\chipna{} it \emph{is} the evidence &
+\chipnone{} no live alias or rollback &
+\chipna{} \\
+\textbf{MCP server} &
+mutable managed definitions with discovered inventories and audited edit history &
+production workflow preflight &
+\chipnone{} no version rollback; connection and policy controls are fail-closed &
+connection and policy tests \\
+\zebra
+\textbf{Judge} &
+operator-authored, reusable by \code{Judge.<id>} token &
+\chipna{} it \emph{is} a scorer &
+\chipna{} &
+Human-alignment agreement ($\kappa$) \\
+\textbf{Agent} &
+the anchor record that items, jobs and approvals attach to &
+\chipna{} &
+\code{enabled} is the pause/resume lever the workers read &
+\chipna{} \\
+
+\bottomrule
+\end{tabular}
+\end{cbwide}
+\tabnote{A \chipnone{} or \chipna{} chip marks a facet the family does not
+implement --- an architectural fact about that row, not a measurement this paper
+omitted. \chipenf{} is unbypassable; \chipadv{} is filed as evidence and blocks
+nothing.}
+\end{table}

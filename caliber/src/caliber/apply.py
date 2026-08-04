@@ -43,8 +43,13 @@ from caliber.db.models import (
     CaliberRefinementJob,
     CaliberRollbackCheckpoint,
 )
-from caliber.ids import new_checkpoint_id
+from caliber.ids import new_checkpoint_id, new_release_operation_id
 from caliber.promoter import Promoter, PromoterConflictError, PromoterError, PromotionResult
+from caliber.release_operations import (
+    ReleaseOperationConflictError,
+    execute_prompt_alias_release,
+    prepare_prompt_alias_release,
+)
 from caliber.workflows.promoter import (
     AliasPreflightError,
     DeployError,
@@ -527,24 +532,14 @@ def _apply_prompt_alias(
     # Read the version live on the alias BEFORE rotating so both the rollback
     # checkpoint and the ``promote_prompt`` audit row below record an exact
     # ``from_version`` (``None`` on a cold-start alias).
-    previous_info = prompt_routes._load_prompt_info(approval.agent_id, target_alias)
+    previous_info = prompt_routes._load_prompt_release_info(approval.agent_id, target_alias)
     previous_version = previous_info.get("version") if previous_info else None
 
-    try:
-        alias_result = prompt_routes.set_prompt_alias_version(
-            name=approval.agent_id,
-            alias=target_alias,
-            version=source_version,
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"promotion failed: {exc}") from exc
-
+    # The rollback checkpoint is part of the same pre-effect commit as the
+    # release intent.  A crash after MLflow changes therefore cannot lose either
+    # the exact outgoing target or the operation that explains why it changed.
+    operation_id = new_release_operation_id()
     artifact_ref = f"prompts:/{approval.agent_id}@{target_alias}"
-    job.status = terminal_status
-    job.current_stage = "done"
-
     checkpoint = CaliberRollbackCheckpoint(
         checkpoint_id=new_checkpoint_id(),
         approval_id=approval.approval_id,
@@ -561,12 +556,46 @@ def _apply_prompt_alias(
         version_after=source_version,
         snapshot_payload={
             "promotion_type": "prompt_alias",
+            "release_operation_id": operation_id,
             "target_alias": target_alias,
             "source_version": source_version,
             **assistant_context,
         },
     )
     session.add(checkpoint)
+
+    try:
+        release_operation = prepare_prompt_alias_release(
+            session,
+            name=approval.agent_id,
+            alias=target_alias,
+            version_before=int(previous_version) if previous_version is not None else None,
+            version_after=source_version,
+            actor=actor,
+            operation_id=operation_id,
+            effective_scopes=("operator",),
+            evidence={
+                "gate_state": "pass",
+                "source": "candidate_ready",
+                "job_id": job.job_id,
+                **assistant_context,
+            },
+            approval_id=approval.approval_id,
+        )
+        alias_result = execute_prompt_alias_release(
+            session,
+            release_operation,
+            mutate_alias=prompt_routes.set_prompt_alias_version,
+        )
+    except ReleaseOperationConflictError as exc:
+        raise HTTPException(status_code=409, detail=f"promotion conflict: {exc}") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"promotion failed: {exc}") from exc
+
+    job.status = terminal_status
+    job.current_stage = "done"
 
     rotated_at = datetime.now(timezone.utc)
     promotion_payload: dict[str, object] = {
@@ -575,6 +604,7 @@ def _apply_prompt_alias(
         "details": {
             **alias_result,
             "approval_id": approval.approval_id,
+            "operation_id": release_operation.operation_id,
             "checkpoint_ids": [checkpoint.checkpoint_id],
             "promotion_type": "prompt_alias",
             **assistant_context,
@@ -597,6 +627,7 @@ def _apply_prompt_alias(
         entity_id=job.job_id,
         details={
             "approval_id": approval.approval_id,
+            "operation_id": release_operation.operation_id,
             "artifact_ref": artifact_ref,
             "rotated_at": rotated_at.isoformat(),
             "checkpoint_ids": [checkpoint.checkpoint_id],
@@ -607,23 +638,7 @@ def _apply_prompt_alias(
             **(extra_audit or {}),
         },
     )
-    # Also record the promotion on the *prompt* entity so it shows up in the
-    # same ``promote_prompt`` audit trail that ``rollback_prompt`` walks. Without
-    # this, an alias rotation applied through the assistant path is invisible to
-    # prompt rollback and the operator can't undo it via the Version panel.
-    audit_record(
-        session,
-        actor=actor,
-        action="promote_prompt",
-        entity_type="prompt",
-        entity_id=approval.agent_id,
-        details={
-            "alias": target_alias,
-            "from_version": previous_version,
-            "to_version": source_version,
-            "promotion_type": "prompt_alias",
-            "approval_id": approval.approval_id,
-            **assistant_context,
-        },
-    )
+    # The shared release service already wrote the prompt-scoped promotion row
+    # while settling the durable operation; keep this job-scoped row for the
+    # refinement timeline without duplicating the prompt release event.
     return ApplyOutcome(promotion=promotion_payload, checkpoint_ids=[checkpoint.checkpoint_id])

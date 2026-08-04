@@ -321,6 +321,53 @@ class CaliberRollbackCheckpoint(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CaliberReleaseOperation(Base):
+    """Durable intent and settlement record for an external live-target change.
+
+    The row is committed before the provider call.  A process death after the
+    provider changed its alias therefore leaves an operator-visible ``applying``
+    operation with the exact before/after versions needed for reconciliation,
+    rather than an unrecorded production change.
+    """
+
+    __tablename__ = "caliber_release_operations"
+    __table_args__ = (
+        UniqueConstraint("active_lock", name="uq_release_operations_active_lock"),
+        Index("ix_release_operations_status_created", "status", "created_at"),
+        Index(
+            "ix_release_operations_resource_target",
+            "resource_type",
+            "resource_name",
+            "target_name",
+        ),
+    )
+
+    operation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    operation_type: Mapped[str] = mapped_column(String(16))  # promote | rollback
+    resource_type: Mapped[str] = mapped_column(String(32))
+    resource_name: Mapped[str] = mapped_column(String(256))
+    target_name: Mapped[str] = mapped_column(String(128))
+    # Non-null only while the operation can still affect this target. The unique
+    # constraint serializes releases per provider alias across replicas.
+    active_lock: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    version_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    version_after: Mapped[int] = mapped_column(Integer)
+    actor: Mapped[str] = mapped_column(String(256))
+    effective_scopes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    approval_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="prepared")
+    provider_result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class CaliberRegressionRun(Base):
     """Persisted replay/eval result used as the approval gate.
 

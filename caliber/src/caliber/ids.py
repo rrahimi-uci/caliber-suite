@@ -20,6 +20,7 @@ VERIFICATION_ITEM_PREFIX = "FB-"
 REFINEMENT_JOB_PREFIX = "RFN-"
 APPROVAL_PREFIX = "AP-"
 CHECKPOINT_PREFIX = "CK-"
+RELEASE_OPERATION_PREFIX = "REL-"
 SKILL_PREFIX = "SK-"
 EVAL_DATASET_PREFIX = "ED-"
 EVAL_EXAMPLE_PREFIX = "EX-"
@@ -113,6 +114,11 @@ def new_approval_id() -> str:
 def new_checkpoint_id() -> str:
     """Return a fresh rollback-checkpoint ID, e.g. ``CK-44e8a1b2``."""
     return f"{CHECKPOINT_PREFIX}{_suffix()}"
+
+
+def new_release_operation_id() -> str:
+    """Return a fresh durable release-operation ID, e.g. ``REL-44e8a1b2``."""
+    return f"{RELEASE_OPERATION_PREFIX}{_suffix()}"
 
 
 def new_skill_id() -> str:

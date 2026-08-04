@@ -6,7 +6,9 @@ import sys
 import types
 
 import pytest
+from sqlalchemy.orm import Session
 
+from caliber.db.models import CaliberReleaseOperation
 from caliber.promoter import (
     CompositePromoter,
     FakePromoter,
@@ -14,6 +16,7 @@ from caliber.promoter import (
     PromoterError,
     PromotionRequest,
     PromotionResult,
+    RollbackRequest,
     build_promoter,
 )
 
@@ -84,13 +87,11 @@ def test_build_promoter_unknown_raises() -> None:
         build_promoter("bogus")
 
 
-def test_mlflow_promoter_deletes_orphan_version_on_alias_failure(
+def test_mlflow_promoter_preserves_registered_version_for_reconciliation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Phase 1 audit (#3): if ``register_prompt`` succeeds but
-    ``set_prompt_alias`` fails, the orphan version must be deleted —
-    otherwise a retried approval stacks duplicate versions tagged
-    with the same ``approval_id``."""
+    """An alias timeout is indeterminate, so deleting its target could break a
+    release that actually landed. Preserve it for observed reconciliation."""
     stub = types.ModuleType("mlflow")
 
     class _StubVersion:
@@ -125,9 +126,7 @@ def test_mlflow_promoter_deletes_orphan_version_on_alias_failure(
         promoter.promote(_request())
 
     assert len(register_calls) == 1
-    # Orphan cleanup fired with the version that ``register_prompt``
-    # produced. Without this, a retry would stack a v8, v9, v10, etc.
-    assert delete_calls == [{"name": "support-agent", "version": 7}]
+    assert delete_calls == []
 
 
 def test_mlflow_promoter_captures_exact_previous_live_version(
@@ -139,7 +138,7 @@ def test_mlflow_promoter_captures_exact_previous_live_version(
     exact previous-live is 2, and 5 would be wrong."""
     stub = types.ModuleType("mlflow")
 
-    def load_prompt(ref: str) -> object:
+    def load_prompt(ref: str, **_kwargs: object) -> object:
         assert ref == "prompts:/support-agent@prod"
         return types.SimpleNamespace(version=2)
 
@@ -163,6 +162,85 @@ def test_mlflow_promoter_captures_exact_previous_live_version(
     assert result.details["version"] == 6
     assert result.details["version_before"] == 2  # exact, not 6 - 1 = 5
     assert alias_calls == [{"name": "support-agent", "alias": "prod", "version": 6}]
+
+
+def test_mlflow_promoter_apply_path_commits_intent_before_alias_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    stub = types.ModuleType("mlflow")
+
+    class _StubVersion:
+        version = 7
+        uri = "prompts:/support-agent/7"
+
+    def load_prompt(_ref: str, **_kwargs: object) -> object:
+        return types.SimpleNamespace(version=4)
+
+    def register_prompt(**_kwargs: object) -> _StubVersion:
+        return _StubVersion()
+
+    def set_prompt_alias(**_kwargs: object) -> None:
+        operation = db_session.query(CaliberReleaseOperation).one()
+        assert operation.status == "applying"
+        assert operation.version_before == 4
+        assert operation.version_after == 7
+
+    genai = types.ModuleType("mlflow.genai")
+    genai.load_prompt = load_prompt  # type: ignore[attr-defined]
+    genai.register_prompt = register_prompt  # type: ignore[attr-defined]
+    genai.set_prompt_alias = set_prompt_alias  # type: ignore[attr-defined]
+    stub.genai = genai  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlflow", stub)
+    monkeypatch.setitem(sys.modules, "mlflow.genai", genai)
+
+    result = MLflowPromoter().promote(_request(session=db_session, actor="@operator"))
+
+    db_session.expire_all()
+    operation = db_session.query(CaliberReleaseOperation).one()
+    assert operation.status == "applied"
+    assert operation.approval_id == "AP-1"
+    assert result.details["version"] == 7
+
+
+def test_mlflow_promoter_rollback_commits_intent_before_alias_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session: Session,
+) -> None:
+    stub = types.ModuleType("mlflow")
+
+    def load_prompt(_ref: str, **_kwargs: object) -> object:
+        return types.SimpleNamespace(version=7)
+
+    def set_prompt_alias(**_kwargs: object) -> None:
+        operation = db_session.query(CaliberReleaseOperation).one()
+        assert operation.status == "applying"
+        assert operation.operation_type == "rollback"
+        assert operation.version_before == 7
+        assert operation.version_after == 4
+
+    genai = types.ModuleType("mlflow.genai")
+    genai.load_prompt = load_prompt  # type: ignore[attr-defined]
+    genai.set_prompt_alias = set_prompt_alias  # type: ignore[attr-defined]
+    stub.genai = genai  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mlflow", stub)
+    monkeypatch.setitem(sys.modules, "mlflow.genai", genai)
+
+    result = MLflowPromoter().rollback(
+        RollbackRequest(
+            agent_id="support-agent",
+            artifact_type="prompt",
+            version_before=4,
+            checkpoint_id="CK-1",
+            session=db_session,
+            actor="@operator",
+        )
+    )
+
+    db_session.expire_all()
+    operation = db_session.query(CaliberReleaseOperation).one()
+    assert operation.status == "applied"
+    assert result.details["operation_id"] == operation.operation_id
 
 
 def test_build_checkpoint_prefers_exact_version_before_over_subtraction() -> None:
@@ -201,12 +279,10 @@ def test_build_checkpoint_prefers_exact_version_before_over_subtraction() -> Non
     assert fallback.version_before == 5
 
 
-def test_mlflow_promoter_alias_failure_message_includes_cleanup_failure(
+def test_mlflow_promoter_alias_failure_requires_reconciliation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the cleanup-delete itself fails, the operator must see
-    the failing version number in the error so they can manually
-    reconcile."""
+    """The surfaced error identifies the target and reconciliation obligation."""
     stub = types.ModuleType("mlflow")
 
     class _StubVersion:
@@ -231,5 +307,5 @@ def test_mlflow_promoter_alias_failure_message_includes_cleanup_failure(
     monkeypatch.setitem(sys.modules, "mlflow.genai", genai)
 
     promoter = MLflowPromoter()
-    with pytest.raises(PromoterError, match=r"Cleanup of v3 also failed"):
+    with pytest.raises(PromoterError, match=r"version 3.*needs reconciliation"):
         promoter.promote(_request())

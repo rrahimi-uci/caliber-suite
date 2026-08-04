@@ -515,10 +515,15 @@ export function Prompts(): JSX.Element {
     setSavingEdit(true);
     setEditError(null);
     try {
-      await caliberApi.createPromptVersion(promptName, {
+      const created = await caliberApi.createPromptVersion(promptName, {
         template: editTemplate,
         commit_message: editCommitMessage.trim() || undefined,
-        target_alias: editTargetAlias,
+      });
+      await caliberApi.promotePrompt(promptName, created.version, {
+        alias: editTargetAlias,
+        gate_state: "none",
+        overridden: true,
+        override_reason: "direct prompt edit activation",
       });
       closeEditPanel();
       refresh();
@@ -1747,9 +1752,8 @@ function PromptAuthorStage({
     [promptName],
   );
 
-  // `promote` threads the developer-draft flow: false registers a version
-  // without rotating the live alias; true (default) keeps the existing
-  // save-and-go-live behavior.
+  // Authoring always creates an immutable draft. Save-and-promote then invokes
+  // the governed alias endpoint as a separate, durable release operation.
   const save = async (promote: boolean) => {
     if (!template.trim()) {
       setError("Template is required.");
@@ -1759,12 +1763,18 @@ function PromptAuthorStage({
     setError(null);
     setSavedNote(null);
     try {
-      await caliberApi.createPromptVersion(promptName, {
+      const created = await caliberApi.createPromptVersion(promptName, {
         template,
         commit_message: commitMessage.trim() || undefined,
-        target_alias: targetAlias,
-        promote,
       });
+      if (promote) {
+        await caliberApi.promotePrompt(promptName, created.version, {
+          alias: targetAlias,
+          gate_state: "none",
+          overridden: true,
+          override_reason: "authoring-panel save and promote",
+        });
+      }
       setInitialTemplate(template);
       setCommitMessage("");
       setSavedNote(

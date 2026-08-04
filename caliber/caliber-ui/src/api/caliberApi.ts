@@ -1341,8 +1341,9 @@ export const caliberApi = {
       commit_message?: string;
       tags?: Record<string, string>;
       target_alias?: string;
-      // When false, registers the version WITHOUT rotating the live alias
-      // (a draft the developer can evaluate before promoting). Defaults true.
+      // Authoring never rotates a live alias. ``true`` is rejected; callers
+      // create the draft and then invoke promotePrompt so release intent/audit
+      // is durable before the provider effect. Defaults false.
       promote?: boolean;
     },
   ): Promise<PromptCreateResult> {
@@ -1365,6 +1366,7 @@ export const caliberApi = {
       gate_score?: number;
       overridden?: boolean;
       override_reason?: string;
+      operation_id?: string;
     } = {},
   ): Promise<PromptAliasResult> {
     const { alias = "prod", ...gate } = opts;

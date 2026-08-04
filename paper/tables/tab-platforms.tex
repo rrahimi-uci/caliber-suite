@@ -1,0 +1,118 @@
+%% tab-platforms.tex -- Table: feature-by-feature against the prompt-lifecycle
+%% platforms, which are the genuinely closest systems.
+%%
+%% This table exists because an earlier draft asserted that the release concern
+%% was unoccupied. It is not. MLflow's Prompt Registry, LangSmith, and Langfuse
+%% all ship versioned prompts, a named pointer the client resolves at call time,
+%% rollback by re-pointing, and role restrictions on who may move the pointer.
+%% A comparison that gave those systems "none" for governance was a straw man,
+%% and the delta this paper can honestly claim is narrower than the one the
+%% earlier draft claimed.
+%%
+%% Every row is sourced to dated product documentation. Product capability moves;
+%% the access date is part of the claim, and the caption says so.
+
+\begin{table}[tbp]
+\centering
+\caption{Feature-by-feature comparison with the prompt-lifecycle platforms --- the
+closest systems to \sys, and the ones its contribution should be judged against.
+\textbf{Claims are as of 2026-08-03}, sourced to the cited documentation; these are
+live products and a reader checking later should expect drift. Above the rule are
+the four concerns an earlier draft of this paper got wrong: versioning, call-time
+pointer resolution, rollback, and role-restricted promotion are \emph{present} in
+all three, and \sys is not novel in any of them. Below the rule is where a
+difference survives scrutiny. \secref{sec:compare:platforms} argues both halves.}
+\label{tab:platforms}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\renewcommand{\arraystretch}{1.10}
+\begin{cbwide}
+\begin{tabular}{@{}L{2.86cm}L{3.16cm}L{3.16cm}L{3.16cm}VL{3.30cm}@{}}
+\toprule
+\theadrow
+\thead{Concern} &
+\thead{MLflow Prompt Registry} & \thead{LangSmith} & \thead{Langfuse} &
+\thead{\sysbare{}} \\
+\midrule
+
+\textbf{Prompt versioning} &
+immutable commit-based versions, with diffs~\cite{mlflowpromptregistry} &
+commit history per prompt~\cite{langsmithprompts} &
+version identifiers per prompt~\cite{langfuseprompts} &
+\cellcolor{cbControlBg}versions per \gasset{} --- the same mechanism, not a
+better one \\
+
+\zebra
+\textbf{Call-time pointer} &
+mutable \emph{aliases}~\cite{mlflowpromptregistry} &
+commit tags; reserved \code{production}, pulled by name at
+runtime~\cite{langsmithprompts} &
+\emph{labels}; an unlabelled fetch serves \code{production}~\cite{langfuseprompts} &
+\cellcolor{cbControlBg}\livetarget{} per family --- \textbf{not a differentiator}
+\\
+
+\textbf{Rollback} &
+re-point the alias~\cite{mlflowpromptregistry} &
+rollback to a prior commit~\cite{langsmithprompts} &
+re-label an older version~\cite{langfuseprompts} &
+\cellcolor{cbControlBg}restore a \emph{recorded} checkpoint --- governed path only
+(\secref{sec:limitations}) \\
+
+\zebra
+\textbf{Who may promote} &
+registry permissions, where the deployment provides them &
+owners-only tag create and delete~\cite{langsmithprompts} &
+\emph{protected labels}, by project role~\cite{langfuseprompts} &
+\cellcolor{cbControlBg}\operator{} or \admin{} scope --- comparable, and no
+separation of duties (\secref{sec:limitations}) \\
+
+\midrule
+
+\textbf{Families beyond prompts} &
+models; no other artifact type is a registry citizen &
+datasets &
+datasets &
+\cellcolor{cbControlBg}\statFamiliesW{} families --- workflows, tools, MCP
+servers, corpora, skills --- under one mode vocabulary
+(\tabref{tab:families}) \\
+
+\zebra
+\textbf{Evidence bound to the version} &
+evaluation integrated; the score annotates &
+experiments and datasets, linked &
+evaluations and scores, linked &
+\cellcolor{cbControlBg}scores, corpus identity, diagnosis, and optimizer choice
+bound to the candidate and carried into review \\
+
+\textbf{Score as a precondition on promotion} &
+none documented: promotion is a pointer move &
+none documented &
+none documented &
+\cellcolor{cbControlBg}a failing gate stops the candidate --- inside the
+refinement state machine, and only there \\
+
+\zebra
+\textbf{Automated candidate proposal} &
+\textsc{gepa} and metaprompting
+optimizers~\cite{mlflowoptimize} &
+none documented &
+none documented &
+\cellcolor{cbControlBg}optimizers wired \emph{to} the gate --- the optimization is
+not the delta, the wiring is \\
+
+\textbf{Cross-family impact} &
+\chipnone{} --- no second family to impact &
+\chipnone{} &
+\chipnone{} &
+\cellcolor{cbControlBg}a change is relatable to dependents, because dependents are
+records \\
+
+\bottomrule
+\end{tabular}
+\end{cbwide}
+\tabnote{``None documented'' means the mechanism was not found in the cited pages
+on the access date --- a claim about the documentation, which a reader can check,
+rather than about the product, which we are not positioned to make. Tracing-only
+systems such as Phoenix~\cite{phoenix} are excluded: they do not offer prompt
+lifecycle management and these rows would score them unfairly.}
+\end{table}

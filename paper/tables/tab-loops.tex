@@ -1,0 +1,70 @@
+%% tab-loops.tex -- Table: what each background loop actually guarantees.
+%%
+%% This table exists because an earlier draft told one story about "the queue" and
+%% a reviewer checked it against five different loops. The claim predicate is
+%% common; the recovery policy is not, and recovery is what decides delivery
+%% semantics. Presenting one algorithm as if it covered all five was the error.
+
+\begin{table}[tbp]
+\centering
+\caption{What each background loop guarantees. The claim predicate
+(\algref{alg:claim}) is shared, and it establishes concurrent mutual exclusion for
+all of them. Recovery after the owner dies is \emph{not} shared, and that is what
+determines delivery semantics --- which is why this paper states them per loop
+rather than claiming one number for ``the queue''. A dash marks a mechanism the
+loop does not have, not one we did not measure.}
+\label{tab:loops}
+\small
+\setlength{\tabcolsep}{4.5pt}
+\renewcommand{\arraystretch}{1.18}
+\begin{tabular}{@{}L{2.30cm}L{1.62cm}L{3.10cm}L{3.30cm}@{}}
+\toprule
+\theadrow
+\thead{Loop} & \thead{Lease} & \thead{Recovery after owner death} &
+\thead{Delivery semantics} \\
+\midrule
+
+\textbf{Refinement} & heartbeat &
+janitor marks the job \code{failed} after a stale heartbeat; it is \emph{not}
+requeued &
+at-most-once; a crash loses the job's progress and needs operator action \\
+
+\zebra
+\textbf{Workflow\-Run} & lease + heartbeat &
+lease expiry requeues the run, which resumes from its last checkpoint &
+at-least-once at the step boundary; the effect ledger suppresses repeats \\
+
+\textbf{Calibration\-Drain} & \chipnone{} &
+none automatic: a row claimed by a dead worker stays \code{running} &
+at-most-once, with manual recovery \\
+
+\zebra
+\textbf{Knowledge\-Base} & claim &
+re-ingest is idempotent per source, so a repeat is absorbed &
+at-least-once, idempotent \\
+
+\textbf{Webhook\-Dispatcher} & claim &
+redelivery with settlement and a dead-letter path &
+at-least-once, by design \\
+
+\midrule
+\textbf{Workflow\-Scheduler} & \chipnone{} &
+idempotent by a minute-bucketed key behind a unique partial index &
+exactly-once \emph{firing}; the work it enqueues then follows WorkflowRun \\
+
+\zebra
+\textbf{Janitor} & \chipnone{} &
+an idempotent sweep; repeating it changes nothing &
+idempotent \\
+
+\textbf{AriaPlan} & \chipnone{} &
+polls for plans parked on settled jobs; no claim is taken &
+at-least-once resume \\
+
+\bottomrule
+\end{tabular}
+\tabnote{External effects are a separate question from job delivery. The workflow
+effect ledger records an \code{in\_progress} external call whose outcome after a
+crash is \emph{indeterminate} --- neither confirmed nor safely repeatable --- and
+surfaces it as such rather than guessing (\secref{sec:limitations}).}
+\end{table}

@@ -713,10 +713,18 @@ export function PromptBuilder({
         name: promptName.trim(),
         template: latestPreview.compiled_template,
         commit_message: commitMessage.trim() || undefined,
-        target_alias: targetAlias,
         tags,
       });
-      onCreated(created, { openCalibration: openCalibrationAfterCreate });
+      await caliberApi.promotePrompt(created.name, created.version, {
+        alias: targetAlias,
+        gate_state: "none",
+        overridden: true,
+        override_reason: "initial prompt activation from Prompt Builder",
+      });
+      onCreated(
+        { ...created, alias_changed: true, active_alias: targetAlias },
+        { openCalibration: openCalibrationAfterCreate },
+      );
     } catch (err) {
       setCreateError(
         err instanceof Error ? err.message : "Failed to create prompt",
@@ -756,10 +764,18 @@ export function PromptBuilder({
         name: promptName.trim(),
         template: pastedTemplate,
         commit_message: commitMessage.trim() || undefined,
-        target_alias: targetAlias,
         tags: { "caliber.builder.source": "paste" },
       });
-      onCreated(created, { openCalibration: openCalibrationAfterCreate });
+      await caliberApi.promotePrompt(created.name, created.version, {
+        alias: targetAlias,
+        gate_state: "none",
+        overridden: true,
+        override_reason: "initial pasted-prompt activation",
+      });
+      onCreated(
+        { ...created, alias_changed: true, active_alias: targetAlias },
+        { openCalibration: openCalibrationAfterCreate },
+      );
     } catch (err) {
       setCreateError(
         err instanceof Error ? err.message : "Failed to create prompt",
@@ -882,10 +898,18 @@ export function PromptBuilder({
         name: promptName.trim(),
         template: pastedTemplate,
         commit_message: commitMessage.trim() || undefined,
-        target_alias: targetAlias,
         tags,
       });
-      onCreated(created, { openCalibration: openCalibrationAfterCreate });
+      await caliberApi.promotePrompt(created.name, created.version, {
+        alias: targetAlias,
+        gate_state: "none",
+        overridden: true,
+        override_reason: "initial cloned-prompt activation",
+      });
+      onCreated(
+        { ...created, alias_changed: true, active_alias: targetAlias },
+        { openCalibration: openCalibrationAfterCreate },
+      );
     } catch (err) {
       setCreateError(
         err instanceof Error ? err.message : "Failed to create prompt",

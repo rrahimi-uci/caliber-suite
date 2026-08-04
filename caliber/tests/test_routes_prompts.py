@@ -381,9 +381,10 @@ def test_create_prompt_validation_and_success(
     payload = ok.json()["data"]
     assert payload["name"] == "good_name"
     assert payload["version"] == 7
-    assert payload["active_alias"] == "prod"
+    assert payload["active_alias"] == ""
+    assert payload["alias_changed"] is False
     assert len(calls["register_calls"]) == 1
-    assert calls["alias_calls"] == [("good_name", "prod", 7)]
+    assert calls["alias_calls"] == []
 
     staging = client.post(
         PREFIX,
@@ -393,9 +394,8 @@ def test_create_prompt_validation_and_success(
             "target_alias": "staging",
         },
     )
-    assert staging.status_code == 201
-    assert staging.json()["data"]["active_alias"] == "staging"
-    assert calls["alias_calls"][-1] == ("staging_name", "staging", 7)
+    assert staging.status_code == 400
+    assert "non-live" in staging.json()["detail"]
 
 
 def test_create_prompt_returns_502_when_register_fails(client: TestClient, monkeypatch) -> None:
@@ -442,26 +442,40 @@ def test_create_prompt_version_success_and_503_when_api_missing(
     )
     assert ok.status_code == 201
     assert ok.json()["data"]["version"] == 7
-    assert ok.json()["data"]["active_alias"] == "staging"
-    assert calls["alias_calls"] == [("support-agent", "staging", 7)]
+    assert ok.json()["data"]["active_alias"] == ""
+    assert calls["alias_calls"] == []
 
     _install_mlflow(monkeypatch, include_register=False)
     unavailable = client.post(f"{PREFIX}/support-agent/versions", json={"template": "v3"})
     assert unavailable.status_code == 503
 
 
-def test_create_prompt_version_defaults_to_promoting_live(
+def test_create_prompt_version_defaults_to_draft(
     client: TestClient,
     monkeypatch,
 ) -> None:
-    """Backward compatibility: omitting ``promote`` rotates the live ``prod`` alias."""
+    """Omitting ``promote`` registers a draft and never rotates ``prod``."""
     calls = _install_mlflow(monkeypatch)
     ok = client.post(f"{PREFIX}/support-agent/versions", json={"template": "v2"})
     assert ok.status_code == 201
     data = ok.json()["data"]
-    assert data["active_alias"] == "prod"
-    assert data["alias_changed"] is True
-    assert calls["alias_calls"] == [("support-agent", "prod", 7)]
+    assert data["active_alias"] == ""
+    assert data["alias_changed"] is False
+    assert calls["alias_calls"] == []
+
+
+def test_create_prompt_version_rejects_inline_promotion(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    calls = _install_mlflow(monkeypatch)
+    response = client.post(
+        f"{PREFIX}/support-agent/versions",
+        json={"template": "v2", "promote": True},
+    )
+    assert response.status_code == 400
+    assert "cannot mutate a live alias" in response.json()["detail"]
+    assert calls["register_calls"] == []
 
 
 def test_create_prompt_version_draft_does_not_rotate_alias(
@@ -687,13 +701,44 @@ def test_set_alias_and_version_errors(client: TestClient, monkeypatch) -> None:
         raise RuntimeError("alias failed")
 
     _install_mlflow(monkeypatch, set_alias_impl=_raise_alias)
-    failed = client.post(f"{PREFIX}/support-agent/aliases/prod", json={"version": 1})
+    failed = client.post(
+        f"{PREFIX}/support-agent/aliases/prod",
+        json={"version": 1, "operation_id": "REL-provider-retry"},
+    )
     assert failed.status_code == 502
 
     called = _install_mlflow(monkeypatch)
+    retried = client.post(
+        f"{PREFIX}/support-agent/aliases/prod",
+        json={"version": 1, "operation_id": "REL-provider-retry"},
+    )
+    assert retried.status_code == 200
     ok = client.post(f"{PREFIX}/support-agent/aliases/prod", json={"version": "3"})
     assert ok.status_code == 200
-    assert called["alias_calls"] == [("support-agent", "prod", 3)]
+    assert called["alias_calls"] == [
+        ("support-agent", "prod", 1),
+        ("support-agent", "prod", 3),
+    ]
+
+
+def test_alias_release_refuses_unknown_outgoing_version(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    called = _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": RuntimeError("registry read timeout"),
+        },
+    )
+
+    response = client.post(
+        f"{PREFIX}/support-agent/aliases/prod",
+        json={"version": 3},
+    )
+
+    assert response.status_code == 502
+    assert called["alias_calls"] == []
 
 
 def _audit_rows(session_factory: sessionmaker[Session], entity_id: str) -> list[CaliberAuditLog]:
@@ -785,6 +830,28 @@ def test_promote_expected_version_guard(client: TestClient, monkeypatch) -> None
     )
     assert ok.status_code == 200
     assert ("support-agent", "prod", 5) in calls["alias_calls"]
+
+
+def test_promote_operation_id_makes_http_retry_idempotent(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    calls = _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": SimpleNamespace(
+                name="support-agent", version=4, template="live v4"
+            )
+        },
+    )
+    payload = {"version": 5, "operation_id": "REL-http-retry"}
+    first = client.post(f"{PREFIX}/support-agent/aliases/prod", json=payload)
+    second = client.post(f"{PREFIX}/support-agent/aliases/prod", json=payload)
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["data"]["operation_id"] == "REL-http-retry"
+    assert second.json()["data"]["operation_id"] == "REL-http-retry"
+    assert calls["alias_calls"] == [("support-agent", "prod", 5)]
 
 
 def test_promote_rejects_bad_gate_fields(client: TestClient, monkeypatch) -> None:
