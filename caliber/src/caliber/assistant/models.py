@@ -35,10 +35,20 @@ DEFAULT_ASSISTANT_MODE: str = "build"
 # ``manual``    — Aria proposes; the operator runs each gate (default).
 # ``auto_safe`` — Aria auto-validates and auto-tests new drafts; approve/publish
 #                 still wait for the operator.
-# ``auto_all``  — Aria additionally auto-approves and auto-publishes a draft that
-#                 passes validation and tests.
-AssistantApprovalMode = Literal["manual", "auto_safe", "auto_all"]
-ASSISTANT_APPROVAL_MODES: set[str] = {"manual", "auto_safe", "auto_all"}
+# ``auto_all``  — legacy name: auto-runs safe/mutation tools, but no longer
+#                 bypasses the approval boundary.
+# ``agent_review`` — an independent approver-scoped agent reviews passing drafts.
+# ``full_autonomy`` — agent review followed by a distinct release service.
+AssistantApprovalMode = Literal[
+    "manual", "auto_safe", "auto_all", "agent_review", "full_autonomy"
+]
+ASSISTANT_APPROVAL_MODES: set[str] = {
+    "manual",
+    "auto_safe",
+    "auto_all",
+    "agent_review",
+    "full_autonomy",
+}
 DEFAULT_APPROVAL_MODE: str = "manual"
 
 # ---------------------------------------------------------------------------
@@ -73,6 +83,9 @@ DraftStatus = Literal[
     "testing",
     "tested",
     "test_failed",
+    "reviewing",
+    "review_rejected",
+    "review_failed",
     "approved",
     "publishing",
     "published",
@@ -404,6 +417,7 @@ class DraftResponse(BaseModel):
     artifact: dict[str, Any]
     validation_report: dict[str, Any] | None
     test_report: dict[str, Any] | None
+    review_report: dict[str, Any] | None
     target_registry_id: str | None
     version: int
     created_by: str

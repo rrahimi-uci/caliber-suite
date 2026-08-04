@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, cast
 
 from pydantic import ValidationError
@@ -59,6 +59,7 @@ from caliber.assistant.models import (
     ValidationReport,
 )
 from caliber.assistant.publisher import AssistantPublisher
+from caliber.assistant.reviewer import DraftReviewRequest, DraftReviewer
 from caliber.assistant.skill_runtime import (
     AssistantSkillResolutionRequest,
     normalize_skill_names,
@@ -71,6 +72,7 @@ from caliber.assistant.task_manager import TaskManager
 from caliber.assistant.tracing import AssistantTracer, AssistantTraceSpan
 from caliber.assistant.validators import validate_draft
 from caliber.audit import record as audit_record
+from caliber.auth import SCOPE_APPROVER, SCOPE_OPERATOR, scopes_for_user
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -78,6 +80,7 @@ from caliber.db.models import (
     CaliberAssistantDraft,
     CaliberAssistantMessage,
     CaliberAssistantPublishEvent,
+    CaliberAssistantReview,
     CaliberAssistantQueuedMessage,
     CaliberAssistantRun,
     CaliberAssistantSession,
@@ -97,6 +100,7 @@ from caliber.ids import (
     new_assistant_draft_id,
     new_assistant_message_id,
     new_assistant_publish_id,
+    new_assistant_review_id,
     new_assistant_queued_message_id,
     new_assistant_run_id,
     new_assistant_session_id,
@@ -143,6 +147,11 @@ class AssistantRuntimeSettings:
     max_attachments_per_session: int = 25
     max_queued_per_session: int = 20
     publish_requires_approval: bool = True
+    reviewer_user: str = ""
+    release_user: str = ""
+    reviewer_policy_version: str = "aria-draft-review-v1"
+    reviewer_min_confidence: float = 0.8
+    review_ttl_seconds: int = 3600
     tool_source_max_bytes: int = 200_000
     run_timeout_seconds: float = 60.0
 
@@ -347,6 +356,29 @@ def _content_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _draft_candidate_snapshot(row: CaliberAssistantDraft) -> dict[str, Any]:
+    """Return the exact candidate payload bound into a reviewer decision."""
+    return {
+        "draft_id": row.draft_id,
+        "artifact_type": row.artifact_type,
+        "title": row.title,
+        "summary": row.summary,
+        "spec": copy.deepcopy(row.spec) if isinstance(row.spec, dict) else {},
+        "artifact": copy.deepcopy(row.artifact) if isinstance(row.artifact, dict) else {},
+        "version": row.version,
+    }
+
+
+def _draft_candidate_hash(row: CaliberAssistantDraft) -> str:
+    encoded = json.dumps(
+        _draft_candidate_snapshot(row),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return _content_hash(encoded)
+
+
 def _assistant_process_steps(
     *,
     questions: list[ClarifyingQuestion],
@@ -386,6 +418,9 @@ def _assistant_process_steps(
             "validated",
             "testing",
             "tested",
+            "reviewing",
+            "review_rejected",
+            "review_failed",
             "approved",
             "publishing",
             "published",
@@ -399,12 +434,27 @@ def _assistant_process_steps(
             )
             return steps
 
-        if statuses & {"tested", "approved", "publishing", "published", "publish_failed"}:
+        if statuses & {
+            "tested",
+            "reviewing",
+            "review_rejected",
+            "review_failed",
+            "approved",
+            "publishing",
+            "published",
+            "publish_failed",
+        }:
             steps.append({"key": "tested", "label": "Tested", "tone": "success"})
         if "test_failed" in statuses:
             steps.append({"key": "test_failed", "label": "Test failed", "tone": "error"})
             return steps
 
+        if "review_rejected" in statuses:
+            steps.append({"key": "review_rejected", "label": "Review rejected", "tone": "error"})
+            return steps
+        if "review_failed" in statuses:
+            steps.append({"key": "review_failed", "label": "Review failed", "tone": "error"})
+            return steps
         if statuses & {"approved", "publishing", "published", "publish_failed"}:
             steps.append({"key": "approved", "label": "Approved", "tone": "success"})
 
@@ -412,7 +462,7 @@ def _assistant_process_steps(
             steps.append({"key": "published", "label": "Published", "tone": "success"})
         elif "publish_failed" in statuses:
             steps.append({"key": "publish_failed", "label": "Publish failed", "tone": "error"})
-        elif approval_mode in {"manual", "auto_safe"}:
+        elif approval_mode in {"manual", "auto_safe", "auto_all"}:
             steps.append({"key": "review", "label": "Review required", "tone": "warning"})
 
     if error:
@@ -517,6 +567,7 @@ class AssistantService:
         tracer: AssistantTracer | None = None,
         prompt_fetcher: Callable[[str], str | None] | None = None,
         runtime_config: Any | None = None,
+        reviewer: DraftReviewer | None = None,
     ) -> None:
         self._engine = engine
         self._publisher = publisher or AssistantPublisher()
@@ -528,9 +579,23 @@ class AssistantService:
         # (Wave 5.3). None → generation uses a name-only instruction.
         self._prompt_fetcher = prompt_fetcher
         self._runtime_config = runtime_config
+        self._reviewer = reviewer
 
     def _current_or_new_trace_id(self) -> str:
         return current_trace_id() or new_trace_id()
+
+    @staticmethod
+    def _invalidate_draft_review(row: CaliberAssistantDraft) -> None:
+        """Any candidate edit invalidates approval and its hash binding."""
+        if row.review_report is not None or row.status in {
+            "approved",
+            "reviewing",
+            "review_rejected",
+            "review_failed",
+            "publish_failed",
+        }:
+            row.review_report = None
+            row.status = "draft"
 
     def _ensure_correlation_id(self, metadata: dict[str, Any]) -> str:
         raw = metadata.get("assistant_correlation_id")
@@ -5087,12 +5152,11 @@ class AssistantService:
         session_factory: Any,
         user: str,
     ) -> list[DraftResponse]:
-        """Advance freshly created drafts through the approval gates.
+        """Advance drafts according to a fail-closed approval policy.
 
-        ``auto_safe`` validates then tests; ``auto_all`` additionally approves and
-        publishes a draft that passes both. Each gate manages its own transaction,
-        and a failure (or a failed gate) stops the chain for that draft without
-        raising — the turn must never break because auto-advance stumbled.
+        ``auto_safe`` and the deprecated ``auto_all`` stop after tests. The new
+        modes invoke an independent reviewer; only ``full_autonomy`` continues
+        to a separately authorized release principal.
         """
         refreshed: list[DraftResponse] = []
         for draft_id in draft_ids:
@@ -5102,18 +5166,224 @@ class AssistantService:
                     test_report = self.test_draft(
                         draft_id, session_factory=session_factory, user=user
                     )
-                    if test_report.passed and approval_mode == "auto_all":
-                        approved = self.approve_draft(
-                            draft_id, session_factory=session_factory, user=user
+                    if test_report.passed and approval_mode in {
+                        "agent_review",
+                        "full_autonomy",
+                    }:
+                        reviewed = self._review_draft(
+                            draft_id,
+                            mode=approval_mode,
+                            session_factory=session_factory,
+                            author_user=user,
                         )
-                        if approved is not None:
-                            self.publish_draft(draft_id, session_factory=session_factory, user=user)
+                        if (
+                            reviewed is not None
+                            and reviewed.status == "approved"
+                            and approval_mode == "full_autonomy"
+                        ):
+                            self._publish_reviewed_draft(
+                                draft_id,
+                                session_factory=session_factory,
+                                author_user=user,
+                            )
             except Exception:
                 logger.exception("assistant auto-advance failed for draft %s", draft_id)
             current = self.get_draft(draft_id, session_factory=session_factory, user=user)
             if current is not None:
                 refreshed.append(current)
         return refreshed
+
+    def _autonomy_configuration_error(self, *, author_user: str, mode: str) -> str | None:
+        reviewer_user = self._settings.reviewer_user.strip()
+        if self._reviewer is None:
+            return "No reviewer agent is configured."
+        if self._runtime_config is None:
+            return "Reviewer identity scopes cannot be resolved without runtime configuration."
+        if not reviewer_user:
+            return "CALIBER_ASSISTANT_REVIEWER_USER is not configured."
+        if reviewer_user == author_user:
+            return "Reviewer identity must be distinct from the draft author."
+        if SCOPE_APPROVER not in scopes_for_user(self._runtime_config, reviewer_user):
+            return "Reviewer identity does not carry caliber.approver."
+        if mode == "full_autonomy":
+            release_user = self._settings.release_user.strip()
+            if not release_user:
+                return "CALIBER_ASSISTANT_RELEASE_USER is not configured."
+            if release_user in {author_user, reviewer_user}:
+                return "Release identity must be distinct from author and reviewer."
+            if SCOPE_OPERATOR not in scopes_for_user(self._runtime_config, release_user):
+                return "Release identity does not carry caliber.operator."
+        return None
+
+    def _review_draft(
+        self,
+        draft_id: str,
+        *,
+        mode: str,
+        session_factory: Any,
+        author_user: str,
+    ) -> DraftResponse | None:
+        reviewer_user = self._settings.reviewer_user.strip() or "unconfigured"
+        with session_factory() as db:
+            row = db.get(CaliberAssistantDraft, draft_id)
+            if row is None or self._get_owned_session(db, row.session_id, author_user) is None:
+                return None
+            validation_report = (
+                copy.deepcopy(row.validation_report)
+                if isinstance(row.validation_report, dict)
+                else {}
+            )
+            test_report = copy.deepcopy(row.test_report) if isinstance(row.test_report, dict) else {}
+            candidate_snapshot = _draft_candidate_snapshot(row)
+            candidate_hash = _draft_candidate_hash(row)
+            candidate_version = row.version
+            session_id = row.session_id
+            artifact_type = row.artifact_type
+            title = row.title
+            summary = row.summary
+            if row.status != "tested" or validation_report.get("valid") is not True:
+                return None
+            if test_report.get("passed") is not True:
+                return None
+            row.status = "reviewing"
+            db.commit()
+
+        decision_name = "error"
+        rationale = "Reviewer did not return a decision."
+        confidence: float | None = None
+        evidence_ids: list[str] = []
+        model = ""
+        config_error = self._autonomy_configuration_error(
+            author_user=author_user,
+            mode=mode,
+        )
+        try:
+            if config_error:
+                raise RuntimeError(config_error)
+            assert self._reviewer is not None  # narrowed by configuration check
+            decision = self._reviewer.review(
+                DraftReviewRequest(
+                    draft_id=draft_id,
+                    session_id=session_id,
+                    artifact_type=artifact_type,
+                    candidate_version=candidate_version,
+                    candidate_hash=candidate_hash,
+                    title=title,
+                    summary=summary,
+                    spec=candidate_snapshot["spec"],
+                    artifact=candidate_snapshot["artifact"],
+                    validation_report=validation_report,
+                    test_report=test_report,
+                    author_user=author_user,
+                    reviewer_user=reviewer_user,
+                    policy_version=self._settings.reviewer_policy_version,
+                )
+            )
+            decision_name = decision.decision
+            rationale = decision.rationale
+            confidence = decision.confidence
+            evidence_ids = list(decision.evidence_ids)
+            model = decision.model
+            if decision.policy_version != self._settings.reviewer_policy_version:
+                raise ValueError("Reviewer decision used an unexpected policy version.")
+            if decision_name == "approve" and confidence < self._settings.reviewer_min_confidence:
+                decision_name = "reject"
+                rationale = (
+                    f"Reviewer confidence {confidence:.3f} is below the configured minimum "
+                    f"{self._settings.reviewer_min_confidence:.3f}. {rationale}"
+                )
+        except Exception as exc:
+            decision_name = "error"
+            rationale = str(exc)[:8_000] or type(exc).__name__
+            logger.exception("assistant reviewer failed for draft %s", draft_id)
+
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=self._settings.review_ttl_seconds
+        )
+        with session_factory() as db:
+            row = db.get(CaliberAssistantDraft, draft_id)
+            if row is None:
+                return None
+            if row.version != candidate_version or _draft_candidate_hash(row) != candidate_hash:
+                decision_name = "error"
+                rationale = "Draft changed while reviewer decision was in flight."
+            review_id = new_assistant_review_id()
+            review = CaliberAssistantReview(
+                review_id=review_id,
+                draft_id=draft_id,
+                mode=mode,
+                decision=decision_name,
+                candidate_version=candidate_version,
+                candidate_hash=candidate_hash,
+                candidate_snapshot=candidate_snapshot,
+                author_user=author_user,
+                reviewer_user=reviewer_user,
+                reviewer_kind="agent",
+                policy_version=self._settings.reviewer_policy_version,
+                model=model,
+                rationale=rationale,
+                confidence=confidence,
+                evidence={"evidence_ids": evidence_ids},
+                expires_at=expires_at,
+            )
+            db.add(review)
+            report = {
+                "review_id": review_id,
+                "mode": mode,
+                "decision": decision_name,
+                "candidate_hash": candidate_hash,
+                "candidate_version": candidate_version,
+                "author_user": author_user,
+                "reviewer_user": reviewer_user,
+                "reviewer_kind": "agent",
+                "policy_version": self._settings.reviewer_policy_version,
+                "model": model,
+                "rationale": rationale,
+                "confidence": confidence,
+                "evidence_ids": evidence_ids,
+                "expires_at": expires_at.isoformat(),
+            }
+            row.review_report = report
+            row.status = (
+                "approved"
+                if decision_name == "approve"
+                else "review_rejected"
+                if decision_name == "reject"
+                else "review_failed"
+            )
+            row.updated_by = reviewer_user
+            audit_record(
+                db,
+                actor=reviewer_user,
+                action="review_assistant_draft",
+                entity_type="assistant_draft",
+                entity_id=draft_id,
+                details=report,
+            )
+            db.commit()
+            db.refresh(row)
+            return DraftResponse.model_validate(row)
+
+    def _publish_reviewed_draft(
+        self,
+        draft_id: str,
+        *,
+        session_factory: Any,
+        author_user: str,
+    ) -> dict[str, Any]:
+        release_user = self._settings.release_user.strip()
+        error = self._autonomy_configuration_error(
+            author_user=author_user,
+            mode="full_autonomy",
+        )
+        if error:
+            return {"success": False, "error": error}
+        return self._publish_draft_as(
+            draft_id,
+            session_factory=session_factory,
+            actor=release_user,
+            owner_user=author_user,
+        )
 
     def _apply_draft_delta(
         self,
@@ -5126,6 +5396,7 @@ class AssistantService:
         if delta.draft_id:
             row = db.get(CaliberAssistantDraft, delta.draft_id)
             if row:
+                self._invalidate_draft_review(row)
                 if delta.title:
                     row.title = delta.title
                 if delta.summary:
@@ -5213,6 +5484,7 @@ class AssistantService:
                 raise ConflictError(
                     f"Draft version mismatch: expected {row.version}, got {body.version}",
                 )
+            self._invalidate_draft_review(row)
             if body.title is not None:
                 row.title = body.title
             if body.summary is not None:
@@ -5353,6 +5625,7 @@ class AssistantService:
         *,
         draft_id: str,
         artifact: dict[str, Any],
+        review_report: dict[str, Any] | None = None,
     ) -> tuple[bool, dict[str, Any]]:
         target_alias = str(artifact.get("target_alias") or "").strip()
         if not target_alias:
@@ -5382,6 +5655,44 @@ class AssistantService:
         approval_id = str(
             artifact.get("approval_id") or artifact.get("policy_approval_id") or ""
         ).strip()
+        review_id = str((review_report or {}).get("review_id") or "").strip()
+        if not approval_id and review_id:
+            base_report["approval_id"] = review_id
+            review = db.get(CaliberAssistantReview, review_id)
+            if review is None or review.decision != "approve":
+                base_report["reason"] = f"Agent review {review_id!r} is not approved."
+                return False, base_report
+            candidate = review.candidate_snapshot or {}
+            candidate_artifact = candidate.get("artifact") if isinstance(candidate, dict) else {}
+            if not isinstance(candidate_artifact, dict):
+                candidate_artifact = {}
+            candidate_name = str(candidate_artifact.get("name") or "").strip()
+            candidate_alias = str(candidate_artifact.get("target_alias") or "").strip()
+            candidate_template = str(candidate_artifact.get("template") or "").strip()
+            if candidate_name != clean_name or candidate_alias != target_alias:
+                base_report["reason"] = (
+                    f"Agent review {review_id!r} does not target this prompt and alias."
+                )
+                return False, base_report
+            if str(candidate.get("draft_id") or "") != draft_id or candidate_template != clean_template:
+                base_report["reason"] = (
+                    f"Agent review {review_id!r} does not match the current draft content."
+                )
+                return False, base_report
+            base_report.update(
+                {
+                    "passed": True,
+                    "approval_status": "approved",
+                    "approval_kind": "agent_review",
+                    "checks": [
+                        "agent_review_status",
+                        "prompt_name",
+                        "target_alias",
+                        "draft_content_match",
+                    ],
+                }
+            )
+            return True, base_report
         base_report["approval_id"] = approval_id
         if not approval_id:
             base_report["reason"] = "Prompt alias publish requires an approved promotion approval."
@@ -5453,12 +5764,54 @@ class AssistantService:
         )
         return True, base_report
 
+    def _validate_review_binding(
+        self,
+        db: Any,
+        row: CaliberAssistantDraft,
+    ) -> tuple[bool, str, str]:
+        """Re-check approval provenance immediately before a publish transition."""
+        report = row.review_report if isinstance(row.review_report, dict) else None
+        if report is None:
+            return True, "", row.updated_by
+        review_id = str(report.get("review_id") or "").strip()
+        review = db.get(CaliberAssistantReview, review_id) if review_id else None
+        if review is None:
+            return False, "Approved draft has no durable reviewer decision.", ""
+        if review.decision != "approve":
+            return False, "Reviewer decision is not approved.", ""
+        if review.author_user == review.reviewer_user:
+            return False, "Reviewer decision violates separation of duties.", ""
+        if review.candidate_version != row.version or review.candidate_hash != _draft_candidate_hash(row):
+            return False, "Draft changed after reviewer approval.", ""
+        if review.expires_at is not None:
+            expires_at = review.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                return False, "Reviewer decision has expired.", ""
+        return True, "", review.reviewer_user
+
     def publish_draft(
         self,
         draft_id: str,
         *,
         session_factory: Any,
         user: str,
+    ) -> dict[str, Any]:
+        return self._publish_draft_as(
+            draft_id,
+            session_factory=session_factory,
+            actor=user,
+            owner_user=user,
+        )
+
+    def _publish_draft_as(
+        self,
+        draft_id: str,
+        *,
+        session_factory: Any,
+        actor: str,
+        owner_user: str,
     ) -> dict[str, Any]:
         trace_id = self._current_or_new_trace_id()
         correlation_id = ""
@@ -5474,7 +5827,7 @@ class AssistantService:
             row = db.get(CaliberAssistantDraft, draft_id)
             if row is None:
                 return {"success": False, "error": "Draft not found."}
-            session_row = self._get_owned_session(db, row.session_id, user)
+            session_row = self._get_owned_session(db, row.session_id, owner_user)
             if session_row is None:
                 return {"success": False, "error": "Draft not found."}
             if row.status != "approved":
@@ -5482,6 +5835,9 @@ class AssistantService:
                     "success": False,
                     "error": f"Draft must be approved before publishing (current: {row.status}).",
                 }
+            review_ok, review_error, approved_by = self._validate_review_binding(db, row)
+            if not review_ok:
+                return {"success": False, "error": review_error}
 
             metadata, _workbench = self._metadata_and_workbench(session_row.metadata_)
             correlation_id = self._ensure_correlation_id(metadata)
@@ -5495,6 +5851,7 @@ class AssistantService:
                     db,
                     draft_id=draft_id,
                     artifact=artifact,
+                    review_report=row.review_report,
                 )
                 if not policy_ok:
                     report = {
@@ -5522,7 +5879,7 @@ class AssistantService:
                     }
                     audit_record(
                         db,
-                        actor=user,
+                        actor=actor,
                         action="publish_draft",
                         entity_type="assistant_draft",
                         entity_id=draft_id,
@@ -5555,7 +5912,7 @@ class AssistantService:
             artifact=artifact,
             draft_id=draft_id,
             session_factory=session_factory,
-            user=user,
+            user=actor,
         )
         report = dict(report)
         report.setdefault("trace_id", trace_id)
@@ -5586,8 +5943,8 @@ class AssistantService:
                     artifact_type=row.artifact_type,
                     target_registry_id=report.get("registry_id", ""),
                     target_version=report.get("version_id") or report.get("target_version"),
-                    approved_by=user,
-                    published_by=user,
+                    approved_by=approved_by,
+                    published_by=actor,
                     publish_report=report,
                 )
                 db.add(event)
@@ -5596,7 +5953,7 @@ class AssistantService:
 
             audit_record(
                 db,
-                actor=user,
+                actor=actor,
                 action="publish_draft",
                 entity_type="assistant_draft",
                 entity_id=draft_id,

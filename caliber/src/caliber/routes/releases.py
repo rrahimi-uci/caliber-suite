@@ -44,10 +44,13 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import apply_visibility_filter
 from caliber.release_operations import (
+    PreparedReleaseResolutionError,
+    abandon_prepared_prompt_release,
+    execute_prompt_alias_release,
     reconcile_prompt_alias_releases,
     serialize_release_operation,
 )
-from caliber.routes._deps import envelope_response_dict, get_session_factory
+from caliber.routes._deps import envelope_response_dict, get_session_factory, parse_json_object
 
 logger = logging.getLogger("caliber.routes.releases")
 
@@ -55,6 +58,7 @@ TIMELINE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/timeline"
 LIVE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/live"
 OPERATIONS_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations"
 RECONCILE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile"
+RESOLVE_OPERATION_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations/{operation_id}/resolve"
 
 # The audit actions that constitute a "release" event (promote / rollback /
 # activate across artifact types). Skill content edits and other audit rows are
@@ -172,6 +176,54 @@ def _reconcile_release_operations(
             resolve_alias=resolve_alias,
         )
         return [serialize_release_operation(row) for row in rows]
+
+
+def _resolve_prepared_release_operation(
+    factory: Any,
+    *,
+    action: str,
+    operation_id: str,
+    actor: str,
+    reason: str,
+) -> dict[str, object]:
+    """Resolve a prepared intent outside the async route's event-loop thread."""
+    with factory() as session:
+        row = session.get(CaliberReleaseOperation, operation_id)
+        if row is None:
+            raise HTTPException(
+                status_code=404, detail=f"release operation {operation_id!r} not found"
+            )
+        if row.resource_type != "prompt" or row.status != "prepared":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"release operation {operation_id!r} is {row.status!r}; "
+                    "only prepared prompt releases can be retried or abandoned"
+                ),
+            )
+        if action == "retry":
+            from caliber.routes import prompts as prompt_routes  # noqa: PLC0415
+
+            result = execute_prompt_alias_release(
+                session,
+                row,
+                mutate_alias=prompt_routes.set_prompt_alias_version,
+            )
+            result["operation_id"] = operation_id
+            result["release_status"] = "applied"
+            return result
+        if action == "abandon":
+            try:
+                resolved = abandon_prepared_prompt_release(
+                    session,
+                    operation_id=operation_id,
+                    actor=actor,
+                    reason=reason,
+                )
+            except PreparedReleaseResolutionError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return serialize_release_operation(resolved)
+        raise HTTPException(status_code=400, detail="'action' must be 'retry' or 'abandon'")
 
 
 async def timeline(request: Request) -> JSONResponse:
@@ -333,8 +385,32 @@ async def reconcile_release_operations(request: Request) -> JSONResponse:
     return envelope_response_dict(data)
 
 
+async def resolve_release_operation(request: Request) -> JSONResponse:
+    """Retry or abandon a pre-effect prompt release intent.
+
+    Only ``prepared`` rows are accepted. Once a row reaches ``applying``, the
+    provider may already have changed and reconciliation—not blind retry—is the
+    safe operation.
+    """
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    body = await parse_json_object(request)
+    action = str(body.get("action") or "").strip().casefold()
+    operation_id = request.path_params["operation_id"]
+    factory = get_session_factory(request)
+    data = await run_in_threadpool(
+        _resolve_prepared_release_operation,
+        factory,
+        action=action,
+        operation_id=operation_id,
+        actor=actor,
+        reason=str(body.get("reason") or ""),
+    )
+    return envelope_response_dict(data)
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(TIMELINE_PATH, timeline, methods=["GET"]))
     app.routes.append(Route(LIVE_PATH, live, methods=["GET"]))
     app.routes.append(Route(OPERATIONS_PATH, release_operations, methods=["GET"]))
     app.routes.append(Route(RECONCILE_PATH, reconcile_release_operations, methods=["POST"]))
+    app.routes.append(Route(RESOLVE_OPERATION_PATH, resolve_release_operation, methods=["POST"]))

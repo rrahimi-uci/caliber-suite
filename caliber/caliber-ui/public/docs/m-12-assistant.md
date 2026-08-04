@@ -9,7 +9,7 @@
 | **Engine** | A pluggable provider behind one `AssistantEngine` protocol (`fake` / `openai` / `anthropic` / `ollama`), selected once at boot in `server.py`. |
 | **Interaction modes** | `chat`, `build`, and `plan` — only `build` materializes `draft_deltas`; `plan` creates durable goal-plans via `POST /aria/plans`. |
 | **Tool loop** | The OpenAI and Anthropic engines run an agentic tool-calling loop over a per-turn, tier-filtered surface: 29 hand-written tools plus seven capability-registry entries in the current source. It is not read-only or full registry parity: read tools are always eligible, safe/mutate tools depend on build/approval mode, and `gated` capabilities are omitted from synchronous projection. |
-| **Approval / governance** | Drafts use validate → test → approved-status → publish. In `build` + `auto_all`, Aria may automatically approve and publish a passing draft; that status gate is not necessarily a separate human decision. `gated` plan capabilities always pause for a human, and prompt-alias publication has its own approval-provenance policy. |
+| **Approval / governance** | Drafts use validate → test → approved-status → publish. Draft approval and publication are `gated`: synchronous turns, including `build` + `auto_all`, neither advertise nor dispatch them. Gated plan capabilities pause for a human, and prompt-alias publication has its own approval-provenance policy. |
 | **Trust / safety** | Engine output is a proposal, never an authorization; attachments are capped text snapshots and platform RBAC outranks injected prompt content. |
 
 The sections below start from this picture and drill down into the detail — scope,
@@ -25,10 +25,11 @@ operating platform artifacts. Aria is an embedded reasoning and orchestration
 layer: it turns a chat conversation into concrete, governed CALIBER actions —
 drafting tools, skills, prompts, workflows, and MCP servers, validating and
 testing those drafts, and publishing them when the current mode, actor authority,
-draft state, and asset policy permit it. In `build` + `auto_all`, Aria can
-automatically approve and publish a draft that passes validation and testing;
-forced human involvement is reserved for `gated` plan capabilities, while prompt
-alias publication separately enforces its approval-provenance policy. Because it
+draft state, and asset policy permit it. Approval and publication are gated and
+cannot be performed by a synchronous `build` + `auto_all` turn; a human uses the
+draft lifecycle UI/API for those hand-written actions. Registry capabilities
+classified as `gated` instead pause a durable plan for explicit approval, while
+prompt alias publication separately enforces its approval-provenance policy. Because it
 is embedded rather than bolted on, admitted actions still flow through CALIBER's
 path-specific service and capability controls.
 
@@ -44,8 +45,8 @@ Concretely, Aria owns the following responsibilities:
 - It supports interaction **modes** (chat, build, and plan) that shape its
   behavior the way a code assistant's mode toggle does.
 - It manages **drafts** through a validate → test → approved-status → publish
-  state machine; `auto_all` can advance a passing draft through the last two
-  states without a separate human click.
+  state machine; the last two transitions are withheld from synchronous
+  autonomous tool projection.
 - It runs an intent-driven **plan workbench** (resolve intent → build plan →
   execute) for structured, confirmable single mutations — now used mainly by
   authoring surfaces such as the Prompts page rather than by the assistant
@@ -111,7 +112,7 @@ and what that ownership entails.
 | Fallback registry access | `RegistryToolDispatcher` (`tools.py`) | A three-tool, read-only fallback (`list_skills` / `get_skill` / `list_tools`). Normal service turns pass the richer per-turn toolset below, which overrides this engine fallback. |
 | Per-turn agent tools | `AssistantAgentToolset` (`agent_tools.py`) | Binds the actor, session, mode, approval mode, and project to 29 hand-written tools plus a tier-filtered projection of the seven currently registered capabilities. This is partial coverage, not a claim that every CALIBER route has tool parity; `gated` capabilities are never advertised to a synchronous turn. |
 | Draft validation / test | `validators.py`, `service.py` | Validates draft artifacts and runs draft tests (tool sandbox, skill render, workflow compile). |
-| Publishing | `publisher.py` | Publishes drafts whose approved status and asset-specific policy permit it. `auto_all` can supply the draft-status transition; prompt alias publication may additionally require matching approved promotion provenance. |
+| Publishing | `publisher.py` | Publishes drafts whose approved status and asset-specific policy permit it. Synchronous tool projection withholds both approval and publication; the human-approved path may additionally require matching prompt-promotion provenance. |
 | Tracing | `tracing.py` | `AssistantTracer` emits MLflow spans with session/correlation/user attributes. |
 | Persistence | `CaliberAssistant*` rows (`db/models.py`) | Sessions, messages, drafts, runs, publish events, and attachments. |
 
@@ -174,9 +175,9 @@ explain why the architecture stays simple as providers and features grow:
 - Skill selection is **deterministic and DB-backed**, not model-decided, so the
   same session state always yields the same skill set.
 - Mutations remain subject to the current mode, actor scopes, draft state, and
-  asset-specific policy. `build` + `auto_all` may automatically carry a passing
-  draft through approve and publish; this satisfies the draft state machine but
-  is not a mandatory human-approval boundary. `gated` plan capabilities and the
+  asset-specific policy. `build` + `auto_all` may perform admitted reversible
+  mutations, but approval and publication remain gated and absent from its tool
+  surface. Gated plan capabilities and the
   prompt-alias approval-provenance policy retain their stronger controls.
 
 Together these properties make the engine a replaceable detail and the service
@@ -405,10 +406,9 @@ human-driven route. The following controls enforce that assumption.
   through `db.scoping.get_visible` with the caller's identity, so a guessed
   `plan_id` from another owner returns 404 (admins bypass). Editing a plan's
   autonomy dial is audited.
-- Publishing requires the draft row to be in approved status, but that is a
-  state gate rather than an unconditional human gate: `build` + `auto_all` can
-  validate, test, approve, and publish a passing draft automatically. Human
-  approval remains mandatory for `gated` plan capabilities, and enabled prompt-
+- Publishing requires the draft row to be in approved status, and both approval
+  and publication are gated operations that a synchronous turn cannot advertise
+  or dispatch. Human approval remains mandatory for gated plan capabilities, and enabled prompt-
   alias publication policy separately requires matching approved promotion
   provenance.
 - Attachment content is reduced to a **capped text snapshot** at attach time and

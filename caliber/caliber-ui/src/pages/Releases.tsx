@@ -12,10 +12,21 @@
  * that reads as "nothing is in production".
  */
 import { caliberApi } from "@/api/caliberApi";
-import type { ReleaseTimelineEvent } from "@/api/versioning";
+import type {
+  ReleaseOperation,
+  ReleaseTimelineEvent,
+  SystemEffect,
+  WebhookDeadLetter,
+} from "@/api/versioning";
 import { Badge } from "@/components/ui/badge";
-import { useApiQuery } from "@/hooks/useApiQuery";
+import { Button } from "@/components/ui/button";
+import {
+  useApiMutation,
+  useApiQuery,
+  useInvalidate,
+} from "@/hooks/useApiQuery";
 import { relativeTime } from "@/lib/time";
+import { useState } from "react";
 
 const ACTION_LABEL: Record<string, string> = {
   promote_prompt: "Promote",
@@ -46,42 +57,143 @@ function transition(event: ReleaseTimelineEvent): string {
 }
 
 export function Releases(): JSX.Element {
-  const liveQuery = useApiQuery(["releases-live"], () => caliberApi.listReleasesLive());
+  const invalidate = useInvalidate();
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const meQuery = useApiQuery(["me"], (signal) => caliberApi.getMe(signal));
+  const canOperate =
+    (meQuery.data?.scopes ?? []).includes("caliber.operator") ||
+    (meQuery.data?.is_admin ?? false);
+  const canAdmin =
+    (meQuery.data?.scopes ?? []).includes("caliber.admin") ||
+    (meQuery.data?.is_admin ?? false);
+  const liveQuery = useApiQuery(["releases-live"], () =>
+    caliberApi.listReleasesLive(),
+  );
   const timelineQuery = useApiQuery(["releases-timeline"], () =>
     caliberApi.listReleasesTimeline({ limit: 100 }),
+  );
+  const operationsQuery = useApiQuery(
+    ["release-operations"],
+    () => caliberApi.listReleaseOperations(),
+    { enabled: canOperate },
+  );
+  const effectsQuery = useApiQuery(
+    ["system-effects"],
+    () => caliberApi.listSystemEffects(),
+    { enabled: canOperate },
+  );
+  const deadLettersQuery = useApiQuery(
+    ["webhook-dead-letters"],
+    () => caliberApi.listWebhookDeadLetters(),
+    { enabled: canOperate },
+  );
+  const refreshRecovery = async (): Promise<void> => {
+    await Promise.all([
+      invalidate(["release-operations"]),
+      invalidate(["system-effects"]),
+      invalidate(["webhook-dead-letters"]),
+      invalidate(["releases-live"]),
+      invalidate(["releases-timeline"]),
+    ]);
+  };
+  const reconcile = useApiMutation(
+    () => caliberApi.reconcileReleaseOperations(),
+    {
+      onSuccess: refreshRecovery,
+    },
+  );
+  const resolveRelease = useApiMutation(
+    (input: {
+      operation: ReleaseOperation;
+      action: "retry" | "abandon";
+      reason?: string;
+    }) =>
+      caliberApi.resolveReleaseOperation(input.operation.operation_id, {
+        action: input.action,
+        reason: input.reason,
+      }),
+    { onSuccess: refreshRecovery },
+  );
+  const resolveEffect = useApiMutation(
+    (input: {
+      effect: SystemEffect;
+      resolution: "retry" | "skip";
+      reason: string;
+    }) =>
+      caliberApi.resolveSystemEffect(input.effect.effect_key, {
+        resolution: input.resolution,
+        reason: input.reason,
+      }),
+    { onSuccess: refreshRecovery },
+  );
+  const replayDeadLetter = useApiMutation(
+    (row: WebhookDeadLetter) =>
+      caliberApi.replayWebhookDeadLetter(row.dead_letter_id),
+    { onSuccess: refreshRecovery },
+  );
+  const acknowledgeDeadLetter = useApiMutation(
+    (input: { row: WebhookDeadLetter; note: string }) =>
+      caliberApi.acknowledgeWebhookDeadLetter(
+        input.row.dead_letter_id,
+        input.note,
+      ),
+    { onSuccess: refreshRecovery },
+  );
+
+  const runRecovery = async (action: () => Promise<unknown>): Promise<void> => {
+    setRecoveryError(null);
+    try {
+      await action();
+    } catch (error) {
+      setRecoveryError(queryErrorMessage(error));
+    }
+  };
+
+  const incompleteOperations = (operationsQuery.data ?? []).filter((row) =>
+    ["prepared", "applying", "reconcile_required"].includes(row.status),
   );
 
   return (
     <div className="space-y-6 p-6" data-testid="releases-page">
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">Releases &amp; Rollback</h1>
+        <h1 className="text-xl font-semibold text-gray-900">
+          Releases &amp; Rollback
+        </h1>
         <p className="mt-0.5 text-sm text-gray-500">
-          What&apos;s live across artifacts, and the recent promotion/rollback history.
+          What&apos;s live across artifacts, and the recent promotion/rollback
+          history.
         </p>
       </div>
 
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-gray-700">What&apos;s live now</h2>
+        <h2 className="mb-2 text-sm font-semibold text-gray-700">
+          What&apos;s live now
+        </h2>
         <div
           data-testid="releases-live-board"
           className="overflow-hidden rounded-md border border-surface-200"
         >
-          {liveQuery.isLoading && <div className="p-3 text-sm text-gray-400">Loading…</div>}
+          {liveQuery.isLoading && (
+            <div className="p-3 text-sm text-gray-400">Loading…</div>
+          )}
           {liveQuery.isError && (
             <div
               data-testid="releases-live-error"
               className="p-3 text-sm text-red-700"
               role="alert"
             >
-              Could not load what&apos;s live: {queryErrorMessage(liveQuery.error)}. This is a
-              load failure, not an empty release board.
+              Could not load what&apos;s live:{" "}
+              {queryErrorMessage(liveQuery.error)}. This is a load failure, not
+              an empty release board.
             </div>
           )}
-          {!liveQuery.isError && liveQuery.data && liveQuery.data.length === 0 && (
-            <div className="p-3 text-sm text-gray-400">
-              Nothing deployed yet in your visible projects.
-            </div>
-          )}
+          {!liveQuery.isError &&
+            liveQuery.data &&
+            liveQuery.data.length === 0 && (
+              <div className="p-3 text-sm text-gray-400">
+                Nothing deployed yet in your visible projects.
+              </div>
+            )}
           {liveQuery.data?.map((row) => (
             <div
               key={`${row.artifact_type}:${row.artifact_id}`}
@@ -92,7 +204,9 @@ export function Releases(): JSX.Element {
               <span className="font-medium text-gray-900">
                 {row.artifact_name ?? row.artifact_id}
               </span>
-              <span className="font-mono text-xs text-gray-500">{row.version_id}</span>
+              <span className="font-mono text-xs text-gray-500">
+                {row.version_id}
+              </span>
               <span className="ml-auto text-xs text-gray-400">
                 {row.since ? `since ${relativeTime(row.since)}` : ""}
                 {row.by ? ` · ${row.by}` : ""}
@@ -102,20 +216,249 @@ export function Releases(): JSX.Element {
         </div>
       </section>
 
+      {canOperate && (
+        <section className="space-y-3" data-testid="release-recovery-console">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700">
+                Recovery console
+              </h2>
+              <p className="text-xs text-gray-500">
+                Incomplete releases, indeterminate effects, and undelivered
+                webhooks.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={reconcile.isPending}
+              onClick={() =>
+                void runRecovery(() => reconcile.mutateAsync(undefined))
+              }
+            >
+              Reconcile releases
+            </Button>
+          </div>
+          {recoveryError && (
+            <div
+              role="alert"
+              className="text-sm text-red-700"
+              data-testid="recovery-error"
+            >
+              Recovery action failed: {recoveryError}
+            </div>
+          )}
+          {(operationsQuery.isError ||
+            effectsQuery.isError ||
+            deadLettersQuery.isError) && (
+            <div role="alert" className="text-sm text-red-700">
+              One or more recovery queues could not be loaded.
+            </div>
+          )}
+
+          <div className="rounded-md border border-surface-200 p-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Incomplete releases ({incompleteOperations.length})
+            </h3>
+            {incompleteOperations.length === 0 ? (
+              <p className="mt-2 text-sm text-gray-400">
+                No incomplete release operations.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {incompleteOperations.map((row) => (
+                  <li
+                    key={row.operation_id}
+                    data-testid={`release-operation-${row.operation_id}`}
+                    className="flex flex-wrap items-center gap-2 text-sm"
+                  >
+                    <Badge
+                      variant={
+                        row.status === "prepared" ? "warning" : "destructive"
+                      }
+                    >
+                      {row.status}
+                    </Badge>
+                    <span className="font-medium">
+                      {row.resource_name}@{row.target_name}
+                    </span>
+                    <span className="font-mono text-xs text-gray-500">
+                      {row.version_before == null
+                        ? "none"
+                        : `v${row.version_before}`}{" "}
+                      → v{row.version_after}
+                    </span>
+                    {row.last_error && (
+                      <span className="text-xs text-red-700">
+                        {row.last_error}
+                      </span>
+                    )}
+                    {row.status === "prepared" && (
+                      <span className="ml-auto flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void runRecovery(() =>
+                              resolveRelease.mutateAsync({
+                                operation: row,
+                                action: "retry",
+                              }),
+                            )
+                          }
+                        >
+                          Retry exact intent
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => {
+                            const reason = window.prompt(
+                              "Why is this pre-effect release being abandoned?",
+                            );
+                            if (reason?.trim())
+                              void runRecovery(() =>
+                                resolveRelease.mutateAsync({
+                                  operation: row,
+                                  action: "abandon",
+                                  reason: reason.trim(),
+                                }),
+                              );
+                          }}
+                        >
+                          Abandon
+                        </Button>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <RecoveryQueue
+              title={`Indeterminate effects (${effectsQuery.data?.effects.length ?? 0})`}
+              empty="No effects need a decision."
+            >
+              {effectsQuery.data?.effects.map((effect) => (
+                <li
+                  key={effect.effect_key}
+                  data-testid={`system-effect-${effect.effect_key}`}
+                  className="space-y-1 text-sm"
+                >
+                  <div className="font-medium">
+                    {effect.workflow_run_id} · {effect.node_id}
+                  </div>
+                {canAdmin ? (
+                  <div className="flex gap-1">
+                    {(["retry", "skip"] as const).map((resolution) => (
+                      <Button
+                        key={resolution}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const reason = window.prompt(
+                            `Reason to ${resolution} this effect?`,
+                          );
+                          if (reason?.trim())
+                            void runRecovery(() =>
+                              resolveEffect.mutateAsync({
+                                effect,
+                                resolution,
+                                reason: reason.trim(),
+                              }),
+                            );
+                        }}
+                      >
+                        {resolution}
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500">
+                    Admin scope is required to resolve effects.
+                  </div>
+                )}
+                </li>
+              ))}
+            </RecoveryQueue>
+            <RecoveryQueue
+              title={`Webhook dead letters (${deadLettersQuery.data?.open_count ?? 0})`}
+              empty="No webhook deliveries need recovery."
+            >
+              {deadLettersQuery.data?.dead_letters.map((row) => (
+                <li
+                  key={row.dead_letter_id}
+                  data-testid={`dead-letter-${row.dead_letter_id}`}
+                  className="space-y-1 text-sm"
+                >
+                  <div className="font-medium">
+                    {row.event_type} · {row.kind}
+                  </div>
+                  <div className="text-xs text-red-700">{row.reason}</div>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!row.has_event}
+                      onClick={() =>
+                        void runRecovery(() =>
+                          replayDeadLetter.mutateAsync(row),
+                        )
+                      }
+                    >
+                      Replay
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const note = window.prompt(
+                          "Why is this dead letter being acknowledged without delivery?",
+                        );
+                        if (note?.trim())
+                          void runRecovery(() =>
+                            acknowledgeDeadLetter.mutateAsync({
+                              row,
+                              note: note.trim(),
+                            }),
+                          );
+                      }}
+                    >
+                      Acknowledge
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </RecoveryQueue>
+          </div>
+        </section>
+      )}
+
       <section>
         <h2 className="mb-2 text-sm font-semibold text-gray-700">Timeline</h2>
         <ul data-testid="releases-timeline" className="space-y-1">
-          {timelineQuery.isLoading && <li className="text-sm text-gray-400">Loading…</li>}
+          {timelineQuery.isLoading && (
+            <li className="text-sm text-gray-400">Loading…</li>
+          )}
           {timelineQuery.isError && (
-            <li data-testid="releases-timeline-error" className="text-sm text-red-700" role="alert">
-              Could not load the release timeline: {queryErrorMessage(timelineQuery.error)}.
+            <li
+              data-testid="releases-timeline-error"
+              className="text-sm text-red-700"
+              role="alert"
+            >
+              Could not load the release timeline:{" "}
+              {queryErrorMessage(timelineQuery.error)}.
             </li>
           )}
-          {!timelineQuery.isError && timelineQuery.data && timelineQuery.data.length === 0 && (
-            <li className="text-sm text-gray-400">
-              No promotions or rollbacks yet in your visible projects.
-            </li>
-          )}
+          {!timelineQuery.isError &&
+            timelineQuery.data &&
+            timelineQuery.data.length === 0 && (
+              <li className="text-sm text-gray-400">
+                No promotions or rollbacks yet in your visible projects.
+              </li>
+            )}
           {timelineQuery.data?.map((event) => {
             const overridden = Boolean(event.details?.overridden);
             return (
@@ -124,14 +467,23 @@ export function Releases(): JSX.Element {
                 data-testid={`releases-event-${event.log_id}`}
                 className="flex items-center gap-2 rounded border border-surface-100 px-3 py-1.5 text-sm"
               >
-                <Badge variant={isRollback(event.action) ? "warning" : "default"}>
+                <Badge
+                  variant={isRollback(event.action) ? "warning" : "default"}
+                >
                   {ACTION_LABEL[event.action] ?? event.action}
                 </Badge>
                 <span className="text-gray-600">{event.entity_type}</span>
-                <span className="font-medium text-gray-900">{event.entity_id}</span>
-                <span className="font-mono text-xs text-gray-500">{transition(event)}</span>
+                <span className="font-medium text-gray-900">
+                  {event.entity_id}
+                </span>
+                <span className="font-mono text-xs text-gray-500">
+                  {transition(event)}
+                </span>
                 {overridden && (
-                  <Badge variant="destructive" data-testid={`releases-overridden-${event.log_id}`}>
+                  <Badge
+                    variant="destructive"
+                    data-testid={`releases-overridden-${event.log_id}`}
+                  >
                     gate overridden
                   </Badge>
                 )}
@@ -144,6 +496,32 @@ export function Releases(): JSX.Element {
           })}
         </ul>
       </section>
+    </div>
+  );
+}
+
+function RecoveryQueue({
+  title,
+  empty,
+  children,
+}: {
+  title: string;
+  empty: string;
+  children: React.ReactNode;
+}): JSX.Element {
+  const hasChildren = Array.isArray(children)
+    ? children.length > 0
+    : Boolean(children);
+  return (
+    <div className="rounded-md border border-surface-200 p-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+        {title}
+      </h3>
+      {hasChildren ? (
+        <ul className="mt-2 space-y-2">{children}</ul>
+      ) : (
+        <p className="mt-2 text-sm text-gray-400">{empty}</p>
+      )}
     </div>
   );
 }

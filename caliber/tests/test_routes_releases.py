@@ -8,11 +8,14 @@ from starlette.testclient import TestClient
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberKnowledgeBase,
+    CaliberReleaseOperation,
     CaliberWorkflowDeployment,
 )
+from caliber.release_operations import prepare_prompt_alias_release
 
 TIMELINE = "/ajax-api/2.0/mlflow/caliber/releases/timeline"
 LIVE = "/ajax-api/2.0/mlflow/caliber/releases/live"
+OPERATIONS = "/ajax-api/2.0/mlflow/caliber/releases/operations"
 
 
 def _audit(session: Session, action: str, entity_type: str, entity_id: str) -> None:
@@ -146,3 +149,74 @@ def test_live_kb_since_and_by_come_from_activation_audit(
 
     # No audited activation -> fall back to the KB owner.
     assert by_id["KB-FALLBACK"]["by"] == "@legacy-owner"
+
+
+def test_operator_can_abandon_a_prepared_release(client: TestClient, db_session: Session) -> None:
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-stale-prepared",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+    )
+
+    response = client.post(
+        f"{OPERATIONS}/{operation.operation_id}/resolve",
+        json={"action": "abandon", "reason": "operator verified no provider call"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == "failed"
+    db_session.expire_all()
+    row = db_session.get(CaliberReleaseOperation, operation.operation_id)
+    assert row is not None and row.active_lock is None
+
+
+def test_operator_can_retry_the_exact_prepared_release(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-retry-prepared",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+    )
+    calls: list[dict[str, object]] = []
+
+    def mutate_alias(**kwargs: object) -> dict[str, object]:
+        calls.append(dict(kwargs))
+        return dict(kwargs)
+
+    monkeypatch.setattr("caliber.routes.prompts.set_prompt_alias_version", mutate_alias)
+    response = client.post(
+        f"{OPERATIONS}/{operation.operation_id}/resolve",
+        json={"action": "retry"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert calls == [{"name": "p-retry-prepared", "alias": "prod", "version": 2}]
+    assert response.json()["data"]["operation_id"] == operation.operation_id
+
+
+def test_applying_release_refuses_blind_retry(client: TestClient, db_session: Session) -> None:
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-ambiguous",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+    )
+    operation.status = "applying"
+    db_session.commit()
+
+    response = client.post(
+        f"{OPERATIONS}/{operation.operation_id}/resolve",
+        json={"action": "retry"},
+    )
+
+    assert response.status_code == 409
+    assert "reconciliation" not in response.text.lower() or "only prepared" in response.text.lower()

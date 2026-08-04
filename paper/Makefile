@@ -35,7 +35,7 @@ SOURCES    := $(wildcard $(TEXDIR)/*.tex) $(wildcard $(TEXDIR)/*.sty) \
               $(wildcard generated/*.tex) references/refs.bib \
               $(wildcard generated/diagrams/*.pdf)
 
-.PHONY: all stats diagrams repro watch check clean distclean open help
+.PHONY: all stats diagrams evidence repro watch check clean distclean open help
 
 all: $(PDF)
 
@@ -71,12 +71,17 @@ stats:
 diagrams: stats
 	@$(PYTHON) diagrams/build.py
 
+# Deterministic controlled-interleaving and fault-boundary evidence. This does
+# not run or claim the latency, throughput, or human-subject measurements.
+evidence:
+	@../caliber/.venv/bin/python benchmarks/run_structural.py
+
 # The single reproduction entrypoint the Availability section promises. It proves
 # one specific thing and does not overclaim: that every quantitative fact in the
 # text is derived from the source tree rather than typed in. It regenerates the
 # statistics, fails if they differ from the committed ones, and rebuilds the PDF
-# under `make check'. It does NOT reproduce the measurement protocol -- there is
-# nothing to reproduce there yet, and Appendix C says so.
+# under `make check'. It also verifies the deterministic structural suite. It does
+# NOT reproduce the unrun performance, scale, baseline, or human-study protocol.
 repro:
 	@echo "==> reproducing generated statistics from the source tree"
 	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
@@ -95,10 +100,12 @@ repro:
 	echo "    generated files match the tree byte for byte"
 	@echo "==> rebuilding the document (forced, so the checks always run)"
 	@$(MAKE) --no-print-directory -B all
+	@echo "==> re-running deterministic structural evidence (manifest is not rewritten)"
+	@../caliber/.venv/bin/python benchmarks/run_structural.py --verify
 	@echo
 	@echo "reproduced: every number in the text is derived, not transcribed."
-	@echo "NOT reproduced: the measurement protocol in Appendix C, which has no"
-	@echo "results yet. See the Availability section."
+	@echo "NOT reproduced: the unrun latency, throughput, and human-study portions"
+	@echo "of the measurement protocol. See the Availability section."
 
 # The log lint. These are exactly the classes of defect a program committee
 # member sees before they read a word: broken references, missing citations,

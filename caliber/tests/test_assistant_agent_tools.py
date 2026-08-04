@@ -127,7 +127,16 @@ class TestGating:
     def test_auto_all_adds_mutate_tools(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         names = _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_all"))
-        assert {"run_workflow", "approve_draft", "publish_draft"} <= names
+        assert "run_workflow" in names
+        assert "approve_draft" not in names
+        assert "publish_draft" not in names
+
+    def test_gated_draft_tools_cannot_be_dispatched(self, svc, session_factory) -> None:
+        sid = _session(svc, session_factory)
+        toolset = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+        for tool_name in ("approve_draft", "publish_draft"):
+            out = json.loads(toolset.dispatch(tool_name, {"draft_id": "AD-none"}))
+            assert "error" in out and "not permitted" in out["error"]
 
     def test_chat_mode_is_read_only_even_auto_all(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)

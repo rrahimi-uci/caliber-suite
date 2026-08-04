@@ -2,7 +2,7 @@
 
 ## Review basis
 
-**Current manuscript:** *CALIBER: Per-Family Governance for Releasing AI-Agent Resources*
+**Current manuscript:** *CALIBER: A Layered Control Plane for Per-Family Governance of AI-Agent Resources*
 
 **Review date:** 2026-08-03
 
@@ -19,7 +19,7 @@ the closest systems. It is not a prose-only review.
 
 ## Post-review remediation status
 
-**Updated 2026-08-03.** The score below is the baseline assessment of the draft
+**Updated 2026-08-04.** The score below is the baseline assessment of the draft
 that was reviewed. The following submission-blocking implementation and manuscript
 issues have since been corrected in the working tree:
 
@@ -30,25 +30,43 @@ issues have since been corrected in the working tree:
   `prepared -> applying -> applied | failed | reconcile_required` states;
 - the exact outgoing/incoming versions, actor, scopes, evidence, and operation ID
   are committed before the alias effect, retries are operation-ID idempotent, and
-  incomplete effects are exposed through list/reconcile endpoints;
-- the UI performs authoring and promotion as two explicit requests;
+  incomplete effects are exposed through list/reconcile endpoints, a periodic
+  reconciler, and an operator recovery console;
+- the UI performs authoring and promotion as two explicit requests, supplies the
+  last observed live version for optimistic concurrency, and retains one operation
+  ID across an ambiguous network retry;
+- provably pre-effect release intents can be retried exactly or abandoned with an
+  audited reason, while possibly applied intents remain reconciliation-only;
+- ambiguous calibration claims now support reasoned abandonment or a distinct,
+  lineage-linked retry over immutable inputs; late worker settlement is fenced;
+- the shipped `PromptResolver` provides alias late binding, bounded TTL/stale
+  behavior, last-known outage fallback, payload-free telemetry, and fail-closed
+  first resolution;
+- synchronous Aria turns no longer advertise or dispatch draft approval/publication,
+  including in `build` + `auto_all`;
+- `/capabilities` emits a machine-readable nine-family contract, with shape tests;
+- a checked-in structural-evidence runner records eight deterministic claim checks
+  while explicitly excluding latency, throughput, replica-scale, and human-study claims;
 - the release and queue algorithms, title, abstract, limitations, protocol,
   availability statement,
   and current MLflow/LangSmith/Langfuse comparison now match the inspected code;
 - focused verification covers commit-before-effect, HTTP retry idempotency,
   provider failure, reconciliation, Apply recovery, migrations, prompt routes,
   async route offloading, and UI behavior;
-- final repository validation passed 5,881 backend tests (9 environment-gated
-  skips, 93.45% coverage), 1,549 frontend tests, and TypeScript typechecking;
+- repository-wide validation passed 5,897 backend tests with 9 explicitly
+  environment-gated skips; one regression added after collection also passed
+  separately, so all 5,898 current backend tests executed. The frontend passed
+  1,556 tests. Ruff, Python formatting, mypy, ESLint, TypeScript typechecking,
+  production SPA build, and package/static-bundle parity also passed;
 - the current source uses `\documentclass{scrreprt}`, includes a table of
   contents, starts every top-level section on a new page, and reproduces a
-  71-page PDF with a 225-word abstract, no overfull boxes, and no undefined
+  73-page PDF with a 225-word abstract, no overfull boxes, and no undefined
   references or citations.
 
 The paper is **not yet submission-ready**. Quantitative evaluation and the operator
-study remain unrun, per-family capability obligations are not mechanically enforced,
-Apply remains operator confirmation rather than independent approval, the manuscript
-remains over-length, and `paper/` is still untracked. Those unresolved items still
+study remain unrun, per-family route obligations are declared but not mechanically
+enforced, Apply remains operator confirmation rather than independent approval, and
+the manuscript remains over-length. Those unresolved items still
 prevent a defensible acceptance recommendation; a new score should follow completed
 evaluation rather than code repair alone.
 

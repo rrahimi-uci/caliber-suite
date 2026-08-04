@@ -90,8 +90,8 @@ scopes that each imply \viewer{}, and \admin{} implies all \statScopes{}. Two
 distinctions here are load-bearing and are routinely elided elsewhere. First, a
 capability is withheld from \aria's synchronous tool projection only if it is
 actually declared \tier{gated}; the mechanism is sound, but the protection is only
-as good as the classification, so a hand-written tool classified \tier{mutate} is
-advertised and executable. Second, the local stdio MCP controls are
+as good as the classification. Approval and publication are gated today; contract
+tests guard that boundary while the registry remains incomplete. Second, the local stdio MCP controls are
 \emph{containment}, not a sandbox: they reduce ambient authority without
 establishing an execution boundary, and only an attested sidecar or a non-loopback
 HTTPS endpoint qualifies as one. The shipped tool runner likewise retains ambient

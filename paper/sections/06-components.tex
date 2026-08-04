@@ -166,13 +166,14 @@ idempotency handling. Both converge on one scope lattice in which \operator{} an
 Two properties need stating carefully, and both are weaker than a casual reading
 would suggest.
 
-First, \aria{} capabilities are risk-tiered, and capabilities declared \tier{gated}
-are withheld from the synchronous tool projection and require a plan interaction.
-The mechanism is sound; the protection is only as strong as the classification. Two
-existing hand-written tools that approve and publish drafts are classified
-\tier{mutate}, so a build-mode session with permissive settings advertises and can
-execute them. This is a classification gap, not a mechanism gap, and we prefer to
-name it than to describe the mechanism as though the classification were complete.
+First, \aria{} capabilities are risk-tiered. Registry capabilities declared
+\tier{gated} are withheld from the synchronous tool projection and require a plan
+interaction. The hand-written draft approval and publication tools are also
+classified \tier{gated}; even a permissive build-mode session neither advertises nor
+dispatches them, so a human must use the draft lifecycle UI/API. These two gated
+paths are not yet one unified registry mechanism. The protection remains only as
+strong as future classifications, which is why the registry projection and its
+contract tests matter.
 
 Second, local stdio MCP controls are \emph{containment}, not a sandbox. Command and
 host allowlists, a sanitized environment, a private working directory, and process

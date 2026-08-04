@@ -27,12 +27,15 @@ satisfies, plus orthogonal capability interfaces --- \code{Releasable},
 \code{Rollbackable}, \code{EvidenceBearing} --- that a family declares and is then
 \emph{required} to implement. The payoff is not elegance. It converts
 \tabref{tab:families} from documentation a reader must consult into a constraint a
-family cannot violate, which is the difference between a guarantee surface that is
-described and one that is enforced. The work is a retrofit across
+family cannot violate. A first machine-readable registry now emits the nine-family
+contract from \code{/capabilities} and tests every row's shape; it prevents UI and
+documentation from inventing missing fields, but it does not yet prove each route
+implements its declaration. The remaining work is a retrofit across
 \statFamilies{} families and their routes, and it subsumes the registry projection
 described next.
 
-\para{Complete the capability registry.} Converging the \statAriaTools{} hand-written
+\para{Complete the capability registry.} Approval and publication are now gated in
+the synchronous projection. Converging the remaining \statAriaTools{} hand-written
 tools onto the registry projection would make the seam real and, more importantly,
 would let risk-tier classification be checked mechanically. That directly addresses
 the classification gap in \secref{sec:limitations}: a projection with mandatory tier

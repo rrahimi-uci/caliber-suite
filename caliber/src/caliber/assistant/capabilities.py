@@ -12,8 +12,8 @@ invisible to the assistant.
 Risk tiers (a superset of the three the toolset has used):
 
 * ``read``   — no side effects; always available.
-* ``safe``   — reversible / sandboxed; build mode + ``auto_safe``/``auto_all``.
-* ``mutate`` — real domain write; build mode + ``auto_all``.
+* ``safe``   — reversible / sandboxed; build mode + every non-manual policy.
+* ``mutate`` — real domain write; build mode + ``auto_all``/``full_autonomy``.
 * ``gated``  — **new**: irreversible (publish/promote/deploy/spend). NEVER
   auto-executed in a synchronous turn — it always requires a human decision, so
   the toolset does not advertise or dispatch gated capabilities. Plans (a later

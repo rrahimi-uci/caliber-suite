@@ -47,6 +47,7 @@ from caliber.observability.mlflow_tracing import configure_tracing, register_pri
 from caliber.observability.trace import TraceIdMiddleware
 from caliber.orchestrator.calibration_drain import CalibrationDrain
 from caliber.orchestrator.janitor import JanitorTask
+from caliber.orchestrator.release_reconciler import ReleaseReconcilerTask
 from caliber.orchestrator.scheduler import WorkflowSchedulerTask
 from caliber.orchestrator.worker import RefinementWorker
 from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
@@ -152,6 +153,7 @@ def _build_lifespan(
     knowledge_build_worker: KnowledgeBaseWorker | None,
     scheduler: WorkflowSchedulerTask | None,
     janitor: JanitorTask,
+    release_reconciler: ReleaseReconcilerTask,
     calibration_drain_task: CalibrationDrain,
     webhooks: WebhookDispatcher,
     grace_seconds: float,
@@ -192,6 +194,7 @@ def _build_lifespan(
             if scheduler is not None:
                 await scheduler.start()
             await janitor.start()
+            await release_reconciler.start()
             await calibration_drain_task.start()
             await webhooks.start()
         try:
@@ -208,6 +211,7 @@ def _build_lifespan(
                 await workflow_run_worker.stop(grace_seconds=grace_seconds)
             await worker.stop(grace_seconds=grace_seconds)
             await calibration_drain_task.stop(grace_seconds=grace_seconds)
+            await release_reconciler.stop()
             await janitor.stop()
             stop_bus = getattr(_event_bus, "stop", None)
             if callable(stop_bus):
@@ -487,6 +491,13 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         stale_threshold_seconds=resolved.janitor_stale_threshold_seconds,
         workflow_run_retention_days=resolved.workflow_run_retention_days,
     )
+    from caliber.routes.prompts import _load_prompt_release_info  # noqa: PLC0415
+
+    release_reconciler = ReleaseReconcilerTask(
+        session_factory,
+        resolve_alias=_load_prompt_release_info,
+        interval_seconds=resolved.janitor_interval_seconds,
+    )
     calibration_drain_task = CalibrationDrain(
         session_factory=session_factory,
         config=resolved,
@@ -536,6 +547,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             knowledge_build_worker if resolved.knowledge_build_worker_enabled else None,
             scheduler if resolved.workflow_scheduler_enabled else None,
             janitor,
+            release_reconciler,
             calibration_drain_task,
             webhooks,
             resolved.shutdown_grace_seconds,
@@ -645,9 +657,11 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         normalize_disabled_domains,
         normalize_disabled_intents,
     )
+    from caliber.assistant.reviewer import EngineDraftReviewer  # noqa: PLC0415
 
     app.state.assistant_service = AssistantService(
         engine=asst_engine,
+        reviewer=EngineDraftReviewer(asst_engine),
         prompt_fetcher=default_prompt_fetcher,
         runtime_config=resolved,
         settings=AssistantRuntimeSettings(
@@ -663,6 +677,11 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             max_questions_per_turn=resolved.assistant_max_questions_per_turn,
             max_drafts_per_session=resolved.assistant_max_drafts_per_session,
             publish_requires_approval=resolved.assistant_publish_requires_approval,
+            reviewer_user=resolved.assistant_reviewer_user,
+            release_user=resolved.assistant_release_user,
+            reviewer_policy_version=resolved.assistant_reviewer_policy_version,
+            reviewer_min_confidence=resolved.assistant_reviewer_min_confidence,
+            review_ttl_seconds=resolved.assistant_review_ttl_seconds,
             tool_source_max_bytes=resolved.assistant_tool_source_max_bytes,
             run_timeout_seconds=resolved.assistant_run_timeout_seconds,
         ),

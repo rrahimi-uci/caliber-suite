@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "evidence_class": "deterministic_structural_checks",
+  "not_evidence_for": [
+    "production latency",
+    "production throughput",
+    "replica-scale stress behavior",
+    "human agreement"
+  ],
+  "generated_at": "2026-08-04T17:17:09.387625+00:00",
+  "git_revision": "e96b374f10c995336f3c514878cda6f667c821c2",
+  "working_tree_dirty": true,
+  "python": "3.12.10",
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_calibration_jobs.py::test_two_drains_racing_on_the_same_row_cannot_both_win",
+    "tests/test_calibration_jobs.py::test_operator_resolution_fences_a_late_worker_result",
+    "tests/test_release_operations.py::test_prompt_release_intent_is_committed_before_provider_effect",
+    "tests/test_release_operations.py::test_provider_error_leaves_reconciliation_obligation",
+    "tests/test_release_operations.py::test_reconciler_settles_observed_target_and_flags_unknown_state",
+    "tests/test_release_operations.py::test_prepared_release_can_be_abandoned_without_provider_ambiguity",
+    "tests/test_resolver.py::test_resolver_serves_last_known_value_during_outage",
+    "tests/test_assistant_agent_tools.py::TestGating::test_gated_draft_tools_cannot_be_dispatched",
+    "--no-cov",
+    "-q"
+  ],
+  "checks": [
+    {
+      "id": "queue_controlled_double_ownership",
+      "node_id": "tests/test_calibration_jobs.py::test_two_drains_racing_on_the_same_row_cannot_both_win",
+      "status": "passed"
+    },
+    {
+      "id": "calibration_operator_fences_late_result",
+      "node_id": "tests/test_calibration_jobs.py::test_operator_resolution_fences_a_late_worker_result",
+      "status": "passed"
+    },
+    {
+      "id": "release_intent_precedes_effect",
+      "node_id": "tests/test_release_operations.py::test_prompt_release_intent_is_committed_before_provider_effect",
+      "status": "passed"
+    },
+    {
+      "id": "release_provider_timeout_is_observable",
+      "node_id": "tests/test_release_operations.py::test_provider_error_leaves_reconciliation_obligation",
+      "status": "passed"
+    },
+    {
+      "id": "release_reconciliation_converges",
+      "node_id": "tests/test_release_operations.py::test_reconciler_settles_observed_target_and_flags_unknown_state",
+      "status": "passed"
+    },
+    {
+      "id": "prepared_release_abandon_is_pre_effect",
+      "node_id": "tests/test_release_operations.py::test_prepared_release_can_be_abandoned_without_provider_ambiguity",
+      "status": "passed"
+    },
+    {
+      "id": "resolver_last_known_outage_fallback",
+      "node_id": "tests/test_resolver.py::test_resolver_serves_last_known_value_during_outage",
+      "status": "passed"
+    },
+    {
+      "id": "aria_publish_is_human_gated",
+      "node_id": "tests/test_assistant_agent_tools.py::TestGating::test_gated_draft_tools_cannot_be_dispatched",
+      "status": "passed"
+    }
+  ],
+  "return_code": 0,
+  "stdout": "........                                                                 [100%]\n8 passed in 6.17s",
+  "stderr": ""
+}

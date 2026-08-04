@@ -5,16 +5,17 @@ this toolset is built **per turn** and bound to the acting user, session, and
 approval policy, and it can *execute* and *observe* real CALIBER capabilities:
 read workflow runs + their MLflow traces, validate/test drafts, preview-run a
 workflow (sandboxed), enqueue a real run, run a quick eval, propose a fix patch,
-and approve/publish — so the model can iterate within a turn instead of only
-proposing a draft.
+while approval and publication remain human-gated — so the model can iterate
+within a turn without crossing the release boundary autonomously.
 
 Permissioning is non-interactive (a synchronous turn can't pause for a human
 click): the toolset only *exposes* tools allowed by the current
 ``mode`` x ``approval_mode``, mirroring a code assistant's permission modes:
 
 * read tools  — available in every mode.
-* safe tools  — build mode + ``auto_safe``/``auto_all`` (reversible / sandboxed).
-* mutate tools — build mode + ``auto_all`` (real runs / approve / publish).
+* safe tools  — build mode + every non-manual approval policy.
+* mutate tools — build mode + ``auto_all``/``full_autonomy``.
+* gated tools — never exposed to a synchronous turn (approve / publish / deploy).
 
 Capabilities are called as plain service-layer functions (``session_factory`` +
 ``config`` only); draft gate methods are injected by the service so this module
@@ -351,7 +352,7 @@ def _build_tool_specs() -> dict[str, tuple[dict[str, Any], str]]:
             {"draft_id": {"type": "string"}},
             ["draft_id"],
         ),
-        TIER_MUTATE,
+        TIER_GATED,
     )
     s["publish_draft"] = (
         _fn(
@@ -360,7 +361,7 @@ def _build_tool_specs() -> dict[str, tuple[dict[str, Any], str]]:
             {"draft_id": {"type": "string"}},
             ["draft_id"],
         ),
-        TIER_MUTATE,
+        TIER_GATED,
     )
     return s
 
@@ -414,9 +415,14 @@ class AssistantAgentToolset:
         if self._mode != "build":
             return False
         if tier == TIER_SAFE:
-            return self._approval_mode in ("auto_safe", "auto_all")
+            return self._approval_mode in (
+                "auto_safe",
+                "auto_all",
+                "agent_review",
+                "full_autonomy",
+            )
         if tier == TIER_MUTATE:
-            return self._approval_mode == "auto_all"
+            return self._approval_mode in ("auto_all", "full_autonomy")
         return False
 
     def _capability_context(self) -> CapabilityContext:

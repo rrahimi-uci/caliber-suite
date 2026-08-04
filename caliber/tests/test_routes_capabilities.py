@@ -22,6 +22,34 @@ def test_capabilities_default_contract(client) -> None:
     assert runs["checkpointing_enabled"] is False
     assert runs["event_backend"] == "in_process"
     assert data["sync_workflow_version_run"] is True
+    assert set(data["artifact_families"]) == {
+        "prompt",
+        "workflow",
+        "knowledge_base",
+        "skill",
+        "tool",
+        "test_set",
+        "mcp_server",
+        "judge",
+        "agent",
+    }
+    assert data["artifact_families"]["prompt"]["rollbackable"] is True
+    assert data["artifact_families"]["tool"]["rollbackable"] is False
+
+
+def test_each_artifact_family_declares_the_complete_contract(client) -> None:
+    families = client.get(f"{PREFIX}/capabilities").json()["data"]["artifact_families"]
+    expected_fields = {
+        "history",
+        "live_target",
+        "promotable",
+        "rollbackable",
+        "evidence_bearing",
+        "gate_mode",
+        "calibration",
+    }
+    for family, contract in families.items():
+        assert set(contract) == expected_fields, family
 
 
 def test_capabilities_reflect_flag_overrides(client) -> None:

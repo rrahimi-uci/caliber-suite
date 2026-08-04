@@ -80,9 +80,11 @@ The expected outcome is loop-specific and the test must assert the right one:
       does \emph{not} resume. Assert that terminal state and measure time-to-reap.
       An earlier version of this protocol expected resumption here; that
       expectation was wrong about the implementation.
-\item \textbf{Calibration} --- no lease exists, so the row remains \code{running}
-      indefinitely. Assert that, and treat it as a defect to be fixed rather than a
-      behaviour to be certified.
+\item \textbf{Calibration} --- no lease exists and no automatic replay occurs, so
+      the row remains \code{running} until an operator records a reasoned
+      \code{abandon} or \code{retry}. Assert that the original becomes terminal,
+      a retry is a distinct lineage-linked row with the same immutable inputs, and
+      a late worker result cannot overwrite the operator disposition.
 \end{itemize}
 
 Separately, kill the process \emph{after} an external effect has been issued but

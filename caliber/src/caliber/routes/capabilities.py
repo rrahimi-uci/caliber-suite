@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from caliber.artifact_capabilities import ARTIFACT_FAMILY_CAPABILITIES
 from caliber.auth import require_user
 from caliber.routes._deps import envelope_response
 from caliber.schemas import PlatformCapabilitiesSchema, WorkflowRunCapabilitySchema
@@ -39,6 +40,7 @@ async def get_capabilities(request: Request) -> JSONResponse:
     payload = PlatformCapabilitiesSchema(
         workflow_runs=workflow_capabilities,
         sync_workflow_version_run=True,
+        artifact_families=ARTIFACT_FAMILY_CAPABILITIES,
     )
     return envelope_response(payload)
 

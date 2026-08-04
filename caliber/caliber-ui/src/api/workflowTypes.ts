@@ -789,6 +789,18 @@ export interface WorkflowTemplateCatalog {
 export interface PlatformCapabilities {
   workflow_runs: WorkflowRunCapabilities;
   sync_workflow_version_run: boolean;
+  artifact_families: Record<
+    string,
+    {
+      history: string;
+      live_target: string;
+      promotable: boolean;
+      rollbackable: boolean;
+      evidence_bearing: boolean;
+      gate_mode: string;
+      calibration: string;
+    }
+  >;
 }
 
 export interface ToolUsage {
@@ -1106,6 +1118,30 @@ export interface ToolTestCasesResult {
 
 export interface ToolCalibrationResult extends CalibrationResult {
   tool_id: string;
+}
+
+export interface ToolCalibrationJob {
+  job_id: string;
+  tool_id?: string;
+  status: "queued" | "running" | "completed" | "failed";
+  requested_by: string;
+  result?: CalibrationResult | null;
+  error?: string | null;
+  created_at: string | null;
+  claimed_at: string | null;
+  claimed_by: string | null;
+  finished_at: string | null;
+  pass_rate?: number | null;
+  retry_of_job_id: string | null;
+  resolution: "retry" | "abandon" | null;
+  resolution_reason: string | null;
+  resolved_by: string | null;
+  resolved_at: string | null;
+}
+
+export interface ToolCalibrationJobsResponse {
+  jobs: ToolCalibrationJob[];
+  total: number;
 }
 
 export interface McpToolTestCasesResult {

@@ -6,12 +6,15 @@
 \subsection{What state this evaluation is in}
 
 We state this before anything else, because a reader is entitled to know it before
-reading a methodology. \textbf{The quantitative measurements described in this
-section have not been executed for this draft.} The protocol is specified, the
-harness the protocol requires exists as part of the system, and
-\appref{app:protocol} gives enough detail for an independent party to run it. But
-\tabref{tab:results} contains no numbers, and every quantitative cell is marked
-\pending{} rather than filled with an estimate.
+reading a methodology. \textbf{The performance, scale, comparison, and human-subject
+measurements described in this section have not been executed for this draft.}
+A checked-in deterministic harness does execute eight controlled claim checks:
+conditional queue ownership, operator fencing of late calibration results, release
+intent ordering and reconciliation, prepared release abandonment, resolver outage
+fallback, and synchronous publication gating.
+Its machine-readable manifest labels them structural evidence and explicitly says
+they are not latency, throughput, replica-scale stress, or human-agreement evidence.
+\tabref{tab:results} therefore still marks every quantitative cell \pending{}.
 
 This is a real weakness of the paper and we are not going to characterize it as
 anything else. It is worth being explicit about why we chose an empty table over a
@@ -22,7 +25,8 @@ and they propagate into citations. An empty cell is honest and can be filled; a
 plausible wrong number cannot be unfilled. \secref{sec:limitations} lists this as
 the paper's primary limitation.
 
-What we do claim here is that the questions below are the right ones, that they are
+What we do claim here is that the controlled interleavings pass in the recorded
+environment and disclosed worktree state, that the questions below are the right ones, that they are
 answerable, and that the protocol is specified precisely enough that the answers
 will be checkable rather than merely reported.
 
@@ -47,6 +51,9 @@ the kind of claim that fails under concurrency rather than in a diagram. The
 falsifying outcome for E2(d) is any instance of two workers holding one row; for
 E2(f) it is any loop whose observed recovery differs from the row
 \tabref{tab:loops} assigns it.
+The deterministic harness exercises the conflicting-select interleaving and observes
+one winner. That is regression evidence for the conditional update, not the
+replica-scale experiment E2(d) asks for, so the table remains unmeasured.
 
 \para{E3 --- The refinement path.} This group contains the question we consider
 most important and most likely to be uncomfortable. E3(h) measures the enforced

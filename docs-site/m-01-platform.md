@@ -221,6 +221,13 @@ workflow deployments and active knowledge-base versions. Prompt liveness remains
 in MLflow and is shown on the per-prompt page rather than inferred by that
 aggregate.
 
+`GET /capabilities` publishes the same distinction as a machine-readable
+`artifact_families` contract for all nine families: history idiom, live-target
+shape, promotion/rollback/evidence flags, gate mode, and calibration idiom. Contract
+tests require every family to declare every field. This prevents clients from
+inferring semantics from the shared panel, but it is not yet a proof that every
+family route implements a common `Releasable` or `Rollbackable` interface.
+
 ## 5. API and interaction surfaces
 
 Human and API-client interactions enter through the HTTP surface. That surface

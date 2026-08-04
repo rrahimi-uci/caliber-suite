@@ -15,8 +15,11 @@ import type {
   GateVerdict,
   PromptRollbackResult,
   ReleaseLiveEntry,
+  ReleaseOperation,
   ReleaseTimelineEvent,
   SkillVersionInfo,
+  SystemEffectsResponse,
+  WebhookDeadLettersResponse,
 } from "./versioning";
 import type {
   AgentConfig,
@@ -153,6 +156,8 @@ import type {
   ObjectStoreStatus,
   SkillRenderResult,
   ToolCalibrationResult,
+  ToolCalibrationJob,
+  ToolCalibrationJobsResponse,
   ToolDefinition,
   ToolSource,
   ToolTestCasesResult,
@@ -292,6 +297,20 @@ export class ApiError extends Error {
     this.status = status;
     this.body = body;
   }
+}
+
+// Keep an idempotency key across an ambiguous browser/network failure. A second
+// click for the exact same prompt mutation reuses the operation id, allowing the
+// backend to return or finish the durable intent instead of creating a duplicate.
+// Successful and conclusively rejected (4xx) requests clear the entry.
+const pendingPromptReleaseIds = new Map<string, string>();
+
+function newPromptReleaseOperationId(): string {
+  const suffix =
+    typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `REL-ui-${suffix}`;
 }
 
 interface RequestOptions {
@@ -1367,13 +1386,55 @@ export const caliberApi = {
       overridden?: boolean;
       override_reason?: string;
       operation_id?: string;
+      expected_version?: number | null;
     } = {},
   ): Promise<PromptAliasResult> {
     const { alias = "prod", ...gate } = opts;
+    const releaseKey = JSON.stringify([
+      name,
+      alias,
+      version,
+      gate.expected_version ?? null,
+      gate.gate_state ?? null,
+      gate.gate_score ?? null,
+      gate.overridden ?? false,
+      gate.override_reason ?? null,
+    ]);
+    const generatedOperationId =
+      gate.operation_id ??
+      pendingPromptReleaseIds.get(releaseKey) ??
+      newPromptReleaseOperationId();
+    if (!gate.operation_id)
+      pendingPromptReleaseIds.set(releaseKey, generatedOperationId);
+    const operationIdWasGenerated = !gate.operation_id;
     return request<PromptAliasResult>(
       `/prompts/${encodeURIComponent(name)}/aliases/${encodeURIComponent(alias)}`,
-      { method: "POST", body: { version, ...gate } },
-    );
+      {
+        method: "POST",
+        body: { version, ...gate, operation_id: generatedOperationId },
+      },
+    )
+      .then((result) => {
+        if (
+          operationIdWasGenerated &&
+          pendingPromptReleaseIds.get(releaseKey) === generatedOperationId
+        ) {
+          pendingPromptReleaseIds.delete(releaseKey);
+        }
+        return result;
+      })
+      .catch((error: unknown) => {
+        if (
+          operationIdWasGenerated &&
+          error instanceof ApiError &&
+          error.status >= 400 &&
+          error.status < 500 &&
+          pendingPromptReleaseIds.get(releaseKey) === generatedOperationId
+        ) {
+          pendingPromptReleaseIds.delete(releaseKey);
+        }
+        throw error;
+      });
   },
 
   /** POST /prompts/{name}/rollback — roll the live alias back to the exact prior version. */
@@ -1435,6 +1496,74 @@ export const caliberApi = {
   /** GET /releases/live — what is currently live across artifacts. */
   listReleasesLive(): Promise<ReleaseLiveEntry[]> {
     return request<ReleaseLiveEntry[]>(`/releases/live`);
+  },
+
+  /** GET /releases/operations — durable prompt-release intents and settlement state. */
+  listReleaseOperations(status?: string): Promise<ReleaseOperation[]> {
+    return request<ReleaseOperation[]>(
+      `/releases/operations${buildQuery({ status: status || undefined })}`,
+    );
+  },
+
+  /** POST /releases/operations/reconcile — observe aliases and settle ambiguous operations. */
+  reconcileReleaseOperations(): Promise<ReleaseOperation[]> {
+    return request<ReleaseOperation[]>(`/releases/operations/reconcile`, {
+      method: "POST",
+    });
+  },
+
+  /** POST /releases/operations/{id}/resolve — retry/abandon a pre-effect intent. */
+  resolveReleaseOperation(
+    operationId: string,
+    payload: { action: "retry" | "abandon"; reason?: string },
+  ): Promise<ReleaseOperation | PromptAliasResult> {
+    return request<ReleaseOperation | PromptAliasResult>(
+      `/releases/operations/${encodeURIComponent(operationId)}/resolve`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** GET /system/effects — external effects requiring an operator decision. */
+  listSystemEffects(status = "in_progress"): Promise<SystemEffectsResponse> {
+    return request<SystemEffectsResponse>(
+      `/system/effects${buildQuery({ status })}`,
+    );
+  },
+
+  resolveSystemEffect(
+    effectKey: string,
+    payload: { resolution: "retry" | "skip"; reason: string },
+  ): Promise<Record<string, unknown>> {
+    return request<Record<string, unknown>>(
+      `/system/effects/${encodeURIComponent(effectKey)}/resolve`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** GET /system/webhook-dead-letters — durable failed outbound deliveries. */
+  listWebhookDeadLetters(status = "open"): Promise<WebhookDeadLettersResponse> {
+    return request<WebhookDeadLettersResponse>(
+      `/system/webhook-dead-letters${buildQuery({ status })}`,
+    );
+  },
+
+  replayWebhookDeadLetter(
+    deadLetterId: string,
+  ): Promise<Record<string, unknown>> {
+    return request<Record<string, unknown>>(
+      `/system/webhook-dead-letters/${encodeURIComponent(deadLetterId)}/replay`,
+      { method: "POST" },
+    );
+  },
+
+  acknowledgeWebhookDeadLetter(
+    deadLetterId: string,
+    note: string,
+  ): Promise<Record<string, unknown>> {
+    return request<Record<string, unknown>>(
+      `/system/webhook-dead-letters/${encodeURIComponent(deadLetterId)}/acknowledge`,
+      { method: "POST", body: { note } },
+    );
   },
 
   /** POST /knowledge-bases/{id}/rollback — re-activate the prior active version. */
@@ -3818,6 +3947,41 @@ export const caliberApi = {
     return request<ToolCalibrationResult>(
       `/tools/${encodeURIComponent(toolId)}/calibrate`,
       { method: "POST" },
+    );
+  },
+
+  /** POST /tools/{id}/calibration-jobs — submit durable background calibration. */
+  submitToolCalibrationJob(toolId: string): Promise<ToolCalibrationJob> {
+    return request<ToolCalibrationJob>(
+      `/tools/${encodeURIComponent(toolId)}/calibration-jobs`,
+      { method: "POST" },
+    );
+  },
+
+  /** GET /tools/{id}/calibration-jobs — recent durable calibration work. */
+  listToolCalibrationJobs(
+    toolId: string,
+    signal?: AbortSignal,
+  ): Promise<ToolCalibrationJobsResponse> {
+    return request<ToolCalibrationJobsResponse>(
+      `/tools/${encodeURIComponent(toolId)}/calibration-jobs`,
+      { signal },
+    );
+  },
+
+  resolveToolCalibrationJob(
+    toolId: string,
+    jobId: string,
+    payload: { action: "retry" | "abandon"; reason: string },
+  ): Promise<{
+    job_id: string;
+    status: string;
+    resolution: string;
+    retry_job_id: string | null;
+  }> {
+    return request(
+      `/tools/${encodeURIComponent(toolId)}/calibration-jobs/${encodeURIComponent(jobId)}/resolve`,
+      { method: "POST", body: payload },
     );
   },
 

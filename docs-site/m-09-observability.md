@@ -86,7 +86,7 @@ maps each responsibility to the file that owns it.
 | Trace data access | `trace_client.py` | Normalizes MLflow trace reads into CALIBER's trace-detail shape for the UI and downstream consumers. |
 | Queue and worker liveness | `observability/queue_health.py` + `observability/worker_registry.py` | Summarizes queue depth from durable run state and worker health from self-reported heartbeats, so an idle queue and a dead worker are distinguishable. |
 | Operator service probes | `routes/system_services.py` + `routes/health.py` | Adjacent operational truth surfaces for backing service status and readiness honesty. |
-| Frontend observability UX | `Observability.tsx` + `TraceMetricsCharts.tsx` | Provides trace list/detail, compare mode, filters, feedback UI, and time-series monitoring charts. |
+| Frontend observability UX | `Observability.tsx` + `TraceMetricsCharts.tsx` + `Releases.tsx` | Provides trace list/detail, compare mode, filters, feedback UI, time-series monitoring charts, and an operator recovery console for effects and dead letters. |
 
 Underneath those owners, the module draws one sharp line: it separates four
 fundamentally different kinds of telemetry and operational memory, each with its own store
@@ -261,6 +261,8 @@ delivery failures:
 - `GET /system/incidents`
 - `POST /system/incidents/{incident_id}/silence`
 - `POST /system/incidents/{incident_id}/acknowledge`
+- `GET /system/effects`
+- `POST /system/effects/{effect_key}/resolve`
 - `GET /system/webhook-dead-letters`
 - `POST /system/webhook-dead-letters/{dead_letter_id}/acknowledge`
 - `POST /system/webhook-dead-letters/{dead_letter_id}/replay`
@@ -272,6 +274,9 @@ depends on operationally:
 - `GET /readiness`
 
 On the frontend, these routes compose into a single coherent interaction model.
+The Releases recovery console is shown only to operators. Operators can inspect
+indeterminate effects and recover dead letters; resolving an effect remains
+admin-only because `skip` can assert that an externally ambiguous mutation happened.
 
 - The trace tab calls `/observability/traces` with filters such as
   `experiment_id`, `status`, `session`, `since_ms`, and `limit`.

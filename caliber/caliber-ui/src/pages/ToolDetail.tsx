@@ -17,6 +17,7 @@ import type {
 } from "@/api/workflowTypes";
 import { CalibrationPanel } from "@/components/CalibrationPanel";
 import { CopyButton } from "@/components/CopyButton";
+import { ToolCalibrationJobs } from "@/components/ToolCalibrationJobs";
 import { CodeBlock } from "@/components/workflows/CodeHighlight";
 import {
   useApiMutation,
@@ -107,6 +108,8 @@ export function ToolDetail(): JSX.Element {
   // (SCOPE_ADMIN); gate the controls so only admins see them.
   const meQuery = useApiQuery(["me"], (s) => caliberApi.getMe(s));
   const isAdmin = meQuery.data?.is_admin ?? false;
+  const canOperate =
+    isAdmin || (meQuery.data?.scopes ?? []).includes("caliber.operator");
 
   const deprecateMut = useApiMutation(
     () => caliberApi.updateTool(toolId!, { status: "deprecated" }),
@@ -597,6 +600,7 @@ export function ToolDetail(): JSX.Element {
             return scored;
           }}
         />
+        <ToolCalibrationJobs toolId={tool.tool_id} canOperate={canOperate} />
       </section>
 
       <div className="grid grid-cols-2 gap-3 text-xs">
