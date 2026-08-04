@@ -1,2 +1,0 @@
-{"t":"2026-08-04T16:02:56.957Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=1, events=*, pending_capacity=2048)"}
-{"t":"2026-08-04T16:02:56.981Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}

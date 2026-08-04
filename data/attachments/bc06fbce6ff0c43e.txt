@@ -1,0 +1,8 @@
+WARNING  caliber.routes.assistant:assistant.py:873 attachment text extraction failed for 'broken.docx'
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/routes/assistant.py", line 864, in _extract_text_from_bytes
+    return _os._extract_docx_text(data), False
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_cov90_routes_assistant.py", line 454, in _boom
+    raise ValueError("corrupt docx")
+ValueError: corrupt docx
