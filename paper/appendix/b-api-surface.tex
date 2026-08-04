@@ -34,6 +34,12 @@ a reflection of \secref{sec:arch:claim}: availability is structural, enforcement
 wired. A client cannot discover a promote endpoint on a test set, because there is
 none to discover.
 
+The shared \code{GET /capabilities} response makes that absence machine-readable:
+its \code{artifact\_families} object declares history, live-target, promotion,
+rollback, evidence, gate, and calibration facets for all nine families. A contract
+test requires every row and field. This is stronger than a UI convention but weaker
+than a type system that proves every route implements the declaration.
+
 \subsection{What a promote must record}
 
 The prompt-alias service records the following fields before its external effect
@@ -59,6 +65,13 @@ invariant for every resource family (\secref{sec:limitations}).
       \code{prepared}, \code{applying}, and \code{applied}, or remaining visible
       as \code{failed}/\code{reconcile\_required}.
 \end{enumerate}
+
+Operators act on incomplete crossings through explicit recovery surfaces:
+\code{GET /releases/operations}, global and background reconciliation for
+\code{applying}/\code{reconcile\_required}, and exact retry or reasoned abandonment
+for a provably pre-effect \code{prepared} row. Tool calibration follows a different
+rule: a reasoned retry creates a new lineage-linked job because repeating authored
+tool code automatically would be unsafe.
 
 \subsection{Admission, in the order it happens}
 

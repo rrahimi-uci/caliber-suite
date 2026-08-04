@@ -45,6 +45,56 @@ class ReleaseMutationNotStartedError(RuntimeError):
         self.cause = cause
 
 
+class PreparedReleaseResolutionError(RuntimeError):
+    """A prepared operation cannot be resolved with the requested action."""
+
+
+def abandon_prepared_prompt_release(
+    session: Session,
+    *,
+    operation_id: str,
+    actor: str,
+    reason: str,
+) -> CaliberReleaseOperation:
+    """Release a pre-effect alias lock after an operator abandons the intent.
+
+    ``prepared`` is the only state for which abandonment is mechanically safe:
+    :func:`execute_prompt_alias_release` commits ``applying`` before invoking the
+    provider, so a row still in ``prepared`` proves no provider call began.
+    """
+    reason = reason.strip()
+    if not reason:
+        raise PreparedReleaseResolutionError("a non-empty reason is required")
+    row = session.get(CaliberReleaseOperation, operation_id)
+    if row is None:
+        raise PreparedReleaseResolutionError(f"release operation {operation_id!r} not found")
+    if row.resource_type != "prompt" or row.status != "prepared":
+        raise PreparedReleaseResolutionError(
+            f"release operation {operation_id!r} is {row.status!r}, not a prepared prompt release"
+        )
+    row.status = "failed"
+    row.active_lock = None
+    row.last_error = f"abandoned before provider call: {reason}"[:4000]
+    audit_record(
+        session,
+        actor=actor,
+        action="abandon_prepared_prompt_release",
+        entity_type="prompt",
+        entity_id=row.resource_name,
+        details={
+            "operation_id": row.operation_id,
+            "alias": row.target_name,
+            "from_version": row.version_before,
+            "to_version": row.version_after,
+            "reason": reason,
+            "provider_call_started": False,
+        },
+    )
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 def prepare_prompt_alias_release(
     session: Session,
     *,

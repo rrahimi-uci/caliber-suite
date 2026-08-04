@@ -714,17 +714,26 @@ async def test_a_dead_letter_is_persisted_when_a_session_factory_is_bound(
         sleep=lambda _seconds: None,
         session_factory=session_factory,
     )
+
+    def _row_is_persisted() -> bool:
+        """Wait on the durable row, which is what this test actually asserts.
+
+        Waiting on ``dead_letters()["count"]`` instead was wrong twice over. The
+        in-memory ring is updated on a different side of the commit from the row, so
+        a non-zero count does not imply the INSERT is visible; and the hand-rolled
+        5s ceiling was below the executor-contention window that
+        :func:`_await_condition` documents, so under the full suite this failed as
+        ``assert 0 == 1`` with no diagnostic. Polling the query removes both races.
+        """
+        with session_factory() as probe:
+            return probe.query(CaliberWebhookDeadLetter).count() > 0
+
     with patch("caliber.events.webhooks._OPENER.open", _always_500):
         await dispatcher.start()
         try:
             await _await_subscription(bus)
             bus.publish({"type": "run.completed", "id": "R-1"})
-            deadline = asyncio.get_running_loop().time() + 5.0
-            while (
-                dispatcher.dead_letters()["count"] == 0
-                and asyncio.get_running_loop().time() < deadline
-            ):
-                await asyncio.sleep(0.01)
+            await _await_condition(_row_is_persisted)
         finally:
             await dispatcher.stop()
 

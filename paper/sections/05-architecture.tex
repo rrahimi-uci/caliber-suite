@@ -186,7 +186,8 @@ it per loop, and the loops genuinely differ: the refinement janitor marks a stal
 job \code{failed} rather than requeueing it, so that work does not resume
 anywhere; the workflow-run worker requeues on lease expiry and resumes from a
 checkpoint; the calibration drain records no lease at all, so a row claimed by a
-dead worker simply stays \code{running}. Aggregating these into one delivery
+dead worker stays \code{running} until an operator abandons it or creates an
+explicit lineage-linked retry. Aggregating these into one delivery
 guarantee would be wrong in both directions at once.
 
 \input{tab-loops}
@@ -234,7 +235,10 @@ a failed dual write can leave orphaned bytes that a sweeper must reclaim (D7,
 client names an alias, never a version, and a resolver that cannot reach the
 control plane serves the last known version rather than failing the call.
 
-The scope of that statement is worth fixing precisely, because ``\sys is not on
+The shipped \code{caliber.resolver.PromptResolver} implements this deployment
+with a configurable TTL, an optional maximum stale age, payload-free telemetry,
+and explicit failure when no known-good value exists. The scope of that statement
+is worth fixing precisely, because ``\sys is not on
 the serving path'' is the kind of claim that is true of one deployment and false of
 another. It holds for the \emph{resolver-library} deployment, in which the agent
 process links the resolver and calls the provider directly, and \sys's HTTP surface
@@ -294,9 +298,11 @@ operator attention, since \mode{Apply} is a human decision by design (D4). We
 believe the last of these is the real limit in practice, and we say so rather than
 implying the system scales without a human bottleneck.
 
-\para{Reliability.} Failure handling follows from where state lives. A crashed
-process loses no queued work, because claims carry leases and the janitor reaps
-jobs whose heartbeat has expired. A crashed process mid-release may leave an
+\para{Reliability.} Failure handling follows from where state lives. Workflow-run
+claims carry leases and resume from checkpoints; the refinement janitor marks
+expired-heartbeat jobs failed. Calibration deliberately has no automatic replay:
+an operator abandons an ambiguous running job or creates a new lineage-linked
+retry, because authored tools may have side effects. A crashed process mid-release may leave an
 external effect applied without its local record, which is the dual-write boundary
 above; those paths are idempotent so that retry converges. A rollback checkpoint is
 written on release, so recovery restores a recorded target rather than inferring
@@ -309,7 +315,8 @@ activation derives its prior state from activation history.
 \mlflow{} share a process: one crash takes both surfaces down, and this is
 appropriate for development. In the standalone topology they are separate failure
 domains connected over HTTP, so \mlflow{} unavailability degrades \sys to the
-operations that do not need the registry --- authoring and inspection remain
-available, while evaluation and promotion do not. The API and SPA are identical in
+CALIBER-owned operations that do not need the registry. Prompt authoring,
+registry inspection, evaluation, and promotion are unavailable; local audit,
+workflow, tool, and recovery records remain available. The API and SPA are identical in
 both (\figref{fig:topologies}), which is what makes this a deployment decision
 rather than a product decision.

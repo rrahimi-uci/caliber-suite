@@ -8,6 +8,7 @@ returned — only ``secret_refs`` (names).
 
 from __future__ import annotations
 
+import copy
 import re
 import time
 import uuid
@@ -29,6 +30,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import (
     SCOPE_ADMIN,
     SCOPE_OPERATOR,
+    CaliberIdentity,
     require_scopes,
     require_user,
     resolve_identity,
@@ -83,6 +85,7 @@ TEST_CASES_PATH = DETAIL_PATH + "/test-cases"
 CALIBRATE_PATH = DETAIL_PATH + "/calibrate"
 CALIBRATION_JOBS_PATH = DETAIL_PATH + "/calibration-jobs"
 CALIBRATION_JOB_DETAIL_PATH = CALIBRATION_JOBS_PATH + "/{job_id}"
+CALIBRATION_JOB_RESOLVE_PATH = CALIBRATION_JOB_DETAIL_PATH + "/resolve"
 SOURCE_PATH = DETAIL_PATH + "/source"
 WORKSPACE_PATH = DETAIL_PATH + "/workspace"
 BASELINE_PATH = DETAIL_PATH + "/baseline"
@@ -161,6 +164,78 @@ def _visible_tool_or_404(session: Session, request: Request, tool_id: str) -> Ca
     if row is None:
         raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
     return row
+
+
+def _resolve_running_calibration_job(
+    factory: Callable[[], Session],
+    *,
+    tool_id: str,
+    job_id: str,
+    actor: str,
+    identity: CaliberIdentity,
+    action: str,
+    reason: str,
+) -> dict[str, object]:
+    """Resolve a running calibration outside the async route's event-loop thread."""
+    with factory() as session:
+        tool = get_visible(
+            session,
+            CaliberToolRegistry,
+            CaliberToolRegistry.tool_id,
+            tool_id,
+            identity,
+        )
+        if tool is None:
+            raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        job = session.get(CaliberCalibrationJob, job_id)
+        if job is None or job.tool_id != tool_id:
+            raise HTTPException(status_code=404, detail=f"calibration job {job_id!r} not found")
+        if job.status != calibration_drain.STATUS_RUNNING:
+            raise HTTPException(
+                status_code=409,
+                detail=f"calibration job {job_id!r} is {job.status!r}, not 'running'",
+            )
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        job.status = calibration_drain.STATUS_FAILED
+        job.error = f"operator {action}: {reason}"[:2000]
+        job.finished_at = now
+        job.resolution = action
+        job.resolution_reason = reason
+        job.resolved_by = actor
+        job.resolved_at = now
+        retry: CaliberCalibrationJob | None = None
+        if action == "retry":
+            retry = CaliberCalibrationJob(
+                job_id=f"CAL-{uuid.uuid4().hex[:12]}",
+                tool_id=job.tool_id,
+                status=calibration_drain.STATUS_QUEUED,
+                requested_by=actor,
+                tool_snapshot=copy.deepcopy(job.tool_snapshot),
+                test_cases=copy.deepcopy(job.test_cases),
+                retry_of_job_id=job.job_id,
+                created_at=now,
+            )
+            session.add(retry)
+        audit_record(
+            session,
+            actor=actor,
+            action="resolve_calibration_job",
+            entity_type="tool",
+            entity_id=tool_id,
+            details={
+                "job_id": job.job_id,
+                "resolution": action,
+                "reason": reason,
+                "retry_job_id": retry.job_id if retry else None,
+            },
+        )
+        session.commit()
+        return {
+            "job_id": job.job_id,
+            "status": job.status,
+            "resolution": action,
+            "retry_job_id": retry.job_id if retry else None,
+        }
 
 
 def _visible_tool_test_run_or_404(
@@ -735,6 +810,11 @@ async def get_calibration_job(request: Request) -> JSONResponse:
             "claimed_at": job.claimed_at.isoformat() if job.claimed_at else None,
             "claimed_by": job.claimed_by,
             "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "retry_of_job_id": job.retry_of_job_id,
+            "resolution": job.resolution,
+            "resolution_reason": job.resolution_reason,
+            "resolved_by": job.resolved_by,
+            "resolved_at": job.resolved_at.isoformat() if job.resolved_at else None,
         }
     return envelope_response_dict(payload)
 
@@ -767,10 +847,48 @@ async def list_calibration_jobs(request: Request) -> JSONResponse:
                 "claimed_by": r.claimed_by,
                 "finished_at": r.finished_at.isoformat() if r.finished_at else None,
                 "pass_rate": (r.result or {}).get("pass_rate") if r.result else None,
+                "retry_of_job_id": r.retry_of_job_id,
+                "resolution": r.resolution,
+                "resolution_reason": r.resolution_reason,
+                "resolved_by": r.resolved_by,
+                "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
             }
             for r in rows
         ]
     return envelope_response_dict({"jobs": items, "total": len(items)})
+
+
+async def resolve_calibration_job(request: Request) -> JSONResponse:
+    """Abandon or explicitly retry an ambiguously ``running`` calibration.
+
+    Automatic requeue is unsafe because authored tools may have side effects. An
+    operator resolution terminally fences the original row; retry creates a new
+    queued row with immutable input snapshots and lineage back to the original.
+    Late worker completion is ignored by the drain's ``status='running'`` fence.
+    """
+    tool_id = request.path_params["tool_id"]
+    job_id = request.path_params["job_id"]
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    body = await parse_json_object(request)
+    action = str(body.get("action") or "").strip().casefold()
+    reason = str(body.get("reason") or "").strip()
+    if action not in {"abandon", "retry"}:
+        raise HTTPException(status_code=400, detail="'action' must be 'abandon' or 'retry'")
+    if not reason:
+        raise HTTPException(status_code=400, detail="a non-empty resolution reason is required")
+
+    factory = get_session_factory(request)
+    data = await run_in_threadpool(
+        _resolve_running_calibration_job,
+        factory,
+        tool_id=tool_id,
+        job_id=job_id,
+        actor=actor,
+        identity=resolve_identity(request),
+        action=action,
+        reason=reason,
+    )
+    return envelope_response_dict(data)
 
 
 async def calibrate_tool(request: Request) -> JSONResponse:
@@ -1212,6 +1330,9 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(CALIBRATION_JOBS_PATH, submit_calibration, methods=["POST"]))
     app.routes.append(Route(CALIBRATION_JOBS_PATH, list_calibration_jobs, methods=["GET"]))
     app.routes.append(Route(CALIBRATION_JOB_DETAIL_PATH, get_calibration_job, methods=["GET"]))
+    app.routes.append(
+        Route(CALIBRATION_JOB_RESOLVE_PATH, resolve_calibration_job, methods=["POST"])
+    )
     app.routes.append(Route(WORKSPACE_PATH, get_tool_workspace, methods=["GET"]))
     app.routes.append(Route(BASELINE_PATH, set_tool_baseline, methods=["POST"]))
     app.routes.append(Route(VERSIONS_PATH, list_tool_versions, methods=["GET"]))

@@ -7,13 +7,14 @@ a per-family guarantee surface is a design consequence.
 
 \subsection{Limitations of this paper}
 
-\para{The quantitative evaluation has not been run.} This is the paper's primary
+\para{The quantitative evaluation has not been run.} This remains the paper's primary
 limitation and it is not mitigated by anything else in it. \secref{sec:eval}
 specifies the protocol; \tabref{tab:results} contains no measurements. Claims about
 control-plane overhead, drain throughput, gate agreement, and rollback latency are
 therefore \emph{unsupported} in this draft --- not weakly supported. A reader should
 treat the architectural argument as the paper's contribution and the performance
-characterization as future work.
+characterization as future work. Eight deterministic fault/interleaving checks are
+published separately as structural evidence; they do not change this boundary.
 
 \para{No user study.} \sys's central value claim is that a release becomes
 reviewable. Whether operators actually review more effectively with it, or merely
@@ -56,6 +57,16 @@ a sibling \approver{} scope, but nothing requires that the person who authored o
 requested a change differ from the person who applies it. This is a deliberate
 human decision point placed after an automated gate, and it is real; it is not
 separation of duties, and we no longer describe it as one.
+
+\para{Assistant-draft autonomy is a scoped exception, not a replacement for
+\mode{Apply}.} The assistant now has structural separation for two draft policies:
+\code{agent\_review} records an approver-scoped agent decision by an identity
+different from the author, and \code{full\_autonomy} delegates publication to a
+third operator-scoped service identity. The decision is bound to the draft
+hash/version and rechecked at publication. This does not alter the refinement-job
+\mode{Apply} path above, gated goal-plan steps, or the paper's lack of measured
+reviewer calibration. The implementation evidence shows fail-closed mechanics, not
+that the reviewer agent makes production-quality decisions.
 
 \subsection{Limitations of the architecture}
 
@@ -105,11 +116,10 @@ an attested managed sidecar or a non-loopback HTTPS endpoint counts as an execut
 boundary for production preflight.
 
 \para{Risk tiering is only as good as the classification.} Capabilities declared
-\tier{gated} are correctly withheld from \aria{}'s synchronous tool projection. Two
-existing hand-written tools that approve and publish drafts are classified
-\tier{mutate}, so a permissive build-mode session advertises and can execute them.
-The mechanism is sound; the classification is incomplete
-(\secref{sec:components}).
+\tier{gated} are correctly withheld from \aria{}'s synchronous tool projection,
+including the hand-written approval and publication tools. The registry still does
+not cover every hand-written operation, so future classification drift remains a
+review and contract-test risk (\secref{sec:components}).
 
 \para{Project scoping is not a verified isolation boundary.} Visibility filters are
 applied per path. This is not the same as a repository-wide, verified multi-tenancy

@@ -540,7 +540,8 @@ const PROMPT_TEMPLATE_LIBRARY = {
       compatible_base_ids: [],
       incompatible_modifier_ids: [],
       sections: {
-        instruction: "You extract structured information from incoming content.",
+        instruction:
+          "You extract structured information from incoming content.",
         context:
           "Extraction goal:\n{{task_description}}\n\nTarget schema:\n{{schema}}\n\nMissing-data policy:\n{{missing_data_policy}}",
         examples: null,
@@ -926,8 +927,9 @@ function buildPromptTemplatePreview(body: Record<string, unknown>) {
     "output_indicator",
   ] as const;
   const rawSectionOverrides = asStringRecord(body.section_overrides);
-  const sectionOverrides: Partial<Record<(typeof ELEMENT_NAMES)[number], string>> =
-    {};
+  const sectionOverrides: Partial<
+    Record<(typeof ELEMENT_NAMES)[number], string>
+  > = {};
   for (const element of ELEMENT_NAMES) {
     if (Object.prototype.hasOwnProperty.call(rawSectionOverrides, element)) {
       sectionOverrides[element] = rawSectionOverrides[element]!;
@@ -1009,9 +1011,7 @@ function buildPromptTemplatePreview(body: Record<string, unknown>) {
     sections.output_indicator,
   ]
     .filter((value) => typeof value === "string" && value.trim().length > 0)
-    .map((value) =>
-      substituteKnownPlaceholders(String(value), compiledValues),
-    )
+    .map((value) => substituteKnownPlaceholders(String(value), compiledValues))
     .join("\n\n");
 
   const builderVariables = builderSpecs.map((variable) => ({
@@ -1042,9 +1042,14 @@ function buildPromptTemplatePreview(body: Record<string, unknown>) {
   }
 
   const compiledTemplate = templateOverride || generated;
-  const renderedPreview = renderPreviewTemplate(compiledTemplate, previewVariables);
+  const renderedPreview = renderPreviewTemplate(
+    compiledTemplate,
+    previewVariables,
+  );
   const detectedVariables = findTemplatePlaceholders(compiledTemplate);
-  const unresolvedVariables = findTemplatePlaceholders(renderedPreview.rendered);
+  const unresolvedVariables = findTemplatePlaceholders(
+    renderedPreview.rendered,
+  );
   const runtimeVariableNames = new Set(
     runtimeVariables.map((variable) => variable.name),
   );
@@ -1907,7 +1912,10 @@ export const handlers = [
   }),
 
   http.post(`${API_BASE}/skills/test-runs`, async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const body = (await request.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     const results = Array.isArray(body.results) ? body.results : [];
     return HttpResponse.json(
       envelope({
@@ -1997,29 +2005,42 @@ export const handlers = [
     );
   }),
 
-  http.post(`${API_BASE}/skills/:skillId/test-selection`, async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const message = typeof body.user_message === "string" ? body.user_message : "";
-    return HttpResponse.json(
-      envelope({
-        skill_id: "sk-001",
-        skill_name: "reasoning-v1",
-        is_selected: true,
-        selection_score: 0.8,
-        selection_reason: `Matched signals for: ${message}`,
-      }),
-    );
-  }),
+  http.post(
+    `${API_BASE}/skills/:skillId/test-selection`,
+    async ({ request }) => {
+      const body = (await request.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      const message =
+        typeof body.user_message === "string" ? body.user_message : "";
+      return HttpResponse.json(
+        envelope({
+          skill_id: "sk-001",
+          skill_name: "reasoning-v1",
+          is_selected: true,
+          selection_score: 0.8,
+          selection_reason: `Matched signals for: ${message}`,
+        }),
+      );
+    },
+  ),
 
   http.post(`${API_BASE}/skills/:skillId/baseline`, async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const body = (await request.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     return HttpResponse.json(
       envelope({ baseline_run_id: String(body.test_run_id ?? "STR-default") }),
     );
   }),
 
   http.post(`${API_BASE}/skills/:skillId/bind`, async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const body = (await request.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     return HttpResponse.json(envelope({ bound_to: body, status: "Bound" }));
   }),
 
@@ -2165,34 +2186,40 @@ export const handlers = [
     );
   }),
 
-  http.post(`${API_BASE}/tools/:toolId/test-run`, async ({ params, request }) => {
-    const body = (await request.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    return HttpResponse.json(
-      envelope({
-        tool_id: String(params.toolId ?? "tool-001"),
-        output: { input: body.input ?? {} },
-        mocked: false,
-        duration_ms: 3,
-        error: null,
-      }),
-    );
-  }),
+  http.post(
+    `${API_BASE}/tools/:toolId/test-run`,
+    async ({ params, request }) => {
+      const body = (await request.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      return HttpResponse.json(
+        envelope({
+          tool_id: String(params.toolId ?? "tool-001"),
+          output: { input: body.input ?? {} },
+          mocked: false,
+          duration_ms: 3,
+          error: null,
+        }),
+      );
+    },
+  ),
 
-  http.put(`${API_BASE}/tools/:toolId/test-cases`, async ({ params, request }) => {
-    const body = (await request.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    return HttpResponse.json(
-      envelope({
-        tool_id: String(params.toolId ?? "tool-001"),
-        test_cases: Array.isArray(body.test_cases) ? body.test_cases : [],
-      }),
-    );
-  }),
+  http.put(
+    `${API_BASE}/tools/:toolId/test-cases`,
+    async ({ params, request }) => {
+      const body = (await request.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      return HttpResponse.json(
+        envelope({
+          tool_id: String(params.toolId ?? "tool-001"),
+          test_cases: Array.isArray(body.test_cases) ? body.test_cases : [],
+        }),
+      );
+    },
+  ),
 
   http.post(`${API_BASE}/tools/:toolId/calibrate`, ({ params }) => {
     return HttpResponse.json(
@@ -2204,6 +2231,21 @@ export const handlers = [
         cases: [],
         ran_at: "2025-01-01T00:00:00Z",
       }),
+    );
+  }),
+
+  http.get(`${API_BASE}/tools/:toolId/calibration-jobs`, () => {
+    return HttpResponse.json(envelope({ jobs: [], total: 0 }));
+  }),
+
+  http.post(`${API_BASE}/tools/:toolId/calibration-jobs`, ({ params }) => {
+    return HttpResponse.json(
+      envelope({
+        job_id: "CAL-test",
+        tool_id: String(params.toolId ?? "tool-001"),
+        status: "queued",
+      }),
+      { status: 202 },
     );
   }),
 
@@ -2518,7 +2560,8 @@ export const handlers = [
       envelope({
         test_run_id: "PTR-default",
         agent_id: typeof body.agent_id === "string" ? body.agent_id : "",
-        prompt_name: typeof body.prompt_name === "string" ? body.prompt_name : "",
+        prompt_name:
+          typeof body.prompt_name === "string" ? body.prompt_name : "",
         prompt_alias: (body.prompt_alias as string | null) ?? null,
         prompt_version: (body.prompt_version as number | null) ?? null,
         model: (body.model as string | null) ?? null,
@@ -2612,9 +2655,7 @@ export const handlers = [
       string,
       unknown
     >;
-    return HttpResponse.json(
-      envelope({ bound_to: body, status: "Bound" }),
-    );
+    return HttpResponse.json(envelope({ bound_to: body, status: "Bound" }));
   }),
 
   http.get(`${API_BASE}/prompts/:name`, ({ params, request }) => {
@@ -3020,7 +3061,11 @@ export const handlers = [
 
   http.post(`${API_BASE}/jobs/:jobId/apply`, ({ params }) => {
     return HttpResponse.json(
-      envelope({ job_id: String(params.jobId), status: "applied", promotion: {} }),
+      envelope({
+        job_id: String(params.jobId),
+        status: "applied",
+        promotion: {},
+      }),
     );
   }),
 ];

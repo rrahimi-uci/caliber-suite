@@ -375,7 +375,7 @@ npm run dev</code></pre>
             <div class="card">
               <div class="icon">MD</div>
               <h4>Permissioned tools</h4>
-              <p>A per-turn toolset is gated by interaction mode &times; approval mode: read tools in every mode, reversible or subprocess-contained tools in <code>build</code> + <code>auto_safe</code>, and real runs, approve, and publish only in <code>build</code> + <code>auto_all</code>.</p>
+              <p>A per-turn toolset is gated by interaction mode &times; approval mode: read tools in every mode, reversible or subprocess-contained tools in <code>build</code> + <code>auto_safe</code>, and admitted mutations or real runs in <code>build</code> + <code>auto_all</code>. Draft approval and publication are withheld from every synchronous turn.</p>
             </div>
             <div class="card">
               <div class="icon">EV</div>
@@ -385,7 +385,7 @@ npm run dev</code></pre>
             <div class="card">
               <div class="icon">DR</div>
               <h4>Governed drafts</h4>
-              <p>Drafts use validate, test, approved-status, and publish via <code>/drafts/{draft_id}/*</code>. In <code>build</code> + <code>auto_all</code>, Aria can automatically approve and publish a passing draft; <code>gated</code> plan capabilities and prompt-alias publication retain their separate approval controls.</p>
+              <p>Drafts use validate, test, approved-status, and publish via <code>/drafts/{draft_id}/*</code>. A human performs approval and publication in the draft lifecycle UI/API; <code>gated</code> registry capabilities pause durable plans, and prompt-alias publication retains its separate approval-provenance control.</p>
             </div>
             <div class="card">
               <div class="icon">SS</div>

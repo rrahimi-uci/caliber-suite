@@ -13,10 +13,7 @@ import { MemoryRouter } from "react-router-dom";
 import { CaliberAssistantPanel } from "@/components/assistant/CaliberAssistantPanel";
 import { AttachmentBar } from "@/components/assistant/AttachmentBar";
 import { ModeSelector } from "@/components/assistant/ModeSelector";
-import {
-  AssistantPanelProvider,
-  useAssistantPanel,
-} from "@/components/assistant/AssistantPanelContext";
+import { AssistantPanelProvider, useAssistantPanel } from "@/components/assistant/AssistantPanelContext";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -34,9 +31,7 @@ function withProviders(node: JSX.Element): ReturnType<typeof render> {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        {node}
-      </MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{node}</MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -143,9 +138,7 @@ describe("AttachmentBar", () => {
     await userEvent.type(within(modal).getByPlaceholderText("Paste context here…"), "hello");
     await userEvent.click(within(modal).getByRole("button", { name: "Attach" }));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("assistant-attachment-chips")).toHaveTextContent("My notes"),
-    );
+    await waitFor(() => expect(screen.getByTestId("assistant-attachment-chips")).toHaveTextContent("My notes"));
   });
 });
 
@@ -223,7 +216,7 @@ describe("CaliberAssistantPanel — modes & settings", () => {
     await openPanel();
     expect(screen.getByTestId("assistant-approval-selector")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("assistant-approval-selector"));
-    await userEvent.click(screen.getByText("Full access"));
+    await userEvent.click(screen.getByText("Legacy auto"));
     await userEvent.type(screen.getByPlaceholderText("Ask Aria for follow-up changes..."), "build me a tool");
     await userEvent.click(screen.getByRole("button", { name: "Send message" }));
 
@@ -254,8 +247,7 @@ describe("CaliberAssistantPanel — modes & settings", () => {
         currentConfig = {
           ...currentConfig,
           model: typeof body.model === "string" ? body.model : currentConfig.model,
-          reasoning:
-            typeof body.reasoning === "string" ? body.reasoning : currentConfig.reasoning,
+          reasoning: typeof body.reasoning === "string" ? body.reasoning : currentConfig.reasoning,
         };
         return HttpResponse.json(envelope(currentConfig));
       }),

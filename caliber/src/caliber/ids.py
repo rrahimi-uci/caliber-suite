@@ -316,6 +316,11 @@ def new_assistant_publish_id() -> str:
     return f"{ASSISTANT_PUBLISH_PREFIX}{_suffix()}"
 
 
+def new_assistant_review_id() -> str:
+    """Return a fresh assistant-review ID, e.g. ``AREV-7f3a90c2``."""
+    return f"AREV-{_suffix()}"
+
+
 def new_assistant_attachment_id() -> str:
     """Return a fresh assistant-attachment ID, e.g. ``AATT-7f3a90c2``."""
     return f"{ASSISTANT_ATTACHMENT_PREFIX}{_suffix()}"

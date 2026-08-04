@@ -982,6 +982,23 @@ class CaliberConfig(BaseModel):
     assistant_max_questions_per_turn: int = Field(default=3, ge=1)
     assistant_max_drafts_per_session: int = Field(default=20, ge=1)
     assistant_publish_requires_approval: bool = Field(default=True)
+    assistant_reviewer_user: str = Field(
+        default="",
+        description=(
+            "Service identity used by agent_review/full_autonomy. It must be distinct "
+            "from the author and listed in CALIBER_APPROVER_USERS or CALIBER_ADMIN_USERS."
+        ),
+    )
+    assistant_release_user: str = Field(
+        default="",
+        description=(
+            "Service identity that publishes after an autonomous review. It must be "
+            "distinct from author/reviewer and carry caliber.operator."
+        ),
+    )
+    assistant_reviewer_policy_version: str = Field(default="aria-draft-review-v1")
+    assistant_reviewer_min_confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    assistant_review_ttl_seconds: int = Field(default=3600, ge=1)
     assistant_tool_source_max_bytes: int = Field(default=200_000, ge=1)
     assistant_run_timeout_seconds: float = Field(default=60.0, gt=0)
     provider_request_timeout_seconds: float = Field(
@@ -1890,6 +1907,19 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         "assistant_publish_requires_approval",
         _flag,
     ),
+    ("CALIBER_ASSISTANT_REVIEWER_USER", "assistant_reviewer_user", str),
+    ("CALIBER_ASSISTANT_RELEASE_USER", "assistant_release_user", str),
+    (
+        "CALIBER_ASSISTANT_REVIEWER_POLICY_VERSION",
+        "assistant_reviewer_policy_version",
+        str,
+    ),
+    (
+        "CALIBER_ASSISTANT_REVIEWER_MIN_CONFIDENCE",
+        "assistant_reviewer_min_confidence",
+        float,
+    ),
+    ("CALIBER_ASSISTANT_REVIEW_TTL_SECONDS", "assistant_review_ttl_seconds", int),
     ("CALIBER_ASSISTANT_TOOL_SOURCE_MAX_BYTES", "assistant_tool_source_max_bytes", int),
     ("CALIBER_ASSISTANT_RUN_TIMEOUT_SECONDS", "assistant_run_timeout_seconds", float),
     ("CALIBER_WORKFLOW_FILE_ROOT", "workflow_file_root", str),

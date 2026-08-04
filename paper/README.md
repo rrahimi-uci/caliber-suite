@@ -10,6 +10,7 @@ format.
 cd paper
 make stats     # regenerate the implementation counts from the source tree
 make diagrams  # rebuild the Excalidraw architecture figures (needs node)
+make evidence  # execute deterministic claim checks and write their JSON manifest
 make           # build build/caliber-paper.pdf (4 pdflatex passes + bibtex)
 make open      # build and open
 make check     # lint the log for undefined refs and bad boxes
@@ -37,6 +38,7 @@ silently.
 | `diagrams/` | Excalidraw scene sources for the four architecture figures. |
 | `tables/` | One table float per file. |
 | `generated/` | Written by `scripts/gen_stats.py`. Not hand-edited. |
+| `benchmarks/` | Deterministic structural checks and their machine-readable manifest. |
 | `appendix/` | Supplementary material, `a`–`d`. |
 | `references/refs.bib` | Bibliography, grouped by the argument each entry supports. |
 | `build/` | Compiled artifacts. Disposable. |
@@ -273,8 +275,9 @@ so cutting is mechanical. In rough order of least to most damage:
 Do **not** cut `tab-families`, `fig-chain`, `alg-promote`, or §5.1 — the central
 claim depends on all four.
 
-**Unrun evaluation.** `tab-results` is deliberately empty; every quantitative cell
-renders as `\pending` (a coloured *TBM* marker) rather than as an estimate. The
-protocol is specified in `appendix/c-protocol.tex` in enough detail to execute. When
-results arrive, replace the `\pending` cells — no surrounding prose needs to change,
-and §10.1 and §12.1 should then be rewritten.
+**Partially exercised, quantitatively unrun evaluation.** `make evidence` records
+eight deterministic structural checks, but `tab-results` remains empty because
+latency, throughput, scale, baseline, and human-study measurements have not run.
+Every quantitative cell renders as `\pending` rather than as an estimate. The
+protocol is specified in `appendix/c-protocol.tex`; when compliant results arrive,
+replace those cells and rewrite §10.1 and §12.1.

@@ -60,7 +60,7 @@ what production actually does rather than what it did when the suite was written
 This closes a specific drift problem that offline harnesses cannot close on their
 own, because they have no access to the production trace stream.
 
-\subsection{R4 in practice: one enforced gate, one human}
+\subsection{R4 in practice: one enforced gate, one human in refinement}
 
 \secref{sec:components} defined the gate taxonomy; here we state what it buys, and
 what it does not. The gate is enforced \emph{within the refinement state machine}:
@@ -77,12 +77,19 @@ needs to exist.
 
 \subsection{Automation reach, stated as a boundary}
 
-\sys automates diagnosis, candidate generation, evaluation, gating, evidence
+Within the refinement path, \sys automates diagnosis, candidate generation, evaluation, gating, evidence
 assembly, and the mechanics of release. It does not automate the decision. The
 reach is therefore: from a flagged trace to a scored, gated, reviewable candidate
 without human involvement, and from a reviewed candidate to an audited release
 without human involvement. The human sits at exactly one point in between, and at
 one point before (verification).
+
+Assistant drafts are outside that measured refinement chain. Their optional
+\code{agent\_review} and \code{full\_autonomy} policies replace the draft-review
+human with a separately scoped agent identity and, for release, a third service
+identity. They retain attributable records but have no measured reviewer-quality
+result; \secref{sec:limitations} therefore treats them as a scoped experimental
+exception rather than evidence against D4.
 
 We want to be precise that this is a design position rather than an unfinished
 state. An auto-apply threshold would be straightforward to implement; D4 in

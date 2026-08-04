@@ -5,12 +5,65 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.db.models import CaliberAuditLog, CaliberReleaseOperation
 from caliber.release_operations import (
+    PreparedReleaseResolutionError,
     ReleaseMutationNotStartedError,
     ReleaseOperationConflictError,
+    abandon_prepared_prompt_release,
     execute_prompt_alias_release,
     prepare_prompt_alias_release,
     reconcile_prompt_alias_releases,
 )
+
+
+def test_prepared_release_can_be_abandoned_without_provider_ambiguity(
+    db_session: Session,
+) -> None:
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-abandon",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+    )
+
+    resolved = abandon_prepared_prompt_release(
+        db_session,
+        operation_id=operation.operation_id,
+        actor="@operator",
+        reason="deployment window closed",
+    )
+
+    assert resolved.status == "failed"
+    assert resolved.active_lock is None
+    assert "deployment window closed" in (resolved.last_error or "")
+    audit = (
+        db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.action == "abandon_prepared_prompt_release")
+        .one()
+    )
+    assert audit.details["provider_call_started"] is False
+
+
+def test_non_prepared_release_cannot_be_abandoned(db_session: Session) -> None:
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-applying",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+    )
+    operation.status = "applying"
+    db_session.commit()
+
+    with pytest.raises(PreparedReleaseResolutionError, match="not a prepared"):
+        abandon_prepared_prompt_release(
+            db_session,
+            operation_id=operation.operation_id,
+            actor="@operator",
+            reason="unsafe",
+        )
 
 
 def test_prompt_release_intent_is_committed_before_provider_effect(

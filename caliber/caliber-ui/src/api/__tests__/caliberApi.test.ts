@@ -913,4 +913,46 @@ describe("caliberApi", () => {
     expect(fetchSignal?.aborted).toBe(true);
     expect(underlyingCancelled).toBe(true);
   });
+
+  it("reuses a prompt release operation id after an ambiguous network failure", async () => {
+    const releaseBodies: Array<Record<string, unknown>> = [];
+    let releaseAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init: RequestInit = {}) => {
+        if (url.endsWith("/auth/csrf")) {
+          return Promise.resolve(
+            ok({ enabled: false, token: "", ttl_seconds: 0 }),
+          );
+        }
+        releaseBodies.push(
+          JSON.parse(String(init.body)) as Record<string, unknown>,
+        );
+        releaseAttempts += 1;
+        if (releaseAttempts === 1)
+          return Promise.reject(new Error("connection reset"));
+        return Promise.resolve(
+          ok({
+            name: "support-agent",
+            alias: "prod",
+            version: 5,
+            release_status: "applied",
+          }),
+        );
+      }),
+    );
+    const api = await loadApi();
+
+    await expect(
+      api.caliberApi.promotePrompt("support-agent", 5, { expected_version: 4 }),
+    ).rejects.toMatchObject({ status: 0 });
+    await api.caliberApi.promotePrompt("support-agent", 5, {
+      expected_version: 4,
+    });
+
+    expect(releaseBodies).toHaveLength(2);
+    expect(releaseBodies[0]).toMatchObject({ version: 5, expected_version: 4 });
+    expect(releaseBodies[0].operation_id).toMatch(/^REL-ui-/);
+    expect(releaseBodies[1].operation_id).toBe(releaseBodies[0].operation_id);
+  });
 });

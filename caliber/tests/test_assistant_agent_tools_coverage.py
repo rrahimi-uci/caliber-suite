@@ -604,27 +604,23 @@ class TestMutateEdges:
         )
         assert "error" in out and "parent workflow not found" in out["error"]
 
-    def test_approve_draft_not_found(self, svc, session_factory) -> None:
+    def test_approve_draft_is_human_gated(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
         out = json.loads(ts.dispatch("approve_draft", {"draft_id": "AD-none"}))
-        assert "error" in out and "draft not found" in out["error"]
+        assert "error" in out and "not permitted" in out["error"]
 
-    def test_approve_draft_success(self, svc, session_factory) -> None:
+    def test_approve_draft_cannot_autonomously_change_a_draft(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         did = _make_draft(session_factory, sid, "tool", _FAKE_TOOL)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
         out = json.loads(ts.dispatch("approve_draft", {"draft_id": did}))
-        assert out["ok"]
-        assert out["data"]["draft_id"] == did
-        assert out["data"]["status"] == "approved"
+        assert "error" in out and "not permitted" in out["error"]
+        with session_factory() as db:
+            assert db.get(CaliberAssistantDraft, did).status == "draft"
 
-    def test_publish_draft_not_found_reports_failure(self, svc, session_factory) -> None:
-        # publish_draft returns a structured report; an unknown draft yields a
-        # successful-call wrapper around a failure report.
+    def test_publish_draft_is_human_gated(self, svc, session_factory) -> None:
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
         out = json.loads(ts.dispatch("publish_draft", {"draft_id": "AD-none"}))
-        assert out["ok"]
-        assert out["data"]["success"] is False
-        assert "not found" in out["data"]["error"].lower()
+        assert "error" in out and "not permitted" in out["error"]

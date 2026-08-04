@@ -179,10 +179,21 @@ call, and settles as `applied`; a proven pre-call failure becomes `failed`, whil
 an exception after mutation might have begun becomes `reconcile_required`.
 Reusing an operation ID is safe only for the exact same mutation. Every operation
 remains visible through `GET /releases/operations`: a still-`prepared` operation
-can be retried with that same ID, while `POST /releases/operations/reconcile`
+can be retried or abandoned through `POST
+/releases/operations/{operation_id}/resolve`, while `POST /releases/operations/reconcile`
 compares `applying` and `reconcile_required` rows with the live MLflow alias and
-settles the result. This narrows the remaining boundary to provider-state
-observation rather than an unrecorded production change.
+settles the result. A background reconciler runs the same observation loop, and
+the operator-only Releases recovery console exposes both paths. This narrows the
+remaining boundary to provider-state observation rather than an unrecorded
+production change.
+
+Agent processes can use `caliber.resolver.PromptResolver` for late binding without
+routing model inference through CALIBER. It resolves `name@alias` through the prompt
+detail endpoint, caches the immutable version/template for a configurable TTL, and
+serves only a previously successful last-known value during an outage. An optional
+maximum stale age can fail closed instead; a first resolution failure always fails.
+Telemetry reports resolution source, version, age, and error type without emitting
+the prompt template or authentication headers.
 
 Both explicit alias promotion and rollback are operator-scoped release actions:
 a configured operator or admin can invoke them because admin inherits operator,
@@ -337,8 +348,8 @@ standalone `CaliberPrompt` table. Prompt binding to workflow nodes is not yet a
 full graph rewrite path. Prompt test replay is not a dedicated server operation.
 Prompt inventory depends on the MLflow APIs being available and readable. And
 lifecycle state is derived from multiple sources rather than stored as one
-canonical prompt status. Reconciliation is currently operator-triggered rather
-than a separately scheduled loop, and a direct operator release still treats its
+canonical prompt status. Reconciliation is available both from the operator
+recovery console and a periodic background task. A direct operator release still treats its
 persisted gate verdict as advisory rather than an enforced approval decision.
 
 The throughline of all of this is that the module is intentionally a composition

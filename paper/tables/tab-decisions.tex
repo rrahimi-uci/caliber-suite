@@ -53,11 +53,11 @@ gate stops carrying information &
 (\algref{alg:gate}) \\
 
 \zebra
-\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D4} & A human decision at \mode{Apply}, always &
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D4} & A human decision at refinement \mode{Apply}, always &
 auto-apply above a score threshold &
 score gains on a corpus assembled from past failures are necessary but not
 sufficient, and auto-apply makes a reviewable change invisible &
-throughput is bounded by operator attention, which is the real scaling limit \\
+refinement throughput is bounded by operator attention; assistant-draft agent review is a separate experimental path \\
 
 \chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D5} & In-process loops with database-arbitrated queues; no worker tier &
 a broker with dedicated workers &

@@ -9,7 +9,7 @@
 | **Engine** | A pluggable provider behind one `AssistantEngine` protocol (`fake` / `openai` / `anthropic` / `ollama`), selected once at boot in `server.py`. |
 | **Interaction modes** | `chat`, `build`, and `plan` — only `build` materializes `draft_deltas`; `plan` creates durable goal-plans via `POST /aria/plans`. |
 | **Tool loop** | The OpenAI and Anthropic engines run an agentic tool-calling loop over a per-turn, tier-filtered surface: 29 hand-written tools plus seven capability-registry entries in the current source. It is not read-only or full registry parity: read tools are always eligible, safe/mutate tools depend on build/approval mode, and `gated` capabilities are omitted from synchronous projection. |
-| **Approval / governance** | Drafts use validate → test → approved-status → publish. In `build` + `auto_all`, Aria may automatically approve and publish a passing draft; that status gate is not necessarily a separate human decision. `gated` plan capabilities always pause for a human, and prompt-alias publication has its own approval-provenance policy. |
+| **Approval / governance** | Drafts use validate → test → review/approved-status → publish. The author turn never receives gated approve/publish tools. `agent_review` invokes an isolated approver-scoped reviewer agent; `full_autonomy` adds a distinct operator-scoped release principal. Both fail closed and bind the decision to an immutable candidate hash. Gated goal-plan capabilities still pause for a human. |
 | **Trust / safety** | Engine output is a proposal, never an authorization; attachments are capped text snapshots and platform RBAC outranks injected prompt content. |
 
 The sections below start from this picture and drill down into the detail — scope,
@@ -25,10 +25,12 @@ operating platform artifacts. Aria is an embedded reasoning and orchestration
 layer: it turns a chat conversation into concrete, governed CALIBER actions —
 drafting tools, skills, prompts, workflows, and MCP servers, validating and
 testing those drafts, and publishing them when the current mode, actor authority,
-draft state, and asset policy permit it. In `build` + `auto_all`, Aria can
-automatically approve and publish a draft that passes validation and testing;
-forced human involvement is reserved for `gated` plan capabilities, while prompt
-alias publication separately enforces its approval-provenance policy. Because it
+draft state, and asset policy permit it. Approval and publication are never
+model-callable from the author turn. Manual policies use the draft lifecycle
+UI/API; `agent_review` and `full_autonomy` instead cross a separate reviewer-agent
+boundary, and only the latter continues through a distinct release service. Registry capabilities
+classified as `gated` instead pause a durable plan for explicit approval, while
+prompt alias publication separately enforces its approval-provenance policy. Because it
 is embedded rather than bolted on, admitted actions still flow through CALIBER's
 path-specific service and capability controls.
 
@@ -44,8 +46,9 @@ Concretely, Aria owns the following responsibilities:
 - It supports interaction **modes** (chat, build, and plan) that shape its
   behavior the way a code assistant's mode toggle does.
 - It manages **drafts** through a validate → test → approved-status → publish
-  state machine; `auto_all` can advance a passing draft through the last two
-  states without a separate human click.
+  state machine; the last two transitions are withheld from the authoring tool
+  projection and may be crossed only manually or through the independent
+  reviewer/release services.
 - It runs an intent-driven **plan workbench** (resolve intent → build plan →
   execute) for structured, confirmable single mutations — now used mainly by
   authoring surfaces such as the Prompts page rather than by the assistant
@@ -77,6 +80,7 @@ The behavior described above lives across a small set of backend code paths:
 - `caliber/src/caliber/assistant/tools.py`
 - `caliber/src/caliber/assistant/skill_runtime.py`
 - `caliber/src/caliber/assistant/{publisher,validators,tracing}.py`
+- `caliber/src/caliber/assistant/reviewer.py` (strict reviewer-agent contract)
 - `caliber/src/caliber/assistant/{capabilities,plans,executor,plan_worker}.py` (the agentic orchestrator — §9)
 - `caliber/src/caliber/routes/aria_plans.py` (the goal-plan HTTP surface)
 - `caliber/src/caliber/db/models.py` (the `CaliberAssistant*` and `CaliberAria*` tables)
@@ -111,9 +115,10 @@ and what that ownership entails.
 | Fallback registry access | `RegistryToolDispatcher` (`tools.py`) | A three-tool, read-only fallback (`list_skills` / `get_skill` / `list_tools`). Normal service turns pass the richer per-turn toolset below, which overrides this engine fallback. |
 | Per-turn agent tools | `AssistantAgentToolset` (`agent_tools.py`) | Binds the actor, session, mode, approval mode, and project to 29 hand-written tools plus a tier-filtered projection of the seven currently registered capabilities. This is partial coverage, not a claim that every CALIBER route has tool parity; `gated` capabilities are never advertised to a synchronous turn. |
 | Draft validation / test | `validators.py`, `service.py` | Validates draft artifacts and runs draft tests (tool sandbox, skill render, workflow compile). |
-| Publishing | `publisher.py` | Publishes drafts whose approved status and asset-specific policy permit it. `auto_all` can supply the draft-status transition; prompt alias publication may additionally require matching approved promotion provenance. |
+| Independent review | `reviewer.py`, `service.py` | Runs an isolated no-tools reviewer turn, validates its strict JSON decision, enforces approver scope and author/reviewer separation, and persists the decision against candidate hash/version with an expiry. |
+| Publishing | `publisher.py`, `service.py` | Publishes drafts whose approved status, reviewer binding, and asset-specific policy permit it. `full_autonomy` requires a release principal distinct from author and reviewer with `operator` scope. |
 | Tracing | `tracing.py` | `AssistantTracer` emits MLflow spans with session/correlation/user attributes. |
-| Persistence | `CaliberAssistant*` rows (`db/models.py`) | Sessions, messages, drafts, runs, publish events, and attachments. |
+| Persistence | `CaliberAssistant*` rows (`db/models.py`) | Sessions, messages, drafts, reviewer decisions, runs, publish events, and attachments. |
 
 The result is a layered ownership model: the service assembles and persists the
 turn and injects context-bound tool dependencies, the engine reasons and requests
@@ -174,9 +179,9 @@ explain why the architecture stays simple as providers and features grow:
 - Skill selection is **deterministic and DB-backed**, not model-decided, so the
   same session state always yields the same skill set.
 - Mutations remain subject to the current mode, actor scopes, draft state, and
-  asset-specific policy. `build` + `auto_all` may automatically carry a passing
-  draft through approve and publish; this satisfies the draft state machine but
-  is not a mandatory human-approval boundary. `gated` plan capabilities and the
+  asset-specific policy. `build` + `auto_all` may perform admitted reversible
+  mutations, but no longer self-approves or self-publishes. The two autonomous
+  review policies run after the author turn through separate principals. Gated plan capabilities and the
   prompt-alias approval-provenance policy retain their stronger controls.
 
 Together these properties make the engine a replaceable detail and the service
@@ -192,7 +197,8 @@ table with a clear purpose.
 | --- | --- | --- |
 | Session | `CaliberAssistantSession` (`caliber_assistant_sessions`) | Per-user authoring conversation; carries `owner`, `status`, `goal`, `active_draft_id`, and a `metadata` JSON bag. |
 | Message | `CaliberAssistantMessage` (`caliber_assistant_messages`) | Ordered turn history (`role`, `content`, per-turn `metadata`) with a unique `(session_id, sequence_number)`. |
-| Draft | `CaliberAssistantDraft` (`caliber_assistant_drafts`) | Work-in-progress artifact with `spec`, `artifact`, validation/test reports, and lifecycle `status`. |
+| Draft | `CaliberAssistantDraft` (`caliber_assistant_drafts`) | Work-in-progress artifact with `spec`, `artifact`, validation/test/review reports, and lifecycle `status`. |
+| Review | `CaliberAssistantReview` (`caliber_assistant_reviews`) | Append-only agent decision with mode, immutable candidate snapshot/hash/version, author and reviewer identities, policy/model, rationale, confidence, evidence IDs, and expiry. |
 | Run | `CaliberAssistantRun` (`caliber_assistant_runs`) | One engine execution: engine/model, input/output summaries, `trace_id`, `mlflow_run_id`, error. |
 | Publish event | `CaliberAssistantPublishEvent` (`caliber_assistant_publish_events`) | Audit row recording a draft published to a registry artifact. |
 | Attachment | `CaliberAssistantAttachment` (`caliber_assistant_attachments`) | Context the user attached to a session, with a capped text snapshot. |
@@ -239,8 +245,26 @@ CALIBER's broader governance progression:
 ```text
 draft → validating → validated | validation_failed
 validated → testing → tested | test_failed
-tested → approved → publishing → published | publish_failed
+tested → approved (manual) | reviewing
+reviewing → approved | review_rejected | review_failed
+approved → publishing → published | publish_failed
 ```
+
+The selectable approval policies are deliberately different from capability
+risk tiers:
+
+| Policy | Automatic progression after a new draft | Authority boundary |
+| --- | --- | --- |
+| `manual` | none | operator drives each draft gate |
+| `auto_safe` | validate → test | approval/release remain manual |
+| `auto_all` | validate → test; legacy mutation-tool admission | deprecated self-approval behavior removed |
+| `agent_review` | validate → test → independent review | reviewer must differ from author and carry `caliber.approver`; no publish |
+| `full_autonomy` | validate → test → independent review → publish | reviewer as above; releaser must be a third identity with `caliber.operator` |
+
+The reviewer receives no author chat history and no tools. A structured decision
+is accepted only when its policy version matches and its confidence clears the
+configured floor. Editing the candidate clears its review. Publication rechecks
+the durable review row, candidate hash/version, identity separation, and expiry.
 
 ## 5. API and interaction surfaces
 
@@ -405,12 +429,15 @@ human-driven route. The following controls enforce that assumption.
   through `db.scoping.get_visible` with the caller's identity, so a guessed
   `plan_id` from another owner returns 404 (admins bypass). Editing a plan's
   autonomy dial is audited.
-- Publishing requires the draft row to be in approved status, but that is a
-  state gate rather than an unconditional human gate: `build` + `auto_all` can
-  validate, test, approve, and publish a passing draft automatically. Human
-  approval remains mandatory for `gated` plan capabilities, and enabled prompt-
-  alias publication policy separately requires matching approved promotion
-  provenance.
+- Publishing requires the draft row to be in approved status. The authoring turn
+  cannot advertise or dispatch approval/publication. In `agent_review`, an
+  approver-scoped principal distinct from the author signs a hash/version-bound,
+  expiring decision; in `full_autonomy`, a third operator-scoped release principal
+  publishes it. Missing configuration, shared identities, missing scopes, provider
+  errors, invalid JSON, low confidence, expiry, or candidate drift all fail closed.
+  Human approval remains mandatory for gated goal-plan capabilities. Enabled
+  prompt-alias policy accepts either matching promotion provenance or the matching
+  durable agent review.
 - Attachment content is reduced to a **capped text snapshot** at attach time and
   per-session counts are bounded, which limits both the prompt-injection surface
   and context blowup.
@@ -464,8 +491,10 @@ configuration is both inspectable and changeable at runtime.
   after the fact.
 - A per-session correlation id groups multi-turn traces into one conversation.
 - `GET /config` reports the active engine, model, provider, reasoning, and
-  disabled intents/domains, while `PATCH /config` rebuilds the engine at runtime
-  (operator-scoped).
+  disabled intents/domains plus `agent_review` / `full_autonomy` readiness,
+  while `PATCH /config` rebuilds both the author and reviewer engine at runtime
+  (operator-scoped). The mode selector disables an autonomous policy until its
+  service identities and real provider are ready.
 
 These behaviors are driven by configuration on `CaliberConfig`, surfaced through
 `CALIBER_ASSISTANT_*` environment variables, grouped here by what they control:
@@ -479,7 +508,10 @@ These behaviors are driven by configuration on `CaliberConfig`, surfaced through
 - Session bounds: `assistant_max_turns`, `assistant_max_questions_per_turn`, and
   `assistant_max_drafts_per_session`.
 - Safety and governance: `assistant_publish_requires_approval`,
-  `assistant_tool_source_max_bytes`, and `assistant_run_timeout_seconds`.
+  `assistant_reviewer_user`, `assistant_release_user`,
+  `assistant_reviewer_policy_version`, `assistant_reviewer_min_confidence`,
+  `assistant_review_ttl_seconds`, `assistant_tool_source_max_bytes`, and
+  `assistant_run_timeout_seconds`.
 
 ## 9. Agentic orchestration (goal → plan → supervised execution)
 

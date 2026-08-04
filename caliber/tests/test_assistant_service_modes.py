@@ -62,7 +62,9 @@ def test_create_session_persists_requested_mode(
     assert session.metadata_["assistant_mode"] == mode
 
 
-@pytest.mark.parametrize("approval_mode", ["manual", "auto_safe", "auto_all"])
+@pytest.mark.parametrize(
+    "approval_mode", ["manual", "auto_safe", "auto_all", "agent_review", "full_autonomy"]
+)
 def test_create_session_persists_requested_approval_mode(
     session_factory: sessionmaker[Session],
     approval_mode: str,
@@ -93,7 +95,9 @@ def test_update_session_persists_requested_mode(
     assert updated.metadata_["assistant_mode"] == mode
 
 
-@pytest.mark.parametrize("approval_mode", ["manual", "auto_safe", "auto_all"])
+@pytest.mark.parametrize(
+    "approval_mode", ["manual", "auto_safe", "auto_all", "agent_review", "full_autonomy"]
+)
 def test_update_session_persists_requested_approval_mode(
     session_factory: sessionmaker[Session],
     approval_mode: str,
@@ -132,7 +136,9 @@ def test_send_message_propagates_request_level_mode_to_engine_and_session(
     assert session.metadata_["assistant_mode"] == mode
 
 
-@pytest.mark.parametrize("approval_mode", ["manual", "auto_safe", "auto_all"])
+@pytest.mark.parametrize(
+    "approval_mode", ["manual", "auto_safe", "auto_all", "agent_review", "full_autonomy"]
+)
 def test_send_message_propagates_request_level_approval_mode_to_engine_and_session(
     session_factory: sessionmaker[Session],
     approval_mode: str,

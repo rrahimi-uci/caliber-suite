@@ -35,8 +35,9 @@ lease expiry requeues the run, which resumes from its last checkpoint &
 at-least-once at the step boundary; the effect ledger suppresses repeats \\
 
 \textbf{Calibration\-Drain} & \chipnone{} &
-none automatic: a row claimed by a dead worker stays \code{running} &
-at-most-once, with manual recovery \\
+none automatic: a row stays \code{running} until an operator abandons it or creates
+a new lineage-linked retry &
+at-most-once per job; retries are explicit new jobs \\
 
 \zebra
 \textbf{Knowledge\-Base} & claim &

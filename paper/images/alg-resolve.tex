@@ -1,6 +1,6 @@
 %% alg-resolve.tex -- Algorithm: the client-side read path.
 %%
-%% Short on purpose. This is the only CALIBER code that runs on the serving path,
+%% Short on purpose. This is the only CALIBER library code on the serving path,
 %% so it is also the only place where the control plane can cost a production
 %% request anything -- which is what E1 measures. Showing it makes the size of that
 %% cost surface auditable rather than asserted.
@@ -9,7 +9,7 @@
 \caption{The client-side read path --- the only \sys code on the serving path, and
 therefore the entire surface E1 measures. Late binding lives on line~2: the client
 names an alias, never a version, which is what decouples remediation from
-deployment. Line~5 is the property that makes the resolver's failure mode
+deployment. A TTL cache can satisfy line~2 without an HTTP call. Line~5 is the property that makes the resolver's failure mode
 acceptable: a resolver that cannot reach the control plane serves the last known
 version rather than failing the call.}
 \label{alg:resolve}
@@ -19,7 +19,7 @@ version rather than failing the call.}
 \begin{pseudo}
 \pline{$k \gets (a, \alpha)$}
 \pline{$v \gets$ \kw{lookup} \pid{live\_target}($k$)
-       \cmt{late binding, per call}}
+       \cmt{late binding; TTL cache permitted}}
 \pline{\kw{if} $v \neq \bot$ \pthen}
 \pline{\I cache($k$) $\gets v$; \kw{return} definition($v$)}
 \pline{\kw{else if} cache($k$) $\neq \bot$ \pthen}

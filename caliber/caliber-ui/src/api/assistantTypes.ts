@@ -36,12 +36,19 @@ export const ASSISTANT_MODE_CAPTIONS: Record<AssistantMode, string> = {
 
 // ---------- Approval mode (how Aria's actions get approved) ----------
 
-export type AssistantApprovalMode = "manual" | "auto_safe" | "auto_all";
+export type AssistantApprovalMode =
+  | "manual"
+  | "auto_safe"
+  | "auto_all"
+  | "agent_review"
+  | "full_autonomy";
 
 export const ASSISTANT_APPROVAL_MODES: AssistantApprovalMode[] = [
   "manual",
   "auto_safe",
   "auto_all",
+  "agent_review",
+  "full_autonomy",
 ];
 
 export const ASSISTANT_APPROVAL_MODE_LABELS: Record<
@@ -50,7 +57,9 @@ export const ASSISTANT_APPROVAL_MODE_LABELS: Record<
 > = {
   manual: "Ask first",
   auto_safe: "Approve for me",
-  auto_all: "Full access",
+  auto_all: "Legacy auto",
+  agent_review: "Agent review",
+  full_autonomy: "Full autonomy",
 };
 
 export const ASSISTANT_APPROVAL_MODE_HINTS: Record<
@@ -62,7 +71,11 @@ export const ASSISTANT_APPROVAL_MODE_HINTS: Record<
   auto_safe:
     "Aria can auto-run safe validation and test steps, but still asks before approval or publish.",
   auto_all:
-    "Aria can validate, test, approve, and publish a passing draft without pausing for approval.",
+    "Legacy policy: Aria can run safe and reversible mutation tools, but approval and publish still require a separate authority.",
+  agent_review:
+    "Aria validates and tests, then an independent approver-scoped agent reviews the immutable draft. Publishing remains separate.",
+  full_autonomy:
+    "An independent reviewer agent approves a passing immutable draft, then a distinct operator-scoped release service publishes it.",
 };
 
 export const ASSISTANT_APPROVAL_MODE_CAPTIONS: Record<
@@ -71,7 +84,9 @@ export const ASSISTANT_APPROVAL_MODE_CAPTIONS: Record<
 > = {
   manual: "You approve every gate",
   auto_safe: "Aria handles safe steps",
-  auto_all: "Aria runs the full lane",
+  auto_all: "No approval bypass",
+  agent_review: "Agent approves; you release",
+  full_autonomy: "Agent approves and service releases",
 };
 
 export const ARTIFACT_TYPES: ArtifactType[] = [
@@ -100,6 +115,9 @@ export type DraftStatus =
   | "testing"
   | "tested"
   | "test_failed"
+  | "reviewing"
+  | "review_rejected"
+  | "review_failed"
   | "approved"
   | "publishing"
   | "published"
@@ -295,6 +313,7 @@ export interface AssistantDraft {
   artifact: Record<string, unknown>;
   validation_report: ValidationReport | null;
   test_report: TestReport | null;
+  review_report: Record<string, unknown> | null;
   target_registry_id: string | null;
   version: number;
   created_by: string;
@@ -387,6 +406,12 @@ export interface AssistantConfig {
   disabled_intents: string[];
   disabled_domains: string[];
   available_models: AssistantModelOption[];
+  autonomy?: {
+    agent_review_ready: boolean;
+    full_autonomy_ready: boolean;
+    reviewer_configured: boolean;
+    release_configured: boolean;
+  };
 }
 
 // ---------- Intent workbench ----------

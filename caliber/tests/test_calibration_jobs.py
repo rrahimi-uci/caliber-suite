@@ -25,6 +25,111 @@ import pytest
 from caliber.orchestrator import calibration_drain
 
 
+def test_operator_retry_fences_ambiguous_job_and_creates_lineage(client) -> None:
+    from caliber.db.models import CaliberAuditLog, CaliberCalibrationJob
+    from tests.workflow_helpers import PREFIX
+
+    with client.app.state.session_factory() as session:
+        tool = _tool(session, tool_id="TL-resolve")
+        original_id = _job(
+            session,
+            tool_id=tool.tool_id,
+            cases=list(tool.test_cases),
+            tool_snapshot=calibration_drain.snapshot_tool(tool),
+        )
+        claimed = calibration_drain.claim_next_job(session, claimed_by="dead-worker:1")
+        assert claimed is not None and claimed.job_id == original_id
+
+    response = client.post(
+        f"{PREFIX}/tools/TL-resolve/calibration-jobs/{original_id}/resolve",
+        json={"action": "retry", "reason": "worker host was terminated"},
+    )
+
+    assert response.status_code == 200, response.text
+    retry_id = response.json()["data"]["retry_job_id"]
+    assert retry_id and retry_id != original_id
+    with client.app.state.session_factory() as session:
+        original = session.get(CaliberCalibrationJob, original_id)
+        retry = session.get(CaliberCalibrationJob, retry_id)
+        assert original is not None and original.status == calibration_drain.STATUS_FAILED
+        assert original.resolution == "retry"
+        assert original.resolution_reason == "worker host was terminated"
+        assert retry is not None and retry.status == calibration_drain.STATUS_QUEUED
+        assert retry.retry_of_job_id == original_id
+        assert retry.tool_snapshot == original.tool_snapshot
+        assert retry.test_cases == original.test_cases
+        audit = (
+            session.query(CaliberAuditLog)
+            .filter(CaliberAuditLog.action == "resolve_calibration_job")
+            .one()
+        )
+        assert audit.details["retry_job_id"] == retry_id
+
+
+def test_operator_resolution_fences_a_late_worker_result(client) -> None:
+    from caliber.db.models import CaliberCalibrationJob, CaliberToolRegistry
+    from tests.workflow_helpers import PREFIX
+
+    with client.app.state.session_factory() as session:
+        tool = _tool(session, tool_id="TL-late-resolution")
+        snapshot = calibration_drain.snapshot_tool(tool)
+        cases = list(tool.test_cases)
+        job_id = _job(
+            session,
+            tool_id=tool.tool_id,
+            cases=cases,
+            tool_snapshot=snapshot,
+        )
+        claimed = calibration_drain.claim_next_job(session, claimed_by="slow-worker:1")
+        assert claimed is not None and claimed.job_id == job_id
+
+    response = client.post(
+        f"{PREFIX}/tools/TL-late-resolution/calibration-jobs/{job_id}/resolve",
+        json={"action": "abandon", "reason": "worker host was terminated"},
+    )
+    assert response.status_code == 200, response.text
+
+    calibration_drain._persist_result(
+        client.app.state.session_factory,
+        job_id,
+        "TL-late-resolution",
+        snapshot,
+        cases,
+        {"pass_rate": 1.0},
+    )
+
+    with client.app.state.session_factory() as session:
+        original = session.get(CaliberCalibrationJob, job_id)
+        tool = session.get(CaliberToolRegistry, "TL-late-resolution")
+        assert original is not None and original.status == calibration_drain.STATUS_FAILED
+        assert original.resolution == "abandon" and original.result is None
+        assert tool is not None and tool.last_calibration is None
+
+
+def test_calibration_resolution_requires_running_job_and_reason(client) -> None:
+    from tests.workflow_helpers import PREFIX
+
+    with client.app.state.session_factory() as session:
+        tool = _tool(session, tool_id="TL-resolve-guard")
+        job_id = _job(
+            session,
+            tool_id=tool.tool_id,
+            tool_snapshot=calibration_drain.snapshot_tool(tool),
+        )
+
+    missing_reason = client.post(
+        f"{PREFIX}/tools/TL-resolve-guard/calibration-jobs/{job_id}/resolve",
+        json={"action": "abandon", "reason": ""},
+    )
+    assert missing_reason.status_code == 400
+
+    queued = client.post(
+        f"{PREFIX}/tools/TL-resolve-guard/calibration-jobs/{job_id}/resolve",
+        json={"action": "abandon", "reason": "not actually claimed"},
+    )
+    assert queued.status_code == 409
+
+
 def _job(
     session: Any,
     tool_id: str = "TL-1",

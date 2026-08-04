@@ -13,7 +13,11 @@
  */
 import type { PromptVersionInfo } from "./types";
 import type { KnowledgeBaseVersion } from "./knowledgeTypes";
-import type { ToolDefinition, WorkflowDeployment, WorkflowVersion } from "./workflowTypes";
+import type {
+  ToolDefinition,
+  WorkflowDeployment,
+  WorkflowVersion,
+} from "./workflowTypes";
 
 export type VersionedArtifactType =
   | "prompt"
@@ -74,6 +78,63 @@ export interface ReleaseLiveEntry {
   version_id: string;
   since: string | null;
   by: string | null;
+}
+
+export type ReleaseOperationStatus =
+  | "prepared"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "reconcile_required";
+
+export interface ReleaseOperation {
+  operation_id: string;
+  operation_type: "promote" | "rollback";
+  resource_type: string;
+  resource_name: string;
+  target_name: string;
+  active_lock: string | null;
+  version_before: number | null;
+  version_after: number;
+  actor: string;
+  status: ReleaseOperationStatus;
+  last_error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface SystemEffect {
+  effect_key: string;
+  workflow_run_id: string;
+  node_id: string;
+  status: string;
+  claimed_at: string | null;
+  resolved_by?: string | null;
+  resolution?: string | null;
+}
+
+export interface SystemEffectsResponse {
+  effects: SystemEffect[];
+  status: string;
+  resolutions: string[];
+}
+
+export interface WebhookDeadLetter {
+  dead_letter_id: string;
+  url: string;
+  event_type: string;
+  reason: string;
+  attempts: number;
+  kind: string;
+  status: string;
+  failed_at: string | null;
+  has_event: boolean;
+}
+
+export interface WebhookDeadLettersResponse {
+  dead_letters: WebhookDeadLetter[];
+  status: string;
+  open_count: number;
 }
 
 export interface SkillVersionInfo {
@@ -166,7 +227,9 @@ export function promptVersionsToArtifactVersions(
 }
 
 /** Convenience: the version currently serving the live alias, if any. */
-export function liveVersion(versions: ArtifactVersion[]): ArtifactVersion | undefined {
+export function liveVersion(
+  versions: ArtifactVersion[],
+): ArtifactVersion | undefined {
   return versions.find((v) => v.isLive);
 }
 
@@ -264,7 +327,8 @@ export function workflowVersionsToArtifactVersions(
   deployments: WorkflowDeployment[],
   liveAlias = "prod",
 ): ArtifactVersion[] {
-  const liveVersionId = deployments.find((d) => d.alias === liveAlias)?.version_id ?? null;
+  const liveVersionId =
+    deployments.find((d) => d.alias === liveAlias)?.version_id ?? null;
   return versions.map((version) => {
     const isLive = version.version_id === liveVersionId;
     const status: VersionStatus = isLive ? "active" : version.status;
@@ -310,7 +374,11 @@ export function knowledgeBaseVersionsToArtifactVersions(
   return versions.map((version) => {
     const isLive = version.knowledge_base_version_id === activeVersionId;
     const completed = version.status === "completed";
-    const status: VersionStatus = isLive ? "active" : completed ? "published" : "draft";
+    const status: VersionStatus = isLive
+      ? "active"
+      : completed
+        ? "published"
+        : "draft";
     return {
       artifactType: "knowledge_base",
       artifactId: knowledgeBaseId,

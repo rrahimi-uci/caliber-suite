@@ -25,10 +25,22 @@ import type { VersionAdapter } from "@/components/versioning/VersionPanel";
  * The opaque `versionKey` is coerced to the numeric MLflow version here (the
  * string↔number boundary lives in the adapter, not the shared client).
  */
-export function makePromptVersionAdapter(name: string, liveAlias = "prod"): VersionAdapter {
+export function makePromptVersionAdapter(
+  name: string,
+  liveAlias = "prod",
+): VersionAdapter {
+  let expectedLiveVersion: number | null | undefined;
   return {
-    loadVersions: async () =>
-      promptVersionsToArtifactVersions(name, await caliberApi.listPromptVersions(name), liveAlias),
+    loadVersions: async () => {
+      const versions = promptVersionsToArtifactVersions(
+        name,
+        await caliberApi.listPromptVersions(name),
+        liveAlias,
+      );
+      const live = versions.find((version) => version.isLive);
+      expectedLiveVersion = live ? Number(live.versionKey) : null;
+      return versions;
+    },
     promote: async (version, opts) => {
       await caliberApi.promotePrompt(name, Number(version.versionKey), {
         alias: liveAlias,
@@ -36,7 +48,9 @@ export function makePromptVersionAdapter(name: string, liveAlias = "prod"): Vers
         gate_score: version.gate?.score ?? undefined,
         overridden: opts.overridden,
         override_reason: opts.reason || undefined,
+        expected_version: expectedLiveVersion,
       });
+      expectedLiveVersion = Number(version.versionKey);
     },
     rollback: async () => {
       await caliberApi.rollbackPrompt(name, liveAlias);
@@ -51,17 +65,29 @@ export function makePromptVersionAdapter(name: string, liveAlias = "prod"): Vers
  * deployment rollback stack. Workflow deploys use deploy-gates, not the
  * per-version advisory verdict, so the gate/override opts are unused here.
  */
-export function makeWorkflowVersionAdapter(workflowId: string, liveAlias = "prod"): VersionAdapter {
+export function makeWorkflowVersionAdapter(
+  workflowId: string,
+  liveAlias = "prod",
+): VersionAdapter {
   return {
     loadVersions: async () => {
       const [versions, deployments] = await Promise.all([
         caliberApi.listWorkflowVersions(workflowId),
         caliberApi.listWorkflowDeployments(workflowId),
       ]);
-      return workflowVersionsToArtifactVersions(workflowId, versions, deployments, liveAlias);
+      return workflowVersionsToArtifactVersions(
+        workflowId,
+        versions,
+        deployments,
+        liveAlias,
+      );
     },
     promote: async (version) => {
-      await caliberApi.promoteWorkflow(workflowId, liveAlias, version.versionKey);
+      await caliberApi.promoteWorkflow(
+        workflowId,
+        liveAlias,
+        version.versionKey,
+      );
     },
     rollback: async () => {
       await caliberApi.rollbackWorkflow(workflowId, liveAlias);
@@ -75,7 +101,9 @@ export function makeWorkflowVersionAdapter(workflowId: string, liveAlias = "prod
  * activates a completed version; rollback re-activates the recorded prior
  * active version.
  */
-export function makeKnowledgeBaseVersionAdapter(knowledgeBaseId: string): VersionAdapter {
+export function makeKnowledgeBaseVersionAdapter(
+  knowledgeBaseId: string,
+): VersionAdapter {
   return {
     loadVersions: async () => {
       const [versions, kb] = await Promise.all([
@@ -89,7 +117,10 @@ export function makeKnowledgeBaseVersionAdapter(knowledgeBaseId: string): Versio
       );
     },
     promote: async (version) => {
-      await caliberApi.activateKnowledgeBaseVersion(knowledgeBaseId, version.versionKey);
+      await caliberApi.activateKnowledgeBaseVersion(
+        knowledgeBaseId,
+        version.versionKey,
+      );
     },
     rollback: async () => {
       await caliberApi.rollbackKnowledgeBase(knowledgeBaseId);
@@ -106,9 +137,14 @@ export function makeKnowledgeBaseVersionAdapter(knowledgeBaseId: string): Versio
 export function makeSkillVersionAdapter(skillId: string): VersionAdapter {
   return {
     loadVersions: async () =>
-      skillVersionsToArtifactVersions(skillId, await caliberApi.listSkillVersions(skillId)),
+      skillVersionsToArtifactVersions(
+        skillId,
+        await caliberApi.listSkillVersions(skillId),
+      ),
     promote: async () => {
-      throw new Error("skills are not promoted; use rollback to restore a prior version");
+      throw new Error(
+        "skills are not promoted; use rollback to restore a prior version",
+      );
     },
     rollback: async () => {
       await caliberApi.rollbackSkill(skillId);
@@ -121,10 +157,16 @@ export function makeSkillVersionAdapter(skillId: string): VersionAdapter {
  * alias, so neither promote nor rollback apply (`canPromote`/`canRollback` are
  * false on every row, so the mutators are never invoked).
  */
-export function makeToolVersionAdapter(toolId: string, toolName: string): VersionAdapter {
+export function makeToolVersionAdapter(
+  toolId: string,
+  toolName: string,
+): VersionAdapter {
   return {
     loadVersions: async () =>
-      toolVersionsToArtifactVersions(toolName, await caliberApi.listToolVersions(toolId)),
+      toolVersionsToArtifactVersions(
+        toolName,
+        await caliberApi.listToolVersions(toolId),
+      ),
     promote: async () => {
       throw new Error("tools are not promoted");
     },

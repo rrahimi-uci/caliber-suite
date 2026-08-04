@@ -546,9 +546,13 @@ flowchart TB
 Notes an architect will want:
 
 - **Capabilities actually declared `gated` are omitted from the synchronous Aria
-  tool projection** and require a plan interaction. This is classification-dependent:
-  the existing hand-written `approve_draft` and `publish_draft` tools are classified
-  as `mutate`, so build mode with `auto_all` advertises and can execute them.
+  tool projection.** Registry capabilities use a durable plan interaction. The
+  hand-written `approve_draft` and `publish_draft` tools are also `gated`, so even
+  build mode with `auto_all` neither advertises nor executes them. Drafts may use
+  the manual lifecycle UI/API, or the separate `agent_review` / `full_autonomy`
+  pipeline: an approver-scoped reviewer agent signs an immutable candidate hash,
+  and full autonomy then delegates publication to a third, operator-scoped release
+  identity. Goal-plan gated steps remain human-approved.
 - **Local stdio MCP controls are called *containment*, not a sandbox.** Command and
   host allowlists, a sanitized environment, a private working directory, and
   process timeouts reduce ambient authority. Only an attested managed sidecar or a

@@ -174,7 +174,7 @@ set of tables:
 | Domain | Representative tables | Purpose |
 | --- | --- | --- |
 | Core governance | verification items, refinement jobs, approvals, rollback checkpoints, release operations | Human-in-the-loop refinement and crash-observable prompt release safety. |
-| Prompts and assistants | prompt test runs, assistant sessions/messages/drafts/runs/publish events/attachments, Aria goal-plans/steps/interactions | Prompt authoring, testing, assistant-driven authoring state (Aria context attachments), and Aria's agentic goal-plan orchestration. |
+| Prompts and assistants | prompt test runs, assistant sessions/messages/drafts/reviews/runs/publish events/attachments, Aria goal-plans/steps/interactions | Prompt authoring, testing, assistant-driven authoring state, hash-bound independent reviewer-agent decisions, and Aria's agentic goal-plan orchestration. |
 | Tools and skills | tool registry, tool test runs, skill rows, skill test runs | Reusable runtime capabilities and authoring/test surfaces. |
 | Workflows | workflows, workflow versions, deployments, runs, events, checkpoints, session memory, benchmark reports, patches, promotions | Workflow Studio source-of-truth and runtime lineage. |
 | MCP | MCP servers | External tool endpoints, discovered tools, policies, and calibrations. |
@@ -220,6 +220,13 @@ audited release actions, while `/releases/live` enumerates the database-backed
 workflow deployments and active knowledge-base versions. Prompt liveness remains
 in MLflow and is shown on the per-prompt page rather than inferred by that
 aggregate.
+
+`GET /capabilities` publishes the same distinction as a machine-readable
+`artifact_families` contract for all nine families: history idiom, live-target
+shape, promotion/rollback/evidence flags, gate mode, and calibration idiom. Contract
+tests require every family to declare every field. This prevents clients from
+inferring semantics from the shared panel, but it is not yet a proof that every
+family route implements a common `Releasable` or `Rollbackable` interface.
 
 ## 5. API and interaction surfaces
 

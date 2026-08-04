@@ -164,6 +164,8 @@ or a closed laptop lid:
 - `POST /tools/{tool_id}/calibration-jobs` — returns `202` with a job id
 - `GET /tools/{tool_id}/calibration-jobs` — recent jobs, newest first
 - `GET /tools/{tool_id}/calibration-jobs/{job_id}` — poll one job
+- `POST /tools/{tool_id}/calibration-jobs/{job_id}/resolve` — abandon an
+  ambiguous claim or retry it as a new lineage-linked job; a reason is required
 
 A background drain claims a job with a conditional `UPDATE`, runs it off the event loop
 without holding a database session, and records the outcome. It attaches a result to the
@@ -175,8 +177,13 @@ failure is the wrong default. Bounded shutdown fences the active generation imme
 waits at most the configured grace for the tracked drain; it performs no stop-time database
 settlement. An interrupted claim therefore remains visibly `running`/ambiguous, while the
 retained generation fence prevents a late scorer from persisting a terminal result or failure.
+The Tool detail page shows this durable history. An operator can explicitly abandon
+the original row or create a new queued retry with the exact snapshotted definition
+and cases. The original becomes terminal and records the actor, reason, timestamp,
+resolution, and retry job ID; status-conditional settlement discards a late result
+instead of overwriting that decision.
 The synchronous `POST /tools/{tool_id}/calibrate` remains for small
-fixture sets and is still the path used by the current Tool workspace.
+fixture sets; the Tool workspace also exposes the durable queue for longer runs.
 
 The second area covers testing and calibration against the sandbox and fixtures:
 
@@ -336,7 +343,8 @@ baseline support enables run comparisons in the workspace. A lifecycle summary i
 computed from fixtures, test history, calibration, and registry status.
 Source-code introspection and signature reflection are available for debugging.
 Usage inspection runs against workflow versions and deployments. Durable calibration
-jobs expose claim identity, timestamps, result/error and stale reasons; the registry
+jobs expose claim identity, timestamps, result/error, resolution metadata, and retry
+lineage; the registry
 revision records whether current evidence still belongs to the current definition.
 
 To keep history listings fast, the module separates heavy payloads from cheap

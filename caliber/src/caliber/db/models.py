@@ -1201,6 +1201,16 @@ class CaliberCalibrationJob(Base):
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Explicit operator disposition for a job whose worker disappeared while
+    # authored tool code may have been executing. A retry is a new row linked to
+    # this one; the original immutable inputs and ambiguous outcome remain visible.
+    retry_of_job_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_calibration_jobs.job_id"), nullable=True
+    )
+    resolution: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolution_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class CaliberIncident(Base):
@@ -2306,6 +2316,7 @@ class CaliberAssistantDraft(Base):
     artifact: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     validation_report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     test_report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    review_report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     target_registry_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_by: Mapped[str] = mapped_column(String(256), default="")
@@ -2339,6 +2350,36 @@ class CaliberAssistantRun(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaliberAssistantReview(Base):
+    """Append-only reviewer-agent decision bound to an immutable draft snapshot."""
+
+    __tablename__ = "caliber_assistant_reviews"
+    __table_args__ = (
+        Index("ix_asst_review_draft_created", "draft_id", "created_at"),
+        Index("ix_asst_review_decision_created", "decision", "created_at"),
+    )
+
+    review_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    draft_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_assistant_drafts.draft_id")
+    )
+    mode: Mapped[str] = mapped_column(String(32))
+    decision: Mapped[str] = mapped_column(String(32))
+    candidate_version: Mapped[int] = mapped_column(Integer)
+    candidate_hash: Mapped[str] = mapped_column(String(64))
+    candidate_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
+    author_user: Mapped[str] = mapped_column(String(256))
+    reviewer_user: Mapped[str] = mapped_column(String(256))
+    reviewer_kind: Mapped[str] = mapped_column(String(64), default="agent")
+    policy_version: Mapped[str] = mapped_column(String(256))
+    model: Mapped[str] = mapped_column(String(256), default="")
+    rationale: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class CaliberAssistantPublishEvent(Base):

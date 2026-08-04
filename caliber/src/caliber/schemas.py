@@ -1776,6 +1776,7 @@ class PlatformCapabilitiesSchema(BaseModel):
 
     workflow_runs: WorkflowRunCapabilitySchema
     sync_workflow_version_run: bool = True
+    artifact_families: dict[str, dict[str, object]] = Field(default_factory=dict)
 
 
 class WorkflowComponentFieldSchema(BaseModel):

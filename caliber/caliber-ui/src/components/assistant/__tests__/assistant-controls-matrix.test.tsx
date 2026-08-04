@@ -10,7 +10,6 @@ import { TestPanel } from "@/components/assistant/TestPanel";
 import { ValidationPanel } from "@/components/assistant/ValidationPanel";
 import type { ClarifyingQuestion, TestReport, ValidationReport } from "@/api/assistantTypes";
 
-
 describe("ModeSelector", () => {
   it.each([
     ["chat", "Chat", "Ask questions — Aria answers without creating artifacts."],
@@ -44,14 +43,9 @@ describe("ModeSelector", () => {
   });
 });
 
-
 describe("ApprovalModeSelector", () => {
   it.each([
-    [
-      "manual",
-      "Ask first",
-      "Aria proposes changes and asks before every validate, test, approve, or publish action.",
-    ],
+    ["manual", "Ask first", "Aria proposes changes and asks before every validate, test, approve, or publish action."],
     [
       "auto_safe",
       "Approve for me",
@@ -59,13 +53,23 @@ describe("ApprovalModeSelector", () => {
     ],
     [
       "auto_all",
-      "Full access",
-      "Aria can validate, test, approve, and publish a passing draft without pausing for approval.",
+      "Legacy auto",
+      "Legacy policy: Aria can run safe and reversible mutation tools, but approval and publish still require a separate authority.",
+    ],
+    [
+      "agent_review",
+      "Agent review",
+      "Aria validates and tests, then an independent approver-scoped agent reviews the immutable draft. Publishing remains separate.",
+    ],
+    [
+      "full_autonomy",
+      "Full autonomy",
+      "An independent reviewer agent approves a passing immutable draft, then a distinct operator-scoped release service publishes it.",
     ],
   ])("renders the current approval mode %s", (value, label, title) => {
     render(
       <ApprovalModeSelector
-        value={value as "manual" | "auto_safe" | "auto_all"}
+        value={value as "manual" | "auto_safe" | "auto_all" | "agent_review" | "full_autonomy"}
         onChange={() => {}}
       />,
     );
@@ -77,7 +81,9 @@ describe("ApprovalModeSelector", () => {
   it.each([
     ["manual", "Ask first"],
     ["auto_safe", "Approve for me"],
-    ["auto_all", "Full access"],
+    ["auto_all", "Legacy auto"],
+    ["agent_review", "Agent review"],
+    ["full_autonomy", "Full autonomy"],
   ])("changes to %s from the dropdown", async (nextMode, label) => {
     const onChange = vi.fn();
     render(<ApprovalModeSelector value="manual" onChange={onChange} />);
@@ -93,8 +99,27 @@ describe("ApprovalModeSelector", () => {
     expect(screen.queryByText("Approve for me")).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
-});
 
+  it("disables autonomous policies when their service identities are not ready", async () => {
+    const onChange = vi.fn();
+    render(
+      <ApprovalModeSelector
+        value="manual"
+        onChange={onChange}
+        autonomy={{
+          agent_review_ready: false,
+          full_autonomy_ready: false,
+          reviewer_configured: false,
+          release_configured: false,
+        }}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("assistant-approval-selector"));
+    expect(screen.getAllByText("Not configured")).toHaveLength(2);
+    expect(screen.getByText("Agent review").closest("button")).toBeDisabled();
+    expect(screen.getByText("Full autonomy").closest("button")).toBeDisabled();
+  });
+});
 
 describe("DraftStatusBadge", () => {
   it.each([
@@ -105,6 +130,9 @@ describe("DraftStatusBadge", () => {
     ["testing", "bg-blue-100"],
     ["tested", "bg-emerald-100"],
     ["test_failed", "bg-red-100"],
+    ["reviewing", "bg-blue-100"],
+    ["review_rejected", "bg-red-100"],
+    ["review_failed", "bg-red-100"],
     ["approved", "bg-amber-100"],
     ["publishing", "bg-blue-100"],
     ["published", "bg-green-100"],
@@ -116,7 +144,6 @@ describe("DraftStatusBadge", () => {
     expect(badge.className).toContain(classFragment);
   });
 });
-
 
 describe("ArtifactTypeSelector", () => {
   it.each([
@@ -133,7 +160,6 @@ describe("ArtifactTypeSelector", () => {
   });
 });
 
-
 describe("QuestionList", () => {
   it("renders nothing when there are no questions", () => {
     const { container } = render(<QuestionList questions={[]} onAnswer={() => {}} />);
@@ -142,13 +168,16 @@ describe("QuestionList", () => {
 
   it.each([
     [
-      [{ question: "What should it be named?", field: "name", options: ["alpha", "beta"] }],
+      [
+        {
+          question: "What should it be named?",
+          field: "name",
+          options: ["alpha", "beta"],
+        },
+      ],
       ["alpha", "beta"],
     ],
-    [
-      [{ question: "Which bucket?", field: "bucket", options: ["docs"] }],
-      ["docs"],
-    ],
+    [[{ question: "Which bucket?", field: "bucket", options: ["docs"] }], ["docs"]],
   ])("renders option pills for selectable questions", (questions, options) => {
     render(<QuestionList questions={questions as ClarifyingQuestion[]} onAnswer={() => {}} />);
     for (const option of options as string[]) {
@@ -159,22 +188,30 @@ describe("QuestionList", () => {
   it("renders free-text clarifying prompts without option pills", () => {
     render(
       <QuestionList
-        questions={[{ question: "Describe the desired behavior", field: "desc", options: [] }]}
+        questions={[
+          {
+            question: "Describe the desired behavior",
+            field: "desc",
+            options: [],
+          },
+        ]}
         onAnswer={() => {}}
       />,
     );
     expect(screen.getByText("Describe the desired behavior")).toBeInTheDocument();
   });
 
-  it.each([
-    ["alpha"],
-    ["beta"],
-    ["docs"],
-  ])("calls onAnswer for option %s", async (option) => {
+  it.each([["alpha"], ["beta"], ["docs"]])("calls onAnswer for option %s", async (option) => {
     const onAnswer = vi.fn();
     render(
       <QuestionList
-        questions={[{ question: "Choose one", field: "name", options: ["alpha", "beta", "docs"] }]}
+        questions={[
+          {
+            question: "Choose one",
+            field: "name",
+            options: ["alpha", "beta", "docs"],
+          },
+        ]}
         onAnswer={onAnswer}
       />,
     );
@@ -182,7 +219,6 @@ describe("QuestionList", () => {
     expect(onAnswer).toHaveBeenCalledWith(option);
   });
 });
-
 
 describe("ValidationPanel", () => {
   it("renders the empty-state placeholder when no report exists", () => {
@@ -195,7 +231,11 @@ describe("ValidationPanel", () => {
     [{ valid: false, errors: ["Missing field"], warnings: [] }, "Invalid"],
     [{ valid: true, errors: [], warnings: ["Consider adding a description"] }, "Valid"],
     [
-      { valid: false, errors: ["Missing field"], warnings: ["Consider adding a description"] },
+      {
+        valid: false,
+        errors: ["Missing field"],
+        warnings: ["Consider adding a description"],
+      },
       "Invalid",
     ],
   ])("renders validation report state %j", (report, label) => {
@@ -209,7 +249,6 @@ describe("ValidationPanel", () => {
     }
   });
 });
-
 
 describe("TestPanel", () => {
   it("renders the empty-state placeholder when no report exists", () => {

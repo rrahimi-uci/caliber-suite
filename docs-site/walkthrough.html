@@ -452,8 +452,8 @@ xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
       </p>
       <div class="grid">
         <div class="card"><h4>Modes</h4><p><code>chat</code> talks, <code>plan</code> outlines, <code>build</code> materializes drafts. Aria only authors artifacts in <code>build</code>.</p></div>
-        <div class="card"><h4>Approvals</h4><p>The approval mode controls how far Aria auto-advances a passing draft through validate → test → approve → publish — never past the gates.</p></div>
-        <div class="card"><h4>Permissioned tools</h4><p>Read tools in every mode; reversible/sandboxed tools in <code>build</code> + <code>auto_safe</code>; real runs, approve, and publish only in <code>build</code> + <code>auto_all</code>.</p></div>
+        <div class="card"><h4>Approvals</h4><p>The approval mode controls admitted synchronous work through validation and testing. Draft approval and publication remain explicit human actions in the lifecycle UI/API.</p></div>
+        <div class="card"><h4>Permissioned tools</h4><p>Read tools in every mode; reversible/sandboxed tools in <code>build</code> + <code>auto_safe</code>; admitted mutations and real runs in <code>build</code> + <code>auto_all</code>. Approval and publication are withheld from the synchronous toolset.</p></div>
         <div class="card"><h4>Transparency</h4><p>Each turn records the tool calls it executed and a compact process-steps trail, so you can see exactly what Aria did.</p></div>
       </div>
     </section>
@@ -475,18 +475,19 @@ xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
   <span class="ok">✓</span> run_tool_sandbox      <span class="dim">— "2026-06-20" → "Saturday"</span>
   I drafted <span class="ok">iso_weekday</span>, validated it, and ran it in the sandbox: it
   returns "Saturday" for 2026-06-20. It's at the <em>tested</em> gate — say the word
-  and I'll request approval and publish.
+  returns "Saturday" for 2026-06-20. It's at the <em>tested</em> gate — review it
+  in the draft lifecycle UI/API to approve and publish.
       </div>
       <p>
-        Switch the approval mode to <code>auto_all</code> and Aria will carry a passing draft through approve and
-        publish as part of the turn. Everything it does is gated by mode &times; approval and recorded in the message's
-        tool-call trail, so the autonomy is bounded and auditable.
+        Switch the approval mode to <code>auto_all</code> when a turn needs admitted mutations or real runs. Aria still
+        cannot approve or publish a draft inside that synchronous turn; a human advances those lifecycle gates. Every
+        admitted action is recorded in the message's tool-call trail, so the autonomy remains bounded and auditable.
       </p>
       <div class="callout">
         <strong>Why no mid-turn prompt?</strong> A single Aria <em>turn</em> is synchronous, so it can't pause to ask
         for a click mid-loop. Instead the toolset only <em>exposes</em> the tools the current mode and approval level
-        allow — that's the permission model. To gate more tightly, drop to <code>manual</code> (Aria proposes; you
-        advance the gates). When you want an explicit mid-run prompt, hand Aria a <strong>goal</strong> instead: the
+        allow — that's the permission model. Draft approval and publication always use the human lifecycle UI/API.
+        When a registry capability needs an explicit mid-run prompt, hand Aria a <strong>goal</strong> instead: the
         goal-plan orchestrator (<code>/aria/plans</code>) walks a durable plan and <em>does</em> pause for an
         approve/deny interaction — with separation of duties on gated steps — then resumes where it stopped.
       </div>

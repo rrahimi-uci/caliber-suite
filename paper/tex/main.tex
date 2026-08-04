@@ -102,16 +102,19 @@ working-tree changes. The manuscript source, generated counts, and build
 instructions are under \code{paper/} in the working tree supplied for review.
 
 The manuscript source is versioned in the same repository as the implementation it
-describes, so a reader can check the paper against the code at a single revision.
+describes, so a reader can check the paper against one disclosed source state. In a
+dirty checkout, the base revision alone does not identify the uncommitted patch;
+the code{-dirty} marker is a disclosure, not a reproducibility claim.
 What can be reproduced is the document and its source-derived counts: running
 \code{make repro} in \code{paper/} regenerates \code{generated/stats.tex}, fails if
 the result differs from the committed files, forces a four-pass build, and runs the
-document checks. \code{paper/REPRODUCE.md} records the required toolchain and states
-the boundary of that command.
+document checks. It also re-runs the eight deterministic structural checks without
+rewriting their recorded manifest. \code{paper/REPRODUCE.md} records the required
+toolchain and states the boundary of that command.
 
-What that does \emph{not} establish is the measurement protocol, which needs a
-pinned environment we have not yet published, and which is the first thing to add
-once \tabref{tab:results} has numbers in it.
+What that does \emph{not} establish is the unrun performance, scale, baseline, and
+human-study protocol, which needs a pinned experiment environment and remains the
+first obligation before \tabref{tab:results} can contain quantitative results.
 
 \clearpage
 \addcontentsline{toc}{section}{References}

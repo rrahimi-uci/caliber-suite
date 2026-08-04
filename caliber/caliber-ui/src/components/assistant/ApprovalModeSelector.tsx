@@ -9,23 +9,18 @@ import {
   ASSISTANT_APPROVAL_MODE_LABELS,
 } from "@/api/assistantTypes";
 import type { AssistantApprovalMode } from "@/api/assistantTypes";
+import type { AssistantConfig } from "@/api/assistantTypes";
 
-import {
-  AssistantControlDropdown,
-  AssistantControlDropdownOption,
-} from "./AssistantControlDropdown";
+import { AssistantControlDropdown, AssistantControlDropdownOption } from "./AssistantControlDropdown";
 
 interface ApprovalModeSelectorProps {
   value: AssistantApprovalMode;
   onChange: (mode: AssistantApprovalMode) => void;
   disabled?: boolean;
+  autonomy?: AssistantConfig["autonomy"];
 }
 
-export function ApprovalModeSelector({
-  value,
-  onChange,
-  disabled,
-}: ApprovalModeSelectorProps): JSX.Element {
+export function ApprovalModeSelector({ value, onChange, disabled, autonomy }: ApprovalModeSelectorProps): JSX.Element {
   return (
     <AssistantControlDropdown
       ariaLabel="How should Aria's actions be approved?"
@@ -45,18 +40,25 @@ export function ApprovalModeSelector({
     >
       {({ closeMenu }) => (
         <div className="space-y-1">
-          {ASSISTANT_APPROVAL_MODES.map((mode) => (
-            <AssistantControlDropdownOption
-              key={mode}
-              label={ASSISTANT_APPROVAL_MODE_LABELS[mode]}
-              description={ASSISTANT_APPROVAL_MODE_HINTS[mode]}
-              selected={mode === value}
-              onClick={() => {
-                onChange(mode);
-                closeMenu();
-              }}
-            />
-          ))}
+          {ASSISTANT_APPROVAL_MODES.map((mode) => {
+            const unavailable =
+              (mode === "agent_review" && autonomy?.agent_review_ready === false) ||
+              (mode === "full_autonomy" && autonomy?.full_autonomy_ready === false);
+            return (
+              <AssistantControlDropdownOption
+                key={mode}
+                label={ASSISTANT_APPROVAL_MODE_LABELS[mode]}
+                description={ASSISTANT_APPROVAL_MODE_HINTS[mode]}
+                disabled={unavailable}
+                secondaryLabel={unavailable ? "Not configured" : undefined}
+                selected={mode === value}
+                onClick={() => {
+                  onChange(mode);
+                  closeMenu();
+                }}
+              />
+            );
+          })}
         </div>
       )}
     </AssistantControlDropdown>

@@ -22,13 +22,21 @@ to catch.
 `make check` additionally fails on undefined references, undefined citations,
 floats taller than the page, and an abstract over 250 words.
 
+`make repro` also executes `benchmarks/run_structural.py --verify`. That suite
+replays eight deterministic ownership, operator-fencing, release-fault, resolver-outage, and
+publication-gating checks. `make evidence` writes the environment and outcomes to
+`benchmarks/results/structural.json`; ordinary reproduction verifies the checks
+without rewriting the recorded timestamp. The manifest records whether the worktree
+was dirty. If it was, its base Git revision does not identify the uncommitted patch;
+the dirty flag discloses that limit rather than making the run independently exact.
+
 ## What `make repro` does not prove
 
-**The measurement protocol has not been executed.** Table 5 contains no numbers;
-every quantitative cell is marked *not measured*. Appendix C specifies the protocol
-in enough detail for an independent party to run it, but there is no result set to
-reproduce, and no pinned experiment environment is published yet. Section 10 states
-this as the paper's primary limitation rather than a footnote.
+**The performance, scale, baseline, and human-study protocol has not been
+executed.** Table 5 contains no quantitative numbers; every such cell is marked
+*not measured*. The structural manifest explicitly excludes production latency,
+throughput, replica-scale stress, and human agreement. Appendix C specifies those
+protocols, but no pinned experiment environment or result set is published yet.
 
 Providing a pinned environment and a results manifest is the first thing to add once
 Table 5 has numbers in it.
@@ -41,9 +49,10 @@ Last run against:
 |---|---|
 | pdfTeX  | TeX Live 2024 (`pdflatex --version`) |
 | BibTeX  | 0.99d |
-| Python  | 3.11+ (only `scripts/gen_stats.py`; standard library only) |
+| Python  | 3.10–3.12 for CALIBER checks; 3.11+ for paper-only scripts |
 
-No `latexmk`, no Node, and no network access are required for `make repro`. Four
+No `latexmk`, no Node, and no network access are required for `make repro`. The
+repository's `caliber/.venv` must contain the development test dependencies. Four
 pdflatex passes plus one bibtex pass settle floats, citations, and cross-references.
 
 `make diagrams` is separate and *is* optional: it rebuilds the Excalidraw figures
