@@ -1,0 +1,1 @@
+{"t":"2026-08-04T22:06:28.091Z","severity":"DEBUG","logger":"caliber.events.nats_bus","message":"NATS event bus loop closed; dropping remote event type='raises.loop'"}

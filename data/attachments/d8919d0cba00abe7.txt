@@ -1,0 +1,4 @@
+{"t":"2026-08-04T21:55:25.357Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-04T21:55:25.379Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-04T21:55:25.381Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-04T21:55:25.383Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: anthropic (configured=auto)"}
