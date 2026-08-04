@@ -19,10 +19,12 @@ real architectural benefit and we gave it up.
 The reason is that the alternative competes with a mature system for no governance
 gain. \mlflow{} already provides experiment tracking, trace storage, assessments, a
 prompt registry with alias semantics, an artifact store, a dataset registry, and
-evaluation entry points~\cite{zaharia2018mlflow}. A team adopting \sys almost
-certainly already runs it. Reimplementing that surface would have consumed the
-engineering budget that the release path needed, and would have forced adopters to
-migrate trace history to gain governance --- a trade few would accept.
+evaluation entry points~\cite{mlflowgenai,mlflowpromptregistry}. Reimplementing
+that surface would have consumed the engineering budget the release path needed,
+and it would have forced any adopter who already runs \mlflow{} to migrate trace
+history in order to gain governance. We have no data on how many teams that is, and
+the argument does not need any: the cost of reimplementation is paid whether or not
+the adopter already runs it.
 
 The price is precisely stated in \secref{sec:components}: the audit guarantee holds
 for database-resident mutations and not across the \mlflow{} boundary. We consider

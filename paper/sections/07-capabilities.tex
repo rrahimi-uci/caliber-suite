@@ -20,11 +20,17 @@ vague claim about agility:
       time-to-fix becomes the refinement path plus operator attention, not the CI
       pipeline. We specify how to measure this in \appref{app:protocol} and have
       not measured it.
-\item \textbf{Rollback is a pointer move, not a redeploy.} Where the governed path
-      committed a checkpoint, restoring the recorded target is a bounded database
-      and registry operation rather than a code revert. Where an authoring route
-      moved the alias instead, there is no checkpoint to restore from
-      (\secref{sec:limitations}).
+\item \textbf{Rollback is a pointer move, not a redeploy.} Restoring the recorded
+      target is a bounded database and registry operation rather than a code
+      revert, and the target restored is the one the release \emph{recorded}
+      rather than one inferred as ``the previous number.'' Rollback is itself a
+      release operation, so it takes the same intent record and the same audit
+      row as a promotion (\algref{alg:promote}).
+\item \textbf{Authoring cannot move the pointer.} Registering a prompt version is
+      a non-live operation: the shared registration helper rejects a request that
+      would also set an alias, and directs the caller to the release service.
+      That is what makes the two properties above hold for every in-repository
+      call site rather than only for the path this paper describes.
 \item \textbf{Authority is scope-checked.} Rotating an alias requires the
       \operator{} or \admin{} scope. We are careful not to call this separation of
       duties: the sibling \approver{} scope exists, but nothing currently requires

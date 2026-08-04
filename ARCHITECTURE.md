@@ -55,7 +55,7 @@ flowchart LR
     subgraph L6["6 · SURFACES"]
       direction LR
       s1["<b>React SPA</b><br/><code>/caliber/</code>"]:::ui
-      s2["<b>HTTP API</b><br/>roughly 340 declarations across<br/>API · system · static surfaces"]:::ui
+      s2["<b>HTTP API</b><br/>456 method declarations<br/>across route modules"]:::ui
       s3["<b>Aria copilot</b><br/>permissioned<br/>agentic tool loop"]:::ui
       s4["<b>Headless</b><br/>service tokens ·<br/>SSE · webhooks"]:::ui
       s1 --- s2 --- s3 --- s4
@@ -91,7 +91,7 @@ flowchart LR
       g1["<b>Identity &amp; authority</b><br/>sessions · 4 RBAC scopes<br/>CSRF · rate limit"]:::gov
       g2["<b>Execution policy</b><br/>governed HTTP/MCP egress<br/>MCP containment · env class"]:::gov
       g3["<b>Evidence &amp; verdicts</b><br/>gate verdicts · regression<br/>impact analysis"]:::gov
-      g4["<b>Release control</b><br/>apply · promote<br/>rollback checkpoints"]:::gov
+      g4["<b>Release control</b><br/>apply · promote · reconcile<br/>release intents · rollback checkpoints"]:::gov
       g5["<b>Ledgers</b><br/>audit log · effect ledger<br/>redaction"]:::gov
       g1 --- g2 --- g3 --- g4 --- g5
     end
@@ -123,7 +123,7 @@ flowchart LR
 
   subgraph GA["◆ GOVERNED ASSET"]
     direction TB
-    p1["<b>FULL LOOP</b><br/>―――――<br/><b>Prompt</b><br/><br/>Immutable MLflow registry<br/>versions behind <code>@prod</code><br/>Enforced refinement advancement;<br/>advisory release verdict<br/>Operator/admin promote records<br/>the outgoing alias target —<br/>rollback restores it<br/>Optimizer-backed calibration"]:::t1
+    p1["<b>FULL LOOP</b><br/>―――――<br/><b>Prompt</b><br/><br/>Immutable MLflow registry<br/>versions behind <code>@prod</code><br/>Non-live authoring;<br/>advisory release verdict<br/>Intent-first alias release<br/>with operator reconciliation;<br/>exact rollback target<br/>Optimizer-backed calibration"]:::t1
     p2["<b>DEPLOYED</b><br/>―――――<br/><b>Workflow</b> · <b>Knowledge base</b><br/><br/>Published version rows behind<br/>deployment aliases or<br/><code>active_version_id</code><br/>Deploy-gate policy with an<br/>optimistic alias check<br/>Checkpoint-stack or<br/>activation-history rollback"]:::t2
     p3["<b>VERSIONED / MANAGED</b><br/>―――――<br/><b>Skill</b> · <b>Tool</b> · <b>Test set</b> · <b>MCP</b><br/><br/>Immutable skill snapshots;<br/>tool and test-set version forms;<br/>mutable MCP definitions with<br/>audit history<br/>No shared live-alias contract<br/>Skill rollback creates a new version"]:::t3
     p1 --- p2 --- p3
@@ -159,7 +159,7 @@ flowchart LR
 | **6 · Surfaces** — *the interface* | Every human and machine entry point. One same-origin browser control plane in either topology. | [routes/static.py](caliber/src/caliber/routes/static.py) · [routes/](caliber/src/caliber/routes/) · [caliber-ui/src/](caliber/caliber-ui/src/) |
 | **5 · Lifecycle modes** — *the verbs* | Six reusable lifecycle concepts applied where an asset supports them. Each new family must explicitly wire its adapters, routes, authorization, evidence, and tests; integration is not inherited automatically. | [orchestrator/](caliber/src/caliber/orchestrator/) · [eval/](caliber/src/caliber/eval/) · [apply.py](caliber/src/caliber/apply.py) · [promoter.py](caliber/src/caliber/promoter.py) |
 | **4 · Asset families** — *the nouns* | Nine governed families or contexts. Some are authored runtime assets, while others are evidence, scoring, or anchor records; several have no live-target or release primitive (§4). | [db/models.py](caliber/src/caliber/db/models.py) · [schemas.py](caliber/src/caliber/schemas.py) |
-| **3 · Governance substrate** — *the rules* | Shared primitives for identity, execution policy, evidence, release control, and ledgers. Asset paths wire them explicitly, so adoption and guarantees remain path-specific. | [auth.py](caliber/src/caliber/auth.py) · [egress.py](caliber/src/caliber/egress.py) · [mcp_policy.py](caliber/src/caliber/mcp_policy.py) · [gate_verdicts.py](caliber/src/caliber/gate_verdicts.py) · [audit.py](caliber/src/caliber/audit.py) |
+| **3 · Governance substrate** — *the rules* | Shared primitives for identity, execution policy, evidence, release control, and ledgers. Asset paths wire them explicitly, so adoption and guarantees remain path-specific. | [auth.py](caliber/src/caliber/auth.py) · [egress.py](caliber/src/caliber/egress.py) · [mcp_policy.py](caliber/src/caliber/mcp_policy.py) · [gate_verdicts.py](caliber/src/caliber/gate_verdicts.py) · [release_operations.py](caliber/src/caliber/release_operations.py) · [audit.py](caliber/src/caliber/audit.py) |
 | **2 · Kernel** — *modular services* | Core app-lifetime dependencies are built in `create_app()` and stored on `app.state`; some feature and runtime services or backends are constructed lazily or per operation. | [server.py](caliber/src/caliber/server.py) · [config.py](caliber/src/caliber/config.py) · [storage/](caliber/src/caliber/storage/) · [tool_sandbox/](caliber/src/caliber/tool_sandbox/) · [events/](caliber/src/caliber/events/) |
 | **1 · Infrastructure** — *the base* | The substrate CALIBER runs on and integrates with, all of it swappable by configuration. | [db/session.py](caliber/src/caliber/db/session.py) · [knowledge/pgvector_ann.py](caliber/src/caliber/knowledge/pgvector_ann.py) · [knowledge/age.py](caliber/src/caliber/knowledge/age.py) |
 
@@ -212,7 +212,7 @@ not necessarily a distinct worker stage, table, or row:
 | Candidate | Diagnosis + candidate artifact, produced by the policy-selected optimizer |
 | Measurement | Job, regression, or evaluation records with scores and an enforced candidate-advancement gate decision; a separate per-version gate-verdict row, where written, is advisory release evidence |
 | Decision | An explicit operator/admin Apply action; implemented refinement release paths then mint a born-approved provenance anchor carrying the candidate and evaluation evidence |
-| Release | A rollback checkpoint and audit row on implemented release paths; DB-local writes can share the caller transaction, while external registry or provider effects remain reconciliation boundaries |
+| Release | Implemented paths leave rollback and audit evidence. Prompt alias paths additionally commit an idempotent release intent with exact before/after versions before the external effect, then settle it or expose it for reconciliation; other provider paths must establish their own guarantees. |
 | Trace | New MLflow traces and assessments — and, when SLO reconciliation runs on the observability surface, a durable incident |
 
 The canonical **prompt** path is the fullest instance of the chain, with two
@@ -227,7 +227,7 @@ flowchart LR
     g["③ Optimize<br/>policy-selected optimizer"]:::auto
     e["④ Evaluate<br/>EvalProvider + regression gate"]:::auto
     a["⑤ Apply<br/><b>operator</b> · diff + eval"]:::human
-    p["⑥ Promote<br/>audited alias rotation"]:::ship
+    p["⑥ Promote<br/>intent-first alias release"]:::ship
 
     trace --> flag --> v --> d --> g --> e --> a --> p
     p -.->|"agent loads @prod — no code change"| trace
@@ -316,7 +316,7 @@ should read before assuming a capability transfers across families.
 
 | Family | History & liveness | Gate semantics | Release / rollback | Calibration idiom |
 | --- | --- | --- | --- | --- |
-| **Prompt** | Immutable MLflow registry versions behind an alias such as `@prod` | Refinement gate enforces advancement to `candidate_ready`; persisted version-panel verdict is advisory | Operator-scoped promote/rollback (operator or admin; approver is a sibling scope) records and restores the outgoing alias target | Provider optimizer + EvalProvider |
+| **Prompt** | Immutable MLflow registry versions behind an alias such as `@prod`; authoring never changes the live alias | Refinement gate enforces advancement to `candidate_ready`; persisted version-panel verdict is advisory | Operator-scoped promote/rollback (operator or admin; approver is a sibling scope) commits an idempotent release intent before MLflow mutation, records exact before/after versions, and supports reconciliation | Provider optimizer + EvalProvider |
 | **Workflow** | Editable drafts → published version rows; deployment aliases select one | Refinement/calibration gate enforces candidate readiness; deploy-gate policy enforces configured releases with an optimistic alias check | Rollback pops the deployment's checkpoint stack | Manifest replay |
 | **Knowledge base** | Immutable build versions behind `active_version_id` | No prompt-style verdict | Audited activation; rollback derives the prior active build from history | Retrieval-quality calibration |
 | **Skill** | Mutable current `CaliberSkill` + immutable `CaliberSkillVersion` snapshots | Refinement gate enforces advancement to `candidate_ready`; no release/version-panel gate | Rollback restores the prior snapshot as a new current version | Agent-free optimizer path |
@@ -484,7 +484,7 @@ flowchart TB
       direction TB
       subgraph DR1[" "]
         direction LR
-        m1["<b>Core governance</b><br/>verification items · refinement jobs<br/>approvals · rollback checkpoints"]:::dom
+        m1["<b>Core governance</b><br/>verification items · refinement jobs<br/>approvals · release operations<br/>rollback checkpoints"]:::dom
         m2["<b>Prompts &amp; assistant</b><br/>test runs · Aria sessions, plans,<br/>steps, interactions, attachments"]:::dom
         m3["<b>Tools &amp; skills</b><br/>registry rows · test runs<br/><code>CaliberSkillVersion</code> snapshots"]:::dom
         m4["<b>Workflows</b><br/>versions · deployments · runs · events<br/>checkpoints · patches · promotions"]:::dom
@@ -564,11 +564,13 @@ Notes an architect will want:
   ASGI chunks against `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` (1 MiB by default). Policy
   and token are revalidated under the enqueue lock after bounded parsing. This is a
   per-request application bound, not connection/IP flood protection.
-- **Audit atomicity is path-specific.** For database-resident paths that call
-  `audit_record` on the caller's session, mutation and audit share one SQL
-  transaction. External MLflow or provider effects and separately committed paths
-  are dual-write boundaries that can diverge without reconciliation. Importing the
-  helper does not prove that every mutation in a module is audited.
+- **Audit and external-effect safety are path-specific.** For database-resident
+  paths that call `audit_record` on the caller's session, mutation and audit share
+  one SQL transaction. Prompt alias changes use a stronger intent-first protocol:
+  the exact operation is committed before MLflow is called, ambiguous outcomes
+  become `reconcile_required`, and an operator can settle them from observed alias
+  state. Other external/provider paths do not inherit that protocol merely by
+  importing an audit or promoter helper.
 
 ---
 

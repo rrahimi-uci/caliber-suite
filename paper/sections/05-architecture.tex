@@ -230,12 +230,21 @@ helper into a module does not prove every mutation in that module is audited, an
 a failed dual write can leave orphaned bytes that a sweeper must reclaim (D7,
 \tabref{tab:decisions}).
 
-\para{The read path.} \algref{alg:resolve} is the only \sys code that runs on a
-production serving path, and it is deliberately eight lines long: the client names
-an alias, never a version, and a resolver that cannot reach the control plane
-serves the last known version rather than failing the call. That the cost surface
-is this small is what makes E1 in \secref{sec:eval} a bounded measurement rather
-than an open-ended one.
+\para{The read path.} \algref{alg:resolve} is deliberately eight lines long: the
+client names an alias, never a version, and a resolver that cannot reach the
+control plane serves the last known version rather than failing the call.
+
+The scope of that statement is worth fixing precisely, because ``\sys is not on
+the serving path'' is the kind of claim that is true of one deployment and false of
+another. It holds for the \emph{resolver-library} deployment, in which the agent
+process links the resolver and calls the provider directly, and \sys's HTTP surface
+is contacted only to resolve an alias. It does \emph{not} hold for deployments that
+route inference or tool execution through \sys's own endpoints --- a published
+workflow served over HTTP (\secref{sec:capabilities}), or a tool invoked through
+the governed execution path --- where \sys is squarely in the request path and its
+cost is not bounded by \algref{alg:resolve}. E1 in \secref{sec:eval} measures the
+first case, and a reader sizing the second should read E1 as a lower bound rather
+than as the answer.
 
 \input{alg-resolve}
 

@@ -173,7 +173,7 @@ set of tables:
 
 | Domain | Representative tables | Purpose |
 | --- | --- | --- |
-| Core governance | verification items, refinement jobs, approvals, rollback checkpoints | Human-in-the-loop refinement pipeline and deployment safety. |
+| Core governance | verification items, refinement jobs, approvals, rollback checkpoints, release operations | Human-in-the-loop refinement and crash-observable prompt release safety. |
 | Prompts and assistants | prompt test runs, assistant sessions/messages/drafts/runs/publish events/attachments, Aria goal-plans/steps/interactions | Prompt authoring, testing, assistant-driven authoring state (Aria context attachments), and Aria's agentic goal-plan orchestration. |
 | Tools and skills | tool registry, tool test runs, skill rows, skill test runs | Reusable runtime capabilities and authoring/test surfaces. |
 | Workflows | workflows, workflow versions, deployments, runs, events, checkpoints, session memory, benchmark reports, patches, promotions | Workflow Studio source-of-truth and runtime lineage. |
@@ -206,7 +206,7 @@ and from the prompt panel's advisory verdict, which does not block alias rotatio
 
 | Artifact | History and liveness | Release/version-panel gate and rollback semantics |
 | --- | --- | --- |
-| Prompt | Immutable MLflow registry versions behind an alias such as `@prod` | The panel verdict is persisted but advisory. Operator/admin promote records the exact outgoing alias target; rollback restores that target across an external-registry/SQL reconciliation boundary. |
+| Prompt | Immutable MLflow registry versions behind an alias such as `@prod` | Authoring is non-live. The panel verdict is persisted but advisory. Operator/admin promote commits an idempotent `CaliberReleaseOperation` with the exact outgoing and target versions before changing MLflow; rollback uses the same protocol, and ambiguous provider outcomes are reconciled from observed alias state. |
 | Workflow | Editable drafts become published workflow-version rows; deployment aliases select a published version | Promotion evaluates the workflow deploy-gate policy and uses an optimistic alias check. Rollback pops the deployment's recorded checkpoint stack. |
 | Knowledge base | Immutable build versions behind `active_version_id` | No prompt-style gate verdict. Activation and rollback are audited; rollback derives the prior active build from activation history. |
 | Skill | A mutable current skill plus immutable `CaliberSkillVersion` snapshots | No live alias or release/version-panel gate; queued refinement still uses its enforced candidate-advancement evaluation. Rollback restores the prior snapshot as a new current version. |
@@ -241,6 +241,7 @@ than exhaustive:
 - `/aria/plans/*` (Aria goal-plan orchestration)
 - `/judges`, `/review-queues`, `/eval-datasets`, `/gate-verdicts/*`
 - `/releases/timeline`, `/releases/live` (cross-artifact releases & rollback)
+- `/releases/operations`, `/releases/operations/reconcile` (operator-visible prompt release recovery)
 
 On the client side, the corresponding entry points are organized as page
 modules, each of which owns a single feature surface:
@@ -282,7 +283,6 @@ do not.
 The loops are in-process, so **each server worker process runs its own full set**.
 `mlflow server` defaults to four gunicorn workers, which means all eight loops
 exist four times over. Where arbitration is durable that is safe: queue consumers
-claim rows with a single conditional `UPDATE ... WHERE status='queued' RETURNING`,
 so exactly one process wins each row, and the cron scheduler is idempotent by a
 minute-bucketed key backed by a unique partial index. Two consequences do not
 follow that rule and are worth sizing for:
@@ -383,8 +383,11 @@ request path and the data it touches:
 - Project and visibility filters are applied on the feature paths that wire the
   shared scoping helpers.
 - Implemented mutation paths append audit records; database-local mutation and
-  audit can share one caller transaction, while external effects and separately
-  committed paths remain reconciliation boundaries.
+  audit can share one caller transaction. Prompt alias changes additionally
+  commit an exact release intent before the MLflow effect and expose incomplete
+  operations for reconciliation. Other external effects and separately committed
+  paths must be evaluated individually and may remain unrecorded dual-write
+  boundaries.
 - Secrets are referenced indirectly through `*_source` fields rather than
   carried as raw secret material.
 - Manifest validation rejects inline secrets in workflow definitions.

@@ -50,7 +50,12 @@
 \newcommand{\cTrace}{\mode{Trace}\xspace}
 
 % Layer references -- so "layer 3" and "the governance substrate" never drift.
-\newcommand{\Lnum}[1]{L\textsubscript{#1}}
+% \texorpdfstring so this survives a PDF bookmark: \textsubscript is not a token
+% hyperref can put in a PDF string, and \Lnum appears in five subsection titles.
+% Without it every one of those headings emitted three warnings and lost the digit
+% from its bookmark.
+\providecommand{\texorpdfstring}[2]{#1}
+\newcommand{\Lnum}[1]{\texorpdfstring{L\textsubscript{#1}}{L#1}}
 \newcommand{\Linfra}{\Lnum{1} (infrastructure)}
 \newcommand{\Lkernel}{\Lnum{2} (kernel)}
 \newcommand{\Lgov}{\Lnum{3} (governance)}

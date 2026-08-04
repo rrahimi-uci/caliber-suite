@@ -71,8 +71,34 @@ stats:
 diagrams: stats
 	@$(PYTHON) diagrams/build.py
 
-repro: stats
+# The single reproduction entrypoint the Availability section promises. It proves
+# one specific thing and does not overclaim: that every quantitative fact in the
+# text is derived from the source tree rather than typed in. It regenerates the
+# statistics, fails if they differ from the committed ones, and rebuilds the PDF
+# under `make check'. It does NOT reproduce the measurement protocol -- there is
+# nothing to reproduce there yet, and Appendix C says so.
+repro:
+	@echo "==> reproducing generated statistics from the source tree"
+	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	cp generated/stats.tex generated/implementation-table.tex "$$tmp/"; \
+	$(PYTHON) scripts/gen_stats.py >/dev/null; \
+	drift=0; \
+	for g in stats.tex implementation-table.tex; do \
+	  if ! diff -q "$$tmp/$$g" "generated/$$g" >/dev/null; then \
+	    echo "FAIL  generated/$$g is not what the tree produces:"; \
+	    diff -u "$$tmp/$$g" "generated/$$g" | sed -n '1,40p' | sed 's/^/      /'; \
+	    drift=1; \
+	  fi; \
+	done; \
+	if [ "$$drift" -ne 0 ]; then \
+	  echo "      the committed numbers describe a different tree revision"; exit 1; fi; \
+	echo "    generated files match the tree byte for byte"
+	@echo "==> rebuilding the document (forced, so the checks always run)"
 	@$(MAKE) --no-print-directory -B all
+	@echo
+	@echo "reproduced: every number in the text is derived, not transcribed."
+	@echo "NOT reproduced: the measurement protocol in Appendix C, which has no"
+	@echo "results yet. See the Availability section."
 
 # The log lint. These are exactly the classes of defect a program committee
 # member sees before they read a word: broken references, missing citations,
@@ -105,6 +131,26 @@ check:
 	  grep -A1 'Overfull \\hbox' "$$log" | grep -E 'Overfull|^\.\.\.' \
 	    | grep -oE 'Overfull \\hbox \([0-9.]+pt too wide\).*' | sort -t'(' -k2 -rn \
 	    | head -5 | sed 's/^/      /'; fi; \
+	tok=$$(grep -c 'Token not allowed in a PDF string' "$$log" || true); \
+	if [ "$$tok" -gt 0 ]; then \
+	  echo "FAIL  $$tok hyperref PDF-string warnings (a bookmark is losing text):"; \
+	  grep -A1 'Token not allowed' "$$log" \
+	    | grep -oE "removing \`[^']+' on input line [0-9]+" | sort -u \
+	    | head -5 | sed 's/^/      /'; \
+	  echo "      wrap the offending macro in \\texorpdfstring"; \
+	  fail=1; fi; \
+	fs=$$(grep -c 'Font shape .* undefined' "$$log" || true); \
+	if [ "$$fs" -gt 0 ]; then \
+	  echo "FAIL  $$fs undefined font shapes (declare the substitution explicitly):"; \
+	  grep -oE "Font shape \`[^']+' undefined" "$$log" | sort -u | sed 's/^/      /'; \
+	  fail=1; fi; \
+	if command -v pdffonts >/dev/null 2>&1 && [ -f "$(PDF)" ]; then \
+	  t3=$$(pdffonts "$(PDF)" | tail -n +3 | awk '$$3 == "Type3"' | wc -l | tr -d ' '); \
+	  if [ "$$t3" -gt 0 ]; then \
+	    echo "FAIL  $$t3 Type 3 fonts -- camera-ready will be rejected:"; \
+	    pdffonts "$(PDF)" | tail -n +3 | awk '$$3 == "Type3" {print "      " $$1}'; \
+	    fail=1; \
+	  else echo "check  all fonts Type 1 (no Type 3)"; fi; fi; \
 	aw=$$(python3 scripts/abstract_words.py 2>/dev/null || echo 0); \
 	if [ "$$aw" -gt 250 ]; then \
 	  echo "FAIL  abstract is $$aw words (limit 250)"; fail=1; \

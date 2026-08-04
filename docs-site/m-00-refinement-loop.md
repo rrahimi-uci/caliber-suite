@@ -14,7 +14,7 @@ flowchart LR
     optimize["③ Optimize<br/>policy-selected optimizer"]:::auto
     evaluate["④ Evaluate<br/>judges + per-dimension gate"]:::auto
     approve["⑤ Apply decision<br/>operator · diff + eval"]:::human
-    promote["⑥ Promote<br/>audited alias rotation"]:::ship
+    promote["⑥ Promote<br/>durable alias release"]:::ship
 
     trace --> verify --> diagnose --> optimize --> evaluate --> approve --> promote
     promote -.->|"code keeps loading @prod — no change"| trace
@@ -36,7 +36,7 @@ flowchart LR
 | **③ Optimize** | A policy-selected optimizer proposes a fix. A manual pin or agent override wins; diagnosis heuristics choose among the remaining live paths. | Calibration |
 | **④ Evaluate** | The candidate is scored against a pinned test set with per-dimension regression checks. A pass advances the job to `candidate_ready`; it does not promote automatically, and registry gate verdicts elsewhere remain advisory. | Evaluation · Test sets |
 | **⑤ Apply decision** | An operator-scoped actor (operator or admin; approver is a sibling scope) reviews the diff, evaluation comparison, and root-cause summary, then either invokes Apply or leaves the candidate unapplied. This is not a separate vote/quorum/reject API. | Prompts |
-| **⑥ Promote** | On the canonical prompt path, Apply rotates the live alias and records the exact outgoing target for audited rollback. Other assets retain their own release semantics. | Prompts |
+| **⑥ Promote** | On the canonical prompt path, Apply first commits an idempotent release operation containing the exact outgoing and target versions, then rotates the live alias and settles the operation. Ambiguous provider outcomes remain visible for operator reconciliation; rollback uses the recorded target. Other assets retain their own release semantics. | Prompts |
 
 ## Why it matters
 

@@ -148,7 +148,14 @@ would be unfalsifiable, and the qualified one is checkable.
 
 \subsection{The trust boundary}
 
-\figref{fig:trust} gives the admission and authority path. Two entry classes have
+\input{tab-threat}
+
+\figref{fig:trust} gives the admission and authority path, and
+\tabref{tab:threat} states the threat model row by row --- adversary, what must be
+trusted, the asset, the boundary actually enforced, the residual risk, and where the
+claim can be checked. We put it in a table rather than in prose because prose let a
+reader assemble a stronger model than the one that holds: the evidence column makes
+it plain that every row is argued by construction and none is measured. Two entry classes have
 genuinely different admission rules: account clients present a session (or, in
 opt-in trusted-header proxy mode, a header) while published-service callers present
 either a public policy or a Bearer token, with a body cap, a quota, and
