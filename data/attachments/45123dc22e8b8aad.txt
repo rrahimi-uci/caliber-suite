@@ -1,1 +1,0 @@
-ERROR    caliber.bundle:bundle.py:236 bundle promotion failed for approval=AP-1: bundle promotion failed at tool-use/skill: version already claimed
