@@ -36,11 +36,13 @@ from caliber.assistant.service import (
 )
 from caliber.auth import (
     SCOPE_ADMIN,
+    SCOPE_APPROVER,
     SCOPE_OPERATOR,
     current_scopes,
     require_scopes,
     require_user,
     resolve_identity,
+    scopes_for_user,
 )
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 
@@ -583,6 +585,35 @@ def _available_models(
     return models
 
 
+def _autonomy_status(config: Any, engine_name: str) -> dict[str, Any]:
+    if config is None:
+        return {
+            "agent_review_ready": False,
+            "full_autonomy_ready": False,
+            "reviewer_configured": False,
+            "release_configured": False,
+        }
+    reviewer_user = str(getattr(config, "assistant_reviewer_user", "") or "").strip()
+    release_user = str(getattr(config, "assistant_release_user", "") or "").strip()
+    reviewer_ready = bool(
+        engine_name in _REAL_ASSISTANT_ENGINES
+        and reviewer_user
+        and SCOPE_APPROVER in scopes_for_user(config, reviewer_user)
+    )
+    release_ready = bool(
+        reviewer_ready
+        and release_user
+        and release_user != reviewer_user
+        and SCOPE_OPERATOR in scopes_for_user(config, release_user)
+    )
+    return {
+        "agent_review_ready": reviewer_ready,
+        "full_autonomy_ready": release_ready,
+        "reviewer_configured": bool(reviewer_user),
+        "release_configured": bool(release_user),
+    }
+
+
 async def get_assistant_config(request: Request) -> JSONResponse:
     require_user(request)
 
@@ -627,6 +658,7 @@ async def get_assistant_config(request: Request) -> JSONResponse:
                 "disabled_intents": list(disabled_intents),
                 "disabled_domains": list(disabled_domains),
                 "available_models": available_models,
+                "autonomy": _autonomy_status(config, engine_name),
             }
         }
     )
@@ -759,6 +791,7 @@ async def update_assistant_config(request: Request) -> JSONResponse:  # noqa: PL
                 "disabled_intents": list(_config_disabled_intents(config, overrides)),
                 "disabled_domains": list(_config_disabled_domains(config, overrides)),
                 "available_models": available_models,
+                "autonomy": _autonomy_status(config, response_engine),
             }
         }
     )
@@ -767,6 +800,7 @@ async def update_assistant_config(request: Request) -> JSONResponse:  # noqa: PL
 def _rebuild_engine(app: Starlette, provider: str, model: str, reasoning: str) -> None:
     """Swap the assistant engine at runtime."""
     from caliber.assistant.engine import AssistantEngine  # noqa: PLC0415
+    from caliber.assistant.reviewer import EngineDraftReviewer  # noqa: PLC0415
     from caliber.assistant.service import AssistantService  # noqa: PLC0415
 
     engine: AssistantEngine
@@ -796,9 +830,11 @@ def _rebuild_engine(app: Starlette, provider: str, model: str, reasoning: str) -
     svc: AssistantService | None = getattr(app.state, "assistant_service", None)
     if svc is not None:
         svc._engine = engine
+        svc._reviewer = EngineDraftReviewer(engine)
     else:
         app.state.assistant_service = AssistantService(
             engine=engine,
+            reviewer=EngineDraftReviewer(engine),
             runtime_config=getattr(app.state, "config", None),
         )
 

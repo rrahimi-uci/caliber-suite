@@ -19,6 +19,7 @@ from starlette.testclient import TestClient
 
 import caliber.routes.assistant as assistant_routes
 from caliber.assistant.fake import FakeAssistantEngine
+from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAssistantAttachment,
     CaliberAssistantQueuedMessage,
@@ -381,6 +382,26 @@ def test_update_config_rebuilds_service_when_absent(client: TestClient) -> None:
 def test_rebuild_engine_falls_back_to_fake_for_unknown_provider(client: TestClient) -> None:
     assistant_routes._rebuild_engine(client.app, "not-a-real-provider", "model-x", "")
     assert isinstance(client.app.state.assistant_service._engine, FakeAssistantEngine)
+    assert (
+        client.app.state.assistant_service._reviewer._engine
+        is client.app.state.assistant_service._engine
+    )
+
+
+def test_autonomy_status_requires_real_engine_scoped_service_identities() -> None:
+    config = CaliberConfig(
+        assistant_reviewer_user="@reviewer",
+        assistant_release_user="@release",
+        approver_users="@reviewer",
+        operator_users="@release",
+    )
+    assert assistant_routes._autonomy_status(config, "openai") == {
+        "agent_review_ready": True,
+        "full_autonomy_ready": True,
+        "reviewer_configured": True,
+        "release_configured": True,
+    }
+    assert assistant_routes._autonomy_status(config, "fake")["agent_review_ready"] is False
 
 
 # ---------------------------------------------------------------------------

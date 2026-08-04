@@ -408,8 +408,9 @@ class AssistantAgentToolset:
     def _tier_allowed(self, tier: str) -> bool:
         if tier == TIER_READ:
             return True
-        # Gated (irreversible: publish/promote/deploy/spend) is NEVER auto-exposed
-        # in a synchronous turn — it always requires an explicit human decision.
+        # Gated (publish/promote/deploy/spend) is never model-callable in the
+        # synchronous author turn. Autonomous release runs later through the
+        # reviewer/release service boundary, not through this tool projection.
         if tier == TIER_GATED:
             return False
         if self._mode != "build":

@@ -59,7 +59,7 @@ from caliber.assistant.models import (
     ValidationReport,
 )
 from caliber.assistant.publisher import AssistantPublisher
-from caliber.assistant.reviewer import DraftReviewRequest, DraftReviewer
+from caliber.assistant.reviewer import DraftReviewer, DraftReviewRequest
 from caliber.assistant.skill_runtime import (
     AssistantSkillResolutionRequest,
     normalize_skill_names,
@@ -80,8 +80,8 @@ from caliber.db.models import (
     CaliberAssistantDraft,
     CaliberAssistantMessage,
     CaliberAssistantPublishEvent,
-    CaliberAssistantReview,
     CaliberAssistantQueuedMessage,
+    CaliberAssistantReview,
     CaliberAssistantRun,
     CaliberAssistantSession,
     CaliberEvalDataset,
@@ -100,8 +100,8 @@ from caliber.ids import (
     new_assistant_draft_id,
     new_assistant_message_id,
     new_assistant_publish_id,
-    new_assistant_review_id,
     new_assistant_queued_message_id,
+    new_assistant_review_id,
     new_assistant_run_id,
     new_assistant_session_id,
     new_eval_dataset_id,
@@ -379,7 +379,7 @@ def _draft_candidate_hash(row: CaliberAssistantDraft) -> str:
     return _content_hash(encoded)
 
 
-def _assistant_process_steps(
+def _assistant_process_steps(  # noqa: PLR0912
     *,
     questions: list[ClarifyingQuestion],
     tool_calls: list[Any],
@@ -5193,7 +5193,9 @@ class AssistantService:
                 refreshed.append(current)
         return refreshed
 
-    def _autonomy_configuration_error(self, *, author_user: str, mode: str) -> str | None:
+    def _autonomy_configuration_error(  # noqa: PLR0911
+        self, *, author_user: str, mode: str
+    ) -> str | None:
         reviewer_user = self._settings.reviewer_user.strip()
         if self._reviewer is None:
             return "No reviewer agent is configured."
@@ -5215,7 +5217,7 @@ class AssistantService:
                 return "Release identity does not carry caliber.operator."
         return None
 
-    def _review_draft(
+    def _review_draft(  # noqa: PLR0915
         self,
         draft_id: str,
         *,
@@ -5233,7 +5235,9 @@ class AssistantService:
                 if isinstance(row.validation_report, dict)
                 else {}
             )
-            test_report = copy.deepcopy(row.test_report) if isinstance(row.test_report, dict) else {}
+            test_report = (
+                copy.deepcopy(row.test_report) if isinstance(row.test_report, dict) else {}
+            )
             candidate_snapshot = _draft_candidate_snapshot(row)
             candidate_hash = _draft_candidate_hash(row)
             candidate_version = row.version
@@ -5619,7 +5623,7 @@ class AssistantService:
             db.refresh(row)
             return DraftResponse.model_validate(row)
 
-    def _prompt_alias_publish_policy(  # noqa: PLR0911
+    def _prompt_alias_publish_policy(  # noqa: PLR0911, PLR0912, PLR0915
         self,
         db: Any,
         *,
@@ -5674,7 +5678,10 @@ class AssistantService:
                     f"Agent review {review_id!r} does not target this prompt and alias."
                 )
                 return False, base_report
-            if str(candidate.get("draft_id") or "") != draft_id or candidate_template != clean_template:
+            if (
+                str(candidate.get("draft_id") or "") != draft_id
+                or candidate_template != clean_template
+            ):
                 base_report["reason"] = (
                     f"Agent review {review_id!r} does not match the current draft content."
                 )
@@ -5734,14 +5741,15 @@ class AssistantService:
         candidate_hash = str(
             candidate.get("template_hash") or candidate.get("content_hash") or ""
         ).strip()
-        candidate_template = candidate.get("template")
-        if not isinstance(candidate_template, str):
-            candidate_template = candidate.get("content")
+        legacy_candidate_template = candidate.get("template")
+        if not isinstance(legacy_candidate_template, str):
+            legacy_candidate_template = candidate.get("content")
         content_matches = (
             bool(candidate_draft_id and candidate_draft_id == draft_id)
             or bool(candidate_hash and candidate_hash == _content_hash(clean_template))
             or bool(
-                isinstance(candidate_template, str) and candidate_template.strip() == clean_template
+                isinstance(legacy_candidate_template, str)
+                and legacy_candidate_template.strip() == clean_template
             )
         )
         if not content_matches:
@@ -5764,7 +5772,7 @@ class AssistantService:
         )
         return True, base_report
 
-    def _validate_review_binding(
+    def _validate_review_binding(  # noqa: PLR0911
         self,
         db: Any,
         row: CaliberAssistantDraft,
@@ -5781,7 +5789,10 @@ class AssistantService:
             return False, "Reviewer decision is not approved.", ""
         if review.author_user == review.reviewer_user:
             return False, "Reviewer decision violates separation of duties.", ""
-        if review.candidate_version != row.version or review.candidate_hash != _draft_candidate_hash(row):
+        if (
+            review.candidate_version != row.version
+            or review.candidate_hash != _draft_candidate_hash(row)
+        ):
             return False, "Draft changed after reviewer approval.", ""
         if review.expires_at is not None:
             expires_at = review.expires_at
@@ -5805,7 +5816,7 @@ class AssistantService:
             owner_user=user,
         )
 
-    def _publish_draft_as(
+    def _publish_draft_as(  # noqa: PLR0911
         self,
         draft_id: str,
         *,

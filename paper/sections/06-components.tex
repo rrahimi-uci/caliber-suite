@@ -170,8 +170,16 @@ First, \aria{} capabilities are risk-tiered. Registry capabilities declared
 \tier{gated} are withheld from the synchronous tool projection and require a plan
 interaction. The hand-written draft approval and publication tools are also
 classified \tier{gated}; even a permissive build-mode session neither advertises nor
-dispatches them, so a human must use the draft lifecycle UI/API. These two gated
-paths are not yet one unified registry mechanism. The protection remains only as
+dispatches them. The manual path uses the draft lifecycle UI/API. Two additional
+draft policies cross a separate service boundary: \code{agent\_review} presents an
+immutable candidate hash, validation report, and test report to an isolated
+no-tools reviewer agent whose service identity must differ from the author and hold
+\approver{}; \code{full\_autonomy} continues an approved decision through a third,
+\operator{}-scoped release identity. The decision records policy/model version,
+rationale, confidence, evidence identifiers, and expiry; invalid output, missing
+scope, shared identity, low confidence, expiry, or candidate drift fails closed.
+Goal-plan \tier{gated} interactions remain human decisions. These gated paths are
+not yet one unified registry mechanism. The protection remains only as
 strong as future classifications, which is why the registry projection and its
 contract tests matter.
 

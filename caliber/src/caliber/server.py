@@ -651,13 +651,13 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     logger.info(
         "CALIBER assistant engine: %s (configured=%s)", engine_name, resolved.assistant_engine
     )
+    from caliber.assistant.reviewer import EngineDraftReviewer  # noqa: PLC0415
     from caliber.assistant.service import (  # noqa: PLC0415
         AssistantRuntimeSettings,
         default_prompt_fetcher,
         normalize_disabled_domains,
         normalize_disabled_intents,
     )
-    from caliber.assistant.reviewer import EngineDraftReviewer  # noqa: PLC0415
 
     app.state.assistant_service = AssistantService(
         engine=asst_engine,

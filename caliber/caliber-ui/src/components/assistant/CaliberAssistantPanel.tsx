@@ -342,7 +342,9 @@ export function CaliberAssistantPanel(): JSX.Element | null {
   const sessionsQuery = useApiQuery<AssistantSession[]>(
     QK.sessions,
     () => caliberApi.listAssistantSessions(),
-    { enabled: open },
+    {
+      enabled: open,
+    },
   );
   const sessions = sessionsQuery.data ?? EMPTY_SESSIONS;
 
@@ -415,7 +417,9 @@ export function CaliberAssistantPanel(): JSX.Element | null {
     if (
       approval === "manual" ||
       approval === "auto_safe" ||
-      approval === "auto_all"
+      approval === "auto_all" ||
+      approval === "agent_review" ||
+      approval === "full_autonomy"
     ) {
       setApprovalMode(approval);
     }
@@ -577,7 +581,9 @@ export function CaliberAssistantPanel(): JSX.Element | null {
               // The turn was accepted, so the message is not lost; the queue row
               // is. Report it rather than swallowing, because the stale row is
               // visible to the user and would otherwise look like a stuck item.
-              showToast.error("Sent, but the queued copy could not be cleared.");
+              showToast.error(
+                "Sent, but the queued copy could not be cleared.",
+              );
             })
             .finally(() => {
               invalidate(QK.queue(activeSessionId));
@@ -586,7 +592,9 @@ export function CaliberAssistantPanel(): JSX.Element | null {
         onError: () => {
           // Leave the row queued and allow another attempt.
           dispatchedRef.current.delete(head.queue_id);
-          showToast.error("Could not send the queued message. It is still in the queue.");
+          showToast.error(
+            "Could not send the queued message. It is still in the queue.",
+          );
         },
         onSettled: () => {
           dispatchingRef.current = false;
@@ -1180,6 +1188,7 @@ export function CaliberAssistantPanel(): JSX.Element | null {
                     <ApprovalModeSelector
                       value={approvalMode}
                       onChange={setApprovalMode}
+                      autonomy={assistantConfig?.autonomy}
                       disabled={sendMessage.isPending || isPlanning}
                     />
                     <AssistantModelSelector

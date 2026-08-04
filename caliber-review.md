@@ -44,6 +44,11 @@ issues have since been corrected in the working tree:
   first resolution;
 - synchronous Aria turns no longer advertise or dispatch draft approval/publication,
   including in `build` + `auto_all`;
+- Aria now exposes `agent_review` and `full_autonomy`: both bind an isolated,
+  approver-scoped reviewer-agent decision to the exact draft hash/version; full
+  autonomy additionally requires a third operator-scoped release identity. Invalid
+  output, low confidence, expiry, candidate drift, missing scopes, or shared
+  identities fail closed, while goal-plan gated steps remain human-approved;
 - `/capabilities` emits a machine-readable nine-family contract, with shape tests;
 - a checked-in structural-evidence runner records eight deterministic claim checks
   while explicitly excluding latency, throughput, replica-scale, and human-study claims;
@@ -53,9 +58,8 @@ issues have since been corrected in the working tree:
 - focused verification covers commit-before-effect, HTTP retry idempotency,
   provider failure, reconciliation, Apply recovery, migrations, prompt routes,
   async route offloading, and UI behavior;
-- repository-wide validation passed 5,897 backend tests with 9 explicitly
-  environment-gated skips; one regression added after collection also passed
-  separately, so all 5,898 current backend tests executed. The frontend passed
+- repository-wide validation passed all 5,927 current backend tests with 9 explicitly
+  environment-gated skips. The frontend passed
   1,556 tests. Ruff, Python formatting, mypy, ESLint, TypeScript typechecking,
   production SPA build, and package/static-bundle parity also passed;
 - the current source uses `\documentclass{scrreprt}`, includes a table of
@@ -341,6 +345,13 @@ This does establish a deliberate human click after an automated gate. It does no
 establish separation of duties, independent approval, or requester-versus-approver
 control. The paper partly admits this under the single-environment limitation, but
 the stronger governance language elsewhere remains misleading.
+
+The new assistant-draft path is narrower but stronger: `agent_review` requires a
+reviewer service identity distinct from the author with `caliber.approver`, records
+a hash/version-bound expiring structured decision, and never publishes;
+`full_autonomy` additionally requires a third `caliber.operator` release identity.
+This corrects independence for assistant draft review only. It does not change the
+refinement-job Apply path analyzed above.
 
 **Required correction:** either enforce author/requester != approver with the
 existing sibling `approver` scope, or consistently call the step an

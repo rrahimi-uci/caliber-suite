@@ -33,7 +33,7 @@ better than a broad guarantee that quietly does not hold, but a reader who weigh
 uniform atomicity more heavily than adoption cost would reasonably choose
 differently.
 
-\subsection{D4: a human at \mode{Apply}, always}
+\subsection{D4: a human at refinement \mode{Apply}, always}
 
 This is the decision most likely to be contested, since the obvious research
 direction is to close the loop fully, and the machinery to do so already exists ---
@@ -50,6 +50,13 @@ evidence than its dimensionality suggests. Third, and most decisively for a cont
 plane: an auto-apply threshold converts a visible, attributable change into an
 invisible one. The value \sys provides is that a change is reviewable; a change
 nobody reviewed is one nobody can be asked about.
+
+This decision is scoped to the refinement path studied here. The assistant-draft
+subsystem now exposes an experimental agent-review path with distinct author,
+reviewer, and release identities plus hash-bound provenance
+(\secref{sec:limitations}). That path supplies the mechanism for testing a
+non-human reviewer; without the calibration and off-corpus evidence in E3, it does
+not weaken the rationale for keeping refinement \mode{Apply} human.
 
 The price is real and we do not minimize it: throughput is bounded by operator
 attention. If a fleet generates fifty candidates a day, \sys's design implies fifty

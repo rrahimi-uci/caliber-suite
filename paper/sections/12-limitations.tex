@@ -58,6 +58,16 @@ requested a change differ from the person who applies it. This is a deliberate
 human decision point placed after an automated gate, and it is real; it is not
 separation of duties, and we no longer describe it as one.
 
+\para{Assistant-draft autonomy is a scoped exception, not a replacement for
+\mode{Apply}.} The assistant now has structural separation for two draft policies:
+\code{agent\_review} records an approver-scoped agent decision by an identity
+different from the author, and \code{full\_autonomy} delegates publication to a
+third operator-scoped service identity. The decision is bound to the draft
+hash/version and rechecked at publication. This does not alter the refinement-job
+\mode{Apply} path above, gated goal-plan steps, or the paper's lack of measured
+reviewer calibration. The implementation evidence shows fail-closed mechanics, not
+that the reviewer agent makes production-quality decisions.
+
 \subsection{Limitations of the architecture}
 
 \para{Guarantees are per-family, and that is load-bearing.} An adopter must read

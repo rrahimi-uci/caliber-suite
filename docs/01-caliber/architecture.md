@@ -174,7 +174,7 @@ set of tables:
 | Domain | Representative tables | Purpose |
 | --- | --- | --- |
 | Core governance | verification items, refinement jobs, approvals, rollback checkpoints, release operations | Human-in-the-loop refinement and crash-observable prompt release safety. |
-| Prompts and assistants | prompt test runs, assistant sessions/messages/drafts/runs/publish events/attachments, Aria goal-plans/steps/interactions | Prompt authoring, testing, assistant-driven authoring state (Aria context attachments), and Aria's agentic goal-plan orchestration. |
+| Prompts and assistants | prompt test runs, assistant sessions/messages/drafts/reviews/runs/publish events/attachments, Aria goal-plans/steps/interactions | Prompt authoring, testing, assistant-driven authoring state, hash-bound independent reviewer-agent decisions, and Aria's agentic goal-plan orchestration. |
 | Tools and skills | tool registry, tool test runs, skill rows, skill test runs | Reusable runtime capabilities and authoring/test surfaces. |
 | Workflows | workflows, workflow versions, deployments, runs, events, checkpoints, session memory, benchmark reports, patches, promotions | Workflow Studio source-of-truth and runtime lineage. |
 | MCP | MCP servers | External tool endpoints, discovered tools, policies, and calibrations. |

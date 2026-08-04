@@ -39,9 +39,7 @@ DEFAULT_ASSISTANT_MODE: str = "build"
 #                 bypasses the approval boundary.
 # ``agent_review`` — an independent approver-scoped agent reviews passing drafts.
 # ``full_autonomy`` — agent review followed by a distinct release service.
-AssistantApprovalMode = Literal[
-    "manual", "auto_safe", "auto_all", "agent_review", "full_autonomy"
-]
+AssistantApprovalMode = Literal["manual", "auto_safe", "auto_all", "agent_review", "full_autonomy"]
 ASSISTANT_APPROVAL_MODES: set[str] = {
     "manual",
     "auto_safe",
@@ -417,7 +415,7 @@ class DraftResponse(BaseModel):
     artifact: dict[str, Any]
     validation_report: dict[str, Any] | None
     test_report: dict[str, Any] | None
-    review_report: dict[str, Any] | None
+    review_report: dict[str, Any] | None = None
     target_registry_id: str | None
     version: int
     created_by: str

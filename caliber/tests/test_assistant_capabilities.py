@@ -92,7 +92,7 @@ def test_read_capability_always_exposed(svc, session_factory) -> None:
     assert "judge_create" not in names  # mutate — not in chat/manual
 
 
-def test_mutate_capability_only_in_auto_all_build(svc, session_factory) -> None:
+def test_mutate_capability_only_in_mutating_build_policies(svc, session_factory) -> None:
     sid = _session(svc, session_factory)
     assert "judge_create" not in _names(
         _toolset(svc, session_factory, sid, mode="build", approval="manual")
@@ -102,6 +102,14 @@ def test_mutate_capability_only_in_auto_all_build(svc, session_factory) -> None:
     )
     auto_all = _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_all"))
     assert {"judge_create", "review_queue_create"} <= auto_all
+    agent_review = _names(
+        _toolset(svc, session_factory, sid, mode="build", approval="agent_review")
+    )
+    assert "judge_create" not in agent_review
+    full_autonomy = _names(
+        _toolset(svc, session_factory, sid, mode="build", approval="full_autonomy")
+    )
+    assert {"judge_create", "review_queue_create"} <= full_autonomy
 
 
 def test_gated_tier_never_exposed(svc, session_factory) -> None:
