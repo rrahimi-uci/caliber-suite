@@ -31,6 +31,31 @@ function makeJudge(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+function makeReviewQueue() {
+  return {
+    queue_id: "RVQ-1",
+    name: "Answer reviews",
+    description: "",
+    questions: [
+      {
+        key: "correct",
+        title: "Is the answer correct?",
+        type: "pass_fail",
+        options: [],
+        required: true,
+        target: "feedback",
+      },
+    ],
+    reviewers: [],
+    owner: "@sarah",
+    status: "active",
+    created_at: NOW,
+    updated_at: NOW,
+    item_count: 1,
+    pending_count: 0,
+  };
+}
+
 function renderPage(): void {
   render(
     <MemoryRouter
@@ -150,6 +175,7 @@ describe("Judges", () => {
     let alignBody: Record<string, unknown> | null = null;
     server.use(
       http.get(`${API_BASE}/judges`, () => HttpResponse.json(envelope([makeJudge()]))),
+      http.get(`${API_BASE}/review-queues`, () => HttpResponse.json(envelope([]))),
       http.post(`${API_BASE}/judges/:id/alignment`, async ({ request }) => {
         alignBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(
@@ -180,6 +206,75 @@ describe("Judges", () => {
     expect(result).toHaveTextContent("0.00");
     // Two labeled examples were submitted.
     expect((alignBody?.examples as unknown[]).length).toBe(2);
+  });
+
+  it("imports completed Review Queue labels with trace provenance", async () => {
+    let alignBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/judges`, () => HttpResponse.json(envelope([makeJudge()]))),
+      http.get(`${API_BASE}/review-queues`, () =>
+        HttpResponse.json(envelope([makeReviewQueue()])),
+      ),
+      http.get(`${API_BASE}/review-queues/RVQ-1/alignment-examples`, () =>
+        HttpResponse.json(
+          envelope({
+            queue_id: "RVQ-1",
+            question_key: "correct",
+            examples: [
+              {
+                inputs: { trace_id: "tr-1", review_item_id: "RI-1" },
+                outputs: "grounded answer",
+                expectations: { gold: "grounded answer" },
+                label: true,
+                provenance: {
+                  queue_id: "RVQ-1",
+                  item_id: "RI-1",
+                  trace_id: "tr-1",
+                  question_key: "correct",
+                  completed_by: "@reviewer",
+                  assessment_ids: ["A-1"],
+                },
+              },
+            ],
+            skipped: [],
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/judges/:id/alignment`, async ({ request }) => {
+        alignBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          envelope({
+            n: 1,
+            scored: 1,
+            agreement_rate: 1,
+            cohen_kappa: 1,
+            threshold: 0.5,
+            confusion: { true_pos: 1, false_pos: 0, true_neg: 0, false_neg: 0 },
+            per_example: [],
+          }),
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("answer-faithfulness");
+    await user.click(screen.getByTestId("judge-try-JDG-1"));
+    await user.click(screen.getByTestId("judge-mode-align"));
+
+    await user.selectOptions(screen.getByTestId("align-review-queue"), "RVQ-1");
+    await user.selectOptions(screen.getByTestId("align-review-question"), "correct");
+    await user.click(screen.getByTestId("align-import-review-labels"));
+    expect(await screen.findByText(/Imported 1 completed label/)).toBeInTheDocument();
+    expect(screen.getByTestId("align-output-0")).toHaveValue("grounded answer");
+
+    await user.click(screen.getByTestId("align-run"));
+    await waitFor(() => expect(alignBody).not.toBeNull());
+    expect((alignBody?.examples as unknown[])[0]).toEqual({
+      outputs: "grounded answer",
+      label: true,
+      inputs: { trace_id: "tr-1", review_item_id: "RI-1" },
+      expectations: { gold: "grounded answer" },
+    });
   });
 
   it("creates a judge and refreshes the list", async () => {

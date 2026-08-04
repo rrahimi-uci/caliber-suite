@@ -13,10 +13,10 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 - ✅ The control structure is fully real: evidence nodes, an `agent` that
   produces a structured fact/hypothesis summary, a `router` for risk, and the
   `human_approval` gate before rollback/write.
-- ❗ `lookup_recent_deployments` / `query_service_health` are **not** shipped
-  callables. Implement them as **`python_code`** nodes returning synthetic
-  incident fixtures (recommended for a demo), or add real callables to a module
-  and register them (FEASIBILITY §3).
+- ✅ The installed example ships safe deployment/service fixture nodes and
+  credential-free API Request presets for live deployment-health and
+  service-health endpoints. Replace uppercase placeholders and configure egress
+  before selecting the live path.
 - MCP is **optional**: Playwright (status-page snapshot), GitHub (incident
   issue, `requires_approval:true`), PostgreSQL (incident metadata, read-only).
 - `IncidentActionCorrectness` (`custom_judge`) is a real LLM judge; the
@@ -36,15 +36,15 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    questions**; never claim resolution without evidence; recommend the
    lowest-risk action and state its `requires_approval`."* Output contract =
    `{severity, known_facts[], hypotheses[], recommended_action, stakeholder_update}`.
-2. **Evidence nodes (python_code).** Add `collect_deployments` and
-   `query_service_health` as `python_code` nodes that return the fixtures for the
-   given `service`/`environment`. (Optionally add a Playwright `mcp_resource`
-   node to snapshot a status page.)
+2. **Evidence nodes.** Use the installed Data Transform fixture nodes for the
+   repeatable demo. Configure the included deployment/service API Request nodes
+   for a live environment, or use a governed MCP tool when authentication is
+   required.
 3. **Build the workflow.** `Compose → Workflows → New`, template
    **`hitl_review`**. Wire:
    `ingest (normalize alert/service/env) → collect_deployments → query_service_health →
    summarize (agent: incident-commander) → recommend_action (router on risk) →
-   human_approval (rollback / external write only) → create_issue (mcp, optional) → output`.
+   human_approval (rollback / external write only) → issue_write (mcp, optional) → output`.
 4. **Run low-risk + high-risk cases.** `Run Monitor → run-execute` a low-severity
    incident → recommendation completes without approval. Run a high-severity
    (rollback) incident → status `waiting_approval`; `run-approve` → `run-resume`

@@ -668,4 +668,65 @@ describe("SkillDetail", () => {
       await screen.findByRole("heading", { name: "imported-skill" }),
     ).toBeInTheDocument();
   });
+
+  it("uploads a ZIP with an explicit conflict strategy", async () => {
+    let uploaded: { fileName: string; strategy: string; renameTo: string } | null =
+      null;
+    server.use(
+      http.get(`${API_BASE}/skills/SK-1`, () =>
+        HttpResponse.json(envelope(makeSkill())),
+      ),
+      http.get(`${API_BASE}/skills/SK-1/package`, () =>
+        HttpResponse.json(envelope(makeSkillPackage())),
+      ),
+      http.post(`${API_BASE}/skills/import-package.zip`, async ({ request }) => {
+        const form = await request.formData();
+        const file = form.get("file") as File;
+        uploaded = {
+          fileName: file.name,
+          strategy: String(form.get("conflict_strategy")),
+          renameTo: String(form.get("rename_to")),
+        };
+        return HttpResponse.json(
+          envelope(makeSkill({ skill_id: "SK-3", name: "renamed-skill" })),
+          { status: 201 },
+        );
+      }),
+      http.get(`${API_BASE}/skills/SK-3`, () =>
+        HttpResponse.json(
+          envelope(makeSkill({ skill_id: "SK-3", name: "renamed-skill" })),
+        ),
+      ),
+      http.get(`${API_BASE}/skills/SK-3/package`, () =>
+        HttpResponse.json(envelope(makeSkillPackage({ root: "renamed-skill" }))),
+      ),
+    );
+    renderDetail();
+    await screen.findByRole("heading", { name: "tool-grounding" });
+
+    fireEvent.change(screen.getByLabelText("ZIP conflict strategy"), {
+      target: { value: "rename" },
+    });
+    fireEvent.change(screen.getByLabelText("Renamed skill name"), {
+      target: { value: "renamed-skill" },
+    });
+    const archive = new File(["zip-bytes"], "portable.zip", {
+      type: "application/zip",
+    });
+    fireEvent.change(screen.getByLabelText("Import skill package ZIP"), {
+      target: { files: [archive] },
+    });
+
+    await waitFor(() => expect(uploaded).not.toBeNull());
+    expect(uploaded).toMatchObject({
+      strategy: "rename",
+      renameTo: "renamed-skill",
+    });
+    // happy-dom currently normalizes multipart File names to "blob"; browsers
+    // retain the explicit filename supplied by the API client.
+    expect(["portable.zip", "blob"]).toContain(uploaded?.fileName);
+    expect(
+      await screen.findByRole("heading", { name: "renamed-skill" }),
+    ).toBeInTheDocument();
+  });
 });

@@ -196,7 +196,7 @@ test.describe("Build Section Advanced Journeys", () => {
       .filter({ hasText: serverName })
       .first();
     await expect(serverRow).toBeVisible();
-    await expect(serverRow).toContainText("create_issue");
+    await expect(serverRow).toContainText("issue_write");
 
     await serverRow.dblclick();
     await expect(page.getByTestId("mcp-detail-dialog")).toBeVisible();

@@ -15,11 +15,10 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
   (`GET /object-store/buckets/{bucket}/object/extract?key=...`) or the shipped
   tool `caliber.workflows.ingestion_tools:extract_document` (handles
   PDF/DOCX/PPTX/XLSX/MD + OCR).
-- ✅ Do JSON-schema **validation** in a `python_code` node (no tool registration
-  needed) — this is the `validate_document_json` tool from
-  [`build.yaml`](build.yaml).
+- ✅ JSON Schema validation is a visual **Data Transform → JSON Schema** node
+  using Draft 2020-12; it can fail closed or publish `valid=false` for routing.
 - The `SchemaFidelity` judge typed `deterministic` is **not a judge** — it is the
-  python_code validator's pass/fail plus an `exact_match`/`contains_expected`
+  Data Transform validator's pass/fail plus an `exact_match`/`contains_expected`
   scorer in Evaluations.
 
 ## Prerequisites & seed
@@ -38,15 +37,15 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    - API: `GET /object-store/buckets/doc-intake/object/extract?key=<name>`.
 3. **Register the extractor tool (optional).** `Tools → New tool`
    `extract_document` → `module_path=caliber.workflows.ingestion_tools`,
-   `callable_name=extract_document`, `side_effect=read`. Sandbox-test it.
+   `callable_name=extract_document`, `side_effect_level=read`. Sandbox-test it.
 4. **Author the structuring prompt.** `Prompts → New prompt`
    `doc-structurer`: system from build.yaml (*"Extract only verifiable facts …
    emit JSON matching the target schema; never invent missing values; list
    missing_fields explicitly."*).
 5. **Build the workflow.** `Compose → Workflows → New`, template **`blank`**.
    Add nodes: `input_bucket` (fetch the object) → `extract_document` (tool) →
-   `agent`/`template` (apply `doc-structurer`) → `python_code`
-   (`validate_document_json`: assert required keys + types, set
+   `agent`/`template` (apply `doc-structurer`) → `data_transform`
+   (operation `json_schema`: validate required keys + types, set
    `validation_status` and `missing_fields`) → `output`.
 6. **Preview + real runs.** Run the golden file (valid → `validation_status:pass`),
    an edge file (partial → `missing_fields` populated), and the unsupported file

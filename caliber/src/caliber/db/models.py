@@ -368,6 +368,73 @@ class CaliberReleaseOperation(Base):
     )
 
 
+class CaliberReleaseCandidate(Base):
+    """Governed evidence bundle and weighted rubric for one release decision."""
+
+    __tablename__ = "caliber_release_candidates"
+    __table_args__ = (Index("ix_release_candidate_project_status", "project_id", "status"),)
+
+    candidate_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="project", server_default="project"
+    )
+    name: Mapped[str] = mapped_column(String(256))
+    artifact_type: Mapped[str] = mapped_column(String(64))
+    artifact_ref: Mapped[str] = mapped_column(String(512))
+    version_ref: Mapped[str] = mapped_column(String(256))
+    criteria: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    waivers: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    required_score: Mapped[float] = mapped_column(Float, default=0.8)
+    weighted_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    blockers: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    planned_action: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    rollback_target: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
+    owner: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaliberReleaseSignoff(Base):
+    """Append-only accountable go/no-go decision over an evaluated candidate."""
+
+    __tablename__ = "caliber_release_signoffs"
+    __table_args__ = (Index("ix_release_signoff_candidate_created", "candidate_id", "created_at"),)
+
+    signoff_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_release_candidates.candidate_id")
+    )
+    decision: Mapped[str] = mapped_column(String(16))
+    rationale: Mapped[str] = mapped_column(Text)
+    decided_by: Mapped[str] = mapped_column(String(256))
+    candidate_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberReleaseReportJob(Base):
+    """Durable in-product Allure-compatible release evidence generation job."""
+
+    __tablename__ = "caliber_release_report_jobs"
+    __table_args__ = (Index("ix_release_report_candidate_created", "candidate_id", "created_at"),)
+
+    report_job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_release_candidates.candidate_id")
+    )
+    status: Mapped[str] = mapped_column(String(24), default="queued")
+    format: Mapped[str] = mapped_column(String(32), default="allure-json")
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaliberRegressionRun(Base):
     """Persisted replay/eval result used as the approval gate.
 

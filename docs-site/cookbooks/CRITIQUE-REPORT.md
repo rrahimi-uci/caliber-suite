@@ -35,10 +35,11 @@ findings above:
   the input-bucket node hand back decoded text / object keys, not a local file the
   extractor can open. Cookbook 04 lands the file on the host (`mc cp`) as a
   workaround.
-- **The GitHub MCP catalog tile needs `npx`.** It seeds `npx -y
-  @modelcontextprotocol/server-github`, but the shipped `deploy/caliber/Dockerfile`
-  runtime is `python:3.12-slim` with no Node/npm/npx (Node lives only in the UI
-  build stage). Remote MCP URLs and first-party Python servers still work.
+- **External GitHub MCP remains environment-gated.** The catalog now uses
+  GitHub's official remote Streamable HTTP endpoint, so it no longer depends on
+  the retired npm server or on `npx`. Operators still must allowlist
+  `api.githubcopilot.com` in `CALIBER_MCP_REMOTE_HOST_ALLOWLIST` and provide a
+  GitHub personal-access token before connection and discovery can succeed.
 - **Aria plan execution is deterministic-only.** The default `HeuristicPlanner`
   emits steps with empty `inputs`, so auto-approving a planned mutation fails
   validation; the LLM-planner Protocol slot is not wired. Cookbooks 12–15 create
@@ -57,8 +58,8 @@ findings above:
 | 07 | Support triage | ✅ (fixed) | reuses 01/02/03/05/06; read tools need `allow_in_preview`; external write approval-gated in the workflow |
 | 08 | Incident commander | ✅ (fixed) | evidence tools are `python_code` fixtures (now return correctly) |
 | 09 | Workflow debugger | ✅ | patch is manual (no `propose_workflow_patch`); Aria narration-only |
-| 10 | Judge governance | ✅ | alignment computed in the Judges **Human alignment** mode (agreement/κ/FP/FN) — labels entered by hand (no auto-pull from Review Queue); `/eval-datasets/:id` detail page + row editor shipped (`EvalDatasetDetail.tsx`); LLM judges run as `Judge.<id>` scorers in Evaluations |
-| 11 | Release signoff | ✅ | no release-scoring engine (operator rubric); Allure generated externally |
+| 10 | Judge governance | ✅ | Human Alignment imports completed Review Queue labels with provenance and computes agreement/κ/FP/FN; `/eval-datasets/:id` provides the row editor; LLM judges run as `Judge.<id>` scorers in Evaluations |
+| 11 | Release signoff | ✅ | durable candidates, server-computed rubric/blockers, admin waivers, immutable signoff, rollback target, and in-product Allure-compatible report jobs |
 | 12 | **Aria** eval harness | ⚠️→✅* | *Aria **plans** from intent; create artifacts via routes. Full autonomy needs the LLM planner (not wired) — see ARIA-AUTONOMY §Execution status |
 | 13 | **Aria** review queue | ⚠️→✅* | same Aria caveat |
 | 14 | **Aria** starter kit | ⚠️→✅* | same Aria caveat (flagship 3-capability plan) |
@@ -72,8 +73,8 @@ operator-assisted via the capability routes until an LLM planner is wired.
 Capability registry + tiers, the 13 workflow templates + node types, eval
 scorers, MCP assertion types, `allowed:false`-only-blocks-direct-invoke,
 "no deterministic judge type", KB
-retrieval modes + inline calibration metrics, the manual-patch / no-release-engine
-/ external-Allure disclaimers, every `tool.json` callable (`lookup_order`,
+retrieval modes + inline calibration metrics, the operator-guided recovery
+boundary, the durable release domain, every `tool.json` callable (`lookup_order`,
 `get_order`, `initiate_refund`, `search_knowledge_base`, `extract_document`), and
 every judge instruction referencing a template variable.
 

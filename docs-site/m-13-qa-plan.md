@@ -20,7 +20,7 @@ paths are shown relative to that prefix once the convention has been stated.
 | **Runtime QA state** | Durable rows — `CaliberVerificationItem`, `CaliberRefinementJob`, `CaliberRegressionRun` — moving artifacts through triage → evidence → diagnosis → candidate → eval → apply. |
 | **Runtime approvals** | Paused live runs via `CaliberRuntimeApprovalRequest` + `CaliberWorkflowRunCheckpoint`, kept distinct from artifact promotion history. |
 | **Validation suites** | Backend pytest, frontend Vitest, and browser Playwright E2E run from repo-root `Makefile` / `test-all.sh`. |
-| **Evidence model** | MLflow assessments, Prometheus counters, dashboard summaries, and merged Allure reports served at `/observability/allure-report`. |
+| **Evidence model** | MLflow assessments, Prometheus counters, dashboard summaries, merged engineering-test Allure HTML, and candidate-scoped Allure-compatible release jobs. |
 | **Key surfaces** | Runtime QA HTTP routes under `/ajax-api/2.0/mlflow/caliber`; CLI commands like `make test-all` for validation. |
 
 The sections below start from this picture and drill down into the scope, boundaries, runtime, data model, surfaces, lifecycle, security, observability, and constraints in detail.
@@ -78,6 +78,7 @@ which serve as the entry points for the rest of this document:
 - `caliber/src/caliber/routes/jobs.py`
 - `caliber/src/caliber/routes/workflow_runs.py`
 - `caliber/src/caliber/routes/capabilities.py`
+- `caliber/src/caliber/routes/releases.py`
 - `caliber/src/caliber/routes/dashboard.py`
 - `caliber/src/caliber/routes/observability.py`
 - `caliber/src/caliber/mlflow_client.py`
@@ -114,8 +115,9 @@ quality story.
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
 | Verification-item ingress | `routes/prompts.py`, `routes/skills.py`, `routes/workflow_calibration.py`, `assistant/service.py` | Feature-specific entry points create already-verified items and queued refinement jobs directly. |
-| Curated human-review queues | `routes/review_queues.py` + `CaliberReviewQueue` (migration 0054), FE `ReviewQueues.tsx` | Dedicated `/review-queues` CRUD plus enqueue/submit surface for operator-curated review batches. |
-| Authored judges | `routes/judges.py` + `CaliberJudge` (migration 0053), FE `Judges.tsx` | `/judges` list/create/detail/update plus `/test-run` and `/alignment`; judges are reusable scorers across calibration, the eval scorecard, and assessments. |
+| Curated human-review queues | `routes/review_queues.py` + `CaliberReviewQueue` (migration 0054), FE `ReviewQueues.tsx` | Dedicated CRUD, the workflow `review_queue_enqueue` component, submit/writeback, and provenance-bearing alignment export. |
+| Authored judges | `routes/judges.py` + `CaliberJudge` (migration 0053), FE `Judges.tsx` | `/test-run` and `/alignment`; Human Alignment imports completed binary queue labels rather than requiring transcription. |
+| Release signoff | `routes/releases.py`, `CaliberReleaseCandidate`, `CaliberReleaseSignoff`, `CaliberReleaseReportJob`, FE `Releases.tsx` | Server-computed criteria/blockers, accountable waivers, required rollback target, immutable go/no-go snapshot, and durable Allure-compatible evidence. |
 | Durable artifact QA state | `CaliberVerificationItem` + `VerificationItemSchema` | Source of truth for artifact-scoped QA items linked to traces, sessions, workflows, and assessments. |
 | Refinement and replay evidence | `CaliberRefinementJob`, `CaliberRegressionRun`, `regression.py` | Tracks staged diagnosis and candidate evaluation separately from final promotion history. |
 | Promotion and rollback provenance | `apply.py`, `promoter.py`, `CaliberApprovalRequest`, `CaliberRollbackCheckpoint` | Applies only ready candidates and stores rollback anchors before mutation. |
@@ -521,6 +523,9 @@ Operators rely on the following signals:
 - The generated Allure report is available through
   `/observability/allure-report`, which makes test artifacts part of the same
   operator workflow as traces and metrics.
+- Release-candidate report jobs are separate durable JSON evidence. They bind
+  criterion outcomes and evidence links to a SHA-256 candidate snapshot; they do
+  not replace suite exit codes or the rendered engineering-test HTML report.
 - Playwright bootstrap state under `.tmp/playwright-server-$MLFLOW_PORT/` is the
   first operational inspection point when the browser harness flakes.
 

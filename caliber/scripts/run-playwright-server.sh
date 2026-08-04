@@ -14,7 +14,7 @@ SCRIPT_PATH="$REPO_ROOT/scripts/run-playwright-server.sh"
 cd "$REPO_ROOT"
 
 VENV_DIR="${VENV_DIR:-.venv}"
-if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+if [[ "${1:-}" != "--force-cleanup" && ! -x "$VENV_DIR/bin/python" ]]; then
   echo "error: virtualenv not found at $VENV_DIR (run make install first)" >&2
   exit 1
 fi
@@ -228,15 +228,18 @@ stop_pid() {
   if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
     return
   fi
-  kill "$pid" 2>/dev/null || true
+  # ``spawn_detached_command`` creates a new session whose leader may launch a
+  # child server (MLflow -> uvicorn). Stop the whole process group so the child
+  # cannot retain the test port after Playwright releases its client.
+  kill -TERM -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
   local _
   for _ in $(seq 1 20); do
-    if ! kill -0 "$pid" 2>/dev/null; then
+    if ! kill -0 "-$pid" 2>/dev/null; then
       return
     fi
     sleep 0.25
   done
-  kill -9 "$pid" 2>/dev/null || true
+  kill -KILL -- "-$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
 }
 
 cleanup_shared_state() {
@@ -459,6 +462,13 @@ ensure_server_running() {
 
 if [[ "${1:-}" == "--cleanup-watcher" ]]; then
   run_cleanup_watcher
+fi
+
+if [[ "${1:-}" == "--force-cleanup" ]]; then
+  acquire_lock
+  cleanup_shared_state
+  release_lock
+  exit 0
 fi
 
 register_client

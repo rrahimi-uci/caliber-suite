@@ -135,6 +135,79 @@ export interface RuntimeConfigurationInventory {
   groups: RuntimeConfigurationGroup[];
 }
 
+export interface ReleaseCriterion {
+  key: string;
+  title: string;
+  weight: number;
+  score: number;
+  threshold: number;
+  blocking: boolean;
+  evidence_refs: string[];
+}
+
+export interface ReleaseEvidence {
+  evidence_type: string;
+  evidence_ref: string;
+  label: string;
+  digest?: string | null;
+}
+
+export interface ReleaseCandidate {
+  candidate_id: string;
+  project_id: string | null;
+  visibility: string;
+  name: string;
+  artifact_type: string;
+  artifact_ref: string;
+  version_ref: string;
+  criteria: ReleaseCriterion[];
+  evidence: ReleaseEvidence[];
+  waivers: Array<Record<string, unknown>>;
+  required_score: number;
+  weighted_score: number | null;
+  blockers: Array<Record<string, unknown>>;
+  planned_action: Record<string, unknown>;
+  rollback_target: Record<string, unknown>;
+  status: string;
+  owner: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReleaseCandidateCreatePayload {
+  name: string;
+  artifact_type: string;
+  artifact_ref: string;
+  version_ref: string;
+  criteria: ReleaseCriterion[];
+  evidence?: ReleaseEvidence[];
+  required_score?: number;
+  planned_action: Record<string, unknown>;
+  rollback_target: Record<string, unknown>;
+}
+
+export interface ReleaseSignoff {
+  signoff_id: string;
+  candidate_id: string;
+  decision: "go" | "no_go";
+  rationale: string;
+  decided_by: string;
+  candidate_snapshot: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ReleaseReportJob {
+  report_job_id: string;
+  candidate_id: string;
+  status: string;
+  format: string;
+  report: Record<string, unknown> | null;
+  error_message: string | null;
+  created_by: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Verification queue                                                          */
 /* -------------------------------------------------------------------------- */
@@ -910,6 +983,14 @@ export interface SkillPackageImportPayload {
   files: SkillPackageImportFile[];
 }
 
+export type SkillPackageZipConflictStrategy = "reject" | "rename" | "merge";
+
+export interface SkillPackageZipImportPayload {
+  file: File;
+  conflict_strategy: SkillPackageZipConflictStrategy;
+  rename_to?: string;
+}
+
 export interface SkillUpdatePayload {
   description?: string;
   summary?: string;
@@ -1219,6 +1300,26 @@ export interface ReviewItem {
 export interface ReviewQueueDetail {
   queue: ReviewQueue;
   items: ReviewItem[];
+}
+
+export interface ReviewAlignmentProvenance {
+  queue_id: string;
+  item_id: string;
+  trace_id: string;
+  question_key: string;
+  completed_by: string | null;
+  assessment_ids: string[];
+}
+
+export interface ReviewAlignmentExample extends JudgeAlignmentExampleInput {
+  provenance: ReviewAlignmentProvenance;
+}
+
+export interface ReviewAlignmentImport {
+  queue_id: string;
+  question_key: string;
+  examples: ReviewAlignmentExample[];
+  skipped: Array<{ item_id: string; reason: string }>;
 }
 
 export interface ReviewQueueCreatePayload {

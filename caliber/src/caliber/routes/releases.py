@@ -14,8 +14,11 @@ per-artifact rollback endpoints from the UI.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -26,6 +29,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from caliber.audit import record as audit_record
 from caliber.auth import (
     SCOPE_ADMIN,
     SCOPE_OPERATOR,
@@ -37,12 +41,20 @@ from caliber.auth import (
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberKnowledgeBase,
+    CaliberReleaseCandidate,
     CaliberReleaseOperation,
+    CaliberReleaseReportJob,
+    CaliberReleaseSignoff,
     CaliberSkill,
     CaliberWorkflow,
     CaliberWorkflowDeployment,
 )
-from caliber.db.scoping import apply_visibility_filter
+from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.ids import (
+    new_release_candidate_id,
+    new_release_report_job_id,
+    new_release_signoff_id,
+)
 from caliber.release_operations import (
     PreparedReleaseResolutionError,
     abandon_prepared_prompt_release,
@@ -50,7 +62,20 @@ from caliber.release_operations import (
     reconcile_prompt_alias_releases,
     serialize_release_operation,
 )
-from caliber.routes._deps import envelope_response_dict, get_session_factory, parse_json_object
+from caliber.routes._deps import (
+    envelope_response,
+    envelope_response_dict,
+    get_session_factory,
+    parse_json_object,
+)
+from caliber.schemas import (
+    ReleaseCandidateCreateRequest,
+    ReleaseCandidateSchema,
+    ReleaseReportJobSchema,
+    ReleaseSignoffRequest,
+    ReleaseSignoffSchema,
+    ReleaseWaiverRequest,
+)
 
 logger = logging.getLogger("caliber.routes.releases")
 
@@ -59,6 +84,13 @@ LIVE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/live"
 OPERATIONS_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations"
 RECONCILE_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile"
 RESOLVE_OPERATION_PATH = "/ajax-api/2.0/mlflow/caliber/releases/operations/{operation_id}/resolve"
+CANDIDATES_PATH = "/ajax-api/2.0/mlflow/caliber/releases/candidates"
+CANDIDATE_PATH = CANDIDATES_PATH + "/{candidate_id}"
+CANDIDATE_EVALUATE_PATH = CANDIDATE_PATH + "/evaluate"
+CANDIDATE_WAIVERS_PATH = CANDIDATE_PATH + "/waivers"
+CANDIDATE_SIGNOFF_PATH = CANDIDATE_PATH + "/signoffs"
+CANDIDATE_REPORTS_PATH = CANDIDATE_PATH + "/reports"
+REPORT_JOB_PATH = "/ajax-api/2.0/mlflow/caliber/releases/report-jobs/{report_job_id}"
 
 # The audit actions that constitute a "release" event (promote / rollback /
 # activate across artifact types). Skill content edits and other audit rows are
@@ -95,6 +127,428 @@ def _visible_ids(session: Any, model: type, pk: Any, identity: CaliberIdentity) 
     """
     stmt = apply_visibility_filter(select(pk), model, identity, identity.active_project_id)
     return set(session.execute(stmt).scalars().all())
+
+
+def _evaluate_candidate(candidate: CaliberReleaseCandidate) -> None:
+    criteria = list(candidate.criteria or [])
+    total_weight = sum(float(item.get("weight", 0)) for item in criteria)
+    weighted = sum(float(item.get("weight", 0)) * float(item.get("score", 0)) for item in criteria)
+    candidate.weighted_score = round(weighted / total_weight, 6) if total_weight else 0.0
+    waived = {str(item.get("criterion_key")) for item in list(candidate.waivers or [])}
+    blockers = [
+        {
+            "criterion_key": str(item.get("key")),
+            "title": str(item.get("title")),
+            "score": float(item.get("score", 0)),
+            "threshold": float(item.get("threshold", 0.5)),
+        }
+        for item in criteria
+        if bool(item.get("blocking"))
+        and float(item.get("score", 0)) < float(item.get("threshold", 0.5))
+        and str(item.get("key")) not in waived
+    ]
+    candidate.blockers = blockers
+    candidate.status = (
+        "ready"
+        if candidate.weighted_score >= candidate.required_score and not blockers
+        else "blocked"
+    )
+
+
+def _candidate_snapshot(candidate: CaliberReleaseCandidate) -> dict[str, Any]:
+    return ReleaseCandidateSchema.model_validate(candidate).model_dump(mode="json")
+
+
+def list_release_candidates(request: Request) -> JSONResponse:
+    require_user(request)
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        stmt = apply_visibility_filter(
+            select(CaliberReleaseCandidate).order_by(CaliberReleaseCandidate.created_at.desc()),
+            CaliberReleaseCandidate,
+            identity,
+            identity.active_project_id,
+        )
+        rows = session.execute(stmt).scalars().all()
+        data = [ReleaseCandidateSchema.model_validate(row) for row in rows]
+    return envelope_response(data)
+
+
+def _create_release_candidate(
+    factory: Any,
+    *,
+    actor: str,
+    identity: CaliberIdentity,
+    payload: ReleaseCandidateCreateRequest,
+) -> ReleaseCandidateSchema:
+    with factory() as session:
+        candidate = CaliberReleaseCandidate(
+            candidate_id=new_release_candidate_id(),
+            project_id=identity.active_project_id,
+            visibility="project" if identity.active_project_id else "user",
+            name=payload.name,
+            artifact_type=payload.artifact_type,
+            artifact_ref=payload.artifact_ref,
+            version_ref=payload.version_ref,
+            criteria=[item.model_dump(mode="json") for item in payload.criteria],
+            evidence=[item.model_dump(mode="json") for item in payload.evidence],
+            waivers=[],
+            required_score=payload.required_score,
+            blockers=[],
+            planned_action=dict(payload.planned_action),
+            rollback_target=dict(payload.rollback_target),
+            status="draft",
+            owner=actor,
+        )
+        session.add(candidate)
+        session.flush()
+        _evaluate_candidate(candidate)
+        audit_record(
+            session,
+            actor=actor,
+            action="create_release_candidate",
+            entity_type="release_candidate",
+            entity_id=candidate.candidate_id,
+            details={
+                "artifact_type": candidate.artifact_type,
+                "artifact_ref": candidate.artifact_ref,
+            },
+        )
+        session.commit()
+        return ReleaseCandidateSchema.model_validate(candidate)
+
+
+async def create_release_candidate(request: Request) -> JSONResponse:
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    payload = ReleaseCandidateCreateRequest.model_validate(await parse_json_object(request))
+    data = await run_in_threadpool(
+        _create_release_candidate,
+        get_session_factory(request),
+        actor=actor,
+        identity=identity,
+        payload=payload,
+    )
+    return envelope_response(data, status_code=201)
+
+
+def get_release_candidate(request: Request) -> JSONResponse:
+    require_user(request)
+    identity = resolve_identity(request)
+    candidate_id = request.path_params["candidate_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        candidate = get_visible(
+            session,
+            CaliberReleaseCandidate,
+            CaliberReleaseCandidate.candidate_id,
+            candidate_id,
+            identity,
+        )
+        if candidate is None:
+            raise HTTPException(
+                status_code=404, detail=f"release candidate {candidate_id!r} not found"
+            )
+        signoffs = (
+            session.execute(
+                select(CaliberReleaseSignoff)
+                .where(CaliberReleaseSignoff.candidate_id == candidate_id)
+                .order_by(CaliberReleaseSignoff.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        jobs = (
+            session.execute(
+                select(CaliberReleaseReportJob)
+                .where(CaliberReleaseReportJob.candidate_id == candidate_id)
+                .order_by(CaliberReleaseReportJob.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        data = {
+            "candidate": ReleaseCandidateSchema.model_validate(candidate).model_dump(mode="json"),
+            "signoffs": [
+                ReleaseSignoffSchema.model_validate(row).model_dump(mode="json") for row in signoffs
+            ],
+            "report_jobs": [
+                ReleaseReportJobSchema.model_validate(row).model_dump(mode="json") for row in jobs
+            ],
+        }
+    return envelope_response_dict(data)
+
+
+def evaluate_release_candidate(request: Request) -> JSONResponse:
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    candidate_id = request.path_params["candidate_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        candidate = get_visible(
+            session,
+            CaliberReleaseCandidate,
+            CaliberReleaseCandidate.candidate_id,
+            candidate_id,
+            identity,
+        )
+        if candidate is None:
+            raise HTTPException(
+                status_code=404, detail=f"release candidate {candidate_id!r} not found"
+            )
+        if candidate.status in {"signed_go", "signed_no_go"}:
+            raise HTTPException(status_code=409, detail="signed release candidates are immutable")
+        _evaluate_candidate(candidate)
+        audit_record(
+            session,
+            actor=actor,
+            action="evaluate_release_candidate",
+            entity_type="release_candidate",
+            entity_id=candidate_id,
+            details={"weighted_score": candidate.weighted_score, "blockers": candidate.blockers},
+        )
+        session.commit()
+        data = ReleaseCandidateSchema.model_validate(candidate)
+    return envelope_response(data)
+
+
+def _add_release_waiver(
+    factory: Any,
+    *,
+    actor: str,
+    identity: CaliberIdentity,
+    candidate_id: str,
+    payload: ReleaseWaiverRequest,
+) -> ReleaseCandidateSchema:
+    with factory() as session:
+        candidate = get_visible(
+            session,
+            CaliberReleaseCandidate,
+            CaliberReleaseCandidate.candidate_id,
+            candidate_id,
+            identity,
+        )
+        if candidate is None:
+            raise HTTPException(
+                status_code=404, detail=f"release candidate {candidate_id!r} not found"
+            )
+        criterion_keys = {str(item.get("key")) for item in candidate.criteria}
+        if payload.criterion_key not in criterion_keys:
+            raise HTTPException(status_code=400, detail="waiver criterion does not exist")
+        waiver = {
+            "criterion_key": payload.criterion_key,
+            "reason": payload.reason,
+            "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
+            "approved_by": actor,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        candidate.waivers = [*list(candidate.waivers or []), waiver]
+        _evaluate_candidate(candidate)
+        audit_record(
+            session,
+            actor=actor,
+            action="waive_release_blocker",
+            entity_type="release_candidate",
+            entity_id=candidate_id,
+            details=waiver,
+        )
+        session.commit()
+        return ReleaseCandidateSchema.model_validate(candidate)
+
+
+async def add_release_waiver(request: Request) -> JSONResponse:
+    actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
+    candidate_id = request.path_params["candidate_id"]
+    payload = ReleaseWaiverRequest.model_validate(await parse_json_object(request))
+    data = await run_in_threadpool(
+        _add_release_waiver,
+        get_session_factory(request),
+        actor=actor,
+        identity=identity,
+        candidate_id=candidate_id,
+        payload=payload,
+    )
+    return envelope_response(data)
+
+
+def _signoff_release_candidate(
+    factory: Any,
+    *,
+    actor: str,
+    identity: CaliberIdentity,
+    candidate_id: str,
+    payload: ReleaseSignoffRequest,
+) -> ReleaseSignoffSchema:
+    with factory() as session:
+        candidate = get_visible(
+            session,
+            CaliberReleaseCandidate,
+            CaliberReleaseCandidate.candidate_id,
+            candidate_id,
+            identity,
+        )
+        if candidate is None:
+            raise HTTPException(
+                status_code=404, detail=f"release candidate {candidate_id!r} not found"
+            )
+        if candidate.status in {"signed_go", "signed_no_go"}:
+            raise HTTPException(
+                status_code=409, detail="release candidate already has a final signoff"
+            )
+        _evaluate_candidate(candidate)
+        if payload.decision == "go":
+            if candidate.status != "ready":
+                raise HTTPException(status_code=409, detail="go signoff requires a ready candidate")
+            if not candidate.planned_action or not candidate.rollback_target:
+                raise HTTPException(
+                    status_code=409,
+                    detail="go signoff requires a planned release action and rollback target",
+                )
+        signoff = CaliberReleaseSignoff(
+            signoff_id=new_release_signoff_id(),
+            candidate_id=candidate_id,
+            decision=payload.decision,
+            rationale=payload.rationale,
+            decided_by=actor,
+            candidate_snapshot=_candidate_snapshot(candidate),
+        )
+        candidate.status = f"signed_{payload.decision}"
+        session.add(signoff)
+        audit_record(
+            session,
+            actor=actor,
+            action="signoff_release_candidate",
+            entity_type="release_candidate",
+            entity_id=candidate_id,
+            details={"signoff_id": signoff.signoff_id, "decision": payload.decision},
+        )
+        session.commit()
+        return ReleaseSignoffSchema.model_validate(signoff)
+
+
+async def signoff_release_candidate(request: Request) -> JSONResponse:
+    actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
+    candidate_id = request.path_params["candidate_id"]
+    payload = ReleaseSignoffRequest.model_validate(await parse_json_object(request))
+    data = await run_in_threadpool(
+        _signoff_release_candidate,
+        get_session_factory(request),
+        actor=actor,
+        identity=identity,
+        candidate_id=candidate_id,
+        payload=payload,
+    )
+    return envelope_response(data, status_code=201)
+
+
+def _allure_report(candidate: CaliberReleaseCandidate) -> dict[str, Any]:
+    snapshot = _candidate_snapshot(candidate)
+    digest = hashlib.sha256(
+        json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    waived = {str(item.get("criterion_key")) for item in candidate.waivers}
+    results = []
+    for criterion in candidate.criteria:
+        key = str(criterion.get("key"))
+        passed = float(criterion.get("score", 0)) >= float(criterion.get("threshold", 0.5))
+        status = "passed" if passed else ("skipped" if key in waived else "failed")
+        results.append(
+            {
+                "uuid": f"{candidate.candidate_id}:{key}",
+                "name": str(criterion.get("title")),
+                "status": status,
+                "statusDetails": {
+                    "message": "waived"
+                    if status == "skipped"
+                    else f"score={criterion.get('score')} threshold={criterion.get('threshold')}"
+                },
+                "labels": [
+                    {"name": "suite", "value": candidate.name},
+                    {"name": "criterion", "value": key},
+                ],
+                "links": [
+                    {"name": ref, "type": "evidence", "url": ref}
+                    for ref in criterion.get("evidence_refs", [])
+                ],
+            }
+        )
+    return {
+        "schema_version": 1,
+        "format": "allure-compatible-results",
+        "candidate_id": candidate.candidate_id,
+        "candidate_snapshot_sha256": digest,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "results": results,
+    }
+
+
+def create_release_report_job(request: Request) -> JSONResponse:
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    candidate_id = request.path_params["candidate_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        candidate = get_visible(
+            session,
+            CaliberReleaseCandidate,
+            CaliberReleaseCandidate.candidate_id,
+            candidate_id,
+            identity,
+        )
+        if candidate is None:
+            raise HTTPException(
+                status_code=404, detail=f"release candidate {candidate_id!r} not found"
+            )
+        job = CaliberReleaseReportJob(
+            report_job_id=new_release_report_job_id(),
+            candidate_id=candidate_id,
+            status="completed",
+            format="allure-json",
+            report=_allure_report(candidate),
+            created_by=actor,
+            completed_at=datetime.now(timezone.utc),
+        )
+        session.add(job)
+        audit_record(
+            session,
+            actor=actor,
+            action="generate_release_allure_report",
+            entity_type="release_candidate",
+            entity_id=candidate_id,
+            details={"report_job_id": job.report_job_id, "format": job.format},
+        )
+        session.commit()
+        data = ReleaseReportJobSchema.model_validate(job)
+    return envelope_response(data, status_code=201)
+
+
+def get_release_report_job(request: Request) -> JSONResponse:
+    require_user(request)
+    identity = resolve_identity(request)
+    report_job_id = request.path_params["report_job_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        job = session.get(CaliberReleaseReportJob, report_job_id)
+        if job is None:
+            raise HTTPException(
+                status_code=404, detail=f"release report job {report_job_id!r} not found"
+            )
+        candidate = get_visible(
+            session,
+            CaliberReleaseCandidate,
+            CaliberReleaseCandidate.candidate_id,
+            job.candidate_id,
+            identity,
+        )
+        if candidate is None:
+            raise HTTPException(
+                status_code=404, detail=f"release report job {report_job_id!r} not found"
+            )
+        data = ReleaseReportJobSchema.model_validate(job)
+    return envelope_response(data)
 
 
 def _scope_timeline_rows(
@@ -409,6 +863,14 @@ async def resolve_release_operation(request: Request) -> JSONResponse:
 
 
 def register(app: Starlette) -> None:
+    app.routes.append(Route(CANDIDATES_PATH, list_release_candidates, methods=["GET"]))
+    app.routes.append(Route(CANDIDATES_PATH, create_release_candidate, methods=["POST"]))
+    app.routes.append(Route(CANDIDATE_PATH, get_release_candidate, methods=["GET"]))
+    app.routes.append(Route(CANDIDATE_EVALUATE_PATH, evaluate_release_candidate, methods=["POST"]))
+    app.routes.append(Route(CANDIDATE_WAIVERS_PATH, add_release_waiver, methods=["POST"]))
+    app.routes.append(Route(CANDIDATE_SIGNOFF_PATH, signoff_release_candidate, methods=["POST"]))
+    app.routes.append(Route(CANDIDATE_REPORTS_PATH, create_release_report_job, methods=["POST"]))
+    app.routes.append(Route(REPORT_JOB_PATH, get_release_report_job, methods=["GET"]))
     app.routes.append(Route(TIMELINE_PATH, timeline, methods=["GET"]))
     app.routes.append(Route(LIVE_PATH, live, methods=["GET"]))
     app.routes.append(Route(OPERATIONS_PATH, release_operations, methods=["GET"]))

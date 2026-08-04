@@ -33,6 +33,7 @@ from caliber.workflows.ir import IRType
 from caliber.workflows.manifest import (
     AgentNode,
     ApiRequestNode,
+    DataTransformNode,
     ErrorBoundaryNode,
     ExternalAppNode,
     FileInputNode,
@@ -54,6 +55,7 @@ from caliber.workflows.manifest import (
     PromptRefInstructions,
     PythonCodeNode,
     RegisteredFunctionToolBinding,
+    ReviewQueueEnqueueNode,
     RouterNode,
     StartNode,
     SubworkflowNode,
@@ -74,7 +76,7 @@ SEVERITY_INFO = "info"
 # DFS colors for cycle detection.
 _WHITE, _GRAY, _BLACK = 0, 1, 2
 
-_EXECUTABLE_ORCHESTRATION_TARGET_LABEL = "agent, subworkflow, tool, mcp_resource, knowledge_query, knowledge_build, template, python_code, external_app, webhook, or api_request"
+_EXECUTABLE_ORCHESTRATION_TARGET_LABEL = "agent, subworkflow, tool, mcp_resource, knowledge_query, knowledge_build, template, data_transform, review_queue_enqueue, python_code, external_app, webhook, or api_request"
 _EXECUTABLE_ORCHESTRATION_TARGET_TYPES = (
     AgentNode,
     SubworkflowNode,
@@ -83,6 +85,8 @@ _EXECUTABLE_ORCHESTRATION_TARGET_TYPES = (
     KnowledgeQueryNode,
     KnowledgeBuildNode,
     TemplateNode,
+    DataTransformNode,
+    ReviewQueueEnqueueNode,
     PythonCodeNode,
     ExternalAppNode,
     WebhookNode,

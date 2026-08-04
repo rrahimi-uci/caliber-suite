@@ -6,7 +6,7 @@ escalates safely**, returning one of four outcomes: `reply`, `clarify`,
 `escalate_support`, `escalate_bug`. This is the integration showcase — it
 **composes SCN-01/02/03/05/06**, so several pieces are reused rather than rebuilt.
 
-External write (`create_issue`) is **approval-gated via the `human_approval`
+External write (`issue_write`) is **approval-gated via the `human_approval`
 node** — a write tool is gated at WORKFLOW time through that node, never on the
 direct-invoke path (which only honors `allowed:false`). **Citations come from the
 prompt contract**: `support-reply` requires every external fact in
@@ -18,7 +18,7 @@ claim.
 
 | # | Artifact | File | Create via UI + API |
 | --- | --- | --- | --- |
-| 1 | Tool `lookup_account_state` (read) | [`tools/lookup-account-state.tool.json`](tools/lookup-account-state.tool.json) | `Library → Tools → New tool` (Spec stage), paste the fields. API: `POST /tools` with the file body. `side_effect=read` → runs live in the sandbox |
+| 1 | Tool `lookup_account_state` (read) | [`tools/lookup-account-state.tool.json`](tools/lookup-account-state.tool.json) | `Library → Tools → New tool` (Spec stage), paste the fields. API: `POST /tools` with the file body. `side_effect_level=read` runs live in the sandbox. |
 | 2 | Tool `lookup_recent_incidents` (read) | [`tools/lookup-recent-incidents.tool.json`](tools/lookup-recent-incidents.tool.json) | `Library → Tools → New tool` (Spec stage). API: `POST /tools` with the file body |
 | 3 | Prompt `ticket-intake` | [`prompts/ticket-intake.md`](prompts/ticket-intake.md) | `Library → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. Bind to the `ticket_intake` agent node |
 | 4 | Prompt `support-reply` | [`prompts/support-reply.md`](prompts/support-reply.md) | `Library → Prompts → New prompt`, paste the body. API: `POST /prompts`. Bind to the `reply_generation` agent node — this is the prompt that carries the citation + approval contract |
@@ -28,7 +28,7 @@ claim.
 | 8 | Eval dataset `support-ticket-cases` | [`dataset/ticket-cases.jsonl`](dataset/ticket-cases.jsonl) | `Evaluate → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
 | 9 | Judge `GroundedSupportReply` | [`judges/grounded-support-reply.judge.json`](judges/grounded-support-reply.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges`. The real `custom_judge` from [`../verification.yaml`](../verification.yaml) |
 
-External write tool (`create_issue`) is **not** authored here — it is the
+External write tool (`issue_write`) is **not** authored here — it is the
 **GitHub MCP** server's tool, governed in SCN-05 (see Reuse). Set it
 `requires_approval:true` and wire it after the `human_approval` node.
 
@@ -48,7 +48,7 @@ build the minimal version from the referenced scenario).
 | Tool `lookup_account_state` (read) | SCN-03 `lookup_order` (sibling callable) | **New spec** | Maps to `demo_tools:get_order` per [`../build.yaml`](../build.yaml); SCN-03 registered the richer `lookup_order`. Either read tool works |
 | Tool `lookup_recent_incidents` (read) | new | **New** | Maps to `demo_tools:search_knowledge_base` |
 | Tool `initiate_refund` (write) | **SCN-03** | Reused | Only needed if the `escalate_support` branch actually issues the refund inside the workflow; keep it after `human_approval` (mocked in sandbox, approval-gated in the workflow) |
-| MCP `create_issue` (write) | **SCN-05** | Reused | The GitHub MCP server + its `requires_approval:true` policy ([`../../05-mcp-connectivity-governance-lab/assets/policy/github-create-issue.approval.policy.json`](../../05-mcp-connectivity-governance-lab/assets/policy/github-create-issue.approval.policy.json)). Wire as the `create_issue` `mcp_resource` node after `human_approval` |
+| MCP `issue_write` (write) | **SCN-05** | Reused | The GitHub MCP server + its `requires_approval:true` policy ([`../../05-mcp-connectivity-governance-lab/assets/policy/github-issue-write.approval.policy.json`](../../05-mcp-connectivity-governance-lab/assets/policy/github-issue-write.approval.policy.json)). Wire as the `issue_write` `mcp_resource` node after `human_approval` |
 | Support KB version | **SCN-06** | Reused | The support/policy KB built in SCN-06; the `kb_query` (`knowledge_query`) node retrieves from it into `support-reply`'s `{{ kb_chunks }}` |
 
 ## How the pieces fit (read [`../README.md`](../README.md) for the full recipe)
@@ -60,11 +60,11 @@ build the minimal version from the referenced scenario).
   lookup_account_state) → incident_lookup (tool: lookup_recent_incidents) →
   kb_query (knowledge_query over the SCN-06 support KB) → reply_generation
   (agent: prompt support-reply) → router (branch on decision) → human_approval →
-  create_issue (mcp_resource: GitHub, on escalate_bug)`.
+  issue_write (mcp_resource: GitHub, on escalate_bug)`.
 - **The router encodes the four outcomes.** Branch on `reply_generation`'s
   `decision`: `reply`/`clarify` finish at `output`; `escalate_support` opens an
   internal note (and, if you wire the refund, goes through `human_approval →
-  initiate_refund`); `escalate_bug` goes through `human_approval → create_issue`.
+  initiate_refund`); `escalate_bug` goes through `human_approval → issue_write`.
 - **Approval is enforced by the gate, not the prompt.** `support-reply` only
   *flags* `requires_approval`; the actual block is the `human_approval` node. With
   approval **rejected** (`run-reject`), no external write fires (run ends

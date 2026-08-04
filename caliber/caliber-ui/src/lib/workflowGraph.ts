@@ -121,6 +121,8 @@ const EXECUTABLE_ORCHESTRATION_TARGET_TYPES = new Set<WorkflowNodeType>([
   "knowledge_query",
   "knowledge_build",
   "template",
+  "data_transform",
+  "review_queue_enqueue",
   "python_code",
   "external_app",
 ]);
@@ -838,6 +840,35 @@ const NODE_GUIDANCE: Record<WorkflowNodeType, NodeGuideDefinition> = {
       },
     ],
   },
+  data_transform: {
+    summary:
+      "Applies a deterministic fixture, mapping, JSON Schema, decision table, or confidence transform without custom code.",
+    tips: [
+      "Use JSON Schema with fail-on-invalid for hard contracts, or publish valid=false to route recoverable errors.",
+      "Keep decision rules ordered from most specific to fallback behavior.",
+    ],
+    checks: [
+      {
+        label: "Configure the transform",
+        help: "Provide configuration for the selected no-code operation.",
+        test: (node) => Boolean(node.config && Object.keys(node.config).length > 0),
+      },
+    ],
+  },
+  review_queue_enqueue: {
+    summary: "Durably adds trace IDs to an active governed Review Queue.",
+    tips: [
+      "Use a stable queue ID and connect either one trace_id or a structured trace_ids list.",
+      "Duplicate trace IDs are idempotent; the node reports only newly created review items.",
+    ],
+    checks: [
+      {
+        label: "Select a review queue",
+        help: "Paste the durable ID of an active Review Queue.",
+        test: (node) => hasText(node.queue_id),
+      },
+    ],
+  },
   python_code: {
     summary:
       "Runs custom Python inside the workflow sandbox for bespoke transformations or control logic.",
@@ -1078,6 +1109,10 @@ export function nodeSubtitle(node: ManifestNode): string {
       const missingMode = node.missing_variable_mode ?? "preserve";
       return `${outputFormat} template · missing ${missingMode}`;
     }
+    case "data_transform":
+      return `${node.operation ?? "mapping"} · deterministic`;
+    case "review_queue_enqueue":
+      return `${typeof node.queue_id === "string" && node.queue_id ? node.queue_id : "review queue"} · audited`;
     case "external_app":
       return `${typeof node.entrypoint === "string" && node.entrypoint ? node.entrypoint : "entrypoint"} · bridge`;
     case "python_code":
@@ -1148,6 +1183,10 @@ export function nodeColor(type: string): string {
       return "#0D9488"; // teal — KB build / refresh
     case "template":
       return "#7C2D12"; // amber-brown — prompt/payload shaping
+    case "data_transform":
+      return "#0F766E"; // teal — deterministic no-code logic
+    case "review_queue_enqueue":
+      return "#7C3AED"; // violet — governed review lifecycle
     case "external_app":
       return "#EA580C"; // orange — migration bridge to existing apps
     case "python_code":
@@ -2579,6 +2618,20 @@ const NODE_PALETTE_BY_TYPE: Record<WorkflowNodeType, NodePaletteItem> = {
     label: "Template",
     group: "Utilities",
     description: "Render a no-code prompt or JSON payload",
+    docs: [],
+  },
+  data_transform: {
+    type: "data_transform",
+    label: "Data Transform",
+    group: "Logic",
+    description: "Map, validate, score, or source structured data without code",
+    docs: [],
+  },
+  review_queue_enqueue: {
+    type: "review_queue_enqueue",
+    label: "Review Queue Enqueue",
+    group: "Governance",
+    description: "Enqueue workflow traces for governed human review",
     docs: [],
   },
   external_app: {

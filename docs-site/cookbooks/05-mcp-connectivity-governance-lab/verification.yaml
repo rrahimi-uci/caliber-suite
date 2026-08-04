@@ -20,7 +20,7 @@ monitoring:
   # in the Playground UI instead:
   evidence:
     - playground_invocation_history  # per-invoke success/fail rows (read = success:true, blocked write = success:false)
-    - tool_blocked_badge             # red "Blocked" badge on the create_issue tool
+    - tool_blocked_badge             # red "Blocked" badge on the issue_write tool
     - calibration_verdicts           # saved per-case pass/fail + pass_rate on the read tool
   metrics:
     - discovery_tool_count

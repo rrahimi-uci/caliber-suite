@@ -551,7 +551,7 @@ function AddServerDialog({
                     className={inputClass}
                     value={args}
                     onChange={(e) => setArgs(e.target.value)}
-                    placeholder="e.g. -y @modelcontextprotocol/server-github"
+                    placeholder="e.g. -y @modelcontextprotocol/server-filesystem /data"
                   />
                 </div>
               </>
@@ -978,16 +978,17 @@ const MCP_CATALOG: McpTemplate[] = [
   {
     id: "github",
     name: "GitHub",
-    description: "Repos, issues, PRs, code search, actions",
+    description:
+      "Official remote server for repos, issues, PRs, code, and actions",
     icon: "github",
-    transport: "stdio",
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-github"],
-    tokenEnvVar: "GITHUB_TOKEN",
-    docsUrl:
-      "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
+    transport: "streamable-http",
+    uri: "https://api.githubcopilot.com/mcp/",
+    command: "",
+    args: [],
+    tokenEnvVar: "GITHUB_PERSONAL_ACCESS_TOKEN",
+    docsUrl: "https://github.com/github/github-mcp-server",
     tools: [
-      { name: "create_issue", description: "Create a new GitHub issue" },
+      { name: "issue_write", description: "Create or update a GitHub issue" },
       {
         name: "search_repositories",
         description: "Search for GitHub repositories",
@@ -1000,6 +1001,14 @@ const MCP_CATALOG: McpTemplate[] = [
       { name: "list_commits", description: "List commits on a branch" },
       { name: "create_branch", description: "Create a new branch" },
     ],
+    toolPolicies: {
+      search_repositories: readPolicy,
+      get_file_contents: readPolicy,
+      list_commits: readPolicy,
+      issue_write: writePolicy,
+      create_pull_request: writePolicy,
+      create_branch: writePolicy,
+    },
   },
   {
     id: "postgres",
@@ -1335,6 +1344,7 @@ function QuickConnectCatalog({
       <p className="text-xs text-zinc-500 mb-3">
         Click a server to configure it. Local commands must also be enabled by
         the server-side executable allowlist before they can connect or deploy.
+        Remote hosts must be enabled by the server-side remote-host allowlist.
         The bundled database presets share CALIBER&apos;s privileged development
         database by default; use a separate least-privilege database and role
         before production.

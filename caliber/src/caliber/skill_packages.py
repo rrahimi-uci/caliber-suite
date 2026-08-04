@@ -23,6 +23,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import stat
 import zipfile
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -57,6 +58,9 @@ _EXTRANEOUS_DOC_NAMES = frozenset(
 )
 _FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n(?P<yaml>.*?)\r?\n---\s*\r?\n?(?P<body>.*)\Z", re.S)
 _SKILL_NAME_RE = re.compile(SKILL_NAME_PATTERN)
+_MAX_ZIP_BYTES = 10 * 1024 * 1024
+_MAX_ZIP_FILES = 200
+_MAX_ZIP_MEMBER_BYTES = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -167,6 +171,58 @@ def parse_skill_package(files: list[SkillPackageFilePayload]) -> ImportedSkillPa
         content=body.rstrip(),
         skill_metadata={OPENAI_PACKAGE_METADATA_KEY: package_metadata},
     )
+
+
+def parse_skill_package_zip(data: bytes) -> ImportedSkillPackage:
+    """Read a bounded UTF-8 skill ZIP and apply the normal package validator.
+
+    ZIPs are deliberately treated as portable text packages. Encrypted members,
+    links, traversal, binary files, oversized members, and archive bombs are
+    rejected before any content is passed to the canonical package parser.
+    """
+
+    if not data:
+        raise HTTPException(status_code=400, detail="skill package ZIP must not be empty")
+    if len(data) > _MAX_ZIP_BYTES:
+        raise HTTPException(status_code=413, detail="skill package ZIP exceeds 10 MiB")
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise HTTPException(status_code=400, detail="invalid skill package ZIP") from exc
+
+    with archive:
+        members = [member for member in archive.infolist() if not member.is_dir()]
+        if not members:
+            raise HTTPException(status_code=400, detail="skill package ZIP contains no files")
+        if len(members) > _MAX_ZIP_FILES:
+            raise HTTPException(status_code=413, detail="skill package ZIP contains too many files")
+        if sum(member.file_size for member in members) > _MAX_ZIP_BYTES:
+            raise HTTPException(status_code=413, detail="expanded skill package exceeds 10 MiB")
+
+        files: list[SkillPackageFilePayload] = []
+        for member in members:
+            mode = member.external_attr >> 16
+            if member.flag_bits & 0x1:
+                raise HTTPException(
+                    status_code=400, detail="encrypted ZIP members are not supported"
+                )
+            if stat.S_ISLNK(mode):
+                raise HTTPException(
+                    status_code=400, detail="skill package ZIP links are not allowed"
+                )
+            if member.file_size > _MAX_ZIP_MEMBER_BYTES:
+                raise HTTPException(
+                    status_code=413, detail=f"ZIP member {member.filename!r} is too large"
+                )
+            try:
+                content = archive.read(member).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"ZIP member {member.filename!r} must be UTF-8 text",
+                ) from exc
+            files.append(SkillPackageFilePayload(path=member.filename, content=content))
+    return parse_skill_package(files)
 
 
 def merge_openai_package_metadata(
@@ -459,4 +515,5 @@ __all__ = [
     "build_skill_package_zip",
     "merge_openai_package_metadata",
     "parse_skill_package",
+    "parse_skill_package_zip",
 ]

@@ -18,6 +18,7 @@ from pydantic_core import PydanticUndefined
 from caliber.workflows.manifest import (
     AgentNode,
     ApiRequestNode,
+    DataTransformNode,
     ErrorBoundaryNode,
     ExternalAppNode,
     FileInputNode,
@@ -38,6 +39,7 @@ from caliber.workflows.manifest import (
     ParallelNode,
     PortSpec,
     PythonCodeNode,
+    ReviewQueueEnqueueNode,
     RouterNode,
     StartNode,
     SubworkflowNode,
@@ -70,6 +72,8 @@ _COMPONENT_ORDER: tuple[tuple[str, type[BaseModel]], ...] = (
     ("knowledge_query", KnowledgeQueryNode),
     ("knowledge_build", KnowledgeBuildNode),
     ("template", TemplateNode),
+    ("data_transform", DataTransformNode),
+    ("review_queue_enqueue", ReviewQueueEnqueueNode),
     ("external_app", ExternalAppNode),
     ("python_code", PythonCodeNode),
     ("output", OutputNode),
@@ -102,6 +106,8 @@ _COMPONENT_LABELS: dict[str, str] = {
     "knowledge_query": "Knowledge Query",
     "knowledge_build": "Knowledge Build",
     "template": "Template",
+    "data_transform": "Data Transform",
+    "review_queue_enqueue": "Review Queue Enqueue",
     "external_app": "External App",
     "python_code": "Python Code",
     "output": "Output",
@@ -134,6 +140,8 @@ _COMPONENT_CATEGORIES: dict[str, str] = {
     "knowledge_query": "Integrations",
     "knowledge_build": "Integrations",
     "template": "Utilities",
+    "data_transform": "Logic",
+    "review_queue_enqueue": "Governance",
     "external_app": "Integrations",
     "python_code": "Utilities",
     "output": "Inputs & Outputs",
@@ -157,6 +165,8 @@ _FALLBACK_DESCRIPTIONS: dict[str, str] = {
     "webhook": "Send an outbound HTTP request to an external URL.",
     "api_request": "Make HTTP requests using a URL or cURL command.",
     "template": "Render a no-code prompt or JSON payload from workflow variables.",
+    "data_transform": "Map, validate, score, or route structured data without custom code.",
+    "review_queue_enqueue": "Durably enqueue workflow traces for governed human review.",
     "note": "Canvas-only annotation for workflow authors.",
 }
 
@@ -248,6 +258,14 @@ _COMPONENT_DOCS: dict[str, tuple[str, ...]] = {
     "template": (
         "Use placeholders like {{input}}, {{variables.customer.name}}, or {{ticket.id}} to shape prompts, summaries, and structured payloads without writing Python.",
         "Text mode returns the rendered template verbatim; JSON mode validates the rendered payload and publishes the parsed object for downstream nodes.",
+    ),
+    "data_transform": (
+        "Choose Fixture, Mapping, JSON Schema, Decision Table, or Confidence to replace common custom-Python glue with audited configuration.",
+        "The result, validity flag, and diagnostic metadata are first-class outputs that can feed routers, approvals, and evidence views.",
+    ),
+    "review_queue_enqueue": (
+        "Enqueues trace IDs into an active CALIBER Review Queue as an audited, idempotent workflow side effect.",
+        "The database-backed runtime is required; exported standalone workflows fail closed until a queue enqueuer is supplied.",
     ),
     "external_app": (
         "Use this as a migration bridge while existing Python business logic is incrementally converted into first-class workflow nodes or tools.",
@@ -460,6 +478,22 @@ _COMPONENT_SETUP_CHECKS: dict[str, tuple[dict[str, Any], ...]] = {
             "help": "Write the text or JSON template this node should render.",
             "kind": "non_empty_string",
             "field": "template",
+        },
+    ),
+    "data_transform": (
+        {
+            "label": "Configure the transform",
+            "help": "Provide the mapping, schema, rules, confidence signals, or fixture for the selected operation.",
+            "kind": "non_empty_object",
+            "field": "config",
+        },
+    ),
+    "review_queue_enqueue": (
+        {
+            "label": "Select an active review queue",
+            "help": "Paste the durable queue ID that should receive workflow traces.",
+            "kind": "non_empty_string",
+            "field": "queue_id",
         },
     ),
     "python_code": (
@@ -823,6 +857,39 @@ _DESIGNER_STARTER_NODES: dict[str, dict[str, Any]] = {
             "metadata": _starter_port("structured"),
         },
     },
+    "data_transform": {
+        "id": _DESIGNER_NODE_ID_MARKER,
+        "type": "data_transform",
+        "operation": "mapping",
+        "config": {"fields": {}, "defaults": {}},
+        "fail_on_invalid": True,
+        "inputs": {
+            "value": _starter_port("structured"),
+            "text": _starter_port("string"),
+        },
+        "outputs": {
+            "text": _starter_port("string"),
+            "result": _starter_port("structured"),
+            "valid": _starter_port("boolean"),
+            "metadata": _starter_port("structured"),
+        },
+    },
+    "review_queue_enqueue": {
+        "id": _DESIGNER_NODE_ID_MARKER,
+        "type": "review_queue_enqueue",
+        "queue_id": "REVIEW-QUEUE-ID",
+        "experiment_id": None,
+        "assigned_to": None,
+        "inputs": {
+            "trace_id": _starter_port("string"),
+            "trace_ids": _starter_port("structured"),
+        },
+        "outputs": {
+            "text": _starter_port("string"),
+            "result": _starter_port("structured"),
+            "created_count": _starter_port("structured"),
+        },
+    },
     "external_app": {
         "id": _DESIGNER_NODE_ID_MARKER,
         "type": "external_app",
@@ -957,6 +1024,12 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "template": "Text or JSON template rendered from the current workflow inputs.",
     "output_format": "Whether the rendered template should stay as text or be parsed and validated as JSON.",
     "missing_variable_mode": "Controls whether unresolved placeholders stay intact, become empty strings, or raise an execution error.",
+    "operation": "Closed-vocabulary no-code operation applied to the incoming value.",
+    "config": "JSON configuration for mapping fields, a schema, decision rules, confidence signals, or fixture data.",
+    "fail_on_invalid": "When enabled, JSON Schema failures stop the run instead of publishing valid=false for routing.",
+    "queue_id": "Review queue that receives the workflow-generated item.",
+    "experiment_id": "Optional MLflow experiment associated with the review item and trace.",
+    "assigned_to": "Optional reviewer identity assigned when the queue item is created.",
     "code": "Python executed inside the workflow sandbox.",
     "name": "Human-friendly node or agent name shown in the canvas and run traces.",
     "model": "LLM model reference used by this agent.",
@@ -1005,6 +1078,7 @@ _FIELD_EXAMPLES: dict[str, tuple[Any, ...]] = {
         "Hello {{customer.name}}, your request is {{input}}.",
         '{"ticket_id":"{{variables.ticket.id}}","summary":"{{input}}","labels":{{variables.labels}}}',
     ),
+    "config": ({"fields": {"customer_id": "customer.id"}, "defaults": {"status": "new"}},),
     "entrypoint": ("support.ticketing:handle_request",),
 }
 

@@ -40,6 +40,8 @@ class NodeType(str, Enum):
     KNOWLEDGE_QUERY = "knowledge_query"
     KNOWLEDGE_BUILD = "knowledge_build"
     TEMPLATE = "template"
+    DATA_TRANSFORM = "data_transform"
+    REVIEW_QUEUE_ENQUEUE = "review_queue_enqueue"
     PYTHON_CODE = "python_code"
     AGENT = "agent"
     GUARDRAIL = "guardrail"
@@ -255,6 +257,20 @@ class IRTemplate(IRNode):
 
 
 @dataclass
+class IRDataTransform(IRNode):
+    operation: str = "mapping"
+    config: dict[str, Any] = field(default_factory=dict)
+    fail_on_invalid: bool = True
+
+
+@dataclass
+class IRReviewQueueEnqueue(IRNode):
+    queue_id: str = ""
+    experiment_id: str | None = None
+    assigned_to: str | None = None
+
+
+@dataclass
 class IRPythonCode(IRNode):
     code: str = ""
     timeout_seconds: float = 5.0
@@ -405,6 +421,7 @@ class IRWorkflow:
 __all__ = [
     "IRAgent",
     "IRApiRequest",
+    "IRDataTransform",
     "IRDeployGate",
     "IREdge",
     "IRErrorBoundary",
@@ -425,6 +442,7 @@ __all__ = [
     "IRNode",
     "IRParallel",
     "IRPythonCode",
+    "IRReviewQueueEnqueue",
     "IRRouter",
     "IRRouterBranch",
     "IRSubworkflow",

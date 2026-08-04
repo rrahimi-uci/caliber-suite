@@ -198,7 +198,12 @@ describe("McpServers", () => {
     const dialog = await screen.findByTestId("add-server-dialog");
     expect(dialog).toBeInTheDocument();
     expect(screen.getByTestId("server-name-input")).toHaveValue("GitHub");
-    expect(screen.getByTestId("server-command-input")).toHaveValue("npx");
+    expect(screen.getByTestId("server-transport-select")).toHaveValue(
+      "streamable-http",
+    );
+    expect(screen.getByTestId("server-uri-input")).toHaveValue(
+      "https://api.githubcopilot.com/mcp/",
+    );
     expect(
       screen.getByRole("combobox", { name: "Authentication type" }),
     ).toHaveValue("token");
@@ -207,16 +212,30 @@ describe("McpServers", () => {
     expect(await screen.findByTestId("mcp-row-MCP-1")).toBeInTheDocument();
     expect(createBody).toMatchObject({
       name: "GitHub",
-      transport: "stdio",
-      command: "npx",
+      transport: "streamable-http",
+      command: "",
+      uri: "https://api.githubcopilot.com/mcp/",
       auth_type: "token",
+      auth_config: {
+        token_env_var: "GITHUB_PERSONAL_ACCESS_TOKEN",
+      },
+      env: {
+        GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}",
+      },
     });
     // Catalog templates seed the server with their known tools on connect, so
     // tools are visible without needing a live test-connection first.
     const tools = (createBody as { discovered_tools?: Array<{ name: string }> })
       .discovered_tools;
     expect(tools?.length).toBeGreaterThan(0);
-    expect(tools?.map((t) => t.name)).toContain("create_issue");
+    expect(tools?.map((t) => t.name)).toContain("issue_write");
+    expect(
+      (
+        createBody as {
+          tool_policies?: Record<string, { requires_approval: boolean }>;
+        }
+      ).tool_policies?.["issue_write"]?.requires_approval,
+    ).toBe(true);
   });
 
   it("registers the Playwright quick-connect template with browser tools", async () => {

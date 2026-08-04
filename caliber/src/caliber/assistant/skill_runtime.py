@@ -26,6 +26,27 @@ MAX_SKILL_DEPENDENCY_DEPTH = 4
 DEFAULT_MAX_CONTENT_CHARS = 6000
 _RUNTIME_KEY = "assistant_skill_runtime"
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
+_SELECTION_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "for",
+        "from",
+        "how",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "please",
+        "the",
+        "to",
+        "use",
+        "with",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -301,16 +322,24 @@ def _score_skill(row: CaliberSkill, request: AssistantSkillResolutionRequest) ->
         for part in (request.user_message, request.session_goal, request.artifact_type or "")
         if part
     )
-    words = set(_words(query))
+    words = set(_selection_words(query))
     if not words:
         return (0, "")
+    negative_triggers, positive_triggers = _skill_triggers(row)
+    matched_negative = _matching_trigger(query, words, negative_triggers)
+    if matched_negative:
+        return (0, f"excluded:negative_trigger:{matched_negative}")
     score = 0
     reasons: list[str] = []
-    name_words = set(_words(row.name))
+    matched_positive = _matching_trigger(query, words, positive_triggers)
+    if matched_positive:
+        score += 8
+        reasons.append("positive_trigger")
+    name_words = set(_selection_words(row.name))
     if row.name.lower() in query.lower() or name_words & words:
         score += 5
         reasons.append("name")
-    tag_matches = set(_words(" ".join(normalize_skill_names(row.tags)))) & words
+    tag_matches = set(_selection_words(" ".join(normalize_skill_names(row.tags)))) & words
     if tag_matches:
         score += 4 + len(tag_matches)
         reasons.append("tag")
@@ -320,8 +349,8 @@ def _score_skill(row: CaliberSkill, request: AssistantSkillResolutionRequest) ->
         if artifact in category or (artifact == "workflow" and category == "workflow_automation"):
             score += 3
             reasons.append("artifact_type")
-    summary_matches = set(_words(row.summary or "")) & words
-    description_matches = set(_words(row.description or "")) & words
+    summary_matches = set(_selection_words(row.summary or "")) & words
+    description_matches = set(_selection_words(row.description or "")) & words
     if summary_matches:
         score += min(3, len(summary_matches))
         reasons.append("summary")
@@ -331,6 +360,37 @@ def _score_skill(row: CaliberSkill, request: AssistantSkillResolutionRequest) ->
     if not reasons:
         return (0, "")
     return (score, "auto:" + "+".join(_dedupe(reasons)))
+
+
+def _skill_triggers(row: CaliberSkill) -> tuple[list[str], list[str]]:
+    metadata = row.skill_metadata if isinstance(row.skill_metadata, dict) else {}
+    configured = metadata.get("test_triggers", {})
+    if not isinstance(configured, dict):
+        return ([], [])
+
+    def phrases(key: str) -> list[str]:
+        raw = configured.get(key, [])
+        if not isinstance(raw, list):
+            return []
+        return [item.strip() for item in raw if isinstance(item, str) and item.strip()]
+
+    return (phrases("should_not_trigger"), phrases("should_trigger"))
+
+
+def _matching_trigger(query: str, query_words: set[str], triggers: Sequence[str]) -> str | None:
+    normalized_query = " ".join(_words(query))
+    for phrase in triggers:
+        normalized_phrase = " ".join(_words(phrase))
+        if normalized_phrase and normalized_phrase in normalized_query:
+            return phrase
+        phrase_words = set(_selection_words(phrase))
+        if not phrase_words:
+            continue
+        overlap = len(query_words & phrase_words) / len(phrase_words)
+        minimum = 1.0 if len(phrase_words) == 1 else 0.8
+        if overlap >= minimum:
+            return phrase
+    return None
 
 
 def _apply_content_budget(
@@ -370,6 +430,10 @@ def _apply_content_budget(
 
 def _words(value: str) -> list[str]:
     return [match.group(0) for match in _WORD_RE.finditer(value.lower().replace("-", " "))]
+
+
+def _selection_words(value: str) -> list[str]:
+    return [word for word in _words(value) if word not in _SELECTION_STOPWORDS]
 
 
 def _dedupe(values: Sequence[str]) -> list[str]:

@@ -72,11 +72,11 @@
       <div class="ck-cols">
         <div class="callout"><strong>What you build.</strong> A refund decision flow: a deterministic eligibility node, a hard approval gate before the (mocked) refund write, and an optional explanation that can never contradict the decision.
           <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Tools</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Judges</span> <span class="ck-badge ck-surface">Evaluations</span></div></div>
-        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Register a shipped callable as a tool from the Spec form (no code)</li><li>Author deterministic logic as a workflow Python Code node</li><li>See write tools auto-mock in the sandbox + gate in a workflow</li><li>Drive the human-approval gate in the Run Monitor</li><li>Score an explanation with an LLM judge — after the deterministic lane is green</li></ul></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Register a shipped callable as a tool from the Spec form (no code)</li><li>Author deterministic logic as a visual decision table</li><li>See write tools auto-mock in the sandbox + gate in a workflow</li><li>Drive the human-approval gate in the Run Monitor</li><li>Score an explanation with an LLM judge — after the deterministic lane is green</li></ul></div>
       </div>
       <h2 id="flow">Implementation flow</h2>
       <div class="diagram"><pre class="mermaid">flowchart LR
-  RI[/run input JSON/] --&gt; DR[Python Code: decide_refund · parses run input]
+  RI[/run input JSON/] --&gt; DR[Data Transform: ordered decision table]
   DR --&gt; HA{{Human Approval · gates every run when enabled}}
   HA --&gt;|approve| IR[Tool: initiate_refund · mocked + gated]
   DR -.optional.-&gt; EX[Explanation prompt] -.as a scorer.-&gt; JF[Judge: ExplanationFaithfulness]
@@ -543,7 +543,7 @@ concrete. When in doubt, say less rather than promise more.
     </div>
       <h2 id="gates">Evaluation &amp; quality gates</h2>
       <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Deterministic fixture pass rate</td><td>≥ 0.97; decision mismatch = 0</td></tr><tr><td>Approval enforced on high-risk</td><td>visible in the run timeline</td></tr><tr><td>Explanation faithfulness</td><td>≥ 0.92</td></tr></tbody></table></div>
-      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>A registered tool needs an importable <code>module_path</code>+<code>callable_name</code>; the shipped <code>demo_tools</code> callables let you do this from the UI with no code.</li><li>Field is <code>side_effect_level</code> (read/write/external_action); read tools need <code>allow_in_preview: true</code> to run live in the sandbox.</li><li>Custom decision logic belongs in a Python Code node (authored in the editor) — it versions with the workflow and needs no registration.</li></ul></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>A registered tool needs an importable <code>module_path</code>+<code>callable_name</code>; the shipped <code>demo_tools</code> callables let you do this from the UI with no code.</li><li>Field is <code>side_effect_level</code> (read/write/external_action); read tools need <code>allow_in_preview: true</code> to run live in the sandbox.</li><li>The decision table is structured workflow source: versioned, inspectable, and executable without custom Python.</li></ul></div>
       <nav class="ck-pager"><a href="m-cookbook-02-precision-skills.html">← Precision Skills</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-05-governed-mcp.html">Governed Tool Connectivity (MCP) →</a></nav>
         <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
         Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>

@@ -60,6 +60,19 @@ an operator defines a label schema --- pass/fail, categorical, numeric, free tex
 enqueues traces, and reviews them, with answers written back onto each trace as
 assessments and expectations. This keeps human labels in the same substrate as
 automated ones, which is what makes agreement computable at all.
+Completed binary answers can be imported directly into the judge-alignment
+surface.  The import excludes incomplete and non-binary answers and retains the
+queue, item, trace, question, reviewer, completion, and assessment identifiers;
+this removes transcription as the default handoff without reclassifying an
+unreviewed item as a human label.
+
+The workflow IR also carries two intentionally closed-vocabulary components for
+this evidence path.  \code{data\_transform} implements fixtures, field mapping,
+Draft~2020-12 JSON Schema validation, ordered decision tables, and weighted
+confidence without arbitrary code.  \code{review\_queue\_enqueue} invokes the
+same audited, idempotent queue service as the UI and fails closed when a runtime
+enqueuer is unavailable.  Arbitrary Python remains an extension boundary rather
+than the default representation of deterministic policy.
 
 \subsection{The calibration framework}
 
@@ -136,6 +149,16 @@ Workflow deployments maintain a checkpoint stack that rollback pops; knowledge-b
 activation derives the prior active build from history; skill rollback restores a
 prior snapshot as a \emph{new} current version, which is a different guarantee and
 is listed as such.
+
+Adjacent to those family-specific live-target operations, the release-signoff
+domain records a candidate package rather than moving a target.  A candidate
+contains weighted criteria, evidence references, blocking thresholds, a planned
+action, and a rollback target.  The server recomputes its aggregate and blockers;
+an administrator may attach an attributable criterion-specific waiver, and the
+final go/no-go signoff freezes the candidate snapshot.  A durable report job emits
+Allure-compatible criterion results plus a SHA-256 identity for that snapshot.
+This is evidence packaging and accountability, not distributed atomicity or proof
+that the referenced external evidence is available.
 
 \para{The audit guarantee, stated exactly.} For a mutation whose effects are
 entirely database-resident and which calls the audit helper on the caller's

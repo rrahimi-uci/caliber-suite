@@ -104,6 +104,38 @@ def test_test_selection_does_not_trigger_on_no_match(
     assert data["selection_score"] == 0
 
 
+def test_test_selection_honors_stopword_aware_negative_trigger(
+    client: TestClient, db_session: Session
+) -> None:
+    _insert_skill(
+        db_session,
+        skill_id="SK-s-negative",
+        name="incident-review",
+        summary="Review production incidents and deployment health",
+        tags=["incident", "deployment"],
+        skill_metadata={
+            "test_triggers": {
+                "should_trigger": ["review a production deployment incident"],
+                "should_not_trigger": ["review a deployment tutorial"],
+            }
+        },
+    )
+    excluded = client.post(
+        _selection_url("SK-s-negative"),
+        json={"user_message": "Please review the deployment tutorial for beginners"},
+    ).json()["data"]
+    assert excluded["is_selected"] is False
+    assert excluded["selection_score"] == 0
+    assert excluded["selection_reason"].startswith("excluded:negative_trigger:")
+
+    included = client.post(
+        _selection_url("SK-s-negative"),
+        json={"user_message": "Review the production deployment incident"},
+    ).json()["data"]
+    assert included["is_selected"] is True
+    assert "positive_trigger" in included["selection_reason"]
+
+
 def test_test_selection_404_for_missing_skill(client: TestClient) -> None:
     resp = client.post(_selection_url("SK-missing"), json={"user_message": "x"})
     assert resp.status_code == 404

@@ -1050,6 +1050,29 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             "activation": activation,
         }
 
+    def _enqueue_review(payload: dict[str, Any]) -> dict[str, Any]:
+        from caliber.routes.review_queues import add_review_items_records  # noqa: PLC0415
+
+        with runtime_session_factory() as runtime_session:
+            created = add_review_items_records(
+                runtime_session,
+                queue_id=str(payload["queue_id"]),
+                trace_ids=[str(item) for item in payload.get("trace_ids", [])],
+                experiment_id=(
+                    str(payload["experiment_id"]) if payload.get("experiment_id") else None
+                ),
+                assigned_to=(str(payload["assigned_to"]) if payload.get("assigned_to") else None),
+                actor=workflow_owner or f"workflow:{version.workflow_id}",
+            )
+            result_payload = {
+                "queue_id": str(payload["queue_id"]),
+                "created_count": len(created),
+                "item_ids": [item.item_id for item in created],
+                "trace_ids": [item.trace_id for item in created],
+            }
+            runtime_session.commit()
+            return result_payload
+
     return RuntimePlan(
         ir=result.ir,
         resolver=resolver,
@@ -1059,6 +1082,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         subworkflow_runner=_run_subworkflow,
         knowledge_query_runner=_run_knowledge_query,
         knowledge_build_runner=_run_knowledge_build,
+        review_queue_enqueuer=_enqueue_review,
         session_memory_store=session_memory_store,
         subworkflow_depth=subworkflow_depth,
         max_output_bytes=(config.tool_sandbox_max_output_bytes if config is not None else None),

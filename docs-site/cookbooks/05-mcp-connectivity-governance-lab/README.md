@@ -21,19 +21,24 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
   **not** a direct-invoke refusal. So this scenario proves enforcement with a
   **block**; the approval path is demoed in SCN-03/SCN-07.
 - 🟢 Easiest catalog choice for a safe demo: **GitHub** (has both read tools like
-  `search_repositories` and write tools like `create_issue`) or **PostgreSQL**
+  `search_repositories` and write tools like `issue_write`) or **PostgreSQL**
   (read-only queries).
 
 ## Prerequisites & seed
 
-- One MCP server template + credentials (e.g. a GitHub token in the env var the
-  template expects). At least one read-only tool in discovery.
+- The GitHub remote host (`api.githubcopilot.com`) added to
+  `CALIBER_MCP_REMOTE_HOST_ALLOWLIST` on the CALIBER server.
+- A GitHub personal-access token supplied through the catalog template's
+  `GITHUB_PERSONAL_ACCESS_TOKEN` environment reference. At least one read-only
+  tool in discovery.
 
 ## Recipe (UI-first, with API fallbacks)
 
 1. **Quick-connect.** `Library → MCP Servers`, click a catalog tile
    (`data-testid="catalog-github"`). In the dialog, name the server and supply
-   the token env var; **Register**.
+   the token env var; **Register**. The GitHub tile uses the official remote
+   Streamable HTTP endpoint (`https://api.githubcopilot.com/mcp/`), not the
+   retired npm-based community preset.
    - API: `POST /mcp-servers {name, transport, command, args, env}`.
 2. **Test connection + discovery.** On the server row, click **Test** → expect
    "Connected · N tools". Inspect discovered tools and their input/output schemas.
@@ -43,7 +48,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    confirm a successful result + `duration_ms`.
    - API: `POST /mcp-servers/{id}/invoke-tool {tool_name, arguments}`.
 4. **Apply a policy overlay.** Open server detail → for a write tool (e.g.
-   `create_issue`) set `allowed:false` (block). (You can also set
+   `issue_write`) set `allowed:false` (block). (You can also set
    `requires_approval:true`, but that only takes effect at workflow time — see
    the feasibility note.)
    - API: `PATCH /mcp-servers/{id}/tools/{tool}/policy {allowed:false}`.

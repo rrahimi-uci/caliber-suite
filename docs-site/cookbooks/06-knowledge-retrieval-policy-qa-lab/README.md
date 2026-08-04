@@ -47,7 +47,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    - API: `POST /knowledge-bases/{id}/calibrate`.
 5. **Build the answer workflow.** `Compose → Workflows → New`, template
    **`knowledge_rag`** (or `graph_hybrid_rag`). Nodes:
-   `knowledge_query → python_code (score_confidence) → agent (draft_answer with
+   `knowledge_query → data_transform (confidence) → agent (draft_answer with
    "cite only retrieved chunks; if sources conflict, present the conflict and
    abstain") → router (abstain_or_answer) → output`, with a branch that enqueues
    a review item when confidence is low.
@@ -58,8 +58,9 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    **Evaluations** with the deterministic `contains_expected` grader plus the
    `CitationFaithfulness` judge ticked under **Custom LLM judges** (it runs as a
    `Judge.<id>` scorer for an automatic per-row verdict).
-8. **Route to review.** `Observe → Review Queues → New queue` with citation/
-   abstention questions; enqueue the ambiguous run's trace ids; answer them.
+8. **Route to review.** Add a **Review Queue Enqueue** workflow node on the
+   low-confidence branch, or enqueue manually from Review Queues. Answer the
+   trace-linked citation/abstention questions.
    Answers write back onto the trace.
    - API: `POST /review-queues`, `POST /review-queues/{id}/items {trace_ids}`.
 

@@ -54,6 +54,13 @@ and a separate integration marker for tests requiring external servers; frontend
 unit tests; and browser end-to-end tests. Static analysis runs a linter and a type
 checker over the package. All three layers can emit a common structured report
 format, and emitting results requires no JVM even though rendering the report does.
+The browser layer includes a separate Cookbook configuration that starts a migrated,
+isolated database and rejects adapters containing direct request, endpoint, database,
+or manifest-seeding shortcuts.  Its executable journeys cover skill authoring and
+trigger tests, all-sixteen catalog visibility plus installation of every example as
+a separate paused draft, and review-queue creation.  The local CI mirror terminates the detached
+MLflow/uvicorn process group before deleting its state so a passing browser run does
+not leave a listener or database behind.
 
 We are deliberately not reporting a test count or a coverage percentage as evidence
 of quality. Both are available, and neither supports the claims this paper makes;

@@ -8,7 +8,7 @@
 | **Where state lives** | The mutable current value lives in `CaliberSkill`; immutable content/summary snapshots live in `CaliberSkillVersion`; `CaliberSkillTestRun` holds run evidence; hidden `CaliberAgentConfig` targets are keyed `skill::{name}`. |
 | **Key surfaces** | HTTP routes in `routes/skills.py` under `/ajax-api/2.0/mlflow/caliber`; UI via `Skills.tsx`, `SkillWizard.tsx`, `SkillDetail.tsx`. |
 | **Runtime model** | The assistant selects skills `auto`/`manual`/`off` via `assistant/skill_runtime.py`, reading `CaliberSkill` rows directly. |
-| **Trust / safety** | Skills are prompt material, not code; reserved prefixes (`claude`, `anthropic`) rejected, angle brackets filtered, deterministic auto-selection. |
+| **Trust / safety** | Skills are prompt material, not code; reserved prefixes rejected, direct ZIP import is bounded, and deterministic selection reports positive and negative matched signals. |
 | **Calibration** | Reuses the shared refinement pipeline via `CaliberVerificationItem` and `CaliberRefinementJob`, with no user-managed host agent. |
 
 The sections below start from this picture and drill down into the responsibilities, boundaries, data model, surfaces, and lifecycle in detail.
@@ -27,7 +27,11 @@ The module carries the following responsibilities. It stores versioned skill row
 with progressive-disclosure fields, so that a short description and a full body
 serve different stages of activation. It tests both skill render behavior and the
 deterministic auto-selection behavior that decides when a skill applies. It
-packages and imports skills using an OpenAI-compatible folder format (import is a backend/API capability via POST /skills/import-package; the shipped UI exposes export only, via "Download ZIP" on the skill detail page). It exposes
+packages and imports skills using an OpenAI-compatible folder or ZIP format. The
+Skill detail UI uploads ZIPs directly and requires an explicit reject, rename,
+or admin-only versioned-merge conflict strategy. Archive/member bounds and
+traversal, symlink, encryption, and binary-content checks run before
+persistence. It exposes
 workspace state, baseline pinning, bind targets, and lifecycle. It calibrates
 skills through the shared refinement pipeline without requiring a user-managed
 host agent. And it provides skill selection inputs to the assistant runtime.
@@ -52,8 +56,8 @@ concerns, so each responsibility has a distinct owner. The table below maps them
 | --- | --- | --- |
 | Skill registry | `CaliberSkill` | Canonical row storing summary, content, metadata, dependencies, and tags. |
 | Immutable version history | `CaliberSkillVersion`, coordinated by `skill_versions.py` | One content/summary snapshot per version; edits and refinement Apply share the same transactional helpers, and rollback restores an older snapshot as a new forward-only version. |
-| Packaging/import | `skill_packages.py` | Maps DB rows to and from an OpenAI-style skill package folder or ZIP. |
-| Auto-selection scoring | `assistant/skill_runtime.py` | Deterministic scorer used by the assistant runtime and selection tests. |
+| Packaging/import | `skill_packages.py` | Maps DB rows to/from OpenAI-style packages and validates direct ZIP uploads before conflict handling. |
+| Auto-selection scoring | `assistant/skill_runtime.py` | Deterministic scorer with explicit positive boosts and stopword-aware negative exclusions; test results expose matched signals. |
 | Hidden runtime identity | `skill_targets.py` | Auto-provisions `skill::{name}` agent identities for testing and calibration. |
 | Skill test history | `CaliberSkillTestRun` | Durable render/selection/scenario run history. |
 | Calibration queueing | `CaliberVerificationItem`, `CaliberRefinementJob` | Shared refinement path reused from prompts and workflows. |

@@ -10,7 +10,7 @@ trusted to block releases. Build order:
 | 2 | Judge `FaithfulnessJudge` | [`judges/faithfulness-judge.judge.json`](judges/faithfulness-judge.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges`. |
 | 3 | Review queue `faithfulness-certification` | [`review/review-questions.json`](review/review-questions.json) | `Observe → Review Queues → New queue`, add the questions. API: `POST /review-queues`. |
 | 4 | (optional) Skill `rubric-question-writer` | [`skills/rubric-question-writer.md`](skills/rubric-question-writer.md) | `Library → Skills → New skill`, paste body. API: `POST /skills`. Helps draft single-criterion questions; not required to run the gate. |
-| 5 | Alignment worksheet | [`alignment/alignment-worksheet.md`](alignment/alignment-worksheet.md) | Fill in by hand — this is where you tally judge vs human (see "manual" note below). |
+| 5 | Alignment evidence | [`alignment/alignment-worksheet.md`](alignment/alignment-worksheet.md) | Use the worksheet only as an optional export/check; the Judges UI imports completed queue labels and computes the metrics. |
 
 ## Run order (the certification loop)
 

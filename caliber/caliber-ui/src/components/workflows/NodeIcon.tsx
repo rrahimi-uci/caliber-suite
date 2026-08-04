@@ -63,6 +63,8 @@ export const NODE_ICON_COMPONENTS: Record<WorkflowNodeType, LucideIcon> = {
   knowledge_query: BookOpen,
   knowledge_build: BookOpen,
   template: Braces,
+  data_transform: Braces,
+  review_queue_enqueue: UserCheck,
   external_app: Box,
   python_code: Code2,
   output: LogOut,

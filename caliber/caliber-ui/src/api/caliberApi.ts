@@ -70,6 +70,7 @@ import type {
   ReviewQueueCreatePayload,
   ReviewQueueDetail,
   ReviewQueueUpdatePayload,
+  ReviewAlignmentImport,
   AriaPlan,
   AriaPlanCreatePayload,
   AriaPlanDetail,
@@ -105,6 +106,10 @@ import type {
   ToolWorkspaceResponse,
   RefinementJob,
   ResourceStatus,
+  ReleaseCandidate,
+  ReleaseCandidateCreatePayload,
+  ReleaseReportJob,
+  ReleaseSignoff,
   RuntimeConfigurationInventory,
   RollbackCheckpoint,
   RollbackResponse,
@@ -115,6 +120,7 @@ import type {
   ProviderReadiness,
   SkillPackage,
   SkillPackageImportPayload,
+  SkillPackageZipImportPayload,
   SkillSelectionResult,
   SkillTestRunCreatePayload,
   SkillTestRunDetail,
@@ -131,6 +137,8 @@ import type {
 } from "./types";
 import type {
   CalibrationCase,
+  CookbookCatalog,
+  CookbookInstallResult,
   CompileResult,
   McpDiscoverToolsResult,
   McpServer,
@@ -600,7 +608,8 @@ async function doFetch(
   if (user) headers[USER_HEADER] = user;
   const projectId = getActiveProjectId();
   if (projectId) headers[PROJECT_HEADER] = projectId;
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
   if (csrfToken && WRITE_METHODS.has(method)) {
     headers[CSRF_HEADER] = csrfToken;
   }
@@ -609,7 +618,7 @@ async function doFetch(
     headers,
     credentials: "same-origin",
   };
-  if (body !== undefined) init.body = JSON.stringify(body);
+  if (body !== undefined) init.body = isFormData ? body : JSON.stringify(body);
   init.signal = lifecycle.signal;
   return clearSessionOnUnauthorized(
     await lifecycle.wait(() => fetch(`${API_BASE}${path}`, init)),
@@ -953,6 +962,48 @@ export const caliberApi = {
   /** GET /capabilities */
   getCapabilities(signal?: AbortSignal): Promise<PlatformCapabilities> {
     return request<PlatformCapabilities>("/capabilities", { signal });
+  },
+
+  listReleaseCandidates(signal?: AbortSignal): Promise<ReleaseCandidate[]> {
+    return request<ReleaseCandidate[]>("/releases/candidates", { signal });
+  },
+
+  createReleaseCandidate(payload: ReleaseCandidateCreatePayload): Promise<ReleaseCandidate> {
+    return request<ReleaseCandidate>("/releases/candidates", { method: "POST", body: payload });
+  },
+
+  evaluateReleaseCandidate(candidateId: string): Promise<ReleaseCandidate> {
+    return request<ReleaseCandidate>(
+      `/releases/candidates/${encodeURIComponent(candidateId)}/evaluate`,
+      { method: "POST", body: {} },
+    );
+  },
+
+  waiveReleaseCriterion(
+    candidateId: string,
+    payload: { criterion_key: string; reason: string },
+  ): Promise<ReleaseCandidate> {
+    return request<ReleaseCandidate>(
+      `/releases/candidates/${encodeURIComponent(candidateId)}/waivers`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  signoffReleaseCandidate(
+    candidateId: string,
+    payload: { decision: "go" | "no_go"; rationale: string },
+  ): Promise<ReleaseSignoff> {
+    return request<ReleaseSignoff>(
+      `/releases/candidates/${encodeURIComponent(candidateId)}/signoffs`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  generateReleaseAllureReport(candidateId: string): Promise<ReleaseReportJob> {
+    return request<ReleaseReportJob>(
+      `/releases/candidates/${encodeURIComponent(candidateId)}/reports`,
+      { method: "POST", body: {} },
+    );
   },
 
   /** GET /readiness — which providers are real vs simulated ('fake'). */
@@ -1819,6 +1870,15 @@ export const caliberApi = {
     });
   },
 
+  /** POST /skills/import-package.zip — direct bounded ZIP import. */
+  importSkillPackageZip(payload: SkillPackageZipImportPayload): Promise<Skill> {
+    const body = new FormData();
+    body.append("file", payload.file, payload.file.name);
+    body.append("conflict_strategy", payload.conflict_strategy);
+    if (payload.rename_to) body.append("rename_to", payload.rename_to);
+    return request<Skill>("/skills/import-package.zip", { method: "POST", body });
+  },
+
   /** PATCH /skills/{id} */
   updateSkill(skillId: string, payload: SkillUpdatePayload): Promise<Skill> {
     return request<Skill>(`/skills/${encodeURIComponent(skillId)}`, {
@@ -2219,6 +2279,18 @@ export const caliberApi = {
     );
   },
 
+  /** GET completed pass/fail queue labels as provenance-preserving judge examples. */
+  importReviewAlignmentExamples(
+    queueId: string,
+    questionKey: string,
+    signal?: AbortSignal,
+  ): Promise<ReviewAlignmentImport> {
+    return request<ReviewAlignmentImport>(
+      `/review-queues/${encodeURIComponent(queueId)}/alignment-examples?question_key=${encodeURIComponent(questionKey)}`,
+      { signal },
+    );
+  },
+
   /* ---------------------------------------------------------------------- */
   /* Aria goal-plans (agentic orchestration)                                 */
   /* ---------------------------------------------------------------------- */
@@ -2513,6 +2585,22 @@ export const caliberApi = {
     signal?: AbortSignal,
   ): Promise<WorkflowTemplateCatalog> {
     return request<WorkflowTemplateCatalog>("/workflow-templates", { signal });
+  },
+
+  /** GET /cookbooks — all versioned built-in examples. */
+  listCookbooks(signal?: AbortSignal): Promise<CookbookCatalog> {
+    return request<CookbookCatalog>("/cookbooks", { signal });
+  },
+
+  /** POST /cookbooks/{id}/install — atomically create a paused workflow draft. */
+  installCookbook(
+    cookbookId: string,
+    payload: { name?: string; acknowledge_prerequisites: boolean },
+  ): Promise<CookbookInstallResult> {
+    return request<CookbookInstallResult>(
+      `/cookbooks/${encodeURIComponent(cookbookId)}/install`,
+      { method: "POST", body: payload },
+    );
   },
 
   /** GET /workflow-cron-preview — next fire times for a Start-trigger cron expression. */

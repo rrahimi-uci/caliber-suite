@@ -195,6 +195,12 @@ export function Sidebar({
           onNavigate={onNavigate}
         />
         <NavItem
+          to="/cookbooks"
+          icon={<BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />}
+          label="Cookbooks"
+          onNavigate={onNavigate}
+        />
+        <NavItem
           to="/agents"
           icon={<Bot className={NAV_ICON_CLASS} strokeWidth={1.85} />}
           label="Agents"

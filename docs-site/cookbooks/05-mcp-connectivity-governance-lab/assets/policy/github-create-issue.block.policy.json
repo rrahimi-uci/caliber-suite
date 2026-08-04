@@ -1,4 +1,0 @@
-{
-  "_comment": "PATCH /mcp-servers/{id}/tools/create_issue/policy. create_issue is the GitHub server's WRITE tool; in a read-only explorer it stays OFF. allowed:false blocks invocation outright — a re-invoke returns success:false with error 'Tool create_issue is blocked by policy' and never reaches the gateway. Strip this _comment before sending.",
-  "allowed": false
-}

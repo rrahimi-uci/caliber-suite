@@ -372,3 +372,11 @@ thresholded verdicts and the human labels, plus a binary confusion breakdown
 (`caliber.eval.alignment`). A judge that doesn't agree with humans shouldn't gate
 advancement to `candidate_ready`; alignment makes that measurable before the
 judge is trusted.
+
+The Human Alignment UI can also load completed pass/fail labels directly from a
+Review Queue question. `GET /review-queues/{id}/alignment-examples` excludes
+incomplete or non-binary answers and preserves queue id, item id, trace id,
+question key, reviewer, completion time, and assessment provenance for each
+accepted row. The operator can still edit the imported judge/human values before
+submission; import removes transcription as the default handoff without treating
+an unreviewed item as a human label.

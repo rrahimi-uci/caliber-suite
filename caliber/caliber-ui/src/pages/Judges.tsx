@@ -16,6 +16,7 @@ import { FilterSelect } from "@/components/FilterSelect";
 import { SearchInput } from "@/components/SearchInput";
 import type {
   Judge,
+  JudgeAlignmentExampleInput,
   JudgeAlignmentResult,
   JudgeCreatePayload,
   JudgeTestRunResult,
@@ -491,6 +492,8 @@ function JudgePlayground({
 interface AlignmentRow {
   outputs: string;
   label: boolean;
+  inputs?: Record<string, unknown>;
+  expectations?: Record<string, unknown>;
 }
 
 function JudgeAlignmentSection({ judge }: { judge: Judge }): JSX.Element {
@@ -501,6 +504,19 @@ function JudgeAlignmentSection({ judge }: { judge: Judge }): JSX.Element {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<JudgeAlignmentResult | null>(null);
+  const [queueId, setQueueId] = useState("");
+  const [questionKey, setQuestionKey] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const queueFetcher = useCallback(
+    (signal: AbortSignal) => caliberApi.listReviewQueues({ status: "active" }, signal),
+    [],
+  );
+  const { data: reviewQueues } = useApi(queueFetcher, []);
+  const selectedQueue = (reviewQueues ?? []).find((queue) => queue.queue_id === queueId);
+  const passFailQuestions = selectedQueue?.questions.filter(
+    (question) => question.type === "pass_fail",
+  ) ?? [];
 
   const setRow = (index: number, patch: Partial<AlignmentRow>): void =>
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -508,9 +524,14 @@ function JudgeAlignmentSection({ judge }: { judge: Judge }): JSX.Element {
   const run = async (): Promise<void> => {
     setError(null);
     setResult(null);
-    const examples = rows
+    const examples: JudgeAlignmentExampleInput[] = rows
       .filter((r) => r.outputs.trim())
-      .map((r) => ({ outputs: r.outputs, label: r.label }));
+      .map((r) => ({
+        outputs: r.outputs,
+        label: r.label,
+        inputs: r.inputs,
+        expectations: r.expectations,
+      }));
     if (examples.length === 0) {
       setError("Add at least one labeled example.");
       return;
@@ -525,12 +546,80 @@ function JudgeAlignmentSection({ judge }: { judge: Judge }): JSX.Element {
     }
   };
 
+  const importFromQueue = async (): Promise<void> => {
+    if (!queueId || !questionKey) return;
+    setError(null);
+    setImportMessage(null);
+    setImporting(true);
+    try {
+      const imported = await caliberApi.importReviewAlignmentExamples(
+        queueId,
+        questionKey,
+      );
+      setRows(
+        imported.examples.map((example) => ({
+          outputs: example.outputs,
+          label: example.label,
+          inputs: example.inputs,
+          expectations: example.expectations,
+        })),
+      );
+      setImportMessage(
+        `Imported ${imported.examples.length} completed label(s); skipped ${imported.skipped.length}.`,
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "review label import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div>
       <p className="text-xs text-gray-500 mb-3">
         Label a few outputs yourself, then run the judge to see how often it agrees
         with you — the agreement rate and Cohen&apos;s kappa (chance-corrected).
       </p>
+      <div className="mb-3 grid gap-2 rounded-md border border-surface-200 bg-surface-50 p-3 sm:grid-cols-[1fr_1fr_auto]">
+        <select
+          data-testid="align-review-queue"
+          aria-label="Alignment review queue"
+          className="rounded-md border border-surface-200 bg-white px-2 py-1.5 text-sm"
+          value={queueId}
+          onChange={(event) => {
+            setQueueId(event.target.value);
+            setQuestionKey("");
+          }}
+        >
+          <option value="">Import from Review Queue…</option>
+          {(reviewQueues ?? []).map((queue) => (
+            <option key={queue.queue_id} value={queue.queue_id}>{queue.name}</option>
+          ))}
+        </select>
+        <select
+          data-testid="align-review-question"
+          aria-label="Alignment pass fail question"
+          className="rounded-md border border-surface-200 bg-white px-2 py-1.5 text-sm"
+          value={questionKey}
+          disabled={!queueId}
+          onChange={(event) => setQuestionKey(event.target.value)}
+        >
+          <option value="">Pass/fail label…</option>
+          {passFailQuestions.map((question) => (
+            <option key={question.key} value={question.key}>{question.title}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          data-testid="align-import-review-labels"
+          disabled={!queueId || !questionKey || importing}
+          onClick={() => void importFromQueue()}
+          className="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-caliber-purple ring-1 ring-surface-200 disabled:opacity-50"
+        >
+          {importing ? "Importing…" : "Import labels"}
+        </button>
+      </div>
+      {importMessage && <p className="mb-3 text-xs text-emerald-700">{importMessage}</p>}
       <div className="space-y-2">
         {rows.map((row, i) => (
           <div key={i} className="flex items-center gap-2">

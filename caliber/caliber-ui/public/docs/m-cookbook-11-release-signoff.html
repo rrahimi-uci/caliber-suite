@@ -70,13 +70,13 @@
         <div class="ck-badges"><span class="ck-badge ck-track">Govern</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–50 min</span></div>
       </header>
       <div class="ck-cols">
-        <div class="callout"><strong>What you build.</strong> A release control lane that gathers evaluation run ids, review-queue completion, and the in-app Allure report, scores a weighted rubric by hand, and records a go / no-go decision with blockers mapped to their owning cookbook.
-          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Evaluations</span> <span class="ck-badge ck-surface">Review Queues</span> <span class="ck-badge ck-surface">Observability</span> <span class="ck-badge ck-surface">Settings (Allure)</span></div></div>
-        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Collect evidence from Evaluations + Review Queues</li><li>Re-run critical slices and capture fresh run ids</li><li>Open the in-app Allure report</li><li>Score a weighted release rubric (operator)</li><li>Record a decision with blockers + waivers</li></ul></div>
+        <div class="callout"><strong>What you build.</strong> A durable release candidate with server-computed weighted criteria, blockers, accountable waivers, rollback target, immutable go/no-go signoff, and Allure-compatible report evidence.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Releases</span> <span class="ck-badge ck-surface">Evaluations</span> <span class="ck-badge ck-surface">Review Queues</span> <span class="ck-badge ck-surface">Observability</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Collect evidence from Evaluations + Review Queues</li><li>Re-run critical slices and capture fresh run ids</li><li>Generate durable Allure-compatible evidence</li><li>Inspect the server-computed release score and blockers</li><li>Record an immutable decision with blockers + waivers</li></ul></div>
       </div>
       <h2 id="flow">Implementation flow</h2>
       <div class="diagram"><pre class="mermaid">flowchart TD
-  E1[Eval run ids 07/08/10] --&gt; SC[Score rubric]
+  E1[Eval run ids 07/08/10] --&gt; SC[Release candidate]
   E2[Review queues complete] --&gt; SC
   E3[Allure report loads] --&gt; SC
   E4[Re-run critical slices] --&gt; SC
@@ -404,85 +404,30 @@ Return only the JSON record.
     </div><div class="ck-asset" id="asset-assets-decision-decision-record-template-md">
       <div class="ck-asset-bar"><span class="ck-asset-name">assets/decision/decision-record.template.md</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="markdown"><code>&lt;!--
-Fill-in go/no-go decision record for SCN-11. Copy this file, replace every
-&lt;FILL: ...&gt; placeholder, and keep it with the release as the audit trail.
+      <pre data-lang="markdown"><code># Release decision preparation template
 
-There is no release-scoring engine: the scores below are computed BY HAND from
-the evidence in ../dataset/run-id-manifest.json using ../rubric/release-rubric.json.
-Allure is generated externally (`make allure-report`) and only served in-app.
+This is an optional drafting aid. Record the authoritative candidate, waiver,
+report-job, and final signoff in **Operate → Releases**.
 
-GATES (all three must hold for a go):
-  overall_release_score &gt;= 0.90  AND  blocker_count == 0  AND  Allure visible.
---&gt;
+- Candidate name / artifact / version:
+- Required score:
+- Planned action:
+- Rollback target:
+- Evidence references:
+- Blocking criteria:
+- Waivers with reason / expiry / approver:
+- Decision: `go` / `no_go`
+- Rationale:
+- Report-job id:
+- Candidate snapshot SHA-256:
 
-# Release Decision Record — &lt;FILL: release tag, e.g. r2026.06.0&gt;
-
-- **Date:** &lt;FILL: YYYY-MM-DD&gt;
-- **Prepared by:** &lt;FILL: name / role&gt;
-- **Decision:** &lt;FILL: go | no_go&gt;
-
-## Evidence: run-id list
-
-Source: `../dataset/run-id-manifest.json` (filled).
-
-| Scenario | Eval run id | Review queue complete | Critical-slice re-run id | Notes |
-| --- | --- | --- | --- | --- |
-| SCN-07 support-triage | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: approval-branch run id&gt; | &lt;FILL&gt; |
-| SCN-08 incident-response | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: rollback-path run id&gt; | &lt;FILL&gt; |
-| SCN-09 workflow-debugger | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: retry/resume run id&gt; | &lt;FILL&gt; |
-| SCN-10 judge-certification | &lt;FILL: eval_run_id&gt; | &lt;FILL: yes/no&gt; | &lt;FILL: re-run id&gt; | &lt;FILL&gt; |
-
-## Evidence: Allure report
-
-- **Regenerated (`make allure-report`):** &lt;FILL: yes/no — must be yes&gt;
-- **Report URL:** &lt;FILL: e.g. /observability/allure-report/&gt;
-- **Loaded in-app (Settings → Allure Report):** &lt;FILL: yes/no — must be yes for a go&gt;
-
-## Rubric scoring (computed by hand)
-
-Weights and per-dimension checklist: `../rubric/release-rubric.json`.
-
-| Dimension | Weight | Status (pass/partial/fail) | Factor | Weighted | Evidence cited |
-| --- | --- | --- | --- | --- | --- |
-| component_readiness | 0.30 | &lt;FILL&gt; | &lt;FILL: 1.0/0.5/0.0&gt; | &lt;FILL&gt; | &lt;FILL: run ids&gt; |
-| workflow_readiness | 0.30 | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL: re-run ids&gt; |
-| review_coverage | 0.20 | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL: review queues&gt; |
-| evidence_visibility | 0.20 | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL: Allure URL + manifest&gt; |
-
-- **Overall release score:** &lt;FILL: sum of weighted column&gt; (gate: ≥ 0.90)
-
-## Blockers
-
-Each blocker MUST map to its owning scenario (reopen that scenario&#x27;s gate to fix).
-
-| Blocker id | Summary | Owning scenario | Status (open/fixed/waived) |
-| --- | --- | --- | --- |
-| &lt;FILL: BLK-1&gt; | &lt;FILL&gt; | &lt;FILL: SCN-0x&gt; | &lt;FILL&gt; |
-
-- **Blocker count (open):** &lt;FILL: integer&gt; (gate: must equal 0)
-- _If a GitHub blocker issue was opened via the MCP `create_issue` tool
-  (approval-gated), link it here:_ &lt;FILL: issue URL or n/a&gt;
-
-## Waiver log
-
-Record any waiver with an explicit expiry and accountable owner. A waived blocker
-is NOT a fixed blocker — it must still be tracked to expiry.
-
-| Blocker id | Reason for waiver | Owner | Expiry (YYYY-MM-DD) |
-| --- | --- | --- | --- |
-| &lt;FILL or &quot;none&quot;&gt; | &lt;FILL&gt; | &lt;FILL&gt; | &lt;FILL&gt; |
-
-## Decision + rationale
-
-- **Final decision:** &lt;FILL: go | no_go&gt;
-- **Gate check:** overall_release_score &lt;FILL&gt; ≥ 0.90? &lt;FILL: yes/no&gt; · blocker_count &lt;FILL&gt; == 0? &lt;FILL: yes/no&gt; · Allure visible? &lt;FILL: yes/no&gt;
-- **Rationale:** &lt;FILL: cite the evidence by id/name. If no_go, name the specific failing gate(s) and the owning scenario(s) for each blocker. Do not publish go unless all three gates hold and every gate state traces back to a concrete run id / review answer / Allure result.&gt;
+Before `go`, confirm the server reports `ready`, no unwaived blocker remains,
+and both the planned action and rollback target are populated.
 </code></pre>
     </div>
       <h2 id="gates">Evaluation &amp; quality gates</h2>
       <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Overall release score</td><td>≥ 0.90</td></tr><tr><td>Blocker count</td><td>= 0</td></tr><tr><td>Allure visible</td><td>report loads in-app</td></tr></tbody></table></div>
-      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>There is no built-in release-scoring engine — the rubric is computed by the operator (optionally narrated by a prompt).</li><li>Allure is generated out-of-band (<code>make allure-report</code>) and only <strong>served</strong> in-app.</li><li>Map every blocker back to its owning cookbook and reopen that gate.</li></ul></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>The server recomputes score and blockers from the stored criteria; the browser's aggregate is never trusted.</li><li>The report job is durable Allure-compatible JSON; CI still owns the separate rendered HTML test report.</li><li>Map every blocker back to its owning cookbook and reopen that gate.</li></ul></div>
       <nav class="ck-pager"><a href="m-cookbook-10-trustworthy-evaluation.html">← Trustworthy Evaluation</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-12-aria-eval-harness.html">Aria: Evaluation Harness from Intent →</a></nav>
         <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
         Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>

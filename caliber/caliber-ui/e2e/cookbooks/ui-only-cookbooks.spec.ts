@@ -61,6 +61,25 @@ test.describe("Cookbooks built only through visible CALIBER UI", () => {
     await runUiOnlyCookbook(page, cookbook);
   });
 
+  test("the in-product catalog installs every governed Cookbook draft", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    const runSlug = uiOnlySlug("pw-cookbook-catalog");
+    const cookbook: UiOnlyCookbook = {
+      id: "CATALOG-ALL",
+      title: "install all 16 real examples as separate paused drafts",
+      async execute(ui) {
+        for (let number = 1; number <= 16; number += 1) {
+          const cookbookId = String(number).padStart(2, "0");
+          await ui.installCookbookDraft(cookbookId, `${runSlug}-${cookbookId}`);
+        }
+      },
+    };
+
+    await runUiOnlyCookbook(page, cookbook);
+  });
+
   test("Cookbook 13 creates a governed review queue without API seeding", async ({
     page,
   }) => {

@@ -47,6 +47,8 @@ export type WorkflowNodeType =
   | "knowledge_query"
   | "knowledge_build"
   | "template"
+  | "data_transform"
+  | "review_queue_enqueue"
   | "python_code"
   | "agent"
   | "guardrail"
@@ -144,6 +146,12 @@ export interface ManifestNode {
   template?: string;
   output_format?: "text" | "json";
   missing_variable_mode?: "preserve" | "empty" | "error";
+  operation?: "fixture" | "mapping" | "json_schema" | "decision_table" | "confidence";
+  config?: Record<string, unknown>;
+  fail_on_invalid?: boolean;
+  queue_id?: string;
+  experiment_id?: string | null;
+  assigned_to?: string | null;
   code?: string;
   timeout_seconds?: number | null;
   wait_until?: string;
@@ -646,6 +654,14 @@ export interface WorkflowRunCapabilities {
   runtime_approvals_enabled: boolean;
   checkpointing_enabled: boolean;
   event_backend: string;
+  approval_readiness: {
+    status: "ready" | "configuration_required";
+    blockers: string[];
+    decision_scope: string;
+    allow_self_approval: boolean;
+    audit_actions: string[];
+    settings_path: string;
+  };
 }
 
 export interface WorkflowComponentField {
@@ -784,6 +800,42 @@ export interface WorkflowTemplateCatalog {
   templates: WorkflowTemplate[];
   bakeoff_scenarios?: WorkflowBakeoffScenario[];
   operator_rubric?: WorkflowBakeoffRubricSection[];
+}
+
+export interface CookbookReadinessCheck {
+  label: string;
+  status: "operator_confirmation_required" | "ready";
+}
+
+export interface CookbookRecipe {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  icon: string;
+  template_kind: WorkflowTemplateKind;
+  catalog_version: string;
+  capabilities: string[];
+  prerequisites: string[];
+  activation_requires_review: boolean;
+  manifest_template: WorkflowManifest;
+  readiness: {
+    status: "ready" | "configuration_required";
+    checks: CookbookReadinessCheck[];
+  };
+}
+
+export interface CookbookCatalog {
+  schema_version: number;
+  catalog_version: string;
+  recipes: CookbookRecipe[];
+}
+
+export interface CookbookInstallResult {
+  recipe: Omit<CookbookRecipe, "manifest_template" | "readiness">;
+  workflow: Workflow;
+  version: WorkflowVersion;
+  activation_requires_review: boolean;
 }
 
 export interface PlatformCapabilities {
