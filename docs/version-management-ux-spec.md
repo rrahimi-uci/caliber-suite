@@ -14,14 +14,21 @@
 
 ---
 
-## 0. Current-state reconciliation (2026-07-31)
+## 0. Current-state reconciliation (2026-08-04)
 
 The proposal's principal Phase-0/Phase-1 gaps have landed:
 
-- Prompts now have save-without-promote plus audited promote and exact rollback
-  endpoints. Alias rotation records the outgoing version and rejects a stale
-  `expected_version` with `409`; the prompt workspace mounts the shared
-  `VersionPanel`.
+- Prompt authoring is now strictly non-live: create rejects `target_alias`,
+  version creation defaults to a draft and rejects `promote: true`, and the UI's
+  “Save & promote” path creates the immutable version before invoking the release
+  endpoint. The prompt workspace mounts the shared `VersionPanel`.
+- Prompt promote and rollback use a durable `CaliberReleaseOperation`. CALIBER
+  commits the exact before/after intent and advisory gate evidence before calling
+  MLflow, serializes incomplete operations per alias, supports exact-operation
+  idempotency and `expected_version` conflict checks, and exposes operator list and
+  reconciliation APIs for `applying` or `reconcile_required` outcomes. Apply
+  checkpoints carry the release operation ID so reconciliation can also settle an
+  interrupted refinement apply.
 - Workflows mount that panel and expose operator-scoped promote/rollback backed by
   the deployment rollback stack and an `expected_version_id` conflict check.
 - Knowledge bases mount the panel around their immutable build versions and
@@ -44,6 +51,11 @@ turning every counter, snapshot, build, and alias into one backend abstraction.
 The normalized frontend model is shared; the persistence, liveness, gate, and
 rollback guarantees are not. The sections below remain useful as design rationale
 and as a record of the defects that motivated the implementation.
+
+These release-safety changes do **not** implement the roadmap's proposed human
+requester/approver separation, quorum, or multi-environment ladder. Direct prompt
+release remains operator-scoped, the persisted prompt verdict remains advisory,
+and prompt discovery/calibration still target the single `prod` environment.
 
 ---
 

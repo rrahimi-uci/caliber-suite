@@ -1,7 +1,8 @@
 # CALIBER technical paper
 
-LaTeX source for *CALIBER: Per-Family Governance for Releasing AI-Agent
-Resources*, in the authoritative single-column KOMA-Script `scrreprt` format.
+LaTeX source for *CALIBER: A Layered Control Plane for Per-Family Governance of
+AI-Agent Resources*, in the authoritative single-column KOMA-Script `scrreprt`
+format.
 
 ## Build
 
@@ -95,10 +96,16 @@ and the generator asserts all three agree.
 *containment* from *isolation*. Those distinctions carry technical weight, so they
 are spelled by macro (`\gasset`, `\advgate`, `\relverdict`, …) rather than typed.
 
-**Figure type has a floor.** `preamble.tex` defines the whole figure type scale in
-three macros — `\figH` (headings), `\figB` (detail), `\figE` (edge labels), sized
-relative to the body text. In the authoritative single-column layout that resolves
-to 9 pt/8 pt. Nothing in a figure is set smaller. When a
+**Figure type has a floor, and it is absolute.** `preamble.tex` defines the whole
+figure type scale in three macros — `\figH` (headings, 8 pt), `\figB` (detail,
+7 pt), `\figE` (edge labels, 7 pt) — pinned with `\fontsize`, **not** relative to
+the body text. This is load-bearing and was got wrong once: when `\figB` was
+`\scriptsize`, moving from the 10 pt two-column layout to the 11 pt single-column
+one silently enlarged every figure label from 7 pt to 8 pt. Box geometry is fixed in
+centimetres, so the larger text wrapped to more lines than the boxes had room for
+and **overflowed into neighbouring boxes** — a failure no overfull-box warning
+reports, because nothing overflows the *page*. Do not make these relative again.
+Nothing in a figure is set smaller. When a
 diagram does not fit, *cut its content*, do not lower the floor: below 7 pt, figure
 text is unreadable in print and in the two-page-per-sheet printouts many reviewers
 use. Everything trimmed out of a diagram is restated in the prose.
@@ -235,8 +242,17 @@ Three font decisions are deliberate and load-bearing on a basic install:
 
 ## Two known issues
 
-**Length.** The authoritative `scrreprt` build is 71 pages after adding the
-four-page contents section and new-page section boundaries. It is a technical
+**Target venue is undecided, and that is the decision blocking the layout
+question.** Two layouts are maintained (`article-layout.sty`, authoritative;
+`usenix-layout.sty`, retained), which is only worth the cost while the venue is
+open. Reviewer guidance on this was direct and correct: fix the venue and its page
+policy *first*, then keep exactly one layout and cut to that limit. Until then the
+`scrreprt` build is the technical-report edition and no page budget applies to it.
+
+**Length.** The authoritative `scrreprt` build is 73 pages after adding the
+four-page contents section, new-page section boundaries, and the review-driven
+additions (`tab-platforms`, `tab-threat`, `tab-loops`, and the E6/E7 protocol
+groups). It is a technical
 report, not a conference-length manuscript. Any conference submission needs a
 separate venue-specific edition and substantial cutting. The content is structured
 so cutting is mechanical. In rough order of least to most damage:

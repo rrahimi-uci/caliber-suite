@@ -101,7 +101,7 @@
             </div>
             <div class="hero-highlight">
               <strong>Govern &amp; observe</strong>
-              <span>Runtime approvals, RBAC, MLflow tracing, and the embedded Aria copilot.</span>
+              <span>Runtime approvals, RBAC, durable prompt-release recovery, MLflow tracing, and the embedded Aria copilot.</span>
             </div>
           </div>
         </section>
@@ -153,7 +153,7 @@
                 <a class="ref-card ref-row" href="m-02-prompts.html">
                   <span class="ref-row-kicker">Authoring</span>
                   <span class="ref-row-title">Prompts</span>
-                  <span class="ref-row-summary">Prompt Registry authoring, render/test history, and queued calibration.</span>
+                  <span class="ref-row-summary">Non-live Prompt Registry authoring, render/test history, queued calibration, and durable alias release/reconciliation.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-03-tools.html">
                   <span class="ref-row-kicker">Authoring</span>
@@ -614,8 +614,8 @@ make allure-report</code></pre>
                 </tr>
                 <tr>
                   <td>Runtime and promotion</td>
-                  <td><code>/workflow-runs</code><br><code>/jobs/{job_id}/apply</code><br><code>/agents/{agent_id}/rollback</code><br><code>/services/{workflow_id}/invoke</code></td>
-                  <td>Queued execution, candidate apply, rollback, and workflow-as-a-service invocation. Protected service calls authenticate before body consumption; every invoke has a streamed raw-body ceiling.</td>
+                  <td><code>/workflow-runs</code><br><code>/jobs/{job_id}/apply</code><br><code>/prompts/{name}/aliases/{alias}</code><br><code>/releases/operations</code><br><code>/releases/operations/reconcile</code><br><code>/agents/{agent_id}/rollback</code><br><code>/services/{workflow_id}/invoke</code></td>
+                  <td>Queued execution, candidate apply, intent-first prompt alias release/reconciliation, rollback, and workflow-as-a-service invocation. Protected service calls authenticate before body consumption; every invoke has a streamed raw-body ceiling.</td>
                 </tr>
                 <tr>
                   <td>Assistant</td>
@@ -835,7 +835,7 @@ curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/health | jq
           <p>Not in the current route surface. Aria persists a final assistant message, tool-call transparency, and a compact post-turn <code>process_steps</code> trail, but not a live token-stream reasoning transcript.</p>
 
           <h4>Where does promotion happen now?</h4>
-          <p>For candidate-ready calibration jobs, promotion happens through <code>POST /jobs/{job_id}/apply</code>. Live workflow approvals remain under <code>/workflow-runs/*</code> because they govern running executions, not offline artifact apply.</p>
+          <p>For candidate-ready calibration jobs, promotion happens through <code>POST /jobs/{job_id}/apply</code>. Direct prompt authoring stays non-live; releasing a chosen immutable version uses <code>POST /prompts/{name}/aliases/{alias}</code>. Prompt alias paths commit an idempotent operation before calling MLflow, and operators can inspect or reconcile incomplete outcomes under <code>/releases/operations</code>. Live workflow approvals remain under <code>/workflow-runs/*</code> because they govern running executions, not offline artifact apply.</p>
 
           <h4>How do I publish test evidence into the product?</h4>
           <p>Run the repo test entry points so they emit Allure results, build the combined report with <code>make allure-report</code>, and then open <code>/observability/allure-report</code> from the running CALIBER backend.</p>

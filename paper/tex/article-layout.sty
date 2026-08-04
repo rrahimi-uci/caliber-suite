@@ -66,6 +66,16 @@
 \DeclareFontSubstitution{T1}{ptm}{m}{n}
 \DeclareFontSubstitution{TS1}{ptm}{m}{n}
 
+% Small-caps italic does not exist in Times. \sys sets CALIBER in small caps, and
+% the paper puts it inside italic blocks (the central-claim quote, table glosses),
+% which requests T1/ptm/m/scit and gets an "undefined shape" warning on every one.
+% Declare the substitution we want explicitly instead of letting LaTeX guess: the
+% upright small-caps face is the right fallback, and saying so silences a warning
+% that would otherwise look like an unresolved font problem to a reviewer.
+\DeclareFontShape{T1}{ptm}{m}{scit}{<->ssub*ptm/m/sc}{}
+\DeclareFontShape{T1}{ptm}{b}{scit}{<->ssub*ptm/b/sc}{}
+\DeclareFontShape{T1}{ptm}{bx}{scit}{<->ssub*ptm/bx/sc}{}
+
 % times.sty points \ttfamily at Courier and \sffamily at Helvetica, whose T1
 % metrics are absent here; a declared-but-unbuildable family defeats the
 % substitutions above, because LaTeX only substitutes for a missing *shape*.

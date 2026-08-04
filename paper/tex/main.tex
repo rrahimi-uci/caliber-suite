@@ -1,6 +1,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%%  CALIBER: Per-Family Governance for Releasing AI-Agent Resources
+%%  CALIBER: A Layered Control Plane for Per-Family Governance of
+%%           AI-Agent Resources
 %%
 %%  Build:  make            (from paper/)
 %%          make watch      continuous rebuild
@@ -49,14 +50,15 @@
 \graphicspath{{../images/}{../generated/}{../generated/diagrams/}}
 
 \hypersetup{
-  pdftitle  = {CALIBER: Per-Family Governance for Releasing AI-Agent Resources},
+  pdftitle  = {CALIBER: A Layered Control Plane for Per-Family Governance
+               of AI-Agent Resources},
   pdfauthor = {Reza Rahimi},
   pdfsubject= {Systems architecture for governed AI-agent resource lifecycles},
   pdfkeywords={AI agents, LLMOps, control plane, governance, prompt optimization,
                MLflow, evaluation, provenance, release engineering},
 }
 
-\title{\sysbare: Per-Family Governance for\\Releasing AI-Agent Resources}
+\title{\sysbare: A Layered Control Plane for\\Per-Family Governance of AI-Agent Resources}
 
 \author{%
   Reza Rahimi\\[0.4ex]
@@ -70,8 +72,10 @@
 \input{00-abstract}
 
 \clearpage
+\renewcommand{\contentsname}{Table of Contents}
 \tableofcontents
 
+% Each top-level section begins on a fresh page.
 \clearpage\input{01-introduction}
 \clearpage\input{02-motivation}
 \clearpage\input{03-background}
@@ -97,14 +101,13 @@
 working-tree changes. The manuscript source, generated counts, and build
 instructions are under \code{paper/} in the working tree supplied for review.
 
-One artifact boundary is intentionally explicit: \textbf{the inspected checkout
-does not yet track \code{paper/} in Git}. A release artifact must add it and record
-the resulting commit before claiming that source and implementation are versioned
-together. What can be reproduced from the current working tree is the document and
-its source-derived counts. Running \code{make repro} in \code{paper/} regenerates
-\code{generated/stats.tex}, forces a four-pass build, and runs the document checks.
-\code{paper/REPRODUCE.md} records the required toolchain and the boundary of that
-command.
+The manuscript source is versioned in the same repository as the implementation it
+describes, so a reader can check the paper against the code at a single revision.
+What can be reproduced is the document and its source-derived counts: running
+\code{make repro} in \code{paper/} regenerates \code{generated/stats.tex}, fails if
+the result differs from the committed files, forces a four-pass build, and runs the
+document checks. \code{paper/REPRODUCE.md} records the required toolchain and states
+the boundary of that command.
 
 What that does \emph{not} establish is the measurement protocol, which needs a
 pinned environment we have not yet published, and which is the first thing to add

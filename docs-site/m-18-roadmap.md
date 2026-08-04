@@ -9,6 +9,13 @@
 > the prompt form exposes two. Roadmap deliverables remain proposed until current
 > code and release evidence prove them landed.
 
+> **Current delta (2026-08-04):** prompt authoring is now non-live, and direct
+> prompt promote/rollback uses an intent-first, idempotent release-operation row
+> with exact before/after versions, optimistic concurrency, incomplete-operation
+> locking, and operator-triggered reconciliation. This is release durability, not
+> completion of Q3 governed promotion: requester/approver separation, enforced
+> human sign-off, and a configurable multi-environment ladder remain proposed.
+
 > **This roadmap was adversarially critiqued against the code before publication** (three skeptic passes: feasibility-vs-architecture, competitive-alignment, capacity). Several first-draft assumptions turned out to be wrong — most importantly that human-approval governance was merely "dormant." The corrections are recorded in **[§12 Feasibility review](#12-feasibility-review)**; the plan below is the corrected version.
 >
 > **Planning unit.** One quarter = 3 months. Q1–Q4 are committed and detailed; Q5–Q6 are directional bets re-committed at the H1 review. Quarters are relative (start = "next quarter"), not fixed calendar dates.

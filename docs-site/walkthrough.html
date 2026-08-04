@@ -242,7 +242,7 @@ export AWS_SECRET_ACCESS_KEY=minioadmin</code></pre>
    checkpointing    : true
 <span class="ok">&gt;&gt; applying caliber migrations</span>
 <span class="dim">INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
-INFO  [alembic.runtime.migration] Running upgrade ... -&gt; 0051_assistant_queued_messages</span>
+INFO  [alembic.runtime.migration] Running upgrade ... -&gt; current head</span>
 <span class="ok">&gt;&gt; starting mlflow server with --app-name caliber</span>
 <span class="dim">[INFO] Listening at: http://127.0.0.1:5000
 caliber.app: plugin initialised, ui=/caliber/, api=/ajax-api/2.0/mlflow/caliber/</span>
@@ -357,13 +357,14 @@ xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
         can develop and verify a prompt, tool, or skill in isolation before a workflow ever uses it.
       </p>
       <div class="grid">
-        <div class="card"><h4>Prompts</h4><p><code>/prompts</code> — versioned prompts backed by MLflow's Prompt Registry, with aliases and a per-prompt test workspace.</p></div>
+        <div class="card"><h4>Prompts</h4><p><code>/prompts</code> — immutable prompt drafts backed by MLflow's Prompt Registry, with a per-prompt test workspace. Saving never changes a live alias; promotion is a separate durable release operation with recovery for ambiguous provider outcomes.</p></div>
         <div class="card"><h4>Tools</h4><p><code>/tools</code>, <code>/tools/:id</code> — tool definitions runnable in a subprocess sandbox; test a draft against inputs before publishing.</p></div>
         <div class="card"><h4>Skills</h4><p><code>/skills</code>, <code>/skills/:id</code> — named capabilities with selection logic; preview which skills resolve for a given input.</p></div>
         <div class="card"><h4>MCP Servers</h4><p><code>/mcp-servers</code> — registered Model Context Protocol servers, including the first-party database server, exposed as tools.</p></div>
       </div>
       <h4>Try this</h4>
       <ul>
+        <li>Create or edit a prompt and save a draft, then explicitly choose <strong>Save &amp; promote</strong> when you intend to move the live alias.</li>
         <li>Open a tool's workspace and run its draft in the sandbox against a sample input — the run is recorded and diffable against a baseline.</li>
         <li>On a skill, use the selection preview to see which skills a given user message would pull in.</li>
       </ul>

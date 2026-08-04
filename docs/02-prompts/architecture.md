@@ -9,7 +9,7 @@
 | **Key surfaces** | `caliber/src/caliber/routes/prompts.py`, `Prompts.tsx`, and `PromptBuilder.tsx`, mounted under `/ajax-api/2.0/mlflow/caliber`. |
 | **Runtime model** | One route entry point fans out to MLflow, `prompt_template_library.py`, `prompt_targets.py`, the DB, and the shared refinement pipeline. |
 | **Runtime identity** | A hidden `CaliberAgentConfig` prompt target keyed on prompt name gives each prompt an `agent_id`. |
-| **Trust / safety** | Mutations, including alias release and rollback, need `operator` scope. An admin inherits that scope; `approver` is a sibling role and cannot release a prompt unless it is separately granted operator/admin authority. Template-preview and test-render are read-only, non-executing transformations. |
+| **Trust / safety** | Authoring is non-live: create/version endpoints only register immutable drafts. Alias release and rollback need `operator` scope and use a committed, idempotent release intent before MLflow is mutated. An admin inherits operator; `approver` is a sibling role and cannot release without separate operator/admin authority. Template-preview and test-render are read-only, non-executing transformations. |
 | **Calibration** | Optimization and calibration enqueue `CaliberVerificationItem` and `CaliberRefinementJob` into the shared pipeline. |
 
 The sections below start from this picture and drill down into the detail behind each dimension.
@@ -43,6 +43,8 @@ lifecycle status.
 These responsibilities are realized across a small set of primary code paths:
 
 - `caliber/src/caliber/routes/prompts.py`
+- `caliber/src/caliber/release_operations.py`
+- `caliber/src/caliber/routes/releases.py`
 - `caliber/src/caliber/prompt_template_library.py`
 - `caliber/src/caliber/prompt_targets.py`
 - `caliber/caliber-ui/src/pages/Prompts.tsx`
@@ -61,6 +63,7 @@ responsibility to its owner and explains the rationale.
 | Prompt template catalog | `prompt_template_library.py` | Pure CALIBER module powering builder templates and previews. |
 | Test-run history | `CaliberPromptTestRun` | Durable CALIBER-owned run history for the Prompts page. |
 | Calibration queueing | `CaliberRefinementJob`, `CaliberVerificationItem` | Shared refinement pipeline used by prompts, skills, and workflows. |
+| Prompt alias release | `CaliberReleaseOperation` plus MLflow Prompt Registry | CALIBER commits the exact before/after release intent before changing the external alias, then settles or reconciles the operation. |
 | Workflow prompt visibility | `routes/prompts.py` extraction helpers | Workflow-agent prompts are surfaced into the same prompt inventory. |
 
 These assignments make the module deliberately hybrid, and that hybrid character
@@ -122,6 +125,7 @@ specific purpose.
 | Hidden runtime identity | `CaliberAgentConfig` keyed by prompt name | Gives prompt tests, traces, jobs, and baselines an `agent_id`. |
 | Prompt test history | `CaliberPromptTestRun` | Durable per-run results, score, trace ID, and MLflow run linkage. |
 | Optimization/calibration queue | `CaliberVerificationItem`, `CaliberRefinementJob` | Feeds prompt work into the same background refinement engine used elsewhere. |
+| Alias release intent and outcome | `CaliberReleaseOperation` | Stores operation identity, exact before/after versions, actor/evidence, status, provider result, and reconciliation error. A unique active lock serializes incomplete operations per prompt alias. |
 | Workspace status | `optimizer_config` on hidden prompt target | Stores model pin, dataset binding, bind target, and baseline run ID. |
 
 This layout has three consequences worth making explicit. Deleting a prompt
@@ -151,15 +155,15 @@ The first area covers core inventory and versioning, backed by the registry:
 - `POST /prompts/{name}/aliases/{alias}`
 - `POST /prompts/{name}/rollback`
 
-Within this area, decoupling authoring from going live is opt-in. `POST
-/prompts/{name}/versions` honors a `promote` flag whose default is `true`, so the
-normal version-create path registers the version and attempts to rotate the
-target alias in the same request. A caller must send `promote: false` to create
-a *draft* without rotating an alias. `POST /prompts/{name}/aliases/{alias}` is
-the distinct audited promote: it captures the outgoing live version, rotates
-the alias, and writes a `promote_prompt` audit row carrying the advisory gate
-verdict and any operator override. That advisory verdict is evidence only and
-never blocks alias rotation. `POST
+Within this area, authoring and release are separate. `POST /prompts` rejects a
+non-empty `target_alias`, and `POST /prompts/{name}/versions` defaults to a
+non-live draft and rejects `promote: true`. The caller must register the immutable
+version first and then invoke `POST /prompts/{name}/aliases/{alias}` to release it.
+That release route captures the outgoing live version and optional optimistic
+`expected_version`, commits the gate evidence and a `CaliberReleaseOperation`,
+and only then asks MLflow to rotate the alias. It returns the operation ID and
+settled release status. The advisory verdict is durable evidence but never blocks
+this direct operator release. `POST
 /prompts/{name}/rollback` reads that audit trail to restore the exact
 previously-live version, writing a `rollback_prompt` row and returning `409`
 when no prior live version is recorded. The rollback walk reads only
@@ -169,12 +173,16 @@ history (v3→v2→v1) instead of oscillating back to the version just left. An
 alias rotation applied through the assistant/apply path records the same
 `promote_prompt` row, so it is equally visible to rollback.
 
-The audited alias route and Apply path cross an external dual-write boundary:
-MLflow alias rotation occurs before the CALIBER database transaction commits
-its audit, checkpoint, verdict, and provenance state. There is no distributed
-transaction across MLflow and CALIBER, so a failure after the external write
-can leave the registry and database records divergent and requires operational
-reconciliation or a safe retry.
+The external effect is not a distributed transaction, but it is crash-observable.
+The release row starts as `prepared`, moves to `applying` before the provider
+call, and settles as `applied`; a proven pre-call failure becomes `failed`, while
+an exception after mutation might have begun becomes `reconcile_required`.
+Reusing an operation ID is safe only for the exact same mutation. Every operation
+remains visible through `GET /releases/operations`: a still-`prepared` operation
+can be retried with that same ID, while `POST /releases/operations/reconcile`
+compares `applying` and `reconcile_required` rows with the live MLflow alias and
+settles the result. This narrows the remaining boundary to provider-state
+observation rather than an unrecorded production change.
 
 Both explicit alias promotion and rollback are operator-scoped release actions:
 a configured operator or admin can invoke them because admin inherits operator,
@@ -226,7 +234,14 @@ sequenceDiagram
     U->>UI: Create or edit prompt
     UI->>API: POST /prompts or /prompts/{name}/versions
     API->>ML: Register prompt/version
-    API-->>UI: Return merged prompt metadata
+    API-->>UI: Return immutable draft metadata
+
+    U->>UI: Promote selected version
+    UI->>API: POST /prompts/{name}/aliases/{alias}
+    API->>DB: Commit release intent + gate evidence
+    API->>ML: Rotate alias to exact version
+    API->>DB: Settle operation + release audit
+    API-->>UI: Return operation ID + applied status
 
     U->>UI: Run prompt tests
     UI->>API: POST /prompts/test-runs
@@ -242,21 +257,21 @@ sequenceDiagram
     Q->>DB: Process stages; on pass mark candidate_ready
     U->>UI: Inspect candidate and invoke Apply
     UI->>API: POST /jobs/{job_id}/apply
+    API->>DB: Commit checkpoint, provenance, and release intent
     API->>ML: Register candidate and rotate alias
-    API->>DB: Commit checkpoint, audit, and provenance
+    API->>DB: Settle release operation and audit
 ```
 
 A few lifecycle rules govern how these flows behave. The module in
 `prompt_targets.py` auto-provisions a hidden runtime identity keyed on the prompt
 name, so a prompt can be tested and calibrated without the operator ever managing
-an explicit agent row. Saving a version and promoting it are separate only when
-the caller opts into `promote: false`; because `promote` defaults to `true`, a
-normal version-create request attempts to rotate the live alias. The explicit
-alias route and later Apply path are audited release operations that record the
-outgoing version and advisory verdict so a `rollback` can later restore the
-exact previously-live version. The advisory verdict never blocks rotation, and
-the external MLflow write is not atomic with the subsequent CALIBER database
-commit, so operators must treat divergence as a reconciliation boundary.
+an explicit agent row. Saving a version never changes a live alias; even a legacy
+`promote: true` request is rejected, so release must use the explicit alias route
+or the later Apply path. Both are durable release operations that record the
+outgoing version and advisory verdict before MLflow is mutated, allowing exact
+rollback and recovery after an ambiguous provider failure. The advisory verdict
+never blocks direct operator rotation. Incomplete provider effects remain a
+reconciliation boundary, surfaced by the operation list and reconcile endpoint.
 Test-run history is durable and CALIBER-owned, but replay is effectively a frontend
 re-run that inserts a fresh row rather than a server-side replay API. Bind and baseline are workspace metadata operations on
 the hidden prompt target, not registry mutations. And workflow-node binding is
@@ -270,9 +285,11 @@ split across both. The enforced controls are as follows. Mutating endpoints
 require `operator` scope; admins inherit it, but approvers are a sibling role and
 do not. Consequently, prompt release and rollback require an operator or admin,
 not an approver acting only with `caliber.approver`. Prompt target creation
-inherits project scoping through the active identity. Prompt aliases are constrained by the
-CALIBER-side allowed alias set. And optional scorer support is capability-gated
-at runtime rather than assumed to be present.
+inherits project scoping through the active identity. Direct release and rollback
+aliases are syntax-validated; current prompt discovery and calibration write paths
+remain single-environment and use `prod`, so the API's syntactic acceptance of
+another alias is not a verified multi-environment product mode. Optional scorer
+support is capability-gated at runtime rather than assumed to be present.
 
 Three design choices reinforce these boundaries. Prompt content is not stored
 redundantly in CALIBER tables, so there is a single canonical copy in MLflow.
@@ -287,11 +304,14 @@ The module emits both artifact metadata and runtime quality signals, which gives
 operators visibility into prompt health. Its operational characteristics include
 the following. Prompt test runs persist `trace_id` and `mlflow_run_id` when those
 values are available. The route module caches prompt lookups to reduce repeated
-MLflow registry calls during list and detail surfaces. Scorer capability
+MLflow registry calls during list and detail surfaces. Release operations expose
+the actor, exact target, before/after versions, status, provider result, and last
+error needed for operator recovery. Scorer capability
 construction checks the runtime availability of optional packages such as
-`deepeval` before offering them. And single-environment mode is encoded directly
-in prompt alias discovery and write policy, where `_PROMPT_DISCOVERY_ALIASES`
-currently defaults to `("prod",)`.
+`deepeval` before offering them. Single-environment mode is encoded directly in
+prompt discovery and calibration write policy, where
+`_PROMPT_DISCOVERY_ALIASES` and `_PROMPT_WRITE_ALIASES` currently contain only
+`prod`.
 
 Taken together, these mechanisms expose a layered view of each prompt:
 
@@ -317,7 +337,9 @@ standalone `CaliberPrompt` table. Prompt binding to workflow nodes is not yet a
 full graph rewrite path. Prompt test replay is not a dedicated server operation.
 Prompt inventory depends on the MLflow APIs being available and readable. And
 lifecycle state is derived from multiple sources rather than stored as one
-canonical prompt status.
+canonical prompt status. Reconciliation is currently operator-triggered rather
+than a separately scheduled loop, and a direct operator release still treats its
+persisted gate verdict as advisory rather than an enforced approval decision.
 
 The throughline of all of this is that the module is intentionally a composition
 layer. It presents prompts as a first-class CALIBER surface while allowing MLflow
