@@ -332,9 +332,7 @@ class MLflowPromoter:
                 "rollback": True,
                 "checkpoint_id": request.checkpoint_id,
                 "version_before": version_live,
-                "operation_id": (
-                    operation.operation_id if request.session is not None else None
-                ),
+                "operation_id": (operation.operation_id if request.session is not None else None),
             },
         )
 
@@ -391,18 +389,14 @@ def _release_alias_version(mlflow_mod: object, name: str, alias: str) -> int | N
     try:
         prompt = load_prompt(f"prompts:/{name}@{alias}", allow_missing=True)
     except Exception as exc:
-        raise PromoterError(
-            f"failed to resolve current alias {name!r}@{alias!r}: {exc}"
-        ) from exc
+        raise PromoterError(f"failed to resolve current alias {name!r}@{alias!r}: {exc}") from exc
     if prompt is None:
         return None
     raw = getattr(prompt, "version", None)
     try:
         return int(raw)
     except (TypeError, ValueError) as exc:
-        raise PromoterError(
-            f"current alias {name!r}@{alias!r} has no concrete version"
-        ) from exc
+        raise PromoterError(f"current alias {name!r}@{alias!r} has no concrete version") from exc
 
 
 # ---------------------------------------------------------------------------

@@ -414,9 +414,7 @@ def test_failed_prompt_alias_apply_is_reconciled_back_to_candidate_ready(
     assert operation.status == "reconcile_required"
     assert db_session.get(CaliberRefinementJob, "RFN-A").status == "applying"  # type: ignore[union-attr]
 
-    reconciled = client.post(
-        "/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile"
-    )
+    reconciled = client.post("/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile")
     assert reconciled.status_code == 200
     assert reconciled.json()["data"][0]["status"] == "failed"
     db_session.expire_all()

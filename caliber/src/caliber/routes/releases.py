@@ -153,9 +153,7 @@ def _load_release_operations(
 ) -> list[dict[str, Any]]:
     """Load operation rows outside the async route's event-loop thread."""
     with factory() as session:
-        stmt = select(CaliberReleaseOperation).order_by(
-            CaliberReleaseOperation.created_at.desc()
-        )
+        stmt = select(CaliberReleaseOperation).order_by(CaliberReleaseOperation.created_at.desc())
         if status:
             stmt = stmt.where(CaliberReleaseOperation.status == status)
         rows = session.execute(stmt.limit(limit)).scalars().all()
