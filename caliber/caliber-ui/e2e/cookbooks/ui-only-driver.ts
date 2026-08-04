@@ -164,6 +164,19 @@ export class CaliberUi {
       this.page.getByRole("button", { name: recipe.name }),
     ).toBeVisible();
   }
+
+  async installCookbookDraft(cookbookId: string, name: string): Promise<void> {
+    await this.page.goto("/caliber/cookbooks");
+    await expect(this.page.getByRole("heading", { name: "Cookbooks" })).toBeVisible();
+    await expect(this.page.locator('[data-testid^="cookbook-card-"]')).toHaveCount(16);
+    await this.page.getByTestId(`install-cookbook-${cookbookId}`).click();
+    await this.page.getByTestId("cookbook-install-name").fill(name);
+    const acknowledgement = this.page.getByTestId("cookbook-prerequisites-ack");
+    if (await acknowledgement.isVisible()) await acknowledgement.check();
+    await this.page.getByTestId("confirm-cookbook-install").click();
+    await expect(this.page).toHaveURL(/\/caliber\/workflows\/WF-[^/]+\/editor\/WFV-/);
+    await expect(this.page.getByText(name, { exact: true }).first()).toBeVisible();
+  }
 }
 
 export async function runUiOnlyCookbook(

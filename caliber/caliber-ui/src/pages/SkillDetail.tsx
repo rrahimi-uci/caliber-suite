@@ -25,6 +25,8 @@ import type {
   SkillPackage,
   SkillPackageImportFile,
   SkillPackageImportPayload,
+  SkillPackageZipConflictStrategy,
+  SkillPackageZipImportPayload,
   SkillUpdatePayload,
 } from "@/api/types";
 import { CopyButton } from "@/components/CopyButton";
@@ -159,6 +161,10 @@ export function SkillDetail(): JSX.Element {
   // exists, so navigate to its detail page (React Query refetches there).
   const importMut = useApiMutation<Skill, SkillPackageImportPayload>(
     (payload) => caliberApi.importSkillPackage(payload),
+    { onSuccess: (created) => navigate(`/skills/${created.skill_id}`) },
+  );
+  const importZipMut = useApiMutation<Skill, SkillPackageZipImportPayload>(
+    (payload) => caliberApi.importSkillPackageZip(payload),
     { onSuccess: (created) => navigate(`/skills/${created.skill_id}`) },
   );
 
@@ -467,14 +473,17 @@ export function SkillDetail(): JSX.Element {
                 packageError={packageQuery.error?.message ?? null}
                 onSeeContent={() => setTab("content")}
                 canImport={isAdmin}
-                importing={importMut.isPending}
-                importError={importMut.error?.message ?? null}
+                importing={importMut.isPending || importZipMut.isPending}
+                importError={
+                  importMut.error?.message ?? importZipMut.error?.message ?? null
+                }
                 onImportFiles={(files) =>
                   importMut.mutate({
                     owner: meQuery.data?.user_id ?? "",
                     files,
                   })
                 }
+                onImportZip={(payload) => importZipMut.mutate(payload)}
               />
             ) : tab === "content" ? (
               <ContentTab
@@ -522,6 +531,7 @@ function OverviewTab({
   importing,
   importError,
   onImportFiles,
+  onImportZip,
 }: {
   skill: Skill;
   packagePreview: SkillPackage | null;
@@ -532,6 +542,7 @@ function OverviewTab({
   importing: boolean;
   importError: string | null;
   onImportFiles: (files: SkillPackageImportFile[]) => void;
+  onImportZip: (payload: SkillPackageZipImportPayload) => void;
 }): JSX.Element {
   return (
     <div className="space-y-6 pt-5">
@@ -623,6 +634,7 @@ function OverviewTab({
         importing={importing}
         importError={importError}
         onImportFiles={onImportFiles}
+        onImportZip={onImportZip}
       />
     </div>
   );
@@ -766,6 +778,7 @@ function PackagePanel({
   importing,
   importError,
   onImportFiles,
+  onImportZip,
 }: {
   skill: Skill;
   packagePreview: SkillPackage | null;
@@ -775,7 +788,11 @@ function PackagePanel({
   importing: boolean;
   importError: string | null;
   onImportFiles: (files: SkillPackageImportFile[]) => void;
+  onImportZip: (payload: SkillPackageZipImportPayload) => void;
 }): JSX.Element {
+  const [conflictStrategy, setConflictStrategy] =
+    useState<SkillPackageZipConflictStrategy>("reject");
+  const [renameTo, setRenameTo] = useState("");
   const skillMd = packagePreview?.files.find((file) =>
     file.path.endsWith("/SKILL.md"),
   );
@@ -826,6 +843,67 @@ function PackagePanel({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {canImport && (
+            <>
+              <select
+                aria-label="ZIP conflict strategy"
+                data-testid="skill-package-conflict-strategy"
+                value={conflictStrategy}
+                disabled={importing}
+                onChange={(event) =>
+                  setConflictStrategy(
+                    event.target.value as SkillPackageZipConflictStrategy,
+                  )
+                }
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-600"
+              >
+                <option value="reject">Reject conflicts</option>
+                <option value="rename">Rename import</option>
+                <option value="merge">Merge as new version</option>
+              </select>
+              {conflictStrategy === "rename" && (
+                <input
+                  aria-label="Renamed skill name"
+                  data-testid="skill-package-rename-to"
+                  value={renameTo}
+                  disabled={importing}
+                  pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                  placeholder="new-skill-name"
+                  onChange={(event) => setRenameTo(event.target.value)}
+                  className="w-36 rounded-xl border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs text-slate-600"
+                />
+              )}
+              <label
+                data-testid="skill-package-zip-import"
+                className={`inline-flex items-center gap-2 rounded-xl border border-slate-200/70 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 shadow-card transition-colors hover:bg-slate-50 ${
+                  importing ? "cursor-wait opacity-60" : "cursor-pointer"
+                }`}
+              >
+                {importing ? "Importing…" : "Import ZIP"}
+                <input
+                  type="file"
+                  accept=".zip,application/zip"
+                  aria-label="Import skill package ZIP"
+                  className="hidden"
+                  disabled={
+                    importing ||
+                    (conflictStrategy === "rename" && renameTo.trim() === "")
+                  }
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      onImportZip({
+                        file,
+                        conflict_strategy: conflictStrategy,
+                        rename_to:
+                          conflictStrategy === "rename"
+                            ? renameTo.trim()
+                            : undefined,
+                      });
+                    }
+                    event.target.value = "";
+                  }}
+                />
+              </label>
             <label
               data-testid="skill-package-import"
               className={`inline-flex items-center gap-2 rounded-xl border border-slate-200/70 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 shadow-card transition-colors hover:bg-slate-50 ${
@@ -841,7 +919,7 @@ function PackagePanel({
               >
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 9l5-5 5 5M12 4v12" />
               </svg>
-              {importing ? "Importing…" : "Import package"}
+              {importing ? "Importing…" : "Import folder"}
               <input
                 ref={(el) => {
                   if (el) el.setAttribute("webkitdirectory", "");
@@ -857,6 +935,7 @@ function PackagePanel({
                 }}
               />
             </label>
+            </>
           )}
           <a
             data-testid="skill-package-download"

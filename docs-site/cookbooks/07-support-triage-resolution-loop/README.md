@@ -18,9 +18,9 @@ it composes SCN-01/02/03/05/06. Key points:
   `support-tone-and-citation` skill (SCN-02), the `lookup_order`/`initiate_refund`
   tools (SCN-03), the GitHub MCP server (SCN-05), and the support KB (SCN-06).
 - Tool mapping: `lookup_account_state` → `caliber.workflows.demo_tools:get_order`
-  / `lookup_order`; `lookup_recent_incidents` →
-  `demo_tools:search_knowledge_base` (or a `python_code` stub). External write
-  (`create_issue`) → the **GitHub MCP** tool, kept `requires_approval:true`.
+  / `lookup_order`; the installed example includes an offline incident fixture
+  and a GitHub incident/issue API Request starter. External write
+  (`issue_write`) → the **GitHub MCP** tool, kept `requires_approval:true`.
 - `GroundedSupportReply` (`custom_judge`) is a real LLM judge; the approval and
   citation `rule_checks` are enforced by the workflow gate + the prompt contract.
 
@@ -35,21 +35,21 @@ it composes SCN-01/02/03/05/06. Key points:
    (write). Skill: `support-tone-and-citation` (bound). Prompt: a reply prompt
    with the system rule *"Use only supplied evidence; cite every external fact;
    never leak internal process."* KB: the support KB version (SCN-06). MCP:
-   GitHub server with `create_issue` set `requires_approval:true`.
+   GitHub server with `issue_write` set `requires_approval:true`.
 2. **Build the workflow.** `Compose → Workflows → New`, template
    **`hitl_review`** (ships the approval gate). Wire nodes from
    [`build.yaml`](build.yaml):
    `ticket_intake (agent: classify intent+severity, emit decision) →
    account_lookup (tool: lookup_order) →
-   incident_lookup (tool/python_code) →
+   incident_lookup (fixture or configured API Request preset) →
    kb_query (knowledge_query over support KB) →
    reply_generation (agent: cited reply + machine decision) →
    router (decision) →
    human_approval (only for refund / escalate_bug external write) →
-   create_issue (mcp_resource: GitHub, on escalate_bug)`.
+   issue_write (mcp_resource: GitHub, on escalate_bug)`.
 3. **Encode the four outcomes.** In the `router`, branch on the reply node's
    `decision`: `reply`/`clarify` finish at `output`; `escalate_support` opens an
-   internal note; `escalate_bug` goes through `human_approval → create_issue`.
+   internal note; `escalate_bug` goes through `human_approval → issue_write`.
 4. **Run the ticket cases.** Open the editor `Run Monitor`; `run-execute` each
    ticket from test-data. For a refund/escalate_bug ticket, confirm status
    `waiting_approval`; `run-approve` → `run-resume` → the GitHub issue is created

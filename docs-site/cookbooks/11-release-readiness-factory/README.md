@@ -2,65 +2,57 @@
 
 ## Demo objective
 
-A release control lane that combines scenario outcomes, review findings, and
-Allure evidence into a final, evidence-backed go/no-go decision.
+Create a durable release candidate, compute an evidence-backed readiness score,
+resolve blockers through accountable waivers, record an immutable go/no-go
+decision, and retain an Allure-compatible report.
 
 ## Feasibility & substitutions
 
-Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
-
-- ✅ The **evidence sources** are all real: **Evaluations** run ids + scorecards,
-  **Review Queues** completion, **Observability** traces, and the in-app
-  **Allure** report (`Settings → Allure Report`).
-- ⚠️ There is **no built-in release-scoring engine**. The `release_rubric` in
-  [`verification.yaml`](verification.yaml) is computed **by the operator** —
-  tally the gate states from the prior scenarios. Optionally automate the
-  narrative with a `release-risk-summarizer` prompt, or an **Aria Plan** (Aria
-  can create judges/review-queues but does not score releases itself).
-- ⚠️ **Allure is generated externally** (`make allure-report`) and only *served*
-  in-app; regenerate before the demo (FEASIBILITY §1, Allure). The route is
-  `GET /observability/allure-report`.
-- Optional GitHub MCP can create a blocker issue (write → keep approval-gated).
+- ✅ Release candidates, weighted criteria, evidence references, blocking
+  thresholds, waivers, signoffs, planned actions, and rollback targets are
+  first-class persisted objects on **Releases**.
+- ✅ The server recomputes the weighted score and blockers; the browser does not
+  submit a trusted aggregate.
+- ✅ Waivers and final signoff are admin-only and audited. A go decision requires
+  a ready candidate, planned action, and rollback target.
+- ✅ **Generate Allure evidence** creates a durable in-product job with
+  Allure-compatible JSON and a SHA-256 identity for the candidate snapshot.
+- The separate static Allure HTML site remains CI evidence; it is not required
+  to create or sign a release candidate.
 
 ## Prerequisites & seed
 
-- Completed SCN-07/08/09/10 with saved run ids (list them in
-  [`test-data.yaml`](test-data.yaml)).
-- Allure results generated so the report loads.
+- Evaluation, review, and trace evidence references from prior Cookbooks.
+- A named artifact/version, planned release action, and rollback target.
 
-## Recipe (UI-first, with API fallbacks)
+## Recipe
 
-1. **Collect required run ids.** From `Evaluate → Evaluations`, gather the
-   scorecard run ids for each required scenario; from `Observe → Review Queues`,
-   confirm each required queue is fully answered.
-2. **Refresh + open Allure.** Run `make allure-report` (combines vitest +
-   playwright + pytest allure results). Then `Settings → Allure Report` → confirm
-   the report **loads** in-app. Capture the URL.
-   - The tab reads a stored URL (`caliber.allure.reportUrl`); default is the
-     backend-served `/observability/allure-report/`.
-3. **Re-run critical slices.** Re-execute the high-risk subsets (e.g. SCN-07
-   approval branch, SCN-08 rollback path) to confirm they still pass; record the
-   fresh run ids.
-4. **Score the release (operator rubric).** Apply the weights from
-   verification.yaml: component_readiness 0.30, workflow_readiness 0.30,
-   review_coverage 0.20, evidence_visibility 0.20. For each, mark pass/partial/
-   fail from the gathered evidence and compute the weighted score + blocker
-   count. (Optionally have a `release-risk-summarizer` prompt or an Aria Plan
-   draft the rationale from your notes.)
-5. **Decide + record.** Publish **go** only if `blocker_count = 0`,
-   `overall_release_score ≥ 0.90`, and Allure is visible. Otherwise **no_go**
-   with each blocker mapped to its owning scenario. Optionally open a blocker
-   issue via the GitHub MCP (approval-gated).
+1. Open **Operate → Releases → Release Signoff Factory**.
+2. Enter the candidate name, artifact type/reference/version, required score,
+   planned action JSON, and rollback-target JSON.
+3. Add criteria JSON with stable keys, weights, observed scores, thresholds,
+   blocking flags, and evidence references. Add the evidence inventory JSON.
+4. Click **Create candidate**. Inspect the server-computed weighted score,
+   blockers, evidence, action, and rollback target.
+5. Click **Re-evaluate** after evidence changes. Do not inflate an observed score
+   to clear a blocker.
+6. If policy permits an exception, an admin records a criterion-specific waiver
+   reason and optional expiry. Confirm the blocker and audit state update.
+7. Click **Generate Allure evidence** and inspect the completed durable job.
+8. An admin records **Sign go** or **Sign no-go** with rationale. A final candidate
+   is immutable; create a new candidate for a changed release package.
 
 ## Demo evidence to capture
 
-- The scenario run-id list used for the decision.
-- The Allure report URL + a successful in-app load.
-- Final release score, blocker count, and the decision record (with per-blocker
-  owning scenario).
+- Candidate id, exact artifact/version, weighted score, and blocker list.
+- Every criterion's evidence links and any waiver provenance.
+- Planned action and rollback target.
+- Final signoff id/decision/rationale/actor and frozen candidate snapshot.
+- Report-job id, Allure-compatible results, and snapshot SHA-256.
 
 ## Done when / gate
 
-- No unresolved blockers (`blocker_count = 0`), `overall_release_score ≥ 0.90`,
-  Allure visible.
-- Every gate state maps back to a concrete run id / review answer / Allure result.
+- The candidate meets its required score and has no unwaived blocker before go.
+- Every waiver has a reason and accountable admin.
+- Go has both a planned action and rollback target.
+- Final signoff and report evidence remain queryable after page reload.

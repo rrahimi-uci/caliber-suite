@@ -55,7 +55,7 @@
       "where": "Compose › Workflows › incident-copilot › Editor",
       "do": "Wire the full pipeline. Use the starter <code>start</code>/<code>agent</code> as the <strong>ingest</strong> step (it normalizes <code>alert_text</code>/<code>service</code>/<code>environment</code>); feed <code>service</code> and <code>environment</code> from it into both Python Code nodes' <code>inputs</code>. Bind the existing <strong>Agent</strong> node (rename it <code>summarize</code>) to prompt <code>incident-commander</code>, feeding its <code>{{ deployments }}</code> and <code>{{ health }}</code> from the two evidence nodes. Then a <strong>Router</strong> node on risk, the existing <strong>Human Approval</strong> (<code>review</code>) node, an optional <strong>MCP Resource</strong> node for a GitHub incident issue (after approval), and <strong>output</strong>.",
       "fill": [
-        ["Node order (wire start → … → output)", "<code>ingest → lookup_recent_deployments + query_service_health → summarize (incident-commander) → recommend_action (router) → review (human_approval) → create_issue (mcp_resource, optional) → output</code> — see <a href=\"../cookbooks/08-incident-response-commander/build.yaml\">build.yaml</a>"],
+        ["Node order (wire start → … → output)", "<code>ingest → lookup_recent_deployments + query_service_health → summarize (incident-commander) → recommend_action (router) → review (human_approval) → issue_write (mcp_resource, optional) → output</code> — see <a href=\"../cookbooks/08-incident-response-commander/build.yaml\">build.yaml</a>"],
         ["Evidence wiring", "<code>ingest.service</code> + <code>ingest.environment</code> → each Python Code node's <code>inputs</code>; node <code>result</code>/<code>text</code> → <code>summarize</code> prompt's <code>{{ deployments }}</code> / <code>{{ health }}</code>"]
       ],
       "see": "The canvas shows ingest → two evidence nodes → summarize → router → approval → (optional issue) → output, all connected.",
@@ -65,7 +65,7 @@
       "where": "Compose › Workflows › incident-copilot › Editor › router node",
       "do": "Open the <strong>Router</strong> node Inspector and branch on the summary's <code>recommended_action</code> + <code>requires_approval</code>. Route <code>rollback</code> (and any external write) through the <code>review</code> (Human Approval) node — these are always <code>requires_approval: true</code>. Route the read-only actions (<code>monitor</code>, <code>investigate</code>, <code>gather_more_evidence</code>) straight to <strong>output</strong> with no gate. When done, click <strong>Save</strong>.",
       "fill": [
-        ["Branch: recommended_action == rollback (or external write)", "→ review (Human Approval) → optional create_issue → output"],
+        ["Branch: recommended_action == rollback (or external write)", "→ review (Human Approval) → optional issue_write → output"],
         ["Branch: monitor / investigate / gather_more_evidence", "→ output (no approval)"]
       ],
       "click": "Save",

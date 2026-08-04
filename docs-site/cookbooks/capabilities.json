@@ -1,0 +1,257 @@
+{
+  "catalog_version": "2026.08",
+  "recipes": [
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "prompts",
+        "structured output",
+        "test sets",
+        "calibration"
+      ],
+      "id": "01",
+      "prerequisites": [
+        "Configured model provider for live inference"
+      ],
+      "slug": "trustworthy-intake-classifier",
+      "summary": "Classify intake requests with structured output, evaluation, and calibration evidence.",
+      "title": "Trustworthy Intake Classifier"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "skills",
+        "trigger tests",
+        "packages",
+        "calibration"
+      ],
+      "id": "02",
+      "prerequisites": [],
+      "slug": "precision-skills",
+      "summary": "Author, render, trigger-test, package, calibrate, and bind a reusable skill.",
+      "title": "Precision Skills"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "decision tables",
+        "tools",
+        "runtime approvals",
+        "audit"
+      ],
+      "id": "03",
+      "prerequisites": [
+        "Runtime approvals enabled for execution"
+      ],
+      "slug": "policy-safe-decision-tool",
+      "summary": "Apply deterministic policy rules before a separately approved side effect.",
+      "title": "Policy-Safe Decision Tool"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "managed files",
+        "structured output",
+        "JSON Schema",
+        "lineage"
+      ],
+      "id": "04",
+      "prerequisites": [
+        "A supported document uploaded to a CALIBER project"
+      ],
+      "slug": "document-to-json-pipeline",
+      "summary": "Read a managed document, extract structured data, and validate its JSON Schema.",
+      "title": "Document-to-JSON Pipeline"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "MCP",
+        "tool policy",
+        "secrets",
+        "calibration"
+      ],
+      "id": "05",
+      "prerequisites": [
+        "Reachable MCP server and any required secret references"
+      ],
+      "slug": "governed-tool-connectivity",
+      "summary": "Connect, discover, constrain, invoke, and calibrate an MCP tool.",
+      "title": "Governed Tool Connectivity"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "knowledge",
+        "citations",
+        "confidence",
+        "review queues"
+      ],
+      "id": "06",
+      "prerequisites": [
+        "Embedding and chat providers for live retrieval and answers"
+      ],
+      "slug": "grounded-knowledge-assistant",
+      "summary": "Build a knowledge base, answer with citations, and route low-confidence responses.",
+      "title": "Grounded Knowledge Assistant"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "routing",
+        "incident lookup",
+        "issue creation",
+        "evaluation"
+      ],
+      "id": "07",
+      "prerequisites": [
+        "Configured incident source and issue tracker connector"
+      ],
+      "slug": "support-triage-copilot",
+      "summary": "Ground support triage, route risk, and gate issue creation behind approval.",
+      "title": "Support Triage Copilot"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "deployment health",
+        "service health",
+        "fact/hypothesis separation",
+        "approval"
+      ],
+      "id": "08",
+      "prerequisites": [
+        "Configured deployment and service-health data sources"
+      ],
+      "slug": "incident-response-copilot",
+      "summary": "Collect deployment and health evidence before proposing governed incident actions.",
+      "title": "Incident Response Copilot"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "checkpoints",
+        "recovery",
+        "debugger",
+        "versioning"
+      ],
+      "id": "09",
+      "prerequisites": [
+        "Workflow worker when queued execution is enabled"
+      ],
+      "slug": "self-healing-workflows",
+      "summary": "Diagnose a failed run, recover from a checkpoint, patch configuration, and regress.",
+      "title": "Self-Healing Workflows"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "test sets",
+        "judges",
+        "evaluations",
+        "human alignment"
+      ],
+      "id": "10",
+      "prerequisites": [
+        "Configured judge provider for model-backed grading"
+      ],
+      "slug": "trustworthy-evaluation",
+      "summary": "Compare candidates, review difficult traces, and measure judge-human alignment.",
+      "title": "Trustworthy Evaluation"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "release candidates",
+        "signoff",
+        "waivers",
+        "Allure evidence"
+      ],
+      "id": "11",
+      "prerequisites": [
+        "Evaluation, review, and trace evidence for the release candidate"
+      ],
+      "slug": "release-signoff-factory",
+      "summary": "Assemble evidence, score release criteria, resolve blockers and waivers, and record signoff.",
+      "title": "Release Signoff Factory"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "Aria",
+        "typed inputs",
+        "judges",
+        "test sets"
+      ],
+      "id": "12",
+      "prerequisites": [],
+      "slug": "aria-evaluation-harness",
+      "summary": "Create a judge and Test Set through a typed, approval-aware Aria plan.",
+      "title": "Aria: Evaluation Harness from Intent"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "Aria",
+        "review queues",
+        "typed inputs",
+        "dependency wiring"
+      ],
+      "id": "13",
+      "prerequisites": [
+        "Trace IDs only when the example queue should be populated"
+      ],
+      "slug": "aria-review-governance-queue",
+      "summary": "Create and populate a governed review queue through an Aria plan.",
+      "title": "Aria: Human-Review Queue from Intent"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "Aria",
+        "judges",
+        "test sets",
+        "review queues"
+      ],
+      "id": "14",
+      "prerequisites": [],
+      "slug": "aria-governance-starter-kit",
+      "summary": "Create a judge, Test Set, and review queue as one governed plan.",
+      "title": "Aria: Governance Starter Kit from Intent"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "Aria",
+        "review queues",
+        "calibration",
+        "job polling"
+      ],
+      "id": "15",
+      "prerequisites": [
+        "Existing workflow, agent, traces, provider, and refinement worker"
+      ],
+      "slug": "aria-triage-recalibrate-loop",
+      "summary": "Triage flagged traces and launch a calibration job from a typed plan.",
+      "title": "Aria: Triage & Recalibrate Loop"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "observability",
+        "test sets",
+        "review queues",
+        "evaluation"
+      ],
+      "id": "16",
+      "prerequisites": [
+        "Existing successful and failed traces"
+      ],
+      "slug": "production-observability-triage",
+      "summary": "Capture production failures, review root cause, and retain regression evidence.",
+      "title": "Production Observability & Triage"
+    }
+  ],
+  "schema_version": 1,
+  "source": "caliber.workflows.cookbook_catalog"
+}

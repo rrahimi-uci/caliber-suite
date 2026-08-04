@@ -17,6 +17,7 @@ Surface:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -59,6 +60,7 @@ from caliber.schemas import (
     ReviewQueueSchema,
     ReviewQueueUpdateRequest,
 )
+from caliber.trace_client import fetch_trace_detail
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ LIST_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}"
 ITEMS_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items"
 SUBMIT_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit"
+ALIGNMENT_EXAMPLES_PATH = "/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/alignment-examples"
 
 _LIST_STATUS_VALUES: frozenset[str] = frozenset({"active", "archived", "all"})
 
@@ -410,6 +413,107 @@ def _build_writebacks(
     return writebacks
 
 
+def _alignment_label(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"pass", "passed", "true", "yes", "1"}:
+            return True
+        if normalized in {"fail", "failed", "false", "no", "0"}:
+            return False
+    return None
+
+
+def alignment_examples(request: Request) -> JSONResponse:
+    """Prepare completed queue labels for the Judge Human-alignment panel."""
+
+    require_user(request)
+    identity = resolve_identity(request)
+    queue_id = request.path_params["queue_id"]
+    question_key = str(request.query_params.get("question_key") or "").strip()
+    if not question_key:
+        raise HTTPException(status_code=400, detail="question_key is required")
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        queue = get_visible(
+            session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
+        )
+        if queue is None:
+            raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
+        question = next(
+            (item for item in queue.questions if str(item.get("key")) == question_key), None
+        )
+        if question is None:
+            raise HTTPException(status_code=400, detail=f"unknown question {question_key!r}")
+        if question.get("type") != "pass_fail":
+            raise HTTPException(
+                status_code=400, detail="alignment import requires pass_fail labels"
+            )
+        items = (
+            session.execute(
+                select(CaliberReviewItem)
+                .where(
+                    CaliberReviewItem.queue_id == queue_id,
+                    CaliberReviewItem.status == "completed",
+                )
+                .order_by(CaliberReviewItem.completed_at, CaliberReviewItem.item_id)
+            )
+            .scalars()
+            .all()
+        )
+
+    examples: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for item in items:
+        label = _alignment_label(item.answers.get(question_key))
+        if label is None:
+            skipped.append({"item_id": item.item_id, "reason": "label is not pass/fail"})
+            continue
+        detail = fetch_trace_detail(item.trace_id)
+        if detail.response is None or detail.response == "":
+            skipped.append({"item_id": item.item_id, "reason": "trace response unavailable"})
+            continue
+        outputs = (
+            detail.response
+            if isinstance(detail.response, str)
+            else json.dumps(detail.response, sort_keys=True, ensure_ascii=False)
+        )
+        examples.append(
+            {
+                "inputs": {
+                    "trace_id": item.trace_id,
+                    "request": detail.request,
+                    "review_item_id": item.item_id,
+                },
+                "outputs": outputs,
+                "expectations": {
+                    key: value for key, value in item.answers.items() if key != question_key
+                },
+                "label": label,
+                "provenance": {
+                    "queue_id": queue_id,
+                    "item_id": item.item_id,
+                    "trace_id": item.trace_id,
+                    "question_key": question_key,
+                    "completed_by": item.completed_by,
+                    "assessment_ids": list(item.assessment_ids),
+                },
+            }
+        )
+    return envelope_response_dict(
+        {
+            "queue_id": queue_id,
+            "question_key": question_key,
+            "examples": examples,
+            "skipped": skipped,
+        }
+    )
+
+
 async def submit_item(request: Request) -> JSONResponse:
     queue_id = request.path_params["queue_id"]
     item_id = request.path_params["item_id"]
@@ -505,4 +609,5 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(DETAIL_PATH, get_queue, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, update_queue, methods=["PATCH"]))
     app.routes.append(Route(ITEMS_PATH, add_items, methods=["POST"]))
+    app.routes.append(Route(ALIGNMENT_EXAMPLES_PATH, alignment_examples, methods=["GET"]))
     app.routes.append(Route(SUBMIT_PATH, submit_item, methods=["POST"]))

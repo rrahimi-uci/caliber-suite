@@ -58,6 +58,7 @@ from caliber.workflows.guardrails import (
 from caliber.workflows.ir import (
     IRAgent,
     IRApiRequest,
+    IRDataTransform,
     IRErrorBoundary,
     IRExternalApp,
     IRFileInput,
@@ -77,6 +78,7 @@ from caliber.workflows.ir import (
     IROutputFolder,
     IRParallel,
     IRPythonCode,
+    IRReviewQueueEnqueue,
     IRRouter,
     IRSubworkflow,
     IRTemplate,
@@ -114,6 +116,7 @@ _NODE_SPAN_TYPES: dict[NodeType, str] = {
     NodeType.SUBWORKFLOW: "CHAIN",
     NodeType.OUTPUT: "CHAIN",
     NodeType.TEMPLATE: "CHAIN",
+    NodeType.DATA_TRANSFORM: "CHAIN",
     NodeType.PYTHON_CODE: "TOOL",
     NodeType.MCP_RESOURCE: "TOOL",
     NodeType.TOOL: "TOOL",
@@ -2151,6 +2154,7 @@ class RuntimePlan:
     ) = None
     knowledge_query_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     knowledge_build_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    review_queue_enqueuer: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     # Outbound HTTP sender for Webhook nodes. ``None`` -> the httpx-backed default
     # (``_default_webhook_sender``); tests inject a fake to avoid real network I/O.
     webhook_sender: Callable[[dict[str, Any]], dict[str, Any]] | None = None
@@ -4150,7 +4154,7 @@ def _resolve_agent_handoff_target(  # noqa: PLR0911 - explicit priority order
     return fallback.target_node_id
 
 
-_INLINE_ORCHESTRATION_TARGET_LABEL = "agent, subworkflow, tool, mcp_resource, knowledge_query, knowledge_build, template, python_code, external_app, webhook, or api_request"
+_INLINE_ORCHESTRATION_TARGET_LABEL = "agent, subworkflow, tool, mcp_resource, knowledge_query, knowledge_build, template, data_transform, review_queue_enqueue, python_code, external_app, webhook, or api_request"
 _INLINE_ORCHESTRATION_TARGET_TYPES = (
     IRAgent,
     IRSubworkflow,
@@ -4159,6 +4163,8 @@ _INLINE_ORCHESTRATION_TARGET_TYPES = (
     IRKnowledgeQuery,
     IRKnowledgeBuild,
     IRTemplate,
+    IRDataTransform,
+    IRReviewQueueEnqueue,
     IRPythonCode,
     IRExternalApp,
     IRWebhook,
@@ -4177,6 +4183,7 @@ _PARALLEL_BRANCH_BATCH_TARGET_TYPES = (
     IRKnowledgeQuery,
     IRKnowledgeBuild,
     IRTemplate,
+    IRDataTransform,
     IRPythonCode,
     IRExternalApp,
     IRWebhook,
@@ -6252,6 +6259,78 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         if not used_variables and not missing_variables:
             detail_parts.append("static")
         return 0, NodeStep(nid, ntype, "ok", output=text, detail=" · ".join(detail_parts))
+
+    if isinstance(node, IRDataTransform):
+        from caliber.workflows.data_transform import (  # noqa: PLC0415
+            DataTransformError,
+            apply_data_transform,
+            transform_text,
+        )
+
+        transform_value: Any = inputs.get("value")
+        if transform_value is None:
+            transform_value = inputs.get("text", run_input)
+        if isinstance(transform_value, str):
+            with contextlib.suppress(ValueError, TypeError):
+                transform_value = json.loads(transform_value)
+        try:
+            transformed = apply_data_transform(node.operation, transform_value, node.config)
+        except DataTransformError as exc:
+            raise ToolExecutionError(f"data_transform node {nid!r} failed: {exc}") from exc
+        if not transformed["valid"] and node.fail_on_invalid:
+            errors = transformed.get("metadata", {}).get("errors", [])
+            detail = errors[0]["message"] if errors else "input did not match the configured schema"
+            raise ToolExecutionError(f"data_transform node {nid!r} validation failed: {detail}")
+        text = transform_text(transformed["result"])
+        _publish_declared_outputs(
+            node,
+            port_values,
+            {
+                "text": text,
+                "result": transformed["result"],
+                "valid": transformed["valid"],
+                "metadata": transformed["metadata"],
+            },
+            fallback=text,
+        )
+        return 0, NodeStep(
+            nid,
+            ntype,
+            "ok",
+            output=text,
+            detail=f"applied {node.operation.replace('_', ' ')}",
+        )
+
+    if isinstance(node, IRReviewQueueEnqueue):
+        if plan.review_queue_enqueuer is None:
+            raise ToolExecutionError(
+                f"review_queue_enqueue node {nid!r} requires the CALIBER database runtime"
+            )
+        raw_trace_ids = inputs.get("trace_ids")
+        if isinstance(raw_trace_ids, list):
+            trace_ids = [str(item).strip() for item in raw_trace_ids if str(item).strip()]
+        else:
+            trace_id = str(inputs.get("trace_id") or run_input).strip()
+            trace_ids = [trace_id] if trace_id else []
+        if not trace_ids:
+            raise ToolExecutionError(f"review_queue_enqueue node {nid!r} requires a trace ID")
+        payload = plan.review_queue_enqueuer(
+            {
+                "queue_id": node.queue_id,
+                "trace_ids": list(dict.fromkeys(trace_ids)),
+                "experiment_id": node.experiment_id,
+                "assigned_to": node.assigned_to,
+            }
+        )
+        created_count = int(payload.get("created_count", 0))
+        text = f"Enqueued {created_count} trace{'s' if created_count != 1 else ''} for review."
+        _publish_declared_outputs(
+            node,
+            port_values,
+            {"text": text, "result": payload, "created_count": created_count},
+            fallback=text,
+        )
+        return 0, NodeStep(nid, ntype, "ok", output=text, detail=text)
 
     if isinstance(node, IRPythonCode):
         python_input = _select_input(inputs, run_input)

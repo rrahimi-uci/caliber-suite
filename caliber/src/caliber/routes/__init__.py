@@ -18,6 +18,7 @@ from caliber.routes import (
     audit,
     auth,
     capabilities,
+    cookbooks,
     csrf,
     dashboard,
     eval_datasets,
@@ -75,6 +76,7 @@ def register_routes(app: Starlette) -> None:
     csrf.register(app)
     me.register(app)
     capabilities.register(app)
+    cookbooks.register(app)
     settings.register(app)
     agents.register(app)
     skills.register(app)

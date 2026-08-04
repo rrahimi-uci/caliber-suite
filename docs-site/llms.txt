@@ -17,7 +17,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Skills](m-04-skills.md): Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.
 - [MCP servers](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
 - [Workflows](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.
-- [Workflow components](m-06-workflows-components.md): The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 29 built-in components.
+- [Workflow components](m-06-workflows-components.md): The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 31 built-in components.
 
 ## Data & knowledge
 

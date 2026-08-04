@@ -38,6 +38,9 @@ function renderPage(): void {
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 beforeEach(() => {
   server.use(
+    http.get(`${API_BASE}/releases/candidates`, () =>
+      HttpResponse.json(envelope([])),
+    ),
     http.get(`${API_BASE}/releases/operations`, () =>
       HttpResponse.json(envelope([])),
     ),
@@ -61,6 +64,96 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("Releases", () => {
+  it("creates, signs, and generates Allure evidence for a release candidate", async () => {
+    let candidate: Record<string, unknown> | null = null;
+    let signoffBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/candidates`, () =>
+        HttpResponse.json(envelope(candidate ? [candidate] : [])),
+      ),
+      http.post(`${API_BASE}/releases/candidates`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        candidate = {
+          ...body,
+          candidate_id: "RC-1",
+          project_id: null,
+          visibility: "user",
+          waivers: [],
+          weighted_score: 0.95,
+          blockers: [],
+          status: "ready",
+          owner: "@test",
+          created_at: "2026-08-04T00:00:00Z",
+          updated_at: "2026-08-04T00:00:00Z",
+        };
+        return HttpResponse.json(envelope(candidate), { status: 201 });
+      }),
+      http.post(`${API_BASE}/releases/candidates/RC-1/signoffs`, async ({ request }) => {
+        signoffBody = (await request.json()) as Record<string, unknown>;
+        candidate = { ...candidate, status: "signed_go" };
+        return HttpResponse.json(
+          envelope({
+            signoff_id: "RSO-1",
+            candidate_id: "RC-1",
+            decision: "go",
+            rationale: signoffBody.rationale,
+            decided_by: "@test",
+            candidate_snapshot: candidate,
+            created_at: "2026-08-04T00:00:00Z",
+          }),
+          { status: 201 },
+        );
+      }),
+      http.post(`${API_BASE}/releases/candidates/RC-1/reports`, () =>
+        HttpResponse.json(
+          envelope({
+            report_job_id: "RRJ-1",
+            candidate_id: "RC-1",
+            status: "completed",
+            format: "allure-json",
+            report: { results: [] },
+            error_message: null,
+            created_by: "@test",
+            created_at: "2026-08-04T00:00:00Z",
+            completed_at: "2026-08-04T00:00:01Z",
+          }),
+          { status: 201 },
+        ),
+      ),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "New candidate" }));
+    fireEvent.change(screen.getByTestId("release-candidate-name"), {
+      target: { value: "Support v7" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-artifact"), {
+      target: { value: "WF-support" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-version"), {
+      target: { value: "WFV-7" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-rollback"), {
+      target: { value: "WFV-6" },
+    });
+    fireEvent.click(screen.getByTestId("release-candidate-create"));
+    const card = await screen.findByTestId("release-candidate-RC-1");
+    expect(card).toHaveTextContent("95%");
+    expect(card).toHaveTextContent("rollback WFV-6");
+
+    fireEvent.change(within(card).getByLabelText("Signoff rationale"), {
+      target: { value: "All declared evidence is green." },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "Sign off GO" }));
+    await waitFor(() => expect(signoffBody?.decision).toBe("go"));
+
+    // Refresh swaps the card after signoff; generate the report from the current card.
+    const signedCard = await screen.findByTestId("release-candidate-RC-1");
+    fireEvent.click(within(signedCard).getByRole("button", { name: "Generate Allure" }));
+    expect(await screen.findByText(/Allure report RRJ-1 generated/)).toBeInTheDocument();
+  });
+
   it("renders the live board and the promotion/rollback timeline", async () => {
     server.use(
       http.get(`${API_BASE}/releases/live`, () =>

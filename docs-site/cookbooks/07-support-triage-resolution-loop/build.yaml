@@ -30,7 +30,7 @@ components:
     - lookup_recent_incidents # demo_tools:search_knowledge_base, or a python_code stub
   mcp:
     required:
-      - GitHub (issue creation)  # create_issue tool kept requires_approval:true
+      - GitHub (issue creation)  # issue_write tool kept requires_approval:true
     optional:
       - PostgreSQL read-only account lookup
   workflow:
@@ -42,7 +42,7 @@ components:
       - kb_query             # knowledge_query node (support KB)
       - reply_generation     # agent node: cited reply + machine decision
       - approval_gate        # human_approval node (refund / escalate_bug only)
-      - create_issue_optional # mcp_resource node: GitHub create_issue
+      - issue_write_optional # mcp_resource node: GitHub issue_write
 contracts:
   input_schema:
     type: object

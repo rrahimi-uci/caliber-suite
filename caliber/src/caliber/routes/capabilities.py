@@ -26,6 +26,13 @@ async def get_capabilities(request: Request) -> JSONResponse:
     queue_enabled = bool(config.workflow_run_queue_enabled)
     runtime_approvals = bool(config.workflow_run_runtime_approvals_enabled)
     checkpointing = bool(config.workflow_run_checkpointing_enabled)
+    approval_blockers = []
+    if not queue_enabled:
+        approval_blockers.append("workflow run queue is disabled")
+    if not runtime_approvals:
+        approval_blockers.append("runtime approvals are disabled")
+    if not checkpointing:
+        approval_blockers.append("checkpoint persistence is disabled")
 
     workflow_capabilities = WorkflowRunCapabilitySchema(
         queue_enabled=queue_enabled,
@@ -36,6 +43,18 @@ async def get_capabilities(request: Request) -> JSONResponse:
         runtime_approvals_enabled=runtime_approvals,
         checkpointing_enabled=checkpointing,
         event_backend=str(config.workflow_run_event_backend),
+        approval_readiness={
+            "status": "ready" if not approval_blockers else "configuration_required",
+            "blockers": approval_blockers,
+            "decision_scope": "Each Human Approval node's required_role is enforced.",
+            "allow_self_approval": bool(config.approval_allow_self_approval),
+            "audit_actions": [
+                "workflow_run_waiting_approval",
+                "workflow_run_approval_approved",
+                "workflow_run_approval_rejected",
+            ],
+            "settings_path": "/settings/runtime",
+        },
     )
     payload = PlatformCapabilitiesSchema(
         workflow_runs=workflow_capabilities,

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+import caliber.routes.review_queues as review_queue_routes
 from caliber.db.models import CaliberAuditLog, CaliberReviewItem
 from caliber.review.writeback import FakeReviewWriteBackClient
 from caliber.routes.review_queues import (
@@ -15,6 +16,7 @@ from caliber.routes.review_queues import (
     LIST_PATH,
     SUBMIT_PATH,
 )
+from caliber.trace_client import TraceDetail
 
 _QUEUE = {
     "name": "answer-quality",
@@ -111,6 +113,72 @@ def test_submit_writes_answers_back_and_completes_item(
     assert call["trace_id"] == "tr-1"
     targets = {a["name"]: a["target"] for a in call["answers"]}
     assert targets == {"correct": "feedback", "gold": "expectation"}
+
+
+def test_completed_review_labels_import_as_alignment_examples(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue_id = _create_queue(client)
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]})
+    item_id = add.json()["data"][0]["item_id"]
+    fake = FakeReviewWriteBackClient()
+    client.app.state.review_writeback_client = fake
+    try:
+        submitted = client.post(
+            SUBMIT_PATH.replace("{queue_id}", queue_id).replace("{item_id}", item_id),
+            json={"answers": {"correct": True, "gold": "expected answer"}},
+        )
+    finally:
+        client.app.state.review_writeback_client = None
+    assert submitted.status_code == 200
+
+    monkeypatch.setattr(
+        review_queue_routes,
+        "fetch_trace_detail",
+        lambda trace_id: TraceDetail(
+            trace_id=trace_id,
+            request={"question": "What is the answer?"},
+            response={"answer": "42"},
+        ),
+    )
+    response = client.get(
+        review_queue_routes.ALIGNMENT_EXAMPLES_PATH.replace("{queue_id}", queue_id),
+        params={"question_key": "correct"},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["skipped"] == []
+    assert data["examples"] == [
+        {
+            "inputs": {
+                "trace_id": "tr-1",
+                "request": {"question": "What is the answer?"},
+                "review_item_id": item_id,
+            },
+            "outputs": '{"answer": "42"}',
+            "expectations": {"gold": "expected answer"},
+            "label": True,
+            "provenance": {
+                "queue_id": queue_id,
+                "item_id": item_id,
+                "trace_id": "tr-1",
+                "question_key": "correct",
+                "completed_by": "@test",
+                "assessment_ids": submitted.json()["data"]["assessment_ids"],
+            },
+        }
+    ]
+
+
+def test_alignment_import_rejects_non_pass_fail_question(client: TestClient) -> None:
+    queue_id = _create_queue(client)
+    response = client.get(
+        review_queue_routes.ALIGNMENT_EXAMPLES_PATH.replace("{queue_id}", queue_id),
+        params={"question_key": "category"},
+    )
+    assert response.status_code == 400
+    assert "pass_fail" in response.json()["detail"]
 
 
 def test_submit_missing_required_answer_is_400(client: TestClient) -> None:

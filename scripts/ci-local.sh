@@ -39,7 +39,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test compatibility integration ui compose package security)
+ALL_JOBS=(lint type-check test compatibility integration ui cookbook-ui-only compose package security)
 FAST_SKIP=(integration package)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -175,6 +175,25 @@ job_ui() {
       docs-site caliber/caliber-ui/public/docs caliber/src/caliber/ui/docs
     return 1
   fi
+}
+
+# Browser-only Cookbook journeys use the same isolated application/database
+# configuration as CI. The Playwright config owns server startup; this wrapper
+# owns browser availability and cleanup so a failed run does not leave state in
+# the repository.
+job_cookbook_ui_only() {
+  cd "$UI_DIR" || return 1
+  npx playwright install chromium || return 1
+  npm run test:e2e:cookbooks
+  local status=$?
+  CALIBER_E2E_TMP_ROOT="$CALIBER_DIR/.tmp/cookbooks-ui-only" \
+    MLFLOW_PORT="${CALIBER_COOKBOOK_E2E_PORT:-5160}" \
+    bash "$CALIBER_DIR/scripts/run-playwright-server.sh" --force-cleanup || status=1
+  rm -rf \
+    "$CALIBER_DIR/.tmp/cookbooks-ui-only" \
+    "$UI_DIR/test-results" \
+    "$UI_DIR/playwright-report"
+  return "$status"
 }
 
 # Parse the fully merged development stack using only committed example values. This
@@ -335,6 +354,7 @@ main() {
       compatibility) run_job compatibility job_compatibility ;;
       integration) run_job integration job_integration ;;
       ui) run_job ui job_ui ;;
+      cookbook-ui-only) run_job cookbook-ui-only job_cookbook_ui_only ;;
       compose) run_job compose job_compose ;;
       package) run_job package job_package ;;
       security) run_job security job_security ;;

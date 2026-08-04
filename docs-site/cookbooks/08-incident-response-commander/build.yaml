@@ -42,7 +42,7 @@ components:
       - summarize          # agent node: facts vs hypotheses vs open questions
       - recommend_action   # router node on risk + requires_approval
       - approval_gate      # human_approval node (rollback / external write)
-      - create_issue_optional # mcp_resource node (GitHub), after approval
+      - issue_write_optional # mcp_resource node (GitHub), after approval
 contracts:
   input_schema:
     type: object

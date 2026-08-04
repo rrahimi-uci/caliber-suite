@@ -1769,6 +1769,7 @@ class WorkflowRunCapabilitySchema(BaseModel):
     runtime_approvals_enabled: bool
     checkpointing_enabled: bool
     event_backend: str
+    approval_readiness: dict[str, object] = Field(default_factory=dict)
 
 
 class PlatformCapabilitiesSchema(BaseModel):
@@ -3594,3 +3595,108 @@ class ServiceTokenCreatedSchema(ServiceTokenSchema):
     """Token creation response — carries the plaintext secret exactly once."""
 
     token: str
+
+
+# ---------------------------------------------------------------------------
+# Release candidates and accountable signoff
+# ---------------------------------------------------------------------------
+
+
+class ReleaseCriterion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    title: str = Field(min_length=1, max_length=256)
+    weight: float = Field(gt=0, le=100)
+    score: float = Field(ge=0, le=1)
+    threshold: float = Field(default=0.5, ge=0, le=1)
+    blocking: bool = False
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class ReleaseEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_type: str = Field(min_length=1, max_length=64)
+    evidence_ref: str = Field(min_length=1, max_length=512)
+    label: str = Field(default="", max_length=256)
+    digest: str | None = Field(default=None, max_length=128)
+
+
+class ReleaseCandidateCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=256)
+    artifact_type: str = Field(min_length=1, max_length=64)
+    artifact_ref: str = Field(min_length=1, max_length=512)
+    version_ref: str = Field(min_length=1, max_length=256)
+    criteria: list[ReleaseCriterion] = Field(min_length=1, max_length=50)
+    evidence: list[ReleaseEvidence] = Field(default_factory=list, max_length=200)
+    required_score: float = Field(default=0.8, ge=0, le=1)
+    planned_action: dict[str, Any] = Field(default_factory=dict)
+    rollback_target: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReleaseWaiverRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    criterion_key: str = Field(min_length=1, max_length=64)
+    reason: str = Field(min_length=8, max_length=4000)
+    expires_at: datetime | None = None
+
+
+class ReleaseSignoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str = Field(pattern="^(go|no_go)$")
+    rationale: str = Field(min_length=8, max_length=10000)
+
+
+class ReleaseCandidateSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    candidate_id: str
+    project_id: str | None
+    visibility: str
+    name: str
+    artifact_type: str
+    artifact_ref: str
+    version_ref: str
+    criteria: list[ReleaseCriterion]
+    evidence: list[ReleaseEvidence]
+    waivers: list[dict[str, Any]]
+    required_score: float
+    weighted_score: float | None
+    blockers: list[dict[str, Any]]
+    planned_action: dict[str, Any]
+    rollback_target: dict[str, Any]
+    status: str
+    owner: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReleaseSignoffSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    signoff_id: str
+    candidate_id: str
+    decision: str
+    rationale: str
+    decided_by: str
+    candidate_snapshot: dict[str, Any]
+    created_at: datetime
+
+
+class ReleaseReportJobSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    report_job_id: str
+    candidate_id: str
+    status: str
+    format: str
+    report: dict[str, Any] | None
+    error_message: str | None
+    created_by: str
+    created_at: datetime
+    completed_at: datetime | None

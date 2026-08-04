@@ -1610,6 +1610,41 @@ export function newNode(
           metadata: { type: "structured" },
         },
       };
+    case "data_transform":
+      return {
+        id,
+        type: "data_transform",
+        operation: "mapping",
+        config: { fields: {}, defaults: {} },
+        fail_on_invalid: true,
+        inputs: {
+          value: { type: "structured" },
+          text: { type: "string" },
+        },
+        outputs: {
+          text: { type: "string" },
+          result: { type: "structured" },
+          valid: { type: "boolean" },
+          metadata: { type: "structured" },
+        },
+      };
+    case "review_queue_enqueue":
+      return {
+        id,
+        type: "review_queue_enqueue",
+        queue_id: "REVIEW-QUEUE-ID",
+        experiment_id: null,
+        assigned_to: null,
+        inputs: {
+          trace_id: { type: "string" },
+          trace_ids: { type: "structured" },
+        },
+        outputs: {
+          text: { type: "string" },
+          result: { type: "structured" },
+          created_count: { type: "structured" },
+        },
+      };
     case "external_app":
       return {
         id,

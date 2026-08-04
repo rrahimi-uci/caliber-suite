@@ -18,6 +18,12 @@ import type {
   SystemEffect,
   WebhookDeadLetter,
 } from "@/api/versioning";
+import type {
+  ReleaseCandidate,
+  ReleaseCandidateCreatePayload,
+  ReleaseCriterion,
+  ReleaseEvidence,
+} from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,6 +60,201 @@ function transition(event: ReleaseTimelineEvent): string {
   if (from != null && to != null) return `v${from} → v${to}`;
   if (to != null) return `→ v${to}`;
   return "";
+}
+
+const DEFAULT_CRITERIA = JSON.stringify(
+  [
+    {
+      key: "quality",
+      title: "Evaluation quality",
+      weight: 70,
+      score: 0,
+      threshold: 0.9,
+      blocking: true,
+      evidence_refs: [],
+    },
+    {
+      key: "human_review",
+      title: "Human review completion",
+      weight: 30,
+      score: 0,
+      threshold: 1,
+      blocking: true,
+      evidence_refs: [],
+    },
+  ],
+  null,
+  2,
+);
+
+function ReleaseSignoffFactory({
+  canOperate,
+  canAdmin,
+}: {
+  canOperate: boolean;
+  canAdmin: boolean;
+}): JSX.Element {
+  const invalidate = useInvalidate();
+  const candidates = useApiQuery(["release-candidates"], (signal) =>
+    caliberApi.listReleaseCandidates(signal),
+  );
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState("");
+  const [artifactType, setArtifactType] = useState("workflow");
+  const [artifactRef, setArtifactRef] = useState("");
+  const [versionRef, setVersionRef] = useState("");
+  const [criteriaText, setCriteriaText] = useState(DEFAULT_CRITERIA);
+  const [evidenceText, setEvidenceText] = useState("[]");
+  const [requiredScore, setRequiredScore] = useState("0.8");
+  const [rollbackRef, setRollbackRef] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [rationale, setRationale] = useState("");
+  const [waiverKey, setWaiverKey] = useState("");
+  const [waiverReason, setWaiverReason] = useState("");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  const refresh = async (): Promise<void> => {
+    await invalidate(["release-candidates"]);
+  };
+  const create = useApiMutation(
+    (payload: ReleaseCandidateCreatePayload) => caliberApi.createReleaseCandidate(payload),
+    { onSuccess: refresh },
+  );
+  const evaluate = useApiMutation(
+    (candidate: ReleaseCandidate) => caliberApi.evaluateReleaseCandidate(candidate.candidate_id),
+    { onSuccess: refresh },
+  );
+  const signoff = useApiMutation(
+    (input: { candidate: ReleaseCandidate; decision: "go" | "no_go" }) =>
+      caliberApi.signoffReleaseCandidate(input.candidate.candidate_id, {
+        decision: input.decision,
+        rationale,
+      }),
+    { onSuccess: refresh },
+  );
+  const waive = useApiMutation(
+    (candidate: ReleaseCandidate) =>
+      caliberApi.waiveReleaseCriterion(candidate.candidate_id, {
+        criterion_key: waiverKey,
+        reason: waiverReason,
+      }),
+    { onSuccess: refresh },
+  );
+  const report = useApiMutation(
+    (candidate: ReleaseCandidate) =>
+      caliberApi.generateReleaseAllureReport(candidate.candidate_id),
+    {
+      onSuccess: async (job) => {
+        setActionMessage(`Allure report ${job.report_job_id} generated and retained.`);
+        await refresh();
+      },
+    },
+  );
+
+  const submit = async (): Promise<void> => {
+    setFormError(null);
+    try {
+      const criteria = JSON.parse(criteriaText) as ReleaseCriterion[];
+      const evidence = JSON.parse(evidenceText) as ReleaseEvidence[];
+      if (!Array.isArray(criteria) || !Array.isArray(evidence)) {
+        throw new Error("Criteria and evidence must be JSON arrays.");
+      }
+      await create.mutateAsync({
+        name,
+        artifact_type: artifactType,
+        artifact_ref: artifactRef,
+        version_ref: versionRef,
+        criteria,
+        evidence,
+        required_score: Number(requiredScore),
+        planned_action: { action: `promote_${artifactType}`, target: "prod" },
+        rollback_target: { version_ref: rollbackRef, target: "prod" },
+      });
+      setShowCreate(false);
+      setName("");
+      setArtifactRef("");
+      setVersionRef("");
+      setRollbackRef("");
+    } catch (error) {
+      setFormError(queryErrorMessage(error));
+    }
+  };
+
+  const actionError =
+    evaluate.error ?? signoff.error ?? waive.error ?? report.error ?? candidates.error;
+
+  return (
+    <section className="space-y-3" data-testid="release-signoff-factory">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700">Release signoff factory</h2>
+          <p className="text-xs text-gray-500">
+            Weighted evidence, blockers, waivers, accountable decisions, rollback targets, and Allure output.
+          </p>
+        </div>
+        {canOperate && (
+          <Button size="sm" onClick={() => setShowCreate((value) => !value)}>
+            {showCreate ? "Cancel" : "New candidate"}
+          </Button>
+        )}
+      </div>
+      {showCreate && (
+        <div className="grid gap-3 rounded-md border border-surface-200 p-4 md:grid-cols-2">
+          <input data-testid="release-candidate-name" className="rounded border px-3 py-2 text-sm" placeholder="Release candidate name" value={name} onChange={(event) => setName(event.target.value)} />
+          <select data-testid="release-candidate-type" className="rounded border px-3 py-2 text-sm" value={artifactType} onChange={(event) => setArtifactType(event.target.value)}>
+            <option value="workflow">Workflow</option><option value="prompt">Prompt</option><option value="skill">Skill</option><option value="knowledge_base">Knowledge base</option>
+          </select>
+          <input data-testid="release-candidate-artifact" className="rounded border px-3 py-2 text-sm" placeholder="Artifact ID or registry name" value={artifactRef} onChange={(event) => setArtifactRef(event.target.value)} />
+          <input data-testid="release-candidate-version" className="rounded border px-3 py-2 text-sm" placeholder="Candidate version" value={versionRef} onChange={(event) => setVersionRef(event.target.value)} />
+          <input data-testid="release-candidate-rollback" className="rounded border px-3 py-2 text-sm" placeholder="Rollback version" value={rollbackRef} onChange={(event) => setRollbackRef(event.target.value)} />
+          <input data-testid="release-candidate-required-score" className="rounded border px-3 py-2 text-sm" type="number" min="0" max="1" step="0.05" value={requiredScore} onChange={(event) => setRequiredScore(event.target.value)} />
+          <textarea data-testid="release-candidate-criteria" className="rounded border p-3 font-mono text-xs md:col-span-2" rows={9} value={criteriaText} onChange={(event) => setCriteriaText(event.target.value)} />
+          <textarea data-testid="release-candidate-evidence" className="rounded border p-3 font-mono text-xs md:col-span-2" rows={5} value={evidenceText} onChange={(event) => setEvidenceText(event.target.value)} placeholder='[{"evidence_type":"evaluation_run","evidence_ref":"EVR-...","label":"Sealed eval"}]' />
+          {formError && <p className="text-sm text-red-700 md:col-span-2">{formError}</p>}
+          <Button data-testid="release-candidate-create" className="md:col-span-2" disabled={create.isPending || !name || !artifactRef || !versionRef || !rollbackRef} onClick={() => void submit()}>
+            Create and evaluate candidate
+          </Button>
+        </div>
+      )}
+      {actionMessage && <p className="text-xs text-emerald-700">{actionMessage}</p>}
+      {actionError && <p role="alert" className="text-sm text-red-700">{queryErrorMessage(actionError)}</p>}
+      <div className="space-y-2">
+        {candidates.data?.map((candidate) => (
+          <div key={candidate.candidate_id} data-testid={`release-candidate-${candidate.candidate_id}`} className="rounded-md border border-surface-200 p-3">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Badge variant="secondary">{candidate.status}</Badge>
+              <span className="font-semibold text-gray-900">{candidate.name}</span>
+              <span className="font-mono text-xs text-gray-500">{candidate.artifact_ref}@{candidate.version_ref}</span>
+              <span className="ml-auto font-semibold">{Math.round((candidate.weighted_score ?? 0) * 100)}%</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              {candidate.criteria.length} criteria · {candidate.evidence.length} evidence · {candidate.blockers.length} blockers · rollback {String(candidate.rollback_target.version_ref ?? "not set")}
+            </p>
+            {canOperate && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => evaluate.mutate(candidate)}>Re-evaluate</Button>
+                <Button size="sm" variant="outline" onClick={() => report.mutate(candidate)}>Generate Allure</Button>
+                {canAdmin && !candidate.status.startsWith("signed_") && (
+                  <>
+                    <input aria-label="Signoff rationale" className="min-w-64 rounded border px-2 py-1 text-xs" placeholder="Accountable decision rationale" value={rationale} onChange={(event) => setRationale(event.target.value)} />
+                    <Button size="sm" disabled={rationale.length < 8 || candidate.status !== "ready"} onClick={() => signoff.mutate({ candidate, decision: "go" })}>Sign off GO</Button>
+                    <Button size="sm" variant="outline" disabled={rationale.length < 8} onClick={() => signoff.mutate({ candidate, decision: "no_go" })}>Sign off NO-GO</Button>
+                  </>
+                )}
+              </div>
+            )}
+            {canAdmin && candidate.blockers.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <input aria-label="Waiver criterion key" className="rounded border px-2 py-1 text-xs" placeholder="criterion key" value={waiverKey} onChange={(event) => setWaiverKey(event.target.value)} />
+                <input aria-label="Waiver reason" className="min-w-72 rounded border px-2 py-1 text-xs" placeholder="Exception reason and compensating control" value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} />
+                <Button size="sm" variant="outline" disabled={!waiverKey || waiverReason.length < 8} onClick={() => waive.mutate(candidate)}>Record waiver</Button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export function Releases(): JSX.Element {
@@ -164,6 +365,8 @@ export function Releases(): JSX.Element {
           history.
         </p>
       </div>
+
+      <ReleaseSignoffFactory canOperate={canOperate} canAdmin={canAdmin} />
 
       <section>
         <h2 className="mb-2 text-sm font-semibold text-gray-700">

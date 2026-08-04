@@ -72,14 +72,14 @@
       <div class="ck-cols">
         <div class="callout"><strong>What you build.</strong> A workflow that fetches a document, extracts its text/tables, structures it to JSON with a prompt, and validates the result against a target schema — separating extraction failures from validation failures.
           <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Object Store</span> <span class="ck-badge ck-surface">Prompts</span> <span class="ck-badge ck-surface">Tools</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Observability</span></div></div>
-        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Upload + preview + extract Office docs in Object Store</li><li>Register the shipped extractor tool</li><li>Author a structuring prompt that never invents values</li><li>Validate JSON in a Python Code node</li><li>Separate extraction vs normalization vs validation failures in traces</li></ul></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Upload + preview + extract Office docs in Object Store</li><li>Register the shipped extractor tool</li><li>Author a structuring prompt that never invents values</li><li>Validate JSON with the Data Transform JSON Schema operation</li><li>Separate extraction vs normalization vs validation failures in traces</li></ul></div>
       </div>
       <h2 id="flow">Implementation flow</h2>
       <div class="diagram"><pre class="mermaid">flowchart LR
   OB[(Object Store: docs)] -.upload + preview/extract.-&gt; LF[/local file path/]
   LF --&gt; EX[Tool: extract_document · reads a local path]
   EX --&gt; ST[Agent: doc-structurer prompt]
-  ST --&gt; VAL[Python Code: validate_document_json]
+  ST --&gt; VAL[Data Transform: JSON Schema]
   VAL --&gt;|pass / partial / fail| OUT[output]</pre></div>
       <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
       <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
@@ -721,7 +721,7 @@ def run_python_node(input=None, context=None, inputs=None, run_input=&quot;&quot
     </div>
       <h2 id="gates">Evaluation &amp; quality gates</h2>
       <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Golden schema pass rate</td><td>≥ 0.95</td></tr><tr><td>Unsupported format error readability</td><td>100% (identifies the stage)</td></tr></tbody></table></div>
-      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>Extract supports <code>.docx/.pptx/.xlsx</code> — not legacy <code>.doc/.ppt/.xls</code>. The readable “unsupported” error comes from the Object Store <strong>extract endpoint</strong>.</li><li>Schema validation is deterministic (Python Code node) — not an LLM judge.</li><li>Binary .docx/.xlsx can't be authored as text; <code>assets/dataset/sources/</code> ships stand-ins + conversion notes.</li></ul></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li>Extract supports <code>.docx/.pptx/.xlsx</code> — not legacy <code>.doc/.ppt/.xls</code>. The readable “unsupported” error comes from the Object Store <strong>extract endpoint</strong>.</li><li>Schema validation is deterministic (Data Transform node) — not an LLM judge.</li><li>Binary .docx/.xlsx can't be authored as text; <code>assets/dataset/sources/</code> ships stand-ins + conversion notes.</li></ul></div>
       <nav class="ck-pager"><a href="m-cookbook-05-governed-mcp.html">← Governed Tool Connectivity (MCP)</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-06-grounded-knowledge.html">Grounded Knowledge Assistant →</a></nav>
         <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
         Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>

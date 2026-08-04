@@ -26,7 +26,7 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
   Wire: `ingest (normalize alert/service/env) → lookup_recent_deployments →
   query_service_health → summarize (agent: incident-commander) →
   recommend_action (router on risk) → human_approval (rollback / external write
-  only) → create_issue (mcp, optional) → output`.
+  only) → issue_write (mcp, optional) → output`.
 - **Rollback / external write is approval-gated.** The `incident-commander`
   prompt sets `requires_approval: true` for `rollback` and external writes (the
   `rollback-decision-checklist` skill encodes the rule), and the `human_approval`

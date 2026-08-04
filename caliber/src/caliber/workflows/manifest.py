@@ -717,6 +717,53 @@ class TemplateNode(_NodeBase):
     )
 
 
+class DataTransformNode(_NodeBase):
+    """Apply one deterministic, configuration-only data transformation."""
+
+    type: Literal["data_transform"]
+    operation: Literal["fixture", "mapping", "json_schema", "decision_table", "confidence"] = (
+        "mapping"
+    )
+    config: dict[str, Any] = Field(default_factory=dict)
+    fail_on_invalid: bool = True
+    inputs: PortMap = Field(
+        default_factory=lambda: {
+            "value": PortSpec(type="structured"),
+            "text": PortSpec(type="string"),
+        }
+    )
+    outputs: PortMap = Field(
+        default_factory=lambda: {
+            "text": PortSpec(type="string"),
+            "result": PortSpec(type="structured"),
+            "valid": PortSpec(type="boolean"),
+            "metadata": PortSpec(type="structured"),
+        }
+    )
+
+
+class ReviewQueueEnqueueNode(_NodeBase):
+    """Durably enqueue one or more trace IDs for governed human review."""
+
+    type: Literal["review_queue_enqueue"]
+    queue_id: str = Field(min_length=1, max_length=64)
+    experiment_id: str | None = Field(default=None, max_length=64)
+    assigned_to: str | None = Field(default=None, max_length=256)
+    inputs: PortMap = Field(
+        default_factory=lambda: {
+            "trace_id": PortSpec(type="string"),
+            "trace_ids": PortSpec(type="structured"),
+        }
+    )
+    outputs: PortMap = Field(
+        default_factory=lambda: {
+            "text": PortSpec(type="string"),
+            "result": PortSpec(type="structured"),
+            "created_count": PortSpec(type="structured"),
+        }
+    )
+
+
 class PythonCodeNode(_NodeBase):
     """Run custom Python in the isolated tool sandbox."""
 
@@ -936,6 +983,8 @@ WorkflowNode = Annotated[
     | KnowledgeQueryNode
     | KnowledgeBuildNode
     | TemplateNode
+    | DataTransformNode
+    | ReviewQueueEnqueueNode
     | PythonCodeNode
     | AgentNode
     | GuardrailNode
@@ -1285,6 +1334,7 @@ __all__ = [
     "AgentNode",
     "ApiRequestNode",
     "ArtifactsConfig",
+    "DataTransformNode",
     "DataType",
     "DeployGate",
     "ErrorBoundaryNode",
@@ -1321,6 +1371,7 @@ __all__ = [
     "PromptRefInstructions",
     "PythonCodeNode",
     "RegisteredFunctionToolBinding",
+    "ReviewQueueEnqueueNode",
     "RouterBranch",
     "RouterNode",
     "RuntimeConfig",

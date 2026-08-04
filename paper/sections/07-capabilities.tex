@@ -109,7 +109,12 @@ answered that question'' is a resolvable query rather than an archaeological one
 \para{Workflows.} A visual editor over a typed IR with \statNodeTypes{} node types,
 queued runs, runtime approvals, checkpointing, and publication as an HTTP service.
 The same IR backs the in-server interpreter and an Agents SDK export, which is what
-lets a workflow be governed here and executed elsewhere.
+lets a workflow be governed here and executed elsewhere.  The visual path includes
+closed-vocabulary deterministic transforms and direct review-queue enqueueing, so
+policy tables, schemas, confidence rules, fixtures, and review handoff do not require
+custom Python.  A runtime-owned catalog exposes sixteen Cookbook examples; installing
+one creates a paused workflow and one editable draft in a single audited transaction,
+with prerequisites acknowledged before activation can be considered.
 
 \para{Tools and MCP servers.} Tool definitions carry deterministic test suites
 fenced to a revision, so a suite result is attributable to a specific tool version.

@@ -178,3 +178,47 @@ def test_cookbook_yaml_parses() -> None:
     yaml = pytest.importorskip("yaml")
     for path in sorted(COOKBOOKS.rglob("*.yaml")):
         list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+
+
+def test_generated_capability_inventory_matches_runtime_catalog() -> None:
+    from caliber.workflows.cookbook_catalog import build_cookbook_catalog
+
+    inventory = json.loads((COOKBOOKS / "capabilities.json").read_text(encoding="utf-8"))
+    runtime = build_cookbook_catalog()
+    assert inventory["catalog_version"] == runtime["catalog_version"]
+    assert inventory["source"] == "caliber.workflows.cookbook_catalog"
+    assert [item["id"] for item in inventory["recipes"]] == [
+        item["id"] for item in runtime["recipes"]
+    ]
+    for documented, recipe in zip(inventory["recipes"], runtime["recipes"], strict=True):
+        assert documented == {
+            key: recipe[key]
+            for key in (
+                "id",
+                "slug",
+                "title",
+                "summary",
+                "capabilities",
+                "prerequisites",
+                "activation_requires_review",
+            )
+        }
+
+
+def test_cookbook05_uses_current_official_github_mcp_server() -> None:
+    """Keep the retired npm preset out of both the product and its recipe."""
+
+    product_source = (
+        REPO_ROOT / "caliber" / "caliber-ui" / "src" / "pages" / "McpServers.tsx"
+    ).read_text(encoding="utf-8")
+    recipe_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((COOKBOOKS / "05-mcp-connectivity-governance-lab").rglob("*"))
+        if path.is_file()
+    )
+    combined = f"{product_source}\n{recipe_sources}"
+    assert "@modelcontextprotocol/server-github" not in combined
+    assert "https://api.githubcopilot.com/mcp/" in product_source
+    assert "https://api.githubcopilot.com/mcp/" in recipe_sources
+    assert "GITHUB_PERSONAL_ACCESS_TOKEN" in product_source
+    assert "CALIBER_MCP_REMOTE_HOST_ALLOWLIST" in recipe_sources

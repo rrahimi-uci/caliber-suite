@@ -21,6 +21,10 @@ def test_capabilities_default_contract(client) -> None:
     assert runs["runtime_approvals_enabled"] is False
     assert runs["checkpointing_enabled"] is False
     assert runs["event_backend"] == "in_process"
+    assert runs["approval_readiness"]["status"] == "configuration_required"
+    assert runs["approval_readiness"]["allow_self_approval"] is True
+    assert "required_role" in runs["approval_readiness"]["decision_scope"]
+    assert len(runs["approval_readiness"]["blockers"]) == 3
     assert data["sync_workflow_version_run"] is True
     assert set(data["artifact_families"]) == {
         "prompt",
@@ -73,6 +77,9 @@ def test_capabilities_reflect_flag_overrides(client) -> None:
     assert runs["runtime_approvals_enabled"] is True
     assert runs["checkpointing_enabled"] is True
     assert runs["event_backend"] == "database"
+    assert runs["approval_readiness"]["status"] == "ready"
+    assert runs["approval_readiness"]["blockers"] == []
+    assert runs["approval_readiness"]["settings_path"] == "/settings/runtime"
 
 
 def test_capabilities_keep_resume_disabled_without_checkpointing(client) -> None:

@@ -3,8 +3,9 @@
 This document is the **ground truth** behind every scenario recipe. It records,
 from a direct read of the codebase (frontend `caliber/caliber-ui/src`, backend
 `caliber/src/caliber`), exactly what CALIBER can do **today**, what is
-**partial**, and what is **aspirational** in the scenario YAML contracts. Read
-this once; every `README.md` recipe assumes the conventions below.
+environment-gated, and what remains deliberately bounded. The runtime-owned
+catalog is exported to [`capabilities.json`](capabilities.json); that generated
+inventory, rather than this prose, is the authoritative recipe list.
 
 API base for all endpoints: `/ajax-api/2.0/mlflow/caliber`.
 SPA routes are under `/caliber`. Dev sign-in is `admin` / `admin`.
@@ -28,11 +29,12 @@ SPA routes are under `/caliber`. Dev sign-in is `admin` / `admin`.
 | **Skills** | Author + version | ✅ Works | `POST /skills`, `PATCH /skills/{id}` (content edit bumps version). Reserved prefixes `claude*`/`anthropic*` rejected. |
 | | Render Preview | ✅ Works | `POST /skills/{id}/test-render` substitutes `{{vars}}`, reports unresolved. |
 | | Trigger / selection tests | ✅ Works (deterministic) | `POST /skills/{id}/test-selection` uses a **deterministic** scorer (no LLM): `is_selected`, `selection_score`, `selection_reason`. |
-| | Package export / import | ✅ Works | Export `GET /skills/{id}/package.zip`; import `POST /skills/import-package`. Round-trip preserves a kebab-case skill. |
+| | Package export / import | ✅ Works | Export a ZIP and upload it directly in the Skill UI. Import is bounded and supports explicit reject, rename, or admin-only versioned merge. |
 | | Calibration | ⚠️ Queued | `POST /skills/{id}/calibrate` enqueues a background job (same model as prompts). |
 | | Scenario Sets | ⚠️ Scaffolded | UI present; rich scenario authoring is minimal today — use Trigger Tests + Runs. |
-| **Workflows** | Templates | ✅ Works (13) | See §4. `GET /workflow-templates`, `POST /workflows`. |
-| | Node types (~27) | ✅ Works | agent, tool, `mcp_resource`, `knowledge_query`, `knowledge_build`, `human_approval`, `guardrail`, `router`, `parallel`/`join`, `for_each`/`loop`, `wait_for_event`, `wait_until`, `python_code`, `error_boundary`, `subworkflow`, bucket/file IO, etc. All executable. |
+| **Workflows** | Cookbook system examples | ✅ Works (16) | **Cookbooks** installs any runtime-owned recipe atomically as a paused workflow and draft version after readiness review. |
+| | Code-free deterministic transforms | ✅ Works | `data_transform` supports fixture, mapping, Draft 2020-12 JSON Schema, ordered decision tables, and weighted confidence. |
+| | Review Queue enqueue | ✅ Works | `review_queue_enqueue` creates audited, idempotent trace-linked items and fails closed when the runtime binding is absent. |
 | | Run monitor: execute/approve/reject/retry/resume | ✅ Works | `POST /workflow-runs`, `.../approval/approve`, `.../approval/reject`, `.../retry`, `.../resume`, `.../resume-by-event`. Checkpoints, retry lineage ("Attempt N of M"), recovery panel, debugger panel all real. |
 | | HITL approval gate | ✅ Works | `human_approval` node → status `waiting_approval` → approve → `resuming`. RBAC role + multi-sig (`approval_count`) + `timeout_behavior`. |
 | | Edit/patch workflow | ⚠️ Manual only | Edit the manifest in the editor and **save a new version**. A semantic patch API exists (`workflows/patch.py`) but is **not wired to the UI**; there is **no** `propose_workflow_patch` tool. |
@@ -41,10 +43,10 @@ SPA routes are under `/caliber`. Dev sign-in is `admin` / `admin`.
 | **Evaluations** | Dataset + scorers → scorecard | ✅ Works (real LLM) | `POST /evaluations`; **no fake fallback** — without a configured provider it returns 400. Per-example detail + run-vs-run compare with deltas. |
 | | Scorers available | ✅ Works | `exact_match`, `token_f1`, `contains_expected`, `non_empty`, plus `Judge.<name>` LLM judges. |
 | | Add a trace to a dataset | ✅ Works | `POST /eval-datasets/{id}/examples/from-trace` (auto-extracts input/expected, tags lineage). |
-| | Disagreement / low-confidence surfacing | ⚠️ Manual | No automatic alignment/disagreement metric — compare baseline vs candidate scorecards by hand. |
+| | Disagreement / low-confidence surfacing | ✅ Works | Evaluation deltas identify candidates; Human Alignment imports completed queue labels and computes agreement/kappa/confusion counts. |
 | **Judges** | Create custom LLM judge | ✅ Works | `POST /judges`: name, model, `instructions` (must reference `{{ inputs }}` / `{{ outputs }}` / `{{ expectations }}`), `feedback_value_type` (bool/int/float/str). Executed via MLflow 3.14 `make_judge`. |
 | | "deterministic" judge type | ❌ Not a judge | There is **only** the custom LLM judge type. Deterministic checks are **scorers** (`exact_match`, …) or **tool/skill assertions**, not a judge. Treat scenario `type: deterministic` as "use a deterministic scorer/assertion." |
-| | Human alignment | ✅ Works (labels are manual) | The Judges page **Human alignment** mode computes **agreement rate**, **Cohen's κ**, and **FP/FN** from judge outputs + human pass/fail labels (`POST /judges/{id}/alignment`; `eval/alignment.py`). You still enter the labels by hand — it does **not** auto-ingest completed Review Queue items. |
+| | Human alignment | ✅ Works | The Judges page computes agreement, Cohen's κ, and FP/FN and can import completed pass/fail Review Queue labels with queue/item/trace/question/reviewer provenance. |
 | **Test Sets** | List `/eval-datasets` | ✅ Works | Create dataset, add rows / from-trace / MLflow sync. |
 | | Detail `/eval-datasets/:id` | ✅ Works | `EvalDatasetDetail.tsx` is a full row editor: **+ Add example** (set `inputs` + `expectations`/`expected` directly), edit/revise, retire/supersede, **Add example from trace**, version filter. Backend: `POST …/examples`, `…/revise`, `…/supersede`, `…/examples/from-trace`. |
 | **Review Queues** | Enqueue trace → answer → write back to trace | ✅ Works | `POST /review-queues`, `.../items` (trace_ids), submit answers → MLflow assessments/expectations on the trace. Trace-linked. |
@@ -60,24 +62,23 @@ SPA routes are under `/caliber`. Dev sign-in is `admin` / `admin`.
 | | Calibrate metrics (inline) | ✅ Works | Recall@k, nDCG@k, Faithfulness, Answer-correctness — computed synchronously. |
 | | AGE sync | ✅ Works (manual) | Build does **not** auto-sync; click **Sync to AGE** (`POST /knowledge-base-versions/{id}/age-sync`) then the version is graph-served. |
 | **Object Store** | Upload / list / preview / extract / delete | ✅ Works (S3/MinIO) | Extract supports `.docx`/`.pptx`/`.xlsx` (not legacy `.doc/.ppt/.xls`). |
-| **Allure** | In-app report | ✅ Works (served) | `Settings → Allure Report` → `GET /observability/allure-report`. Generation is **external** (`make allure-report`); the app only serves the static HTML. |
+| **Releases** | Candidate / waiver / signoff | ✅ Works | Releases persists weighted criteria, evidence, blockers, admin waivers, rollback targets, and immutable go/no-go snapshots. |
+| **Allure** | Release evidence job | ✅ Works | An authorized operator generates and monitors a durable in-product Allure-compatible JSON report job. The separate static HTML test report remains a CI publication artifact. |
 
 ---
 
 ## 2. The five things that most often trip up a recipe
 
-1. **Prompt Playground does not call a model.** It renders the template only.
-   To get a *scored* run of a prompt against cases, build a **Test Set
-   (eval-dataset)** and run it from **Evaluations** with scorers. Use the
-   Prompts workspace for authoring, versioning, baseline, and binding.
+1. **Prompt Playground is live chat, not a scored regression suite.** It calls
+   the configured model. Persisted scored evidence belongs in prompt Runs or
+   Evaluations over a Test Set.
 2. **"Deterministic judge" is not a thing.** Use a deterministic **scorer**
    (`exact_match`, `token_f1`, `contains_expected`, `non_empty`) in Evaluations,
    or a **tool/skill assertion** in Hardening/Trigger Tests. Reserve **Judges**
    for LLM-graded criteria (faithfulness, tone, escalation correctness).
-3. **A registered tool must be importable Python.** There is no inline tool
-   editor. Either (a) point at a shipped module (see §3), (b) add a callable to
-   a module and restart the backend, or (c) put the logic in a workflow
-   **`python_code`** node — no registration needed.
+3. **Use Data Transform before custom code.** Mapping, schema validation,
+   decision rules, confidence, and fixtures are visual components. A registered
+   custom callable still must be importable Python.
 4. **Calibration (prompts & skills) is queued, not instant.** It creates a
    background refinement job. For a live demo, show the queued job + its id; do
    not wait for an inline score. **KB calibration and tool/MCP deterministic
@@ -126,11 +127,10 @@ scenarios want.
 `caliber/src/caliber/workflows/demo_tools.py`), restart the backend, then
 register it as in (A). Keep it deterministic and side-effect-typed.
 
-**C. Inline `python_code` node.** For decision/validation logic that you don't
-need in the registry (refund eligibility, JSON-schema validation, payload
-shaping), drop a **Python Code** node into the workflow. It runs sandboxed and
-needs no registration. This is the recommended path for SCN-03's `decide_refund`
-and SCN-04's `validate_document_json`.
+**C. Inline `python_code` node.** Reserve this for bounded custom logic outside
+the Data Transform vocabulary. Decision tables, JSON Schema, field mapping,
+confidence, and fixtures should use the visual component so the policy remains
+structured and inspectable.
 
 ---
 

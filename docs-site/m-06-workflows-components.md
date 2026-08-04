@@ -30,7 +30,7 @@ runtime, deployments) see the [Workflows Architecture](m-06-workflows.md).
 | **Port system** | Five color-coded data types — `string`, `structured`, `messages`, `boolean`, and `void` — that connect cleanly only when compatible. |
 | **Working with nodes** | Add from the palette, configure in the **Inspector**, connect node-to-node via an **edge map**, view/edit each node's **manifest JSON** (`<>`), and preview or run. |
 | **Component categories** | Seven palette groups: Inputs & Outputs, Orchestration, Agents, Logic, Safety, Integrations, and Utilities. |
-| **Custom code** | The only component that runs real code is **Python Code**, whose sandboxed `code` field is part of the same manifest JSON. |
+| **No-code logic** | **Data Transform** covers fixtures, mapping, JSON Schema, decision tables, and confidence; **Python Code** remains the bounded extension outside that vocabulary. |
 | **Built-in reference** | Every built-in component, grouped by category, with default ports, key fields, and setup checks. |
 
 The sections below start from this picture and drill down into the detail — the
@@ -252,6 +252,7 @@ considered configured.
 | Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
 | --- | --- | --- | --- | --- | --- |
 | **Router** | `router` | Route execution conditionally across explicit branches; the first matching condition wins. Branches are expressed as outgoing edges. | `decision` → (edge-driven) | `branches` | Add ≥1 branch; connect every branch target |
+| **Data Transform** | `data_transform` | Apply a closed-vocabulary deterministic transform: fixture, mapping, Draft 2020-12 JSON Schema, ordered decision table, or weighted confidence. | `value`, `text` → `text`, `result`, `valid`, `metadata` | `operation`, `config`, `fail_on_invalid` | Select an operation and supply its structured config |
 
 ### Safety
 
@@ -271,6 +272,7 @@ considered configured.
 | **API Request** | `api_request` | Make an HTTP request from a URL + method, or paste a cURL command that the node parses for method/URL/headers/body. | `payload`, `input` → `text`, `response`, `metadata` | `mode` (`url`/`curl`), `url`, `method`, `curl`, `headers`, `body`, `timeout_seconds` | Provide a URL or cURL command |
 | **Knowledge Query** | `knowledge_query` | Query a knowledge base with dense, GraphRAG hybrid, or Apache AGE graph retrieval, with query-time overrides. | `question`, `history`, `retrieval_modes`, `version_ids`, `graph_overrides` → `text`, `answer`, `result`, `citations`, `chunks`, `graph_context` | `knowledge_base_id`, `version_ids`, `retrieval_modes`, `top_k`, `chat_model`, `graph_overrides` | Select a knowledge base or pinned versions |
 | **Knowledge Build** | `knowledge_build` | Launch a new knowledge-base version build (chunking, embeddings, graph) from inside a workflow. | `input`, `sources`, `chunking_strategy`, `embedding_model`, … → `status`, `version_id`, `run_id`, `result`, … | `knowledge_base_id`, `chunking_strategy`, `embedding_model`, `chunking_config`, `graph_config`, `activate_when_complete`, `wait_for_completion`, `wait_timeout_seconds` | Select a KB, chunking strategy, and embedding model |
+| **Review Queue Enqueue** | `review_queue_enqueue` | Add the current trace/run payload to a governed review queue through the audited idempotent queue service. | `input`, `trace_id`, `metadata` → `text`, `result`, `item_id`, `metadata` | `queue_id`, `experiment_id`, `assigned_to` | Select a review queue; runtime execution fails closed if no enqueuer is bound |
 | **External App** | `external_app` | Migration bridge — invoke an existing hand-coded Python entrypoint while it is converted to a first-class node. | `input`, `context` → `text`, `result`, `metadata` | `entrypoint` | Set the external app entrypoint |
 
 ### Utilities
@@ -287,8 +289,9 @@ When you compile a workflow, each component becomes a typed IR node, and the
 runtime interpreter walks the graph, carrying typed values along each edge's
 map. A few behaviours are worth understanding when you build with components:
 
-- **Side-effecting components** — Tool, MCP Resource, Webhook, API Request, and
-  Python Code actually call out to external systems or run sandboxed code. In
+- **Side-effecting components** — Tool, MCP Resource, Webhook, API Request,
+  Review Queue Enqueue, and Python Code call external/durable services or run
+  sandboxed code. In
   tests and previews these run through injectable executors (a fake tool
   resolver, a fake HTTP sender), so a preview never has to hit the network.
 - **Checkpoints** — Wait Until and Wait For Event create resumable checkpoints;
@@ -301,8 +304,8 @@ map. A few behaviours are worth understanding when you build with components:
   repeatedly; Subworkflow composes a published child workflow.
 - **Executable targets** — For Each, Loop, and Error Boundary act *on* another
   node. Their target must be an executable component (Agent, Tool, MCP Resource,
-  Knowledge Query/Build, Template, Python Code, External App, Webhook, API
-  Request, or Subworkflow).
+  Knowledge Query/Build, Template, Data Transform, Review Queue Enqueue, Python
+  Code, External App, Webhook, API Request, or Subworkflow).
 
 ## Defining a new component (for developers)
 

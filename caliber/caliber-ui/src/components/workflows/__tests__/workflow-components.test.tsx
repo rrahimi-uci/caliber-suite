@@ -7063,6 +7063,33 @@ describe("Component enhancements (label / advanced / output / legacy)", () => {
   }
 
   // A — per-node display name + description
+  it("applies reusable operational connector presets without embedding credentials", () => {
+    const onChangeNode = vi.fn();
+    render(
+      <Inspector
+        manifest={apiManifest()}
+        selectedNodeId="api"
+        tools={[]}
+        onChangeNode={onChangeNode}
+        onChangeWorkflow={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("inspector-api-connector-preset"), {
+      target: { value: "deployment-health" },
+    });
+
+    expect(onChangeNode).toHaveBeenCalledWith("api", {
+      mode: "url",
+      method: "GET",
+      url: "https://DEPLOYMENT_API.example.invalid/v1/deployments/DEPLOYMENT/health",
+      headers: { Accept: "application/json" },
+      body: "",
+    });
+    expect(screen.getByText(/never paste a credential/i)).toBeInTheDocument();
+  });
+
+  // A — per-node display name + description
   it("edits a node's display name and description", () => {
     const onChangeNode = vi.fn();
     render(

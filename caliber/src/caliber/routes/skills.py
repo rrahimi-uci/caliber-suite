@@ -36,12 +36,14 @@ and agents endpoints.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -83,6 +85,7 @@ from caliber.routes._deps import (
 from caliber.routes.agents import _extract_skill_refs
 from caliber.schemas import (
     _RESERVED_PREFIXES,
+    SKILL_NAME_PATTERN,
     RefinementJobSchema,
     SkillBaselineRequest,
     SkillBindRequest,
@@ -103,6 +106,7 @@ from caliber.skill_packages import (
     build_skill_package_zip,
     merge_openai_package_metadata,
     parse_skill_package,
+    parse_skill_package_zip,
 )
 from caliber.skill_targets import (
     ensure_skill_target,
@@ -128,6 +132,7 @@ DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}"
 # OpenAI-compatible package surface (see ``caliber.skill_packages``):
 # export a skill as a portable folder/ZIP, and import one back as a row.
 IMPORT_PACKAGE_PATH = "/ajax-api/2.0/mlflow/caliber/skills/import-package"
+IMPORT_PACKAGE_ZIP_PATH = "/ajax-api/2.0/mlflow/caliber/skills/import-package.zip"
 PACKAGE_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/package"
 PACKAGE_ZIP_PATH = "/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/package.zip"
 # Test surfaces: render the skill content with sample variables ({{var}}
@@ -748,6 +753,145 @@ async def import_skill_package(request: Request) -> JSONResponse:
     return envelope_response(data, status_code=201)
 
 
+def _persist_skill_package_zip(
+    factory: Any,
+    *,
+    imported: Any,
+    actor: str,
+    identity: Any,
+    filename: str,
+    strategy: str,
+    can_merge: bool,
+) -> tuple[SkillSchema, int]:
+    with factory() as session:
+        existing = session.execute(
+            select(CaliberSkill).where(CaliberSkill.name == imported.name)
+        ).scalar_one_or_none()
+        if existing is not None and strategy != "merge":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"skill name {imported.name!r} already exists; choose rename or merge explicitly"
+                ),
+            )
+
+        if existing is not None:
+            if not can_merge:
+                raise HTTPException(status_code=403, detail="admin scope required to merge a skill")
+            prior_version = existing.version
+            _ensure_skill_version_snapshot(
+                session,
+                existing.skill_id,
+                prior_version,
+                existing.content,
+                existing.summary,
+                created_by=actor,
+            )
+            existing.description = imported.description
+            existing.summary = imported.summary
+            existing.content = imported.content
+            existing.skill_metadata = merge_openai_package_metadata(
+                dict(existing.skill_metadata or {}), imported
+            )
+            existing.version = prior_version + 1
+            _record_skill_version(session, existing, created_by=actor)
+            skill = existing
+            action = "merge_skill_package_zip"
+            status_code = 200
+        else:
+            skill = CaliberSkill(
+                skill_id=new_skill_id(),
+                name=imported.name,
+                description=imported.description,
+                summary=imported.summary,
+                content=imported.content,
+                owner=actor,
+                project_id=identity.active_project_id,
+                category="custom",
+                tags=[],
+                skill_metadata=imported.skill_metadata,
+                allowed_tools=None,
+                depends_on=[],
+                status="active",
+                version=1,
+            )
+            session.add(skill)
+            session.flush()
+            _record_skill_version(session, skill, created_by=actor)
+            action = "import_skill_package_zip"
+            status_code = 201
+
+        audit_record(
+            session,
+            actor=actor,
+            action=action,
+            entity_type="skill",
+            entity_id=skill.skill_id,
+            details={
+                "name": skill.name,
+                "filename": filename,
+                "conflict_strategy": strategy,
+                "version": skill.version,
+            },
+        )
+        session.commit()
+        return SkillSchema.model_validate(skill), status_code
+
+
+async def import_skill_package_zip(request: Request) -> JSONResponse:
+    """Import a ZIP directly, with explicit reject/rename/merge conflicts.
+
+    The uploaded archive is bounded and validated by ``parse_skill_package_zip``.
+    ``rename`` changes the registry identity without requiring users to unpack and
+    edit frontmatter; ``merge`` is an admin-only, forward-versioned update.
+    """
+
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    async with request.form() as form:
+        uploaded = form.get("file")
+        if uploaded is None or not hasattr(uploaded, "read"):
+            raise HTTPException(status_code=400, detail="multipart 'file' field is required")
+        filename = str(getattr(uploaded, "filename", "") or "")
+        if not filename.lower().endswith(".zip"):
+            raise HTTPException(status_code=400, detail="skill package file must end in .zip")
+        data = await uploaded.read()
+        strategy = str(form.get("conflict_strategy") or "reject").strip().lower()
+        rename_to = str(form.get("rename_to") or "").strip()
+
+    if strategy not in {"reject", "rename", "merge"}:
+        raise HTTPException(
+            status_code=400,
+            detail="conflict_strategy must be reject, rename, or merge",
+        )
+    imported = parse_skill_package_zip(data)
+    if strategy == "rename":
+        if not rename_to:
+            raise HTTPException(status_code=400, detail="rename_to is required for rename")
+        if not re.fullmatch(SKILL_NAME_PATTERN, rename_to):
+            raise HTTPException(status_code=400, detail="rename_to must be kebab-case")
+        imported = replace(imported, name=rename_to)
+
+    for prefix in _RESERVED_PREFIXES:
+        if imported.name.startswith(prefix):
+            raise HTTPException(
+                status_code=400,
+                detail=f"skill names starting with {prefix!r} are reserved",
+            )
+
+    result, status_code = await run_in_threadpool(
+        _persist_skill_package_zip,
+        get_session_factory(request),
+        imported=imported,
+        actor=actor,
+        identity=identity,
+        filename=filename,
+        strategy=strategy,
+        can_merge=identity.has_scope(SCOPE_ADMIN),
+    )
+    return envelope_response(result, status_code=status_code)
+
+
 # ---------------------------------------------------------------------------
 # Durable skill-test runs — run history for the Skills tab (prompt/tool analog).
 # ---------------------------------------------------------------------------
@@ -1251,6 +1395,7 @@ def register(app: Starlette) -> None:
     # Register the literal ``/import-package`` POST before the ``{skill_id}``
     # param route so it is never captured as a skill id.
     app.routes.append(Route(IMPORT_PACKAGE_PATH, import_skill_package, methods=["POST"]))
+    app.routes.append(Route(IMPORT_PACKAGE_ZIP_PATH, import_skill_package_zip, methods=["POST"]))
     # Test-run routes must precede the ``{skill_id}`` DETAIL_PATH so
     # ``/skills/test-runs`` resolves here rather than being captured as a skill id.
     app.routes.append(Route(TEST_RUNS_PATH, create_skill_test_run, methods=["POST"]))

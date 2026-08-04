@@ -21,6 +21,9 @@ REFINEMENT_JOB_PREFIX = "RFN-"
 APPROVAL_PREFIX = "AP-"
 CHECKPOINT_PREFIX = "CK-"
 RELEASE_OPERATION_PREFIX = "REL-"
+RELEASE_CANDIDATE_PREFIX = "RC-"
+RELEASE_SIGNOFF_PREFIX = "RSO-"
+RELEASE_REPORT_JOB_PREFIX = "RRJ-"
 SKILL_PREFIX = "SK-"
 EVAL_DATASET_PREFIX = "ED-"
 EVAL_EXAMPLE_PREFIX = "EX-"
@@ -319,6 +322,18 @@ def new_assistant_publish_id() -> str:
 def new_assistant_review_id() -> str:
     """Return a fresh assistant-review ID, e.g. ``AREV-7f3a90c2``."""
     return f"AREV-{_suffix()}"
+
+
+def new_release_candidate_id() -> str:
+    return f"{RELEASE_CANDIDATE_PREFIX}{_suffix()}"
+
+
+def new_release_signoff_id() -> str:
+    return f"{RELEASE_SIGNOFF_PREFIX}{_suffix()}"
+
+
+def new_release_report_job_id() -> str:
+    return f"{RELEASE_REPORT_JOB_PREFIX}{_suffix()}"
 
 
 def new_assistant_attachment_id() -> str:

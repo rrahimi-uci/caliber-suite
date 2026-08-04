@@ -15,8 +15,10 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). For this scenario:
   no LLM) — this is exactly the `SelectionPrecision` "deterministic" check in
   [`verification.yaml`](verification.yaml). Returns `is_selected`,
   `selection_score`, `selection_reason`.
-- ✅ Package round-trip is real: export `GET /skills/{id}/package.zip`, import
-  `POST /skills/import-package`.
+- ✅ Package round-trip is UI-native: export **Download ZIP**, then **Import
+  package ZIP** with an explicit reject, rename, or admin-only merge strategy.
+- ✅ Positive and negative trigger phrases are stored as skill metadata; the
+  selection result shows exact positive and exclusion signals.
 - ⚠️ **Scenario Sets** is scaffolded — drive positive/negative cases through
   **Trigger Tests** + **Runs** instead (FEASIBILITY §1, Skills).
 - ⚠️ **Calibrate** queues a background job (capture the job id, no inline score).
@@ -50,10 +52,9 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). For this scenario:
 5. **Export package.** Open skill detail → **Download ZIP**
    (`GET /skills/{id}/package.zip`). This is your portability artifact
    (`SKILL.md` + `agents/openai.yaml` + resources).
-6. **Import round-trip.** `POST /skills/import-package` with the ZIP into a
-   scratch name (rename the `SKILL.md` frontmatter to `support-tone-citation-copy`
-   to avoid the 409 on duplicate). Re-run the **same** trigger queries on the
-   copy → decisions must match the source.
+6. **Import round-trip.** In Skill detail, choose **Import package ZIP**, select
+   **Rename**, enter `support-tone-citation-copy`, and upload the exported ZIP.
+   Re-run the same trigger queries; decisions and matched signals must agree.
 7. **Calibrate (queued).** `Skills → Calibrate` → capture job id.
 8. **Bind.** `Skills → Bind` to an agent (or workflow node) for later use
    (`POST /skills/{id}/bind`).

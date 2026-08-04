@@ -143,6 +143,9 @@ const WorkflowVersionDetail = lazy(() =>
 const Workflows = lazy(() =>
   import("@/pages/Workflows").then((m) => ({ default: m.Workflows })),
 );
+const Cookbooks = lazy(() =>
+  import("@/pages/Cookbooks").then((m) => ({ default: m.Cookbooks })),
+);
 
 function PageLoader(): JSX.Element {
   return (
@@ -330,6 +333,7 @@ function AuthenticatedApp({
               <Route path="/observability" element={<Observability />} />
               <Route path="/knowledge-bases" element={<KnowledgeBases />} />
               <Route path="/workflows" element={<Workflows />} />
+              <Route path="/cookbooks" element={<Cookbooks />} />
               <Route path="/agents" element={<Agents />} />
               <Route path="/agents/:agentId" element={<AgentDetail />} />
               <Route

@@ -33,6 +33,7 @@ from typing import Any
 from caliber.workflows.ir import (
     IRAgent,
     IRApiRequest,
+    IRDataTransform,
     IRDeployGate,
     IREdge,
     IRErrorBoundary,
@@ -57,6 +58,7 @@ from caliber.workflows.ir import (
     IROutputFolder,
     IRParallel,
     IRPythonCode,
+    IRReviewQueueEnqueue,
     IRRouter,
     IRRouterBranch,
     IRSubworkflow,
@@ -74,6 +76,7 @@ from caliber.workflows.ir import (
 from caliber.workflows.manifest import (
     AgentNode,
     ApiRequestNode,
+    DataTransformNode,
     ErrorBoundaryNode,
     ExternalAppNode,
     FileInputNode,
@@ -96,6 +99,7 @@ from caliber.workflows.manifest import (
     PromptRefInstructions,
     PythonCodeNode,
     RegisteredFunctionToolBinding,
+    ReviewQueueEnqueueNode,
     RouterNode,
     StartNode,
     SubworkflowNode,
@@ -483,6 +487,28 @@ def _build_node(  # noqa: PLR0911, PLR0912 - per-node-type IR builder dispatch
             template=node.template,
             output_format=node.output_format,
             missing_variable_mode=node.missing_variable_mode,
+        )
+    if isinstance(node, DataTransformNode):
+        return IRDataTransform(
+            node_id=node.id,
+            node_type=NodeType.DATA_TRANSFORM,
+            inputs=inputs,
+            outputs=outputs,
+            execution_policy=execution_policy,
+            operation=node.operation,
+            config=dict(node.config),
+            fail_on_invalid=node.fail_on_invalid,
+        )
+    if isinstance(node, ReviewQueueEnqueueNode):
+        return IRReviewQueueEnqueue(
+            node_id=node.id,
+            node_type=NodeType.REVIEW_QUEUE_ENQUEUE,
+            inputs=inputs,
+            outputs=outputs,
+            execution_policy=execution_policy,
+            queue_id=node.queue_id,
+            experiment_id=node.experiment_id,
+            assigned_to=node.assigned_to,
         )
     if isinstance(node, PythonCodeNode):
         return IRPythonCode(

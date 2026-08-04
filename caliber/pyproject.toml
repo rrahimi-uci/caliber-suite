@@ -48,6 +48,8 @@ dependencies = [
     # MCP gateway transport client (stdio/SSE/streamable-http).
     "mcp>=1.27,<2",
     "httpx>=0.27,<1",
+    # Standards-compliant validation for the no-code Data Transform node.
+    "jsonschema>=4.22,<5",
 ]
 
 [project.optional-dependencies]

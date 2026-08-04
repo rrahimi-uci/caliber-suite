@@ -9,10 +9,8 @@ coverage, an approval-gated write, and an optional explanation layer.
 
 Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 
-- ❗ A registered tool must be **importable Python** (`module_path` +
-  `callable_name`) — there is no inline-code tool editor (FEASIBILITY §3).
-  Use the **shipped** `caliber.workflows.demo_tools` callables, or a workflow
-  **`python_code`** node for the decision logic.
+- ✅ The deterministic policy is a visual **Data Transform → Decision table**
+  node. Registered side-effect tools remain importable callables.
 - ✅ **Sandbox** runs the real callable; `write`/`external_action` tools are
   **mocked** in preview and become **approval-gated** in a workflow — perfect
   for `initiate_refund`.
@@ -21,7 +19,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
   in the background.
 - The `ExplanationFaithfulness` judge (`custom_judge`) is a real LLM judge; the
   `rule_checks` (`deterministic_decision_preserved`,
-  `approval_required_for_high_risk`) are enforced by the python_code node + the
+  `approval_required_for_high_risk`) are enforced by the decision-table node + the
   workflow approval gate, not by a "deterministic judge".
 
 ## Prerequisites & seed
@@ -51,14 +49,12 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    suite (`POST /tools/{id}/calibrate`); read `pass_rate` immediately. Pin a
    **baseline** (`POST /tools/{id}/baseline`). Edit a fixture / schema and re-run
    to show a regression delta in **Test Runs**.
-5. **The decision logic.** Implement `decide_refund` as a **`python_code`** node
-   (recommended) so the eligibility rules are versioned with the workflow:
-   inputs `order_state` + `risk_flags` → outputs
-   `{decision, reason_code, requires_approval}`. (Or add a `decide_refund`
-   callable to `demo_tools` and register it like step 1.)
+5. **The decision logic.** Add **Data Transform**, operation **Decision table**.
+   Enter the ordered amount/region rules and a default result. The node emits
+   the deterministic result plus matched-rule metadata without custom Python.
 6. **Bind into a workflow with an approval gate.** `Compose → Workflows → New`,
    template **`hitl_review`** (it ships the `human_approval` node). Wire:
-   `lookup_order → decide_refund(python_code) → human_approval → initiate_refund`.
+   `lookup_order → policy_decision(data_transform) → human_approval → initiate_refund`.
    The `human_approval` node has no condition: when runtime approvals are enabled
    it pauses **every** run that reaches it. `requires_approval` from
    `decide_refund` is **informational only** (surfaced for the reviewer; the gate

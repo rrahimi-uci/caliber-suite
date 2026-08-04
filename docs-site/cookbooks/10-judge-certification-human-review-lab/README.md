@@ -17,9 +17,8 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
   trace-linked.
 - ✅ **Alignment is computed in-product** — the Judges page **Human alignment**
   mode returns agreement rate, Cohen's κ, and FP/FN from the judge outputs + the
-  reviewer pass/fail labels. ⚠️ You still transcribe the labels: it does **not**
-  auto-ingest completed Review Queue items, so `disagreement_rate`/`alignment_score`
-  come from labels you enter by hand (FEASIBILITY §1, Judges → Human alignment).
+  reviewer pass/fail labels. **Import from Review Queue** loads completed labels
+  and retains queue, item, trace, question, reviewer, and assessment provenance.
 - ✅ The **Test Sets detail page** (`/eval-datasets/:id`) is wired
   (`EvalDatasetDetail`) — author/edit dataset rows with **+ Add example**
   (revise / supersede / from-trace), or use the API.
@@ -52,10 +51,9 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    (`POST /review-queues/{id}/items {trace_ids}`); have reviewers answer. Answers
    write back to each trace.
 6. **Compute alignment.** `Evaluate → Judges → FaithfulnessJudge → Human
-   alignment`: enter each sampled trace's judge output + the reviewer's pass/fail
-   label; CALIBER returns agreement rate, Cohen's κ, and FP/FN (`POST
-   /judges/{id}/alignment`). You transcribe the labels by hand (no auto-pull from
-   the Review Queue yet). Treat each disagreement as a calibration input — add the
+   alignment`: select the completed queue/question and click **Import from Review
+   Queue**, then run alignment. CALIBER returns agreement rate, Cohen's κ, and
+   FP/FN while preserving provenance. Treat each disagreement as a calibration input — add the
    hard case to the dataset and/or reword the rubric, then re-run step 3.
 
 ## Demo evidence to capture

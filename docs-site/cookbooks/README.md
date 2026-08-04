@@ -1,11 +1,11 @@
 # CALIBER Cookbooks
 
-Sixteen build-along recipes that teach the CALIBER platform end-to-end. Most are
-**fully implementable in the product UI** with no code changes or backend access;
-a few (04, 05, 11) still need an out-of-band or platform step — each such step is
-labelled in its recipe. See [`FEASIBILITY.md`](FEASIBILITY.md) for the honest
-per-capability matrix. Built for public demos, product training, and developer
-onboarding.
+Sixteen build-along recipes that teach the CALIBER platform end-to-end. Every
+recipe is also a versioned system example: open **Cookbooks**, review its live
+readiness checks, and install it as a paused workflow plus editable draft. Live
+models, connectors, workers, secrets, and traces remain deployment prerequisites;
+the product does not represent an unavailable dependency as ready. The generated
+[`capabilities.json`](capabilities.json) is derived from the runtime catalog.
 
 > **🎓 Training guide:** open [`../m-16-cookbooks.html`](../m-16-cookbooks.html) — a
 > polished, self-contained HTML guide with refreshed names, step-by-step UI
@@ -56,6 +56,7 @@ Every `cookbooks/<scenario>/` folder contains:
 | 13 | `13-aria-review-governance-queue` | Aria: Human-Review Queue from Intent | Aria |
 | 14 | `14-aria-governance-starter-kit` | Aria: Governance Starter Kit from Intent | Aria |
 | 15 | `15-aria-triage-recalibrate-loop` | Aria: Triage & Recalibrate Loop | Aria |
+| 16 | `16-observability-triage` | Production Observability & Triage | Operate |
 
 ## Recommended training sequences
 
@@ -68,7 +69,7 @@ Every `cookbooks/<scenario>/` folder contains:
 ## How to execute one scenario
 
 1. Read `scenario.yaml` for objective, dependencies, and demo scope.
-2. Skim [`FEASIBILITY.md`](FEASIBILITY.md) for any ⚠️/❌ items the scenario touches.
+2. Open **Cookbooks** and inspect the recipe's readiness checks.
 3. Follow `README.md` step-by-step (it carries the exact UI nav + API fallbacks).
 4. Build to `build.yaml` (the contract); each `build.yaml` has a `feasibility:`
    block at the top noting substitutions verified against the live code.
@@ -83,17 +84,15 @@ Every `cookbooks/<scenario>/` folder contains:
 - **"Deterministic judge" is not a type** — use deterministic *scorers*
   (`exact_match`, `token_f1`, `contains_expected`, `non_empty`) or tool/skill
   assertions; reserve `Judges` for LLM-graded criteria.
-- **Custom tools must be importable Python** (`module_path`+`callable_name`) or
-  inline **`python_code`** workflow nodes — there is no inline tool editor.
-  Shipped callables live in `caliber.workflows.demo_tools` / `ingestion_tools` /
-  `file_tools`.
+- **Deterministic workflow logic is no-code** for mapping, JSON Schema,
+  decision-table, confidence, and fixture operations through the Data Transform
+  node. Registered custom tools still require an importable callable.
 - **Prompt/skill Calibration is queued** (background job); **KB and tool/MCP
   calibration run inline**.
 - `Test Sets` rows link to `/eval-datasets/:id`; the detail route is wired
   (`EvalDatasetDetail.tsx` — a full row editor: add/revise/retire examples and
   add-from-trace). The API (`POST …/examples`, `…/from-trace`) still works too.
-- Skill package: export in UI (`Download ZIP`) and import in UI (`Import package`
-  on the skill detail page, which uploads the unpacked folder) — or via
-  `POST /skills/import-package`.
+- Skill package: export in UI (`Download ZIP`) and upload the ZIP directly with
+  explicit reject/rename/admin-merge conflict handling.
 - `monitoring.traces` names in `verification.yaml` are evidence labels, not
   literal MLflow span names (spans are named by workflow node id).

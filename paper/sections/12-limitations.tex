@@ -68,6 +68,14 @@ hash/version and rechecked at publication. This does not alter the refinement-jo
 reviewer calibration. The implementation evidence shows fail-closed mechanics, not
 that the reviewer agent makes production-quality decisions.
 
+\para{A signoff record does not validate its external evidence.} The release
+candidate service recomputes criteria and blockers, controls waivers and final
+signoff, and binds its Allure-compatible report to a candidate snapshot.  The
+report job currently completes in the application process; it is neither a
+distributed renderer nor evidence that an external trace, evaluation, or review
+reference is reachable in the target deployment.  Operators must verify the exact
+release package and its referenced evidence before treating a ready status as a go.
+
 \subsection{Limitations of the architecture}
 
 \para{Guarantees are per-family, and that is load-bearing.} An adopter must read
@@ -133,6 +141,12 @@ and we know of no static check that would.
 \para{Fail-closed egress does not cover arbitrary user code.} It governs HTTP and MCP
 transports. A tool that makes its own network calls from inside the runner is
 constrained by the runner's environment, not by the egress allowlist.
+
+\para{Connector presets are configuration, not connectivity evidence.} The
+incident, deployment-health, and service-health starters deliberately contain no
+credentials and use non-routable placeholders until an operator configures an
+endpoint and egress policy.  Their paired fixtures establish workflow behaviour,
+not production-source fidelity or reachability.
 
 \para{The body cap is not flood protection.} Published-service admission counts raw
 request chunks against a configured maximum, which is a per-request application

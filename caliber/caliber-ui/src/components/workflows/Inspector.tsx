@@ -2245,6 +2245,27 @@ function WebhookSection({
 
 const API_REQUEST_METHODS = ["GET", "POST", "PATCH", "PUT", "DELETE"] as const;
 
+const OPERATIONAL_CONNECTOR_PRESETS = [
+  {
+    id: "github-incident",
+    label: "GitHub incident / issue",
+    url: "https://api.github.com/repos/OWNER/REPOSITORY/issues/ISSUE_NUMBER",
+    headers: { Accept: "application/vnd.github+json" },
+  },
+  {
+    id: "deployment-health",
+    label: "Deployment health",
+    url: "https://DEPLOYMENT_API.example.invalid/v1/deployments/DEPLOYMENT/health",
+    headers: { Accept: "application/json" },
+  },
+  {
+    id: "service-health",
+    label: "Service health",
+    url: "https://SERVICE_HEALTH.example.invalid/v1/services/SERVICE/health",
+    headers: { Accept: "application/json" },
+  },
+] as const;
+
 /** Reusable key/value headers editor (object is the source of truth). */
 function HeadersEditor({
   headers,
@@ -2328,9 +2349,44 @@ function ApiRequestSection({
     node.headers && typeof node.headers === "object"
       ? (node.headers as Record<string, string>)
       : {};
+  const selectedPreset =
+    OPERATIONAL_CONNECTOR_PRESETS.find((preset) => preset.url === node.url)?.id ??
+    "custom";
 
   return (
     <Section title="API request">
+      <Field label="Connector preset" fieldKey="connector_preset">
+        <select
+          data-testid="inspector-api-connector-preset"
+          className={selectClass}
+          value={selectedPreset}
+          onChange={(event) => {
+            const preset = OPERATIONAL_CONNECTOR_PRESETS.find(
+              (item) => item.id === event.target.value,
+            );
+            if (!preset) return;
+            onChangeNode(node.id, {
+              mode: "url",
+              method: "GET",
+              url: preset.url,
+              headers: { ...preset.headers },
+              body: "",
+            });
+          }}
+        >
+          <option value="custom">Custom request</option>
+          {OPERATIONAL_CONNECTOR_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs leading-relaxed text-sky-700">
+        Presets are safe configuration starters. Replace every uppercase placeholder,
+        configure deployment egress, and use a governed MCP tool when authentication is
+        required; never paste a credential into workflow source.
+      </div>
       <Field label="Mode" fieldKey="mode">
         <div className="inline-flex w-full rounded-lg border border-zinc-200 bg-zinc-100 p-0.5">
           {(["url", "curl"] as const).map((m) => (
@@ -2497,6 +2553,153 @@ function TemplateSection({
           </select>
         </Field>
       </div>
+    </Section>
+  );
+}
+
+function DataTransformSection({
+  node,
+  onChangeNode,
+}: {
+  node: ManifestNode;
+  onChangeNode: (nodeId: string, patch: Partial<ManifestNode>) => void;
+}): JSX.Element {
+  const serialized = JSON.stringify(node.config ?? {}, null, 2);
+  const [configText, setConfigText] = useState(serialized);
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setConfigText(serialized);
+    setConfigError(null);
+  }, [node.id, serialized]);
+
+  const commitConfig = (): void => {
+    try {
+      const parsed = JSON.parse(configText);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Configuration must be a JSON object.");
+      }
+      setConfigError(null);
+      onChangeNode(node.id, { config: parsed as Record<string, unknown> });
+    } catch (error) {
+      setConfigError(
+        error instanceof Error ? error.message : "Configuration must be valid JSON.",
+      );
+    }
+  };
+
+  const examples: Record<NonNullable<ManifestNode["operation"]>, Record<string, unknown>> = {
+    fixture: { fixture: { status: "healthy", source: "example" } },
+    mapping: { fields: { customer_id: "customer.id" }, defaults: { status: "new" } },
+    json_schema: { schema: { type: "object", required: ["customer_id"] } },
+    decision_table: {
+      rules: [
+        {
+          name: "manual-review",
+          when: [{ path: "amount", operator: "greater_than", value: 500 }],
+          result: { decision: "review" },
+        },
+      ],
+      default: { decision: "allow" },
+    },
+    confidence: {
+      bias: 0.2,
+      review_threshold: 0.6,
+      signals: [{ name: "has-citation", path: "citations", operator: "exists", weight: 0.5 }],
+    },
+  };
+
+  return (
+    <Section title="Data transform">
+      <Field label="Operation" fieldKey="operation">
+        <select
+          data-testid="inspector-transform-operation"
+          className={selectClass}
+          value={node.operation ?? "mapping"}
+          onChange={(event) => {
+            const operation = event.target.value as NonNullable<ManifestNode["operation"]>;
+            const nextConfig = examples[operation];
+            setConfigText(JSON.stringify(nextConfig, null, 2));
+            setConfigError(null);
+            onChangeNode(node.id, { operation, config: nextConfig });
+          }}
+        >
+          <option value="fixture">Fixture source</option>
+          <option value="mapping">Field mapping</option>
+          <option value="json_schema">JSON Schema validation</option>
+          <option value="decision_table">Decision table</option>
+          <option value="confidence">Confidence scoring</option>
+        </select>
+      </Field>
+      <Field label="Configuration (JSON)" fieldKey="config">
+        <textarea
+          data-testid="inspector-transform-config"
+          className={textareaClass}
+          rows={12}
+          value={configText}
+          onChange={(event) => setConfigText(event.target.value)}
+          onBlur={commitConfig}
+        />
+      </Field>
+      {configError && <p className="text-xs text-red-600">{configError}</p>}
+      <label className="flex items-start gap-2 text-xs text-zinc-700">
+        <input
+          type="checkbox"
+          data-testid="inspector-transform-fail-invalid"
+          checked={node.fail_on_invalid ?? true}
+          onChange={(event) =>
+            onChangeNode(node.id, { fail_on_invalid: event.target.checked })
+          }
+        />
+        Stop the run when JSON Schema validation fails
+      </label>
+    </Section>
+  );
+}
+
+function ReviewQueueEnqueueSection({
+  node,
+  onChangeNode,
+}: {
+  node: ManifestNode;
+  onChangeNode: (nodeId: string, patch: Partial<ManifestNode>) => void;
+}): JSX.Element {
+  return (
+    <Section title="Review queue enqueue">
+      <Field label="Queue ID" fieldKey="queue_id">
+        <input
+          data-testid="inspector-review-queue-id"
+          className={inputClass}
+          value={node.queue_id ?? ""}
+          placeholder="RQ-..."
+          onChange={(event) => onChangeNode(node.id, { queue_id: event.target.value })}
+        />
+      </Field>
+      <Field label="Experiment ID" fieldKey="experiment_id">
+        <input
+          data-testid="inspector-review-experiment-id"
+          className={inputClass}
+          value={node.experiment_id ?? ""}
+          placeholder="Optional MLflow experiment"
+          onChange={(event) =>
+            onChangeNode(node.id, { experiment_id: event.target.value || null })
+          }
+        />
+      </Field>
+      <Field label="Assign to" fieldKey="assigned_to">
+        <input
+          data-testid="inspector-review-assigned-to"
+          className={inputClass}
+          value={node.assigned_to ?? ""}
+          placeholder="Optional reviewer"
+          onChange={(event) =>
+            onChangeNode(node.id, { assigned_to: event.target.value || null })
+          }
+        />
+      </Field>
+      <p className="text-xs leading-relaxed text-zinc-500">
+        Connect a trace_id string or trace_ids list. Duplicate queue/trace pairs are ignored.
+      </p>
     </Section>
   );
 }
@@ -5595,6 +5798,14 @@ export function Inspector({
 
               {node.type === "template" && (
                 <TemplateSection node={node} onChangeNode={onChangeNode} />
+              )}
+
+              {node.type === "data_transform" && (
+                <DataTransformSection node={node} onChangeNode={onChangeNode} />
+              )}
+
+              {node.type === "review_queue_enqueue" && (
+                <ReviewQueueEnqueueSection node={node} onChangeNode={onChangeNode} />
               )}
 
               {node.type === "external_app" && (
