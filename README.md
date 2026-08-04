@@ -237,10 +237,10 @@ Databricks-only, so that surface is built CALIBER-native on the OSS assessment p
 ## ✅ Project status
 
 The platform spans prompts, tools, skills, MCP servers, workflows, knowledge bases, object storage, test
-sets, observability, evaluation, calibration, the LLM Gateway, RBAC, and Aria. For current evidence,
-remaining defects, production-boundary limits, and the distinction between local verification and remote
-release proof, read [`product-completness-review-report.md`](./product-completness-review-report.md). Historical test totals are
-retained there with their dates and must not be read as a current full-suite result.
+sets, observability, evaluation, calibration, the LLM Gateway, RBAC, and Aria. The dated
+[`product-completness-developement-report.md`](./product-completness-developement-report.md) preserves the
+historical implementation and validation record. Its test totals are not current release proof; use the
+latest `main` CI run for the current checkout.
 
 ---
 

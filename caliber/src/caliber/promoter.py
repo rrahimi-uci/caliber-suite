@@ -393,6 +393,8 @@ def _release_alias_version(mlflow_mod: object, name: str, alias: str) -> int | N
     if prompt is None:
         return None
     raw = getattr(prompt, "version", None)
+    if raw is None:
+        raise PromoterError(f"current alias {name!r}@{alias!r} has no concrete version")
     try:
         return int(raw)
     except (TypeError, ValueError) as exc:

@@ -641,6 +641,11 @@ def _load_prompt_release_info(agent_id: str, alias: str = "prod") -> dict[str, A
         return None
 
     raw_version = getattr(prompt, "version", None)
+    if raw_version is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"prompt alias {alias!r} returned no concrete version",
+        )
     try:
         version = int(raw_version)
     except (TypeError, ValueError) as exc:
