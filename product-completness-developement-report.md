@@ -1,13 +1,22 @@
 # CALIBER Product Completeness — Development Report
 
-> **Date:** 2026-08-01
+> **Date:** 2026-08-01. **Updated 2026-08-06** — see [§10](#10-update-2026-08-06) for what
+> has changed since, and which statements below are now superseded.
 >
-> **Reviewed document:** `product-completness-review-report.md` (audit baseline `f69d945a0`)
+> **Reviewed document:** `product-completness-review-report.md` (audit baseline `f69d945a0`).
+> That file was deleted from the tree in `6ff4b7927`; this report is the surviving record of
+> its findings.
 >
 > **Implementation baseline:** `a75f743ae`; work landed on `fix/product-completeness-wave-0`
 >
 > **Scope:** validate all 22 findings as hypotheses, implement those with a correct bounded
 > fix, triage the rest with rationale.
+>
+> **How to read this document.** §1–§9 are the record as written at `a75f743ae` and are
+> deliberately **not** rewritten — the value of a dated report is that it says what was
+> known when. Where a later change has falsified a statement, the statement is left standing
+> with an inline superseded marker pointing at §10. Test totals here are historical; use the
+> latest `main` CI run for current release evidence.
 
 ## 1. Executive summary
 
@@ -344,6 +353,12 @@ failure.
 | Docs generation gate | Committing the report deletion left dangling links in `ARCHITECTURE.md` and `README.md`; the generator classifies a link by whether its target exists, so the deletion silently changed generated output | Mine |
 | `bucket-select.test.tsx` | Flake — passed on the next run with no frontend change | Neither |
 
+> **Superseded — see [§10.4](#104-two-flakes-root-caused-not-re-run).** "Flake, whose: neither"
+> was the wrong disposition. It is a real race in the test — the upload control is gated on a
+> `/me` response the test never waits for — and it is now fixed. Re-running a red test until it
+> is green is the same error this report criticises elsewhere: it treats absence of evidence as
+> evidence of correctness.
+
 ### The wheel has been shipping without a SPA
 
 `[tool.hatch.build.targets.wheel]` carried a comment stating it includes the
@@ -374,10 +389,18 @@ the surrounding text asserted the control was working.
 first time in recent history. Verified on the remote, not inferred from a local
 run.
 
+> **Superseded — see [§10.3](#103-verification-status).** The suite is now **12 jobs**;
+> `Cookbook UI-only browser journeys` was added with the cookbook platform.
+
 Separately, **GitHub Pages fails and has done since before this work**
 (`635f001f5`, `c74e2eb2e`, and every run since). It is
 `Create Pages site failed: Resource not accessible by integration` — Pages is
 not enabled in repository settings. Not a code defect; requires an owner action.
+
+> **Superseded — see [§10.2](#102-the-pages-failure-was-two-defects-not-one).** The owner
+> action has been taken and the site publishes. The diagnosis above was correct but
+> incomplete: enabling Pages exposed a *second* defect underneath it, which is the more
+> interesting one and is the same pattern §3c is about.
 
 ## 4. Architectural and design changes
 
@@ -477,6 +500,13 @@ than up to 30 minutes.
 
 ## 7. Remaining gaps and technical debt
 
+> **Superseded — see [§10.5](#105-7-and-8-were-never-updated-after-wave-2).** This section and
+> §8 were written after wave 1 and never revised, so they contradict §2 and §3b: F-04, F-09,
+> F-10, F-12, F-13b, F-13d, F-19, F-01b and F-02b are listed here as outstanding while the
+> validation table above records them as implemented. Read §10.5 for the corrected ledger. The
+> *reasoning* in each bullet is still worth reading — it is why the work was sequenced as it
+> was — but the dispositions are stale.
+
 Ordered by what each would actually take.
 
 **Bounded but blocked on a decision:**
@@ -541,3 +571,209 @@ have produced the wrong fix at least three times (F-15, F-01, F-13a). Second, th
 gate is now the only thing standing between an operator and a host-filesystem write; the
 data-plane confinement in F-01b should not be left indefinitely, because a single-layer
 defence at a policy boundary is exactly the pattern this review exists to find.
+
+---
+
+## 10. Update, 2026-08-06
+
+> **Tree:** `5b0ad0c75` → `90ec9c1db`. **31 commits** on `main` since the `a75f743ae` baseline
+> above.
+>
+> **Scope of this update:** correct the statements §1–§9 got wrong or that later work
+> falsified, reconcile §7/§8 with §2, and record what landed since. No claim in §1–§9 has been
+> rewritten in place.
+
+### 10.1 What landed since the baseline
+
+Four substantive changes, two of which bear directly on this report's central pattern — *a
+control whose description outran its implementation*.
+
+**Release reconciliation is now automatic (`046437e20`).** Prompt-alias releases were already
+intent-first: the durable operation commits before the provider call. But settling an
+`applying` or `reconcile_required` row was reachable **only by an operator hitting the releases
+route**, so a crash left an observable divergence that nothing would resolve on its own. A
+`ReleaseReconcilerTask` in `orchestrator/release_reconciler.py` now runs the sweep from the
+server lifespan every 60 s. It still refuses to guess: it settles `applied` or `failed` only
+when the observed alias matches the recorded `version_after` or `version_before`, and leaves
+anything else in `reconcile_required` for a human. It never touches `prepared` — that state
+proves no provider call started, so retry-or-abandon stays an explicit decision.
+
+This is the same shape as F-08 and the wheel/SPA defect: a documented recovery whose only
+execution path was a human remembering to invoke it. Worth noting the loop count moved with it —
+**nine in-process loops, not eight**, which is a live discrepancy against the paper's Table 4.
+
+**Per-family capabilities are declared as data, not prose (`046437e20`).**
+`artifact_capabilities.py` replaces the hand-maintained narrative with declarations. This is
+the first step toward the capability-interface design the paper's §5.1 argues the system
+should have had, and toward generating the guarantee table from declarations rather than
+maintaining it by hand. Directly relevant here: the entire class of defect this report
+documents is a description drifting from an implementation, and the fix for that class is to
+stop having two copies.
+
+**Eight deterministic structural checks with a manifest (`046437e20`).**
+`paper/benchmarks/run_structural.py` records controlled interleavings — conditional queue
+ownership, operator fencing of a late calibration result, release intent ordering,
+reconciliation convergence, prepared-release abandonment, resolver outage fallback, and
+human-gated Aria publication — and `make repro` verifies them without rewriting the manifest.
+The manifest labels itself `deterministic_structural_checks` and carries an explicit
+`not_evidence_for` list: production latency, throughput, replica-scale stress, human
+agreement. That self-limitation is the right instinct, and it is the direct answer to §9's
+"which gates have actually executed recently?"
+
+**Cookbook platform, paper, deck, runbook.** 16 installable cookbook examples with a
+browser-only CI journey (`248fc4d8c`), the CALIBER paper (`6ff4b7927`, `e96b374f1`), a
+generated 25-slide seminar deck (`55d297343`), and an operations runbook (`5b0ad0c75`).
+The runbook is the operational counterpart to this report: where this document records *what
+was wrong*, `docs/runbook.md` records *what an operator does about it* — including the three
+recoveries the platform deliberately will not perform alone.
+
+### 10.2 The Pages failure was two defects, not one
+
+§3c diagnosed this as "Pages is not enabled in repository settings… requires an owner action."
+That was correct and it was not the whole story.
+
+The owner action has been taken: Pages is enabled with `build_type: workflow`, and the site
+serves at `https://rrahimi-uci.github.io/caliber-suite/`. Enabling it exposed a second defect
+that had been masked the entire time — **two workflows were publishing to the same URL**:
+
+| Workflow | Published | Mechanism |
+| --- | --- | --- |
+| `pages.yml` | `docs-site/` | `actions/deploy-pages` |
+| `ci.yml` (`allure-report`) | the Allure test report | `peaceiris/actions-gh-pages` → `gh-pages` branch |
+
+A Pages deployment replaces the whole site, so only one could ever *be* the site. With the
+build type set to `workflow`, the branch push published nothing reachable — while the job
+doing it reported success on every run. Resolved in `7321c2574` by composing rather than
+choosing: one deployment now carries the docs at `/` and the report at `/tests/`, and the
+`gh-pages` push is retitled to what it actually is, the trend-history store that
+`Load report history` reads back.
+
+**This is the fourth instance of §3c's pattern, and the most instructive**, because the
+control was not merely undescribed — it was *green*. A job that published to a branch nothing
+served passed for months. §3c's own formulation covers it exactly: a gate that never runs is
+indistinguishable from a gate that passes. Extend that to publication: **a publisher with no
+reader is indistinguishable from a publisher that works.**
+
+Also recorded, since it will matter operationally: the composed site is ~152 MB, of which the
+report is ~126 MB across ~9k files, and its `history/history.json` is 15 MB and **grows every
+run**. Well inside the 1 GB Pages limit; it is the first number to check if a deployment starts
+timing out.
+
+### 10.3 Verification status
+
+Measured on `90ec9c1db` against a 3.12 dev venv, the interpreter §3c pinned.
+
+| Suite | Result | Command |
+| --- | --- | --- |
+| Backend | **5,965 passed, 9 skipped, 0 failed** (353 s) | `pytest -n auto --dist loadgroup` |
+| Frontend | **115 files, 1,570 tests, 0 failed** (160 s) | `npm test` |
+| CI job count | **12**, not the 11 in §3c | `Cookbook UI-only browser journeys` added |
+| Implementation counts | Re-derived and **unchanged** | `paper/scripts/gen_stats.py` |
+
+The backend figure is the **re-run after** the fix in `90ec9c1db`. The first run was
+**5,963 passed, 2 failed** — see §10.6, which is the finding this update turned up. The 9
+skips are the opt-in Postgres-marked tests, unchanged from baseline. Against §3c's 5,868 the
+suite has grown by 97 tests, all from work landed since.
+
+One measurement artifact worth recording rather than hiding: the frontend suite under
+`--reporter=dot` reported 114 files / 1,552 tests plus one error and took 401 s, against
+115 / 1,570 clean in 160 s with the default reporter. The default-reporter number is the one
+CI produces and the one quoted above. The discrepancy appears only under contention, which
+puts it in the same family as §10.4.
+
+Regenerating the implementation counts moved only the git-revision stamp — every count in the
+paper is current at this tree: 322 Python modules / 126k lines, 308 pytest modules / 137k
+lines, 292 TS modules / 176k lines, 487 route declarations across 47 modules, 85 Alembic
+revisions, 76 ORM models, 226 Pydantic schemas, 31 workflow node types.
+
+**A caveat on CI evidence.** GitHub Actions and Pages were in a declared `major_outage`
+(critical impact, from 15:22Z on 2026-08-06) while this update was written. Jobs died at
+`Set up job` with `Failed to resolve action download info`, and several were cancelled while
+queued. Every number in this section is therefore a **local** measurement. §3c's standard —
+"verified on the remote, not inferred from a local run" — is not met here, and should be
+re-established with `gh run rerun` once Actions recovers.
+
+### 10.4 Two flakes root-caused, not re-run
+
+§3c dispositioned `bucket-select.test.tsx` as "Flake — passed on the next run with no frontend
+change | Whose: Neither." That was wrong, and the way it was wrong is worth recording because
+this report is otherwise careful about exactly this.
+
+| Test | Real cause | Fix |
+| --- | --- | --- |
+| `bucket-select.test.tsx` › upload | The upload control renders only after `/me` resolves `is_admin`, but the test awaited the **object listing** and then queried the control synchronously. Two independent requests, and under CI load `/me` lost | `getBy` → `findBy` |
+| `test_load_prompt_infos_for_names_bounds_slow_lookups` | Asserted `elapsed < 1.5` against a fake that slept 2.0 s behind a 0.3 s deadline — 1.2 s of slack on a shared runner. Read 5.15 s and failed **while the deadline worked correctly** | Block on an Event released in a `finally`; widen the bound to 10 s against a 30 s cap |
+
+Both are latency or ordering assertions that encode an assumption about scheduling. Neither
+was a product defect. The second also freed a worker it had been leaving blocked inside a
+module-level `ThreadPoolExecutor` shared with every other test in its file.
+
+§5 already recorded a third of this family and handled it correctly —
+`test_a_dead_letter_is_persisted_when_a_session_factory_is_bound`, recorded rather than
+silently re-run, with "an intermittent test is a real defect in the evidence, even when the
+code under it is correct." That sentence is the standard. The `bucket-select` row did not meet
+it, and this is the correction.
+
+### 10.5 §7 and §8 were never updated after wave 2
+
+§7 and §8 were written after wave 1 and never revised, so they contradict §2 and §3b. Nine
+items appear in §7 as outstanding while the validation table records them as implemented. The
+corrected ledger:
+
+| Item | §7/§8 say | §2/§3b say | Actual |
+| --- | --- | --- | --- |
+| F-04 memory scoping | Bounded, blocked | Implemented (memory half) | **Implemented**; trace half still needs a product decision |
+| F-19 metrics token, Redis probe | Bounded, blocked | Implemented | **Implemented** — `metrics_token_env` in `config.py`, opt-in by design |
+| F-13b / F-13d | Bounded, blocked | Implemented | **Implemented**; F-13d is opt-in, deliberately |
+| F-09 sequence allocation | Genuinely large | Implemented | **Implemented** — one shared allocator, `FOR UPDATE` + bounded retry |
+| F-10 durable delivery | Genuinely large | Implemented (drop-to-dead-letter) | **Implemented** in part; broker replay still deferred |
+| F-12 retrieval fusion | Genuinely large | Implemented (graph recall) | **Implemented** in part; lexical fusion still deferred |
+| F-01b confined file root | Genuinely large | Implemented | **Implemented** — `CALIBER_WORKFLOW_FILE_ROOT`, symlink-resolving, default unconfined |
+| F-02b node deadlines | Genuinely large | Implemented | **Implemented** as a backstop with grace; cancellation propagation still deferred |
+| F-11 async offload | Genuinely large | Partly implemented | **Unchanged** — heaviest handler converted, ratchet over the remaining 224 |
+
+What is genuinely still open, after reconciliation:
+
+- **F-11**, the 224 remaining synchronous sessions in async handlers (~30 files) — the ratchet
+  holds the line but does not move it.
+- **F-04 trace half**, **F-10 broker replay**, **F-12 lexical fusion**, **F-02b cancellation
+  propagation** — each an explicitly scoped remainder, not an oversight.
+- **F-06** admin project-scope semantics — still awaiting the product sign-off §2 named.
+- **F-16 / C-5 / C-2B / H-1** — no production topology, HA/DR, management API, SDK, CLI, or
+  enterprise identity. Unchanged and correctly XL.
+
+§9's central verdict is unaffected: **feature-rich Alpha, credible for a controlled technical
+pilot, not ready for supported production or untrusted authoring.** The one item that would
+move it — a supported production topology — has not been attempted.
+
+### 10.6 A regression this update found, and how it got in
+
+Running the full backend suite for §10.3 turned up **2 failures on `main`**, both in
+`tests/test_docs_generation_contract.py`:
+
+```text
+FAILED test_all_manifest_markdown_is_current_and_published  — assert 21 == 20
+FAILED test_all_materialized_docs_copies_match_docs_site    — assert 67 == 65
+```
+
+Those are **ratchet assertions** pinning the published module count and served file count so
+an accidental addition or removal is caught. Adding `docs/runbook.md` to the manifest in
+`5b0ad0c75` moved them from 20/65 to 21/67 without bumping them. Fixed in `90ec9c1db`; the
+suite is green on the re-run recorded in §10.3.
+
+How it got in is the part worth keeping, because it is a near-repeat of §3c's lesson:
+
+1. **The check that was run.** `sync-docs.mjs` plus the Pages workflow's parity gate —
+   `git diff --exit-code` over `docs-site` and the materialized copies. Both pass, correctly:
+   the generated output genuinely does match its sources.
+2. **The check that was not.** This pytest assertion is a *different question in a different
+   suite* — not "is the output current" but "is the manifest the size we agreed on". Passing
+   the first says nothing about the second.
+3. **Why nothing caught it.** The Actions outage in §10.3 meant CI could not run before the
+   merge landed, and the merge went ahead on local verification alone.
+
+§3c called its pattern "a correct gate behind a gate that never opened." This one is adjacent
+and worth naming separately: **a correct gate that was never asked.** Two independent checks
+guarded the same change, one was run, and running one was treated as covering both. The
+mitigation is not more gates — it is knowing which suite each gate lives in, which is why
+§10.3 now states the command next to every number.
