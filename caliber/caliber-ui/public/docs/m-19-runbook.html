@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operations runbook | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Operations runbook — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Operations</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Operations runbook</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Operations · Architecture reference</div>
+          <h1 id="top">Operations runbook</h1>
+          <p class="doc-summary">The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove.</p>
+          <div class="doc-actions">
+            <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
+              Copy page
+            </button>
+          </div>
+        </header>
+<p>When a governed release goes wrong, the useful question is rarely "what broke" — the traces already answer that. It is "what am I allowed to do about it, and what will that do to the audit record." This page answers the second question. It is the on-call procedure for the recoveries CALIBER cannot complete on its own: a release intent that never settled, an external effect whose outcome nobody knows, a queue that stopped draining, and a rollback whose semantics differ by asset family. Every endpoint, default, and state name below is the one the implementation actually uses.</p>
+<h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>Audience</td><td>Whoever is on call for a CALIBER deployment, plus the operator who owns a release</td></tr><tr><td>First stop</td><td><code>GET /caliber/health</code>, then <code>/caliber/readiness</code>, then <code>/caliber/system/queue</code></td></tr><tr><td>Recovery model</td><td>Per background loop, not uniform — a crash loses a refinement job and requeues a workflow run</td></tr><tr><td>Decisions only a human may make</td><td>Resolving an indeterminate external effect, retrying a lost at-most-once job, applying a candidate</td></tr><tr><td>Blast radius of a live target</td><td>One mutable pointer per releasable family; rollback restores the <em>recorded</em> target, not "the previous number"</td></tr><tr><td>Environments</td><td>One. There is no <code>dev</code>→<code>staging</code>→<code>prod</code> ladder to rehearse in</td></tr><tr><td>Not covered here</td><td>Provider outages, MLflow's own operation, and anything under <code>caliber/caliber-ui</code> — those escalate to their owners</td></tr></tbody></table></div>
+<p>All paths below are relative to the API prefix <code>/ajax-api/2.0/mlflow/caliber</code>; the runbook writes them as <code>/caliber/…</code> for readability. Every mutating endpoint is scope-checked and audited — the audit row is part of the recovery, not a side effect of it.</p>
+<div class="diagram"><pre class="mermaid">flowchart LR
+    OP[On-call operator]:::user --&gt; TRI{Triage}:::ui
+
+    TRI --&gt;|process up?| H["/caliber/health&lt;br/&gt;/caliber/readiness"]:::ctrl
+    TRI --&gt;|work moving?| Q["/caliber/system/queue&lt;br/&gt;/caliber/system/incidents"]:::ctrl
+    TRI --&gt;|release settled?| R["/caliber/releases/operations"]:::ctrl
+    TRI --&gt;|effects owed?| E["/caliber/system/effects&lt;br/&gt;/caliber/system/webhook-dead-letters"]:::ctrl
+
+    H --&gt; DB[(Metadata DB)]:::store
+    Q --&gt; LOOPS[Nine in-process loops]:::async
+    R --&gt; MLF[MLflow Prompt Registry]:::ext
+    E --&gt; EXT[Outbound webhooks&lt;br/&gt;and external effects]:::ext
+
+    LOOPS --&gt; DB
+    R --&gt; DB
+    E --&gt; DB</pre></div>
+<div class="diagram-legend" role="note" aria-label="Diagram color key">
+  <span class="legend-item"><span class="legend-dot user"></span>Actor</span>
+  <span class="legend-item"><span class="legend-dot ui"></span>UI / SPA</span>
+  <span class="legend-item"><span class="legend-dot ctrl"></span>Control plane</span>
+  <span class="legend-item"><span class="legend-dot store"></span>Storage</span>
+  <span class="legend-item"><span class="legend-dot ext"></span>External</span>
+  <span class="legend-item"><span class="legend-dot async"></span>Async worker</span>
+</div>
+<section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><details class="ref-section" open><summary class="ref-section-summary"><h2 id="severity-and-first-response">Severity and first response<a class="anchor" href="#severity-and-first-response" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Classify before you act. The ladder matters because two of these tiers forbid guessing, and guessing is the failure mode this platform is built to prevent.</p>
+<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Definition</th><th>First move</th></tr></thead><tbody><tr><td><strong>S1 — outward-facing effect in doubt</strong></td><td>An external system may or may not have been called</td><td>Do <strong>not</strong> retry. Go to <a href="#p2-an-external-effect-is-indeterminate">P2</a></td></tr><tr><td><strong>S2 — production behaviour wrong</strong></td><td>A live target points at a bad version</td><td>Roll back first, diagnose second. Go to <a href="#p6-roll-back-a-release">P6</a></td></tr><tr><td><strong>S3 — work not progressing</strong></td><td>Queue not draining, or a job vanished</td><td>Go to <a href="#p3-the-workflow-run-queue-is-not-draining">P3</a> or <a href="#p4-a-refinement-or-calibration-job-vanished">P4</a></td></tr><tr><td><strong>S4 — record incomplete</strong></td><td>A release intent never settled, but behaviour is correct</td><td>Go to <a href="#p1-a-prompt-release-is-stuck">P1</a></td></tr></tbody></table></div>
+<p>Before touching anything, capture four things. They are what makes the recovery reconstructable, and two of them are destroyed by a restart:</p>
+<ol><li><code>GET /caliber/system/queue</code> — the queue verdict and its <code>degraded_reasons</code>.</li><li><code>GET /caliber/releases/operations</code> — every unsettled release intent.</li><li><code>GET /caliber/system/effects</code> — in-progress and indeterminate effect claims.</li><li>The relevant <code>GET /caliber/audit-log</code> window, or <code>…/audit-log/export</code>.</li></ol></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="triage-surfaces-and-what-each-one-does-not-prove">Triage surfaces, and what each one does not prove<a class="anchor" href="#triage-surfaces-and-what-each-one-does-not-prove" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The most common on-call error here is reading a green probe as a working system. Each surface proves something narrow, and the right-hand column is the part that matters at 3am.</p>
+<div class="table-wrap"><table><thead><tr><th>Surface</th><th>Proves</th><th>Does <strong>not</strong> prove</th></tr></thead><tbody><tr><td><code>GET /caliber/health</code></td><td>The API process answers and its database is reachable</td><td>That any work is being done</td></tr><tr><td><code>GET /caliber/readiness</code></td><td>Which providers are <strong>configured</strong></td><td>That any of them work</td></tr><tr><td><code>GET /caliber/system/queue</code></td><td>Workflow-run queue depth, worker liveness, stale leases</td><td>Anything about knowledge-base builds or Aria plans — separate workers, not aggregated</td></tr><tr><td><code>GET /caliber/system/services</code></td><td>Per-service visibility</td><td>End-to-end request success</td></tr><tr><td><code>GET /caliber/system/alerts</code></td><td>SLO objective evaluation</td><td>That an objective was well chosen</td></tr><tr><td><code>GET /caliber/system/incidents</code></td><td>Durable open/resolved SLO incidents</td><td>That anyone was paged</td></tr><tr><td><code>GET /caliber/metrics</code></td><td>Prometheus exposition</td><td>Nothing is scraping it</td></tr><tr><td><code>GET /caliber/releases/live</code></td><td>What each live target points at <strong>now</strong></td><td>That the pointer got there through the governed path</td></tr></tbody></table></div>
+<p>Two configuration facts belong with this table:</p>
+<ul><li><strong><code>/caliber/metrics</code> is open by default.</strong> It is protected only when a bearer-token secret source is configured. On any shared network, configure it.</li><li><strong>SLO objectives are opt-in and global</strong>, set through <code>CALIBER_SLO_OBJECTIVES</code> (for example <code>workflow_success_rate&gt;=0.99,workflow_p95_latency_ms&lt;=30000</code>). They are deployment-wide, not per-workflow or per-agent. With none set, <code>/caliber/system/alerts</code> has nothing to say and incidents never open.</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="p1-a-prompt-release-is-stuck">P1 — a prompt release is stuck<a class="anchor" href="#p1-a-prompt-release-is-stuck" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>A prompt alias release writes a durable intent <em>before</em> calling the provider, so a crash mid-release is visible rather than silent. It is still not atomic: the provider call and the SQL settlement cannot commit together.</p>
+<p><strong>Symptom.</strong> A release shows as in flight longer than a provider call should take, or <code>/caliber/releases/operations</code> lists a row in <code>applying</code> or <code>reconcile_required</code>.</p>
+<p><strong>Confirm.</strong> <code>GET /caliber/releases/operations</code>. Read <code>status</code> exactly:</p>
+<div class="table-wrap"><table><thead><tr><th>Status</th><th>Means</th><th>Who settles it</th></tr></thead><tbody><tr><td><code>prepared</code></td><td>The intent is durable and <strong>no provider call started</strong></td><td>You, explicitly — the reconciler never guesses about these</td></tr><tr><td><code>applying</code></td><td>A provider call was made; the outcome was not recorded</td><td>The reconciler, by observing the alias</td></tr><tr><td><code>reconcile_required</code></td><td>The observed alias disagreed with the intent</td><td>The reconciler retries; if it persists, you</td></tr><tr><td><code>applied</code> / <code>failed</code></td><td>Terminal</td><td>Nobody</td></tr></tbody></table></div>
+<p><strong>Decide.</strong> For <code>applying</code> and <code>reconcile_required</code>, prefer the loop: the <code>ReleaseReconcilerTask</code> sweeps every 60s and compares the live alias against the intent's exact before/after versions. Give it two cycles before intervening. For <code>prepared</code>, the reconciler will <em>not</em> act — that state proves no external call happened, so the retry-or-abandon decision is yours.</p>
+<p><strong>Act.</strong> <code>POST /caliber/releases/operations/reconcile</code> to force a sweep, or <code>POST /caliber/releases/operations/{operation_id}/resolve</code> to settle one row explicitly.</p>
+<p><strong>Verify.</strong> <code>GET /caliber/releases/live</code> shows the intended target, and the operation reads <code>applied</code>.</p>
+<p><strong>Record.</strong> Reconciliation is audited. If you resolved a row by hand, the audit row is the only evidence of <em>why</em> — write the reason as if a reviewer will read it in six weeks, because that is the point of the record.</p>
+<blockquote class="callout"><p>A stuck operation is an <strong>S4</strong>, not an S2, as long as <code>/caliber/releases/live</code> shows the version you intended. The pointer is what production reads; the operation row is the record of how it got there. Fix the record, but do not roll back behaviour that is already correct.</p></blockquote></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="p2-an-external-effect-is-indeterminate">P2 — an external effect is indeterminate<a class="anchor" href="#p2-an-external-effect-is-indeterminate" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>This is the only tier where the platform deliberately refuses to decide. The effect ledger gives external effects at-most-once semantics across a run restart, and reports <code>indeterminate</code> when a process died between performing an effect and recording its outcome. That report is correct: only a human can know whether the request reached the remote system.</p>
+<p><strong>Symptom.</strong> A workflow run is blocked, or <code>/caliber/system/effects</code> lists a claim that is not progressing.</p>
+<p><strong>Confirm.</strong> <code>GET /caliber/system/effects</code> — it defaults to <code>in_progress</code>, which is the set that needs a decision. Identify the <code>effect_key</code> and read the run's event timeline via <code>GET /caliber/workflow-runs/{run_id}/events</code>.</p>
+<p><strong>Decide.</strong> Establish, <em>at the remote system</em>, whether the effect happened. Do not infer it from CALIBER's records — the whole reason the claim is indeterminate is that CALIBER's records stop short of the answer.</p>
+<p><strong>Act.</strong> <code>POST /caliber/system/effects/{effect_key}/resolve</code> with the decision:</p>
+<div class="table-wrap"><table><thead><tr><th>Decision</th><th>Use when</th><th>Consequence</th></tr></thead><tbody><tr><td><code>skip</code></td><td>The effect <strong>did</strong> happen</td><td>The run continues without repeating it</td></tr><tr><td><code>retry</code></td><td>The effect did <strong>not</strong> happen</td><td>The run performs it</td></tr></tbody></table></div>
+<p><strong>Verify.</strong> The run leaves the blocked state; the ledger row is terminal.</p>
+<p><strong>Record.</strong> Resolution is admin-scoped and audited, and it asserts something about the outside world that CALIBER cannot verify. Who claimed it and on what basis is release-relevant evidence — not a convenience toggle.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="p3-the-workflow-run-queue-is-not-draining">P3 — the workflow-run queue is not draining<a class="anchor" href="#p3-the-workflow-run-queue-is-not-draining" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p><strong>Symptom.</strong> Runs sit in <code>queued</code>, or <code>/caliber/system/queue</code> reports <code>healthy: false</code>.</p>
+<p><strong>Confirm.</strong> <code>GET /caliber/system/queue</code> and read <code>degraded_reasons</code> — it names the distinct condition rather than making you infer it:</p>
+<div class="table-wrap"><table><thead><tr><th>Reason</th><th>What it means</th><th>Act</th></tr></thead><tbody><tr><td><code>no workflow-run worker has registered a heartbeat</code></td><td>A deployment that never started a worker</td><td>Check the process actually runs background tasks</td></tr><tr><td><code>no workflow-run worker is reporting a fresh heartbeat</code></td><td>A worker that died</td><td>Restart; the janitor requeues the abandoned runs</td></tr><tr><td><code>N registered worker(s) stopped reporting</code></td><td>Named workers went stale</td><td>The names are the actionable part — investigate those</td></tr><tr><td><code>N running run(s) past lease with no fresh heartbeat</code></td><td>Abandoned claims</td><td>The janitor requeues; confirm it is running</td></tr><tr><td><code>oldest queued run has waited Ns</code></td><td>Capacity, not liveness</td><td>Scale, or accept the lag</td></tr></tbody></table></div>
+<p><strong>Decide.</strong> Distinguish <em>dead worker</em> from <em>slow worker</em>. A dead worker's runs are recoverable: lease expiry requeues them and they resume from their last checkpoint. A slow worker's are not stuck, just late — requeueing them buys nothing and burns the effect ledger's suppression budget.</p>
+<p><strong>Act.</strong> Restart the process for a dead worker. For a specific run, <code>POST /caliber/workflow-runs/{run_id}/cancel</code> then <code>…/retry</code>; inspect <code>…/checkpoints</code> first to see what a resume would replay.</p>
+<p><strong>Verify.</strong> <code>queued</code> falls, <code>workers_alive</code> is non-zero, <code>stale_leases</code> is zero.</p>
+<blockquote class="callout"><p><code>workers_alive</code> counts workers that registered <strong>or</strong> hold a fresh claim — the union, not a choice. During an upgrade an old worker may hold a claim without registering, and counting one source alone under-reports.</p></blockquote></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="p4-a-refinement-or-calibration-job-vanished">P4 — a refinement or calibration job vanished<a class="anchor" href="#p4-a-refinement-or-calibration-job-vanished" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Two loops are <strong>at-most-once</strong>, and this is the case where "the queue" is the wrong mental model. Recovery is per loop.</p>
+<p><strong>Symptom.</strong> A refinement job reads <code>failed</code> with no diagnosis, or a calibration job sits in <code>running</code> with no progress.</p>
+<p><strong>Confirm.</strong> <code>GET /caliber/jobs</code> and <code>GET /caliber/jobs/{job_id}</code>.</p>
+<p><strong>Decide and act</strong> by loop, because they differ:</p>
+<div class="table-wrap"><table><thead><tr><th>Loop</th><th>On owner death</th><th>Your move</th></tr></thead><tbody><tr><td><strong>Refinement</strong></td><td>The janitor marks the job <code>failed</code> after a stale heartbeat. It is <strong>not</strong> requeued</td><td>Re-run the refinement. Progress is lost; no partial state is trustworthy</td></tr><tr><td><strong>CalibrationDrain</strong></td><td>Nothing automatic. The row stays <code>running</code></td><td>Abandon it, or create a new lineage-linked retry. Retries are explicit new jobs, by design</td></tr></tbody></table></div>
+<p><strong>Verify.</strong> The new job reaches a terminal state and its candidate appears for review.</p>
+<p><strong>Record.</strong> For calibration, the lineage link is what preserves the relationship between attempts. Creating an unlinked job loses that, so link it.</p>
+<blockquote class="callout"><p>The janitor sweeps every 60s (<code>CALIBER_JANITOR_INTERVAL_SECONDS</code>) and presumes a <code>running</code> job crashed when its heartbeat is older than 300s (<code>CALIBER_JANITOR_STALE_THRESHOLD_SECONDS</code>). That threshold must stay comfortably longer than the longest expected single stage — set it too low and healthy long stages get reaped, which looks exactly like this playbook's symptom.</p></blockquote></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="p5-outbound-webhooks-are-dead-lettering">P5 — outbound webhooks are dead-lettering<a class="anchor" href="#p5-outbound-webhooks-are-dead-lettering" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p><strong>Symptom.</strong> Downstream consumers report missing events.</p>
+<p><strong>Confirm.</strong> <code>GET /caliber/system/webhook-dead-letters</code>.</p>
+<p><strong>Decide.</strong> Dead-lettering after settlement is the dispatcher working as designed — delivery is at-least-once <em>by design</em>, so a consumer must be idempotent. Establish whether the fault is the endpoint (fix it, then replay) or the payload (do not replay; acknowledge and fix the producer).</p>
+<p><strong>Act.</strong> <code>POST</code> to the dead letter's replay path once the endpoint is healthy, or acknowledge it to stop it being counted.</p>
+<p><strong>Verify.</strong> The dead-letter list drains and the consumer confirms receipt.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="p6-roll-back-a-release">P6 — roll back a release<a class="anchor" href="#p6-roll-back-a-release" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p><strong>Rollback is not one operation.</strong> Per-family guarantees are load-bearing here, and the most likely operator error in CALIBER is assuming a guarantee transfers between families because the same interface component appears in both places.</p>
+<div class="table-wrap"><table><thead><tr><th>Family</th><th>Endpoint</th><th>Semantics</th></tr></thead><tbody><tr><td>Prompt</td><td>via the release service</td><td>Restores the <strong>recorded</strong> outgoing alias target. Takes the same intent record and audit row as a promotion</td></tr><tr><td>Workflow</td><td><code>POST /caliber/workflows/{workflow_id}/deployments/{alias}/rollback</code></td><td>Pops the deployment's checkpoint stack</td></tr><tr><td>Skill</td><td><code>POST /caliber/skills/{skill_id}/rollback</code></td><td>Restores the prior snapshot as a <strong>new</strong> version</td></tr><tr><td>Knowledge base</td><td><code>POST /caliber/knowledge-bases/{knowledge_base_id}/rollback</code></td><td>Derives the prior build from history</td></tr><tr><td>Agent</td><td><code>POST /caliber/agents/{agent_id}/rollback</code></td><td>Uses the checkpoint stack at <code>…/checkpoints</code></td></tr><tr><td>Tool</td><td>—</td><td>Read-only history and <strong>no live alias</strong>. There is nothing to roll back; ship a new version</td></tr><tr><td>Test set, judge, MCP server</td><td>—</td><td>No version rollback. MCP connection and policy controls are fail-closed instead</td></tr></tbody></table></div>
+<p><strong>Decide.</strong> Two questions, in order. Does this family <em>have</em> a rollback path? And is the target the one the release <strong>recorded</strong>, or one you are inferring? Restoring "the previous number" is how a rollback lands on a version that was never live.</p>
+<p><strong>Act.</strong> Use the family's endpoint above. Rollback is itself a release operation on the prompt path, so it is scope-checked, audited, and checkpointed like any promotion.</p>
+<p><strong>Verify.</strong> <code>GET /caliber/releases/live</code> for the family's live target; <code>caliber_rollbacks_total</code> increments.</p>
+<p><strong>Record.</strong> The audit row plus the checkpoint is the rollback's evidence. If you rolled back a family with no recorded target, say so explicitly — that is a weaker claim than a prompt rollback and should not read like the same thing.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="p7-an-slo-incident-is-open">P7 — an SLO incident is open<a class="anchor" href="#p7-an-slo-incident-is-open" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p><strong>Symptom.</strong> <code>GET /caliber/system/incidents</code> lists a <code>status: open</code> incident at <code>severity: warning</code> or <code>critical</code>.</p>
+<p><strong>Confirm.</strong> <code>GET /caliber/system/alerts</code> for which objective is breaching, and <code>/caliber/metrics</code> for the underlying series.</p>
+<p><strong>Act.</strong> <code>POST /caliber/system/incidents/{incident_id}/acknowledge</code> to record that a human owns it, or <code>…/silence</code> to suppress a known-noisy objective. These are different statements: acknowledge means "being worked", silence means "this objective is wrong or this breach is expected".</p>
+<p><strong>Verify.</strong> The incident resolves on its own when signals recover — resolution is derived, not asserted.</p>
+<blockquote class="callout"><p>Incidents are durable and emit <code>slo.incident.opened</code> / <code>slo.incident.resolved</code>. Silencing suppresses the surface, not the underlying breach; if you silence, open a follow-up to fix either the objective or the system.</p></blockquote></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="background-loops-and-their-crash-behaviour">Background loops and their crash behaviour<a class="anchor" href="#background-loops-and-their-crash-behaviour" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The claim predicate is shared and gives concurrent mutual exclusion for all of these. <strong>Recovery after the owner dies is not shared</strong>, and recovery is what determines delivery semantics — which is why this table states them per loop instead of claiming one number for "the queue".</p>
+<div class="table-wrap"><table><thead><tr><th>Loop</th><th>Lease</th><th>Recovery after owner death</th><th>Delivery</th></tr></thead><tbody><tr><td>Refinement</td><td>heartbeat</td><td>Janitor marks <code>failed</code>; <strong>not</strong> requeued</td><td>At-most-once; needs operator action</td></tr><tr><td>WorkflowRun</td><td>lease + heartbeat</td><td>Lease expiry requeues; resumes from last checkpoint</td><td>At-least-once at the step boundary; effect ledger suppresses repeats</td></tr><tr><td>CalibrationDrain</td><td>—</td><td>None automatic; stays <code>running</code></td><td>At-most-once per job; retries are explicit new jobs</td></tr><tr><td>KnowledgeBase</td><td>claim</td><td>Re-ingest is idempotent per source</td><td>At-least-once, idempotent</td></tr><tr><td>WebhookDispatcher</td><td>claim</td><td>Redelivery with settlement and a dead-letter path</td><td>At-least-once, by design</td></tr><tr><td>WorkflowScheduler</td><td>—</td><td>Idempotent via a minute-bucketed key behind a unique partial index</td><td>Exactly-once <strong>firing</strong>; the work then follows WorkflowRun</td></tr><tr><td>Janitor</td><td>—</td><td>An idempotent sweep</td><td>Idempotent</td></tr><tr><td>AriaPlan</td><td>—</td><td>Polls plans parked on settled jobs; takes no claim</td><td>At-least-once resume</td></tr><tr><td>ReleaseReconciler</td><td>—</td><td>Periodic; observes aliases for <code>applying</code> / <code>reconcile_required</code> rows</td><td>Idempotent; never guesses about <code>prepared</code></td></tr></tbody></table></div>
+<p>External effects are a <strong>separate question from job delivery</strong>. The effect ledger records an <code>in_progress</code> external call whose outcome after a crash is <em>indeterminate</em> — neither confirmed nor safely repeatable — and surfaces it as such rather than guessing. That is <a href="#p2-an-external-effect-is-indeterminate">P2</a>, and no amount of requeueing resolves it.</p></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="limits-you-must-operate-around">Limits you must operate around<a class="anchor" href="#limits-you-must-operate-around" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>These are properties of the shipped system, not bugs awaiting triage. Each one changes what an on-call response can achieve.</p>
+<div class="table-wrap"><table><thead><tr><th>Limit</th><th>Operational consequence</th></tr></thead><tbody><tr><td><strong>The reconciler must be operated</strong></td><td>A durable intent removes silent divergence. It does not remove the need for something to observe the provider and settle the row</td></tr><tr><td><strong>Two dual-write boundaries cannot be closed</strong></td><td>Object-storage writes and external registry effects cannot join the caller's SQL transaction. A failed object write can leave orphaned bytes needing a sweep</td></tr><tr><td><strong>In-memory limiters are per process</strong></td><td>The failed-login throttle and API rate limiter are per-process token buckets. Effective ceilings scale with the worker count — size them for it</td></tr><tr><td><strong>Local tool and MCP execution is containment, not isolation</strong></td><td>The shipped runner keeps ambient host authority. Untrusted authors need an operator-supplied backend, not a configuration flag</td></tr><tr><td><strong>One environment</strong></td><td>No staging rehearsal. Drills run against production or against a throwaway deployment</td></tr><tr><td><strong>Apply is an operator confirmation</strong></td><td>It is a real human decision point after an automated gate. It is <strong>not</strong> separation of duties: nothing requires the applier to differ from the author</td></tr><tr><td><strong>The advancement gate is not a system-wide interlock</strong></td><td>It is enforced inside the refinement state machine. The direct operator promotion endpoint can carry an advisory verdict and an attributed override without entering it</td></tr></tbody></table></div></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="drills">Drills<a class="anchor" href="#drills" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>Every procedure above depends on somebody having done it once before. Three are worth rehearsing on a schedule, because each exercises a path that only appears during an incident:</p>
+<ol><li><strong>Reconcile a release.</strong> Interrupt a prompt release, then settle it through <code>/caliber/releases/operations</code>. Confirms the intent is durable and that you can read <code>applying</code> versus <code>prepared</code> correctly under pressure.</li><li><strong>Roll back one release per family you actually use.</strong> Confirms the family has the path you assume it has, and that the restored target is the recorded one.</li><li><strong>Replay a dead letter.</strong> Confirms your consumers are genuinely idempotent, which at-least-once delivery assumes and rarely verifies.</li></ol>
+<p>Record each drill in the audit log the same way you would a real recovery. A drill that leaves no record has not tested the part that matters.</p></div></details></section>
+        <footer>
+          <p>
+            CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
+            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
+          </p>
+        </footer>
+      </article>
+    </main>
+
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card">
+        <div class="toc-title">On this page</div>
+        <nav class="toc-links" id="page-toc"></nav>
+      </div>
+    </aside>
+  </div>
+
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>

@@ -99,6 +99,10 @@ window.DOCS_NAV = [
       {
         "href": "m-13-qa-plan.html",
         "label": "QA plan"
+      },
+      {
+        "href": "m-19-runbook.html",
+        "label": "Operations runbook"
       }
     ]
   },

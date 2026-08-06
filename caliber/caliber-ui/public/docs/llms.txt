@@ -35,6 +35,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Observability](m-09-observability.md): MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention.
 - [Gateways](m-10-gateways.md): External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility.
 - [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
+- [Operations runbook](m-19-runbook.md): The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove.
 
 ## Aria assistant
 
