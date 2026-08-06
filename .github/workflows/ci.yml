@@ -14,8 +14,10 @@ name: CI
 #
 # Allure model:
 #   * Test jobs only EMIT allure-results/ (no Java needed) and upload them as
-#     artifacts. One ``allure-report`` job merges every result set, renders the
-#     HTML with trend history, and publishes it to GitHub Pages on main.
+#     artifacts. One ``allure-report`` job merges every result set and renders the
+#     HTML with trend history. It does NOT deploy: a Pages deployment replaces the
+#     whole site, so pages.yml is the single publisher and serves this report at
+#     /tests/ by downloading the ``allure-report-html`` artifact.
 
 on:
   push:
@@ -400,6 +402,9 @@ jobs:
       - name: Generate report
         if: steps.have_results.outputs.found == 'true'
         run: allure generate allure-results --clean -o allure-report
+      # This artifact is what actually reaches the published site: the Pages
+      # workflow downloads it and stages it at /tests/. Do not rename it without
+      # updating .github/workflows/pages.yml, which looks it up by this name.
       - name: Upload rendered report (HTML)
         # Evidence publication; see the uploads in the test job.
         continue-on-error: true
@@ -408,10 +413,15 @@ jobs:
           name: allure-report-html
           path: allure-report
           retention-days: 14
-      # Publish only from main — PRs (incl. forks) can't write and shouldn't
-      # overwrite the canonical published report. The published report's own
-      # history/ becomes the seed for the next run's trend graphs.
-      - name: Publish to GitHub Pages
+      # gh-pages is a STORE, not a served site. A Pages deployment replaces the
+      # whole site, so this job must not deploy: pages.yml is the single publisher
+      # and serves this report at /tests/. What the branch is still for is trend
+      # history — "Load report history" above reads its history/ back as the seed
+      # for the next run's trend graphs, which is why the push is retained.
+      #
+      # Push only from main — PRs (incl. forks) can't write and shouldn't
+      # overwrite the canonical history.
+      - name: Store report on gh-pages (trend-history seed)
         if: ${{ github.ref == 'refs/heads/main' && steps.have_results.outputs.found == 'true' }}
         uses: peaceiris/actions-gh-pages@v4
         with:
