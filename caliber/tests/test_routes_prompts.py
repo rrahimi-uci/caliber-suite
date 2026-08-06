@@ -1150,11 +1150,20 @@ def test_load_prompt_infos_for_names_bounds_slow_lookups(monkeypatch) -> None:
 
     Without the deadline this is the 6-7 min "stuck pending" page-load freeze.
     """
+    import threading
     import time as _time
+
+    release = threading.Event()
 
     def _fake_load(agent_id: str, alias: str = "prod") -> dict[str, Any] | None:
         if agent_id == "slow":
-            _time.sleep(2.0)  # would hang the route without a deadline
+            # Blocks until the test releases it rather than sleeping a fixed span,
+            # for two reasons. The deadline becomes the only thing that can return
+            # the batch, so the wall-clock bound below gets real headroom instead
+            # of racing a 2s sleep. And the pooled worker is freed deterministically
+            # in the finally, instead of staying blocked in a module-level executor
+            # that every other test in this file shares.
+            release.wait(timeout=30.0)
             return {"agent_id": agent_id, "alias": alias}
         if alias == "prod":
             return {"agent_id": agent_id, "alias": alias, "version": 1}
@@ -1164,12 +1173,20 @@ def test_load_prompt_infos_for_names_bounds_slow_lookups(monkeypatch) -> None:
     monkeypatch.setattr(prompt_routes, "_PROMPT_LOOKUP_TIMEOUT_SECONDS", 0.3)
     monkeypatch.setattr(prompt_routes, "_PROMPT_INFO_CACHE_TTL_SECONDS", 0)
 
-    start = _time.monotonic()
-    result = prompt_routes._load_prompt_infos_for_names(["fast", "slow"])
-    elapsed = _time.monotonic() - start
+    try:
+        start = _time.monotonic()
+        result = prompt_routes._load_prompt_infos_for_names(["fast", "slow"])
+        elapsed = _time.monotonic() - start
+    finally:
+        release.set()
 
-    # Bounded by the ~0.3s deadline, not the 2s sleep.
-    assert elapsed < 1.5
+    # The deadline is what returned the batch, not the blocked lookup. This bound
+    # is deliberately loose: the expected value is ~0.3s and a missing deadline
+    # would sit at the 30s cap, so anything in between still fails loudly. A tight
+    # bound is what made this flaky — it read 5.15s against a 1.5s budget on a
+    # loaded runner while the deadline was working correctly. The two assertions
+    # below are the real proof; this one only rules out waiting for the block.
+    assert elapsed < 10.0
     # The healthy prompt resolved; the lagging one is simply omitted.
     assert result["fast"]["prod"]["agent_id"] == "fast"
     assert result["slow"] == {}
