@@ -119,7 +119,7 @@ def _served_copy(source: Path) -> str:
 
 
 def test_all_manifest_markdown_is_current_and_published() -> None:
-    """Pin all 20 source modules to their flattened generated Markdown copies.
+    """Pin all 21 source modules to their flattened generated Markdown copies.
 
     Link destinations intentionally change during flattening. Removing only those
     destinations lets this independent test catch stale prose (the failure mode
@@ -127,7 +127,7 @@ def test_all_manifest_markdown_is_current_and_published() -> None:
     link-resolution test below validates the rewritten destinations themselves.
     """
     modules = _manifest_modules()
-    assert len(modules) == 20
+    assert len(modules) == 21
     assert modules[0] == (
         "../ARCHITECTURE.md",
         "m-00-layered-architecture.html",
@@ -207,9 +207,9 @@ def test_llms_index_and_flattened_markdown_links_resolve_locally() -> None:
 
 
 def test_all_materialized_docs_copies_match_docs_site() -> None:
-    """The tracked public tree and any built package tree match the 65-file site."""
+    """The tracked public tree and any built package tree match the 67-file site."""
     expected = _served_site_files(DOCS_SITE)
-    assert len(expected) == 65
+    assert len(expected) == 67
     assert _served_site_files(PUBLIC_DOCS) == expected
 
     for name in sorted(expected):
