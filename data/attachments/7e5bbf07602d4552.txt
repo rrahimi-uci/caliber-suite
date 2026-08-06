@@ -1,0 +1,1 @@
+{"t":"2026-08-06T14:44:34.052Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"DSPy trainset: no eval dataset 'missing' for agent=support-agent; provider will fall back"}

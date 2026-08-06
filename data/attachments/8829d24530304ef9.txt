@@ -1,0 +1,1 @@
+INFO     caliber.knowledge.worker:worker.py:57 knowledge-base worker started (interval=0.0s lease=120.0s worker=knowledge-build-worker-2490-7ff2217e7e50)

@@ -1,2 +1,0 @@
-[08/04/26 22:07:38] INFO     Processing request of type            server.py:733
-                             CallToolRequest                                    
