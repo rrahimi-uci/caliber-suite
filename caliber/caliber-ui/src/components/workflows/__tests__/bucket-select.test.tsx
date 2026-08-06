@@ -193,8 +193,11 @@ describe("BucketSelect workflow helpers", () => {
       "/caliber/object-store?bucket=reports&prefix=service%2F",
     );
 
+    // findBy, not getBy: the upload control is gated on ``/me`` resolving
+    // ``is_admin``, which is a different request from the object listing awaited
+    // above. Querying it synchronously races those two, and loses under CI load.
     await user.upload(
-      screen.getByTestId("contents-upload-input"),
+      await screen.findByTestId("contents-upload-input"),
       new File(["hey"], "new.txt", { type: "text/plain" }),
     );
 

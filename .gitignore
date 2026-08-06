@@ -29,3 +29,7 @@ node_modules/
 
 # Postgres migration backups (logical dumps, local only)
 pg16-backup-*/
+
+# The Pages workflow stages CI's rendered Allure report here at deploy time;
+# it is never committed.
+docs-site/tests/
