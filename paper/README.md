@@ -41,6 +41,7 @@ silently.
 | `benchmarks/` | Deterministic structural checks and their machine-readable manifest. |
 | `appendix/` | Supplementary material, `a`–`d`. |
 | `references/refs.bib` | Bibliography, grouped by the argument each entry supports. |
+| `slides/` | The generated seminar deck. See [`slides/README.md`](slides/README.md). |
 | `build/` | Compiled artifacts. Disposable. |
 
 ## Document format
@@ -83,6 +84,21 @@ The Excalidraw figures sidestep this trade entirely: their scenes are authored i
 and their 7 pt type really is 7 pt. That is worth knowing if you edit one — the
 generator will refuse a scene whose type falls below the floor, but it cannot know
 you meant to place it at a different width.
+
+## The seminar deck
+
+`slides/caliber-layered-control-plane.pptx` is a 25-slide technical deck generated
+from `slides/generate_slides.py`, not drawn. It reads its counts back out of
+`tex/macros.tex` and `generated/stats.tex` — so `make stats` moves the deck along
+with the prose — and it refuses to write a file containing a text overflow, which
+is the same box-overflow discipline the figures are held to. `slides/preview.py`
+renders the shipped `.pptx` to PNG proof sheets. Details in
+[`slides/README.md`](slides/README.md).
+
+The deck carries the paper's standing as well as its content: slide 19 leads with
+the unrun quantitative evaluation and slide 23 gives the claims register with an
+`established` / `argued` / `unmet` verdict per row. If §10 or §12 changes, those two
+slides change with it.
 
 ## Three conventions worth knowing before editing
 
