@@ -101,8 +101,9 @@ six layers rather than occupying one.
 account client and service caller passes through one admission stage; lifecycle
 modes drive four control-plane service groups; the kernel is the only tier that
 touches state or external systems; and queued work is drained by up to
-\statLoopsW{} in-process loops arbitrated through claim and lease columns on
-relational rows. Two properties are load-bearing for everything that follows.
+\statLoopsW{} in-process loops, five of them arbitrated through claim and lease
+columns on relational rows and the rest correct by idempotence
+(\tabref{tab:loops}). Two properties are load-bearing for everything that follows.
 First, \sys is a \emph{sibling} surface to \mlflow{} rather than a proxy in front
 of it --- each owns its own store, which is why the reconciliation boundary
 described in \secref{sec:exec} exists and cannot be designed away. Second, there is no

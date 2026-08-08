@@ -20,9 +20,11 @@ boundary. Adjacency in a layered stack confers capability \emph{availability}, n
 \emph{inheritance}: a family obtains lifecycle behaviour and governance enforcement
 only by explicitly wiring them. A meaningful base contract can still be uniform ---
 identity, history, authority, and audit --- while release, rollback, evaluation, and
-evidence remain declared capabilities. \sys states that guarantee surface per
-family but does not yet enforce every declaration mechanically, which is a limit of
-this implementation rather than an impossibility result. Two further results follow
+evidence remain declared capabilities. \sys declares that guarantee surface per
+family in a registry whose declarations are checked for mutual consistency and from
+which the guarantee table is generated --- but it does not yet tie a declaration to
+the handler that discharges it, which is a limit of this implementation rather than
+an impossibility result. Two further results follow
 the same discipline: naming the two dual-write
 boundaries is what allows a precise, checkable audit guarantee to be stated at all,
 and distinguishing containment from isolation is what keeps a security claim

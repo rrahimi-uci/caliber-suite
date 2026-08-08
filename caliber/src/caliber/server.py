@@ -167,10 +167,15 @@ def _build_lifespan(
     """Create the Starlette lifespan callback that starts/stops background tasks.
 
     Startup order: refinement worker → workflow-run worker → Aria worker →
-    knowledge-build worker → scheduler → janitor → calibration drain → webhooks.
+    knowledge-build worker → scheduler → janitor → release reconciler →
+    calibration drain → webhooks.
     Shutdown reverses the dependency edge: webhooks and scheduler stop first,
     followed by the knowledge, Aria, workflow-run, refinement, and calibration
-    workers; the janitor and event bus stop before the database engine is disposed.
+    workers; the janitor, release reconciler, and event bus stop before the
+    database engine is disposed.
+
+    This list is prose and drifts; ``paper/scripts/gen_stats.py`` derives the loop
+    count from the ``await <task>.start()`` calls below rather than from here.
 
     When ``background_tasks_enabled`` is False the loops are not started (the
     ``stop`` calls are no-ops on an unstarted task). This is used by unit/route

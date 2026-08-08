@@ -75,7 +75,7 @@ Three movements, each opened by a dark divider:
 | --- | --- |
 | 1–4 | Title, the nine-step remediation gap, why the obvious answers do not close it, and the positioning table |
 | 5–9 | **I — The abstraction.** The governed asset, six lifecycle modes, the governance chain and its durable residue, the six-layer factoring |
-| 10–17 | **II — Per-family governance.** The central claim, the nine guarantee surfaces, the third design not taken, the gate taxonomy, late binding, intent-first release, the eight loops |
+| 10–17 | **II — Per-family governance.** The central claim, the nine guarantee surfaces, the third design not taken, the gate taxonomy, late binding, intent-first release, the nine loops |
 | 18–25 | **III — Evidence and limits.** The unrun evaluation, what survives the comparison, the decisions and their prices, the limitations, the claims register, future work, conclusion |
 
 Every slide carries speaker notes. They are not a transcript — each one says what

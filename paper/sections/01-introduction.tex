@@ -77,12 +77,13 @@ capability \emph{inheritance}. A family placed in the asset layer obtains
 lifecycle behaviour and governance enforcement only by explicitly wiring them.
 The shared base contract is identity, history, authority, and audit; release,
 rollback, evaluation, and evidence are capability-specific obligations. \sys
-documents those obligations per family but does not yet enforce every declaration
-mechanically (\secref{sec:arch:claim}).
+declares those obligations per family in a checked registry, but does not yet tie a
+declaration to the handler that discharges it (\secref{sec:arch:claim}).
 \end{quote}
 
-We defend the per-family capability factoring while treating its current
-documentation-only enforcement as technical debt (\secref{sec:arch}). A prompt
+We defend the per-family capability factoring while treating the remaining gap ---
+declarations that are checked against each other but not against the handlers
+behind them --- as technical debt (\secref{sec:arch}). A prompt
 declares live-target release and rollback; a test set is evidence and declares no
 live target; a judge is evaluatable but not releasable. We therefore give the
 guarantee surface in full, including the rows where it is weaker than a reader

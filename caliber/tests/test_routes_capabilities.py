@@ -42,18 +42,67 @@ def test_capabilities_default_contract(client) -> None:
 
 
 def test_each_artifact_family_declares_the_complete_contract(client) -> None:
+    """Every family declares every field, and the endpoint hides none of them.
+
+    The expected set is read from the registry rather than restated here. A
+    literal copy would have to be edited alongside the registry, which makes the
+    test a second description of the contract instead of a check on it -- and a
+    field dropped from both would pass.
+    """
+    from caliber.artifact_capabilities import CAPABILITY_FIELDS
+
     families = client.get(f"{PREFIX}/capabilities").json()["data"]["artifact_families"]
-    expected_fields = {
-        "history",
-        "live_target",
-        "promotable",
-        "rollbackable",
-        "evidence_bearing",
-        "gate_mode",
-        "calibration",
-    }
     for family, contract in families.items():
-        assert set(contract) == expected_fields, family
+        assert set(contract) == set(CAPABILITY_FIELDS), family
+
+
+def test_rollback_mechanisms_are_disclosed_and_all_differ(client) -> None:
+    """The four rollbackable families mean four different things by it.
+
+    This is the operator trap the paper names: the same version-history panel is
+    mounted for several families, and a client shown only ``rollbackable: true``
+    would infer one guarantee from four distinct semantics. The endpoint has to
+    carry the mechanism for the distinction to survive the trip.
+    """
+    families = client.get(f"{PREFIX}/capabilities").json()["data"]["artifact_families"]
+
+    mechanisms = {
+        name: contract["rollback"]
+        for name, contract in families.items()
+        if contract["rollbackable"]
+    }
+
+    assert mechanisms == {
+        "prompt": "alias_restore",
+        "workflow": "checkpoint_stack_pop",
+        "knowledge_base": "derived_from_activation_history",
+        "skill": "snapshot_restored_as_new_version",
+    }
+    assert len(set(mechanisms.values())) == len(mechanisms), (
+        "two families share a rollback mechanism; if that is now true the paper's "
+        "claim that the five semantics all differ needs revising too"
+    )
+    assert all(
+        contract["rollback"] == "none"
+        for contract in families.values()
+        if not contract["rollbackable"]
+    )
+
+
+def test_only_runtime_assets_are_deployable(client) -> None:
+    """Six are authored runtime assets; the other three are not things one deploys."""
+    families = client.get(f"{PREFIX}/capabilities").json()["data"]["artifact_families"]
+
+    kinds = {name: contract["kind"] for name, contract in families.items()}
+    assert kinds["test_set"] == "evidence_asset"
+    assert kinds["judge"] == "scoring_asset"
+    assert kinds["agent"] == "anchor_record"
+    assert sum(kind == "runtime_asset" for kind in kinds.values()) == 6
+
+    for name, contract in families.items():
+        if contract["kind"] != "runtime_asset":
+            assert contract["promotable"] is False, name
+            assert contract["rollback"] == "none", name
 
 
 def test_capabilities_reflect_flag_overrides(client) -> None:
