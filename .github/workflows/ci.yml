@@ -452,7 +452,19 @@ jobs:
   package:
     name: Wheel build (with bundled SPA)
     runs-on: ubuntu-latest
-    needs: [lint, type-check, test, compatibility, ui, compose]
+    # Only ``ui``, and deliberately. This job asserts the wheel contains a bundled
+    # SPA — a correct check that had never once executed, because it sat behind
+    # six unrelated jobs and any one of them failing skipped it. Twelve
+    # consecutive runs counted it as coverage while it produced no evidence, and
+    # the first time it ran it failed: the wheel target had a comment claiming it
+    # included the SPA and no ``artifacts`` key to do it.
+    #
+    # Sequencing a release gate behind the test suite buys nothing — a wheel with
+    # no SPA is broken whether or not the tests pass, and that is exactly when you
+    # most want to know. ``ui`` stays because this job consumes its dist artifact,
+    # and even that is soft: the download is ``continue-on-error`` with a rebuild
+    # fallback below.
+    needs: [ui]
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v8.2.0
@@ -596,3 +608,33 @@ jobs:
           # artifact storage was unavailable. The scan's exit code is the
           # signal we actually gate on.
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  gate-ledger:
+    name: Gate execution ledger
+    runs-on: ubuntu-latest
+    # ``always()`` because the whole point is to speak up on the runs where
+    # something did not happen. Depends on every gate so it observes their final
+    # conclusions rather than a snapshot mid-run.
+    if: ${{ always() }}
+    needs:
+      - lint
+      - type-check
+      - test
+      - compatibility
+      - integration
+      - ui
+      - cookbook-ui-only
+      - compose
+      - package
+      - security
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Record which gates actually executed
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_JOB_NAME: Gate execution ledger
+        run: python3 .github/scripts/gate_ledger.py

@@ -91,8 +91,10 @@ def _normalize_published_markdown(markdown: str, source: Path) -> str:
     return "\n".join(lines).replace("&nbsp;", " ")
 
 
-def _served_site_files(directory: Path) -> set[str]:
-    fixed = {
+#: Site files that are not per-module output. Hoisted out of ``_served_site_files``
+#: so the coverage assertions below can name what they expect rather than counting.
+FIXED_SITE_FILES = frozenset(
+    {
         "index.html",
         "docs.css",
         "docs.js",
@@ -102,11 +104,18 @@ def _served_site_files(directory: Path) -> set[str]:
         "presentation_timed.html",
         "walkthrough.html",
     }
+)
+
+
+def _served_site_files(directory: Path) -> set[str]:
     return {
         path.name
         for path in directory.iterdir()
         if path.is_file()
-        and (path.name in fixed or (path.name.startswith("m-") and path.suffix in {".html", ".md"}))
+        and (
+            path.name in FIXED_SITE_FILES
+            or (path.name.startswith("m-") and path.suffix in {".html", ".md"})
+        )
     }
 
 
@@ -119,7 +128,7 @@ def _served_copy(source: Path) -> str:
 
 
 def test_all_manifest_markdown_is_current_and_published() -> None:
-    """Pin all 21 source modules to their flattened generated Markdown copies.
+    """Pin every manifest module to its flattened generated Markdown copy.
 
     Link destinations intentionally change during flattening. Removing only those
     destinations lets this independent test catch stale prose (the failure mode
@@ -127,7 +136,7 @@ def test_all_manifest_markdown_is_current_and_published() -> None:
     link-resolution test below validates the rewritten destinations themselves.
     """
     modules = _manifest_modules()
-    assert len(modules) == 21
+    assert modules, "the manifest parsed empty; every assertion below would pass vacuously"
     assert modules[0] == (
         "../ARCHITECTURE.md",
         "m-00-layered-architecture.html",
@@ -206,10 +215,77 @@ def test_llms_index_and_flattened_markdown_links_resolve_locally() -> None:
     assert not broken, "flattened Markdown links have missing targets:\n" + "\n".join(broken)
 
 
+def test_the_manifest_and_the_published_site_are_in_bijection() -> None:
+    """Every manifest entry is published, and every published module is in the manifest.
+
+    This replaced two count assertions --- ``len(modules) == 21`` and
+    ``len(expected) == 67``. A count detects that something moved without saying
+    what: adding ``docs/runbook.md`` to the manifest produced ``assert 21 == 20``,
+    which names neither the file nor which side changed, and both numbers then had
+    to be bumped by hand. It is also satisfiable for the wrong reason, since one
+    addition and one removal cancel.
+
+    A bijection carries the information the count was standing in for. Adding a
+    module to the manifest without publishing it, publishing one that is not in the
+    manifest, or dropping either, each fails with the file named. Nothing needs
+    bumping when the set legitimately grows.
+    """
+    declared = {out for _, out in _manifest_modules()}
+    published = {
+        path.name
+        for path in DOCS_SITE.iterdir()
+        if path.is_file() and path.name.startswith("m-") and path.suffix == ".html"
+    }
+    # Cookbook pages come from ``docs-site/cookbooks/<slug>/`` rather than from
+    # the module manifest, so they are checked against their own sources. The
+    # index over them is generated too, and is named rather than counted.
+    cookbooks = {name for name in published if name.startswith("m-cookbook-")}
+    cookbook_index = {"m-16-cookbooks.html"}
+
+    assert declared, "the manifest parsed empty"
+    assert declared <= published, (
+        f"declared in the manifest but not published: {sorted(declared - published)}"
+    )
+    unexplained = published - declared - cookbooks - cookbook_index
+    assert not unexplained, (
+        "published modules that no manifest entry and no cookbook source accounts "
+        f"for: {sorted(unexplained)}"
+    )
+
+    cookbook_sources = {
+        path.name
+        for path in (DOCS_SITE / "cookbooks").iterdir()
+        if path.is_dir() and path.name[:2].isdigit()
+    }
+    assert len(cookbooks) == len(cookbook_sources), (
+        f"{len(cookbook_sources)} cookbook sources produced {len(cookbooks)} pages; "
+        f"sources: {sorted(cookbook_sources)}\n  pages: {sorted(cookbooks)}"
+    )
+
+    missing_markdown = {
+        name.replace(".html", ".md")
+        for name in declared
+        if not (DOCS_SITE / name.replace(".html", ".md")).is_file()
+    }
+    assert not missing_markdown, (
+        f"declared modules with no flat Markdown: {sorted(missing_markdown)}"
+    )
+
+
 def test_all_materialized_docs_copies_match_docs_site() -> None:
-    """The tracked public tree and any built package tree match the 67-file site."""
+    """The tracked public tree and any built package tree match the served site."""
     expected = _served_site_files(DOCS_SITE)
-    assert len(expected) == 67
+
+    # Coverage, not a count. Without this the equality below is satisfied by two
+    # empty directories, which is the failure mode a bare ``len(...) == 67`` was
+    # really guarding against -- while also having to be re-typed whenever a
+    # module was added.
+    declared = {out for _, out in _manifest_modules()}
+    assert expected >= FIXED_SITE_FILES, (
+        f"site is missing fixed files: {sorted(FIXED_SITE_FILES - expected)}"
+    )
+    assert declared <= expected, f"site is missing declared modules: {sorted(declared - expected)}"
+
     assert _served_site_files(PUBLIC_DOCS) == expected
 
     for name in sorted(expected):
