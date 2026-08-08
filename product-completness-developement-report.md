@@ -777,3 +777,175 @@ and worth naming separately: **a correct gate that was never asked.** Two indepe
 guarded the same change, one was run, and running one was treated as covering both. The
 mitigation is not more gates — it is knowing which suite each gate lives in, which is why
 §10.3 now states the command next to every number.
+
+---
+
+## 11. Update, 2026-08-07
+
+> **Scope of this update:** attack the *pattern* §3c names four times and §10.2 names a
+> fifth, rather than another finding from the 22. No claim in §1–§10 has been rewritten.
+
+### 11.1 The pattern, stated once
+
+Five instances are now on record, and they are the same defect: **one fact, two copies,
+and nothing making them the same object.**
+
+1. CSRF logged a warning where it should have refused to start (§3c).
+2. A config escape hatch was documented with no env-var mapping (§3c).
+3. Packaging described a bundled SPA it did not implement (§3c).
+4. A publisher wrote to a branch nothing served, and was green for months (§10.2).
+5. **New, found while auditing for this update:** the paper said eight in-process loops.
+   `ReleaseReconcilerTask` (§10.1) made it nine on 2026-08-06, and §10.1 recorded the
+   discrepancy without closing it.
+
+The fifth is the most instructive, because a check was already watching it and passed.
+`gen_stats.py` verified that `\statLoopsW{eight}` agreed with `\statLoops{8}` — *three*
+hand-typed copies (two in `macros.tex`, one in the script's own `WORD_FORMS`) validated
+against **each other** and never against the tree. A consistency check between copies is
+not a check on the fact. Nine further hand-written copies of the same number were in
+`ARCHITECTURE.md` (four), two `docs/` sources (four), and `paper/slides/README.md` (one).
+The deck's own slides were the exception: they interpolate `\statLoopsW` and moved on
+their own the moment the macro did, which is the difference this section is about.
+
+### 11.2 What landed
+
+**The loop count is derived.** `gen_stats.py` reads it off the `await <task>.start()`
+calls in the lifespan via AST, emits the numeral and both prose spellings, and fails the
+build if `macros.tex`'s fallback default, or `tab-loops.tex`'s row count, disagrees with
+the tree. `tab-loops.tex` gained its ninth row; the nine prose copies were corrected and
+the deck regenerated. `\statLoops` is out of `WORD_FORMS`, with a comment on why
+agreement between spellings was never the property worth checking.
+
+**The capability registry became a contract.** `artifact_capabilities.py` now carries
+`kind` and — the load-bearing addition — `rollback`, the *mechanism* rather than a
+boolean. Four families report `rollbackable: true` and each means something different:
+an alias restore, a checkpoint-stack pop, a derivation from activation history, a prior
+snapshot written back as a *new* version. That is the operator trap §5.1 of the paper
+names, and a client given only the flag could not render it. `PlatformCapabilities` in
+`workflowTypes.ts` enumerates the same field list again and is updated, so the SPA can
+actually read the field.
+
+Cross-field invariants are checked at import: a family cannot be promotable with no live
+target, cannot carry a rollback flag disagreeing with its mechanism, and cannot be an
+evidence or scoring asset that is nonetheless deployable. Contradictions fail the module
+every route imports rather than rendering like a correct row. Eight tests pin the
+invariants, five of them run against deliberately corrupted copies of the registry, so
+they fail when the *check* is removed rather than only when the data is wrong.
+
+**A route-shaped projection was written and discarded.** The obvious stronger control —
+assert a family declaring `rollbackable` has a rollback route — is wrong:
+`/agents/{agent_id}/rollback` is agent-*scoped* but restores a prompt alias or a skill
+snapshot, so a path match contradicts a correct declaration. Making it sound needs the
+`Releasable`/`Rollbackable` handler interfaces the paper records as future work. The
+reasoning is recorded in the module rather than lost, because a check that asserts
+something it cannot see is the failure mode the module exists to prevent.
+
+**The paper's guarantee table is generated.** `tab-families.tex` was a fourth copy of
+what the registry declares. It is now the float, caption and column spec around
+`generated/families-table.tex`, which `gen_stats.py` renders from the registry — facts
+from the implementation, wording keyed by the registry's own vocabulary. A family with a
+mechanism the wording does not cover fails `make stats`. One cell changed in the process:
+knowledge bases and tools both declare no gate, and the hand-written table gave them
+different cells, asserting a distinction the code does not make.
+
+The paper's claims were narrowed to match, not widened: §1, §5.1 and §14 now say the
+obligations are *declared in a checked registry and rendered from it*, and that a
+declaration is still not tied to the handler that discharges it.
+
+**§9's own question is now answerable.** §9 said any readiness assessment should treat
+"which gates have actually executed recently?" as first-order, and nothing could answer
+it. `.github/scripts/gate_ledger.py` reads the run's job conclusions, writes a per-gate
+ledger to the job summary, and **fails a run that would otherwise report success while a
+required gate produced no evidence**. It deliberately does not fail on a skip that
+follows a failure — that cascade is how `needs:` works, the run is already red, and
+re-reporting it would train readers to ignore the job.
+
+**The structure that caused the incident is gone.** `package` — the wheel/SPA gate
+skipped on twelve consecutive runs — waited on six jobs. It now waits on `ui` alone, the
+only one whose artifact it consumes, and even that is soft. A wheel with no SPA is broken
+whether or not the tests pass. Three tests pin this: the ledger's gate names must match
+job names with matrix legs expanded, it must wait for every gate it reports on, and
+`package` must not re-acquire unrelated `needs`. Each was verified against a mutated
+workflow — rename a job, drop a matrix leg, re-sequence the gate — and each is caught.
+
+**The ratchets carry information.** §10.6's failure was `assert 21 == 20`: it says
+something moved without saying what, must be bumped by hand, and passes for the wrong
+reason if an addition and a removal cancel. Both docs-manifest counts are replaced by
+coverage assertions — the manifest and the published site must be in bijection, modulo
+the cookbook pages and index, which are checked against their own sources. Adding
+`docs/runbook.md` would now name the file instead of printing two integers.
+
+### 11.3 Verification
+
+Local, on a 3.12 dev venv. GitHub CI has not run these changes.
+
+| Suite | Result | Command |
+| --- | --- | --- |
+| Backend | **5,979 passed, 9 skipped, 0 failed** (357 s) | `pytest -n auto --dist loadgroup` |
+| Lint / format | clean | `ruff check .` · `ruff format --check .` |
+| Types | clean, 322 files | `mypy src` |
+| Frontend types | clean | `npm run typecheck` |
+| Paper | 76 pages, 0 overfull, no undefined refs | `make repro` |
+| Structural checks | 8 passed | `make repro` |
+
+Against §10.3's 5,965 the suite has grown by 14 — the capability-contract and CI-ledger
+tests added here.
+
+**The standing of this evidence is the same as §10.3's and no better.** Every number is
+a local measurement. §3c's standard — "verified on the remote, not inferred from a local
+run" — is not met, and the gate ledger itself has by definition never executed, which is
+precisely the condition it exists to detect. It should be treated as unproven until a
+real run produces its first summary.
+
+### 11.4 What this does not change
+
+§9's verdict stands unaltered: **feature-rich Alpha, credible for a controlled technical
+pilot, not ready for supported production or untrusted authoring.** Nothing here was
+aimed at it. The one item that would move it — a supported production topology — remains
+unattempted, and §10.5's ledger of genuinely open work (F-11's 224 handlers, F-04's trace
+half, F-10's broker replay, F-12's lexical fusion, F-02b's cancellation propagation,
+F-06's product decision) is unchanged.
+
+What changed is narrower: the class of defect this report spent three waves finding one
+instance at a time is now, in five specific places, structurally harder to introduce.
+
+### 11.5 A LinkedIn article package, and the copy that drifted inside one session
+
+Landed in `LinkedIn_Caliber/`: a Markdown article on the paper, a DOCX and PDF built
+from it, eight generated images, and `make_images.py`, which regenerates every image
+from SVG via `rsvg-convert`. It is external communication collateral, the same category
+as the seminar deck §10.1 records, and it changes nothing about the product.
+
+Three things about it are worth recording rather than left to be discovered.
+
+**It states no performance numbers, because the paper has none.** The obvious shape for
+a package like this is a hero slide of percentages. The paper's results table is empty
+by choice, so the hero carries architectural counts instead — nine families, seven chain
+terms, four rollback mechanisms — and one of the eight images is devoted entirely to
+what the paper does *not* establish. A marketing asset that quietly invented the numbers
+the paper refused to invent would undo the discipline §11.2 is about.
+
+**It is three more hand-written copies of the family table.** `make_images.py` hardcodes
+the full nine-row guarantee table for one image, and the nine family/rollback-mechanism
+pairs again for the one-pager; `LinkedIn_Article.md` names all five rollback semantics a
+third time in prose. All three agree with `artifact_capabilities.py` today because they
+were authored from the generated table after §11.2 landed. Nothing keeps them agreeing.
+
+**And one of them had already gone stale before this section was written.** The §11.2
+edit that narrowed the paper's §5.1 — from "mitigated by documentation, which is a weak
+mitigation" to the registry carrying the mechanism — left the article still asserting the
+old sentence. Two hours old, one session, no intervening commit, and it was wrong. The
+article is corrected; the point is that the drift did not wait for a future editor. It is
+the cheapest available demonstration that a hand-maintained copy of a moving fact decays
+immediately, not eventually.
+
+We are still not wiring the package to the registry, and the reason is a boundary rather
+than laziness: a published article is a dated statement about what was true when it was
+written, and silently regenerating its claims from a moving tree would make it a worse
+record, not a better one. The deck is treated the other way — it interpolates its counts
+from `macros.tex` — because it ships *with* the paper and has to move when the paper does.
+
+The residual risk is therefore real and bounded, and now demonstrated: if a family's
+rollback mechanism changes, the paper's table follows automatically and this package does
+not. It is outside the product, outside CI, and outside every check §11 added. Anyone
+editing it should diff the claims against `paper/tables/tab-families.tex` first.
