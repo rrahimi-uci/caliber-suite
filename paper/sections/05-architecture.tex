@@ -56,20 +56,41 @@ test set genuinely has no live target --- but the \emph{obligation} would be
 enforced instead of documented, and the failure mode described below would become
 impossible to introduce rather than merely discouraged.
 
-We did not take that design, and the reason is historical rather than principled:
-\sys's families were wired one at a time as they were needed, and by the time the
-common shape was visible the wiring already existed in \statFamilies{} places.
-Retrofitting capability interfaces is the natural next step and \secref{sec:future}
-records it as such.
+We did not take that design in full, and the reason is historical rather than
+principled: \sys's families were wired one at a time as they were needed, and by
+the time the common shape was visible the wiring already existed in
+\statFamilies{} places. Retrofitting the interfaces is the natural next step and
+\secref{sec:future} records it as such.
+
+What does exist is the design's data half. Each family's capabilities are declared
+in one machine-readable registry --- kind, history idiom, live-target shape,
+promotability, rollback \emph{mechanism}, evidence, gate mode, calibration --- over
+a closed vocabulary, and the declarations are checked against each other when the
+module loads. A family cannot declare itself promotable with no live target to
+promote, cannot carry a rollback flag that disagrees with its rollback mechanism,
+and cannot be an evidence or scoring asset that is nonetheless deployable; each of
+those is a contradiction the process refuses to start with rather than a row that
+renders like any other. \tabref{tab:families} is generated from that registry, so
+the table and the implementation cannot state different guarantees.
+
+We are precise about what this does not establish, because the gap is the
+interesting part. Checking a declaration against its siblings is not checking it
+against its wiring: nothing yet requires a family declaring a rollback mechanism to
+supply a handler that implements it. The registry makes the obligation
+\emph{stateable and self-consistent}; the capability interfaces above are what would
+make it \emph{discharged}. Carrying the mechanism rather than a boolean is what
+makes the difference visible at all --- four families declare rollback and no two
+mean the same thing by it, so a client given only the flag would infer one guarantee
+from four.
 
 \para{What we therefore claim.} The claim this paper can defend is narrower than
 ``uniformity is impossible.'' It is that \emph{uniform guarantees} are impossible
 across genuinely heterogeneous families, because the guarantees differ in kind; and
-that \emph{uniform obligations} are possible but require a mechanism \sys does not
-yet have. \sys's current position --- per-family guarantees documented in
-\tabref{tab:families} rather than checked by a compiler --- is the weaker of the
-two defensible designs, and we would characterize it as a state of the
-implementation rather than a finding about architecture.
+that \emph{uniform obligations} are possible but require a mechanism \sys has only
+in part. \sys's current position --- per-family guarantees \emph{declared} in a
+checked registry and rendered from it, but not tied to the handlers that implement
+them --- sits between the two defensible designs, and we would characterize it as a
+state of the implementation rather than a finding about architecture.
 
 \input{tab-families}
 
@@ -96,9 +117,12 @@ rollback guarantees, and will instead find five distinct semantics: an alias
 restore, a checkpoint-stack pop, a derivation from activation history, a
 restore-as-a-new-version, and --- for tools --- no rollback at all
 (\tabref{tab:families}). We consider this the most likely source of operator
-misunderstanding in the system. It is mitigated today by documentation, which is a
-weak mitigation, and the capability-interface design above is the mechanism that
-would replace documentation with a check (\secref{sec:future}).
+misunderstanding in the system. The mitigation is that the mechanism, not merely a
+boolean, is what the capability registry carries and what the capabilities endpoint
+publishes --- so a client is able to render the five as five. It remains a
+mitigation rather than a fix: nothing compels a client to read the field, and
+nothing yet checks that the declared mechanism is the one the handler performs
+(\secref{sec:future}).
 
 \subsection{\Lnum{1}: infrastructure}
 
@@ -196,11 +220,13 @@ The \statLoopsW{} loops divide into two groups by arbitration discipline, and
 \figref{fig:execution} draws them differently because conflating them is an
 operational hazard. Five are \emph{durably arbitrated}: claim-based consumers
 compete for rows atomically, so replicating the process is safe at any worker
-count. Three are correct by a different argument: the workflow scheduler is
+count. Four are correct by a different argument: the workflow scheduler is
 idempotent by a minute-bucketed key backed by a unique partial index, which makes
 duplicate fires impossible rather than merely unlikely; the janitor is an
-idempotent sweep over jobs past their heartbeat timeout; and \aria{}'s plan worker
-polls without a claim lease.
+idempotent sweep over jobs past their heartbeat timeout; the release reconciler is
+an idempotent sweep that settles a release operation only when the observed alias
+matches a version the intent already recorded; and \aria{}'s plan worker polls
+without a claim lease.
 
 The honest converse is that two mechanisms are genuinely per-process. The
 failed-login throttle and the API rate limiter are in-memory token buckets behind a

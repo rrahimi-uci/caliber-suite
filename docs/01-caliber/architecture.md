@@ -20,7 +20,7 @@ paths are shown relative to that prefix once the convention has been stated.
 | **Where it runs** | Either in the MLflow server process, or as the bundled standalone CALIBER service that calls MLflow over HTTP. |
 | **How users reach it** | A React SPA served under `/caliber/`; every action flows through the API under `/ajax-api/2.0/mlflow/caliber/*`. |
 | **Source of truth** | SQLAlchemy relational metadata is authoritative; object storage owns file bytes; MLflow owns prompt versions and traces. |
-| **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to eight in-process loops. All share the background-task lifecycle gate, and three also have independent enable flags. |
+| **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to nine in-process loops. All share the background-task lifecycle gate, and three also have independent enable flags. |
 | **Trust model** | Session mode verifies a database-backed account and resolves the `viewer` / `operator` / `approver` / `admin` scopes; trusted identity headers are an explicit proxy-mode option. Route guards, project visibility, and audit coverage remain path-specific. |
 
 The sections below start from this picture and drill down — scope, boundaries,
@@ -54,9 +54,9 @@ feature module — and span the following concerns:
   `/ajax-api/2.0/mlflow/caliber/*`.
 - It provides shared persistence, authorization, CSRF, rate-limiting, project-
   visibility, and audit primitives that feature paths wire explicitly.
-- It orchestrates up to eight in-process loops for refinement, tool calibration,
+- It orchestrates up to nine in-process loops for refinement, tool calibration,
   workflow runs, Aria plans, knowledge-base builds, workflow scheduling, janitor
-  work, and webhook dispatch/recovery.
+  work, release reconciliation, and webhook dispatch/recovery.
 - It integrates with MLflow tracing, the MLflow prompt registry, object storage,
   and optional event-bus backends.
 
@@ -288,7 +288,7 @@ have independent enable flags; the other five loops, including `AriaPlanWorker`,
 do not.
 
 The loops are in-process, so **each server worker process runs its own full set**.
-`mlflow server` defaults to four gunicorn workers, which means all eight loops
+`mlflow server` defaults to four gunicorn workers, which means all nine loops
 exist four times over. Where arbitration is durable that is safe: queue consumers
 so exactly one process wins each row, and the cron scheduler is idempotent by a
 minute-bucketed key backed by a unique partial index. Two consequences do not

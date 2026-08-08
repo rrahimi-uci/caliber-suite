@@ -95,8 +95,8 @@ for rows atomically (\algref{alg:claim}), so no two workers ever hold the same r
 --- but their \emph{recovery} policies differ, and \tabref{tab:loops} gives the
 resulting delivery semantics loop by loop. The scheduler is idempotent by a minute-bucketed key backed by a unique
 partial index, which makes duplicate fires impossible rather than merely
-unlikely; the janitor is an idempotent sweep; \aria's plan worker polls without a
-claim lease. The bottom box is the one place where the model is genuinely
+unlikely; the janitor and the release reconciler are idempotent sweeps;
+\aria's plan worker polls without a claim lease. The bottom box is the one place where the model is genuinely
 per-process, and it is stated here rather than left to be discovered in
 production.}
 \label{fig:execution}

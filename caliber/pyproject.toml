@@ -403,6 +403,24 @@ filterwarnings = [
     # Not CALIBER bugs — silence the dspy namespace like we do for mlflow.
     "ignore::DeprecationWarning:dspy.*",
     "ignore::UserWarning:dspy.*",
+    # pydantic-settings 2.15.0 added IncompleteFieldDefinitionWarning and mcp's
+    # FastMCP ``Settings`` model trips it: its ``lifespan`` field is annotated
+    # with a forward reference the model never rebuilds. The field is not ours
+    # and neither is the fix, but ``error`` above turns it into three failing
+    # tests on any clean install — CI resolved 2.15.0 while a venv built a day
+    # earlier had 2.14.2 and passed. Third instance of the same shape as the
+    # numpy/mypy break in §3c of the completeness report: an unpinned transitive
+    # dependency moves and a clean install stops matching a developer machine.
+    #
+    # Matched on the message rather than the category on purpose. The category
+    # is resolved at config load, so naming it would make the whole suite
+    # unrunnable against pydantic-settings < 2.15 where the class does not
+    # exist. The message is cut before its first colon because pytest splits
+    # filter strings on that character.
+    #
+    # Scoped to this one field so a genuinely new incomplete definition — in
+    # mcp or in our own settings models — still fails the suite.
+    "ignore:Field 'lifespan' has an incomplete definition",
 ]
 markers = [
     "integration: integration tests requiring an MLflow server (deselect with -m 'not integration')",

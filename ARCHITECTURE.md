@@ -22,7 +22,7 @@
 | **What it reuses** | MLflow Experiments, Traces, Assessments, Prompt Registry, Artifact Store, `genai.evaluate`, `genai.make_judge`, `genai.datasets` — CALIBER does not rebuild them. |
 | **Where it runs** | One ASGI app, two topologies: in-process `mlflow.app`, or a standalone service talking to MLflow over HTTP. |
 | **Source of truth** | Relational metadata is authoritative for the control plane; object storage owns file bytes; MLflow owns prompt versions and traces. |
-| **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to eight in-process loops. All are gated by `background_tasks_enabled`; three also have independent enable flags. No separate worker tier. |
+| **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to nine in-process loops. All are gated by `background_tasks_enabled`; three also have independent enable flags. No separate worker tier. |
 | **Trust model** | Four RBAC scopes — `viewer` / `operator` / `approver` / `admin` — plus route-specific CSRF, rate limiting, visibility filters, service admission, and governed HTTP/MCP execution policy. Coverage is path-specific, not a repository-wide isolation guarantee. |
 
 ---
@@ -395,7 +395,7 @@ flowchart TB
 ## 6 · Execution model — where the work actually happens
 
 Bounded validation and many durable database mutations run inline in request
-handlers. Explicitly queued or long-running work is handled by up to eight
+handlers. Explicitly queued or long-running work is handled by up to nine
 in-process loops. The loops are **not uniform**: several queue consumers use
 atomic claims, while pollers and sweepers have path-specific concurrency
 semantics. All configured loops share the `background_tasks_enabled` lifecycle gate.
@@ -407,7 +407,7 @@ flowchart TB
     REQ["<b>Request path</b><br/>predominantly async route callables<br/><i>sync ORM · selected work offloaded</i>"]:::ctrl
     Q[("<b>Durable queues</b><br/>status columns on<br/>relational rows")]:::store
 
-    subgraph LOOPS["UP TO 8 BACKGROUND LOOPS"]
+    subgraph LOOPS["UP TO 9 BACKGROUND LOOPS"]
       direction TB
       subgraph WA[" "]
         direction LR
@@ -423,7 +423,8 @@ flowchart TB
         w6["<b>WorkflowScheduler</b><br/>cron triggers per<br/>deployment alias<br/><i>tick evaluation · optional</i>"]:::async
         w7["<b>Janitor</b><br/>reaps stale jobs on<br/>heartbeat timeout<br/><i>idempotent sweep</i>"]:::async
         w8["<b>WebhookDispatcher</b><br/>delivery · settlement<br/>dead letters<br/><i>claim</i>"]:::async
-        w5 --- w6 --- w7 --- w8
+        w9["<b>ReleaseReconciler</b><br/>settles incomplete prompt-alias<br/>release intents<br/><i>idempotent sweep</i>"]:::async
+        w5 --- w6 --- w7 --- w8 --- w9
       end
       WA --- WB
     end
@@ -452,7 +453,7 @@ Three consequences worth stating plainly:
   async. Selected blocking work is explicitly sent through `run_in_threadpool`
   or `asyncio.to_thread`; there is no async ORM.
 - **Every process runs its own full set of loops, and some limits are per-process.**
-  `mlflow server` defaults to four gunicorn workers, so all eight loops exist four
+  `mlflow server` defaults to four gunicorn workers, so all nine loops exist four
   times over. That is safe where arbitration is durable — the claim-based consumers
   compete for rows atomically, and the cron scheduler is idempotent by a
   minute-bucketed key backed by a unique partial index, so duplicate fires are

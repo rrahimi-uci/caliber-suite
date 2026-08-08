@@ -62,6 +62,12 @@ idempotent \\
 polls for plans parked on settled jobs; no claim is taken &
 at-least-once resume \\
 
+\zebra
+\textbf{Release\-Reconciler} & \chipnone{} &
+none needed: the next tick re-observes the alias, and a row it cannot settle
+from the recorded before/after versions is left for a human &
+idempotent convergence; \code{prepared} rows are never touched \\
+
 \bottomrule
 \end{tabular}
 \tabnote{External effects are a separate question from job delivery. The workflow

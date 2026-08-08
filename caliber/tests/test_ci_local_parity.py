@@ -9,9 +9,10 @@ looks like coverage and is not.
 So the parity is asserted rather than maintained by discipline. If you add a job to CI
 that executes code, this test fails until the script knows about it.
 
-Jobs that only *publish* are exempt and named explicitly, because "we deliberately do
-not run this locally" is a decision that should be visible in code rather than inferred
-from an omission.
+Jobs with no possible local equivalent are exempt and named explicitly with the reason,
+because "we deliberately do not run this locally" is a decision that should be visible
+in code rather than inferred from an omission. Anything executing product code must not
+be on that list.
 """
 
 from __future__ import annotations
@@ -27,11 +28,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SCRIPT = REPO_ROOT / "scripts" / "ci-local.sh"
 
-#: Workflow jobs the local runner deliberately does not mirror, with the reason. These
-#: publish evidence to GitHub — an artifact, a rendered report, a Pages site — and have
-#: no local equivalent. Anything *executing product code* must not be on this list.
-PUBLISH_ONLY_JOBS = {
+#: Workflow jobs the local runner deliberately does not mirror, with the reason. Each
+#: one either publishes evidence to GitHub or inspects the GitHub run itself, so there
+#: is nothing for a local shell to do. Anything *executing product code* must not be on
+#: this list.
+UNMIRRORED_JOBS = {
     "allure-report": "renders and publishes the Allure HTML report to GitHub Pages",
+    "gate-ledger": (
+        "reads this run's job conclusions from the Actions API to catch a required "
+        "gate that was skipped; there is no run to inspect locally. Its coherence is "
+        "covered by tests/test_ci_gate_ledger_contract.py, which the `test` job runs"
+    ),
 }
 
 
@@ -57,11 +64,11 @@ def test_the_script_exists_and_is_executable() -> None:
 
 def test_every_code_executing_ci_job_has_a_local_counterpart() -> None:
     """The drift guard. A job added to CI and not to the script fails here."""
-    missing = _workflow_jobs() - _script_jobs() - set(PUBLISH_ONLY_JOBS)
+    missing = _workflow_jobs() - _script_jobs() - set(UNMIRRORED_JOBS)
     assert not missing, (
         f"CI jobs with no local counterpart: {sorted(missing)}. Add them to ALL_JOBS and "
-        "give each a job_<name> function in scripts/ci-local.sh, or — if the job only "
-        "publishes evidence — add it to PUBLISH_ONLY_JOBS here with the reason."
+        "give each a job_<name> function in scripts/ci-local.sh, or — if the job has no "
+        "possible local equivalent — add it to UNMIRRORED_JOBS here with the reason."
     )
 
 
@@ -100,11 +107,11 @@ def test_the_extras_list_matches_the_workflow() -> None:
     )
 
 
-def test_publish_only_exemptions_are_still_real_jobs() -> None:
+def test_unmirrored_exemptions_are_still_real_jobs() -> None:
     """An exemption for a job that no longer exists is dead weight that would mask a
     future job of the same name."""
-    stale = set(PUBLISH_ONLY_JOBS) - _workflow_jobs()
-    assert not stale, f"PUBLISH_ONLY_JOBS names jobs the workflow no longer has: {sorted(stale)}"
+    stale = set(UNMIRRORED_JOBS) - _workflow_jobs()
+    assert not stale, f"UNMIRRORED_JOBS names jobs the workflow no longer has: {sorted(stale)}"
 
 
 def test_remote_and_local_package_gates_require_index_and_assets() -> None:

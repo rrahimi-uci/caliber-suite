@@ -211,7 +211,7 @@ and they are worth stating explicitly.
   must never fail the tick it was observing.
 - Worker ids include the process id (`worker_registry.new_worker_id`) because the
   heartbeat table is shared by every process pointed at the same database. Under a
-  multi-worker server each process runs its own copy of all eight loops, so an
+  multi-worker server each process runs its own copy of all nine loops, so an
   id derived from the instance alone would collide and N live workers would report
   as one.
 

@@ -841,13 +841,26 @@ export interface CookbookInstallResult {
 export interface PlatformCapabilities {
   workflow_runs: WorkflowRunCapabilities;
   sync_workflow_version_run: boolean;
+  // Mirrors CAPABILITY_FIELDS in caliber/artifact_capabilities.py. `rollback` is
+  // the field that makes this worth reading: four families report
+  // `rollbackable: true` and each means something different by it — an alias
+  // restore, a checkpoint-stack pop, a derivation from activation history, or a
+  // prior snapshot written back as a *new* version. Rendering the boolean alone
+  // is what makes one shared version-history panel imply one shared guarantee.
   artifact_families: Record<
     string,
     {
+      kind: 'runtime_asset' | 'evidence_asset' | 'scoring_asset' | 'anchor_record';
       history: string;
       live_target: string;
       promotable: boolean;
       rollbackable: boolean;
+      rollback:
+        | 'alias_restore'
+        | 'checkpoint_stack_pop'
+        | 'derived_from_activation_history'
+        | 'snapshot_restored_as_new_version'
+        | 'none';
       evidence_bearing: boolean;
       gate_mode: string;
       calibration: string;
