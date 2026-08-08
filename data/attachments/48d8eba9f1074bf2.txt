@@ -1,0 +1,12 @@
+INFO     caliber:server.py:403 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:245 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:656 CALIBER assistant engine: fake (configured=fake)
+INFO     caliber:server.py:403 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:245 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:656 CALIBER assistant engine: fake (configured=fake)
+INFO     caliber.events.redis_bus:redis_bus.py:59 Redis event bus connected (channel=caliber.events)
+INFO     caliber.events.redis_bus:redis_bus.py:59 Redis event bus connected (channel=caliber.events)
+INFO     caliber.events.redis_bus:redis_bus.py:102 Redis event bus disconnected
+INFO     caliber.events.redis_bus:redis_bus.py:102 Redis event bus disconnected

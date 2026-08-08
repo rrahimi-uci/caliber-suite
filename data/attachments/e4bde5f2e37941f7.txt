@@ -1,0 +1,46 @@
+{"t":"2026-08-08T02:51:16.405Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-08T02:51:16.428Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-08T02:51:16.431Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-08T02:51:16.433Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-08T02:51:16.475Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-08T02:51:16.485Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-08T02:51:16.494Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-08T02:51:16.499Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 409 Conflict\""}
+{"t":"2026-08-08T02:51:16.505Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 409 Conflict\""}
+{"t":"2026-08-08T02:51:16.511Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 409 Conflict\""}
+{"t":"2026-08-08T02:51:16.529Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-08T02:51:16.548Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-349e5f25/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-08T02:51:16.572Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-89dfe0c8/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:16.598Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-08-08T02:51:16.614Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-08-08T02:51:16.631Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-08-08T02:51:16.791Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy failed (attempt 1/1): policy backend failed attempt 1 for outage-immediate","trace_id":"482488810dcf7f9a"}
+{"t":"2026-08-08T02:51:16.815Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 1 for outage-retry","trace_id":"482488810dcf7f9a"}
+{"t":"2026-08-08T02:51:16.816Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 2 for outage-retry","trace_id":"482488810dcf7f9a"}
+{"t":"2026-08-08T02:51:16.818Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 3 for outage-retry","trace_id":"482488810dcf7f9a"}
+{"t":"2026-08-08T02:51:17.031Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c18654f7 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.038Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7e989e3 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.046Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-9087547d \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.056Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c18654f7/approvals \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.079Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c18654f7/approval/approve \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.101Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c18654f7/resume \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-08-08T02:51:17.335Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c18654f7 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.489Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy failed (attempt 1/1): policy backend failed attempt 2 for outage-immediate","trace_id":"d07e5449a6b55b2a"}
+{"t":"2026-08-08T02:51:17.509Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 4 for outage-retry","trace_id":"d07e5449a6b55b2a"}
+{"t":"2026-08-08T02:51:17.511Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 5 for outage-retry","trace_id":"d07e5449a6b55b2a"}
+{"t":"2026-08-08T02:51:17.513Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 6 for outage-retry","trace_id":"d07e5449a6b55b2a"}
+{"t":"2026-08-08T02:51:17.696Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7e989e3 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.705Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-9087547d \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.713Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7e989e3/approvals \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.732Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7e989e3/approval/approve \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:17.748Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7e989e3/resume \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-08-08T02:51:17.964Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7e989e3 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:18.108Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy failed (attempt 1/1): policy backend failed attempt 3 for outage-immediate","trace_id":"1601df8fbc1f03a0"}
+{"t":"2026-08-08T02:51:18.128Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 7 for outage-retry","trace_id":"1601df8fbc1f03a0"}
+{"t":"2026-08-08T02:51:18.130Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 8 for outage-retry","trace_id":"1601df8fbc1f03a0"}
+{"t":"2026-08-08T02:51:18.132Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 9 for outage-retry","trace_id":"1601df8fbc1f03a0"}
+{"t":"2026-08-08T02:51:18.303Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-9087547d \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:18.310Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-9087547d/approvals \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:18.324Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-9087547d/approval/approve \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-08T02:51:18.344Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-9087547d/resume \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-08-08T02:51:18.559Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-9087547d \"HTTP/1.1 200 OK\""}

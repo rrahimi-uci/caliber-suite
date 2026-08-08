@@ -1,3 +1,0 @@
-INFO     caliber.knowledge.worker:worker.py:57 knowledge-base worker started (interval=0.0s lease=120.0s worker=knowledge-build-worker-2496-7f5dac369090)
-WARNING  caliber.knowledge.worker:worker.py:71 knowledge-base worker did not stop within 0.1s; cancelling
-INFO     caliber.knowledge.worker:worker.py:79 knowledge-base worker stopped
