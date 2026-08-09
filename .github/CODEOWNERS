@@ -3,19 +3,21 @@
 #
 # Replace @rrahimi-uci with your team's actual GitHub handles once the repo
 # moves to its OSS home. Until then, the default catch-all assigns the founder.
+#
+# Patterns are repo-root-relative. A pattern with no leading slash matches at any
+# depth, which is how the entries below reach the nested package (for example
+# `pyproject.toml` matches `caliber/pyproject.toml`).
 
 * @rrahimi-uci
 
-# Spec changes require design-owner review (kept in sync with the docs).
-/caliber-suite/caliber-backend.md  @rrahimi-uci
-/caliber-suite/caliber-frontend.md @rrahimi-uci
-/caliber-suite/development-plan.md @rrahimi-uci
-/caliber-suite/demo-story.md       @rrahimi-uci
+# Architecture and published documentation sources.
+/ARCHITECTURE.md @rrahimi-uci
+/docs/           @rrahimi-uci
 
 # Security policy changes are reviewed by maintainers.
 SECURITY.md @rrahimi-uci
 
 # Build / CI / dependency changes.
 pyproject.toml          @rrahimi-uci
-.github/workflows/      @rrahimi-uci
+/.github/               @rrahimi-uci
 .pre-commit-config.yaml @rrahimi-uci
