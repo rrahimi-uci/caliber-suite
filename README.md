@@ -244,7 +244,7 @@ Databricks-only, so that surface is built CALIBER-native on the OSS assessment p
 
 The platform spans prompts, tools, skills, MCP servers, workflows, knowledge bases, object storage, test
 sets, observability, evaluation, calibration, the LLM Gateway, RBAC, and Aria. The dated
-[`product-completness-developement-report.md`](./product-completness-developement-report.md) preserves the
+[`product-completness-report.md`](./product-completness-report.md) preserves the
 historical implementation and validation record. Its test totals are not current release proof; use the
 latest `main` CI run for the current checkout.
 
