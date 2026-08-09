@@ -1772,6 +1772,119 @@ class WorkflowRunCapabilitySchema(BaseModel):
     approval_readiness: dict[str, object] = Field(default_factory=dict)
 
 
+class ProjectSchema(BaseModel):
+    """A project/workspace as ``/projects`` returns it.
+
+    ``file_count`` is present only on list responses, which compute it with one
+    grouped query; the detail route does not, and modelling it as required would
+    have forced a per-project count nobody asked for.
+    """
+
+    project_id: str
+    name: str
+    description: str | None = None
+    owner: str
+    status: str
+    storage_backend: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    file_count: int | None = None
+
+
+class ProjectStorageSchema(BaseModel):
+    """Where a project's files live, and what else it could be switched to."""
+
+    backend: str
+    backend_label: str
+    available_backends: list[dict[str, Any]] = Field(default_factory=list)
+    base_uri: str | None = None
+    # Present only for object-store backends. Optional rather than defaulted,
+    # so a local-backend response does not claim an empty bucket.
+    bucket: str | None = None
+    prefix: str | None = None
+    public_endpoint_url: str | None = None
+
+
+class ProjectFileImmutableRefSchema(BaseModel):
+    """Content-addressed handle, emitted only once a digest exists."""
+
+    file_id: str
+    file_ref: str | None = None
+    sha256: str | None = None
+    name: str | None = None
+    size_bytes: int | None = None
+    media_type: str | None = None
+    object_version_id: str | None = None
+
+
+class ProjectFileSchema(BaseModel):
+    """One stored file, matching ``CaliberFileRecord.to_api``."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    file_id: str
+    file_ref: str | None = None
+    name: str
+    kind: str | None = None
+    relative_path: str | None = None
+    media_type: str | None = None
+    size_bytes: int | None = None
+    sha256: str | None = None
+    etag: str | None = None
+    object_version_id: str | None = None
+    version: int | None = None
+    status: str | None = None
+    storage_backend: str | None = None
+    producer_node_id: str | None = None
+    # Added by the project routes after ``to_api()``; declaring it is what keeps
+    # it in the response, since an undeclared field is dropped on serialization.
+    project_id: str | None = None
+    workflow_run_id: str | None = None
+    playground_run_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    # ``metadata`` shadows BaseModel.metadata in some tooling, so it is aliased
+    # rather than renamed: the wire name is part of the shipped contract.
+    file_metadata: dict[str, Any] | None = Field(default=None, alias="metadata")
+    immutable_ref: ProjectFileImmutableRefSchema | None = None
+
+
+class ProjectFolderSchema(BaseModel):
+    """A directory marker within a project's file tree.
+
+    Mirrors ``routes/projects.py::_folder_payload`` field for field. Anything
+    omitted here disappears from the response, because Pydantic drops
+    undeclared keys on serialization -- which is exactly how the first version
+    of this schema deleted ``file_ref`` and ``project_id`` from live payloads.
+    """
+
+    path: str
+    name: str | None = None
+    file_ref: str | None = None
+    storage_backend: str | None = None
+    created_at: str | None = None
+
+
+class ProjectFileListSchema(BaseModel):
+    """Files plus the directories that contain them.
+
+    ``next_cursor`` is always null today. It is modelled rather than omitted so
+    adding real pagination later is an additive change for every SDK client.
+    """
+
+    items: list[ProjectFileSchema] = Field(default_factory=list)
+    directories: list[ProjectFolderSchema] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class DeletedSchema(BaseModel):
+    """Acknowledgement for a delete that returns an id rather than 204."""
+
+    file_id: str | None = None
+    project_id: str | None = None
+    status: str = "deleted"
+
+
 class PlatformCapabilitiesSchema(BaseModel):
     """Response payload for ``GET /caliber/capabilities``."""
 

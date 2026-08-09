@@ -35,12 +35,20 @@ from caliber.auth import (
 from caliber.db.models import CaliberProject, CaliberWorkflowFile
 from caliber.ids import new_project_id
 from caliber.routes._deps import (
-    envelope_response_dict,
+    envelope_response,
     get_session_factory,
     get_working_dir_service,
     parse_json_object,
 )
 from caliber.routes.files import _read_upload, _storage_http
+from caliber.schemas import (
+    DeletedSchema,
+    ProjectFileListSchema,
+    ProjectFileSchema,
+    ProjectFolderSchema,
+    ProjectSchema,
+    ProjectStorageSchema,
+)
 from caliber.storage import (
     VISIBLE_STATUSES,
     CaliberFileRecord,
@@ -136,25 +144,29 @@ def _project_storage_service(request: Request, project: CaliberProject) -> Any:
     return get_working_dir_service(request).for_backend(project.storage_backend)
 
 
-def _project_to_dict(
+def _project_to_schema(
     row: CaliberProject,
     *,
     file_count: int | None = None,
     storage_backend: str | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "project_id": row.project_id,
-        "name": row.name,
-        "description": row.description,
-        "owner": row.owner,
-        "status": row.status,
-        "storage_backend": storage_backend or row.storage_backend,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-    }
-    if file_count is not None:
-        payload["file_count"] = file_count
-    return payload
+) -> ProjectSchema:
+    """The declared shape of a project response.
+
+    ``file_count`` stays optional rather than defaulting to 0: the list route
+    computes it with one grouped query and the detail route does not, and a
+    zero would be indistinguishable from "this project has no files".
+    """
+    return ProjectSchema(
+        project_id=row.project_id,
+        name=row.name,
+        description=row.description,
+        owner=row.owner,
+        status=row.status,
+        storage_backend=storage_backend or row.storage_backend,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        file_count=file_count,
+    )
 
 
 def _normalize_requested_backend(value: object) -> str | None:
@@ -330,25 +342,27 @@ async def list_projects(request: Request) -> JSONResponse:
         # file counts per project (visible files only) — a single grouped query
         # rather than one per project (avoids an N+1 as the project list grows).
         counts = _project_file_counts(session, [row.project_id for row in rows])
-        items = [_project_to_dict(row, file_count=counts.get(row.project_id, 0)) for row in rows]
-    return envelope_response_dict(items)
+        items = [_project_to_schema(row, file_count=counts.get(row.project_id, 0)) for row in rows]
+    return envelope_response(items)
 
 
 async def get_project_storage(request: Request) -> JSONResponse:
     require_user(request)
     workflow_storage = _workflow_storage_config(request)
     backend = str(getattr(workflow_storage, "backend", "local"))
-    payload: dict[str, Any] = {
-        "backend": backend,
-        "backend_label": _backend_label(backend),
-        "available_backends": _available_backend_options(request),
-    }
-    payload["base_uri"] = getattr(workflow_storage, "base_uri", "file://./caliber-workspaces")
+    storage = ProjectStorageSchema(
+        backend=backend,
+        backend_label=_backend_label(backend),
+        available_backends=_available_backend_options(request),
+        base_uri=getattr(workflow_storage, "base_uri", "file://./caliber-workspaces"),
+    )
+    # Object-store fields are attached only for a backend that has them, so a
+    # local-backend response does not advertise an empty bucket.
     if backend == "s3" or getattr(workflow_storage, "bucket", None):
-        payload["bucket"] = getattr(workflow_storage, "bucket", None)
-        payload["prefix"] = getattr(workflow_storage, "prefix", "")
-        payload["public_endpoint_url"] = getattr(workflow_storage, "public_endpoint_url", None)
-    return envelope_response_dict(payload)
+        storage.bucket = getattr(workflow_storage, "bucket", None)
+        storage.prefix = getattr(workflow_storage, "prefix", "")
+        storage.public_endpoint_url = getattr(workflow_storage, "public_endpoint_url", None)
+    return envelope_response(storage)
 
 
 async def create_project(request: Request) -> JSONResponse:
@@ -387,8 +401,8 @@ async def create_project(request: Request) -> JSONResponse:
             details={"name": project.name, "storage_backend": storage_backend},
         )
         session.commit()
-        payload = _project_to_dict(project, file_count=0)
-    return envelope_response_dict(payload, status_code=201)
+        payload = _project_to_schema(project, file_count=0)
+    return envelope_response(payload, status_code=201)
 
 
 async def get_project(request: Request) -> JSONResponse:
@@ -398,11 +412,11 @@ async def get_project(request: Request) -> JSONResponse:
     with factory() as session:
         project = _require_project(session, project_id, identity=resolve_identity(request))
         count = _project_file_count(session, project_id)
-        payload = _project_to_dict(
+        payload = _project_to_schema(
             project,
             file_count=count,
         )
-    return envelope_response_dict(payload)
+    return envelope_response(payload)
 
 
 async def update_project(request: Request) -> JSONResponse:
@@ -433,8 +447,8 @@ async def update_project(request: Request) -> JSONResponse:
             details={"status": project.status},
         )
         session.commit()
-        payload = _project_to_dict(project)
-    return envelope_response_dict(payload)
+        payload = _project_to_schema(project)
+    return envelope_response(payload)
 
 
 async def list_project_files(request: Request) -> JSONResponse:
@@ -450,7 +464,13 @@ async def list_project_files(request: Request) -> JSONResponse:
             if r.status in VISIBLE_STATUSES and not _is_directory_marker(r)
         ]
         directories = _folders_from_rows(project_id, rows)
-    return envelope_response_dict({"items": items, "directories": directories, "next_cursor": None})
+    return envelope_response(
+        ProjectFileListSchema(
+            items=[ProjectFileSchema.model_validate(item) for item in items],
+            directories=[ProjectFolderSchema.model_validate(d) for d in directories],
+            next_cursor=None,
+        )
+    )
 
 
 async def create_project_folder(request: Request) -> JSONResponse:
@@ -485,7 +505,7 @@ async def create_project_folder(request: Request) -> JSONResponse:
             payload = _folder_payload(project_id, folder_path or raw_path, row=row)
     except StorageError as exc:
         raise _storage_http(exc) from exc
-    return envelope_response_dict(payload, status_code=201)
+    return envelope_response(ProjectFolderSchema.model_validate(payload), status_code=201)
 
 
 async def upload_project_file(request: Request) -> JSONResponse:
@@ -520,7 +540,7 @@ async def upload_project_file(request: Request) -> JSONResponse:
             payload["project_id"] = project_id
     except StorageError as exc:
         raise _storage_http(exc) from exc
-    return envelope_response_dict(payload, status_code=201)
+    return envelope_response(ProjectFileSchema.model_validate(payload), status_code=201)
 
 
 async def download_project_file(request: Request) -> Response:
@@ -576,7 +596,7 @@ async def delete_project_file(request: Request) -> JSONResponse:
             status="ok",
         )
         session.commit()
-    return envelope_response_dict({"file_id": file_id, "status": "deleted"})
+    return envelope_response(DeletedSchema(file_id=file_id, status="deleted"))
 
 
 def register(app: Starlette) -> None:
