@@ -1,0 +1,7 @@
+WARNING  caliber.observability.incidents:incidents.py:377 could not route incident INC-cf700426afc0
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/observability/incidents.py", line 362, in _route
+    publish(
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_incidents.py", line 341, in _fail_resolution
+    raise RuntimeError("event bus unavailable")
+RuntimeError: event bus unavailable

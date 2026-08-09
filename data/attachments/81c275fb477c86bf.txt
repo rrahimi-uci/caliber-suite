@@ -1,0 +1,1 @@
+{"t":"2026-08-09T20:31:31.117Z","severity":"WARNING","logger":"caliber.orchestrator.janitor","message":"reaped stale job=RFN-LEGACY agent=agent stage=evidence heartbeat=never","trace_id":"eb082fbcb1c1b008"}
