@@ -1459,8 +1459,11 @@ honest one to state.
 
 ### 13.8 Verification
 
-Local, on the 3.12 venv. CI has not yet run these changes; that standing is the same as
-§11.3's and no better until the PR reports.
+Local **and remote**. Unlike §10.3 and §11.3, this section does not close on a caveat: the
+work merged as `c5099c50f` and CI run
+[`31301511499`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/31301511499) ran
+it on `main` with **all 13 jobs green** — 5,996 backend / 12 skipped at 93% coverage, and
+115 frontend files / 1,570 tests.
 
 | Suite | Result | Command |
 | --- | --- | --- |
@@ -1469,6 +1472,8 @@ Local, on the 3.12 venv. CI has not yet run these changes; that standing is the 
 | Types | clean, 322 files | `mypy src` |
 | Pages parity gate | clean | `sync-docs.mjs` then `git diff --exit-code` |
 | Published site | 4/4 paths served | `verify_published_site.py` against the live URL |
+| **CI, on the remote** | **13/13 jobs green** (`31301511499`) | GitHub Actions on `main` |
+| **Pages, on the remote** | `build` · `deploy` · **`verify`** all green (`31301511513`) | GitHub Actions on `main` |
 
 Against §12.1's 5,988 collected the suite has grown by 20 — the 7 gate-ledger decision
 tests, the 10 published-site gate tests, and 3 net from the security work.
@@ -1491,3 +1496,30 @@ The service cluster also resolved to a single edit — `deploy_prod` already rel
 other production policies, with a comment explaining that its callers reach `prod`
 incidentally — which is worth noting as the counter-case: a well-placed existing seam made
 a 50-test migration a three-line change.
+
+**The published-site gate has now caught a real deployment, not a fabricated one.** Pages
+run [`31301511513`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/31301511513)
+deployed `c5099c50f` and its `verify` job fetched the live site:
+
+```text
+Published-site verification
+  base: https://rrahimi-uci.github.io/caliber-suite/
+ . (root)                          200
+ . m-00-layered-architecture.html  200
+ . m-19-runbook.html               200
+ . tests/                          200
+all 4 published paths served
+```
+
+That matters more than the pass itself. §11.3 said of the gate ledger that it "should be
+treated as unproven until a real run produces its first summary," and §12.1 had to record
+that the ledger's *detecting* branch still had not run. The publication gate skipped that
+whole category: it executed against a real deployment on its first merge, and the paths it
+asserts are the ones that were actually 404ing 60 hours earlier. It has not yet *failed* a
+run — that path is covered by the contract tests rather than by experience, and the same
+caveat that applies to the ledger applies here.
+
+**One number worth keeping.** Local reported 5,999 passed / 9 skipped; CI reported 5,996 /
+12. Both are **6,008 collected** — the same three environment-dependent tests §12.2
+identified (two tesseract, one unbuilt UI bundle), behaving exactly as the skip reasons
+predict. Against §12.1's 5,988 the suite has grown by 20.
