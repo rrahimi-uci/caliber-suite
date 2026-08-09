@@ -1,8 +1,0 @@
-{"t":"2026-08-09T17:19:15.444Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"refinement worker started (interval=999.0s)"}
-{"t":"2026-08-09T17:19:15.460Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"job=RFN-H skipping mlflow run binding: experiment 'exp' is not resolvable","trace_id":"a0fc5908206e84c9"}
-{"t":"2026-08-09T17:19:15.470Z","severity":"INFO","logger":"caliber.orchestrator.triage","message":"triage complete: job=RFN-H class={'cluster': 'hallucination', 'artifact_type': 'prompt', 'confidence': 0.6, 'rationale': '[fake] hallucination', 'source': 'llm'}","trace_id":"a0fc5908206e84c9"}
-{"t":"2026-08-09T17:19:15.480Z","severity":"INFO","logger":"caliber.orchestrator.evidence","message":"evidence complete: job=RFN-H summary={'trace_id': None, 'experiment_id': None, 'session_id': None, 'has_trace_link': False, 'has_session_link': False, 'free_text_preview': '...'}","trace_id":"a0fc5908206e84c9"}
-{"t":"2026-08-09T17:19:15.488Z","severity":"INFO","logger":"caliber.orchestrator.diagnosis","message":"diagnosis complete: job=RFN-H confidence=0.75 cost_usd=0.0015","trace_id":"a0fc5908206e84c9"}
-{"t":"2026-08-09T17:19:15.495Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-H optimizer=MetaPrompt cost_usd=0.0040","trace_id":"a0fc5908206e84c9"}
-{"t":"2026-08-09T17:19:15.506Z","severity":"INFO","logger":"caliber.orchestrator.eval_stage","message":"eval passed: job=RFN-H status=candidate_ready overall=0.940","trace_id":"a0fc5908206e84c9"}
-{"t":"2026-08-09T17:19:15.508Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"refinement worker stopped"}
