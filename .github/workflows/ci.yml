@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -111,7 +111,7 @@ jobs:
     # and emits Allure results.
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -172,7 +172,7 @@ jobs:
         python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -199,7 +199,7 @@ jobs:
     needs: [lint, type-check]
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -295,7 +295,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -467,7 +467,7 @@ jobs:
     needs: [ui]
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
