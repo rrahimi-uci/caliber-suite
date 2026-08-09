@@ -19,7 +19,14 @@ import httpx
 
 from .auth import AuthProvider, NoAuth, TokenAuth, TrustedHeaderAuth
 from .errors import CaliberConfigError
-from .resources import RawAPI
+from .resources import (
+    AuthAPI,
+    CapabilitiesAPI,
+    MeAPI,
+    ProjectsAPI,
+    RawAPI,
+    SettingsAPI,
+)
 from .transport import Transport
 
 #: Environment variables the client falls back to, so a script that runs in CI
@@ -63,6 +70,14 @@ class CaliberClient:
             client=http_client,
         )
         self.raw = RawAPI(self._transport)
+        #: Typed resource modules. ``raw`` stays available for anything not
+        #: yet modelled, so the SDK is never the reason something is
+        #: unreachable.
+        self.auth = AuthAPI(self._transport)
+        self.me = MeAPI(self._transport)
+        self.capabilities_api = CapabilitiesAPI(self._transport)
+        self.settings = SettingsAPI(self._transport)
+        self.projects = ProjectsAPI(self._transport)
 
     @staticmethod
     def _auth_from(

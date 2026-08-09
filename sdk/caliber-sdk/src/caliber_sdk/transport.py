@@ -154,6 +154,8 @@ class Transport:
         params: Mapping[str, Any] | None = None,
         json: Any = None,
         headers: Mapping[str, str] | None = None,
+        files: Any = None,
+        data: Mapping[str, Any] | None = None,
         timeout: float | None = None,
         _csrf_retry: bool = True,
     ) -> Response:
@@ -165,14 +167,27 @@ class Transport:
 
         for attempt in range(attempts):
             request_headers = self._headers(verb, headers)
+            # ``timeout`` is omitted entirely unless the caller set one, rather
+            # than passed as USE_CLIENT_DEFAULT. Same behaviour, and it keeps
+            # the SDK drivable by any httpx.Client subclass that restricts
+            # kwargs -- Starlette's TestClient rejects ``timeout`` outright,
+            # which is exactly what someone testing their own integration
+            # against an in-process app would reach for.
+            options: dict[str, Any] = {}
+            if timeout is not None:
+                options["timeout"] = timeout
             try:
                 raw = self._client.request(
                     verb,
                     url,
                     params=dict(params) if params else None,
-                    json=json,
+                    # ``json`` and ``files`` are mutually exclusive at the HTTP
+                    # level: a multipart body cannot also be a JSON document.
+                    json=json if files is None else None,
+                    files=files,
+                    data=dict(data) if data else None,
                     headers=request_headers,
-                    timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
+                    **options,
                 )
             except httpx.HTTPError as exc:
                 last_transport_error = exc
@@ -275,6 +290,27 @@ class Transport:
 
     def delete(self, path: str, **kwargs: Any) -> Response:
         return self.request("DELETE", path, **kwargs)
+
+    def download(self, path: str, **kwargs: Any) -> bytes:
+        """Fetch raw bytes.
+
+        Separate from :meth:`request` because file content is not JSON: it has
+        no envelope to unwrap and decoding it would corrupt binary data.
+        """
+        url = self.url_for(path)
+        try:
+            raw = self._client.get(url, headers=self._headers("GET", None), **kwargs)
+        except httpx.HTTPError as exc:
+            raise CaliberTransportError(f"GET {url} failed: {exc}") from exc
+        if raw.status_code >= 400:
+            raise error_for_response(
+                status_code=raw.status_code,
+                payload=_decode(raw),
+                method="GET",
+                url=url,
+                request_id=raw.headers.get("X-Request-Id"),
+            )
+        return raw.content
 
     def paginate(
         self, path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100

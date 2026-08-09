@@ -247,9 +247,9 @@ Exit gate:
 
 Scope:
 
-- [ ] implement `auth.py`, `me.py`, `capabilities.py`, `settings.py`
-- [ ] add typed models for those modules
-- [ ] add package-local tests
+- [x] implement `auth.py`, `me.py`, `capabilities.py`, `settings.py` (plus `projects.py`, which the others scope against)
+- [x] add typed models for those modules
+- [x] add package-local tests (17 new; 66 total) + 7 real SDK-vs-server integration tests
 
 ### M2-PR2 — Prompt/skill/tool surfaces
 
