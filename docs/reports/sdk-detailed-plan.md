@@ -213,7 +213,7 @@ This is a strong pattern to replicate for CALIBER’s management API: a served O
 
 ### 3.2 Packaging recommendation (keeps dependencies sane)
 
-Create two new Python distributions inside this repository under `caliber/sdk/`:
+Create two new Python distributions in this repository under a top-level `sdk/`:
 
 - `caliber-sdk` (lightweight):
   - deps: `httpx`, `pydantic`, `typing-extensions` (and minimal helpers).
@@ -226,8 +226,9 @@ Create two new Python distributions inside this repository under `caliber/sdk/`:
 
 Proposed repo layout (not currently present; implementation plan in §8):
 
-```
-caliber/
+```text
+caliber-suite/
+  caliber/            # the server distribution (caliber-suite)
   sdk/
     caliber-sdk/
       pyproject.toml
@@ -238,6 +239,33 @@ caliber/
 ```
 
 Use hyphenated names for the published distributions (`caliber-sdk`, `caliber-plugin-sdk`) and underscored names for the Python import packages (`caliber_sdk`, `caliber_plugin_sdk`).
+
+#### Why `sdk/` is a repository-root sibling, not `caliber/sdk/`
+
+An earlier draft nested these inside `caliber/`. That directory is itself a
+distribution root, and nesting distributions inside another distribution's root
+breaks in three measured ways:
+
+1. **The server sdist would ship both SDKs.** `[tool.hatch.build.targets.sdist]`
+   in `caliber/pyproject.toml` excludes caches, venvs, and build outputs — it has
+   no `sdk` entry. Hatchling would therefore include `caliber/sdk/**` in the
+   `caliber-suite` source distribution, shipping two unrelated distributions'
+   sources inside a third. Fixable with another exclude, but only for as long as
+   everyone remembers it.
+2. **The SDKs would be linted but never type-checked.** CI runs from `caliber/`
+   with `ruff check .` (recursive, so it *would* reach `caliber/sdk/**` and apply
+   the server's ruff config) but `mypy src` (which would *not*). The result is
+   the worst of both: the SDK looks covered by the lint job while its types are
+   unchecked.
+3. **Config inheritance is accidental rather than chosen.** A separate
+   distribution should pick its own lint, typing, and test settings, not inherit
+   the server's because of where it happens to sit on disk.
+
+A root-level `sdk/` avoids all three with no exclusions to maintain, and matches
+how this repository is already organised: every top-level directory is one
+concern (`caliber/`, `deploy/`, `docs/`, `docs-site/`, `paper/`, `scripts/`).
+Each SDK then owns its own `pyproject.toml`, and CI adds jobs with an explicit
+`working-directory` rather than relying on the repo-wide `caliber` default.
 
 This avoids coupling external consumers to the heavyweight server distribution while allowing the server to depend on the plugin SDK internally.
 
