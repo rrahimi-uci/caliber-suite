@@ -1,0 +1,26 @@
+version: 2
+
+# Repo-root config. GitHub only reads <repo-root>/.github/dependabot.yml, so the
+# `directory:` of each ecosystem is repo-root-relative — not relative to the
+# package it updates. In this monorepo that means the Python manifest lives at
+# /caliber, while the workflows Dependabot bumps live at the root.
+updates:
+  # Python dependencies — caliber/pyproject.toml
+  - package-ecosystem: pip
+    directory: /caliber
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, python]
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions — .github/workflows/*.yml
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "chore(ci)"
