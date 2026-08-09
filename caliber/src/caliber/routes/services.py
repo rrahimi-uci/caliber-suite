@@ -48,7 +48,6 @@ from caliber.db.scoping import get_visible
 from caliber.ids import new_service_id, new_service_token_id
 from caliber.routes._deps import (
     envelope_response,
-    envelope_response_dict,
     get_session_factory,
     parse_json_object,
 )
@@ -60,6 +59,7 @@ from caliber.schemas import (
     ServiceTokenCreatedSchema,
     ServiceTokenCreateRequest,
     ServiceTokenSchema,
+    StatusAckSchema,
     WorkflowServicePublishRequest,
     WorkflowServiceSchema,
 )
@@ -424,7 +424,7 @@ async def delete_service(request: Request) -> JSONResponse:
             details={"workflow_id": workflow_id},
         )
         session.commit()
-    return envelope_response_dict({"status": "unpublished"})
+    return envelope_response(StatusAckSchema(status="unpublished"))
 
 
 async def create_service_token(request: Request) -> JSONResponse:
@@ -538,7 +538,7 @@ async def revoke_service_token(request: Request) -> JSONResponse:
                 details={"workflow_id": workflow_id},
             )
         session.commit()
-    return envelope_response_dict({"status": "revoked"})
+    return envelope_response(StatusAckSchema(status="revoked"))
 
 
 # ---------------------------------------------------------------------------

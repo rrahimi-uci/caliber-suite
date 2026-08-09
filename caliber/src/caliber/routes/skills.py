@@ -76,7 +76,6 @@ from caliber.ids import (
 )
 from caliber.routes._deps import (
     envelope_response,
-    envelope_response_dict,
     get_session_factory,
     list_limit,
     parse_json_object,
@@ -92,11 +91,14 @@ from caliber.schemas import (
     SkillCalibrateRequest,
     SkillCreateRequest,
     SkillPackageImportRequest,
+    SkillRenderSchema,
     SkillSchema,
+    SkillSelectionSchema,
     SkillTestRunCreateRequest,
     SkillTestRunDetail,
     SkillTestRunSummary,
     SkillUpdateRequest,
+    SkillVersionSchema,
     SkillWorkspaceLastRun,
     SkillWorkspaceResponse,
     VerificationItemSchema,
@@ -279,19 +281,19 @@ async def test_render_skill(request: Request) -> JSONResponse:
 
     rendered = _SKILL_VAR_RE.sub(_sub, content)
     unresolved = [name for name in detected if name not in applied]
-    return envelope_response_dict(
-        {
-            "skill_id": row.skill_id,
-            "skill_name": row.name,
-            "rendered_content": rendered,
-            "original_content": content,
-            "detected_variables": detected,
-            "unresolved_variables": unresolved,
-            "variables_applied": applied,
-            "summary": row.summary or "",
-            "word_count": len(rendered.split()),
-            "char_count": len(rendered),
-        }
+    return envelope_response(
+        SkillRenderSchema(
+            skill_id=row.skill_id,
+            skill_name=row.name,
+            rendered_content=rendered,
+            original_content=content,
+            detected_variables=detected,
+            unresolved_variables=unresolved,
+            variables_applied=applied,
+            summary=row.summary or "",
+            word_count=len(rendered.split()),
+            char_count=len(rendered),
+        )
     )
 
 
@@ -321,14 +323,14 @@ async def test_skill_selection(request: Request) -> JSONResponse:
         artifact_type=str(artifact_type),
         session_goal=str(session_goal),
     )
-    return envelope_response_dict(
-        {
-            "skill_id": row.skill_id,
-            "skill_name": row.name,
-            "is_selected": score > 0,
-            "selection_score": score,
-            "selection_reason": reason,
-        }
+    return envelope_response(
+        SkillSelectionSchema(
+            skill_id=row.skill_id,
+            skill_name=row.name,
+            is_selected=score > 0,
+            selection_score=score,
+            selection_reason=reason,
+        )
     )
 
 
@@ -634,7 +636,7 @@ async def list_skill_versions(request: Request) -> JSONResponse:
             }
             for row in rows
         ]
-    return envelope_response_dict(data)
+    return envelope_response([SkillVersionSchema.model_validate(v) for v in data])
 
 
 async def get_skill_package(request: Request) -> JSONResponse:

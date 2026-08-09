@@ -68,6 +68,7 @@ from caliber.schemas import (
     WorkflowBenchmarkReportUpdateRequest,
     WorkflowComponentCatalogSchema,
     WorkflowCreateRequest,
+    WorkflowCronPreviewSchema,
     WorkflowImportRequest,
     WorkflowSchema,
     WorkflowSessionMemoryClearResultSchema,
@@ -301,12 +302,10 @@ async def preview_workflow_cron(request: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail=f"unknown timezone: {tz!r}") from exc
     now_local = datetime.now(timezone.utc).astimezone(zone).replace(tzinfo=None)
     fires = next_fires(expr, now_local, count=count)
-    return envelope_response_dict(
-        {
-            "timezone": tz,
-            "expression": expr,
-            "fire_times": [dt.isoformat() for dt in fires],
-        }
+    return envelope_response(
+        WorkflowCronPreviewSchema(
+            timezone=tz, expression=expr, fire_times=[dt.isoformat() for dt in fires]
+        )
     )
 
 

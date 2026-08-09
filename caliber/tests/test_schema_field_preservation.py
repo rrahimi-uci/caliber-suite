@@ -23,6 +23,9 @@ from typing import Any
 import pytest
 
 from caliber.schemas import (
+    CalibrationJobSchema,
+    CalibrationResolutionSchema,
+    PersonalAccessTokenSchema,
     ProjectFileSchema,
     ProjectFolderSchema,
     ProjectSchema,
@@ -95,6 +98,50 @@ _STORAGE_PAYLOAD: dict[str, Any] = {
 }
 
 
+#: Shapes added in tranche 5. ``CalibrationResolutionSchema`` is here because
+#: the first attempt reused ``CalibrationJobSchema`` for it, which dropped
+#: ``retry_job_id`` -- the only field carrying the retry lineage.
+_CALIBRATION_JOB_PAYLOAD: dict[str, Any] = {
+    "job_id": "CAL-1",
+    "tool_id": "TOOL-1",
+    "status": "succeeded",
+    "requested_by": "@alice",
+    "result": {"pass_rate": 1.0},
+    "error": None,
+    "created_at": "2026-08-09T00:00:00",
+    "claimed_at": "2026-08-09T00:00:01",
+    "claimed_by": "worker-1",
+    "finished_at": "2026-08-09T00:00:02",
+    "retry_of_job_id": None,
+    "resolution": None,
+    "resolution_reason": None,
+    "resolved_by": None,
+    "resolved_at": None,
+}
+
+_CALIBRATION_RESOLUTION_PAYLOAD: dict[str, Any] = {
+    "job_id": "CAL-1",
+    "status": "resolved",
+    "resolution": "retry",
+    "retry_job_id": "CAL-2",
+}
+
+_TOKEN_PAYLOAD: dict[str, Any] = {
+    "token_id": "PAT-1",
+    "user_id": "@alice",
+    "name": "ci",
+    "scopes": ["caliber.operator"],
+    "created_at": "2026-08-09T00:00:00",
+    "created_by": "@alice",
+    "expires_at": None,
+    "last_used_at": None,
+    "revoked_at": None,
+    "revoked_reason": None,
+    "rotated_from": None,
+    "active": True,
+}
+
+
 @pytest.mark.parametrize(
     ("schema", "payload"),
     [
@@ -102,8 +149,19 @@ _STORAGE_PAYLOAD: dict[str, Any] = {
         (ProjectFolderSchema, _FOLDER_PAYLOAD),
         (ProjectSchema, _PROJECT_PAYLOAD),
         (ProjectStorageSchema, _STORAGE_PAYLOAD),
+        (CalibrationJobSchema, _CALIBRATION_JOB_PAYLOAD),
+        (CalibrationResolutionSchema, _CALIBRATION_RESOLUTION_PAYLOAD),
+        (PersonalAccessTokenSchema, _TOKEN_PAYLOAD),
     ],
-    ids=["file", "folder", "project", "storage"],
+    ids=[
+        "file",
+        "folder",
+        "project",
+        "storage",
+        "calibration-job",
+        "calibration-resolution",
+        "token",
+    ],
 )
 def test_no_field_is_lost_in_the_round_trip(schema: type, payload: dict[str, Any]) -> None:
     """Every key the producer emits survives validate -> dump."""
@@ -126,6 +184,17 @@ def test_nested_objects_are_preserved_too() -> None:
     assert dumped["immutable_ref"] is not None
     missing = sorted(set(expected) - set(dumped["immutable_ref"]))
     assert not missing, f"ProjectFileSchema.immutable_ref drops {missing}"
+
+
+def test_a_listed_token_never_carries_a_secret() -> None:
+    """The inverse hazard: a schema inventing a key rather than dropping one.
+
+    Modelling the token surface with a single optional ``token`` field put
+    ``"token": null`` into every list response -- announcing a secret in the
+    one payload that must never mention one.
+    """
+    dumped = PersonalAccessTokenSchema.model_validate(_TOKEN_PAYLOAD).model_dump(mode="json")
+    assert "token" not in dumped
 
 
 def test_the_metadata_alias_keeps_its_wire_name() -> None:

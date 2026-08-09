@@ -51,6 +51,7 @@ from caliber.mcp_policy import deployment_blockers
 from caliber.observability import metrics
 from caliber.routes._deps import (
     envelope_response,
+    envelope_response_dict,
     get_session_factory,
     parse_json_object,
     scoped_child_or_404,
@@ -60,6 +61,7 @@ from caliber.schemas import (
     PlanBuildRequest,
     PreviewRunRequest,
     ProposePatchRequest,
+    WorkflowCompileSchema,
     WorkflowPatchSchema,
     WorkflowRunHistoryArtifactStatsSchema,
     WorkflowRunHistoryStatsSchema,
@@ -708,7 +710,7 @@ async def compile_version_route(request: Request) -> JSONResponse:
             "compile_ms": result.compile_ms,
             "cached": result.cached,
         }
-    return envelope_response_dict(payload)
+    return envelope_response(WorkflowCompileSchema.model_validate(payload))
 
 
 async def publish_version_route(request: Request) -> JSONResponse:
@@ -1825,11 +1827,6 @@ async def export_python_route(request: Request) -> PlainTextResponse:
             raise HTTPException(status_code=400, detail=f"cannot export: {exc}") from exc
         code = result.generated_python
     return PlainTextResponse(code, media_type="text/x-python")
-
-
-def envelope_response_dict(payload: dict[str, Any]) -> JSONResponse:
-    """Like ``envelope_response`` but for a plain dict (not a Pydantic model)."""
-    return JSONResponse({"data": payload})
 
 
 def register(app: Starlette) -> None:

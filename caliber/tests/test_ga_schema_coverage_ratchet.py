@@ -50,8 +50,18 @@ _GA_MODULES = (
 )
 
 #: GA handlers returning an unmodelled dict payload. Ratchet only downward.
-#: 52 -> 43 projects, 25 files+auth, 21 settings+me (M0-PR2 tranches 1-4).
-_BASELINE = 21
+#: 52 -> 43 projects, 25 files+auth, 21 settings+me, 8 tools/skills/services/
+#: agents/workflows (M0-PR2, tranches 1-5).
+#:
+#: The remaining eight are deliberate, not unfinished. Each returns a payload
+#: whose *shape is owned by another module* -- a graph diff from
+#: ``compute_graph_diff``, a validation report from ``validate_manifest``, a
+#: compile/preview/run result, or the workflow-import preview. A schema over
+#: those would either be an ``extra="allow"`` passthrough, which adds no typing
+#: value, or a second definition of a contract that lives elsewhere and would
+#: drift from it. Modelling them means modelling those modules' outputs, which
+#: is its own change rather than part of formalizing the route layer.
+_BASELINE = 8
 
 
 def _unmodelled_returns() -> list[str]:

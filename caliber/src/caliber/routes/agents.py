@@ -42,7 +42,6 @@ from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.prompt_targets import is_hidden_prompt_target
 from caliber.routes._deps import (
     envelope_response,
-    envelope_response_dict,
     get_session_factory,
     list_limit,
     parse_json_object,
@@ -53,6 +52,7 @@ from caliber.schemas import (
     AgentRegisterRequest,
     AgentSkillsResponse,
     AgentUpdateRequest,
+    ExperimentBindingSchema,
     SkillSchema,
 )
 from caliber.skill_targets import is_hidden_skill_target
@@ -512,8 +512,10 @@ async def get_agent_experiment(request: Request) -> JSONResponse:
         if agent is None:
             raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
         configured = agent.experiment_id
-    return envelope_response_dict(
-        {"configured_experiment_id": configured, **resolve_experiment(configured)}
+    return envelope_response(
+        ExperimentBindingSchema.model_validate(
+            {"configured_experiment_id": configured, **resolve_experiment(configured)}
+        )
     )
 
 

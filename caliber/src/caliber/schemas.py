@@ -1772,6 +1772,157 @@ class WorkflowRunCapabilitySchema(BaseModel):
     approval_readiness: dict[str, object] = Field(default_factory=dict)
 
 
+class WorkflowCronPreviewSchema(BaseModel):
+    """Next fire-times for a cron trigger. Mirrors the SPA's type of the same name."""
+
+    timezone: str
+    expression: str
+    #: ISO-8601 local datetimes (tz-naive), soonest first.
+    fire_times: list[str] = Field(default_factory=list)
+
+
+class WorkflowCompileSchema(BaseModel):
+    """Result of compiling a workflow version.
+
+    ``report`` stays an open mapping: it is produced by the compiler, and its
+    contents are that module's contract rather than this one's.
+    """
+
+    version_id: str
+    compiled_artifact_uri: str | None = None
+    compiler_version: str | None = None
+    manifest_hash: str | None = None
+    report: dict[str, Any] | None = None
+    generated_python: str | None = None
+    requirements: list[str] = Field(default_factory=list)
+    compile_ms: float | None = None
+    cached: bool = False
+
+
+class RuntimeApprovalAckSchema(BaseModel):
+    """Acknowledgement that a run is waiting on a human decision.
+
+    The quorum counts are declared rather than left to ``extra="allow"``:
+    permissive extras survive validation but are not constructor arguments, so
+    an undeclared field is a type error at every call site that sets it.
+    """
+
+    workflow_run_id: str
+    runtime_approval_id: str
+    status: str
+    approvals: int = 0
+    required_approvals: int = 0
+    remaining_approvals: int = 0
+
+
+class StatusAckSchema(BaseModel):
+    """Minimal acknowledgement for an operation whose only result is its verb."""
+
+    status: str
+
+
+class ExperimentBindingSchema(BaseModel):
+    """The configured experiment plus whatever resolution reports about it.
+
+    ``resolve_experiment`` returns a small, backend-dependent dict that is
+    merged in at the route. Kept open rather than pinned: it reflects MLflow's
+    answer, and inventing a fixed shape here would misrepresent it.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    configured_experiment_id: str | None = None
+
+
+class CalibrationJobSchema(BaseModel):
+    """One tool calibration job.
+
+    ``result`` stays an open mapping: it carries scorer output whose keys vary
+    by suite, and the server is the authority on what a run measured.
+    """
+
+    job_id: str
+    tool_id: str | None = None
+    status: str
+    requested_by: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    created_at: str | None = None
+    claimed_at: str | None = None
+    claimed_by: str | None = None
+    finished_at: str | None = None
+    pass_rate: float | None = None
+    retry_of_job_id: str | None = None
+    resolution: str | None = None
+    resolution_reason: str | None = None
+    resolved_by: str | None = None
+    resolved_at: str | None = None
+
+
+class CalibrationJobListSchema(BaseModel):
+    jobs: list[CalibrationJobSchema] = Field(default_factory=list)
+    total: int = 0
+
+
+class CalibrationResolutionSchema(BaseModel):
+    """Outcome of resolving an ambiguous calibration job.
+
+    Deliberately not :class:`CalibrationJobSchema`: this answers "what did the
+    resolution do", and ``retry_job_id`` links to the successor job that
+    resolution created. Reusing the job schema would have silently dropped that
+    link, which is the only field carrying the lineage.
+    """
+
+    job_id: str
+    status: str
+    resolution: str | None = None
+    retry_job_id: str | None = None
+
+
+class CalibrationQueuedSchema(BaseModel):
+    """Acknowledgement that calibration was queued rather than run inline."""
+
+    job_id: str
+    tool_id: str | None = None
+    status: str
+
+
+class SkillRenderSchema(BaseModel):
+    """Result of rendering a skill's content with its variables applied."""
+
+    skill_id: str
+    skill_name: str
+    rendered_content: str
+    original_content: str
+    detected_variables: list[str] = Field(default_factory=list)
+    unresolved_variables: list[str] = Field(default_factory=list)
+    variables_applied: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+    word_count: int = 0
+    char_count: int = 0
+
+
+class SkillSelectionSchema(BaseModel):
+    """Whether a skill would be selected for a given input, and why."""
+
+    skill_id: str
+    skill_name: str
+    is_selected: bool = False
+    selection_score: float = 0.0
+    selection_reason: str | None = None
+
+
+class SkillVersionSchema(BaseModel):
+    """One immutable skill snapshot."""
+
+    skill_id: str
+    version_number: int
+    content: str | None = None
+    summary: str | None = None
+    created_by: str | None = None
+    created_at: str | None = None
+
+
 class IdentitySchema(BaseModel):
     """The caller's identity and resolved scopes, as ``/me`` returns them."""
 
