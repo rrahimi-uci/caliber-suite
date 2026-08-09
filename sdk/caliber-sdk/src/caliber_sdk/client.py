@@ -112,6 +112,11 @@ class CaliberClient:
 
         The first call worth making when a script gets an unexpected 403: it
         distinguishes "wrong credential" from "right credential, wrong scope".
+
+        It reports identity rather than requiring it, so an invalid or revoked
+        credential does **not** raise here -- it returns ``user_id:
+        "anonymous"`` with no scopes. Check the value; do not rely on an
+        exception to detect a bad token.
         """
         return self._transport.get("/me").data
 

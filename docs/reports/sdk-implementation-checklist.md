@@ -20,7 +20,7 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 
 ## Execution order
 
-- [ ] M0 — Server contract normalization
+- [x] M0 — Server contract normalization
 - [x] M1 — Python SDK skeleton
 - [ ] M2 — GA Python SDK modules
 - [ ] M3 — Beta + agentic SDK modules
@@ -31,7 +31,7 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 
 - [x] Management OpenAPI is served for the CALIBER management API.
 - [x] PAT-based automation auth exists.
-- [ ] GA route schemas are formalized and stable enough for typed SDK use.
+- [x] GA route schemas are formalized and stable enough for typed SDK use.
 - [x] `caliber-sdk` installs without `mlflow`.
 - [ ] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
 - [ ] SDK API pages include method details, model details, stability labels, and working examples.
@@ -48,8 +48,8 @@ Dependency: none
 Exit gate:
 
 - [x] `GET /ajax-api/2.0/mlflow/caliber/openapi.json` exists
-- [ ] Phase 1 GA routes have formal schemas
-- [ ] stability metadata is machine-readable
+- [x] Phase 1 GA routes have formal schemas
+- [x] stability metadata is machine-readable
 - [x] PAT automation flow works end to end
 
 ### M0-PR1 — Serve management OpenAPI
@@ -83,9 +83,9 @@ Validation:
 
 Scope:
 
-- [ ] identify GA endpoints still returning flexible dict payloads
-- [ ] formalize shared request/response models in [caliber/src/caliber/schemas.py](../../caliber/src/caliber/schemas.py)
-- [ ] keep route responses consistent with envelope/error conventions
+- [x] identify GA endpoints still returning flexible dict payloads (52 measured)
+- [x] formalize shared request/response models in [caliber/src/caliber/schemas.py](../../caliber/src/caliber/schemas.py) (52 -> 8)
+- [x] keep route responses consistent with envelope/error conventions
 
 Primary code targets:
 
@@ -103,9 +103,9 @@ Validation:
 
 Scope:
 
-- [ ] define `ga` / `beta` / `internal` operation metadata
-- [ ] expose enough capability information for SDK feature detection
-- [ ] align stability labeling between OpenAPI and `/capabilities`
+- [x] define `ga` / `beta` / `internal` operation metadata
+- [x] expose enough capability information for SDK feature detection
+- [x] align stability labeling between OpenAPI and `/capabilities`
 
 Primary code targets:
 
@@ -150,17 +150,18 @@ Validation:
 
 Scope:
 
-- [ ] verify OpenAPI can drive a smoke client
-- [ ] verify at least one auth flow and one GA resource flow
-- [ ] verify error envelope stability
+- [x] verify OpenAPI can drive a smoke client
+- [x] verify at least one auth flow and one GA resource flow
+- [x] verify error envelope stability
 
 Validation:
 
-- [ ] `pytest caliber/tests/test_routes_openapi.py caliber/tests/test_routes_errors.py caliber/tests/test_route_deps.py`
+- [x] added `caliber/tests/test_contract_smoke.py` (10 tests) — drives the server from its own published document
+- [x] `pytest caliber/tests/test_routes_openapi.py caliber/tests/test_routes_errors.py caliber/tests/test_route_deps.py`
 
 Milestone completion:
 
-- [ ] M0 complete
+- [x] M0 complete
 
 ## M1 — Python SDK skeleton
 
