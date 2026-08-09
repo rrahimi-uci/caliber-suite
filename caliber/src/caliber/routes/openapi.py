@@ -68,6 +68,99 @@ def _converters_in(path: str) -> dict[str, str]:
     return converters
 
 
+#: Stability tier per OpenAPI tag.
+#:
+#: Tags are derived from the URL, not from the Python module, because that is
+#: what a caller of the HTTP API can see. The two do not correspond one to one:
+#: 41 route modules produce 50 tags (``knowledge_bases`` alone yields
+#: ``knowledge-bases``, ``knowledge-base-versions``, ``knowledge-runs``, and
+#: ``knowledge``), so the mapping is written out rather than derived.
+#:
+#: ``test_every_tag_has_a_declared_stability_tier`` fails when a new tag appears
+#: without a tier, which is the only way this stays correct as routes are added.
+STABILITY_GA = "ga"
+STABILITY_BETA = "beta"
+STABILITY_INTERNAL = "internal"
+
+_STABILITY: dict[str, str] = {
+    # --- GA: the core management and automation surface -------------------
+    "openapi.json": STABILITY_GA,
+    "auth": STABILITY_GA,
+    "csrf": STABILITY_GA,
+    "me": STABILITY_GA,
+    "capabilities": STABILITY_GA,
+    "settings": STABILITY_GA,
+    "prompts": STABILITY_GA,
+    "skills": STABILITY_GA,
+    "tools": STABILITY_GA,
+    "agents": STABILITY_GA,
+    "workflows": STABILITY_GA,
+    "workflow-versions": STABILITY_GA,
+    "workflow-runs": STABILITY_GA,
+    "workflow-promotions": STABILITY_GA,
+    "workflow-templates": STABILITY_GA,
+    "workflow-components": STABILITY_GA,
+    "workflow-cron-preview": STABILITY_GA,
+    "workflow-files": STABILITY_GA,
+    "services": STABILITY_GA,
+    "projects": STABILITY_GA,
+    "eval-datasets": STABILITY_GA,
+    "evaluations": STABILITY_GA,
+    "judges": STABILITY_GA,
+    # --- Beta: real, supported, still moving ------------------------------
+    "mcp-servers": STABILITY_BETA,
+    "gateway": STABILITY_BETA,
+    "knowledge-bases": STABILITY_BETA,
+    "knowledge-base-versions": STABILITY_BETA,
+    "knowledge-runs": STABILITY_BETA,
+    "knowledge": STABILITY_BETA,
+    "object-store": STABILITY_BETA,
+    "jobs": STABILITY_BETA,
+    "review-queues": STABILITY_BETA,
+    "aria": STABILITY_BETA,
+    "releases": STABILITY_BETA,
+    "observability": STABILITY_BETA,
+    "audit-log": STABILITY_BETA,
+    "events": STABILITY_BETA,
+    "cookbooks": STABILITY_BETA,
+    "secrets": STABILITY_BETA,
+    "workflow-benchmark-reports": STABILITY_BETA,
+    "playground-runs": STABILITY_BETA,
+    # --- Internal: not part of the public SDK contract --------------------
+    "assistant": STABILITY_INTERNAL,
+    "memory": STABILITY_INTERNAL,
+    "dashboard": STABILITY_INTERNAL,
+    "metrics": STABILITY_INTERNAL,
+    "health": STABILITY_INTERNAL,
+    "readiness": STABILITY_INTERNAL,
+    "gate-verdicts": STABILITY_INTERNAL,
+    "llm-pricing": STABILITY_INTERNAL,
+    "system": STABILITY_INTERNAL,
+}
+
+#: A tag with no declared tier is treated as internal rather than assumed GA.
+#: Failing closed matters here: the tier is a promise about compatibility, and
+#: silently promising one for a route nobody classified is the expensive
+#: mistake. The test suite additionally rejects the omission outright.
+STABILITY_DEFAULT = STABILITY_INTERNAL
+
+
+def stability_for(tag: str) -> str:
+    return _STABILITY.get(tag, STABILITY_DEFAULT)
+
+
+def stability_summary() -> dict[str, list[str]]:
+    """Tags grouped by tier, for ``/capabilities`` to serve to SDK clients."""
+    summary: dict[str, list[str]] = {
+        STABILITY_GA: [],
+        STABILITY_BETA: [],
+        STABILITY_INTERNAL: [],
+    }
+    for tag, tier in _STABILITY.items():
+        summary[tier].append(tag)
+    return {tier: sorted(tags) for tier, tags in summary.items()}
+
+
 def _tag_for(path: str) -> str:
     """Group operations by the first segment after the prefix.
 
@@ -221,11 +314,15 @@ def build_openapi_document(app: Starlette) -> dict[str, Any]:
             for name, kind in sorted(converters.items())
         ]
 
+        tag = _tag_for(raw_path)
         methods = sorted((route.methods or set()) - _IMPLICIT_METHODS)
         for method in methods:
             operation: dict[str, Any] = {
                 "operationId": _operation_id(method, raw_path),
-                "tags": [_tag_for(raw_path)],
+                "tags": [tag],
+                # Per-operation so a generator can gate on it directly, rather
+                # than joining against a tag table it may not read.
+                "x-caliber-stability": stability_for(tag),
                 "responses": _responses(),
             }
             if parameters:

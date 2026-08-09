@@ -128,7 +128,7 @@ def test_capabilities_reflect_flag_overrides(client) -> None:
     assert runs["event_backend"] == "database"
     assert runs["approval_readiness"]["status"] == "ready"
     assert runs["approval_readiness"]["blockers"] == []
-    assert runs["approval_readiness"]["settings_path"] == "/settings/runtime"
+    assert runs["approval_readiness"]["settings_path"] == "/settings"
 
 
 def test_capabilities_keep_resume_disabled_without_checkpointing(client) -> None:

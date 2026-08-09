@@ -1778,6 +1778,10 @@ class PlatformCapabilitiesSchema(BaseModel):
     workflow_runs: WorkflowRunCapabilitySchema
     sync_workflow_version_run: bool = True
     artifact_families: dict[str, dict[str, object]] = Field(default_factory=dict)
+    #: OpenAPI tags grouped by stability tier (``ga`` / ``beta`` / ``internal``).
+    #: Lets an SDK decide what it may call without downloading and parsing the
+    #: full management OpenAPI document.
+    sdk_stability: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class WorkflowComponentFieldSchema(BaseModel):
