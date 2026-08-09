@@ -6987,12 +6987,29 @@ def confine_to_file_root(path: Path, *, what: str) -> Path:
 
     Resolution happens **before** any existence check and covers symlinks, which
     is the whole point: ``~/safe/link -> /etc`` passes a string comparison and
-    fails this one. An unset root means unconfined, preserving the shipped
-    behaviour for existing development workflows; the setting is the opt-in for
-    deployments whose authors are not as trusted as their operators.
-    """
-    from caliber.config import workflow_file_root  # noqa: PLC0415
+    fails this one.
 
+    **An unset root now refuses these nodes** rather than leaving them
+    unconfined. That reverses the original default deliberately: shipping the
+    permissive state left the promotion gate as the only thing between an
+    operator and an arbitrary host read or write, and a single-layer defence at
+    a policy boundary is the pattern this control exists to remove. Operators
+    who need the old behaviour set ``CALIBER_WORKFLOW_FILE_ROOT=unconfined``,
+    which is one line and, unlike the previous default, appears in the config.
+    """
+    from caliber.config import (  # noqa: PLC0415
+        workflow_file_root,
+        workflow_host_paths_allowed,
+    )
+
+    if not workflow_host_paths_allowed():
+        raise ValueError(
+            f"{what} path is refused: unmanaged host-filesystem nodes are disabled "
+            "because CALIBER_WORKFLOW_FILE_ROOT is unset. Bind a managed project "
+            "file instead, set CALIBER_WORKFLOW_FILE_ROOT to a directory these "
+            "nodes may use, or set it to 'unconfined' to allow any path the "
+            "server can reach."
+        )
     root = workflow_file_root()
     if root is None:
         return path

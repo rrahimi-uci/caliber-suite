@@ -121,9 +121,34 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # Bounded on purpose. A Pages deployment that cannot proceed parks in
+    # `waiting` indefinitely and, because the concurrency group above is not
+    # cancel-in-progress, holds the group while every later run queues behind it
+    # or is cancelled. That happened: one deployment sat in `waiting` for 59
+    # hours, four runs behind it never published, and not one of them reported
+    # as failed. A timeout converts that silence into a red run.
+    timeout-minutes: 20
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # The gate this workflow was missing. `deploy` reporting success means the
+  # deployment API accepted an artifact -- not that a reader can fetch the site.
+  # The two came apart for 59 hours: the composed layout was correct in this file
+  # and absent from the web, and nothing compared them. This job is the
+  # comparison, and it reads the live URL rather than any workflow's exit code.
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the published site and check what it actually serves
+        env:
+          PAGE_URL: ${{ needs.deploy.outputs.page_url || 'https://rrahimi-uci.github.io/caliber-suite/' }}
+        run: python3 .github/scripts/verify_published_site.py "$PAGE_URL"

@@ -851,15 +851,38 @@ def test_a_version_with_no_tools_is_unaffected(db_session: Session) -> None:
     require_alias_target_ready(db_session, "prod", "wfv-no-tools", config=CaliberConfig())
 
 
-def test_the_sandbox_gate_is_off_by_default(db_session: Session) -> None:
-    """Shipped behaviour must be unchanged: this is hardening, not a migration.
+def test_the_sandbox_gate_refuses_a_production_alias_by_default(db_session: Session) -> None:
+    """The default is now strict, and this test is the record of that reversal.
 
-    Requiring an isolating backend by default refused every existing prod
-    promotion that uses a registered tool. MCP can be strict because it is a
-    deliberate integration; tools are ubiquitous.
+    It previously asserted the opposite — "shipped behaviour must be unchanged:
+    this is hardening, not a migration" — on the reasoning that MCP can be strict
+    because it is a deliberate integration while registered tools are ubiquitous.
+    That reasoning was about *migration cost*, not about whether the boundary is
+    adequate, and the boundary is not: the built-in sandbox is a process
+    boundary, not a container or seccomp one, so a production alias executing
+    registered tool code had no OS-enforced isolation and nothing said so.
+
+    This is a breaking change, taken deliberately. The escape hatch below is one
+    setting, and unlike the previous default it is visible in the config.
     """
     from caliber.workflows.promoter import require_alias_target_ready
 
     _tool_version(db_session, "wfv-tools-default")
 
-    require_alias_target_ready(db_session, "prod", "wfv-tools-default", config=CaliberConfig())
+    with pytest.raises(AliasPreflightError, match="isolation"):
+        require_alias_target_ready(db_session, "prod", "wfv-tools-default", config=CaliberConfig())
+
+
+def test_the_strict_default_can_be_turned_off_in_one_setting(db_session: Session) -> None:
+    """The migration path for a deployment whose tool authors are its operators.
+
+    Pinned because a breaking default is only defensible if reverting it is
+    trivial and discoverable; if this stops working, the change becomes a wall
+    rather than a gate.
+    """
+    from caliber.workflows.promoter import require_alias_target_ready
+
+    _tool_version(db_session, "wfv-tools-optout")
+    config = CaliberConfig(tool_sandbox_require_external_isolation_for_environment_classes="")
+
+    require_alias_target_ready(db_session, "prod", "wfv-tools-optout", config=config)

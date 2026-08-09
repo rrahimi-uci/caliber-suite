@@ -267,3 +267,134 @@ We will **not**, in this horizon: become a general automation tool (n8n) or BPM 
 | Threat #2: Dify/Langfuse move up-stack | **New** up-stack competitor watch + trigger (§9) |
 | Threat #4/#6: cold-start & consolidation | Q1 design-partner pipeline; Q4 "last independent open lifecycle plane" positioning |
 | Differentiators to deepen (diagnosis-driven multi-optimizer, HITL governance, **graph-RAG**, unified lifecycle, **sovereign**) | Q2 (optimizer + registry), Q3 (governance + sovereign), Q1/Q5 (**graph-RAG**, now funded), Q5 (unified 6-artifact) |
+
+---
+
+## 14. Production readiness — what "supported production" actually requires
+
+*Added 2026-08-08. §1–§13 above are a **product** roadmap: what CALIBER should be
+able to do. This section is the **engineering readiness** plan, and it exists
+because every completeness review to date has closed on the same verdict —
+feature-rich Alpha, credible for a controlled technical pilot, not ready for
+supported production — without anywhere naming, in dependency order, what would
+change it.*
+
+> **Grounding rule applies here too.** Nothing below is claimed as partially
+> built. Each phase names the seam it builds on and what it does **not** prove,
+> because a readiness plan that overstates its own progress is the failure mode
+> it exists to prevent.
+
+### 14.0 What actually blocks it
+
+Six things, and they are not independent:
+
+| # | Blocker | Why it blocks *supported* production |
+| --- | --- | --- |
+| B1 | **Single-instance by construction** | Nine background loops start in the server lifespan. Two replicas run nine more, and nothing arbitrates ownership — so the scheduler double-fires, the reconciler races itself, and the janitor competes with a copy. |
+| B2 | **No HA/DR position** | No leader election, no documented RPO/RTO, no restore drill. "Highly available" is currently a deployment topology nobody has attempted, not a feature that is missing. |
+| B3 | **Throughput ceiling** | 224 synchronous SQLAlchemy sessions opened directly in async handlers (F-11). Each one parks an event-loop thread; the ratchet holds the line but does not move it. |
+| B4 | **No management surface** | No CLI, no SDK, no management API. Every operational action is a UI click or a direct SQL statement, which is the thing that makes an incident unrepeatable. |
+| B5 | **No enterprise identity** | Session auth with a header-trusted development mode. No OIDC/SAML, no SCIM provisioning, no group-to-scope mapping, no audit export. |
+| B6 | **Deferred halves of closed findings** | F-04's trace visibility, F-10's broker replay, F-12's lexical fusion, F-02b's cancellation propagation. Each is a scoped remainder, not an oversight — but B2 depends on F-10. |
+
+The dependency that matters: **B2 is gated on B1, and B1 is gated on F-10.**
+Externalising the loops needs somewhere durable to put the work, which is the
+broker-replay half of F-10. Doing HA before that produces a second process that
+loses jobs faster.
+
+### 14.1 Phase P0 — make the single-instance constraint *checked* rather than assumed
+
+The cheapest and most valuable step, and it ships no HA at all.
+
+Today nothing stops an operator scaling the deployment to two replicas, and
+nothing tells them what will happen. P0 converts an undocumented assumption into
+an enforced one: a startup-time single-writer claim (an advisory lock or a
+lease row), so a second instance refuses to start its loops and says why,
+rather than silently double-running them.
+
+- **Builds on:** the existing lifespan loop registration, already enumerated by
+  `gen_stats.py` via AST.
+- **Proves:** that scaling out is refused loudly instead of corrupting quietly.
+- **Does not prove:** anything about availability. A refused second replica is
+  still one replica.
+- **Size:** S. This is the F-08 move — turn a silent downgrade into a refusal.
+
+### 14.2 Phase P1 — externalise loop ownership (the real HA gate)
+
+Give the nine loops an owner that survives a process. Two credible shapes:
+lease-based leader election with the loops running only on the leader, or moving
+each loop's work onto the durable queue and letting any instance drain it.
+
+The second is strictly better and strictly more expensive, and it is the same
+work as **F-10's broker replay** — which is why F-10 is on this critical path
+rather than filed as a nice-to-have.
+
+- **Builds on:** the event bus, the dead-letter path landed for F-10, and the
+  reconciler's existing refusal to guess (it settles only what it can prove).
+- **Proves:** two instances can run without double-firing.
+- **Does not prove:** that failover is fast, or that in-flight work survives it.
+  That is P3.
+- **Size:** XL. This is the single largest item on the list.
+
+### 14.3 Phase P2 — remove the throughput ceiling
+
+F-11's 224 synchronous sessions, ~30 files. Mechanical, and the target pattern
+already exists in-tree, so this is volume rather than design risk. Pair it with
+connection-pool sizing and a published load number — the roadmap's §11 already
+commits to "queued-run throughput / KB corpus at stable latency."
+
+- **Proves:** the process does not fall over under concurrent load.
+- **Does not prove:** correctness under concurrency. That is P1's job, and doing
+  P2 first would make the concurrency bugs *easier to hit* without making them
+  detectable.
+- **Size:** L. Sequenced after P1 deliberately.
+
+### 14.4 Phase P3 — DR, stated as numbers
+
+An RPO and an RTO, a backup and restore procedure, and — the part usually
+skipped — a **rehearsed restore** whose result is recorded. The operations
+runbook (`docs/runbook.md`) is the right home; it already documents the three
+recoveries the platform deliberately will not perform alone.
+
+- **Proves:** a stated recovery objective has been met at least once.
+- **Does not prove:** that it will be met under real failure conditions. An
+  unrehearsed DR plan and a rehearsed one differ by exactly one datum.
+- **Size:** M, and cheap relative to its value.
+
+### 14.5 Phase P4 — a management surface
+
+A management API first, then a CLI over it, then an SDK. In that order and for
+one reason: a CLI built before the API becomes a second implementation of every
+operation, and the report already documents what happens when one fact has two
+copies.
+
+- **Builds on:** the 487 existing route declarations, which are a UI-shaped API,
+  not a management-shaped one — the distinction is real work, not a rename.
+- **Proves:** operations are scriptable and therefore repeatable.
+- **Does not prove:** they are safe to script. Rate limits, idempotency keys and
+  dry-run modes belong in this phase, not after it.
+- **Size:** L for the API, M for the CLI, L for a supported SDK (a published SDK
+  is a compatibility commitment, which is why §7 flags the public-SDK freeze as
+  the risky part).
+
+### 14.6 Phase P5 — enterprise identity
+
+OIDC/SAML SSO, SCIM provisioning, group-to-scope mapping, and audit export.
+Deliberately last: it is the least architecturally entangled of the six and the
+most likely to be driven by a specific customer's requirements, so building it
+speculatively risks building the wrong one.
+
+- **Size:** L. Gated behind P4, because SCIM without a management API is a
+  bespoke integration rather than a feature.
+
+### 14.7 What this section is not
+
+It is **not** a schedule. No dates, because the two-person capacity model in §2
+makes P1 alone a multi-quarter item and pretending otherwise would put this
+document in the same category as the claims §12 had to retract.
+
+It is also not a claim that the phases are underway. At the time of writing,
+**none of P0–P5 has been started.** The honest summary is that the readiness gap
+is not a quality problem — the suite is green on the remote across 13 CI gates —
+it is a category problem: CALIBER is a well-tested single-instance application,
+and supported production means being a different kind of system.

@@ -1159,7 +1159,9 @@ def test_usage_cached_prompt_tokens() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_write_output_folder_node_sanitizes_unsafe_names(tmp_path: Any) -> None:
+def test_write_output_folder_node_sanitizes_unsafe_names(
+    tmp_path: Any, confined_workflow_file_root: Any
+) -> None:
     dest = tmp_path / "out"
     port_values: dict[tuple[str, str], Any] = {
         ("n", "result"): {"artifacts": {"..": "escape", "sub/keep.txt": "content"}}
@@ -1172,7 +1174,9 @@ def test_write_output_folder_node_sanitizes_unsafe_names(tmp_path: Any) -> None:
     assert all(".." not in item for item in written)
 
 
-def test_write_output_folder_node_skips_existing_without_overwrite(tmp_path: Any) -> None:
+def test_write_output_folder_node_skips_existing_without_overwrite(
+    tmp_path: Any, confined_workflow_file_root: Any
+) -> None:
     dest = tmp_path / "out"
     dest.mkdir()
     (dest / "keep.txt").write_text("old")

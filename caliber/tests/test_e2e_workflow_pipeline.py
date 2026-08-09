@@ -19,6 +19,7 @@ from tests.workflow_helpers import (
     make_support_manifest,
     make_tool_payload,
     relax_release_graded_executor,
+    relax_tool_isolation_gate,
     seed_eval_dataset,
 )
 
@@ -99,6 +100,10 @@ class TestE2EWorkflowPipeline:
         #    policy refuses as evidence by default; that policy is the subject of
         #    tests/test_deploy_gate_executor.py, not of this lifecycle walkthrough.
         relax_release_graded_executor(client)
+        # Registered tools now require an OS-enforced isolation backend before a
+        # production alias will accept them; that default is the subject of
+        # tests/test_deployment_environment_policy.py, not of this suite.
+        relax_tool_isolation_gate(client)
         r = client.post(
             f"{PREFIX}/workflows/{workflow_id}/deployments/prod/promote",
             json={"version_id": version_id},
