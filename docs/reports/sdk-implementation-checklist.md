@@ -21,7 +21,7 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 ## Execution order
 
 - [ ] M0 — Server contract normalization
-- [ ] M1 — Python SDK skeleton
+- [x] M1 — Python SDK skeleton
 - [ ] M2 — GA Python SDK modules
 - [ ] M3 — Beta + agentic SDK modules
 - [ ] M4 — Plugin SDK + registry refactor
@@ -32,7 +32,7 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 - [x] Management OpenAPI is served for the CALIBER management API.
 - [x] PAT-based automation auth exists.
 - [ ] GA route schemas are formalized and stable enough for typed SDK use.
-- [ ] `caliber-sdk` installs without `mlflow`.
+- [x] `caliber-sdk` installs without `mlflow`.
 - [ ] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
 - [ ] SDK API pages include method details, model details, stability labels, and working examples.
 - [ ] Examples shown in the SDK docs are CI-tested.
@@ -168,68 +168,68 @@ Dependency: M0 complete
 
 Exit gate:
 
-- [ ] `caliber-sdk` package builds
-- [ ] raw transport works
-- [ ] auth + CSRF bootstrap work
-- [ ] error normalization works
+- [x] `caliber-sdk` package builds
+- [x] raw transport works
+- [x] auth + CSRF bootstrap work
+- [x] error normalization works
 
 ### M1-PR1 — Package layout and build wiring
 
 Scope:
 
-- [ ] create `caliber/sdk/caliber-sdk/pyproject.toml`
-- [ ] create `caliber/sdk/caliber-sdk/src/caliber_sdk/__init__.py`
-- [ ] add package-local test layout
+- [x] create `sdk/caliber-sdk/pyproject.toml`
+- [x] create `sdk/caliber-sdk/src/caliber_sdk/__init__.py`
+- [x] add package-local test layout
 
 Validation:
 
-- [ ] `cd caliber/sdk/caliber-sdk && python -m build`
+- [x] `cd sdk/caliber-sdk && python -m build`
 
 ### M1-PR2 — Base client, transport, and raw API
 
 Scope:
 
-- [ ] add `client.py`
-- [ ] add `transport.py`
-- [ ] add `resources/_base.py`
-- [ ] add `resources/raw.py`
+- [x] add `client.py`
+- [x] add `transport.py`
+- [x] add `resources/_base.py`
+- [x] add `resources/raw.py`
 
 Validation:
 
-- [ ] package-local transport tests
-- [ ] `cd caliber/sdk/caliber-sdk && pytest`
+- [x] package-local transport tests
+- [x] `cd sdk/caliber-sdk && pytest` — 49 passed
 
 ### M1-PR3 — Auth, CSRF, and errors
 
 Scope:
 
-- [ ] add `auth.py`
-- [ ] add `csrf.py`
-- [ ] add `errors.py`
-- [ ] normalize 4xx/5xx responses into stable exceptions
+- [x] add `auth.py`
+- [x] add `csrf.py` (folded into `transport.py` — see PR notes)
+- [x] add `errors.py`
+- [x] normalize 4xx/5xx responses into stable exceptions
 
 Validation:
 
-- [ ] package-local auth/error tests
-- [ ] `cd caliber/sdk/caliber-sdk && pytest`
+- [x] package-local auth/error tests
+- [x] `cd sdk/caliber-sdk && pytest` — 49 passed
 
 ### M1-PR4 — Waiters and common models
 
 Scope:
 
-- [ ] add `waiters.py`
-- [ ] add `models/common.py`
-- [ ] add `models/errors.py`
-- [ ] define common pagination and envelope helpers
+- [x] add `waiters.py`
+- [x] add `models/common.py`
+- [x] add `models/errors.py`
+- [x] define common pagination and envelope helpers
 
 Validation:
 
-- [ ] package-local waiter/model tests
-- [ ] `cd caliber/sdk/caliber-sdk && pytest`
+- [x] package-local waiter/model tests
+- [x] `cd sdk/caliber-sdk && pytest` — 49 passed
 
 Milestone completion:
 
-- [ ] M1 complete
+- [x] M1 complete
 
 ## M2 — GA Python SDK modules
 
@@ -304,8 +304,8 @@ Scope:
 
 Validation:
 
-- [ ] `cd caliber/sdk/caliber-sdk && pytest`
-- [ ] `cd caliber/sdk/caliber-sdk && python -m build`
+- [x] `cd sdk/caliber-sdk && pytest` — 49 passed
+- [x] `cd sdk/caliber-sdk && python -m build`
 
 ### M2-PR6 — GA SDK developer documentation
 
@@ -411,7 +411,7 @@ Scope:
 
 Validation:
 
-- [ ] `cd caliber/sdk/caliber-sdk && pytest`
+- [x] `cd sdk/caliber-sdk && pytest` — 49 passed
 
 ### M3-PR6 — SDK cookbook docs + GitHub Pages publication
 
@@ -471,14 +471,14 @@ Validation:
 
 Scope:
 
-- [ ] create `caliber/sdk/caliber-plugin-sdk/pyproject.toml`
-- [ ] create `caliber/sdk/caliber-plugin-sdk/src/caliber_plugin_sdk/`
+- [ ] create `sdk/caliber-plugin-sdk/pyproject.toml`
+- [ ] create `sdk/caliber-plugin-sdk/src/caliber_plugin_sdk/`
 - [ ] define experimental protocols and contexts
 
 Validation:
 
 - [ ] package-local plugin SDK tests
-- [ ] `cd caliber/sdk/caliber-plugin-sdk && python -m build`
+- [ ] `cd sdk/caliber-plugin-sdk && python -m build`
 
 ### M4-PR3 — Conformance suite and reference plugin
 

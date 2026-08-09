@@ -33,13 +33,15 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CALIBER_DIR="$REPO_ROOT/caliber"
 UI_DIR="$CALIBER_DIR/caliber-ui"
+SDK_DIR="$REPO_ROOT/sdk/caliber-sdk"
+SDK_VENV_PY="$SDK_DIR/.venv-sdk/bin/python"
 VENV_PY="$CALIBER_DIR/.venv/bin/python"
 
 # Mirrors CALIBER_CI_EXTRAS in the workflow, so a locally-missing optional dependency
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test compatibility integration ui cookbook-ui-only compose package security)
+ALL_JOBS=(lint type-check test compatibility integration ui cookbook-ui-only compose package security sdk)
 FAST_SKIP=(integration package)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -287,6 +289,40 @@ PY
 
 # gitleaks is what CI uses. Absent locally it is reported as skipped rather than passed:
 # a check that did not run must never look like one that did.
+# caliber-sdk is a separate distribution with its own ruff/mypy/pytest config, so it
+# gets its own virtualenv rather than borrowing the server's. The wheel assertion is
+# the point of the package existing: installing it must not drag in the server runtime,
+# and a dependency added carelessly would only show up here.
+job_sdk() {
+  cd "$SDK_DIR" || return 1
+  if [ ! -x "$SDK_VENV_PY" ]; then
+    python3 -m venv "$SDK_DIR/.venv-sdk" || return 1
+    "$SDK_VENV_PY" -m pip install -q --upgrade pip hatchling build || return 1
+  fi
+  "$SDK_VENV_PY" -m pip install -q -e ".[dev]" || return 1
+  "$SDK_VENV_PY" -m ruff check . || return 1
+  "$SDK_VENV_PY" -m mypy || return 1
+  "$SDK_VENV_PY" -m pytest || return 1
+  rm -rf "$SDK_DIR/dist"
+  "$SDK_VENV_PY" -m build --wheel --outdir "$SDK_DIR/dist" || return 1
+  "$SDK_VENV_PY" - <<'CHECK'
+import glob, re, sys, zipfile
+wheel = sorted(glob.glob("dist/*.whl"))[-1]
+archive = zipfile.ZipFile(wheel)
+name = next(n for n in archive.namelist() if n.endswith("METADATA"))
+metadata = archive.read(name).decode()
+runtime = [
+    line for line in re.findall(r"^Requires-Dist: (.+)$", metadata, re.M)
+    if "extra ==" not in line
+]
+banned = [r for r in runtime if re.search(r"mlflow|sqlalchemy|starlette", r, re.I)]
+print("runtime requirements:", runtime)
+if banned:
+    sys.exit(f"caliber-sdk must not depend on the server runtime: {banned}")
+CHECK
+}
+
+
 job_security() {
   cd "$REPO_ROOT" || return 1
   "$CALIBER_DIR/scripts/run-supported-python-security-audit.sh" \
@@ -358,6 +394,7 @@ main() {
       compose) run_job compose job_compose ;;
       package) run_job package job_package ;;
       security) run_job security job_security ;;
+      sdk) run_job sdk job_sdk ;;
       *)
         red "unknown job '$job' (known: ${ALL_JOBS[*]})"
         return 2
