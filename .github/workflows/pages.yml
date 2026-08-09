@@ -135,7 +135,7 @@ jobs:
       page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # The gate this workflow was missing. `deploy` reporting success means the
   # deployment API accepted an artifact -- not that a reader can fetch the site.
