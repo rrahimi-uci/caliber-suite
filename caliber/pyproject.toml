@@ -66,7 +66,7 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3.7",
     "build>=1.2",                 # local package parity with the CI distribution job
-    "twine>=6,<7",                # validates wheel/sdist metadata before publication
+    "twine>=6,<8",                # validates wheel/sdist metadata before publication
     "types-PyYAML",
     "moto[s3]>=5.0",             # in-process S3 mock for the s3 backend tests
 ]
