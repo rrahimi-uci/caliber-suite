@@ -14,7 +14,9 @@ docker compose -f deploy/compose.yaml --profile app --profile nats up -d --build
 make infra-up APP=1
 ```
 
-- Tracking UI / API: <http://localhost:5000>
+- Tracking UI / API: <http://localhost:5000> by default (`MLFLOW_PORT` selects
+  another host port; `./start.sh` chooses a free port automatically when the
+  default is occupied)
 - Artifacts → MinIO bucket `mlflow` at `s3://mlflow/mlruns/<exp>/<run>/artifacts/` (`http://minio:9000`)
 - Metadata → a dedicated **`mlflow` database** on the Postgres container. It is
   separate from CALIBER's `caliber` database so the two Alembic histories cannot

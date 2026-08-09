@@ -56,6 +56,12 @@ That brings up **MinIO** (with buckets pre-created), **Postgres** (pgvector +
 Apache AGE), **MLflow**, the **MLflow AI Gateway**, **CALIBER**, and the shared event bus
 required by the deployed app backend. `./start.sh` selects **NATS**.
 
+MLflow is published on host port `5000` by default. If that port is already in
+use (for example, by native CALIBER development), `./start.sh` automatically
+selects the next free port and prints the resulting URL. Set `MLFLOW_PORT` in
+`deploy/.env` to choose a fixed host port; an occupied explicit port fails with
+an actionable error.
+
 For backing services only:
 
 ```bash
