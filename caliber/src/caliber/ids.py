@@ -17,6 +17,10 @@ from uuid import uuid4
 
 # Public prefixes — keep in sync with the documented ID conventions.
 VERIFICATION_ITEM_PREFIX = "FB-"
+# S105 fires on the "TOKEN" in the name. This is the public *identifier*
+# prefix (PAT-3a8f2c7e), not a credential: the credential prefix is
+# sessions.PAT_PREFIX, and the secret itself is never stored anywhere.
+PERSONAL_ACCESS_TOKEN_PREFIX = "PAT-"  # noqa: S105
 REFINEMENT_JOB_PREFIX = "RFN-"
 APPROVAL_PREFIX = "AP-"
 CHECKPOINT_PREFIX = "CK-"
@@ -97,6 +101,11 @@ _ID_SUFFIX_LEN = 8
 
 def _suffix() -> str:
     return uuid4().hex[:_ID_SUFFIX_LEN]
+
+
+def new_personal_access_token_id() -> str:
+    """Return a fresh personal-access-token ID, e.g. ``PAT-3a8f2c7e``."""
+    return f"{PERSONAL_ACCESS_TOKEN_PREFIX}{_suffix()}"
 
 
 def new_item_id() -> str:
