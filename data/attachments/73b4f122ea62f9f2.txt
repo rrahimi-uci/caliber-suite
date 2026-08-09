@@ -1,2 +1,0 @@
-{"t":"2026-08-09T04:36:36.110Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"refinement worker started (interval=0.0s)"}
-{"t":"2026-08-09T04:36:36.163Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"refinement worker stopped"}
