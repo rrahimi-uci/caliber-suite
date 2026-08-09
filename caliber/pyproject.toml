@@ -79,7 +79,7 @@ nats = [
     "nats-py>=2.7,<3",
 ]
 redis = [
-    "redis>=5,<6",
+    "redis>=5,<9",
 ]
 # Production deployments install with this extra to wire in real LLM calls
 # for diagnosis, candidate generation, and other orchestrator stages. The
