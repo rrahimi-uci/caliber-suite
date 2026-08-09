@@ -50,8 +50,8 @@ _GA_MODULES = (
 )
 
 #: GA handlers returning an unmodelled dict payload. Ratchet only downward.
-#: 52 -> 43 when projects.py was formalized (M0-PR2, tranche 1).
-_BASELINE = 43
+#: 52 -> 43 projects, 25 files+auth, 21 settings+me (M0-PR2 tranches 1-4).
+_BASELINE = 21
 
 
 def _unmodelled_returns() -> list[str]:

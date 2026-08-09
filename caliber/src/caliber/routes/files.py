@@ -46,12 +46,13 @@ from caliber.db.models import (
     CaliberWorkflowRun,
 )
 from caliber.routes._deps import (
-    envelope_response_dict,
+    envelope_response,
     get_session_factory,
     get_working_dir_service,
     parse_json_object,
     scoped_child_or_404,
 )
+from caliber.schemas import FileListSchema, ProjectFileSchema
 from caliber.storage import (
     FILE_KINDS,
     VISIBLE_STATUSES,
@@ -232,7 +233,7 @@ async def staging_upload(request: Request) -> JSONResponse:
             payload["workflow_run_id"] = None
     except StorageError as exc:
         raise _storage_http(exc) from exc
-    return envelope_response_dict(payload, status_code=201)
+    return envelope_response(ProjectFileSchema.model_validate(payload), status_code=201)
 
 
 async def run_upload(request: Request) -> JSONResponse:
@@ -284,7 +285,7 @@ async def run_upload(request: Request) -> JSONResponse:
             payload["workflow_run_id"] = run_id
     except StorageError as exc:
         raise _storage_http(exc) from exc
-    return envelope_response_dict(payload, status_code=201)
+    return envelope_response(ProjectFileSchema.model_validate(payload), status_code=201)
 
 
 async def list_files(request: Request) -> JSONResponse:
@@ -312,7 +313,9 @@ async def list_files(request: Request) -> JSONResponse:
         items = [
             CaliberFileRecord.from_row(r).to_api() for r in rows if r.status in VISIBLE_STATUSES
         ]
-    return envelope_response_dict({"items": items, "next_cursor": None})
+    return envelope_response(
+        FileListSchema(items=[ProjectFileSchema.model_validate(i) for i in items], next_cursor=None)
+    )
 
 
 async def get_file(request: Request) -> JSONResponse:
@@ -326,7 +329,7 @@ async def get_file(request: Request) -> JSONResponse:
 
         payload = CaliberFileRecord.from_row(row).to_api()
         payload["workflow_run_id"] = run_id
-    return envelope_response_dict(payload)
+    return envelope_response(ProjectFileSchema.model_validate(payload))
 
 
 async def get_file_content(request: Request) -> Response:
@@ -411,7 +414,7 @@ async def register_artifact(request: Request) -> JSONResponse:
 
         payload = CaliberFileRecord.from_row(row).to_api()
         payload["workflow_run_id"] = run_id
-    return envelope_response_dict(payload, status_code=201)
+    return envelope_response(ProjectFileSchema.model_validate(payload), status_code=201)
 
 
 def _pg_file_or_404(
@@ -481,7 +484,7 @@ async def pg_upload(request: Request) -> JSONResponse:
             payload["playground_run_id"] = run_id
     except StorageError as exc:
         raise _storage_http(exc) from exc
-    return envelope_response_dict(payload, status_code=201)
+    return envelope_response(ProjectFileSchema.model_validate(payload), status_code=201)
 
 
 async def pg_list_files(request: Request) -> JSONResponse:
@@ -505,7 +508,9 @@ async def pg_list_files(request: Request) -> JSONResponse:
         items = [
             CaliberFileRecord.from_row(r).to_api() for r in rows if r.status in VISIBLE_STATUSES
         ]
-    return envelope_response_dict({"items": items, "next_cursor": None})
+    return envelope_response(
+        FileListSchema(items=[ProjectFileSchema.model_validate(i) for i in items], next_cursor=None)
+    )
 
 
 async def pg_get_file_content(request: Request) -> Response:

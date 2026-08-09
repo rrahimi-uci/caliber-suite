@@ -1772,6 +1772,152 @@ class WorkflowRunCapabilitySchema(BaseModel):
     approval_readiness: dict[str, object] = Field(default_factory=dict)
 
 
+class IdentitySchema(BaseModel):
+    """The caller's identity and resolved scopes, as ``/me`` returns them."""
+
+    user_id: str
+    scopes: list[str] = Field(default_factory=list)
+    is_admin: bool = False
+
+
+class LlmSetupStatusSchema(BaseModel):
+    """Which LLM credentials are configured -- presence, never values.
+
+    Fingerprints are a masked tail only. This route previously returned fully
+    resolved provider keys so the Settings UI could prefill password fields,
+    which put live credentials into every operator's browser, query cache, and
+    response log. Declaring the shape here makes that boundary explicit rather
+    than a property of one handler's dict literal.
+    """
+
+    llm_provider: str = ""
+    gateway_url: str = ""
+    openai_key_env: str | None = None
+    openai_key_present: bool = False
+    anthropic_key_present: bool = False
+    assistant_engine: str = ""
+    openai_key_fingerprint: str | None = None
+    anthropic_key_fingerprint: str | None = None
+
+
+class RuntimeSettingsSummarySchema(BaseModel):
+    """Counts across the runtime configuration inventory."""
+
+    total: int = 0
+    live_editable: int = 0
+    environment_managed: int = 0
+    configured: int = 0
+    defaults: int = 0
+    secret_sources: int = 0
+
+
+class RuntimeSettingsSchema(BaseModel):
+    """Grouped, safe inventory of runtime configuration knobs.
+
+    ``groups`` stays loosely typed: its entries are assembled per setting with
+    heterogeneous ``value`` types, and pinning that shape belongs with the
+    settings surface itself rather than being invented here.
+    """
+
+    summary: RuntimeSettingsSummarySchema
+    groups: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LoginSchema(BaseModel):
+    """Result of a successful sign-in.
+
+    The session token is deliberately absent: it is returned only as an
+    HttpOnly cookie, and repeating it here would defeat the boundary that
+    stops injected script from reading it.
+    """
+
+    user_id: str
+    expires_at: str
+
+
+class LogoutSchema(BaseModel):
+    revoked: bool
+
+
+class SessionInfoSchema(BaseModel):
+    """Who the caller is and how that was established."""
+
+    user_id: str
+    scopes: list[str] = Field(default_factory=list)
+    is_admin: bool = False
+    auth_mode: str
+    authenticated_by: str
+    #: The SPA renders a login form only when passwords are the mechanism.
+    login_required: bool = False
+
+
+class AccountSchema(BaseModel):
+    """One user account. Never carries a password hash."""
+
+    user_id: str
+    disabled: bool = False
+    created_at: str | None = None
+    password_updated_at: str | None = None
+    last_login_at: str | None = None
+
+
+class AccountListSchema(BaseModel):
+    accounts: list[AccountSchema] = Field(default_factory=list)
+    total: int = 0
+
+
+class AccountMutationSchema(BaseModel):
+    """Acknowledgement for account create / update / session revocation.
+
+    One model for three routes because they answer the same question -- which
+    account, and what happened to it -- with only the verb differing. Each verb
+    field is optional so a response states just its own outcome.
+    """
+
+    user_id: str
+    disabled: bool | None = None
+    changed: list[str] | None = None
+    revoked: int | None = None
+
+
+class PersonalAccessTokenSchema(BaseModel):
+    """A personal access token's metadata. Never carries the secret.
+
+    The plaintext lives on :class:`IssuedPersonalAccessTokenSchema` instead of
+    being an optional field here. Modelling it as ``token: str | None`` put a
+    ``"token": null`` key into every list response -- announcing a secret that
+    is not there, in the one payload that must never mention one.
+    """
+
+    token_id: str
+    user_id: str
+    name: str
+    scopes: list[str] = Field(default_factory=list)
+    created_at: str | None = None
+    created_by: str | None = None
+    expires_at: str | None = None
+    last_used_at: str | None = None
+    revoked_at: str | None = None
+    revoked_reason: str | None = None
+    rotated_from: str | None = None
+    active: bool = True
+
+
+class IssuedPersonalAccessTokenSchema(PersonalAccessTokenSchema):
+    """The one response that carries the plaintext, returned exactly once."""
+
+    token: str
+
+
+class PersonalAccessTokenListSchema(BaseModel):
+    tokens: list[PersonalAccessTokenSchema] = Field(default_factory=list)
+
+
+class TokenRevocationSchema(BaseModel):
+    token_id: str
+    revoked: bool
+
+
 class ProjectSchema(BaseModel):
     """A project/workspace as ``/projects`` returns it.
 
@@ -1874,6 +2020,19 @@ class ProjectFileListSchema(BaseModel):
 
     items: list[ProjectFileSchema] = Field(default_factory=list)
     directories: list[ProjectFolderSchema] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class FileListSchema(BaseModel):
+    """A flat list of stored files.
+
+    Distinct from :class:`ProjectFileListSchema`, which also carries the
+    directory tree. Run- and playground-scoped listings have no folders, and
+    declaring an always-empty ``directories`` would invent a concept those
+    endpoints do not have.
+    """
+
+    items: list[ProjectFileSchema] = Field(default_factory=list)
     next_cursor: str | None = None
 
 

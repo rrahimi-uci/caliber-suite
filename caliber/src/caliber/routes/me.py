@@ -17,7 +17,8 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.auth import SCOPE_ADMIN, current_scopes, current_user
-from caliber.routes._deps import envelope_response_dict
+from caliber.routes._deps import envelope_response
+from caliber.schemas import IdentitySchema
 
 ME_PATH = "/ajax-api/2.0/mlflow/caliber/me"
 
@@ -31,12 +32,8 @@ async def get_me(request: Request) -> JSONResponse:
     """
     user = current_user(request)
     scopes = current_scopes(request)
-    return envelope_response_dict(
-        {
-            "user_id": user,
-            "scopes": sorted(scopes),
-            "is_admin": SCOPE_ADMIN in scopes,
-        }
+    return envelope_response(
+        IdentitySchema(user_id=user, scopes=sorted(scopes), is_admin=SCOPE_ADMIN in scopes)
     )
 
 
