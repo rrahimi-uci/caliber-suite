@@ -1102,6 +1102,14 @@ Measured against the live site on 2026-08-08:
 | `https://rrahimi-uci.github.io/caliber-suite/tests/` | **404** |
 | `https://rrahimi-uci.github.io/caliber-suite/runbook.html` | **404** |
 
+> **Corrected — see [§13.1](#131-the-outage-is-closed-and-one-of-the-probes-above-was-invalid).**
+> The `runbook.html` row is not evidence of anything: that path does not exist at *any*
+> commit, so it 404s on a fully current site too. The published name is
+> `m-19-runbook.html`. The conclusion it was used to support is unaffected and was
+> re-established properly — that page genuinely was absent from the serving tree — but the
+> probe was wrong and is corrected rather than quietly dropped. The `/tests/` row is sound
+> and is what the section actually rests on.
+
 The runbook 404 dates the live site. `docs/runbook.md` landed in `5b0ad0c75` and §10.1
 announced it as published; it is not on the published site. What is serving is GitHub
 deployment `5781346617`, **sha `764ffb9c5`**, successful at 2026-08-06T14:31:15Z — one commit
@@ -1273,3 +1281,213 @@ The three items this update leaves for someone to act on, smallest first: rename
 `ui-complete.md` or the seven citations to it (§12.6); commit the report rename together with
 its four link edits and a regeneration (§12.5); and unwedge Pages, then add a check that reads
 the site rather than the workflow's exit code (§12.4).
+
+---
+
+## 13. Update, 2026-08-08 (later the same day)
+
+> **Tree:** `f85be07f3` (`main`, PR #32) plus the branch this section describes.
+>
+> **Scope of this update:** act on the three weakest areas rather than record them —
+> release/publication operations, the security defaults §9 flagged as single-layer, and
+> production readiness. Two of those moved. The third did not, and §13.7 says so plainly.
+>
+> **Two product decisions were taken** that §2 and §10.5 had been holding open pending
+> sign-off. Both are breaking, both were taken deliberately, and both are recorded below
+> with their migration path.
+
+### 13.1 The outage is closed, and one of the probes above was invalid
+
+**The correction first.** §12.4 offered three probes as evidence the live site was stale.
+One of them was worthless: `runbook.html` is not a path the site has at any commit — the
+docs builder emits `m-19-runbook.html` — so it returns 404 against a *fully current*
+deployment too, as re-measured after the fix. It proved nothing and should not have been
+in the table.
+
+The conclusion it was used to support survives, and was re-established properly:
+`docs-site/m-19-runbook.html` is genuinely absent from the tree at `764ffb9c5`
+(`git cat-file -e` refuses it), which is the commit that was serving. So the live site
+really was missing the runbook §10.1 announced. Right answer, wrong instrument — which is
+worth recording because §12 is otherwise about exactly this distinction.
+
+**The outage is closed.** Cancelling the wedged run released the `pages` concurrency group;
+merging PR #32 then produced Pages run `31294579786` and deployment `5815453708` at
+`f85be07f3` — the **first successful Pages deployment since 2026-08-06T14:31Z**, and the
+first ever to carry the composed layout that `7321c2574` introduced 59 hours earlier.
+
+| URL | Before | Now |
+| --- | --- | --- |
+| `/` | 200 (stale, `764ffb9c5`) | **200** (`f85be07f3`) |
+| `/tests/` | **404** | **200** |
+| `/m-19-runbook.html` | absent from the serving tree | **200** |
+
+### 13.2 A gate that reads the site instead of the workflow's exit code
+
+§12.4 said the durable fix was "a check that reads the live site rather than the workflow's
+exit code." That is now `.github/scripts/verify_published_site.py`, run by a `verify` job
+gated on `deploy`. It fetches the deployed URL and asserts the paths the workflow promises
+to publish, so a deployment that reports success while serving half a site fails the run
+that produced it.
+
+Three deliberate choices:
+
+- **Not a link crawler.** The defect being caught is a whole missing tree, not a broken
+  anchor. Crawling ~9k generated report files would be slower, flakier, and would fail for
+  reasons unrelated to whether publication worked.
+- **`/tests/` is checked, and it is the point.** The two halves of the site come from
+  different producers. A gate that checked only the root would have stayed green through
+  the entire outage.
+- **`deploy` is now bounded** (`timeout-minutes: 20`). The concurrency group is
+  deliberately not `cancel-in-progress`, so one run that never finishes holds it while
+  everything behind it queues or is cancelled — none of them reporting failure. A timeout
+  is what converts that silence into a red run. The workflow's original comment reasoned
+  that "a wedged deployment costs an outage" and then had no mechanism to detect one.
+
+**Ten contract tests** pin it: that `verify` exists and waits on `deploy`, that it actually
+invokes the script, that `deploy` stays bounded, that every promised path is one the docs
+build can emit — a promise the build cannot keep would fail forever and get the check
+deleted — and that the decision logic returns 1 for a missing `/tests/`, for an unreachable
+site, and for an empty URL.
+
+### 13.3 The gate ledger's detector now has tests, proven by breaking it
+
+§12.1 recorded that `gate_ledger.py`'s `return 1` branch had never executed and no test
+drove it — the control built to detect never-executed gates having one of its own. Seven
+tests now drive `main()` against fabricated job lists: all-green passes; a skipped gate
+with nothing else failing **fails**; a gate missing from the run entirely fails; a skip
+behind a real failure is reported rather than failed (the deliberate `needs:` exemption);
+an unreadable API fails closed; missing credentials fail closed; and the ledger does not
+count itself.
+
+They were verified the way §5 verifies things rather than asserted: the strict branch was
+mutated to `return 0`, and exactly the two tests that should have failed did. Restored, and
+`git diff` on the script is empty.
+
+### 13.4 F-01b — host-path confinement is now fail-closed *(breaking)*
+
+§9's closing caution: "the promotion gate is now the only thing standing between an
+operator and a host-filesystem write; the data-plane confinement in F-01b should not be
+left indefinitely, because a single-layer defence at a policy boundary is exactly the
+pattern this review exists to find." That is now closed.
+
+`CALIBER_WORKFLOW_FILE_ROOT` has three states on one variable:
+
+| Value | Behaviour |
+| --- | --- |
+| unset | **refuse** unmanaged host-filesystem nodes (the new default) |
+| a directory | confine them to it; paths resolved, symlinks included |
+| `unconfined` | any path the server can reach — the previous default, now explicit |
+
+The escape hatch is a *word*, not an empty value, on purpose: the old permissive default
+was reachable by doing nothing, which is what made it invisible in the config. This one has
+to be typed.
+
+One implementation detail is load-bearing enough to name. `workflow_file_root()` returns
+`None` for both "refused" and "explicitly unconfined", so the allowed/denied question lives
+in a separate `workflow_host_paths_allowed()`. A caller that branched on the falsy value
+alone would turn a refusal into unrestricted access — the exact shape of the CSRF bug in
+F-08 — and a test pins that the two states stay distinguishable.
+
+**Blast radius: 10 tests**, all of which genuinely execute a host-path node. They were
+fixed with a `confined_workflow_file_root` fixture that confines them to `tmp_path` rather
+than opting them out — a test that disables the control proves nothing about the shipped
+configuration — and the fixture is deliberately not autouse, so requesting it is a
+greppable statement that a test drives a host path node on purpose.
+
+### 13.5 F-13d — the tool-isolation gate defaults on *(breaking)*
+
+Promoting a version that registers a tool onto a **production** alias is now refused unless
+`CALIBER_TOOL_SANDBOX_BACKEND` supplies an OS-enforced boundary. This makes it symmetric
+with `CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES`, which has always
+defaulted to `production`.
+
+§3b recorded the original reasoning for keeping it off: "modelled on the MCP rule it
+defaulted on and broke 8 existing prod promotions. MCP servers are a deliberate
+integration; registered tools are ubiquitous, so the same default is a gate in one case and
+a forced migration in the other." That reasoning is about **migration cost**, not about
+whether the boundary is adequate — and it is not: the built-in sandbox is a process
+boundary, not a container or seccomp one. A production alias was executing registered tool
+code with no OS-enforced isolation and nothing said so.
+
+Measured blast radius on the current tree is **3 tests, not 8**. One pinned the old default
+and now pins the reversal, carrying the reasoning above. Two are promotion-*routing* tests
+that reach `prod` incidentally; they opt out through a new `relax_tool_isolation_gate`
+helper that mirrors the existing `relax_release_quality_gate`, so the opt-out is explicit
+and greppable rather than the product default being weakened for everyone.
+
+Both new defaults are documented in `.env.example` under `BREAKING DEFAULT:` headings —
+which is itself a fix, because **neither setting appeared in any operator-facing file
+before this change**. Two security-relevant controls existed only in `config.py`.
+
+### 13.6 Production readiness was planned, not built
+
+`docs/roadmap.md` gains **§14**, the first statement anywhere of what "supported
+production" requires in dependency order: six blockers, six phases, and for each phase what
+it does *not* prove.
+
+The dependency worth extracting: **HA is gated on externalising the nine in-process
+lifespan loops, which is gated on F-10's broker replay.** Building HA first produces a
+second process that loses jobs faster. That is why F-10's deferred half is on the critical
+path rather than filed as a nice-to-have, and it is not visible from the finding list.
+
+The section states explicitly that none of P0–P5 has been started.
+
+### 13.7 Effect on the assessment, stated honestly
+
+Two of the three weak areas moved; one did not.
+
+| Dimension | Before | After | Why |
+| --- | --- | --- | --- |
+| Release / publication ops | 2 | **4.5** | Outage closed; the publish path now has a gate that reads the site, a bounded deploy, and 10 tests. Not 5: the gate has never caught a real regression, and §11.3's standard says an unexercised control is unproven. |
+| Security posture | 3 | **4.5** | Both single-layer defaults are closed fail-closed, with migration paths and tests. Not 5: F-06 is still an open product decision, and F-04's trace half remains deferred. |
+| Production readiness | 1.5 | **1.5** | Unchanged, deliberately. A plan is not a topology. |
+
+**§9's verdict is unaltered: feature-rich Alpha, credible for a controlled technical pilot,
+not ready for supported production or untrusted authoring.** The security work narrows
+"untrusted authoring" — a workflow author can no longer reach the host filesystem by
+default, and a production alias can no longer run tool code without a stated isolation
+boundary — but the production half is a category gap, not a quality gap, and §14 is a plan
+for it rather than progress on it.
+
+One thing did change about the *shape* of the remaining risk. Every previous update in this
+document found the same defect class: a control whose description outran its
+implementation. This one found the last two instances the report had itself been carrying —
+`§9`'s "single-layer defence" caution and `§12.1`'s untested detector — and closed both. The
+open items that remain are no longer descriptions outrunning implementations. They are
+implementations that have not been attempted, which is a better problem to have and an
+honest one to state.
+
+### 13.8 Verification
+
+Local, on the 3.12 venv. CI has not yet run these changes; that standing is the same as
+§11.3's and no better until the PR reports.
+
+| Suite | Result | Command |
+| --- | --- | --- |
+| Backend | **5,999 passed, 9 skipped, 0 failed** (399 s) | `pytest -n auto --dist loadgroup` |
+| Lint / format | clean | `ruff check .` · `ruff format --check .` |
+| Types | clean, 322 files | `mypy src` |
+| Pages parity gate | clean | `sync-docs.mjs` then `git diff --exit-code` |
+| Published site | 4/4 paths served | `verify_published_site.py` against the live URL |
+
+Against §12.1's 5,988 collected the suite has grown by 20 — the 7 gate-ledger decision
+tests, the 10 published-site gate tests, and 3 net from the security work.
+
+**A methodology note, because this update reproduced the mistake §5 warns about.** The
+security changes were validated against the files they obviously touched, which reported
+green; the full suite then reported **66 failures**. Two clusters: ~50 service tests whose
+publish helper reaches a `prod` alias, and 8 run-worker tests that execute host-path nodes.
+Neither cluster is in a file whose name suggests either subject.
+
+§5 recorded this twice already — "that was the second time in this work a change passed a
+focused slice and only the full suite disagreed" — and both prior instances had the same
+shape as these: a change to a *default* is not local to the code that reads it, because
+every test that never mentioned the setting was relying on it. The per-file run is not a
+cheaper version of the full run for this class of change; it is a different and much weaker
+question. Recorded rather than quietly fixed, since the fix was cheap and the lesson is the
+expensive part.
+
+The service cluster also resolved to a single edit — `deploy_prod` already relaxed the two
+other production policies, with a comment explaining that its callers reach `prod`
+incidentally — which is worth noting as the counter-case: a well-placed existing seam made
+a 50-test migration a three-line change.

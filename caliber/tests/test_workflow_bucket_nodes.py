@@ -90,7 +90,7 @@ def test_bucket_and_folder_nodes_compile_to_ir() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_output_folder_writes_artifacts_to_disk(tmp_path) -> None:
+def test_output_folder_writes_artifacts_to_disk(tmp_path, confined_workflow_file_root) -> None:
     out_dir = tmp_path / "exports"
     data = make_manifest()
     data["nodes"]["of"] = {
@@ -183,7 +183,7 @@ def test_input_bucket_node_executes_in_runtime_workflow(tmp_path, monkeypatch) -
     assert result.output
 
 
-def test_output_folder_helper_sanitizes_traversal(tmp_path) -> None:
+def test_output_folder_helper_sanitizes_traversal(tmp_path, confined_workflow_file_root) -> None:
     written, metadata = rt._write_output_folder_node(
         path=str(tmp_path),
         overwrite=True,

@@ -49,6 +49,7 @@ from tests.workflow_helpers import (
     make_manifest,
     make_support_manifest,
     relax_release_quality_gate,
+    relax_tool_isolation_gate,
     seed_eval_dataset,
 )
 
@@ -530,6 +531,10 @@ def test_the_deployment_environment_column_is_populated(
     wrote it, so nothing could report what a deployment served."""
     wid, vid = create_and_publish(client, workflow_name="EnvCol")
     relax_release_quality_gate(client)
+    # Registered tools now require an OS-enforced isolation backend before a
+    # production alias will accept them; that default is the subject of
+    # tests/test_deployment_environment_policy.py, not of this suite.
+    relax_tool_isolation_gate(client)
     assert (
         client.post(
             f"{PREFIX}/workflows/{wid}/deployments/prod/promote", json={"version_id": vid}

@@ -379,6 +379,24 @@ def _reset_tracer_singleton() -> Iterator[None]:
 
 
 @pytest.fixture
+def confined_workflow_file_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Confine unmanaged host-filesystem workflow nodes to this test's ``tmp_path``.
+
+    ``CALIBER_WORKFLOW_FILE_ROOT`` is fail-closed by default, so any test that
+    actually *executes* a ``file_input``/``folder_input``/``output_folder`` node
+    has to say where those nodes may operate. Deliberately **not** autouse and
+    deliberately not ``unconfined``: a test that opts out of the control proves
+    nothing about the shipped configuration, and one applied to the whole suite
+    would hide the default from every test that should be seeing it.
+
+    Requesting this fixture is therefore a statement — "this test drives a host
+    path node on purpose" — which is the property worth keeping greppable.
+    """
+    monkeypatch.setenv("CALIBER_WORKFLOW_FILE_ROOT", str(tmp_path))
+    return tmp_path
+
+
+@pytest.fixture
 def app_config(tmp_path: Path) -> CaliberConfig:
     """Per-test config pointing at a fresh file-based SQLite database.
 

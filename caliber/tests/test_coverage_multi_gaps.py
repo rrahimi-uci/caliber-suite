@@ -16,6 +16,7 @@ from tests.workflow_helpers import (
     create_and_publish,
     make_support_manifest,
     relax_release_graded_executor,
+    relax_tool_isolation_gate,
     seed_eval_dataset,
 )
 
@@ -41,6 +42,10 @@ def _deploy_prod(
     # grades with the deterministic fake, which production release policy otherwise
     # refuses as evidence — see tests/test_deploy_gate_executor.py for that default.
     relax_release_graded_executor(client)
+    # Registered tools now require an OS-enforced isolation backend before a
+    # production alias will accept them; that default is the subject of
+    # tests/test_deployment_environment_policy.py, not of this suite.
+    relax_tool_isolation_gate(client)
     wid, vid = create_and_publish(
         client, workflow_name=workflow_name, manifest=_gated_manifest(workflow_name + "_wf")
     )

@@ -255,6 +255,24 @@ def relax_release_quality_gate(client: TestClient) -> None:
     )
 
 
+def relax_tool_isolation_gate(client: TestClient) -> None:
+    """Allow a production promotion of a version that registers a tool.
+
+    The shipped default refuses one unless ``CALIBER_TOOL_SANDBOX_BACKEND``
+    supplies an OS-enforced boundary: the built-in sandbox is a process
+    boundary, not a container. Tests whose subject is promotion *routing* reach
+    ``prod`` incidentally and should not have to stand up an isolation backend,
+    so they opt out explicitly here — the same trade, and for the same reason, as
+    :func:`relax_release_quality_gate`.
+
+    The default itself is covered by
+    ``tests/test_deployment_environment_policy.py``.
+    """
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"tool_sandbox_require_external_isolation_for_environment_classes": ""}
+    )
+
+
 def relax_release_graded_executor(client: TestClient) -> None:
     """Accept a production deploy gate graded by the deterministic fake executor.
 
@@ -279,13 +297,15 @@ def deploy_prod(client: TestClient, workflow_id: str, version_id: str) -> str | 
     approve; otherwise it rotates immediately. Returns the promotion_id when one
     was created, otherwise ``None``.
 
-    Relaxes both production release policies first — see
-    :func:`relax_release_quality_gate` and :func:`relax_release_graded_executor`.
+    Relaxes the three production promotion policies first — see
+    :func:`relax_release_quality_gate`, :func:`relax_release_graded_executor` and
+    :func:`relax_tool_isolation_gate`.
     A caller of this helper is reaching ``prod`` incidentally; whether release policy
     is enforced correctly is the subject of the dedicated deploy-gate suites.
     """
     relax_release_quality_gate(client)
     relax_release_graded_executor(client)
+    relax_tool_isolation_gate(client)
     r = client.post(
         f"{PREFIX}/workflows/{workflow_id}/deployments/prod/promote",
         json={"version_id": version_id},

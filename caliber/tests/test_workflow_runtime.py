@@ -546,7 +546,7 @@ def test_workflow_session_memory_persists_in_memory_and_persistent_store() -> No
         engine.dispose()
 
 
-def test_file_input_node_reads_text(tmp_path) -> None:
+def test_file_input_node_reads_text(tmp_path, confined_workflow_file_root) -> None:
     source = tmp_path / "input.txt"
     source.write_text("hello from a file", encoding="utf-8")
     data = make_manifest()
@@ -668,7 +668,9 @@ def test_managed_file_input_without_runtime_resolver_fails_clearly() -> None:
     assert "scoped runtime file resolver" in (result.error or "")
 
 
-def test_file_input_node_reports_missing_file_at_workflow_runtime(tmp_path) -> None:
+def test_file_input_node_reports_missing_file_at_workflow_runtime(
+    tmp_path, confined_workflow_file_root
+) -> None:
     missing = tmp_path / "missing.txt"
     data = make_manifest()
     data["nodes"]["file_input"] = {
@@ -700,7 +702,7 @@ def test_file_input_node_reports_missing_file_at_workflow_runtime(tmp_path) -> N
     assert str(missing) in result.error
 
 
-def test_folder_input_node_reads_matching_files(tmp_path) -> None:
+def test_folder_input_node_reads_matching_files(tmp_path, confined_workflow_file_root) -> None:
     (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")
     (tmp_path / "b.log").write_text("beta", encoding="utf-8")
     data = make_manifest()
@@ -737,7 +739,9 @@ def test_folder_input_node_reads_matching_files(tmp_path) -> None:
     assert "beta" not in folder_step.output
 
 
-def test_folder_input_node_reports_missing_folder_at_workflow_runtime(tmp_path) -> None:
+def test_folder_input_node_reports_missing_folder_at_workflow_runtime(
+    tmp_path, confined_workflow_file_root
+) -> None:
     missing = tmp_path / "missing-folder"
     data = make_manifest()
     data["nodes"]["folder_input"] = {
@@ -772,7 +776,9 @@ def test_folder_input_node_reports_missing_folder_at_workflow_runtime(tmp_path) 
     assert str(missing) in result.error
 
 
-def test_file_input_helpers_cover_errors_and_fallback_outputs(tmp_path) -> None:
+def test_file_input_helpers_cover_errors_and_fallback_outputs(
+    tmp_path, confined_workflow_file_root
+) -> None:
     file_path = tmp_path / "data.txt"
     file_path.write_text("abcdef", encoding="utf-8")
     folder = tmp_path / "folder"

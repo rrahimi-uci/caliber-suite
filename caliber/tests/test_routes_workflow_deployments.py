@@ -17,6 +17,7 @@ from tests.workflow_helpers import (
     register_demo_tools,
     relax_release_graded_executor,
     relax_release_quality_gate,
+    relax_tool_isolation_gate,
     seed_eval_dataset,
 )
 
@@ -156,6 +157,7 @@ def test_promote_prod_rotates_immediately_single_env(client: TestClient) -> None
     rotates at once — no promotion-approval queue."""
     wid, vid = create_and_publish(client)  # no deploy gate
     relax_release_quality_gate(client)
+    relax_tool_isolation_gate(client)
     r = client.post(f"{PREFIX}/workflows/{wid}/deployments/prod/promote", json={"version_id": vid})
     assert r.status_code == 200, r.text
     data = r.json()["data"]
@@ -190,6 +192,7 @@ def test_approve_prod_promotion_rotates(
 ) -> None:
     seed_eval_dataset(db_session)
     relax_release_graded_executor(client)
+    relax_tool_isolation_gate(client)
     wid, vid = create_and_publish(
         client, workflow_name="GatedApprove", manifest=_gated_manifest("gated_approve_wf")
     )

@@ -6454,6 +6454,7 @@ def test_worker_persists_session_memory_across_queued_runs(
 def test_worker_marks_file_input_missing_path_failures_as_runtime_errors(
     client,
     tmp_path,
+    confined_workflow_file_root,
 ) -> None:
     _enable_queue(client)
     missing = tmp_path / "missing.txt"
@@ -6499,7 +6500,9 @@ def test_worker_marks_file_input_missing_path_failures_as_runtime_errors(
         )
 
 
-def test_worker_executes_file_input_path_to_completion(client, tmp_path) -> None:
+def test_worker_executes_file_input_path_to_completion(
+    client, tmp_path, confined_workflow_file_root
+) -> None:
     _enable_queue(client)
     source = tmp_path / "input.txt"
     source.write_text("hello from a file", encoding="utf-8")
@@ -6631,6 +6634,7 @@ def test_worker_executes_content_pinned_project_file_to_completion(client) -> No
 def test_worker_marks_file_input_directory_target_failures_as_runtime_errors(
     client,
     tmp_path,
+    confined_workflow_file_root,
 ) -> None:
     _enable_queue(client)
     folder = tmp_path / "folder-input"
@@ -6676,6 +6680,7 @@ def test_worker_marks_file_input_directory_target_failures_as_runtime_errors(
 def test_worker_marks_folder_input_missing_path_failures_as_runtime_errors(
     client,
     tmp_path,
+    confined_workflow_file_root,
 ) -> None:
     _enable_queue(client)
     missing = tmp_path / "missing-folder"
@@ -6721,7 +6726,9 @@ def test_worker_marks_folder_input_missing_path_failures_as_runtime_errors(
         )
 
 
-def test_worker_executes_folder_input_path_to_completion(client, tmp_path) -> None:
+def test_worker_executes_folder_input_path_to_completion(
+    client, tmp_path, confined_workflow_file_root
+) -> None:
     _enable_queue(client)
     (tmp_path / "a.txt").write_text("alpha", encoding="utf-8")
     (tmp_path / "b.log").write_text("beta", encoding="utf-8")
@@ -6799,6 +6806,7 @@ def test_worker_executes_folder_input_path_to_completion(client, tmp_path) -> No
 def test_worker_marks_folder_input_file_target_failures_as_runtime_errors(
     client,
     tmp_path,
+    confined_workflow_file_root,
 ) -> None:
     _enable_queue(client)
     file_path = tmp_path / "not-a-folder.txt"
@@ -6844,6 +6852,7 @@ def test_worker_marks_folder_input_file_target_failures_as_runtime_errors(
 def test_worker_marks_output_folder_invalid_target_failures_as_runtime_errors(
     client,
     tmp_path,
+    confined_workflow_file_root,
 ) -> None:
     _enable_queue(client)
     blocked = tmp_path / "existing-file.txt"
@@ -6886,7 +6895,9 @@ def test_worker_marks_output_folder_invalid_target_failures_as_runtime_errors(
         assert "FileExistsError" in str(events[-1].payload.get("error", ""))
 
 
-def test_worker_executes_output_folder_path_to_completion(client, tmp_path) -> None:
+def test_worker_executes_output_folder_path_to_completion(
+    client, tmp_path, confined_workflow_file_root
+) -> None:
     _enable_queue(client)
     output_dir = tmp_path / "exports"
     workflow_id = "output-folder-success-worker-wf"

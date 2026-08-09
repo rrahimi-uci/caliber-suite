@@ -1257,16 +1257,17 @@ class CaliberConfig(BaseModel):
         ),
     )
     tool_sandbox_require_external_isolation_for_environment_classes: str = Field(
-        default="",
+        default="production",
         description=(
             "Comma-separated environment classes (production/staging/development) whose "
             "deployments refuse registered tools unless CALIBER_TOOL_SANDBOX_BACKEND "
-            "supplies an OS-enforced isolation boundary. Empty (the default) never "
-            "refuses, because the shipped subprocess sandbox is the right boundary for "
-            "trusted authors and requiring a backend by default would break every "
-            "existing promotion. Set it where workflow authors are not as trusted as "
-            "operators — the same bar CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_"
-            "ENVIRONMENT_CLASSES applies to MCP servers."
+            "supplies an OS-enforced isolation boundary. Defaults to 'production', "
+            "matching CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES: "
+            "the built-in subprocess sandbox is a process boundary, not a container or "
+            "seccomp boundary, so a production alias running registered tool code now "
+            "has to say which isolation backend it trusts. Set to '' to restore the "
+            "previous never-refuse behaviour — a deployment whose tool authors are as "
+            "trusted as its operators is the case that justifies it."
         ),
     )
     workflow_file_root: str = Field(
@@ -1275,12 +1276,13 @@ class CaliberConfig(BaseModel):
             "Absolute directory that unmanaged host-filesystem nodes (file_input "
             "without a managed file_ref, folder_input, output_folder) may read and "
             "write within. Paths are resolved — symlinks included — and refused if "
-            "they land outside. Empty means unconfined, which is the shipped default "
-            "so existing development workflows reading /etc or a home directory keep "
-            "working; the promotion gate "
-            "(CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES) is what "
-            "keeps those workflows out of production. Set this in any deployment "
-            "where workflow authors are not as trusted as the server's own user."
+            "they land outside. Three states: EMPTY (the default) refuses these "
+            "nodes outright; a directory confines them to it; the literal "
+            "'unconfined' allows any path the server can reach, which was the "
+            "default before confinement was made fail-closed. The promotion gate "
+            "(CALIBER_WORKFLOW_HOST_PATH_NODES_ALLOWED_ENVIRONMENT_CLASSES) still "
+            "keeps these nodes out of production aliases; this setting is the "
+            "data-plane half, so the gate is no longer the only defence."
         ),
     )
     deployment_environment_classes: str = Field(
@@ -2143,19 +2145,54 @@ def provider_request_timeout(environ: Mapping[str, str] | None = None) -> float:
     return value if value > 0 else _PROVIDER_REQUEST_TIMEOUT_DEFAULT
 
 
+#: Explicit opt-out restoring the pre-confinement behaviour: unmanaged
+#: host-filesystem nodes may resolve any absolute path the server can reach.
+UNCONFINED_WORKFLOW_FILE_ROOT = "unconfined"
+
+
+def _raw_workflow_file_root(environ: Mapping[str, str] | None = None) -> str:
+    """The verbatim ``CALIBER_WORKFLOW_FILE_ROOT`` value, whitespace-stripped.
+
+    Read from the environment for the same reason as
+    :func:`provider_request_timeout`: the node executors resolve paths deep in a
+    call path that carries no ``CaliberConfig``, and both read the variable the
+    config field maps.
+    """
+    source = os.environ if environ is None else environ
+    return str(source.get("CALIBER_WORKFLOW_FILE_ROOT", "")).strip()
+
+
+def workflow_host_paths_allowed(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether unmanaged host-filesystem nodes may run at all.
+
+    **Unset means no**, which is a deliberate reversal of the original default.
+    The three states of one variable are: unset refuses these nodes outright, a
+    path confines them to it, and the literal ``unconfined`` restores the old
+    behaviour for an operator who genuinely wants it.
+
+    Refusing rather than allowing-anywhere is the same trade F-08 made for CSRF:
+    a control whose safe state is off is not a control. It also makes execution
+    agree with Preview, which already refuses exactly these node types — the
+    argument F-01a used at the promotion chokepoint, applied one layer down to
+    the data plane so the promotion gate stops being the only defence.
+    """
+    return _raw_workflow_file_root(environ) != ""
+
+
 def workflow_file_root(environ: Mapping[str, str] | None = None) -> Path | None:
     """Resolved root that unmanaged host-filesystem nodes may not escape.
 
-    ``None`` means unconfined, which is the shipped default. Read from the
-    environment for the same reason as :func:`provider_request_timeout`: the
-    node executors resolve paths deep in a call path that carries no
-    ``CaliberConfig``, and both read the variable the config field maps.
+    ``None`` means *no root applies* — either because the nodes are refused
+    outright (unset, the default) or because the operator opted out explicitly
+    with ``unconfined``. Callers must consult
+    :func:`workflow_host_paths_allowed` to tell those two apart; they are
+    separate functions precisely so a caller cannot collapse "refused" into
+    "unrestricted" by testing one value for falsiness.
 
     The root is resolved once here so callers compare two resolved paths — a
     root given as a symlink would otherwise never match its own contents.
     """
-    source = os.environ if environ is None else environ
-    raw = str(source.get("CALIBER_WORKFLOW_FILE_ROOT", "")).strip()
-    if not raw:
+    raw = _raw_workflow_file_root(environ)
+    if not raw or raw == UNCONFINED_WORKFLOW_FILE_ROOT:
         return None
     return Path(raw).expanduser().resolve()

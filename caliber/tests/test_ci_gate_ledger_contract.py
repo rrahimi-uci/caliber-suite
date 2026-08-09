@@ -101,10 +101,116 @@ def test_the_package_gate_is_not_sequenced_behind_unrelated_jobs() -> None:
     so sequencing it behind them removes evidence exactly when it is most wanted.
     """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    needs = set(workflow["jobs"]["package"].get("needs") or [])
+    # ``needs:`` accepts a scalar or a sequence. A bare string iterates as
+    # characters, so normalise before comparing or the assertion below answers a
+    # question about letters.
+    declared = workflow["jobs"]["package"].get("needs") or []
+    needs = {declared} if isinstance(declared, str) else set(declared)
 
     assert needs <= {"ui"}, (
         f"the wheel build now waits on {sorted(needs)}. Every entry beyond 'ui' "
         "(whose dist artifact it consumes) is a job whose failure silently skips "
         "this gate rather than failing it."
     )
+
+
+# --- the decision logic itself ------------------------------------------------
+#
+# The tests above check the ledger's *list* against the workflow. They never run
+# it. That left the branch the whole control exists for -- "this run would have
+# reported success while a required gate produced no evidence" -- with no
+# coverage at all, and it has never executed on a real run either: every run so
+# far either passed everything or had a genuine failure that took the cascade
+# exemption instead. A never-executed detector is the exact defect the ledger was
+# built to find, so it is driven directly here.
+
+
+def _run_ledger(monkeypatch, tmp_path, jobs, *, self_name="Gate execution ledger"):
+    """Drive ``main()`` against a fabricated job list."""
+    module = _ledger_module()
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_RUN_ID", "1")
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_JOB_NAME", self_name)
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    monkeypatch.setattr(module, "fetch_jobs", lambda *a, **k: jobs)
+    return module, module.main()
+
+
+def _all_gates(conclusion="success"):
+    module = _ledger_module()
+    return [{"name": name, "conclusion": conclusion} for name in module.REQUIRED_GATES]
+
+
+def test_a_run_with_every_gate_green_passes(monkeypatch, tmp_path) -> None:
+    _, exit_code = _run_ledger(monkeypatch, tmp_path, _all_gates())
+    assert exit_code == 0
+
+
+def test_a_skipped_gate_with_nothing_failing_fails_the_run(monkeypatch, tmp_path) -> None:
+    """The branch the ledger exists for, and the one that had never run.
+
+    A skip with no upstream failure is the dangerous shape: every other job is
+    green, so the run reports success while one gate said nothing about this
+    commit. That is `package` on twelve consecutive runs, which is the incident
+    this control was built after.
+    """
+    jobs = _all_gates()
+    jobs[0]["conclusion"] = "skipped"
+    _, exit_code = _run_ledger(monkeypatch, tmp_path, jobs)
+    assert exit_code == 1
+
+
+def test_a_gate_missing_from_the_run_entirely_fails_the_run(monkeypatch, tmp_path) -> None:
+    """A renamed or deleted job is absent, not skipped, and must not read as fine."""
+    jobs = _all_gates()[1:]
+    _, exit_code = _run_ledger(monkeypatch, tmp_path, jobs)
+    assert exit_code == 1
+
+
+def test_a_skip_that_follows_a_real_failure_is_reported_not_failed(monkeypatch, tmp_path) -> None:
+    """The deliberate exemption: a `needs:` cascade is already red.
+
+    Failing here would re-report an existing failure and train readers to ignore
+    the job, so it must stay a 0. Pinned because it is the exemption that makes
+    the strict branch above safe to keep.
+    """
+    jobs = _all_gates()
+    jobs[0]["conclusion"] = "failure"
+    jobs[1]["conclusion"] = "skipped"
+    _, exit_code = _run_ledger(monkeypatch, tmp_path, jobs)
+    assert exit_code == 0
+
+
+def test_an_unreadable_jobs_api_fails_closed(monkeypatch, tmp_path) -> None:
+    """An unreachable API must not be reported as "every gate ran"."""
+    module = _ledger_module()
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_RUN_ID", "1")
+    monkeypatch.setenv("GH_TOKEN", "token")
+
+    def _boom(*_a, **_k):
+        raise TimeoutError("api unreachable")
+
+    monkeypatch.setattr(module, "fetch_jobs", _boom)
+    assert module.main() == 1
+
+
+def test_missing_credentials_fail_closed(monkeypatch, tmp_path) -> None:
+    """No token means no evidence, which is not the same as no problem."""
+    module = _ledger_module()
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_RUN_ID", "1")
+    assert module.main() == 1
+
+
+def test_the_ledger_does_not_count_itself_as_a_gate(monkeypatch, tmp_path) -> None:
+    """It is still in progress while it reads the list, so it must exclude itself.
+
+    If it counted its own null conclusion it would fail every run, which is the
+    failure mode that gets a control deleted rather than fixed.
+    """
+    jobs = [*_all_gates(), {"name": "Gate execution ledger", "conclusion": None}]
+    _, exit_code = _run_ledger(monkeypatch, tmp_path, jobs)
+    assert exit_code == 0
