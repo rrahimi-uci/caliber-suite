@@ -1,10 +1,10 @@
 /** Discoverable, installable built-in examples backed by the server catalog. */
 
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
-import type { CookbookRecipe } from "@/api/workflowTypes";
+import type { CookbookReadinessCheck, CookbookRecipe } from "@/api/workflowTypes";
 import { PageHeader } from "@/components/PageHeader";
 import { SearchInput } from "@/components/SearchInput";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
@@ -12,6 +12,42 @@ import { showToast } from "@/lib/toast";
 
 function defaultName(recipe: CookbookRecipe): string {
   return `Cookbook ${recipe.id} — ${recipe.title}`;
+}
+
+/**
+ * The checks standing between this recipe and a clean install.
+ *
+ * The server computes these and ships them with the catalog; before this they
+ * were fetched and dropped, leaving "Setup needed" as a badge that named no
+ * cause and offered no way out.
+ */
+function unmetChecks(recipe: CookbookRecipe): CookbookReadinessCheck[] {
+  return recipe.readiness.checks.filter((check) => check.status !== "ready");
+}
+
+/** One unmet check, with the route that fixes it when the server named one. */
+function ReadinessCheckItem({ check }: { check: CookbookReadinessCheck }): JSX.Element {
+  return (
+    <li className="flex items-start gap-2 text-xs text-amber-800">
+      <span aria-hidden="true" className="mt-0.5 text-amber-500">
+        •
+      </span>
+      <span className="flex-1">
+        {check.label}
+        {check.settings_path && (
+          <>
+            {" "}
+            <Link
+              to={check.settings_path}
+              className="font-semibold text-caliber-purple underline underline-offset-2"
+            >
+              Configure
+            </Link>
+          </>
+        )}
+      </span>
+    </li>
+  );
 }
 
 export function Cookbooks(): JSX.Element {
@@ -133,6 +169,23 @@ export function Cookbooks(): JSX.Element {
                   </span>
                 ))}
               </div>
+              {unmetChecks(recipe).length > 0 && (
+                <div
+                  className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3"
+                  data-testid={`cookbook-readiness-${recipe.id}`}
+                >
+                  <ul className="space-y-1">
+                    {unmetChecks(recipe).slice(0, 2).map((check) => (
+                      <ReadinessCheckItem key={check.label} check={check} />
+                    ))}
+                  </ul>
+                  {unmetChecks(recipe).length > 2 && (
+                    <div className="mt-1 pl-4 text-[10px] font-medium text-amber-700">
+                      +{unmetChecks(recipe).length - 2} more before this is ready
+                    </div>
+                  )}
+                </div>
+              )}
               <button
                 type="button"
                 data-testid={`install-cookbook-${recipe.id}`}
@@ -178,21 +231,41 @@ export function Cookbooks(): JSX.Element {
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
-            {selected.prerequisites.length > 0 && (
-              <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <div className="text-xs font-bold text-amber-900">Prerequisites</div>
-                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-amber-800">
-                  {selected.prerequisites.map((item) => <li key={item}>{item}</li>)}
-                </ul>
-                <label className="mt-3 flex items-start gap-2 text-xs text-amber-900">
-                  <input
-                    type="checkbox"
-                    data-testid="cookbook-prerequisites-ack"
-                    checked={acknowledged}
-                    onChange={(event) => setAcknowledged(event.target.checked)}
-                  />
-                  I reviewed these prerequisites and understand they may still need configuration.
-                </label>
+            {/*
+              Rendered when EITHER condition holds, not just when there are unmet
+              checks. The acknowledgement gates the install button, so hiding it
+              behind an empty checks list would strand the operator in a modal
+              whose primary action can never enable.
+            */}
+            {(unmetChecks(selected).length > 0 || selected.prerequisites.length > 0) && (
+              <div
+                className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4"
+                data-testid="cookbook-install-readiness"
+              >
+                {unmetChecks(selected).length > 0 && (
+                  <>
+                    <div className="text-xs font-bold text-amber-900">
+                      Before this recipe will run end to end
+                    </div>
+                    <ul className="mt-2 space-y-1.5">
+                      {unmetChecks(selected).map((check) => (
+                        <ReadinessCheckItem key={check.label} check={check} />
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {selected.prerequisites.length > 0 && (
+                  <label className="mt-3 flex items-start gap-2 text-xs text-amber-900">
+                    <input
+                      type="checkbox"
+                      data-testid="cookbook-prerequisites-ack"
+                      checked={acknowledged}
+                      onChange={(event) => setAcknowledged(event.target.checked)}
+                    />
+                    I reviewed these prerequisites and understand they may still need
+                    configuration.
+                  </label>
+                )}
               </div>
             )}
             <div className="mt-6 flex justify-end gap-2">

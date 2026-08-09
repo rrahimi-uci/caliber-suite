@@ -804,7 +804,16 @@ export interface WorkflowTemplateCatalog {
 
 export interface CookbookReadinessCheck {
   label: string;
-  status: "operator_confirmation_required" | "ready";
+  /**
+   * Mirrors the three states ``_catalog_payload`` in routes/cookbooks.py emits.
+   * ``operator_confirmation_required`` is a recipe prerequisite the operator
+   * attests to; ``configuration_required`` is a server-side capability check
+   * that failed and that the operator can actually go and fix — which is why
+   * only that branch carries ``settings_path``.
+   */
+  status: "operator_confirmation_required" | "configuration_required" | "ready";
+  /** In-app route that resolves this check, when one exists. */
+  settings_path?: string;
 }
 
 export interface CookbookRecipe {
