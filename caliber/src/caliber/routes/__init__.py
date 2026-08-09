@@ -38,6 +38,7 @@ from caliber.routes import (
     metrics,
     object_store,
     observability,
+    openapi,
     projects,
     prompts,
     releases,
@@ -116,4 +117,6 @@ def register_routes(app: Starlette) -> None:
     files.register(app)
     projects.register(app)
     assistant.register(app)
+    # Must precede static's SPA catch-all, like every other API module.
+    openapi.register(app)
     static.register(app)
