@@ -1456,3 +1456,38 @@ implementation. This one found the last two instances the report had itself been
 open items that remain are no longer descriptions outrunning implementations. They are
 implementations that have not been attempted, which is a better problem to have and an
 honest one to state.
+
+### 13.8 Verification
+
+Local, on the 3.12 venv. CI has not yet run these changes; that standing is the same as
+§11.3's and no better until the PR reports.
+
+| Suite | Result | Command |
+| --- | --- | --- |
+| Backend | **5,999 passed, 9 skipped, 0 failed** (399 s) | `pytest -n auto --dist loadgroup` |
+| Lint / format | clean | `ruff check .` · `ruff format --check .` |
+| Types | clean, 322 files | `mypy src` |
+| Pages parity gate | clean | `sync-docs.mjs` then `git diff --exit-code` |
+| Published site | 4/4 paths served | `verify_published_site.py` against the live URL |
+
+Against §12.1's 5,988 collected the suite has grown by 20 — the 7 gate-ledger decision
+tests, the 10 published-site gate tests, and 3 net from the security work.
+
+**A methodology note, because this update reproduced the mistake §5 warns about.** The
+security changes were validated against the files they obviously touched, which reported
+green; the full suite then reported **66 failures**. Two clusters: ~50 service tests whose
+publish helper reaches a `prod` alias, and 8 run-worker tests that execute host-path nodes.
+Neither cluster is in a file whose name suggests either subject.
+
+§5 recorded this twice already — "that was the second time in this work a change passed a
+focused slice and only the full suite disagreed" — and both prior instances had the same
+shape as these: a change to a *default* is not local to the code that reads it, because
+every test that never mentioned the setting was relying on it. The per-file run is not a
+cheaper version of the full run for this class of change; it is a different and much weaker
+question. Recorded rather than quietly fixed, since the fix was cheap and the lesson is the
+expensive part.
+
+The service cluster also resolved to a single edit — `deploy_prod` already relaxed the two
+other production policies, with a comment explaining that its callers reach `prod`
+incidentally — which is worth noting as the counter-case: a well-placed existing seam made
+a 50-test migration a three-line change.
