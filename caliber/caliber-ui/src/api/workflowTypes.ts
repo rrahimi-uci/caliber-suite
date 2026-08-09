@@ -816,12 +816,27 @@ export interface CookbookReadinessCheck {
   settings_path?: string;
 }
 
+/**
+ * One addressable step of a cookbook's recipe.
+ *
+ * The prose lives in `docs-site/cookbooks/<slug>/README.md`; this is the form
+ * the guided checklist can record progress against. `id` is positional
+ * (`01.1`, `01.2`, ...) and stable for a given catalog version.
+ */
+export interface CookbookStep {
+  id: string;
+  title: string;
+  /** In-app route the step is performed on; always a route the SPA registers. */
+  route: string;
+}
+
 export interface CookbookRecipe {
   id: string;
   slug: string;
   title: string;
   summary: string;
   icon: string;
+  steps: CookbookStep[];
   template_kind: WorkflowTemplateKind;
   catalog_version: string;
   capabilities: string[];

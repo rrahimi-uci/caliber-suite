@@ -27,6 +27,13 @@ function recipe(id: string, prerequisites: string[] = []) {
     catalog_version: "2026.08",
     capabilities: [`capability-${id}`],
     prerequisites,
+    // Kept in sync with the real payload by hand: tsconfig.app.json excludes
+    // __tests__, and vitest does not typecheck, so a fixture missing a required
+    // field is caught by neither.
+    steps: [
+      { id: `${id}.1`, title: `First step for ${id}`, route: "/prompts" },
+      { id: `${id}.2`, title: `Second step for ${id}`, route: "/evaluations" },
+    ],
     activation_requires_review: true,
     manifest_template: {} as CookbookCatalog["recipes"][number]["manifest_template"],
     readiness: {

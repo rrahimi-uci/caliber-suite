@@ -503,6 +503,194 @@ def _annotate_manifest(recipe: dict[str, Any]) -> dict[str, Any]:
     return manifest
 
 
+# ---------------------------------------------------------------------------
+# Guided steps
+#
+# The recipe prose lives in ``docs-site/cookbooks/<slug>/README.md``. These are
+# the same steps in addressable form: a stable id the UI can record progress
+# against, a title, and the in-app route the step is performed on. The README
+# stays the deep reference — it carries the field values, API fallbacks, and
+# substitution notes that do not belong in a checklist.
+#
+# Authored rather than parsed, for two reasons the source makes obvious. The
+# READMEs have three different shapes, not one: 01-10 and 12-15 use bold-titled
+# numbered steps, 11 embeds its titles in prose, and 16 has no ``## Recipe``
+# section at all. And a parsed step could not carry a route, which is the part
+# that makes the checklist navigable.
+#
+# ``test_cookbook_steps_contract.py`` pins these against the READMEs so the two
+# cannot drift apart silently.
+# ---------------------------------------------------------------------------
+
+#: Recipes whose README has no ``## Recipe`` section, so step count cannot be
+#: checked against a numbered list. Named rather than skipped, so that a README
+#: gaining one is a test failure rather than a silent gap in coverage.
+RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION = frozenset({"16"})
+
+_RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
+    "01": (
+        {"title": "Create the prompt", "route": "/prompts"},
+        {"title": "Author", "route": "/prompts"},
+        {"title": "Playground (live sanity check)", "route": "/prompts"},
+        {"title": "Build & run the test set", "route": "/eval-datasets"},
+        {"title": "(Optional) JSON/intent judge", "route": "/judges"},
+        {"title": "Run the baseline", "route": "/prompts"},
+        {"title": "Introduce a regression", "route": "/prompts"},
+        {"title": "Compare", "route": "/prompts"},
+        {"title": "Calibration (queued)", "route": "/prompts"},
+        {"title": "Observe", "route": "/observability"},
+    ),
+    "02": (
+        {"title": "Create the skill", "route": "/skills"},
+        {"title": "Render Preview", "route": "/skills"},
+        {"title": "Trigger Tests (positive)", "route": "/skills"},
+        {"title": "Tighten + baseline", "route": "/skills"},
+        {"title": "Export package", "route": "/skills"},
+        {"title": "Import round-trip", "route": "/skills"},
+        {"title": "Calibrate (queued)", "route": "/skills"},
+        {"title": "Bind", "route": "/workflows"},
+    ),
+    "03": (
+        {"title": "Register the lookup tools", "route": "/tools"},
+        {"title": "Sandbox", "route": "/tools"},
+        {"title": "Fixtures", "route": "/tools"},
+        {"title": "Hardening (deterministic, inline)", "route": "/tools"},
+        {"title": "The decision logic", "route": "/tools"},
+        {"title": "Bind into a workflow with an approval gate", "route": "/workflows"},
+        {"title": "Prove the gate in the run monitor", "route": "/workflows"},
+        {"title": "Optional explanation", "route": "/prompts"},
+    ),
+    "04": (
+        {"title": "Create a bucket + upload", "route": "/object-store"},
+        {"title": "Verify extraction (preview)", "route": "/object-store"},
+        {"title": "Register the extractor tool (optional)", "route": "/tools"},
+        {"title": "Author the structuring prompt", "route": "/prompts"},
+        {"title": "Build the workflow", "route": "/workflows"},
+        {"title": "Preview + real runs", "route": "/workflows"},
+        {"title": "Observe failures", "route": "/observability"},
+        {"title": "Tune", "route": "/prompts"},
+    ),
+    "05": (
+        {"title": "Quick-connect", "route": "/mcp-servers"},
+        {"title": "Test connection + discovery", "route": "/mcp-servers"},
+        {"title": "Invoke a read-only tool", "route": "/mcp-servers"},
+        {"title": "Apply a policy overlay", "route": "/mcp-servers"},
+        {"title": "Re-invoke the governed tool", "route": "/mcp-servers"},
+        {"title": "Calibrate the read tool", "route": "/mcp-servers"},
+        {"title": "Collect evidence", "route": "/observability"},
+    ),
+    "06": (
+        {"title": "Build a KB version", "route": "/knowledge-bases"},
+        {"title": "Explore → Chunks", "route": "/knowledge-bases"},
+        {"title": "Explore → Query (mode comparison)", "route": "/knowledge-bases"},
+        {"title": "Calibrate (inline metrics)", "route": "/knowledge-bases"},
+        {"title": "Build the answer workflow", "route": "/workflows"},
+        {"title": "Run scenario queries", "route": "/workflows"},
+        {"title": "Evaluate faithfulness", "route": "/evaluations"},
+        {"title": "Route to review", "route": "/review-queues"},
+    ),
+    "07": (
+        {"title": "Confirm reusable assets", "route": "/tools"},
+        {"title": "Build the workflow", "route": "/workflows"},
+        {"title": "Encode the four outcomes", "route": "/workflows"},
+        {"title": "Run the ticket cases", "route": "/workflows"},
+        {"title": "Verify the safety branches", "route": "/workflows"},
+        {"title": "Evaluate", "route": "/evaluations"},
+        {"title": "Iterate", "route": "/prompts"},
+    ),
+    "08": (
+        {"title": "Author the commander prompt", "route": "/prompts"},
+        {"title": "Evidence nodes", "route": "/workflows"},
+        {"title": "Build the workflow", "route": "/workflows"},
+        {"title": "Run low-risk + high-risk cases", "route": "/workflows"},
+        {"title": "Verify evidence separation", "route": "/workflows"},
+        {"title": "Score + review", "route": "/evaluations"},
+        {"title": "Harden", "route": "/workflows"},
+    ),
+    "09": (
+        {"title": "Reproduce the failure", "route": "/workflows"},
+        {"title": "Capture the run + open diagnostics", "route": "/workflows"},
+        {"title": "Localize the root cause", "route": "/observability"},
+        {"title": "Retry from checkpoint / lineage", "route": "/workflows"},
+        {"title": "Apply a minimal patch (manual)", "route": "/workflows"},
+        {"title": "Validate", "route": "/workflows"},
+        {"title": "Compare", "route": "/workflows"},
+    ),
+    "10": (
+        {"title": "Prepare the dataset", "route": "/eval-datasets"},
+        {"title": "Define the judge", "route": "/judges"},
+        {"title": "Run baseline + candidate", "route": "/evaluations"},
+        {"title": "Inspect examples", "route": "/evaluations"},
+        {"title": "Human review", "route": "/review-queues"},
+        {"title": "Compute alignment", "route": "/judges"},
+    ),
+    "11": (
+        {"title": "Open the Release Signoff Factory", "route": "/releases"},
+        {"title": "Enter the candidate and artifact reference", "route": "/releases"},
+        {"title": "Add criteria JSON with weights and observed scores", "route": "/releases"},
+        {"title": "Create the candidate and inspect the weighted score", "route": "/releases"},
+        {"title": "Re-evaluate after evidence changes", "route": "/releases"},
+        {"title": "Record a criterion waiver if policy permits", "route": "/releases"},
+        {"title": "Generate Allure evidence", "route": "/releases"},
+        {"title": "Sign go or no-go with rationale", "route": "/releases"},
+    ),
+    "12": (
+        {"title": "State the intent", "route": "/aria/plans"},
+        {"title": "Review the plan", "route": "/aria/plans"},
+        {"title": "Approve", "route": "/aria/plans"},
+        {"title": "Execute the plan + create the artifacts", "route": "/aria/plans"},
+        {"title": "Verify", "route": "/evaluations"},
+        {"title": "(Follow-up)", "route": "/aria/plans"},
+    ),
+    "13": (
+        {"title": "State the intent", "route": "/aria/plans"},
+        {"title": "Review the plan", "route": "/aria/plans"},
+        {"title": "Approve", "route": "/aria/plans"},
+        {"title": "Execute the plan + create the queue", "route": "/aria/plans"},
+        {"title": "Verify", "route": "/review-queues"},
+        {"title": "(Follow-up)", "route": "/aria/plans"},
+    ),
+    "14": (
+        {"title": "State the intent", "route": "/aria/plans"},
+        {"title": "Review the plan", "route": "/aria/plans"},
+        {"title": "Approve", "route": "/aria/plans"},
+        {"title": "Execute the plan + create the three artifacts", "route": "/aria/plans"},
+        {"title": "Verify", "route": "/review-queues"},
+        {"title": "(Follow-up)", "route": "/aria/plans"},
+    ),
+    "15": (
+        {"title": "State the intent", "route": "/aria/plans"},
+        {"title": "Review the plan", "route": "/aria/plans"},
+        {"title": "Approve", "route": "/aria/plans"},
+        {"title": "Execute the plan + drive each step via its route", "route": "/aria/plans"},
+        {"title": "Park + poll the async job", "route": "/aria/plans"},
+        {"title": "Verify", "route": "/review-queues"},
+        {"title": "(Follow-up)", "route": "/aria/plans"},
+    ),
+    # 16 has no ``## Recipe`` section. Its steps are derived from the four
+    # quality gates its README does define, which are the checkable outcomes.
+    "16": (
+        {"title": "Capture every error trace in the window", "route": "/observability"},
+        {"title": "Explain each flagged trace from its node tree", "route": "/observability"},
+        {"title": "Label the triage queue and write assessments back", "route": "/review-queues"},
+        {"title": "Record the prod-regression baseline", "route": "/evaluations"},
+    ),
+}
+
+
+def _steps_for(recipe_id: str) -> list[dict[str, str]]:
+    """Steps for one recipe, with ids assigned from position.
+
+    Ids are derived (``01.1``, ``01.2``, ...) rather than hand-written so a step
+    inserted in the middle cannot silently reuse an id that stored progress
+    already points at.
+    """
+    return [
+        {"id": f"{recipe_id}.{index}", **step}
+        for index, step in enumerate(_RECIPE_STEPS.get(recipe_id, ()), start=1)
+    ]
+
+
 @lru_cache(maxsize=1)
 def build_cookbook_catalog() -> dict[str, Any]:
     """Return all built-in Cookbooks with validated draft manifests."""
@@ -512,6 +700,7 @@ def build_cookbook_catalog() -> dict[str, Any]:
         recipe = deepcopy(raw)
         recipe["catalog_version"] = COOKBOOK_CATALOG_VERSION
         recipe["activation_requires_review"] = True
+        recipe["steps"] = _steps_for(str(raw["id"]))
         recipe["manifest_template"] = _annotate_manifest(recipe)
         recipes.append(recipe)
     return {
