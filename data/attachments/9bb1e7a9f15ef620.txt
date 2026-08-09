@@ -1,1 +1,0 @@
-{"t":"2026-08-09T16:18:38.352Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://caliber.test/ajax-api/2.0/mlflow/caliber/prompts/support-agent?alias=prod \"HTTP/1.1 200 OK\""}

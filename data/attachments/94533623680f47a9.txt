@@ -1,1 +1,0 @@
-{"t":"2026-08-09T16:16:23.039Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook dispatcher has URLs but no signing secret; events will *not* be sent. Set the secret-env-var named by config.webhook_signing_secret_env."}

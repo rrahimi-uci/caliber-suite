@@ -1,0 +1,1 @@
+INFO     caliber.orchestrator.worker:worker.py:839 skipping _mark_failed for job=RFN-W: status=candidate_ready (not running)

@@ -1,1 +1,0 @@
-{"t":"2026-08-09T16:22:51.792Z","severity":"INFO","logger":"caliber.orchestrator.triage","message":"triage complete: job=RFN-SKILL class={'cluster': 'tool_use', 'artifact_type': 'prompt', 'confidence': 0.6}"}
