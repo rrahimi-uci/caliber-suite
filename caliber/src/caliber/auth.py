@@ -74,6 +74,10 @@ AUTH_MODE_TRUSTED_HEADER = "trusted_header"
 # database round trip. Keyed per-request, so it cannot outlive the request or leak
 # across them.
 _SCOPE_CACHE_KEY = "caliber_resolved_user"
+#: Scopes a personal access token asked for, recorded during identity
+#: resolution. Absent for every other credential, which is what makes the
+#: intersection in :func:`current_scopes` a no-op for sessions and headers.
+_PAT_SCOPES_KEY = "caliber_pat_requested_scopes"
 
 # Scope vocabulary. Names match the implementation-parity checklist §11. Kept as module constants so a
 # typo in a route handler fails at import time rather than at request
@@ -82,6 +86,13 @@ SCOPE_VIEWER: Final[str] = "caliber.viewer"
 SCOPE_OPERATOR: Final[str] = "caliber.operator"
 SCOPE_APPROVER: Final[str] = "caliber.approver"
 SCOPE_ADMIN: Final[str] = "caliber.admin"
+
+#: Every scope the system defines. Used to reject a token requesting a scope
+#: name that does not exist -- otherwise a typo becomes a silently powerless
+#: token whose failures surface far from their cause.
+ALL_SCOPES: Final[frozenset[str]] = frozenset(
+    {SCOPE_VIEWER, SCOPE_OPERATOR, SCOPE_APPROVER, SCOPE_ADMIN}
+)
 
 # Inheritance: holding a higher-tier scope implicitly grants the lower
 # ones. Reads (viewer) are open to every authenticated user; admin
@@ -166,7 +177,16 @@ def session_token_from_request(request: Request) -> str | None:
 
 
 def _session_user(request: Request, config: Any) -> str | None:
-    """Resolve a session token against the database, or ``None``."""
+    """Resolve a bearer credential against the database, or ``None``.
+
+    Handles both credential kinds that arrive the same way. A personal access
+    token is distinguished by its ``calpat_`` prefix, so the branch costs no
+    extra query: a session token can never match it, and vice versa.
+
+    When a PAT authenticates the request, the scopes it *requested* are stashed
+    on the request scope for :func:`current_scopes` to intersect with what the
+    owner actually holds. The token is a ceiling, never a grant.
+    """
     del config
     token = session_token_from_request(request)
     if not token:
@@ -174,10 +194,21 @@ def _session_user(request: Request, config: Any) -> str | None:
     factory = getattr(request.app.state, "session_factory", None)
     if factory is None:
         return None
-    from caliber.sessions import resolve_session  # noqa: PLC0415
+    from caliber.sessions import (  # noqa: PLC0415
+        PAT_PREFIX,
+        resolve_personal_access_token,
+        resolve_session,
+    )
 
     try:
         with factory() as db:
+            if token.startswith(PAT_PREFIX):
+                resolved = resolve_personal_access_token(db, token)
+                if resolved is None:
+                    return None
+                user_id, requested_scopes = resolved
+                request.scope[_PAT_SCOPES_KEY] = requested_scopes
+                return user_id
             return resolve_session(db, token)
     except Exception:  # a broken session store must not 500 every route
         return None
@@ -249,7 +280,20 @@ def current_scopes(request: Request) -> frozenset[str]:
     user = current_user(request)
     if user == ANONYMOUS:
         return frozenset()
-    return scopes_for_user(_get_config(request), user)
+    granted = scopes_for_user(_get_config(request), user)
+
+    # A personal access token narrows, never widens. Intersecting rather than
+    # substituting is the whole safety property: a token issued while its owner
+    # was an admin must stop conferring admin the moment they are demoted, and a
+    # token cannot request authority its owner never had.
+    #
+    # An empty scope set means "inherit the owner's scopes" -- the documented
+    # default for a token issued without an explicit ceiling -- so it must not be
+    # treated as "no authority", which an unconditional intersection would do.
+    requested = request.scope.get(_PAT_SCOPES_KEY)
+    if isinstance(requested, frozenset) and requested:
+        return granted & requested
+    return granted
 
 
 @dataclass(frozen=True)

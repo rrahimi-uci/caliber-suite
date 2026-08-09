@@ -27,10 +27,12 @@ import logging
 import threading
 import time
 from collections import deque
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -38,11 +40,13 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import (
+    ALL_SCOPES,
     AUTH_MODE_SESSION,
     SCOPE_ADMIN,
     current_scopes,
     current_user,
     require_scopes,
+    require_user,
     session_token_from_request,
 )
 from caliber.routes._deps import (
@@ -55,7 +59,11 @@ from caliber.sessions import (
     AuthenticationError,
     authenticate,
     create_account,
+    create_personal_access_token,
+    list_personal_access_tokens,
+    parse_scopes,
     revoke_all_sessions,
+    revoke_personal_access_token,
     revoke_session,
     set_disabled,
     set_password,
@@ -69,6 +77,9 @@ LOGOUT_PATH = PREFIX + "/logout"
 SESSION_PATH = PREFIX + "/session"
 ACCOUNTS_PATH = PREFIX + "/accounts"
 ACCOUNT_DETAIL_PATH = PREFIX + "/accounts/{user_id}"
+TOKENS_PATH = PREFIX + "/tokens"
+TOKEN_DETAIL_PATH = PREFIX + "/tokens/{token_id}"
+TOKEN_ROTATE_PATH = PREFIX + "/tokens/{token_id}/rotate"
 
 #: Failed-login budget per (user id, client address) within the window. A
 #: server-side password check that can be attempted without limit is still an
@@ -362,7 +373,230 @@ async def revoke_account_sessions(request: Request) -> JSONResponse:
     return envelope_response_dict({"user_id": user_id, "revoked": count})
 
 
+# ---------------------------------------------------------------------------
+# Personal access tokens
+# ---------------------------------------------------------------------------
+
+
+def _token_view(row: Any) -> dict[str, Any]:
+    """Serialize a token *without* its secret, which exists only at issuance."""
+    return {
+        "token_id": row.token_id,
+        "user_id": row.user_id,
+        "name": row.name,
+        "scopes": sorted(parse_scopes(row.scopes)),
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_by": row.created_by,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+        "last_used_at": row.last_used_at.isoformat() if row.last_used_at else None,
+        "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+        "revoked_reason": row.revoked_reason,
+        "rotated_from": row.rotated_from,
+        "active": row.revoked_at is None,
+    }
+
+
+def _requested_expiry(payload: dict[str, Any]) -> datetime | None:
+    raw = payload.get("expires_at")
+    if raw in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid expires_at: {raw!r}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="expires_at must be in the future")
+    return parsed
+
+
+def _validated_scopes(payload: dict[str, Any], request: Request) -> list[str]:
+    """Reject a ceiling the caller could not grant, and unknown scope names.
+
+    Refusing up front is friendlier than silently issuing a token whose extra
+    scopes are intersected away at every request -- the operator would see a
+    token that claims authority it never exercises.
+    """
+    requested = payload.get("scopes") or []
+    if not isinstance(requested, list):
+        raise HTTPException(status_code=400, detail="scopes must be a list of strings")
+    scopes = {str(item).strip() for item in requested if str(item).strip()}
+    unknown = sorted(scopes - set(ALL_SCOPES))
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"unknown scopes: {unknown}")
+    holder = current_scopes(request)
+    excessive = sorted(scopes - holder)
+    if excessive:
+        raise HTTPException(
+            status_code=403,
+            detail=f"cannot grant scopes you do not hold: {excessive}",
+        )
+    return sorted(scopes)
+
+
+# The four token operations below run their database work in module-level
+# synchronous helpers dispatched through ``run_in_threadpool``. Two reasons:
+# the route layer is async while SQLAlchemy here is not, so an inline session
+# holds the event loop for the query's duration; and the offload ratchet in
+# tests/test_async_offload_ratchet.py matches on the *async function's* source
+# text, so a nested helper would still be counted as inline.
+
+
+def _load_tokens(factory: Any, *, actor: str) -> list[dict[str, Any]]:
+    with factory() as session:
+        return [_token_view(row) for row in list_personal_access_tokens(session, user_id=actor)]
+
+
+def _create_token(
+    factory: Any,
+    *,
+    actor: str,
+    name: str,
+    scopes: list[str],
+    expires_at: datetime | None,
+) -> tuple[dict[str, Any], str]:
+    with factory() as session:
+        try:
+            issued = create_personal_access_token(
+                session,
+                user_id=actor,
+                name=name,
+                scopes=scopes,
+                expires_at=expires_at,
+                created_by=actor,
+            )
+        except AccountError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        audit_record(
+            session,
+            actor=actor,
+            action="create_personal_access_token",
+            entity_type="personal_access_token",
+            entity_id=issued.token_id,
+            # The secret is deliberately absent: an audit row is read by more
+            # people than the issuing response, and retained far longer.
+            details={
+                "scopes": scopes,
+                "expires_at": expires_at.isoformat() if expires_at else None,
+            },
+        )
+        session.commit()
+        return _token_view(session.get(_PatModel(), issued.token_id)), issued.token
+
+
+def _revoke_token(factory: Any, *, actor: str, token_id: str) -> bool:
+    with factory() as session:
+        row = session.get(_PatModel(), token_id)
+        # 404 rather than 403 for someone else's token: confirming existence
+        # would let any user enumerate the token ids of every other user.
+        if row is None or row.user_id != actor:
+            raise HTTPException(status_code=404, detail=f"token {token_id!r} not found")
+        revoked = revoke_personal_access_token(session, token_id=token_id, reason="user_revoked")
+        audit_record(
+            session,
+            actor=actor,
+            action="revoke_personal_access_token",
+            entity_type="personal_access_token",
+            entity_id=token_id,
+            details={"already_revoked": not revoked},
+        )
+        session.commit()
+        return revoked
+
+
+def _rotate_token(factory: Any, *, actor: str, token_id: str) -> tuple[dict[str, Any], str]:
+    with factory() as session:
+        row = session.get(_PatModel(), token_id)
+        if row is None or row.user_id != actor:
+            raise HTTPException(status_code=404, detail=f"token {token_id!r} not found")
+        if row.revoked_at is not None:
+            raise HTTPException(status_code=409, detail="cannot rotate a revoked token")
+        issued = create_personal_access_token(
+            session,
+            user_id=actor,
+            name=row.name,
+            scopes=parse_scopes(row.scopes),
+            expires_at=row.expires_at,
+            created_by=actor,
+            rotated_from=token_id,
+        )
+        revoke_personal_access_token(session, token_id=token_id, reason="rotated")
+        audit_record(
+            session,
+            actor=actor,
+            action="rotate_personal_access_token",
+            entity_type="personal_access_token",
+            entity_id=issued.token_id,
+            details={"rotated_from": token_id},
+        )
+        session.commit()
+        return _token_view(session.get(_PatModel(), issued.token_id)), issued.token
+
+
+async def list_tokens(request: Request) -> JSONResponse:
+    """Every token belonging to the caller. Never returns a usable secret."""
+    actor = require_user(request)
+    tokens = await run_in_threadpool(_load_tokens, get_session_factory(request), actor=actor)
+    return envelope_response_dict({"tokens": tokens})
+
+
+async def create_token(request: Request) -> JSONResponse:
+    """Issue a token for the caller. The plaintext is returned exactly once."""
+    actor = require_user(request)
+    payload = await parse_json_object(request)
+    scopes = _validated_scopes(payload, request)
+    expires_at = _requested_expiry(payload)
+    view, secret = await run_in_threadpool(
+        _create_token,
+        get_session_factory(request),
+        actor=actor,
+        name=str(payload.get("name") or ""),
+        scopes=scopes,
+        expires_at=expires_at,
+    )
+    view["token"] = secret
+    return envelope_response_dict(view, status_code=201)
+
+
+async def revoke_token(request: Request) -> JSONResponse:
+    """Revoke one of the caller's tokens."""
+    actor = require_user(request)
+    token_id = request.path_params["token_id"]
+    revoked = await run_in_threadpool(
+        _revoke_token, get_session_factory(request), actor=actor, token_id=token_id
+    )
+    return envelope_response_dict({"token_id": token_id, "revoked": revoked})
+
+
+async def rotate_token(request: Request) -> JSONResponse:
+    """Replace a token with a new secret, preserving name and scopes.
+
+    Rotation is one transaction: the old token is revoked and the replacement
+    issued together, so a failure cannot leave an account with two live tokens
+    or none. ``rotated_from`` links them, so the audit trail reads as a rotation
+    rather than an unexplained revoke next to an unexplained create.
+    """
+    actor = require_user(request)
+    token_id = request.path_params["token_id"]
+    view, secret = await run_in_threadpool(
+        _rotate_token, get_session_factory(request), actor=actor, token_id=token_id
+    )
+    view["token"] = secret
+    return envelope_response_dict(view, status_code=201)
+
+
+def _PatModel() -> Any:  # noqa: N802
+    from caliber.db.models import CaliberPersonalAccessToken  # noqa: PLC0415
+
+    return CaliberPersonalAccessToken
+
+
 def register(app: Starlette) -> None:
+    app.routes.append(Route(TOKENS_PATH, list_tokens, methods=["GET"]))
+    app.routes.append(Route(TOKENS_PATH, create_token, methods=["POST"]))
+    app.routes.append(Route(TOKEN_DETAIL_PATH, revoke_token, methods=["DELETE"]))
+    app.routes.append(Route(TOKEN_ROTATE_PATH, rotate_token, methods=["POST"]))
     app.routes.append(Route(LOGIN_PATH, login, methods=["POST"]))
     app.routes.append(Route(LOGOUT_PATH, logout, methods=["POST"]))
     app.routes.append(Route(SESSION_PATH, session_info, methods=["GET"]))
