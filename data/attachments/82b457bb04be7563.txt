@@ -1,0 +1,26 @@
+INFO     caliber:server.py:403 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:245 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:656 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e6f0b7f2/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-00960a7b/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e6f0b7f2/deployments/prod/promote "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e6f0b7f2/service "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e6f0b7f2/service "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e6f0b7f2/service/tokens "HTTP/1.1 201 Created"
+ERROR    caliber.routes.services:services.py:1273 published service request failed
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/routes/services.py", line 1255, in wrapped
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/routes/services.py", line 870, in invoke_service
+    run, created = enqueue_workflow_run(
+                   ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_routes_services.py", line 1121, in _explode
+    raise RuntimeError("database password must never reach the response")
+RuntimeError: database password must never reach the response
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/services/WF-e6f0b7f2/invoke "HTTP/1.1 500 Internal Server Error"
