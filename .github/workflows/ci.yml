@@ -86,6 +86,59 @@ jobs:
       - name: ruff format --check
         run: ruff format --check .
 
+  sdk:
+    name: SDK (caliber-sdk)
+    runs-on: ubuntu-latest
+    # Overrides the repo-wide ``caliber`` default: caliber-sdk is a separate
+    # distribution at the repository root, with its own ruff, mypy, and pytest
+    # configuration. Inheriting the server's would be the accident this layout
+    # exists to avoid.
+    defaults:
+      run:
+        working-directory: sdk/caliber-sdk
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: sdk/caliber-sdk/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install the SDK and its dev extras
+        run: uv pip install --system -e ".[dev]"
+      - name: ruff check
+        run: ruff check .
+      - name: mypy (strict)
+        run: mypy
+      - name: pytest
+        run: pytest
+      - name: Build the wheel
+        run: |
+          uv pip install --system build
+          python -m build --wheel --outdir dist
+      - name: Assert the SDK installs without the server
+        # The whole reason caliber-sdk is a separate distribution. A dependency
+        # added carelessly would silently drag mlflow into every developer
+        # script; this fails the build instead.
+        run: |
+          python - <<'CHECK'
+          import glob, re, sys, zipfile
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          archive = zipfile.ZipFile(wheel)
+          name = next(n for n in archive.namelist() if n.endswith("METADATA"))
+          metadata = archive.read(name).decode()
+          runtime = [
+              line for line in re.findall(r"^Requires-Dist: (.+)$", metadata, re.M)
+              if "extra ==" not in line
+          ]
+          banned = [r for r in runtime if re.search(r"mlflow|sqlalchemy|starlette", r, re.I)]
+          print("runtime requirements:", runtime)
+          if banned:
+              sys.exit(f"caliber-sdk must not depend on the server runtime: {banned}")
+          CHECK
+
+
   type-check:
     name: Type check
     runs-on: ubuntu-latest
@@ -619,6 +672,7 @@ jobs:
     needs:
       - lint
       - type-check
+      - sdk
       - test
       - compatibility
       - integration

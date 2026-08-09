@@ -33,3 +33,8 @@ pg16-backup-*/
 # The Pages workflow stages CI's rendered Allure report here at deploy time;
 # it is never committed.
 docs-site/tests/
+
+# caliber-sdk local dev venv + build output (the package is built in CI)
+sdk/**/.venv-sdk/
+sdk/**/dist/
+sdk/**/*.egg-info/
