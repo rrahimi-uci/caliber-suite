@@ -1,7 +1,11 @@
 # CALIBER Product Completeness — Development Report
 
-> **Date:** 2026-08-01. **Updated 2026-08-06** — see [§10](#10-update-2026-08-06) for what
-> has changed since, and which statements below are now superseded.
+> **Date:** 2026-08-01. **Updated 2026-08-06** ([§10](#10-update-2026-08-06)), **2026-08-07**
+> ([§11](#11-update-2026-08-07)), and **2026-08-08** ([§12](#12-update-2026-08-08)) — see those
+> sections for what has changed since, and which statements below are now superseded. The
+> newest update is the one to read first: it discharges the local-only evidence caveat both
+> prior updates closed on, and records that the Pages fix §10.2 calls resolved has never
+> reached the site.
 >
 > **Reviewed document:** `product-completness-review-report.md` (audit baseline `f69d945a0`).
 > That file was deleted from the tree in `6ff4b7927`; this report is the surviving record of
@@ -949,3 +953,323 @@ The residual risk is therefore real and bounded, and now demonstrated: if a fami
 rollback mechanism changes, the paper's table follows automatically and this package does
 not. It is outside the product, outside CI, and outside every check §11 added. Anyone
 editing it should diff the claims against `paper/tables/tab-families.tex` first.
+
+---
+
+## 12. Update, 2026-08-08
+
+> **Tree:** `678127229` (`main`, and `origin/main` — §11's work merged as PR #31).
+>
+> **Scope of this update:** discharge the evidence caveat §11.3 left open, and record what
+> checking it turned up. No product code was changed for this section. No claim in §1–§11 has
+> been rewritten in place.
+>
+> **One finding dominates.** The Pages fix §10.2 recorded as resolved has never reached the
+> site: the deployment has been parked in `waiting` for ~59 hours and every publication run
+> behind it has been cancelled or is still queued. See
+> [§12.4](#124-the-fix-in-102-is-merged-and-has-never-deployed).
+
+### 12.1 The evidence standard §10.3 and §11.3 could not meet is now met
+
+Both prior updates closed by saying their numbers were local, that §3c's standard —
+"verified on the remote, not inferred from a local run" — was not met, and that it should be
+re-established once Actions recovered. It has been. CI run
+[`31235327573`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/31235327573) ran the
+merged tree on `main` at 2026-08-08T02:36Z and **all 13 jobs succeeded**.
+
+| Suite | Result | Where |
+| --- | --- | --- |
+| Backend (Python 3.11) | **5,976 passed, 12 skipped, 0 failed** (986 s), 93% coverage | CI job `Test (Python 3.11)` |
+| Frontend | **115 files, 1,570 tests, 0 failed** (269 s) | CI job `UI (test + build)` |
+| Compatibility | 3.10 and 3.12 legs green | CI jobs `Compatibility (Python 3.10/3.12)` |
+| Lint, format, types, security, wheel, compose, cookbook journeys | green | remaining CI jobs |
+| Gate ledger | `all 11 required gates executed` | CI job `Gate execution ledger` |
+
+**The gate ledger has now executed — and its failing branch has not.** §11.3 said the ledger
+"has by definition never executed, which is precisely the condition it exists to detect," and
+that it "should be treated as unproven until a real run produces its first summary." That run
+has happened: it enumerated all eleven required gates, found every one `success`, and printed
+`all 11 required gates executed`.
+
+What that proves is that the ledger *runs and reports*. It does not prove the thing the ledger
+exists for. `gate_ledger.py` has three exits: `return 0` when nothing is missing, `return 0`
+when gates are missing *but another job already failed* (the deliberate `needs:` cascade
+exemption §11.2 describes), and `return 1` when a run would have reported success with a gate
+that produced no evidence. Only the first has ever run — the green `main` run took it, and the
+PR run that preceded it ([§12.3](#123-a-transitive-dependency-moved-under-a-clean-install-for-the-third-time))
+had a real failure and so took the second. **The `return 1` branch has never executed, and no
+test drives it.** The three contract tests §11.2 describes import the module only for its
+`REQUIRED_GATES` constant and check that constant against `ci.yml`; none constructs a job list
+with a skipped gate and asserts a non-zero exit.
+
+That is worth stating plainly because of what the control is for. §3c's finding was a correct
+gate that had been skipped on twelve consecutive runs, and §9 concluded that "a gate that never
+runs is indistinguishable from a gate that passes." The ledger was built to make that
+detectable, and the detecting half of it is now itself a never-executed path — with strictly
+less standing than `package` had, because `package` at least had no test *and* was expected to
+run. This is not an argument against the ledger; it is the smallest possible version of the
+same defect, and it is a ten-line test to close: call `main()` against a fabricated job list
+with one gate `skipped` and no failures, assert `1`.
+
+**Job-count correction.** §10.3 recorded 12 CI jobs. There are now **13** — `678127229` added
+`Gate execution ledger`. The ledger's own "11" is a different quantity and the two should not
+be conflated: 11 is the count of *required gates*, which excludes `Allure report` (a reporting
+step, not a gate) and the ledger job itself.
+
+### 12.2 The skip characterisation narrowed between §5 and §10.3, and the narrowed one is wrong
+
+§5 describes its 9 skips as "opt-in integration **and** Postgres-marked tests," which is
+exactly right. §10.3 restates them as "the opt-in Postgres-marked tests, unchanged from
+baseline," dropping the integration half — and §11.3 quotes the same 9 with no
+characterisation at all. The claim did not start wrong; it got worse each time it was copied
+forward, which is §11.1's pattern operating on this document itself.
+
+The actual composition, read off the CI run's short test summary:
+
+| Skips | Reason | Marked |
+| --- | --- | --- |
+| 6 | `set CALIBER_INTEGRATION_TESTS=1 to run integration tests` | `integration` |
+| 3 | `POSTGRES_URL not set` | Postgres |
+| 2 | `tesseract binary not installed` | environment-dependent |
+| 1 | `UI dist/package bundle not built in this checkout` | environment-dependent |
+
+Only three of the twelve are Postgres. Six are integration-marked, a different opt-in with a
+different meaning — and the last three are not opt-in at all, they are *this machine lacks a
+binary*. Calling them all "opt-in Postgres-marked" made the suite look more uniformly
+deliberate than it is.
+
+The local and remote figures reconcile exactly, which is the useful part. A local run for this
+update (`pytest -n auto --dist loadgroup`, 3.12 venv, 356 s) reported **5,978 passed, 1 failed,
+9 skipped**, and its skip summary is six `CALIBER_INTEGRATION_TESTS` plus three
+`POSTGRES_URL not set` — §5's description exactly, and none of §10.3's. So:
+
+| | Collected | Passed | Skipped | Failed |
+| --- | --- | --- | --- | --- |
+| Local (this update) | 5,988 | 5,978 | 9 | 1 (self-inflicted, [§12.5](#125-an-uncommitted-rename-in-the-working-tree-reproduces-3cs-docs-failure)) |
+| Local (§11.3) | 5,988 | 5,979 | 9 | 0 |
+| CI `31235327573` | 5,988 | 5,976 | 12 | 0 |
+
+Three totals, three machines, one collection count. The three tests that move are precisely the
+environment-dependent ones — a dev machine has tesseract installed and a built UI bundle, so it
+runs what CI skips. The runs do not disagree; they differ in exactly the way the skip reasons
+predict, which is what makes the reconciliation worth doing rather than just quoting the larger
+number.
+
+### 12.3 A transitive dependency moved under a clean install, for the third time
+
+The PR that became `678127229` failed its first CI run
+([`31233201952`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/31233201952)) with
+**3 failed, 5,973 passed** — all three in `tests/test_mcp_db_tools.py`, all three
+`pydantic_settings.exceptions.IncompleteFieldDefinitionWarning`. pydantic-settings 2.15.0
+introduced that warning class; `mcp`'s FastMCP `Settings` model trips it because its
+`lifespan` field is annotated with a forward reference the model never rebuilds; and the
+suite's `filterwarnings = error` turns a third-party warning into three failures. Neither the
+field nor the fix is ours. A venv built a day earlier had 2.14.2 and passed.
+
+This is the **third instance of one shape**, and it is now worth naming separately from §3c's
+pattern rather than filed under it:
+
+1. numpy 2.5 moved its bundled stubs to PEP 695 `type` statements and broke `mypy` on any
+   clean install (§3c).
+2. `make install-extended` did not install the `memory` extra CI installs, so a contributor
+   following the documented profile got a red suite (§3c).
+3. pydantic-settings 2.15.0 added a warning class that `error` promotes to a failure.
+
+The common mechanism is not a control whose description outran its implementation. It is
+narrower and more mundane: **CI is the only machine in this project that ever performs a clean
+dependency resolve.** Every developer result comes from a venv built at some past moment and
+never re-resolved, so the tree is continuously being validated against a dependency set that
+no fresh install would reproduce. Two of the three were caught by CI on first contact, which
+is the system working; the point is that nothing else *could* have caught them.
+
+The fix is scoped narrowly and its reasoning is recorded beside it in `caliber/pyproject.toml`
+rather than in a commit message: the filter matches the warning **message**, not the category,
+because naming the category would make the whole suite unrunnable against pydantic-settings
+< 2.15 where the class does not exist; and it is pinned to the single `lifespan` field so a
+genuinely new incomplete definition — in `mcp` or in our own settings models — still fails.
+
+### 12.4 The fix in §10.2 is merged and has never deployed
+
+§10.2 records the two-publisher defect as closed: "Resolved in `7321c2574` by composing rather
+than choosing: one deployment now carries the docs at `/` and the report at `/tests/`." The
+workflow file does exactly that. The site does not.
+
+Measured against the live site on 2026-08-08:
+
+| URL | Status |
+| --- | --- |
+| `https://rrahimi-uci.github.io/caliber-suite/` | **200** |
+| `https://rrahimi-uci.github.io/caliber-suite/tests/` | **404** |
+| `https://rrahimi-uci.github.io/caliber-suite/runbook.html` | **404** |
+
+The runbook 404 dates the live site. `docs/runbook.md` landed in `5b0ad0c75` and §10.1
+announced it as published; it is not on the published site. What is serving is GitHub
+deployment `5781346617`, **sha `764ffb9c5`**, successful at 2026-08-06T14:31:15Z — one commit
+*before* `7321c2574`. The composed layout has therefore never been the site, and §10.2's
+measured "~152 MB composed, report ~126 MB across ~9k files, `history.json` 15 MB" describes an
+artifact that exists only as a build output.
+
+Every Pages run since:
+
+| Run | Trigger | Sha | Outcome |
+| --- | --- | --- | --- |
+| `31111026410` | `workflow_dispatch` | `764ffb9c5` | **success** — this is the live site |
+| `31121508186` | push | `7321c2574` | `build` success; **`deploy` has been `waiting` since 2026-08-06T17:09Z** |
+| `31121567501`, `31121570594` | push, `workflow_run` | `7321c2574` | cancelled |
+| `31235327584` | push | `678127229` | cancelled |
+| `31236063049` | `workflow_run` | `678127229` | **pending**, and still pending 25 hours after CI went green |
+
+Deployment `5783235987` (`7321c2574`) has exactly one status event in its whole history —
+`waiting`, at 2026-08-06T17:09:56Z — and never reached `queued`. For contrast, the live
+deployment went `queued → in_progress → success` in 118 seconds.
+
+**What can and cannot be concluded.** The cascade is mechanical and certain:
+`concurrency: {group: pages, cancel-in-progress: false}` admits one run to the group, so a run
+that never finishes holds it and everything behind it queues or is cancelled — which is
+exactly the observed sequence of two cancels and a pending. Why the first deploy parked in
+`waiting` is *not* established here. It is not a human approval gate: the environment's single
+protection rule is a branch policy whose one entry is `main`, the run is on `main`, and the
+pending-deployment record shows `wait_timer: 0` with `reviewers: []`. Recorded as unexplained
+rather than guessed at.
+
+The workflow's own comment chose that concurrency setting with this reasoning:
+
+> One deployment at a time, and in-flight runs are NOT cancelled: […] cancelling one
+> mid-flight leaves the environment holding a cancelled deployment. A superseded run costs a
+> few minutes; a wedged deployment costs an outage.
+
+The reasoning is sound and the feared outcome happened anyway — a wedged deployment, now
+~59 hours old, blocking every publication change since `7321c2574`. The setting did not cause the
+wedge, but it converted one stuck run into a stopped pipeline, and there is no alarm on that
+state: the *workflow* is not red. Four Pages runs in a row failed to publish and not one of
+them reports as a failure.
+
+**This is the sixth instance of §11.1's pattern and it lands on §10.2's own sentence.** §10.2
+coined "a publisher with no reader is indistinguishable from a publisher that works." The
+correction it prescribed earns a sharper one: **a fix that is merged is not a fix that is
+deployed.** §11.1's formulation — one fact, two copies, nothing making them the same object —
+holds here with the two copies being *the workflow file* and *the live site*. `7321c2574`
+changed the first and nothing has ever compared it to the second. The gate ledger §11.2 added
+answers "which CI gates ran?"; nothing answers "did the last merge reach the site?"
+
+**Owner action, not a code change.** Cancel the wedged run (`gh run cancel 31121508186`), then
+re-dispatch Pages and confirm `/tests/` and `/runbook.html` return 200. The durable fix is a
+check that reads the live site rather than the workflow's exit code — the same move §11.2 made
+for the gate ledger, applied one layer further out.
+
+### 12.5 An uncommitted rename in the working tree reproduces §3c's docs failure
+
+The working tree at the time of this update carries an uncommitted rename of this document:
+`product-completness-developement-report.md` deleted, `product-completness-report.md`
+untracked. Four committed files link to the old name — [README.md:247](README.md#L247),
+[ARCHITECTURE.md:608](ARCHITECTURE.md#L608), `docs-site/m-00-layered-architecture.md:603`, and
+`caliber/caliber-ui/public/docs/m-00-layered-architecture.md:603`, plus the gitignored
+packaged copy under `caliber/src/caliber/ui/docs/`.
+
+The Pages parity gate was reproduced against this tree rather than reasoned about:
+
+```console
+$ CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs
+$ git diff --exit-code -- docs-site caliber/caliber-ui/public/docs
+  → 2 files changed        # FAILS
+```
+
+The generator classifies a link by whether its target exists and rewrites the missing one from
+an absolute `blob/main` URL to a relative path. This is §3c's second CI failure verbatim —
+"committing the report deletion left dangling links […] the generator classifies a link by
+whether its target exists, so the deletion silently changed generated output" — reproduced by
+the same file, two waves later.
+
+**And `tests/test_docs_generation_contract.py` passes on that same tree** (5 passed, verified
+twice). §10.6 named this exact structure — "a correct gate that was never asked" — and this is
+its mirror: here the pytest gate *is* asked, answers a different question, and is green while
+the Pages gate is red on the identical defect.
+
+The reason is not an oversight, which is what makes it worth recording. The staleness test,
+`test_all_manifest_markdown_is_current_and_published`, replaces **every link destination with a
+`<LINK>` placeholder** before comparing source to generated output, and its docstring explains
+why: "Link destinations intentionally change during flattening. Removing only those
+destinations lets this independent test catch stale prose […] while the link-resolution test
+below validates the rewritten destinations themselves." That division of labour is sound in
+principle. In practice this defect is *entirely* a link destination, so the staleness test
+blanks it by construction, and the link-resolution test — which asks whether the flattened
+links resolve inside `docs-site/` — does not object to the rewritten one either. Two tests,
+each correct about its own question, and the defect falls in the seam between them.
+
+Only the Pages gate regenerates and diffs against git, so only the Pages gate compares the
+output to what is *committed* rather than to another derivation of the same stale input. §11.1
+said it about `gen_stats.py` and it holds here: a consistency check between copies is not a
+check on the fact.
+
+The rename is fine to make. It must be made together with an edit to the four linking files
+and a regeneration, in one commit.
+
+**A recovery defect found by walking into it.** Reproducing the parity gate above means running
+the generator, which writes three destinations: `docs-site/`, `caliber/caliber-ui/public/docs/`,
+and `caliber/src/caliber/ui/docs/`. The first two are tracked and `git checkout` restores them.
+**The third is gitignored, so git cannot restore it at all** — and once it holds regenerated
+content while the tracked copies hold committed content, the copies no longer agree and
+`test_all_materialized_docs_copies_match_docs_site` fails. That is the single failure in the
+local run in §12.1: not a defect in the tree, but one this exercise created and then could not
+`git checkout` away.
+
+The only way back is to make the sources consistent and regenerate — here, restore the deleted
+report file, re-run `sync-docs.mjs`, confirm `git diff --exit-code` is clean on the tracked
+pair, then re-apply the deletion. That works, and it is not discoverable from the failure
+message, which names a mismatch between two directories and says nothing about one of them
+being outside version control. Worth a line in `docs/runbook.md`: *a generated tree that is
+excluded from version control has no restore path, only a rebuild path.*
+
+Also uncommitted, and outside every number in §12.1 (CI measured `678127229`, not this tree):
+`start.sh` gains MLflow host-port conflict detection and automatic free-port selection, with
+matching notes in `deploy/.env.example`, `deploy/README.md`, and `deploy/mlflow/README.md`.
+
+### 12.6 Two smaller drifts found while checking
+
+**The paper's provenance stamp names a tree that is not in history.**
+`paper/generated/stats.tex` carries `\statGitRev{3b0c85959-dirty}` and the header comment
+"Produced […] from the CALIBER tree at `3b0c85959-dirty`". Two things are true of that string:
+it is not `678127229`, the commit the paper ships from; and the `-dirty` suffix means it names
+a working-tree state that was never committed and cannot be recovered. Nothing checks the
+stamp against `HEAD` — `gen_stats.py` emits it and no test reads it. Low severity, but a
+provenance field that cannot be resolved to a tree is not provenance. The *counts* are current
+and were re-derived: 322 Python modules / **127k** lines (§10.3 said 126k), **310** pytest
+modules (§10.3 said 308) / 137k lines, 292 TS modules / 176k, 487 routes across 47 modules,
+85 migrations, 76 ORM models, 226 schemas, 31 node types. The loop count was re-checked
+against the tree rather than the macro: `server.py` lines 192–204 contain exactly **nine**
+`await <task>.start()` calls, matching `\statLoops{9}`, which is §11.2's derivation working.
+
+**Seven test modules cite a provenance document that does not exist.**
+`tests/test_scoping.py`, `test_routes_evaluations_visibility.py`,
+`test_routes_evaluations_reproducibility.py`, `test_workflow_run_trace_linkage.py`,
+`test_settings_routes.py`, `test_eval_scorecard_weighting.py` and
+`test_cookbook_doc_contract.py` — plus `docs-site/cookbooks/CRITIQUE-REPORT.md` — attribute
+their existence to `ui-complete-report.md`, several citing specific sections (`§C4`, `§C2`,
+`§3`, `§4`). No file of that name exists anywhere in the tree. What exists is `ui-complete.md`
+at the repository root, which nothing references, nothing publishes, and no manifest lists.
+Either the citations are misnamed or the file is; as it stands, seven test modules explain
+*why they exist* by pointing at nothing, and a root-level document sits unreachable from any
+index. That is the cheapest possible form of the same defect — and unlike the others it costs
+a rename to fix.
+
+### 12.7 What this does not change
+
+§9's verdict is unaltered: **feature-rich Alpha, credible for a controlled technical pilot,
+not ready for supported production or untrusted authoring.** No product code was changed for
+this update. §10.5's ledger of genuinely open work — F-11's 224 handlers, F-04's trace half,
+F-10's broker replay, F-12's lexical fusion, F-02b's cancellation propagation, F-06's product
+decision, and the XL items F-16 / C-5 / C-2B / H-1 — is unchanged and was not attempted.
+
+What *did* change is the standing of the evidence, in both directions. §11.3's caveat is
+discharged: the tree is verified on the remote, all 13 jobs green, with the gate ledger's first
+real summary. And a gate one layer beyond CI was found open — the merge-to-published path,
+where **five consecutive Pages runs have failed to publish and not one of them reports as
+failed**. §9 said any readiness assessment should treat "which gates have actually executed
+recently?" as first-order. §11.2 made that answerable for CI. §12.4 is the same question asked
+one step later — *did the last merge reach the reader?* — and the answer is that nobody was
+asking it, so for 59 hours the answer was no.
+
+The three items this update leaves for someone to act on, smallest first: rename
+`ui-complete.md` or the seven citations to it (§12.6); commit the report rename together with
+its four link edits and a regeneration (§12.5); and unwedge Pages, then add a check that reads
+the site rather than the workflow's exit code (§12.4).
