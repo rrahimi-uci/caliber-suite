@@ -68,7 +68,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
       - name: Regenerate and sync docs from markdown sources

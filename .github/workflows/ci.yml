@@ -236,7 +236,7 @@ jobs:
         working-directory: caliber/caliber-ui
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -307,7 +307,7 @@ jobs:
         run: |
           uv venv .venv --python 3.11
           uv pip install --python .venv/bin/python -e ".[dev,llm]"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -491,7 +491,7 @@ jobs:
           path: caliber/caliber-ui/dist
       - name: Set up Node (only when the SPA must be rebuilt)
         if: steps.fetch_spa.outcome != 'success'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
