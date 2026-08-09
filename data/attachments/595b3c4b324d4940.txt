@@ -1,0 +1,4 @@
+{"t":"2026-08-09T09:06:27.915Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook POST failed, retrying: url=https://x.example/hook event='approval.promoted' attempt=1/4 err=connection refused"}
+{"t":"2026-08-09T09:06:27.916Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook POST failed, retrying: url=https://x.example/hook event='approval.promoted' attempt=2/4 err=connection refused"}
+{"t":"2026-08-09T09:06:27.917Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook POST failed, retrying: url=https://x.example/hook event='approval.promoted' attempt=3/4 err=connection refused"}
+{"t":"2026-08-09T09:06:27.918Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook delivery exhausted, dead-lettering: url=https://x.example/hook event='approval.promoted' err=connection refused"}

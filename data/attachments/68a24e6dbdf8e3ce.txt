@@ -1,0 +1,1 @@
+{"t":"2026-08-09T09:06:27.335Z","severity":"DEBUG","logger":"caliber.events.redis_bus","message":"Redis event bus loop closed; dropping remote event type='raises.loop'"}

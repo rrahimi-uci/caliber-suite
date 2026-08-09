@@ -1,0 +1,7 @@
+{"t":"2026-08-09T09:02:12.913Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-09T09:02:12.934Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-09T09:02:12.936Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-09T09:02:12.938Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-09T09:02:12.969Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-09T09:02:12.973Z","severity":"WARNING","logger":"caliber.routes.assistant","message":"aria upload object-store persist failed: store unavailable","trace_id":"c8c2b3ef66bf20f1"}
+{"t":"2026-08-09T09:02:12.992Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions/ASST-e763b37a/attachments/upload \"HTTP/1.1 201 Created\""}
