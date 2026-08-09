@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -44,6 +45,9 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  // The sidebar persists which groups are open. Without this, expanding a group
+  // in one test silently changes the starting state of the next.
+  window.localStorage.clear();
 });
 afterAll(() => server.close());
 
@@ -79,7 +83,11 @@ describe("Sidebar plans badge", () => {
 
   it("links Docs to the documentation HTML in a new tab", async () => {
     server.use(http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([]))));
+    const user = userEvent.setup();
     renderSidebar();
+    // Docs lives in Admin, which starts collapsed — only the group holding the
+    // current route opens by default.
+    await user.click(await screen.findByTestId("nav-group-toggle-admin"));
     const docs = await screen.findByRole("link", { name: "Docs" });
     expect(docs).toHaveAttribute("target", "_blank");
     expect(docs.getAttribute("href")).toMatch(/docs\/index\.html$/);

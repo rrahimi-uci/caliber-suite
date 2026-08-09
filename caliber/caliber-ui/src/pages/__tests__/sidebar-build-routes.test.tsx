@@ -72,6 +72,29 @@ function renderApp(initialPath: string): ReturnType<typeof render> {
   );
 }
 
+/**
+ * Click a sidebar destination, expanding its group first if needed.
+ *
+ * Only the group owning the current route starts open, so a chain of
+ * cross-group navigations has to expand as it goes. Expanding on demand — via
+ * whatever the sidebar renders — keeps this test from restating the
+ * label-to-group mapping, which would then need editing every time the
+ * information architecture moved.
+ */
+async function navigateVia(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string,
+): Promise<void> {
+  if (!screen.queryByRole("link", { name })) {
+    for (const toggle of screen.getAllByTestId(/^nav-group-toggle-/)) {
+      if (toggle.getAttribute("aria-expanded") === "false") {
+        await user.click(toggle);
+      }
+    }
+  }
+  await user.click(screen.getByRole("link", { name }));
+}
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
   vi.stubGlobal("EventSource", MockEventSource);
@@ -81,6 +104,9 @@ afterEach(() => {
   cleanup();
   server.resetHandlers();
   clearLocalAuthSession();
+  // The sidebar persists open groups; leaking that state would make the
+  // expand-on-demand helper above a no-op in whichever test ran second.
+  window.localStorage.clear();
 });
 
 afterAll(() => {
@@ -256,7 +282,7 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("link", { name: "Tools" }));
+    await navigateVia(user, "Tools");
     expect(
       await screen.findByRole("heading", { name: "Tools" }, { timeout: 5000 }),
     ).toBeInTheDocument();
@@ -264,7 +290,7 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("link", { name: "MCP Servers" }));
+    await navigateVia(user, "MCP Servers");
     expect(
       await screen.findByRole(
         "heading",
@@ -276,7 +302,7 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("link", { name: "Workflows" }));
+    await navigateVia(user, "Workflows");
     expect(
       await screen.findByRole(
         "heading",
@@ -288,7 +314,7 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("link", { name: "Agents" }));
+    await navigateVia(user, "Agents");
     expect(
       await screen.findByRole("heading", { name: "Agents" }, { timeout: 5000 }),
     ).toBeInTheDocument();
@@ -296,7 +322,7 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("link", { name: "Knowledge Base" }));
+    await navigateVia(user, "Knowledge Bases");
     expect(
       await screen.findByRole(
         "heading",
@@ -308,7 +334,7 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("link", { name: "Object Store" }));
+    await navigateVia(user, "Object Store");
     expect(
       await screen.findByRole(
         "heading",
@@ -320,7 +346,7 @@ describe("Sidebar Build routes", () => {
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await navigateVia(user, "Settings");
     expect(
       await screen.findByRole(
         "heading",
