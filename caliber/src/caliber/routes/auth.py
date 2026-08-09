@@ -32,6 +32,7 @@ from typing import Any
 
 from sqlalchemy import select
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -434,28 +435,33 @@ def _validated_scopes(payload: dict[str, Any], request: Request) -> list[str]:
     return sorted(scopes)
 
 
-async def list_tokens(request: Request) -> JSONResponse:
-    """Every token belonging to the caller. Never returns a usable secret."""
-    actor = require_user(request)
-    factory = get_session_factory(request)
+# The four token operations below run their database work in module-level
+# synchronous helpers dispatched through ``run_in_threadpool``. Two reasons:
+# the route layer is async while SQLAlchemy here is not, so an inline session
+# holds the event loop for the query's duration; and the offload ratchet in
+# tests/test_async_offload_ratchet.py matches on the *async function's* source
+# text, so a nested helper would still be counted as inline.
+
+
+def _load_tokens(factory: Any, *, actor: str) -> list[dict[str, Any]]:
     with factory() as session:
-        rows = list_personal_access_tokens(session, user_id=actor)
-        return envelope_response_dict({"tokens": [_token_view(row) for row in rows]})
+        return [_token_view(row) for row in list_personal_access_tokens(session, user_id=actor)]
 
 
-async def create_token(request: Request) -> JSONResponse:
-    """Issue a token for the caller. The plaintext is returned exactly once."""
-    actor = require_user(request)
-    payload = await parse_json_object(request)
-    scopes = _validated_scopes(payload, request)
-    expires_at = _requested_expiry(payload)
-    factory = get_session_factory(request)
+def _create_token(
+    factory: Any,
+    *,
+    actor: str,
+    name: str,
+    scopes: list[str],
+    expires_at: datetime | None,
+) -> tuple[dict[str, Any], str]:
     with factory() as session:
         try:
             issued = create_personal_access_token(
                 session,
                 user_id=actor,
-                name=str(payload.get("name") or ""),
+                name=name,
                 scopes=scopes,
                 expires_at=expires_at,
                 created_by=actor,
@@ -469,24 +475,17 @@ async def create_token(request: Request) -> JSONResponse:
             entity_type="personal_access_token",
             entity_id=issued.token_id,
             # The secret is deliberately absent: an audit row is read by more
-            # people than the issuing response, and it is retained far longer.
+            # people than the issuing response, and retained far longer.
             details={
                 "scopes": scopes,
                 "expires_at": expires_at.isoformat() if expires_at else None,
             },
         )
         session.commit()
-        row = session.get(_PatModel(), issued.token_id)
-        view = _token_view(row)
-    view["token"] = issued.token
-    return envelope_response_dict(view, status_code=201)
+        return _token_view(session.get(_PatModel(), issued.token_id)), issued.token
 
 
-async def revoke_token(request: Request) -> JSONResponse:
-    """Revoke one of the caller's tokens."""
-    actor = require_user(request)
-    token_id = request.path_params["token_id"]
-    factory = get_session_factory(request)
+def _revoke_token(factory: Any, *, actor: str, token_id: str) -> bool:
     with factory() as session:
         row = session.get(_PatModel(), token_id)
         # 404 rather than 403 for someone else's token: confirming existence
@@ -503,20 +502,10 @@ async def revoke_token(request: Request) -> JSONResponse:
             details={"already_revoked": not revoked},
         )
         session.commit()
-    return envelope_response_dict({"token_id": token_id, "revoked": revoked})
+        return revoked
 
 
-async def rotate_token(request: Request) -> JSONResponse:
-    """Replace a token with a new secret, preserving name and scopes.
-
-    Rotation is one transaction: the old token is revoked and the replacement
-    issued together, so a failure cannot leave an account with two live tokens
-    or none. ``rotated_from`` links them, so the audit trail reads as a rotation
-    rather than an unexplained revoke next to an unexplained create.
-    """
-    actor = require_user(request)
-    token_id = request.path_params["token_id"]
-    factory = get_session_factory(request)
+def _rotate_token(factory: Any, *, actor: str, token_id: str) -> tuple[dict[str, Any], str]:
     with factory() as session:
         row = session.get(_PatModel(), token_id)
         if row is None or row.user_id != actor:
@@ -542,8 +531,58 @@ async def rotate_token(request: Request) -> JSONResponse:
             details={"rotated_from": token_id},
         )
         session.commit()
-        view = _token_view(session.get(_PatModel(), issued.token_id))
-    view["token"] = issued.token
+        return _token_view(session.get(_PatModel(), issued.token_id)), issued.token
+
+
+async def list_tokens(request: Request) -> JSONResponse:
+    """Every token belonging to the caller. Never returns a usable secret."""
+    actor = require_user(request)
+    tokens = await run_in_threadpool(_load_tokens, get_session_factory(request), actor=actor)
+    return envelope_response_dict({"tokens": tokens})
+
+
+async def create_token(request: Request) -> JSONResponse:
+    """Issue a token for the caller. The plaintext is returned exactly once."""
+    actor = require_user(request)
+    payload = await parse_json_object(request)
+    scopes = _validated_scopes(payload, request)
+    expires_at = _requested_expiry(payload)
+    view, secret = await run_in_threadpool(
+        _create_token,
+        get_session_factory(request),
+        actor=actor,
+        name=str(payload.get("name") or ""),
+        scopes=scopes,
+        expires_at=expires_at,
+    )
+    view["token"] = secret
+    return envelope_response_dict(view, status_code=201)
+
+
+async def revoke_token(request: Request) -> JSONResponse:
+    """Revoke one of the caller's tokens."""
+    actor = require_user(request)
+    token_id = request.path_params["token_id"]
+    revoked = await run_in_threadpool(
+        _revoke_token, get_session_factory(request), actor=actor, token_id=token_id
+    )
+    return envelope_response_dict({"token_id": token_id, "revoked": revoked})
+
+
+async def rotate_token(request: Request) -> JSONResponse:
+    """Replace a token with a new secret, preserving name and scopes.
+
+    Rotation is one transaction: the old token is revoked and the replacement
+    issued together, so a failure cannot leave an account with two live tokens
+    or none. ``rotated_from`` links them, so the audit trail reads as a rotation
+    rather than an unexplained revoke next to an unexplained create.
+    """
+    actor = require_user(request)
+    token_id = request.path_params["token_id"]
+    view, secret = await run_in_threadpool(
+        _rotate_token, get_session_factory(request), actor=actor, token_id=token_id
+    )
+    view["token"] = secret
     return envelope_response_dict(view, status_code=201)
 
 
