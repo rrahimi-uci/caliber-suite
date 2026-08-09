@@ -1,0 +1,1 @@
+{"t":"2026-08-09T18:19:34.213Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}

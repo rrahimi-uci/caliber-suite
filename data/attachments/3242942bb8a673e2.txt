@@ -1,1 +1,0 @@
-{"t":"2026-08-09T17:54:51.476Z","severity":"INFO","logger":"caliber.orchestrator.optimizer_select","message":"GEPA selected for job=RFN-GEPA (diagnosis meets GEPA criteria)"}

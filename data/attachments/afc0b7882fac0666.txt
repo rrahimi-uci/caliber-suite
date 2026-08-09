@@ -1,1 +1,0 @@
-{"t":"2026-08-09T17:54:54.489Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-GEPA optimizer=MetaPrompt cost_usd=0.0040"}
