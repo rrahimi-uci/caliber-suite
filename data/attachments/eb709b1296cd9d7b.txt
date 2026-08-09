@@ -1,1 +1,0 @@
-{"t":"2026-08-09T09:05:47.581Z","severity":"INFO","logger":"caliber.llm.circuit_breaker","message":"llm circuit closing after successful probe"}
