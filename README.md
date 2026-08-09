@@ -42,6 +42,32 @@ in-process `mlflow.app` plugin topology and a standalone CALIBER service that ta
 
 ---
 
+## 🧭 Design principles
+
+Ten principles govern what CALIBER builds and what it refuses to build, ordered
+deliberately — purpose and trust first, then capability and architecture, then
+operational quality, and finally technology choices and longevity. When two pull
+against each other, the lower number wins.
+
+| # | Principle | |
+| --- | --- | --- |
+| 1 | **Governed Agentic Workflows** | Governance, security, compliance, and policy enforcement at the core. |
+| 2 | **Progressive Autonomy** | The path from human-led processes to fully autonomous agent-driven execution. |
+| 3 | **Auditability & Observability** | Every workflow, decision, and agent action traceable, transparent, and explainable. |
+| 4 | **Evaluation by Design** | Testing, verification, validation, benchmarking, calibration, and optimization from the start. |
+| 5 | **Open & Extensible** | Enterprise systems, AI models, tools, and external agent platforms through open APIs and SDKs. |
+| 6 | **Modular & Composable** | Loosely coupled components that are reusable, flexible, and easy to extend. |
+| 7 | **Scalable & Reliable** | Enterprise-grade performance, resilience, and operational reliability. |
+| 8 | **Open-Source First** | Proven open-source building blocks with strong community support. |
+| 9 | **Developer & User Friendly** | A clear, productive experience for both developers and business users. |
+| 10 | **Future Ready** | Evolving AI capabilities, orchestration patterns, and enterprise needs. |
+
+[`ARCHITECTURE.md`](./ARCHITECTURE.md#design-principles) is the canonical
+statement, and maps each principle to the mechanism that discharges it — including
+where a mechanism is partial and says so.
+
+---
+
 ## 🔄 The refinement loop
 
 The canonical refinement path takes a thumbs-down in production to a measured, reviewed candidate with

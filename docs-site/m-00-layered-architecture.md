@@ -26,6 +26,56 @@
 
 ---
 
+## Design principles
+
+Ten principles govern what CALIBER builds and what it refuses to build. They are
+ordered deliberately: purpose and trust first, then capability and architecture,
+then operational quality, and finally technology choices and longevity. When two
+principles pull against each other, the lower number wins — a governance
+guarantee outranks a convenience, and an audit trail outranks a shortcut.
+
+This section is the canonical statement. The README, the documentation site, and
+the paper restate it; they do not extend it.
+
+| # | Principle | What it commits us to |
+| --- | --- | --- |
+| **1** | **Governed Agentic Workflows** | Build agentic workflows with governance, security, compliance, and policy enforcement at the core. |
+| **2** | **Progressive Autonomy** | Support the path from human-led processes to fully autonomous agent-driven execution. |
+| **3** | **Auditability & Observability** | Make every workflow, decision, and agent action traceable, transparent, and explainable. |
+| **4** | **Evaluation by Design** | Build in testing, verification, validation, benchmarking, calibration, and optimization from the start. |
+| **5** | **Open & Extensible** | Integrate easily with enterprise systems, AI models, tools, and external agent platforms through open APIs and SDKs. |
+| **6** | **Modular & Composable** | Use loosely coupled components that are reusable, flexible, and easy to extend. |
+| **7** | **Scalable & Reliable** | Deliver enterprise-grade performance, resilience, and operational reliability. |
+| **8** | **Open-Source First** | Prefer proven open-source building blocks with strong community support. |
+| **9** | **Developer & User Friendly** | Provide a clear, productive experience for both developers and business users. |
+| **10** | **Future Ready** | Design for evolving AI capabilities, orchestration patterns, and enterprise needs. |
+
+### Where each principle is discharged
+
+A principle that names no mechanism is a slogan. Each row below points at the
+section that shows the mechanism — and, where the mechanism is partial, at the
+section that says so.
+
+| Principle | Mechanism in this document |
+| --- | --- |
+| 1 · Governed Agentic Workflows | §3 the governed asset, §8 the trust boundary — including where coverage is path-specific rather than repository-wide |
+| 2 · Progressive Autonomy | §2 the lifecycle chain; the two human decisions in the refinement loop, and Aria's permissioned tool loop |
+| 3 · Auditability & Observability | §7 state ownership, §8 the audit and effect ledgers — and the stated limit that the audit guarantee holds for database-resident mutations, not across the MLflow boundary |
+| 4 · Evaluation by Design | §2 evidence and measurement; §4 the per-family guarantees table, which is where evaluation coverage stops being uniform |
+| 5 · Open & Extensible | §9 the extension seams; the API surface and the MCP/gateway integration points |
+| 6 · Modular & Composable | §1 the layered stack; §9 the seams the system is extended along |
+| 7 · Scalable & Reliable | §5 deployment topologies, §6 the execution model — including the in-process worker limit and what it means for scale |
+| 8 · Open-Source First | The "What it reuses" row above: MLflow is reused rather than reimplemented |
+| 9 · Developer & User Friendly | §5 the embedded-or-standalone choice; the SPA surfaces and the Cookbook examples |
+| 10 · Future Ready | §9 the extension seams; §4's honesty that families differ, which is what lets new families arrive without a rewrite |
+
+> **On principle 8.** Preferring open-source building blocks is a constraint on
+> *how* the other nine are met, not a licence to inherit their guarantees. MLflow
+> supplies the trace store and prompt registry; it does not supply CALIBER's
+> governance, and §8 is explicit that the audit boundary stops at its edge.
+
+---
+
 ## 1 · The layered stack
 
 Read the centre column **bottom-up**. Infrastructure *carries* modular services;

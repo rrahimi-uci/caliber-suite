@@ -9,6 +9,48 @@ the same origin, plus the state it owns. \figref{fig:layers} gives the layered
 view and \figref{fig:system} the runtime view; this section introduces the three
 concepts a reader needs before either diagram is useful.
 
+\subsection{Design principles}
+\label{sec:principles}
+
+Ten principles constrain what \sys{} builds. They are ordered, and the order is
+the load-bearing part: purpose and trust first, then capability and architecture,
+then operational quality, and finally technology choices and longevity. Where two
+principles conflict, the lower-numbered one wins --- a governance guarantee
+outranks a convenience, and an audit trail outranks a shortcut. Stating the tie
+break is what makes the list a design constraint rather than a description.
+
+\begin{enumerate}
+\item \textbf{Governed agentic workflows.} Governance, security, compliance, and
+      policy enforcement at the core.
+\item \textbf{Progressive autonomy.} Support the path from human-led processes to
+      fully autonomous agent-driven execution.
+\item \textbf{Auditability and observability.} Every workflow, decision, and agent
+      action traceable, transparent, and explainable.
+\item \textbf{Evaluation by design.} Testing, verification, validation,
+      benchmarking, calibration, and optimization built in from the start.
+\item \textbf{Open and extensible.} Integrate with enterprise systems, models,
+      tools, and external agent platforms through open APIs and SDKs.
+\item \textbf{Modular and composable.} Loosely coupled components that are
+      reusable, flexible, and easy to extend.
+\item \textbf{Scalable and reliable.} Enterprise-grade performance, resilience,
+      and operational reliability.
+\item \textbf{Open-source first.} Prefer proven open-source building blocks with
+      strong community support.
+\item \textbf{Developer and user friendly.} A clear, productive experience for
+      both developers and business users.
+\item \textbf{Future ready.} Design for evolving AI capabilities, orchestration
+      patterns, and enterprise needs.
+\end{enumerate}
+
+Two of these are worth reading against the rest of this paper rather than taken
+on trust. Principle~8 constrains \emph{how} the others are met and does not
+inherit their guarantees: \secref{sec:design} records reusing \mlflow{} rather
+than owning the substrate, and \secref{sec:components} states the price --- the
+audit guarantee holds for database-resident mutations and not across the
+\mlflow{} boundary. Principle~4 is the one the evaluation in
+\secref{sec:eval} is designed to test rather than assert, and
+\secref{sec:limitations} records where per-family coverage stops being uniform.
+
 \subsection{The governed asset}
 
 \input{fig-asset}
