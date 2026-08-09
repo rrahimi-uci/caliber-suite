@@ -44,11 +44,12 @@ import hmac
 import logging
 import re
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Final, NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 logger = logging.getLogger("caliber.sessions")
 
@@ -459,29 +460,193 @@ def purge_expired_sessions(session: Any, *, now: datetime | None = None) -> int:
     return len(rows)
 
 
+# ---------------------------------------------------------------------------
+# Personal access tokens (automation credentials)
+# ---------------------------------------------------------------------------
+
+#: Every PAT carries this prefix in its plaintext form. Two reasons, both
+#: practical: resolution can tell a PAT from a session token without a wasted
+#: database lookup, and secret scanners can match a distinctive literal rather
+#: than "a long base64-ish string", which is what makes leaked-credential
+#: detection possible at all.
+PAT_PREFIX: Final[str] = "calpat_"
+
+
+class PersonalAccessToken(NamedTuple):
+    """A freshly issued token. ``token`` is returned exactly once."""
+
+    token_id: str
+    token: str
+
+
+def _normalize_scopes(scopes: Iterable[str] | None) -> str:
+    """Store scopes as a sorted, de-duplicated, space-separated string."""
+    if not scopes:
+        return ""
+    return " ".join(sorted({str(scope).strip() for scope in scopes if str(scope).strip()}))
+
+
+def parse_scopes(raw: str | None) -> frozenset[str]:
+    return frozenset(part for part in str(raw or "").split() if part)
+
+
+def create_personal_access_token(
+    session: Any,
+    *,
+    user_id: str,
+    name: str,
+    scopes: Iterable[str] | None = None,
+    expires_at: datetime | None = None,
+    created_by: str | None = None,
+    rotated_from: str | None = None,
+) -> PersonalAccessToken:
+    """Issue a token, returning the plaintext once and storing only its digest."""
+    from caliber.db.models import CaliberPersonalAccessToken  # noqa: PLC0415
+    from caliber.ids import new_personal_access_token_id  # noqa: PLC0415
+
+    label = str(name or "").strip()
+    if not label:
+        raise AccountError("token name must not be empty")
+
+    token = PAT_PREFIX + secrets.token_urlsafe(_TOKEN_BYTES)
+    token_id = new_personal_access_token_id()
+    session.add(
+        CaliberPersonalAccessToken(
+            token_id=token_id,
+            user_id=user_id,
+            name=label[:256],
+            token_hash=token_fingerprint(token),
+            scopes=_normalize_scopes(scopes),
+            created_by=created_by or user_id,
+            expires_at=expires_at,
+            rotated_from=rotated_from,
+        )
+    )
+    return PersonalAccessToken(token_id=token_id, token=token)
+
+
+def resolve_personal_access_token(
+    session: Any, token: str, *, now: datetime | None = None
+) -> tuple[str, frozenset[str]] | None:
+    """Return ``(user_id, requested_scopes)`` for a usable token, else ``None``.
+
+    The scopes returned are what the token *asked* for, not what it gets. The
+    caller intersects them with the owner's current authority, so a token can
+    only ever narrow -- and a user demoted after the token was issued loses that
+    authority through the token immediately.
+
+    Rejects revoked, expired, and tokens whose account is gone or disabled, for
+    the same reason :func:`resolve_session` does: those are the operations that
+    make a credential boundary usable.
+    """
+    from caliber.db.models import (  # noqa: PLC0415
+        CaliberPersonalAccessToken,
+        CaliberUserAccount,
+    )
+
+    if not token or not token.startswith(PAT_PREFIX):
+        return None
+    now = now or datetime.now(timezone.utc)
+    row = session.execute(
+        select(CaliberPersonalAccessToken).where(
+            CaliberPersonalAccessToken.token_hash == token_fingerprint(token)
+        )
+    ).scalar_one_or_none()
+    if row is None or row.revoked_at is not None:
+        return None
+    expires_at = row.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is not None and expires_at <= now:
+        return None
+    # Enforce the account only when the deployment has one. ``resolve_session``
+    # can require a row because a session is *created* by password login, so an
+    # account necessarily exists. A PAT is issued to whatever identity the
+    # deployment established -- in trusted-header mode that is a proxy-asserted
+    # user with no row at all, and requiring one would make PATs work in session
+    # mode only. Where a row does exist, ``disabled`` still revokes the token.
+    account = session.get(CaliberUserAccount, row.user_id)
+    if account is not None and account.disabled:
+        return None
+    return str(row.user_id), parse_scopes(row.scopes)
+
+
+def touch_personal_access_token(session: Any, token: str, *, now: datetime | None = None) -> None:
+    """Record last use, so an operator can retire tokens nothing calls."""
+    from caliber.db.models import CaliberPersonalAccessToken  # noqa: PLC0415
+
+    if not token or not token.startswith(PAT_PREFIX):
+        return
+    session.execute(
+        update(CaliberPersonalAccessToken)
+        .where(CaliberPersonalAccessToken.token_hash == token_fingerprint(token))
+        .values(last_used_at=now or datetime.now(timezone.utc))
+    )
+
+
+def revoke_personal_access_token(
+    session: Any, *, token_id: str, reason: str = "revoked", now: datetime | None = None
+) -> bool:
+    """Revoke by id. Returns whether a live token was actually revoked."""
+    from caliber.db.models import CaliberPersonalAccessToken  # noqa: PLC0415
+
+    result = session.execute(
+        update(CaliberPersonalAccessToken)
+        .where(
+            CaliberPersonalAccessToken.token_id == token_id,
+            CaliberPersonalAccessToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=now or datetime.now(timezone.utc), revoked_reason=reason[:64])
+    )
+    return bool(result.rowcount)
+
+
+def list_personal_access_tokens(session: Any, *, user_id: str) -> list[Any]:
+    """Every token for a user, newest first. Never includes a usable secret."""
+    from caliber.db.models import CaliberPersonalAccessToken  # noqa: PLC0415
+
+    return list(
+        session.execute(
+            select(CaliberPersonalAccessToken)
+            .where(CaliberPersonalAccessToken.user_id == user_id)
+            .order_by(CaliberPersonalAccessToken.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+
+
 __all__ = [
     "DEFAULT_BOOTSTRAP_ADMIN_PASSWORD",
     "DEFAULT_BOOTSTRAP_ADMIN_USER",
     "FORBIDDEN_PASSWORDS",
     "MIN_PASSWORD_LENGTH",
+    "PAT_PREFIX",
     "SCRYPT_N",
     "SCRYPT_P",
     "SCRYPT_R",
     "AccountError",
     "AuthenticationError",
+    "PersonalAccessToken",
     "SessionToken",
     "account_count",
     "authenticate",
     "create_account",
+    "create_personal_access_token",
     "hash_password",
+    "list_personal_access_tokens",
     "needs_rehash",
+    "parse_scopes",
     "purge_expired_sessions",
+    "resolve_personal_access_token",
     "resolve_session",
     "revoke_all_sessions",
+    "revoke_personal_access_token",
     "revoke_session",
     "set_disabled",
     "set_password",
     "token_fingerprint",
+    "touch_personal_access_token",
     "touch_session",
     "validate_password",
     "validate_user_id",

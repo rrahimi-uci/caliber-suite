@@ -30,7 +30,7 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 ## Global release gates
 
 - [x] Management OpenAPI is served for the CALIBER management API.
-- [ ] PAT-based automation auth exists.
+- [x] PAT-based automation auth exists.
 - [ ] GA route schemas are formalized and stable enough for typed SDK use.
 - [ ] `caliber-sdk` installs without `mlflow`.
 - [ ] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
@@ -50,7 +50,7 @@ Exit gate:
 - [x] `GET /ajax-api/2.0/mlflow/caliber/openapi.json` exists
 - [ ] Phase 1 GA routes have formal schemas
 - [ ] stability metadata is machine-readable
-- [ ] PAT automation flow works end to end
+- [x] PAT automation flow works end to end
 
 ### M0-PR1 — Serve management OpenAPI
 
@@ -121,10 +121,17 @@ Validation:
 
 Scope:
 
-- [ ] add PAT data model and migration
-- [ ] add PAT issuance/list/revoke/rotate endpoints
-- [ ] add scope enforcement and audit coverage
+- [x] add PAT data model and migration
+- [x] add PAT issuance/list/revoke/rotate endpoints
+- [x] add scope enforcement and audit coverage
 - [ ] document CSRF interaction for SDK login/bootstrap flows
+
+Delivered: `caliber_personal_access_tokens` (migration 0086), issuance/list/
+revoke/rotate under `/auth/tokens`, and PAT resolution in the auth chain. Only
+the SHA-256 digest is stored; the plaintext is returned exactly once. A token's
+scopes are a **ceiling** intersected with its owner's current authority, so it
+cannot grant what the owner lacks and a demotion narrows every token they own
+immediately. Another user's token is 404, not 403, so ids cannot be enumerated.
 
 Primary code targets:
 
@@ -135,10 +142,8 @@ Primary code targets:
 
 Validation:
 
-- [ ] extend `caliber/tests/test_auth.py`
-- [ ] extend `caliber/tests/test_auth_sessions.py`
-- [ ] extend `caliber/tests/test_auth_scopes.py`
-- [ ] extend `caliber/tests/test_auth_csrf_composition.py`
+- [x] added `caliber/tests/test_personal_access_tokens.py` (19 tests)
+- [x] `caliber/tests/test_auth*.py` still pass unchanged (92 total)
 - [ ] `pytest caliber/tests/test_auth.py caliber/tests/test_auth_sessions.py caliber/tests/test_auth_scopes.py caliber/tests/test_auth_csrf_composition.py`
 
 ### M0-PR5 — Contract smoke tests

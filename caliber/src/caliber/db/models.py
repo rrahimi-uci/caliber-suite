@@ -1200,6 +1200,49 @@ class CaliberSession(Base):
     user_agent: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
 
+class CaliberPersonalAccessToken(Base):
+    """A long-lived, named, revocable credential for automation.
+
+    Sessions are the wrong credential for a script: they are obtained by
+    password login, expire on a human-session timescale, and carry the user's
+    full authority. A PAT is issued deliberately, names what it is for, can be
+    narrowed below its owner's authority, and can be revoked without disturbing
+    the owner's browser sessions.
+
+    Like :class:`CaliberSession`, only the SHA-256 digest is stored, so reading
+    this table yields no usable credential. Unlike a session, ``scopes`` is
+    persisted: it is the *ceiling* the token requests, and the effective
+    authority is that ceiling intersected with whatever its owner holds at the
+    time of the request. A PAT therefore cannot outlive its owner's
+    permissions -- demoting the user immediately narrows every token they own.
+    """
+
+    __tablename__ = "caliber_personal_access_tokens"
+    __table_args__ = (
+        Index("ix_pat_token_hash", "token_hash", unique=True),
+        Index("ix_pat_user", "user_id"),
+    )
+
+    token_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(256))
+    #: Operator-facing label, so a token can be revoked by purpose rather than id.
+    name: Mapped[str] = mapped_column(String(256))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    #: Space-separated scope ceiling. Empty means "inherit the owner's scopes".
+    scopes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_by: Mapped[str] = mapped_column(String(256))
+    #: NULL means no expiry. Automation legitimately outlives a session, but an
+    #: unbounded default would make expiry the exception rather than the choice.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Set when this token replaced another during rotation, so an audit can
+    #: follow the chain rather than seeing an unexplained revoke plus create.
+    rotated_from: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 class CaliberEffectLedger(Base):
     """One external effect a workflow run performed, keyed for at-most-once replay.
 
