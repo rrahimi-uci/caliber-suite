@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -92,7 +95,7 @@ def test_catalog_reports_concrete_runtime_approval_readiness(client: TestClient)
     assert approval_check == {
         "label": "Workflow queue, runtime approvals, and checkpoints",
         "status": "configuration_required",
-        "settings_path": "/settings/runtime",
+        "settings_path": "/settings",
     }
 
     client.app.state.config = client.app.state.config.model_copy(
@@ -106,6 +109,35 @@ def test_catalog_reports_concrete_runtime_approval_readiness(client: TestClient)
         item["id"]: item for item in client.get(f"{PREFIX}/cookbooks").json()["data"]["recipes"]
     }
     assert recipes["03"]["readiness"]["checks"][0]["status"] == "ready"
+
+
+def test_every_readiness_settings_path_is_a_route_the_spa_registers(
+    client: TestClient,
+) -> None:
+    """A readiness check may only point at a route that actually resolves.
+
+    ``settings_path`` is rendered as a "Configure" link, so naming a path the
+    SPA does not register is worse than naming none: the operator is handed a
+    way out that dead-ends. This shipped as ``/settings/runtime`` for months
+    without being noticed, because the frontend type omitted the field and the
+    page never rendered it -- the backend test pinned the broken value instead
+    of checking it resolved.
+    """
+    app_tsx = Path(__file__).resolve().parents[2] / "caliber" / "caliber-ui" / "src" / "App.tsx"
+    registered = set(re.findall(r'path="([^"]+)"', app_tsx.read_text(encoding="utf-8")))
+    assert registered, "parsed no routes out of App.tsx; the assertion below would be vacuous"
+
+    advertised = {
+        check["settings_path"]
+        for item in client.get(f"{PREFIX}/cookbooks").json()["data"]["recipes"]
+        for check in item["readiness"]["checks"]
+        if check.get("settings_path")
+    }
+    assert advertised, "no readiness check advertised a settings_path"
+    assert advertised <= registered, (
+        f"readiness checks link to routes the SPA does not register: "
+        f"{sorted(advertised - registered)}"
+    )
 
 
 def test_install_requires_prerequisite_acknowledgement(client: TestClient) -> None:

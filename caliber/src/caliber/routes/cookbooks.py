@@ -73,7 +73,12 @@ def _catalog_payload(request: Request) -> dict[str, Any]:
                 {
                     "label": "Workflow queue, runtime approvals, and checkpoints",
                     "status": "ready" if approval_ready else "configuration_required",
-                    "settings_path": "/settings/runtime",
+                    # The SPA registers ``/settings`` only -- there is no
+                    # ``/settings/runtime`` route -- and the runtime configuration
+                    # this check refers to is rendered on that page. Naming a
+                    # route that does not resolve is worse than naming none,
+                    # because the UI renders it as a working way out.
+                    "settings_path": "/settings",
                 },
             )
         recipe["readiness"] = {

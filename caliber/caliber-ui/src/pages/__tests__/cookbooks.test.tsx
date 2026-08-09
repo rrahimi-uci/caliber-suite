@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import type { CookbookCatalog } from "@/api/workflowTypes";
+import type { CookbookCatalog, CookbookReadinessCheck } from "@/api/workflowTypes";
 import { Cookbooks } from "@/pages/Cookbooks";
 import { server } from "@/test/server";
 
@@ -145,5 +145,122 @@ describe("Cookbooks", () => {
       name: "Example install",
       acknowledge_prerequisites: true,
     }));
+  });
+
+  /**
+   * The server has always computed per-check readiness and shipped it with the
+   * catalog; the page dropped it and rendered a bare "Setup needed" badge. These
+   * pin the checks to the surface, because a badge that names no cause and
+   * offers no route out is indistinguishable from a broken recipe.
+   */
+  describe("readiness checks", () => {
+    function catalogWithChecks(checks: CookbookReadinessCheck[]): CookbookCatalog {
+      const recipes = CATALOG.recipes.map((item) =>
+        item.id === "01"
+          ? { ...item, readiness: { status: "configuration_required" as const, checks } }
+          : item,
+      );
+      return { ...CATALOG, recipes };
+    }
+
+    it("names each unmet check on the card and links the one with a fix", async () => {
+      server.use(
+        http.get(`${API_BASE}/cookbooks`, () =>
+          HttpResponse.json(envelope(catalogWithChecks([
+            {
+              label: "Workflow queue, runtime approvals, and checkpoints",
+              status: "configuration_required",
+              settings_path: "/settings",
+            },
+            { label: "Configured model provider", status: "operator_confirmation_required" },
+          ]))),
+        ),
+      );
+      renderPage();
+
+      const panel = await screen.findByTestId("cookbook-readiness-01");
+      expect(panel).toHaveTextContent("Workflow queue, runtime approvals, and checkpoints");
+      expect(panel).toHaveTextContent("Configured model provider");
+      // Only the server-side capability check carries a route, so exactly one
+      // "Configure" affordance should appear -- not one per check.
+      const links = within(panel).getAllByRole("link", { name: "Configure" });
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute("href", "/settings");
+    });
+
+    it("summarises the remainder rather than overflowing the card", async () => {
+      server.use(
+        http.get(`${API_BASE}/cookbooks`, () =>
+          HttpResponse.json(envelope(catalogWithChecks([
+            { label: "First check", status: "configuration_required" },
+            { label: "Second check", status: "configuration_required" },
+            { label: "Third check", status: "configuration_required" },
+            { label: "Fourth check", status: "configuration_required" },
+          ]))),
+        ),
+      );
+      renderPage();
+
+      const panel = await screen.findByTestId("cookbook-readiness-01");
+      expect(panel).toHaveTextContent("First check");
+      expect(panel).toHaveTextContent("Second check");
+      expect(panel).not.toHaveTextContent("Third check");
+      expect(panel).toHaveTextContent("+2 more before this is ready");
+    });
+
+    it("shows no readiness panel when every check passes", async () => {
+      server.use(
+        http.get(`${API_BASE}/cookbooks`, () =>
+          HttpResponse.json(envelope(catalogWithChecks([
+            { label: "Already satisfied", status: "ready" },
+          ]))),
+        ),
+      );
+      renderPage();
+
+      await screen.findByTestId("cookbook-card-01");
+      expect(screen.queryByTestId("cookbook-readiness-01")).not.toBeInTheDocument();
+    });
+
+    it("lists every unmet check in the install modal, not just the first two", async () => {
+      server.use(
+        http.get(`${API_BASE}/cookbooks`, () =>
+          HttpResponse.json(envelope(catalogWithChecks([
+            { label: "First check", status: "configuration_required" },
+            { label: "Second check", status: "configuration_required" },
+            { label: "Third check", status: "configuration_required" },
+          ]))),
+        ),
+      );
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(await screen.findByTestId("install-cookbook-01"));
+      const modal = screen.getByTestId("cookbook-install-readiness");
+      expect(modal).toHaveTextContent("First check");
+      expect(modal).toHaveTextContent("Second check");
+      expect(modal).toHaveTextContent("Third check");
+    });
+
+    /**
+     * Recipe 01 has no prerequisites, so the acknowledgement never renders and
+     * the install button must not be gated on it. Regression guard for the
+     * dead-end modal shape: unmet checks present, nothing to acknowledge.
+     */
+    it("keeps install enabled when unmet checks need no acknowledgement", async () => {
+      server.use(
+        http.get(`${API_BASE}/cookbooks`, () =>
+          HttpResponse.json(envelope(catalogWithChecks([
+            { label: "Server-side check", status: "configuration_required" },
+          ]))),
+        ),
+      );
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(await screen.findByTestId("install-cookbook-01"));
+      expect(screen.queryByTestId("cookbook-prerequisites-ack")).not.toBeInTheDocument();
+      expect(screen.getByTestId("confirm-cookbook-install")).toBeEnabled();
+    });
   });
 });
