@@ -149,6 +149,45 @@ def test_the_sdk_round_trips_a_skill(sdk: object) -> None:
     assert all(v.skill_id == skill.skill_id for v in versions)
 
 
+def test_the_sdk_round_trips_a_workflow_and_a_dataset(sdk: object) -> None:
+    """Workflow, dataset, and judge creation through the typed surfaces."""
+    workflow = sdk.workflows.create("sdk-integration-workflow")  # type: ignore[attr-defined]
+    assert workflow.workflow_id and workflow.name == "sdk-integration-workflow"
+    assert sdk.workflows.get(workflow.workflow_id).workflow_id == workflow.workflow_id  # type: ignore[attr-defined]
+    assert isinstance(sdk.workflows.versions.list(workflow.workflow_id), list)  # type: ignore[attr-defined]
+
+    dataset = sdk.datasets.create(  # type: ignore[attr-defined]
+        "sdk-integration-dataset", owner="@sdk-tests"
+    )
+    assert dataset.dataset_id
+    # Never synced to MLflow in a fixture database, and the property must say
+    # so rather than defaulting to True.
+    assert not dataset.is_synced
+
+    judge = sdk.judges.create(  # type: ignore[attr-defined]
+        "sdk-integration-judge", instructions="Given {{ inputs }} and {{ outputs }}, return true if valid JSON."
+    )
+    assert judge.judge_id
+    assert judge.feedback_value_type == "bool"
+
+
+def test_the_sdk_lists_every_ga_surface_it_models(sdk: object) -> None:
+    """A smoke pass over the whole GA tree, against real routes.
+
+    Cheap, and it catches the failure a per-module test cannot: a path that
+    was renamed on the server while the SDK kept the old one.
+    """
+    for call in (
+        sdk.workflows.list,  # type: ignore[attr-defined]
+        sdk.datasets.list,  # type: ignore[attr-defined]
+        sdk.judges.list,  # type: ignore[attr-defined]
+        sdk.evaluations.list,  # type: ignore[attr-defined]
+        sdk.projects.list,  # type: ignore[attr-defined]
+        sdk.auth.tokens.list,  # type: ignore[attr-defined]
+    ):
+        assert isinstance(call(), list)
+
+
 def test_the_sdk_raises_typed_errors_from_real_failures(sdk: object) -> None:
     """The exception mapping is only meaningful against real status codes."""
     with pytest.raises(caliber_sdk.CaliberNotFoundError) as caught:

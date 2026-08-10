@@ -270,8 +270,8 @@ Validation:
 Scope:
 
 - [ ] implement `agents.py`
-- [ ] implement `workflows.py`
-- [ ] implement `services.py`
+- [x] implement `workflows.py`
+- [x] implement `services.py`
 - [ ] add waiters for workflow runs and service invocations
 
 Validation:
@@ -283,11 +283,11 @@ Validation:
 
 Scope:
 
-- [ ] implement `projects.py`
-- [ ] implement `files.py`
-- [ ] implement `eval_datasets.py`
-- [ ] implement `evaluations.py`
-- [ ] implement `judges.py`
+- [x] implement `projects.py`
+- [x] implement `files.py`
+- [x] implement `eval_datasets.py`
+- [x] implement `evaluations.py`
+- [x] implement `judges.py`
 - [ ] add evaluation-run waiters if evaluation runs remain in the GA SDK contract
 
 Validation:

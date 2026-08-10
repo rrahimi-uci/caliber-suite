@@ -22,6 +22,9 @@ from .errors import CaliberConfigError
 from .resources import (
     AuthAPI,
     CapabilitiesAPI,
+    EvalDatasetsAPI,
+    EvaluationsAPI,
+    JudgesAPI,
     MeAPI,
     ProjectsAPI,
     PromptsAPI,
@@ -29,6 +32,7 @@ from .resources import (
     SettingsAPI,
     SkillsAPI,
     ToolsAPI,
+    WorkflowsAPI,
 )
 from .transport import Transport
 
@@ -82,6 +86,10 @@ class CaliberClient:
         self.prompts = PromptsAPI(self._transport)
         self.skills = SkillsAPI(self._transport)
         self.tools = ToolsAPI(self._transport)
+        self.workflows = WorkflowsAPI(self._transport)
+        self.datasets = EvalDatasetsAPI(self._transport)
+        self.judges = JudgesAPI(self._transport)
+        self.evaluations = EvaluationsAPI(self._transport)
 
     @staticmethod
     def _auth_from(token: str | None, user: str | None, proxy_secret: str | None) -> AuthProvider:

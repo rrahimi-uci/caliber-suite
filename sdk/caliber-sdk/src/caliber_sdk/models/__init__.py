@@ -27,18 +27,34 @@ from .core import (
     WorkflowRunCapabilities,
 )
 from .errors import ErrorBody, FieldError
+from .quality import EvalDataset, EvalExample, Evaluation, Judge, JudgeAlignment
+from .workflows import (
+    FAILED_RUN_STATES,
+    TERMINAL_RUN_STATES,
+    Workflow,
+    WorkflowRun,
+    WorkflowService,
+    WorkflowVersion,
+)
 
 __all__ = [
+    "FAILED_RUN_STATES",
     "STABILITY_BETA",
     "STABILITY_GA",
     "STABILITY_INTERNAL",
+    "TERMINAL_RUN_STATES",
     "Account",
     "CalibrationJob",
     "Capabilities",
     "ErrorBody",
+    "EvalDataset",
+    "EvalExample",
+    "Evaluation",
     "FieldError",
     "Identity",
     "IssuedToken",
+    "Judge",
+    "JudgeAlignment",
     "LlmSetupStatus",
     "Page",
     "PersonalAccessToken",
@@ -55,7 +71,11 @@ __all__ = [
     "SkillVersion",
     "Stability",
     "Tool",
+    "Workflow",
+    "WorkflowRun",
     "WorkflowRunCapabilities",
+    "WorkflowService",
+    "WorkflowVersion",
     "decode",
     "decode_list",
 ]

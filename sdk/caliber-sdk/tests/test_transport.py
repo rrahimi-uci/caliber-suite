@@ -94,7 +94,8 @@ def test_structured_validation_errors_name_their_fields() -> None:
     with transport_with(handler) as transport, pytest.raises(CaliberValidationError) as caught:
         transport.post("/prompts", json={})
     assert caught.value.errors[0]["msg"] == "field required"
-    assert "body.name" in str(caught.value)
+    # The field *and* the server's reason, not just the path.
+    assert "body.name: field required" in str(caught.value)
 
 
 def test_a_non_json_error_body_still_produces_a_usable_exception() -> None:
