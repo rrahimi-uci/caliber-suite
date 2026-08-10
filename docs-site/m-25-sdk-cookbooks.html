@@ -5,8 +5,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SDK cookbook implementations | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="SDK cookbook implementations — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <title>SDK recipes | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="SDK recipes — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
   <link rel="icon" type="image/png" href="caliber-icon.png">
   <script>
     (function () {
@@ -75,13 +75,13 @@
     <main class="main" id="docsContent">
       <article class="content doc-body">
         <nav class="doc-breadcrumb" aria-label="Breadcrumb">
-          <span>SDK</span>
+          <span>Examples</span>
           <span aria-hidden="true">/</span>
-          <span class="current">SDK cookbook implementations</span>
+          <span class="current">SDK recipes</span>
         </nav>
         <header class="doc-header">
-          <div class="doc-eyebrow">SDK · Architecture reference</div>
-          <h1 id="top">SDK cookbook implementations</h1>
+          <div class="doc-eyebrow">Examples · Runnable examples</div>
+          <h1 id="top">SDK recipes</h1>
           <p class="doc-summary">Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed.</p>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
@@ -89,10 +89,11 @@
             </button>
           </div>
         </header>
-<p>These cookbook implementations are the SDK-native counterparts to the platform Cookbooks. Each example uses only <code>caliber-sdk</code> plus Python's standard library.</p>
+<p>These recipes are the SDK-native counterparts to the platform cookbook gallery. Each example uses only <code>caliber-sdk</code> plus Python's standard library.</p>
 <p>Design rule:</p>
 <ul><li>use the built-in cookbook installer to materialize the versioned platform recipe that CALIBER already ships;</li><li>then use typed SDK resources — and <code>client.raw</code> only where the typed layer does not yet wrap the live route — to finish configuration, execution, and evidence capture.</li></ul>
 <p>Every code block on this page is generated from the source files under <code>sdk/caliber-sdk/examples/cookbooks/</code> at build time. The example test suite executes those files so the published docs stay tied to runnable SDK code.</p>
+<p>For setup and typed client behavior, use the <a href="m-20-sdk-guide.html">SDK guide</a> and the <a href="m-21-sdk-reference.html">SDK API reference</a>. This page is only for end-to-end runnable examples.</p>
 <h2 id="cookbook-implementations">Cookbook implementations<a class="anchor" href="#cookbook-implementations" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Each script on this page follows the same contract: inspect readiness, install the versioned recipe through the cookbook catalog, and then finish the scenario through typed SDK calls or <code>client.raw</code> where the typed layer deliberately has not wrapped a route yet.</p>
 <p>The code blocks are full files, not snippets. You can run them directly once <code>CALIBER_BASE_URL</code> and <code>CALIBER_TOKEN</code> are set.</p>
@@ -1082,7 +1083,7 @@ python sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classif
         <footer>
           <p>
             CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
-            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
+            this page is generated from the authoritative Markdown sources in <code>docs/</code> and the repository-level <code>ARCHITECTURE.md</code>.
           </p>
         </footer>
       </article>

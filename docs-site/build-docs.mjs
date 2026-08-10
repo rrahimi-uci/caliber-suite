@@ -57,13 +57,10 @@ function writeTextAtomic(dest, contents) {
 // ---------------------------------------------------------------------------
 
 const GROUPS = [
-  { id: "platform", title: "Platform" },
-  { id: "authoring", title: "Authoring" },
-  { id: "data", title: "Data & knowledge" },
-  { id: "quality", title: "Quality & trust" },
-  { id: "operations", title: "Operations" },
-  { id: "aria", title: "Aria assistant" },
-  { id: "sdk", title: "SDK" },
+  { id: "platform", title: "Platform docs", eyebrow: "Architecture reference" },
+  { id: "api", title: "REST API", eyebrow: "HTTP reference" },
+  { id: "sdk", title: "Python SDK", eyebrow: "Developer reference" },
+  { id: "examples", title: "Examples", eyebrow: "Runnable examples" },
   { id: "strategy", title: "Strategy & roadmap" },
 ];
 
@@ -71,31 +68,32 @@ const MODULES = [
   { md: "../ARCHITECTURE.md", out: "m-00-layered-architecture.html", group: "platform", label: "Layered architecture", blurb: "The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams." },
   { md: "01-caliber/architecture.md", out: "m-01-platform.html", group: "platform", label: "Platform", blurb: "Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on." },
   { md: "refinement-loop.md", out: "m-00-refinement-loop.html", group: "platform", label: "The refinement loop", blurb: "The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and durable release — plus the evidence and recovery boundaries that differ across other asset families. Read this first." },
-  { md: "02-prompts/architecture.md", out: "m-02-prompts.html", group: "authoring", label: "Prompts", blurb: "Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation." },
-  { md: "03-tools/architecture.md", out: "m-03-tools.html", group: "authoring", label: "Tools", blurb: "Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration." },
-  { md: "04-skills/architecture.md", out: "m-04-skills.html", group: "authoring", label: "Skills", blurb: "Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration." },
-  { md: "05-mcp/architecture.md", out: "m-05-mcp.html", group: "authoring", label: "MCP servers", blurb: "Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use." },
-  { md: "06-workflows/architecture.md", out: "m-06-workflows.html", group: "authoring", label: "Workflows", blurb: "Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service." },
-  { md: "06-workflows/components.md", out: "m-06-workflows-components.html", group: "authoring", label: "Workflow components", blurb: "The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 31 built-in components." },
-  { md: "07-object-store/architecture.md", out: "m-07-object-store.html", group: "data", label: "Object store", blurb: "MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing." },
-  { md: "08-knowledge-bases/architecture.md", out: "m-08-knowledge-bases.html", group: "data", label: "Knowledge bases", blurb: "Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration." },
-  { md: "11-test-sets/architecture.md", out: "m-11-test-sets.html", group: "quality", label: "Test sets", blurb: "Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring." },
-  { md: "14-evaluation/architecture.md", out: "m-14-evaluation.html", group: "quality", label: "Evaluation", blurb: "Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation." },
-  { md: "15-calibration/architecture.md", out: "m-15-calibration.html", group: "quality", label: "Calibration", blurb: "Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued." },
-  { md: "09-observability/architecture.md", out: "m-09-observability.html", group: "operations", label: "Observability", blurb: "MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention." },
-  { md: "10-gateways/architecture.md", out: "m-10-gateways.html", group: "operations", label: "Gateways", blurb: "External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility." },
-  { md: "13-qa-plan/architecture.md", out: "m-13-qa-plan.html", group: "operations", label: "QA plan", blurb: "Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model." },
-  { md: "runbook.md", out: "m-19-runbook.html", group: "operations", label: "Operations runbook", blurb: "The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove." },
-  { md: "12-assistant/architecture.md", out: "m-12-assistant.html", group: "aria", label: "Overview", blurb: "Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution." },
-  // The Aria group publishes the overview only. Any further Aria design specs
-  // (orchestration, execution plans, service proposals) are deliberately kept out
-  // of the manifest rather than published alongside it.
-  { md: "sdk/guide.md", out: "m-20-sdk-guide.html", group: "sdk", label: "Python SDK guide", blurb: "Install, authenticate, scope to a project, and call the management API from Python \u2014 with every snippet taken from the executable examples the SDK test suite runs." },
-  { md: "sdk/reference.md", out: "m-21-sdk-reference.html", group: "sdk", label: "Python SDK reference", blurb: "Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries." },
+  { md: "02-prompts/architecture.md", out: "m-02-prompts.html", group: "platform", label: "Prompts", blurb: "Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation." },
+  { md: "03-tools/architecture.md", out: "m-03-tools.html", group: "platform", label: "Tools", blurb: "Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration." },
+  { md: "04-skills/architecture.md", out: "m-04-skills.html", group: "platform", label: "Skills", blurb: "Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration." },
+  { md: "05-mcp/architecture.md", out: "m-05-mcp.html", group: "platform", label: "MCP servers", blurb: "Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use." },
+  { md: "06-workflows/architecture.md", out: "m-06-workflows.html", group: "platform", label: "Workflows", blurb: "Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service." },
+  { md: "06-workflows/components.md", out: "m-06-workflows-components.html", group: "platform", label: "Workflow components", blurb: "The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 31 built-in components." },
+  { md: "07-object-store/architecture.md", out: "m-07-object-store.html", group: "platform", label: "Object store", blurb: "MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing." },
+  { md: "08-knowledge-bases/architecture.md", out: "m-08-knowledge-bases.html", group: "platform", label: "Knowledge bases", blurb: "Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration." },
+  { md: "11-test-sets/architecture.md", out: "m-11-test-sets.html", group: "platform", label: "Test sets", blurb: "Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring." },
+  { md: "14-evaluation/architecture.md", out: "m-14-evaluation.html", group: "platform", label: "Evaluation", blurb: "Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation." },
+  { md: "15-calibration/architecture.md", out: "m-15-calibration.html", group: "platform", label: "Calibration", blurb: "Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued." },
+  { md: "09-observability/architecture.md", out: "m-09-observability.html", group: "platform", label: "Observability", blurb: "MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention." },
+  { md: "10-gateways/architecture.md", out: "m-10-gateways.html", group: "platform", label: "Gateways", blurb: "External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility." },
+  { md: "13-qa-plan/architecture.md", out: "m-13-qa-plan.html", group: "platform", label: "QA plan", blurb: "Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model." },
+  { md: "runbook.md", out: "m-19-runbook.html", group: "platform", label: "Operations runbook", blurb: "The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove." },
+  { md: "12-assistant/architecture.md", out: "m-12-assistant.html", group: "platform", label: "Aria assistant", blurb: "Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution." },
+  { md: "api/overview.md", out: "m-26-rest-api-overview.html", group: "api", label: "Overview", blurb: "Where the management API lives, when to integrate at the HTTP layer, and where the served OpenAPI documents fit." },
+  { md: "api/auth.md", out: "m-27-rest-api-auth.html", group: "api", label: "Authentication and conventions", blurb: "Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes." },
+  { md: "api/resources.md", out: "m-28-rest-api-resources.html", group: "api", label: "Resource catalog", blurb: "The route families mounted under the CALIBER management API, grouped by the domains developers actually integrate with." },
+  { md: "api/reference.md", out: "m-29-rest-api-reference.html", group: "api", label: "HTTP reference", blurb: "The concrete contract map: core endpoints, representative operations, and the served OpenAPI entry points for management and workflow services." },
+  { md: "sdk/guide.md", out: "m-20-sdk-guide.html", group: "sdk", label: "Guide", blurb: "Install, authenticate, scope to a project, and call the management API from Python \u2014 with every snippet taken from the executable examples the SDK test suite runs." },
+  { md: "sdk/reference.md", out: "m-21-sdk-reference.html", group: "sdk", label: "API reference", blurb: "Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries." },
   { md: "sdk/beta.md", out: "m-22-sdk-beta.html", group: "sdk", label: "Beta and agentic surfaces", blurb: "Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished." },
   { md: "sdk/plugins.md", out: "m-23-sdk-plugins.html", group: "sdk", label: "Writing a plugin", blurb: "Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it." },
   { md: "sdk/cli.md", out: "m-24-sdk-cli.html", group: "sdk", label: "CLI and async client", blurb: "caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both." },
-  { md: "sdk/cookbooks.md", out: "m-25-sdk-cookbooks.html", group: "sdk", label: "SDK cookbook implementations", blurb: "Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed." },
+  { md: "sdk/cookbooks.md", out: "m-25-sdk-cookbooks.html", group: "examples", label: "SDK recipes", blurb: "Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed." },
   { md: "competitive-analysis.md", out: "m-17-competitive-analysis.html", group: "strategy", label: "Competitive analysis", blurb: "How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources." },
   { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];
@@ -1220,7 +1218,7 @@ ${generatedBanner(sourceRel)}
         <footer>
           <p>
             ${escapeHtml(BRAND_FULL)} —
-            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
+            this page is generated from the authoritative Markdown sources in <code>docs/</code> and the repository-level <code>ARCHITECTURE.md</code>.
           </p>
         </footer>
       </article>
@@ -1264,11 +1262,9 @@ function renderModule(mod) {
   }
   const bodyMd = lines.slice(startIdx).join("\n");
   const group = GROUPS.find((g) => g.id === mod.group);
-  const groupTitle = group ? group.title : "Architecture";
+  const groupTitle = group ? group.title : "Documentation";
   const blurb = typeof mod.blurb === "string" ? mod.blurb.trim() : "";
-  // Most modules are architecture references; the strategy group (roadmap /
-  // competitive analysis) is not, so don't mislabel it.
-  const eyebrow = mod.group === "strategy" ? groupTitle : `${groupTitle} · Architecture reference`;
+  const eyebrow = group && group.eyebrow ? `${group.title} · ${group.eyebrow}` : groupTitle;
 
   const header = `<header class="doc-header">
           <div class="doc-eyebrow">${escapeHtml(eyebrow)}</div>
@@ -1298,27 +1294,39 @@ function buildNavData(present) {
   const sections = [
     { section: "Documentation", links: [{ href: "index.html", label: "Overview" }] },
   ];
+  function getOrCreateSection(sectionName) {
+    let section = sections.find((item) => item.section === sectionName);
+    if (!section) {
+      section = { section: sectionName, links: [] };
+      sections.push(section);
+    }
+    return section;
+  }
   for (const g of GROUPS) {
     const links = present
       .filter((m) => m.group === g.id)
       .map((m) => ({ href: m.out, label: m.label }));
     if (links.length) sections.push({ section: g.title, links });
   }
-  // Cookbooks are generated pages (run `python3 cookbooks/training/build.py`):
-  // an index (m-16-cookbooks.html) + one detail page per cookbook. build.py emits
-  // cookbooks-nav.json so the sidebar can list them all; fall back to the index.
+  // Cookbook pages are generated separately and belong in Examples.
   if (existsSync(resolve(OUT_DIR, "m-16-cookbooks.html"))) {
-    let links = [{ href: "m-16-cookbooks.html", label: "All cookbooks" }];
+    let links = [{ href: "m-16-cookbooks.html", label: "Cookbook gallery" }];
     const manifest = resolve(OUT_DIR, "cookbooks-nav.json");
     if (existsSync(manifest)) {
       try {
         const parsed = JSON.parse(readFileSync(manifest, "utf8"));
-        if (Array.isArray(parsed) && parsed.length) links = parsed;
+        if (Array.isArray(parsed) && parsed.length) {
+          links = parsed.map((item) =>
+            item && item.href === "m-16-cookbooks.html"
+              ? { ...item, label: "Cookbook gallery" }
+              : item
+          );
+        }
       } catch {
         /* keep the fallback link */
       }
     }
-    sections.push({ section: "Cookbooks", links });
+    getOrCreateSection("Examples").links.push(...links);
   }
   // Narrated views. The guided walkthrough now uses the shared docs shell, so it
   // navigates in place like any module page. The presentation is a standalone
@@ -1328,7 +1336,7 @@ function buildNavData(present) {
     { href: "walkthrough.html", label: "Guided walkthrough" },
     { href: "presentation.html", label: "Presentation", newtab: true },
   ].filter((d) => existsSync(resolve(OUT_DIR, d.href)));
-  if (decks.length) sections.push({ section: "Walkthrough", links: decks });
+  if (decks.length) getOrCreateSection("Examples").links.push(...decks);
   return sections;
 }
 

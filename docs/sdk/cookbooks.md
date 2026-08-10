@@ -1,7 +1,7 @@
-# SDK cookbook implementations
+# SDK recipes
 
-These cookbook implementations are the SDK-native counterparts to the platform
-Cookbooks. Each example uses only `caliber-sdk` plus Python's standard library.
+These recipes are the SDK-native counterparts to the platform cookbook gallery.
+Each example uses only `caliber-sdk` plus Python's standard library.
 
 Design rule:
 
@@ -14,6 +14,10 @@ Design rule:
 Every code block on this page is generated from the source files under
 `sdk/caliber-sdk/examples/cookbooks/` at build time. The example test suite
 executes those files so the published docs stay tied to runnable SDK code.
+
+For setup and typed client behavior, use the [SDK guide](guide.md) and the
+[SDK API reference](reference.md). This page is only for end-to-end runnable
+examples.
 
 ## Cookbook implementations
 

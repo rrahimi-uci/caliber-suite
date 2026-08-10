@@ -75,12 +75,12 @@
     <main class="main" id="docsContent">
       <article class="content doc-body">
         <nav class="doc-breadcrumb" aria-label="Breadcrumb">
-          <span>SDK</span>
+          <span>Python SDK</span>
           <span aria-hidden="true">/</span>
-          <span class="current">Python SDK guide</span>
+          <span class="current">Guide</span>
         </nav>
         <header class="doc-header">
-          <div class="doc-eyebrow">SDK · Architecture reference</div>
+          <div class="doc-eyebrow">Python SDK · Developer reference</div>
           <h1 id="top">CALIBER Python SDK</h1>
           <p class="doc-summary">Install, authenticate, scope to a project, and call the management API from Python — with every snippet taken from the executable examples the SDK test suite runs.</p>
           <div class="doc-actions">
@@ -91,6 +91,7 @@
         </header>
 <p><code>caliber-sdk</code> is a typed Python client for the CALIBER management API. Installing it does <strong>not</strong> install the CALIBER server — no <code>mlflow</code>, no <code>sqlalchemy</code>, no <code>starlette</code>. That isolation is the reason it is a separate distribution, and CI fails the build if a server dependency ever appears in the wheel metadata.</p>
 <p>Every code block on this page is extracted from <code>sdk/caliber-sdk/examples/</code> at build time. The SDK test suite executes those functions, so a snippet here cannot drift from working code: if a signature changes, either the docs change with it or the build fails.</p>
+<p>This page explains the Python abstraction. If you need the raw wire contract, use the <a href="m-26-rest-api-overview.html">REST API overview</a>, the <a href="m-27-rest-api-auth.html">authentication and conventions guide</a>, and the <a href="m-29-rest-api-reference.html">HTTP reference</a>.</p>
 <h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
 <div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Where the SDK stands</th></tr></thead><tbody><tr><td><strong>Runtime dependencies</strong></td><td><code>httpx</code> and <code>typing-extensions</code>. Nothing else.</td></tr><tr><td><strong>Typing</strong></td><td>Ships <code>py.typed</code>; <code>mypy --strict</code> clean.</td></tr><tr><td><strong>Auth</strong></td><td>Personal access token (recommended), or a trusted-proxy header.</td></tr><tr><td><strong>Errors</strong></td><td>Non-2xx becomes a typed exception carrying status, detail, method, URL, and a request id.</td></tr><tr><td><strong>Retries</strong></td><td>Idempotent methods only, capped exponential backoff, honouring <code>Retry-After</code>.</td></tr><tr><td><strong>Long-running work</strong></td><td>Waiters that poll with backoff and never sleep past your deadline.</td></tr><tr><td><strong>Coverage</strong></td><td>Every GA surface, plus <code>client.raw</code> for anything not yet modelled.</td></tr></tbody></table></div>
 <h2 id="install">Install<a class="anchor" href="#install" aria-hidden="true" tabindex="-1">#</a></h2>
@@ -239,7 +240,7 @@ caliber<span class="tok-punctuation">.</span>raw<span class="tok-punctuation">.<
         <footer>
           <p>
             CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
-            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
+            this page is generated from the authoritative Markdown sources in <code>docs/</code> and the repository-level <code>ARCHITECTURE.md</code>.
           </p>
         </footer>
       </article>

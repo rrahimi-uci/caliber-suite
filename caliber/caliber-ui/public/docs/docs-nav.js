@@ -10,7 +10,7 @@ window.DOCS_NAV = [
     ]
   },
   {
-    "section": "Platform",
+    "section": "Platform docs",
     "links": [
       {
         "href": "m-00-layered-architecture.html",
@@ -23,12 +23,7 @@ window.DOCS_NAV = [
       {
         "href": "m-00-refinement-loop.html",
         "label": "The refinement loop"
-      }
-    ]
-  },
-  {
-    "section": "Authoring",
-    "links": [
+      },
       {
         "href": "m-02-prompts.html",
         "label": "Prompts"
@@ -52,12 +47,7 @@ window.DOCS_NAV = [
       {
         "href": "m-06-workflows-components.html",
         "label": "Workflow components"
-      }
-    ]
-  },
-  {
-    "section": "Data & knowledge",
-    "links": [
+      },
       {
         "href": "m-07-object-store.html",
         "label": "Object store"
@@ -65,12 +55,7 @@ window.DOCS_NAV = [
       {
         "href": "m-08-knowledge-bases.html",
         "label": "Knowledge bases"
-      }
-    ]
-  },
-  {
-    "section": "Quality & trust",
-    "links": [
+      },
       {
         "href": "m-11-test-sets.html",
         "label": "Test sets"
@@ -82,12 +67,7 @@ window.DOCS_NAV = [
       {
         "href": "m-15-calibration.html",
         "label": "Calibration"
-      }
-    ]
-  },
-  {
-    "section": "Operations",
-    "links": [
+      },
       {
         "href": "m-09-observability.html",
         "label": "Observability"
@@ -103,28 +83,44 @@ window.DOCS_NAV = [
       {
         "href": "m-19-runbook.html",
         "label": "Operations runbook"
-      }
-    ]
-  },
-  {
-    "section": "Aria assistant",
-    "links": [
+      },
       {
         "href": "m-12-assistant.html",
-        "label": "Overview"
+        "label": "Aria assistant"
       }
     ]
   },
   {
-    "section": "SDK",
+    "section": "REST API",
+    "links": [
+      {
+        "href": "m-26-rest-api-overview.html",
+        "label": "Overview"
+      },
+      {
+        "href": "m-27-rest-api-auth.html",
+        "label": "Authentication and conventions"
+      },
+      {
+        "href": "m-28-rest-api-resources.html",
+        "label": "Resource catalog"
+      },
+      {
+        "href": "m-29-rest-api-reference.html",
+        "label": "HTTP reference"
+      }
+    ]
+  },
+  {
+    "section": "Python SDK",
     "links": [
       {
         "href": "m-20-sdk-guide.html",
-        "label": "Python SDK guide"
+        "label": "Guide"
       },
       {
         "href": "m-21-sdk-reference.html",
-        "label": "Python SDK reference"
+        "label": "API reference"
       },
       {
         "href": "m-22-sdk-beta.html",
@@ -137,32 +133,19 @@ window.DOCS_NAV = [
       {
         "href": "m-24-sdk-cli.html",
         "label": "CLI and async client"
-      },
+      }
+    ]
+  },
+  {
+    "section": "Examples",
+    "links": [
       {
         "href": "m-25-sdk-cookbooks.html",
-        "label": "SDK cookbook implementations"
-      }
-    ]
-  },
-  {
-    "section": "Strategy & roadmap",
-    "links": [
-      {
-        "href": "m-17-competitive-analysis.html",
-        "label": "Competitive analysis"
+        "label": "SDK recipes"
       },
       {
-        "href": "m-18-roadmap.html",
-        "label": "Roadmap"
-      }
-    ]
-  },
-  {
-    "section": "Cookbooks",
-    "links": [
-      {
         "href": "m-16-cookbooks.html",
-        "label": "All cookbooks"
+        "label": "Cookbook gallery"
       },
       {
         "href": "m-cookbook-01-intake-classifier.html",
@@ -227,12 +210,7 @@ window.DOCS_NAV = [
       {
         "href": "m-cookbook-15-aria-triage-loop.html",
         "label": "15 · Aria: Triage & Recalibrate Loop"
-      }
-    ]
-  },
-  {
-    "section": "Walkthrough",
-    "links": [
+      },
       {
         "href": "walkthrough.html",
         "label": "Guided walkthrough"
@@ -241,6 +219,19 @@ window.DOCS_NAV = [
         "href": "presentation.html",
         "label": "Presentation",
         "newtab": true
+      }
+    ]
+  },
+  {
+    "section": "Strategy & roadmap",
+    "links": [
+      {
+        "href": "m-17-competitive-analysis.html",
+        "label": "Competitive analysis"
+      },
+      {
+        "href": "m-18-roadmap.html",
+        "label": "Roadmap"
       }
     ]
   }

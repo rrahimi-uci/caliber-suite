@@ -5,8 +5,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CALIBER Python SDK reference | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="CALIBER Python SDK reference — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
+  <title>CALIBER Python SDK API reference | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Python SDK API reference — part of the CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement architecture documentation series.">
   <link rel="icon" type="image/png" href="caliber-icon.png">
   <script>
     (function () {
@@ -75,13 +75,13 @@
     <main class="main" id="docsContent">
       <article class="content doc-body">
         <nav class="doc-breadcrumb" aria-label="Breadcrumb">
-          <span>SDK</span>
+          <span>Python SDK</span>
           <span aria-hidden="true">/</span>
-          <span class="current">Python SDK reference</span>
+          <span class="current">API reference</span>
         </nav>
         <header class="doc-header">
-          <div class="doc-eyebrow">SDK · Architecture reference</div>
-          <h1 id="top">CALIBER Python SDK reference</h1>
+          <div class="doc-eyebrow">Python SDK · Developer reference</div>
+          <h1 id="top">CALIBER Python SDK API reference</h1>
           <p class="doc-summary">Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries.</p>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
@@ -90,8 +90,9 @@
           </div>
         </header>
 <p>This reference is generated from the SDK source tree at build time. It follows the same pattern as the MLflow Python API docs: start with the top-level package, then drill into resource modules, models, errors, waiters, and the async client.</p>
+<p>This page is intentionally about the Python client, not the raw HTTP routes. If you need headers, envelopes, or concrete endpoints, start with the <a href="m-26-rest-api-overview.html">REST API overview</a> and <a href="m-29-rest-api-reference.html">HTTP reference</a>.</p>
 <p>Most developers should begin with:</p>
-<ul><li><code>caliber_sdk.CaliberClient</code> for the synchronous client</li><li><code>caliber_sdk.aio.AsyncCaliberClient</code> for async workflows</li><li>the Python SDK guide for setup and common flows</li><li>the SDK cookbook implementations for full runnable scenarios</li></ul>
+<ul><li><code>caliber_sdk.CaliberClient</code> for the synchronous client</li><li><code>caliber_sdk.aio.AsyncCaliberClient</code> for async workflows</li><li><a href="m-20-sdk-guide.html">the SDK guide</a> for setup and common flows</li><li><a href="m-25-sdk-cookbooks.html">SDK recipes</a> for full runnable scenarios</li></ul>
 <p>The reference below is generated from the current SDK code, so the published HTML stays aligned with the package the tests exercise.</p>
 <section class="ref-tier"><div class="ref-tier-header"><span class="ref-tier-eyebrow">Deep reference · data models, APIs &amp; lifecycle</span><h2 id="reference" class="ref-tier-title">Reference<a class="anchor" href="#reference" aria-hidden="true" tabindex="-1">#</a></h2></div><div class="ref-tier-lead">
 <p>The most common entry point is <code>caliber_sdk.CaliberClient</code>; the rest of the package fans out into typed resource modules, dataclass models, shared transport and error helpers, and an async client.</p>
@@ -3097,7 +3098,7 @@
         <footer>
           <p>
             CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
-            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
+            this page is generated from the authoritative Markdown sources in <code>docs/</code> and the repository-level <code>ARCHITECTURE.md</code>.
           </p>
         </footer>
       </article>

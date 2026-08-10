@@ -136,153 +136,137 @@
         <section id="reference">
           <div class="section-lead section-lead-reference">
             <div>
-              <h2>Architecture reference</h2>
+              <h2>Documentation paths</h2>
               <p>
-                Start with the repository-level layered map, then search or scan by domain. Each page is generated from
-                <code>ARCHITECTURE.md</code> or the authoritative module sources in <code>docs/</code>.
+                Start from the task you are doing, not from the repository folder layout. Platform docs explain how CALIBER works,
+                REST API docs explain the raw HTTP contract, Python SDK docs explain the typed client, and Examples show complete runnable flows.
               </p>
             </div>
           </div>
           <div class="landing-search-panel reference-search-panel">
-            <input id="landingSearch" type="search" placeholder="Filter architecture modules..." aria-label="Filter module reference cards">
+            <input id="landingSearch" type="search" placeholder="Filter documentation paths..." aria-label="Filter documentation cards">
           </div>
-          <p class="landing-search-empty" id="landingSearchEmpty" hidden>No reference cards match that search yet.</p>
+          <p class="landing-search-empty" id="landingSearchEmpty" hidden>No documentation cards match that search yet.</p>
           <div class="reference-directory">
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
-                <h3>Platform</h3>
-                <p>Start here: the layered map, the implementation reference, and the concrete refinement path.</p>
+                <h3>Platform docs</h3>
+                <p>Architecture, authoring, runtime, evaluation, operations, and Aria. Use this section to understand how CALIBER works.</p>
               </div>
               <div class="ref-list">
                 <a class="ref-card ref-row" href="m-00-layered-architecture.html">
-                  <span class="ref-row-kicker">Platform</span>
+                  <span class="ref-row-kicker">Platform docs</span>
                   <span class="ref-row-title">Layered architecture</span>
                   <span class="ref-row-summary">The six-layer stack, abstract lifecycle chain, governed-asset anatomy, real per-family guarantees, execution model, state ownership, and trust boundaries.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-01-platform.html">
-                  <span class="ref-row-kicker">Platform</span>
+                  <span class="ref-row-kicker">Platform docs</span>
                   <span class="ref-row-title">Platform</span>
                   <span class="ref-row-summary">Embedded and standalone topologies, shared runtime state, async workers, and trust boundary.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-00-refinement-loop.html">
-                  <span class="ref-row-kicker">Platform</span>
+                  <span class="ref-row-kicker">Platform docs</span>
                   <span class="ref-row-title">The refinement loop</span>
-                  <span class="ref-row-summary">The canonical prompt-refinement path and the evidence, review, alias, and rollback boundaries that differ across asset families. Read this first.</span>
-                </a>
-              </div>
-            </section>
-            <section class="reference-group" data-ref-group>
-              <div class="reference-group-head">
-                <h3>Authoring</h3>
-                <p>Everything used to define and run prompts, tools, skills, and workflows.</p>
-              </div>
-              <div class="ref-list">
-                <a class="ref-card ref-row" href="m-02-prompts.html">
-                  <span class="ref-row-kicker">Authoring</span>
-                  <span class="ref-row-title">Prompts</span>
-                  <span class="ref-row-summary">Non-live Prompt Registry authoring, render/test history, queued calibration, and durable alias release/reconciliation.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-03-tools.html">
-                  <span class="ref-row-kicker">Authoring</span>
-                  <span class="ref-row-title">Tools</span>
-                  <span class="ref-row-summary">Callable registry, bounded subprocess tests, baselines, and replay calibration.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-04-skills.html">
-                  <span class="ref-row-kicker">Authoring</span>
-                  <span class="ref-row-title">Skills</span>
-                  <span class="ref-row-summary">Reusable instruction assets, runtime selection, and agent-free calibration.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-05-mcp.html">
-                  <span class="ref-row-kicker">Authoring</span>
-                  <span class="ref-row-title">MCP servers</span>
-                  <span class="ref-row-summary">Managed server definitions, connection tests, and discovered tools.</span>
+                  <span class="ref-row-summary">The canonical prompt-refinement path and the evidence, review, alias, and rollback boundaries that differ across asset families.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-06-workflows.html">
-                  <span class="ref-row-kicker">Authoring</span>
+                  <span class="ref-row-kicker">Platform docs</span>
                   <span class="ref-row-title">Workflows</span>
                   <span class="ref-row-summary">Manifest authoring, deployments, queued execution, and workflow-as-a-service.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-06-workflows-components.html">
-                  <span class="ref-row-kicker">Authoring</span>
-                  <span class="ref-row-title">Workflow components</span>
-                  <span class="ref-row-summary">Component anatomy, the typed port system, add/configure/connect/code/run, and a full reference for all 29 built-in components.</span>
-                </a>
-              </div>
-            </section>
-            <section class="reference-group" data-ref-group>
-              <div class="reference-group-head">
-                <h3>Data & knowledge</h3>
-                <p>Storage and retrieval systems that feed artifacts and grounded answers.</p>
-              </div>
-              <div class="ref-list">
-                <a class="ref-card ref-row" href="m-07-object-store.html">
-                  <span class="ref-row-kicker">Data & knowledge</span>
-                  <span class="ref-row-title">Object store</span>
-                  <span class="ref-row-summary">Uploads, previews, extraction flows, and artifact browsing on MinIO or S3.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-08-knowledge-bases.html">
-                  <span class="ref-row-kicker">Data & knowledge</span>
-                  <span class="ref-row-title">Knowledge bases</span>
-                  <span class="ref-row-summary">Ingestion, chunking, graph extraction, retrieval, and calibration.</span>
-                </a>
-              </div>
-            </section>
-            <section class="reference-group" data-ref-group>
-              <div class="reference-group-head">
-                <h3>Quality & trust</h3>
-                <p>Evidence systems used to test, score, improve, and review behavior.</p>
-              </div>
-              <div class="ref-list">
-                <a class="ref-card ref-row" href="m-11-test-sets.html">
-                  <span class="ref-row-kicker">Quality & trust</span>
-                  <span class="ref-row-title">Test sets</span>
-                  <span class="ref-row-summary">Versioned datasets, trace capture, and the shared evaluation evidence base.</span>
-                </a>
                 <a class="ref-card ref-row" href="m-14-evaluation.html">
-                  <span class="ref-row-kicker">Quality & trust</span>
+                  <span class="ref-row-kicker">Platform docs</span>
                   <span class="ref-row-title">Evaluation</span>
                   <span class="ref-row-summary">Dataset scorecards, per-example results, scorers, judges, and fail-closed checks.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-15-calibration.html">
-                  <span class="ref-row-kicker">Quality & trust</span>
-                  <span class="ref-row-title">Calibration</span>
-                  <span class="ref-row-summary">Provider-backed prompt/skill refinement, bounded workflow search/replay, and deterministic inline or queued tool calibration.</span>
-                </a>
-              </div>
-            </section>
-            <section class="reference-group" data-ref-group>
-              <div class="reference-group-head">
-                <h3>Operations</h3>
-                <p>Runtime visibility, incident and delivery recovery, service health, and governed external-gateway integration.</p>
-              </div>
-              <div class="ref-list">
                 <a class="ref-card ref-row" href="m-09-observability.html">
-                  <span class="ref-row-kicker">Operations</span>
+                  <span class="ref-row-kicker">Platform docs</span>
                   <span class="ref-row-title">Observability</span>
-                  <span class="ref-row-summary">Traces, attachments, Prometheus metrics, SSE events, and retention.</span>
+                  <span class="ref-row-summary">Traces, metrics, events, incidents, and runtime evidence.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-10-gateways.html">
-                  <span class="ref-row-kicker">Operations</span>
-                  <span class="ref-row-title">Gateways</span>
-                  <span class="ref-row-summary">External MLflow AI Gateway discovery, guardrail governance, trace-derived usage, per-model pricing, and outbound routing posture.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-13-qa-plan.html">
-                  <span class="ref-row-kicker">Operations</span>
-                  <span class="ref-row-title">QA plan</span>
-                  <span class="ref-row-summary">Runtime QA state, approvals, validation suites, and merged Allure evidence.</span>
+                <a class="ref-card ref-row" href="m-12-assistant.html">
+                  <span class="ref-row-kicker">Platform docs</span>
+                  <span class="ref-row-title">Aria assistant</span>
+                  <span class="ref-row-summary">Sessions, permissioned tool use, approval modes, and transparent execution.</span>
                 </a>
               </div>
             </section>
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
-                <h3>Aria assistant</h3>
-                <p>The embedded copilot, its controls, and governed execution model.</p>
+                <h3>REST API</h3>
+                <p>Use this section for the raw HTTP contract: route prefixes, auth headers, envelopes, and the served OpenAPI documents.</p>
               </div>
               <div class="ref-list">
-                <a class="ref-card ref-row" href="m-12-assistant.html">
-                  <span class="ref-row-kicker">Aria assistant</span>
+                <a class="ref-card ref-row" href="m-26-rest-api-overview.html">
+                  <span class="ref-row-kicker">REST API</span>
                   <span class="ref-row-title">Overview</span>
-                  <span class="ref-row-summary">Sessions, permissioned tool use, approval modes, and transparent execution.</span>
+                  <span class="ref-row-summary">Where the management API lives, when to integrate at the HTTP layer, and how it relates to the SDK.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-27-rest-api-auth.html">
+                  <span class="ref-row-kicker">REST API</span>
+                  <span class="ref-row-title">Authentication and conventions</span>
+                  <span class="ref-row-summary">Bearer auth, trusted-header deployments, CSRF, project scoping, envelopes, pagination, and errors.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-28-rest-api-resources.html">
+                  <span class="ref-row-kicker">REST API</span>
+                  <span class="ref-row-title">Resource catalog</span>
+                  <span class="ref-row-summary">The route families grouped by the domains developers actually build with.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-29-rest-api-reference.html">
+                  <span class="ref-row-kicker">REST API</span>
+                  <span class="ref-row-title">HTTP reference</span>
+                  <span class="ref-row-summary">Representative routes, common operations, and the management/workflow-service OpenAPI entry points.</span>
+                </a>
+              </div>
+            </section>
+            <section class="reference-group" data-ref-group>
+              <div class="reference-group-head">
+                <h3>Python SDK</h3>
+                <p>Use this section when you are integrating from Python and want typed resources, waiters, retries, and executable examples.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-20-sdk-guide.html">
+                  <span class="ref-row-kicker">Python SDK</span>
+                  <span class="ref-row-title">Guide</span>
+                  <span class="ref-row-summary">Install, authenticate, scope to a project, and call CALIBER from Python.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-21-sdk-reference.html">
+                  <span class="ref-row-kicker">Python SDK</span>
+                  <span class="ref-row-title">API reference</span>
+                  <span class="ref-row-summary">Typed client entry points, resource modules, models, errors, waiters, and async support.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-24-sdk-cli.html">
+                  <span class="ref-row-kicker">Python SDK</span>
+                  <span class="ref-row-title">CLI and async client</span>
+                  <span class="ref-row-summary">Operator-oriented CLI flows and the intentionally smaller async surface.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-22-sdk-beta.html">
+                  <span class="ref-row-kicker">Python SDK</span>
+                  <span class="ref-row-title">Beta and agentic surfaces</span>
+                  <span class="ref-row-summary">What is stable, what is beta, and how the agentic loop changes waiting and control flow.</span>
+                </a>
+              </div>
+            </section>
+            <section class="reference-group" data-ref-group>
+              <div class="reference-group-head">
+                <h3>Examples</h3>
+                <p>Start here when you want complete runnable flows instead of individual API or architecture pages.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-25-sdk-cookbooks.html">
+                  <span class="ref-row-kicker">Examples</span>
+                  <span class="ref-row-title">SDK recipes</span>
+                  <span class="ref-row-summary">Full runnable examples that use only the Python SDK plus the standard library.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-16-cookbooks.html">
+                  <span class="ref-row-kicker">Examples</span>
+                  <span class="ref-row-title">Cookbook gallery</span>
+                  <span class="ref-row-summary">The platform cookbook catalog with every scenario, readiness requirement, and installable recipe.</span>
+                </a>
+                <a class="ref-card ref-row" href="walkthrough.html">
+                  <span class="ref-row-kicker">Examples</span>
+                  <span class="ref-row-title">Guided walkthrough</span>
+                  <span class="ref-row-summary">A narrated product tour using the shared docs shell.</span>
                 </a>
               </div>
             </section>
@@ -295,12 +279,12 @@
                 <a class="ref-card ref-row" href="m-17-competitive-analysis.html">
                   <span class="ref-row-kicker">Strategy &amp; roadmap</span>
                   <span class="ref-row-title">Competitive analysis</span>
-                  <span class="ref-row-summary">CALIBER vs. Langflow/Flowise/Dify, n8n/Flowable, the LLMOps &amp; eval tools, MLflow GenAI, and the AWS/Google/Microsoft stacks — strengths, weaknesses, and the wedge, grounded in primary sources.</span>
+                  <span class="ref-row-summary">CALIBER vs. Langflow/Flowise/Dify, n8n/Flowable, the LLMOps &amp; eval tools, MLflow GenAI, and the AWS/Google/Microsoft stacks.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-18-roadmap.html">
                   <span class="ref-row-kicker">Strategy &amp; roadmap</span>
                   <span class="ref-row-title">Roadmap</span>
-                  <span class="ref-row-summary">The quarter-by-quarter plan derived from the analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review.</span>
+                  <span class="ref-row-summary">The quarter-by-quarter plan derived from the analysis and verified against the architecture.</span>
                 </a>
               </div>
             </section>
@@ -601,67 +585,44 @@ make allure-report</code></pre>
           <summary>
             <div class="guide-section-meta">
               <div class="guide-section-kicker">Interface playbook</div>
-              <strong>API surface and configuration</strong>
-              <span>Representative routes, same-origin API boundaries, and the environment variables that control runtime identity.</span>
+              <strong>Documentation paths and configuration</strong>
+              <span>Choose the right doc set first, then wire the runtime variables that shape deployment identity and behavior.</span>
             </div>
             <span class="guide-section-chevron" aria-hidden="true"></span>
           </summary>
           <div class="guide-section-body">
         <section id="api">
-          <h2>API surface</h2>
+          <h2>Choose the right documentation path</h2>
           <p>
-            Every CALIBER API route is mounted under the same-origin prefix
-            <code>/ajax-api/2.0/mlflow/caliber</code>. The current route registry spans platform bootstrap, artifact
-            libraries, workflow runtime, storage, assistant, quality, and operations.
+            The current docs are split by developer intent rather than by repository folder. Start with the section
+            that matches how you are integrating, then drop into lower-level details only when you need them.
           </p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Surface</th>
-                  <th>Representative routes</th>
-                  <th>Purpose</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Platform</td>
-                  <td><code>/health</code><br><code>/readiness</code><br><code>/capabilities</code><br><code>/dashboard/summary</code></td>
-                  <td>Boot truth, dependency posture, feature flags, and overview aggregates.</td>
-                </tr>
-                <tr>
-                  <td>Artifact libraries</td>
-                  <td><code>/prompts</code><br><code>/tools</code><br><code>/skills</code><br><code>/mcp-servers</code><br><code>/workflows</code></td>
-                  <td>Authoring, registry lifecycle, testing, calibration entry points, and workflow manifests.</td>
-                </tr>
-                <tr>
-                  <td>Data and evidence</td>
-                  <td><code>/object-store/*</code><br><code>/knowledge-bases</code><br><code>/eval-datasets</code><br><code>/evaluations</code><br><code>/judges</code><br><code>/review-queues</code><br><code>/projects</code></td>
-                  <td>Storage, corpora, evaluation datasets, scorecards, custom LLM judges, human review queues, and grouped workspace files.</td>
-                </tr>
-                <tr>
-                  <td>Runtime and promotion</td>
-                  <td><code>/workflow-runs</code><br><code>/jobs/{job_id}/apply</code><br><code>/prompts/{name}/aliases/{alias}</code><br><code>/releases/operations</code><br><code>/releases/operations/reconcile</code><br><code>/agents/{agent_id}/rollback</code><br><code>/services/{workflow_id}/invoke</code></td>
-                  <td>Queued execution, candidate apply, intent-first prompt alias release/reconciliation, rollback, and workflow-as-a-service invocation. Protected service calls authenticate before body consumption; every invoke has a streamed raw-body ceiling.</td>
-                </tr>
-                <tr>
-                  <td>Assistant</td>
-                  <td><code>/assistant/sessions</code><br><code>/assistant/sessions/{id}/messages</code><br><code>/assistant/sessions/{id}/queue</code><br><code>/assistant/config</code><br><code>/aria/plans</code></td>
-                  <td>Aria sessions, turns, queued follow-ups, attachments, drafts, runtime config, and the goal-plan orchestrator (decompose, approve, execute, resume).</td>
-                </tr>
-                <tr>
-                  <td>Operations</td>
-                  <td><code>/observability/*</code><br><code>/metrics</code><br><code>/events/stream</code><br><code>/gateway/*</code><br><code>/llm-pricing</code><br><code>/system/incidents</code><br><code>/system/webhook-dead-letters</code><br><code>/system/services</code></td>
-                  <td>Trace browsing, feedback, metrics, SSE, gateway discovery/governance/usage/pricing, durable SLO incidents, webhook recovery, and backing-service status.</td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="grid">
+            <div class="card">
+              <div class="icon">PD</div>
+              <h4>Platform docs</h4>
+              <p>Architecture, authoring, evaluation, operations, and Aria. Use this when you need to understand product behavior and system boundaries.</p>
+              <p><a href="m-00-layered-architecture.html">Start with the layered architecture</a></p>
+            </div>
+            <div class="card">
+              <div class="icon">RA</div>
+              <h4>REST API</h4>
+              <p>The raw HTTP contract: route families, auth headers, envelopes, errors, and the served OpenAPI documents.</p>
+              <p><a href="m-26-rest-api-overview.html">Open the REST API overview</a></p>
+            </div>
+            <div class="card">
+              <div class="icon">SD</div>
+              <h4>Python SDK</h4>
+              <p>The typed Python client for CALIBER automation, with resource wrappers, retries, waiters, and executable examples.</p>
+              <p><a href="m-20-sdk-guide.html">Open the SDK guide</a></p>
+            </div>
+            <div class="card">
+              <div class="icon">EX</div>
+              <h4>Examples</h4>
+              <p>Cookbooks, SDK-native recipes, and walkthroughs for end-to-end scenarios.</p>
+              <p><a href="m-16-cookbooks.html">Browse the cookbook gallery</a></p>
+            </div>
           </div>
-          <pre><code># Public liveness probe
-curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/health | jq
-
-# Protected reads and mutations require the server-issued session cookie and
-# CSRF token used by the SPA. X-CALIBER-User is ignored in default session mode.</code></pre>
         </section>
 
         <section id="config">

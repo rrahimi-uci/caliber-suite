@@ -4,51 +4,46 @@
 
 The pages below are the published architecture, workflow, and strategy documentation. Each link is a flattened Markdown copy built for programmatic access.
 
-## Platform
+## Platform docs
 
 - [Layered architecture](m-00-layered-architecture.md): The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams.
 - [Platform](m-01-platform.md): Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on.
 - [The refinement loop](m-00-refinement-loop.md): The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and durable release — plus the evidence and recovery boundaries that differ across other asset families. Read this first.
-
-## Authoring
-
 - [Prompts](m-02-prompts.md): Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation.
 - [Tools](m-03-tools.md): Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration.
 - [Skills](m-04-skills.md): Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.
 - [MCP servers](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
 - [Workflows](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.
 - [Workflow components](m-06-workflows-components.md): The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 31 built-in components.
-
-## Data & knowledge
-
 - [Object store](m-07-object-store.md): MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing.
 - [Knowledge bases](m-08-knowledge-bases.md): Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration.
-
-## Quality & trust
-
 - [Test sets](m-11-test-sets.md): Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring.
 - [Evaluation](m-14-evaluation.md): Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation.
 - [Calibration](m-15-calibration.md): Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued.
-
-## Operations
-
 - [Observability](m-09-observability.md): MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention.
 - [Gateways](m-10-gateways.md): External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility.
 - [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
 - [Operations runbook](m-19-runbook.md): The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove.
+- [Aria assistant](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
 
-## Aria assistant
+## REST API
 
-- [Overview](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
+- [Overview](m-26-rest-api-overview.md): Where the management API lives, when to integrate at the HTTP layer, and where the served OpenAPI documents fit.
+- [Authentication and conventions](m-27-rest-api-auth.md): Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes.
+- [Resource catalog](m-28-rest-api-resources.md): The route families mounted under the CALIBER management API, grouped by the domains developers actually integrate with.
+- [HTTP reference](m-29-rest-api-reference.md): The concrete contract map: core endpoints, representative operations, and the served OpenAPI entry points for management and workflow services.
 
-## SDK
+## Python SDK
 
-- [Python SDK guide](m-20-sdk-guide.md): Install, authenticate, scope to a project, and call the management API from Python — with every snippet taken from the executable examples the SDK test suite runs.
-- [Python SDK reference](m-21-sdk-reference.md): Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries.
+- [Guide](m-20-sdk-guide.md): Install, authenticate, scope to a project, and call the management API from Python — with every snippet taken from the executable examples the SDK test suite runs.
+- [API reference](m-21-sdk-reference.md): Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries.
 - [Beta and agentic surfaces](m-22-sdk-beta.md): Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished.
 - [Writing a plugin](m-23-sdk-plugins.md): Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it.
 - [CLI and async client](m-24-sdk-cli.md): caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.
-- [SDK cookbook implementations](m-25-sdk-cookbooks.md): Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed.
+
+## Examples
+
+- [SDK recipes](m-25-sdk-cookbooks.md): Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed.
 
 ## Strategy & roadmap
 

@@ -2,7 +2,7 @@
 
 # Beta and agentic surfaces
 
-The GA surfaces in the [SDK guide](m-20-sdk-guide.html) are stable: their paths
+The GA surfaces in the [SDK guide](m-20-sdk-guide.md) are stable: their paths
 and payload keys will not change without a deprecation. This page covers the
 thirteen **beta** surfaces — integrations, data, operations, and the agentic
 loop — which are complete and tested but whose shapes may still move.
@@ -147,7 +147,7 @@ shipped — exactly the case where a consumer most needs to see them.
 ## What beta means in practice
 
 - The paths and payloads may change in a minor release. The
-  [reference](m-21-sdk-reference.html) records the tier per surface.
+  [API reference](m-21-sdk-reference.md) records the tier per surface.
 - Unknown response fields are kept in `model.extra`, so a newer server does not
   break an older client.
 - `client.raw` reaches anything not yet modelled, with the same auth, retries,

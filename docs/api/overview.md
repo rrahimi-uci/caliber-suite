@@ -1,0 +1,63 @@
+# CALIBER REST API
+
+The CALIBER management API is the raw HTTP contract exposed under
+`/ajax-api/2.0/mlflow/caliber`. Use it when you are integrating from a
+non-Python runtime, generating your own client, debugging traffic, or working
+with a route before the typed SDK wraps it.
+
+This section documents the HTTP layer. If you are integrating from Python, start
+with the [SDK guide](../sdk/guide.md) and use the [SDK API reference](../sdk/reference.md)
+for resource classes and method signatures.
+
+## At a glance
+
+| Topic | Contract |
+| --- | --- |
+| Management API prefix | `/ajax-api/2.0/mlflow/caliber` |
+| UI shell | `/caliber/` |
+| Auth for automation | `Authorization: Bearer <token>` |
+| Project scoping | `X-CALIBER-Project: <project_id>` |
+| CSRF on browser-style writes | `X-CALIBER-CSRF: <token>` |
+| Served management OpenAPI | `GET /ajax-api/2.0/mlflow/caliber/openapi.json` |
+| Served workflow-service OpenAPI | `GET /ajax-api/2.0/mlflow/caliber/services/{workflow_id}/openapi.json` |
+
+## When to use the REST API directly
+
+- you are integrating from JavaScript, Go, Java, or a workflow engine instead
+  of Python;
+- you want to generate a client from the served OpenAPI document;
+- you are debugging route behavior or comparing SDK behavior against wire-level
+  requests;
+- you need an endpoint that exists on the server before the typed SDK has added
+  a wrapper.
+
+## How this API documentation is organized
+
+- [Authentication and conventions](auth.md) covers auth modes, headers,
+  envelopes, pagination, request ids, and error shapes.
+- [Resource catalog](resources.md) groups the route families by what developers
+  actually build with.
+- [HTTP reference](reference.md) maps the most important route families,
+  representative operations, and the served OpenAPI entry points.
+
+## OpenAPI entry points
+
+The management API serves its own OpenAPI document:
+
+```bash
+curl -s "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/openapi.json" | jq '.info'
+```
+
+Workflow services also publish per-workflow OpenAPI once a service is enabled:
+
+```bash
+curl -s \
+  "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/services/$WORKFLOW_ID/openapi.json" \
+  | jq '.paths'
+```
+
+Those two documents serve different purposes:
+
+- the management OpenAPI describes CALIBER's control-plane routes;
+- the workflow-service OpenAPI describes the public invocation surface of one
+  published workflow.

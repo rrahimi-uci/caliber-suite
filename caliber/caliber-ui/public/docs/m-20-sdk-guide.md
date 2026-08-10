@@ -13,6 +13,11 @@ SDK test suite executes those functions, so a snippet here cannot drift from
 working code: if a signature changes, either the docs change with it or the
 build fails.
 
+This page explains the Python abstraction. If you need the raw wire contract,
+use the [REST API overview](m-26-rest-api-overview.md), the
+[authentication and conventions guide](m-27-rest-api-auth.md), and the
+[HTTP reference](m-29-rest-api-reference.md).
+
 ## At a glance
 
 | Dimension | Where the SDK stands |

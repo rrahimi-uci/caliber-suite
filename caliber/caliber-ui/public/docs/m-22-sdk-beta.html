@@ -75,12 +75,12 @@
     <main class="main" id="docsContent">
       <article class="content doc-body">
         <nav class="doc-breadcrumb" aria-label="Breadcrumb">
-          <span>SDK</span>
+          <span>Python SDK</span>
           <span aria-hidden="true">/</span>
           <span class="current">Beta and agentic surfaces</span>
         </nav>
         <header class="doc-header">
-          <div class="doc-eyebrow">SDK · Architecture reference</div>
+          <div class="doc-eyebrow">Python SDK · Developer reference</div>
           <h1 id="top">Beta and agentic surfaces</h1>
           <p class="doc-summary">Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished.</p>
           <div class="doc-actions">
@@ -89,7 +89,7 @@
             </button>
           </div>
         </header>
-<p>The GA surfaces in the SDK guide are stable: their paths and payload keys will not change without a deprecation. This page covers the thirteen <strong>beta</strong> surfaces — integrations, data, operations, and the agentic loop — which are complete and tested but whose shapes may still move.</p>
+<p>The GA surfaces in the <a href="m-20-sdk-guide.html">SDK guide</a> are stable: their paths and payload keys will not change without a deprecation. This page covers the thirteen <strong>beta</strong> surfaces — integrations, data, operations, and the agentic loop — which are complete and tested but whose shapes may still move.</p>
 <p>Ask the deployment rather than assuming, because the tier is a property of the running server and not of the SDK version:</p>
 <pre class="language-python"><code class="language-python">tier <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>capabilities_api<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">.</span><span class="tok-function">tier_of</span><span class="tok-punctuation">(</span><span class="tok-string">"aria"</span><span class="tok-punctuation">)</span>   <span class="tok-comment"># "beta"</span></code></pre>
 <p>Every code block below is extracted from <code>sdk/caliber-sdk/examples/</code> at build time, and the SDK test suite executes those functions.</p>
@@ -172,11 +172,11 @@
         payload <span class="tok-operator">=</span> json<span class="tok-punctuation">.</span><span class="tok-function">loads</span><span class="tok-punctuation">(</span>line<span class="tok-punctuation">[</span><span class="tok-number">5</span><span class="tok-punctuation">:</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span></code></pre>
 <p>Leaving them unparsed is deliberate. The event vocabulary grows as the server grows, and a decoder compiled into this SDK would reject events added after it shipped — exactly the case where a consumer most needs to see them.</p>
 <h2 id="what-beta-means-in-practice">What beta means in practice<a class="anchor" href="#what-beta-means-in-practice" aria-hidden="true" tabindex="-1">#</a></h2>
-<ul><li>The paths and payloads may change in a minor release. The reference records the tier per surface.</li><li>Unknown response fields are kept in <code>model.extra</code>, so a newer server does not break an older client.</li><li><code>client.raw</code> reaches anything not yet modelled, with the same auth, retries, and error mapping as the typed surfaces.</li></ul>
+<ul><li>The paths and payloads may change in a minor release. The <a href="m-21-sdk-reference.html">API reference</a> records the tier per surface.</li><li>Unknown response fields are kept in <code>model.extra</code>, so a newer server does not break an older client.</li><li><code>client.raw</code> reaches anything not yet modelled, with the same auth, retries, and error mapping as the typed surfaces.</li></ul>
         <footer>
           <p>
             CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —
-            this page is generated from <code>ARCHITECTURE.md</code> or the architecture series in <code>docs/</code>.
+            this page is generated from the authoritative Markdown sources in <code>docs/</code> and the repository-level <code>ARCHITECTURE.md</code>.
           </p>
         </footer>
       </article>
