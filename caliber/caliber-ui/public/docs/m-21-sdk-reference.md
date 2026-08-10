@@ -36,6 +36,215 @@ The reference tables below are generated directly from the current SDK source. B
 | Model modules | [`caliber_sdk.models`](#module-caliber_sdkmodels), [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon), [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore), [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets), [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality), [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations), [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations), [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows), [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
 | Async client | [`caliber_sdk.aio`](#module-caliber_sdkaio), [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient), [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport), [`caliber_sdk.aio.waiters`](#module-caliber_sdkaiowaiters) |
 
+## Symbol index
+
+Every documented class and module-level function, with the module that defines it. Members hang off their class, so start here and follow the link.
+
+**A**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`Account`](#account) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`AccountsAPI`](#accountsapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
+| [`AriaAPI`](#ariaapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`AriaInteraction`](#ariainteraction) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`AriaPlan`](#ariaplan) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`AriaPlanDetail`](#ariaplandetail) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`AriaPlanStep`](#ariaplanstep) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`AsyncCaliberClient`](#asynccaliberclient) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AsyncCapabilitiesAPI`](#asynccapabilitiesapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AsyncEventsAPI`](#asynceventsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AsyncJobsAPI`](#asyncjobsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AsyncMeAPI`](#asyncmeapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AsyncRawAPI`](#asyncrawapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AsyncTransport`](#asynctransport) | [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport) |
+| [`AsyncWorkflowRunsAPI`](#asyncworkflowrunsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AuditAPI`](#auditapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`AuditEntry`](#auditentry) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`AuthAPI`](#authapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
+| [`AuthProvider`](#authprovider) | [`caliber_sdk.auth`](#module-caliber_sdkauth) |
+
+**B**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`Bucket`](#bucket) | [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations) |
+
+**C**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`CaliberAPIError`](#caliberapierror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberAuthenticationError`](#caliberauthenticationerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberClient`](#caliberclient) | [`caliber_sdk.client`](#module-caliber_sdkclient) |
+| [`CaliberConfigError`](#caliberconfigerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberConflictError`](#caliberconflicterror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberError`](#calibererror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberNotFoundError`](#calibernotfounderror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberPermissionError`](#caliberpermissionerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberRateLimitError`](#caliberratelimiterror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberServerError`](#caliberservererror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberTransportError`](#calibertransporterror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberValidationError`](#calibervalidationerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CalibrationJob`](#calibrationjob) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
+| [`Capabilities`](#capabilities) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`CapabilitiesAPI`](#capabilitiesapi) | [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem) |
+| [`CookbookRecipe`](#cookbookrecipe) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`CookbooksAPI`](#cookbooksapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+
+**E**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`error_for_response`](#error_for_response-status_code-int-payload-method-str-url-str-request_id-str-none-none-caliberapierror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`ErrorBody`](#errorbody) | [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
+| [`EvalDataset`](#evaldataset) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`EvalDatasetsAPI`](#evaldatasetsapi) | [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality) |
+| [`EvalExample`](#evalexample) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`Evaluation`](#evaluation) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`EvaluationsAPI`](#evaluationsapi) | [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality) |
+| [`EventsAPI`](#eventsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`Extensibility`](#extensibility) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+
+**F**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`FieldError`](#fielderror) | [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
+
+**G**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`GatewayAPI`](#gatewayapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
+
+**I**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`Identity`](#identity) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`IssuedToken`](#issuedtoken) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+
+**J**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`Job`](#job) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`JobsAPI`](#jobsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`Judge`](#judge) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`JudgeAlignment`](#judgealignment) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`JudgesAPI`](#judgesapi) | [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality) |
+
+**K**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`KnowledgeBase`](#knowledgebase) | [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations) |
+| [`KnowledgeBasesAPI`](#knowledgebasesapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
+
+**L**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`LlmSetupStatus`](#llmsetupstatus) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+
+**M**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`McpServer`](#mcpserver) | [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations) |
+| [`McpServersAPI`](#mcpserversapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
+| [`MeAPI`](#meapi) | [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem) |
+
+**N**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`NoAuth`](#noauth) | [`caliber_sdk.auth`](#module-caliber_sdkauth) |
+
+**O**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`ObjectStoreAPI`](#objectstoreapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
+| [`ObservabilityAPI`](#observabilityapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`OptimizerPlugin`](#optimizerplugin) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+
+**P**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`Page`](#page) | [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon) |
+| [`PersonalAccessToken`](#personalaccesstoken) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`Project`](#project) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectFile`](#projectfile) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectFilesAPI`](#projectfilesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
+| [`ProjectFolder`](#projectfolder) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectsAPI`](#projectsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
+| [`Prompt`](#prompt) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
+| [`PromptsAPI`](#promptsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
+
+**R**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`RawAPI`](#rawapi) | [`caliber_sdk.resources.raw`](#module-caliber_sdkresourcesraw) |
+| [`RegisteredOptimizer`](#registeredoptimizer) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ReleaseCandidate`](#releasecandidate) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`ReleasesAPI`](#releasesapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`Response`](#response) | [`caliber_sdk.transport`](#module-caliber_sdktransport) |
+| [`ReviewQueue`](#reviewqueue) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`ReviewQueuesAPI`](#reviewqueuesapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`RuntimeSettings`](#runtimesettings) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`RuntimeSettingsSummary`](#runtimesettingssummary) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+
+**S**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`SecretsAPI`](#secretsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`SessionInfo`](#sessioninfo) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`SettingsAPI`](#settingsapi) | [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem) |
+| [`Skill`](#skill) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
+| [`SkillRender`](#skillrender) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
+| [`SkillsAPI`](#skillsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
+| [`SkillSelection`](#skillselection) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
+| [`SkillVersion`](#skillversion) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
+| [`Stability`](#stability) | [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon) |
+| [`state_of`](#state_ofpayload-keys-sequencestr-status-state-str) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
+| [`StoredObject`](#storedobject) | [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations) |
+
+**T**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`TokenAuth`](#tokenauth) | [`caliber_sdk.auth`](#module-caliber_sdkauth) |
+| [`TokensAPI`](#tokensapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
+| [`Tool`](#tool) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
+| [`ToolsAPI`](#toolsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
+| [`Trace`](#trace) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`Transport`](#transport) | [`caliber_sdk.transport`](#module-caliber_sdktransport) |
+| [`TrustedHeaderAuth`](#trustedheaderauth) | [`caliber_sdk.auth`](#module-caliber_sdkauth) |
+
+**W**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`wait_for`](#wait_forpoll-callable-t-is_done-callablet-bool-timeout-float-3000-interval-float-20-max_interval-float-150-backoff-float-15-sleep-callablefloat-none-timesleep-now-callable-float-timemonotonic-t) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
+| [`wait_for_terminal_state`](#wait_for_terminal_statepoll-callable-any-terminal-frozensetstr-terminal_states-failure-frozensetstr-failure_states-raise_on_failure-bool-true-kwargs-any) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
+| [`WaitFailed`](#waitfailed) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
+| [`WaitTimeout`](#waittimeout) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
+| [`Workflow`](#workflow) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowRun`](#workflowrun) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowRunCapabilities`](#workflowruncapabilities) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`WorkflowRunFailed`](#workflowrunfailed) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkflowRunsAPI`](#workflowrunsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkflowsAPI`](#workflowsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkflowService`](#workflowservice) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowServicesAPI`](#workflowservicesapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkflowVersion`](#workflowversion) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowVersionsAPI`](#workflowversionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+
 ## Package index
 
 ### Module `caliber_sdk`

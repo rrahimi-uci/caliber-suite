@@ -236,3 +236,23 @@ def test_documented_error_payloads_match_what_the_server_actually_sends() -> Non
                 f"documented field error should carry exactly loc/msg/type, got {sorted(item)}"
             )
             assert isinstance(item["loc"], list), "`loc` is a path, so it is a list"
+
+
+def test_every_documented_class_is_reachable_from_the_symbol_index() -> None:
+    """A reader arrives knowing a name, not the module that defines it.
+
+    Without a flat index, finding ``WorkflowRun`` meant already knowing which of
+    29 modules declares it — the source-diving the reference exists to replace.
+    Asserted as coverage rather than a count, so a new class is indexed without
+    this test being edited.
+    """
+    reference = _generated_reference()
+    assert "## Symbol index" in reference, "the reference lost its symbol index"
+
+    index_block = reference.split("## Symbol index", 1)[1].split("\n## ", 1)[0]
+    indexed = set(re.findall(r"^\| \[`([A-Za-z0-9_]+)`\]", index_block, re.M))
+    documented = set(re.findall(r"^##### `([A-Za-z0-9_]+)`", reference, re.M))
+
+    assert documented <= indexed, (
+        f"classes missing from the symbol index: {sorted(documented - indexed)}"
+    )

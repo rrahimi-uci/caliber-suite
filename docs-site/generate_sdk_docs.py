@@ -1328,6 +1328,55 @@ def render_module(info: ModuleInfo) -> list[str]:
     return lines
 
 
+def render_symbol_index(modules: dict[str, ModuleInfo]) -> list[str]:
+    """A flat A-Z index of every documented class and top-level function.
+
+    The module index answers "what is in the package"; this answers the question
+    a reader actually arrives with, which is "where is ``WorkflowRun``". Without
+    it, looking up a symbol meant already knowing which of 29 modules defines it
+    -- exactly the source-diving the reference exists to replace.
+
+    Grouped by initial letter because a single 160-row table is a wall, and a
+    reader scanning for one name wants to land near it.
+    """
+    entries: dict[str, tuple[str, str]] = {}
+    for module_name, info in modules.items():
+        for class_info in info.classes:
+            entries.setdefault(
+                class_info.name, (heading_link(f"`{class_info.name}`"), module_name)
+            )
+        for function in info.functions:
+            entries.setdefault(
+                function.name,
+                (heading_link(f"`{function.name}{function.signature}`"), module_name),
+            )
+
+    if not entries:
+        return []
+
+    lines = ["## Symbol index", ""]
+    lines.append(
+        "Every documented class and module-level function, with the module that "
+        "defines it. Members hang off their class, so start here and follow the link."
+    )
+    lines.append("")
+    by_letter: dict[str, list[str]] = {}
+    for name in sorted(entries, key=str.lower):
+        by_letter.setdefault(name[0].upper(), []).append(name)
+
+    for letter in sorted(by_letter):
+        lines.append(f"**{letter}**")
+        lines.append("")
+        lines.append("| Symbol | Defined in |")
+        lines.append("| --- | --- |")
+        for name in by_letter[letter]:
+            anchor, module_name = entries[name]
+            module_link = heading_link(f"Module `{module_name}`")
+            lines.append(f"| [`{name}`]({anchor}) | [`{module_name}`]({module_link}) |")
+        lines.append("")
+    return lines
+
+
 def render_reference() -> str:
     modules = {
         name: parse_module(name) for _group, names in MODULE_GROUPS for name in names
@@ -1352,6 +1401,7 @@ def render_reference() -> str:
     lines.append("")
     lines.extend(index_rows)
     lines.append("")
+    lines.extend(render_symbol_index(modules))
     for group_title, module_names in MODULE_GROUPS:
         lines.append(f"## {group_title}")
         lines.append("")
