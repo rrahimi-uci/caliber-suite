@@ -1,1 +1,0 @@
-{"t":"2026-08-10T19:27:03.028Z","severity":"ERROR","logger":"caliber.assistant.ollama_engine","message":"Ollama API error: 500 provider unavailable"}

@@ -1,0 +1,1 @@
+{"t":"2026-08-10T20:22:51.527Z","severity":"WARNING","logger":"caliber.trace_client","message":"trace detail fetch failed for T1 (get_trace boom); empty detail"}
