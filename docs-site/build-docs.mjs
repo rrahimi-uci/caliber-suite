@@ -1308,6 +1308,14 @@ function buildNavData(present) {
       .map((m) => ({ href: m.out, label: m.label }));
     if (links.length) sections.push({ section: g.title, links });
   }
+  const platformSection = sections.find((item) => item.section === "Platform docs");
+  const interactiveLayered = "interactive-layered-architecture.html";
+  if (platformSection && existsSync(resolve(OUT_DIR, interactiveLayered))) {
+    platformSection.links.splice(1, 0, {
+      href: interactiveLayered,
+      label: "Interactive layered architecture",
+    });
+  }
   // Cookbook pages are generated separately and belong in Examples.
   if (existsSync(resolve(OUT_DIR, "m-16-cookbooks.html"))) {
     let links = [{ href: "m-16-cookbooks.html", label: "Cookbook gallery" }];

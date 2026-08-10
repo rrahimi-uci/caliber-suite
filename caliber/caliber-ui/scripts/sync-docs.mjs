@@ -84,6 +84,7 @@ const SITE_FILES = readdirSync(DOCS_SITE).filter(
     f === "docs.js" ||
     f === "docs-nav.js" ||
     f === "llms.txt" ||
+    f === "interactive-layered-architecture.html" ||
     f === "presentation.html" ||
     f === "presentation_timed.html" ||
     f === "walkthrough.html" ||

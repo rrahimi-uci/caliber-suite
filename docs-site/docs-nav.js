@@ -17,6 +17,10 @@ window.DOCS_NAV = [
         "label": "Layered architecture"
       },
       {
+        "href": "interactive-layered-architecture.html",
+        "label": "Interactive layered architecture"
+      },
+      {
         "href": "m-01-platform.html",
         "label": "Platform"
       },

@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive layered architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="Interactive explorer for CALIBER's layered architecture: inspect layers, dependencies, lifecycle paths, and governed-asset tiers in one focused view.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") {
+          t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <style>
+    .doc-body section[id] { scroll-margin-top: calc(var(--topbar-h) + 1rem); }
+    .interactive-shell { display: grid; gap: 1rem; }
+    .interactive-lead {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 1rem;
+      align-items: stretch;
+    }
+    .interactive-card,
+    .explorer-panel,
+    .explorer-canvas {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      box-shadow: var(--shadow);
+    }
+    .interactive-card {
+      padding: 1rem 1.15rem;
+      background:
+        radial-gradient(120% 100% at 50% 0%, var(--accent-glow), transparent 60%),
+        linear-gradient(180deg, rgba(248, 247, 255, .9), var(--bg-card));
+    }
+    .interactive-card h3,
+    .interactive-card h4,
+    .explorer-panel h3,
+    .explorer-panel h4 { margin: 0 0 .45rem; }
+    .interactive-card p,
+    .explorer-panel p { margin: 0; color: var(--text-muted); }
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: .75rem;
+      margin-top: .9rem;
+    }
+    .mini-card {
+      padding: .9rem 1rem;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      background: var(--bg-card-hover);
+    }
+    .mini-card strong { display: block; margin-bottom: .18rem; color: var(--text); }
+    .mini-card span { font-size: .84rem; color: var(--text-muted); }
+    .explorer-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) 340px;
+      gap: 1rem;
+      align-items: start;
+    }
+    .explorer-canvas {
+      overflow: hidden;
+      padding: .9rem;
+      position: relative;
+      background:
+        radial-gradient(140% 120% at 50% 0%, var(--accent-glow), transparent 62%),
+        linear-gradient(180deg, rgba(248, 247, 255, .92), var(--bg-card));
+    }
+    .explorer-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: .75rem;
+    }
+    .explorer-toolbar-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .45rem;
+      align-items: center;
+    }
+    .explorer-toolbar label {
+      font-size: .77rem;
+      font-weight: 700;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-right: .15rem;
+    }
+    .chip,
+    .tool-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text-muted);
+      border-radius: 999px;
+      padding: .42rem .72rem;
+      font: 600 .8rem/1 var(--font);
+      cursor: pointer;
+      transition: background .12s ease, color .12s ease, border-color .12s ease, box-shadow .12s ease;
+    }
+    .chip:hover,
+    .tool-btn:hover {
+      border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+      color: var(--text);
+    }
+    .chip.is-active,
+    .tool-btn.is-active {
+      background: var(--accent-glow);
+      border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+      color: var(--accent-dark);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+    }
+    .tool-btn { padding-inline: .66rem; }
+    .explorer-viewport {
+      position: relative;
+      height: 840px;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--bg-card) 86%, transparent), color-mix(in srgb, var(--bg-card-hover) 94%, transparent));
+    }
+    .explorer-viewport::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(to right, color-mix(in srgb, var(--border-light) 70%, transparent) 1px, transparent 1px),
+        linear-gradient(to bottom, color-mix(in srgb, var(--border-light) 70%, transparent) 1px, transparent 1px);
+      background-size: 28px 28px;
+      opacity: .7;
+      pointer-events: none;
+    }
+    .explorer-svg { width: 100%; height: 100%; display: block; cursor: grab; }
+    .explorer-svg.is-panning { cursor: grabbing; }
+    .explorer-panel {
+      padding: 1rem 1rem 1.05rem;
+      position: sticky;
+      top: calc(var(--topbar-h) + 1rem);
+    }
+    .panel-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      margin-bottom: .45rem;
+      padding: .3rem .58rem;
+      border-radius: 999px;
+      background: var(--diagram-chip-bg);
+      color: var(--diagram-chip-text);
+      border: 1px solid var(--diagram-chip-border);
+      font-size: .74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    .panel-meta {
+      display: grid;
+      gap: .45rem;
+      margin-top: .9rem;
+      font-size: .87rem;
+    }
+    .panel-meta div {
+      padding: .62rem .72rem;
+      border-radius: 12px;
+      background: var(--bg-card-hover);
+      border: 1px solid var(--border-light);
+    }
+    .panel-meta strong {
+      display: block;
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--text-dim);
+      margin-bottom: .22rem;
+    }
+    .panel-links {
+      display: flex;
+      flex-direction: column;
+      gap: .45rem;
+      margin-top: .85rem;
+    }
+    .panel-links a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .62rem .75rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-light);
+      background: var(--bg-card-hover);
+      color: var(--text);
+      font-size: .86rem;
+      text-decoration: none;
+    }
+    .panel-links a:hover {
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+      background: color-mix(in srgb, var(--accent-glow) 55%, var(--bg-card));
+    }
+    .legend-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .45rem .75rem;
+      margin-top: .8rem;
+      font-size: .82rem;
+      color: var(--text-muted);
+    }
+    .legend-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: .42rem;
+    }
+    .legend-swatch {
+      width: .82rem;
+      height: .82rem;
+      border-radius: 4px;
+      border: 1.5px solid;
+      flex: none;
+    }
+    .legend-swatch.ui { background: var(--diagram-ui-fill); border-color: var(--diagram-ui-stroke); }
+    .legend-swatch.ctrl { background: var(--diagram-ctrl-fill); border-color: var(--diagram-ctrl-stroke); }
+    .legend-swatch.store { background: var(--diagram-store-fill); border-color: var(--diagram-store-stroke); }
+    .legend-swatch.ext { background: var(--diagram-ext-fill); border-color: var(--diagram-ext-stroke); }
+    .legend-swatch.async { background: var(--diagram-async-fill); border-color: var(--diagram-async-stroke); }
+    .legend-swatch.user { background: var(--diagram-user-fill); border-color: var(--diagram-user-stroke); }
+    .legend-swatch.gov { background: #fde7f0; border-color: #d6457f; }
+    .legend-swatch.asset { background: #fff0df; border-color: #d98324; }
+    .legend-swatch.tier { background: #eef3ff; border-color: #4f6ef0; }
+    .map-zone,
+    .map-lane {
+      rx: 28;
+      stroke-width: 1.5;
+      stroke: color-mix(in srgb, var(--border) 92%, transparent);
+      fill: color-mix(in srgb, var(--bg-card) 94%, transparent);
+    }
+    .map-zone-title,
+    .map-lane-title {
+      font: 700 22px/1 var(--font);
+      fill: var(--text);
+      letter-spacing: -.02em;
+    }
+    .map-zone-subtitle {
+      font: 500 13px/1.4 var(--font);
+      fill: var(--text-dim);
+    }
+    .map-node { cursor: pointer; outline: none; transition: opacity .16s ease; }
+    .map-node rect {
+      rx: 18;
+      stroke-width: 1.7;
+      transition: transform .16s ease, stroke-width .16s ease, filter .16s ease, opacity .16s ease;
+    }
+    .map-node:focus-visible rect,
+    .map-node.is-selected rect {
+      stroke-width: 2.6;
+      filter: drop-shadow(0 10px 22px rgba(31, 41, 55, .12));
+    }
+    .map-node.is-selected rect { filter: drop-shadow(0 14px 30px rgba(143, 116, 224, .22)); }
+    .map-node text.title {
+      font: 700 14px/1.2 var(--font);
+      fill: var(--text);
+      pointer-events: none;
+    }
+    .map-node text.meta {
+      font: 500 11.5px/1.25 var(--font);
+      fill: var(--text-muted);
+      pointer-events: none;
+    }
+    .node-ui rect { fill: var(--diagram-ui-fill); stroke: var(--diagram-ui-stroke); }
+    .node-ctrl rect { fill: var(--diagram-ctrl-fill); stroke: var(--diagram-ctrl-stroke); }
+    .node-store rect { fill: var(--diagram-store-fill); stroke: var(--diagram-store-stroke); }
+    .node-ext rect { fill: var(--diagram-ext-fill); stroke: var(--diagram-ext-stroke); }
+    .node-async rect { fill: var(--diagram-async-fill); stroke: var(--diagram-async-stroke); }
+    .node-user rect { fill: var(--diagram-user-fill); stroke: var(--diagram-user-stroke); }
+    .node-gov rect { fill: #fde7f0; stroke: #d6457f; }
+    .node-asset rect { fill: #fff0df; stroke: #d98324; }
+    .node-tier rect { fill: #eef3ff; stroke: #4f6ef0; }
+    .edge {
+      fill: none;
+      stroke: color-mix(in srgb, var(--diagram-line) 92%, transparent);
+      stroke-width: 2.1;
+      opacity: .5;
+      transition: opacity .16s ease, stroke-width .16s ease, stroke .16s ease;
+    }
+    .edge.edge-path {
+      stroke: color-mix(in srgb, var(--accent) 74%, #a1a1aa);
+      opacity: .92;
+      stroke-width: 2.9;
+    }
+    .edge.edge-dim { opacity: .12; }
+    .node-dim { opacity: .18; }
+    .node-soft { opacity: .55; }
+    .explainer-list {
+      margin: .85rem 0 0;
+      padding-left: 1.05rem;
+      color: var(--text-muted);
+    }
+    .explainer-list li + li { margin-top: .34rem; }
+    @media (max-width: 1180px) {
+      .interactive-lead,
+      .explorer-layout {
+        grid-template-columns: 1fr;
+      }
+      .explorer-panel { position: static; }
+      .explorer-viewport { height: 760px; }
+    }
+    @media (max-width: 760px) {
+      .explorer-toolbar { align-items: flex-start; }
+      .explorer-viewport { height: 680px; }
+    }
+  </style>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <span class="topbar-search-label">Search docs</span>
+          <span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="m-00-layered-architecture.html">Static architecture</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  </button>
+
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo">
+        <div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search">
+        <input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections">
+      </div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+
+    <main class="main" id="docsContent">
+      <article class="content doc-body">
+        <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+          <span>Platform docs</span>
+          <span aria-hidden="true">/</span>
+          <span class="current">Interactive layered architecture</span>
+        </nav>
+        <header class="doc-header">
+          <div class="doc-eyebrow">Platform docs · Interactive explorer</div>
+          <h1 id="top">Interactive layered architecture</h1>
+          <p class="doc-summary">
+            A guided, click-to-focus view of the repository-level architecture. Use it to inspect how the six stack layers,
+            the shared platform services, and the governed-asset tiers relate without scanning the full static diagram at once.
+          </p>
+        </header>
+
+        <section id="explorer">
+          <div class="interactive-shell">
+            <div class="interactive-lead">
+              <div class="interactive-card">
+                <h3>Why this view exists</h3>
+                <p>
+                  The static layered architecture page is the authoritative source. This interactive explorer is the presentation-grade
+                  companion: it keeps the same model, but lets you isolate one layer, one path, or one node at a time.
+                </p>
+                <div class="mini-grid">
+                  <div class="mini-card">
+                    <strong>Inspect one concern</strong>
+                    <span>Filter to one layer family to cut visual noise without losing the surrounding topology.</span>
+                  </div>
+                  <div class="mini-card">
+                    <strong>Trace one path</strong>
+                    <span>Highlight prompt delivery, workflow deployment, observability, or integration routes end to end.</span>
+                  </div>
+                  <div class="mini-card">
+                    <strong>Keep the stack readable</strong>
+                    <span>The layout stays explicitly layered rather than relying on auto-layout heuristics.</span>
+                  </div>
+                </div>
+              </div>
+              <div class="interactive-card">
+                <h3>How to use it</h3>
+                <ul class="explainer-list">
+                  <li>Click any node to see what it owns, where it fits, and which docs page explains it in depth.</li>
+                  <li>Use the <strong>Layer focus</strong> chips to show only one part of the system.</li>
+                  <li>Use the <strong>Guided paths</strong> chips to trace one scenario through the stack.</li>
+                  <li>Drag the canvas to pan. Use the mouse wheel or the zoom controls to inspect dense areas.</li>
+                </ul>
+                <div class="legend-grid" aria-label="Diagram legend">
+                  <span class="legend-chip"><span class="legend-swatch ui"></span>Surface / interface</span>
+                  <span class="legend-chip"><span class="legend-swatch ctrl"></span>Control plane</span>
+                  <span class="legend-chip"><span class="legend-swatch store"></span>Durable state</span>
+                  <span class="legend-chip"><span class="legend-swatch ext"></span>External system</span>
+                  <span class="legend-chip"><span class="legend-swatch async"></span>Async runtime</span>
+                  <span class="legend-chip"><span class="legend-swatch gov"></span>Governance</span>
+                  <span class="legend-chip"><span class="legend-swatch asset"></span>Asset family</span>
+                  <span class="legend-chip"><span class="legend-swatch tier"></span>Governed-asset tier</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="explorer-layout">
+              <div class="explorer-canvas">
+                <div class="explorer-toolbar">
+                  <div class="explorer-toolbar-group" id="filterToolbar">
+                    <label>Layer focus</label>
+                  </div>
+                  <div class="explorer-toolbar-group" id="pathToolbar">
+                    <label>Guided paths</label>
+                  </div>
+                  <div class="explorer-toolbar-group">
+                    <button class="tool-btn" type="button" id="zoomOutBtn" aria-label="Zoom out">−</button>
+                    <button class="tool-btn" type="button" id="zoomInBtn" aria-label="Zoom in">+</button>
+                    <button class="tool-btn" type="button" id="resetViewBtn">Reset view</button>
+                    <button class="tool-btn" type="button" id="clearFocusBtn">Clear focus</button>
+                  </div>
+                </div>
+                <div class="explorer-viewport">
+                  <svg id="architectureSvg" class="explorer-svg" viewBox="0 0 2200 1360" role="img" aria-labelledby="archTitle archDesc">
+                    <title id="archTitle">Interactive layered architecture map</title>
+                    <desc id="archDesc">A layered CALIBER platform map with platform services on the left, the six-layer stack in the middle, and governed asset tiers on the right.</desc>
+                    <defs>
+                      <marker id="edgeArrow" markerWidth="14" markerHeight="14" refX="10" refY="7" orient="auto" markerUnits="userSpaceOnUse">
+                        <path d="M0,0 L14,7 L0,14 z" fill="currentColor"></path>
+                      </marker>
+                    </defs>
+                    <g id="scene"></g>
+                  </svg>
+                </div>
+              </div>
+
+              <aside class="explorer-panel" aria-live="polite">
+                <div class="panel-kicker" id="panelKicker">Overview</div>
+                <h3 id="panelTitle">Layered system map</h3>
+                <p id="panelDescription">
+                  Start with a layer focus or a guided path. The panel updates with the selected node or scenario.
+                </p>
+                <div class="panel-meta" id="panelMeta">
+                  <div>
+                    <strong>What this page shows</strong>
+                    A curated architecture view. It is intentionally narrower than the full repository contract pages.
+                  </div>
+                  <div>
+                    <strong>Authoritative reference</strong>
+                    The static layered architecture page remains the authoritative explanation and source-linked map.
+                  </div>
+                </div>
+                <div class="panel-links" id="panelLinks">
+                  <a href="m-00-layered-architecture.html">Open the static layered architecture page <span aria-hidden="true">↗</span></a>
+                  <a href="m-01-platform.html">Read the platform runtime breakdown <span aria-hidden="true">↗</span></a>
+                  <a href="m-12-assistant.html">Inspect the Aria assistant architecture <span aria-hidden="true">↗</span></a>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </section>
+      </article>
+    </main>
+  </div>
+
+  <script type="module">
+    const svg = document.getElementById("architectureSvg");
+    const scene = document.getElementById("scene");
+    const filterToolbar = document.getElementById("filterToolbar");
+    const pathToolbar = document.getElementById("pathToolbar");
+    const panelKicker = document.getElementById("panelKicker");
+    const panelTitle = document.getElementById("panelTitle");
+    const panelDescription = document.getElementById("panelDescription");
+    const panelMeta = document.getElementById("panelMeta");
+    const panelLinks = document.getElementById("panelLinks");
+
+    const filters = [
+      { id: "all", label: "All" },
+      { id: "support", label: "Platform services" },
+      { id: "surfaces", label: "Surfaces" },
+      { id: "lifecycle", label: "Lifecycle" },
+      { id: "assets", label: "Asset families" },
+      { id: "governance", label: "Governance" },
+      { id: "kernel", label: "Kernel" },
+      { id: "infrastructure", label: "Infrastructure" },
+      { id: "tiers", label: "Governed asset" },
+    ];
+
+    const nodes = [
+      { id: "svc-evidence", zone: "support", filter: "support", tone: "store", title: "Evidence base", meta: "traces · assessments · test sets", x: 58, y: 126, w: 256, h: 74, desc: "Shared evidence store for traces, assessments, test sets, and trace-to-example capture.", docs: [{ href: "m-11-test-sets.html", label: "Test sets" }, { href: "m-09-observability.html", label: "Observability" }] },
+      { id: "svc-eval", zone: "support", filter: "support", tone: "ctrl", title: "Evaluation framework", meta: "scorecards · judges · alignment", x: 58, y: 228, w: 256, h: 74, desc: "Scorecards, deterministic scorers, custom LLM judges, and human-alignment review.", docs: [{ href: "m-14-evaluation.html", label: "Evaluation" }] },
+      { id: "svc-calibration", zone: "support", filter: "support", tone: "async", title: "Calibration framework", meta: "optimize · replay · tune retrieval", x: 58, y: 330, w: 256, h: 74, desc: "Optimization, manifest replay, retrieval tuning, and other iterative improvement flows.", docs: [{ href: "m-15-calibration.html", label: "Calibration" }] },
+      { id: "svc-capability", zone: "support", filter: "support", tone: "ctrl", title: "Capability registry", meta: "risk tier · scope · schema", x: 58, y: 432, w: 256, h: 74, desc: "Emerging seam for declaring operations once with risk tier, scopes, schema, and handler metadata.", docs: [{ href: "m-12-assistant.html", label: "Aria assistant" }, { href: "m-23-sdk-plugins.html", label: "Writing a plugin" }] },
+      { id: "svc-integration", zone: "support", filter: "support", tone: "ext", title: "Integration hub", meta: "MCP · gateway · webhooks · WaaS", x: 58, y: 534, w: 256, h: 74, desc: "External integration plane for MCP servers, gateway routing, webhooks, and workflow-as-a-service.", docs: [{ href: "m-05-mcp.html", label: "MCP servers" }, { href: "m-10-gateways.html", label: "Gateways" }] },
+      { id: "svc-scoping", zone: "support", filter: "support", tone: "store", title: "Project scoping", meta: "visibility helpers · shared fields", x: 58, y: 636, w: 256, h: 74, desc: "Shared visibility model used across APIs and product surfaces; coverage is path specific.", docs: [{ href: "m-27-rest-api-auth.html", label: "Auth and conventions" }] },
+
+      { id: "surface-spa", zone: "stack", filter: "surfaces", tone: "ui", title: "React SPA", meta: "/caliber/", x: 514, y: 114, w: 188, h: 72, desc: "Primary operator UI served from the same CALIBER host.", docs: [{ href: "m-01-platform.html", label: "Platform" }] },
+      { id: "surface-api", zone: "stack", filter: "surfaces", tone: "ui", title: "HTTP API", meta: "route modules · typed schemas", x: 738, y: 114, w: 188, h: 72, desc: "Management API surface for the UI, SDK, and external automation.", docs: [{ href: "m-26-rest-api-overview.html", label: "REST API overview" }, { href: "m-20-sdk-guide.html", label: "SDK guide" }] },
+      { id: "surface-aria", zone: "stack", filter: "surfaces", tone: "ui", title: "Aria copilot", meta: "permissioned agentic loop", x: 962, y: 114, w: 188, h: 72, desc: "Embedded assistant with planning, approvals, and governed dispatch.", docs: [{ href: "m-12-assistant.html", label: "Aria assistant" }] },
+      { id: "surface-headless", zone: "stack", filter: "surfaces", tone: "ui", title: "Headless interfaces", meta: "tokens · SSE · webhooks", x: 1186, y: 114, w: 188, h: 72, desc: "Machine-oriented entry points for service tokens, events, and automation.", docs: [{ href: "m-27-rest-api-auth.html", label: "Auth and conventions" }] },
+
+      { id: "mode-author", zone: "stack", filter: "lifecycle", tone: "ctrl", title: "Author", meta: "draft · render · compile", x: 458, y: 272, w: 156, h: 68, desc: "Create and edit governed assets before they are evaluated or released.", docs: [{ href: "m-00-refinement-loop.html", label: "The refinement loop" }] },
+      { id: "mode-test", zone: "stack", filter: "lifecycle", tone: "ctrl", title: "Test", meta: "bounded runs · fixtures", x: 640, y: 272, w: 156, h: 68, desc: "Deterministic or bounded test execution against fixtures and baselines.", docs: [{ href: "m-13-qa-plan.html", label: "QA plan" }, { href: "m-03-tools.html", label: "Tools" }] },
+      { id: "mode-evaluate", zone: "stack", filter: "lifecycle", tone: "ctrl", title: "Evaluate", meta: "scorecards · judges", x: 822, y: 272, w: 156, h: 68, desc: "Run scorecards and review results with deterministic and LLM-based judges.", docs: [{ href: "m-14-evaluation.html", label: "Evaluation" }] },
+      { id: "mode-calibrate", zone: "stack", filter: "lifecycle", tone: "ctrl", title: "Calibrate", meta: "optimize · replay · tune", x: 1004, y: 272, w: 156, h: 68, desc: "Improve assets through optimizer paths, replay, and tuning loops.", docs: [{ href: "m-15-calibration.html", label: "Calibration" }] },
+      { id: "mode-release", zone: "stack", filter: "lifecycle", tone: "ctrl", title: "Release", meta: "promote · gate · rollback", x: 1186, y: 272, w: 156, h: 68, desc: "Govern publication, promotion, rollback, and durable release intents.", docs: [{ href: "m-19-runbook.html", label: "Operations runbook" }] },
+      { id: "mode-observe", zone: "stack", filter: "lifecycle", tone: "ctrl", title: "Observe", meta: "trace · meter · incident", x: 1368, y: 272, w: 156, h: 68, desc: "Inspect traces, service health, incidents, and replay-oriented operational evidence.", docs: [{ href: "m-09-observability.html", label: "Observability" }] },
+
+      { id: "asset-prompts", zone: "stack", filter: "assets", tone: "asset", title: "Prompts", meta: "MLflow prompt versions", x: 420, y: 432, w: 136, h: 76, desc: "Immutable prompt versions with advisory release verdicts and operator reconciliation.", docs: [{ href: "m-02-prompts.html", label: "Prompts" }] },
+      { id: "asset-tools", zone: "stack", filter: "assets", tone: "asset", title: "Tools", meta: "callable registry", x: 572, y: 432, w: 136, h: 76, desc: "Versioned callable tools with bounded subprocess execution and test flows.", docs: [{ href: "m-03-tools.html", label: "Tools" }] },
+      { id: "asset-skills", zone: "stack", filter: "assets", tone: "asset", title: "Skills", meta: "packaged instructions", x: 724, y: 432, w: 136, h: 76, desc: "Versioned reusable instruction assets for agent behavior and specialization.", docs: [{ href: "m-04-skills.html", label: "Skills" }] },
+      { id: "asset-mcp", zone: "stack", filter: "assets", tone: "asset", title: "MCP servers", meta: "managed tool connectivity", x: 876, y: 432, w: 136, h: 76, desc: "Managed MCP server definitions, policies, connection tests, and discovered inventories.", docs: [{ href: "m-05-mcp.html", label: "MCP servers" }] },
+      { id: "asset-workflows", zone: "stack", filter: "assets", tone: "asset", title: "Workflows", meta: "manifest + deployments", x: 1028, y: 432, w: 136, h: 76, desc: "Compiled manifests, versions, deployments, queued runs, and workflow-as-a-service.", docs: [{ href: "m-06-workflows.html", label: "Workflows" }] },
+      { id: "asset-kbs", zone: "stack", filter: "assets", tone: "asset", title: "Knowledge bases", meta: "hybrid retrieval", x: 1180, y: 432, w: 136, h: 76, desc: "Versioned RAG corpora with ingestion, vector search, graph extraction, and reranking.", docs: [{ href: "m-08-knowledge-bases.html", label: "Knowledge bases" }] },
+      { id: "asset-testsets", zone: "stack", filter: "assets", tone: "asset", title: "Test sets", meta: "shared evidence base", x: 1332, y: 432, w: 136, h: 76, desc: "Versioned evaluation datasets, curation surfaces, and trace-to-example capture.", docs: [{ href: "m-11-test-sets.html", label: "Test sets" }] },
+      { id: "asset-judges", zone: "stack", filter: "assets", tone: "asset", title: "Judges", meta: "LLM + deterministic", x: 1484, y: 432, w: 136, h: 76, desc: "Evaluation judges, agreement metrics, and review-alignment assets.", docs: [{ href: "m-14-evaluation.html", label: "Evaluation" }] },
+      { id: "asset-agents", zone: "stack", filter: "assets", tone: "asset", title: "Agents", meta: "assistant-owned contexts", x: 1636, y: 432, w: 136, h: 76, desc: "Agentic contexts and higher-level governed automation surfaces.", docs: [{ href: "m-12-assistant.html", label: "Aria assistant" }] },
+
+      { id: "gov-identity", zone: "stack", filter: "governance", tone: "gov", title: "Identity & authority", meta: "sessions · RBAC · CSRF", x: 500, y: 592, w: 190, h: 76, desc: "Shared identity model with sessions, four RBAC scopes, CSRF, and rate-limiting protections.", docs: [{ href: "m-27-rest-api-auth.html", label: "Auth and conventions" }] },
+      { id: "gov-execution", zone: "stack", filter: "governance", tone: "gov", title: "Execution policy", meta: "HTTP/MCP egress control", x: 724, y: 592, w: 190, h: 76, desc: "Governed egress for HTTP and MCP execution plus environment classification and containment.", docs: [{ href: "m-05-mcp.html", label: "MCP servers" }, { href: "m-12-assistant.html", label: "Aria assistant" }] },
+      { id: "gov-verdicts", zone: "stack", filter: "governance", tone: "gov", title: "Evidence & verdicts", meta: "gate verdicts · impact", x: 948, y: 592, w: 190, h: 76, desc: "Shared gate verdicts, regression evidence, and impact analysis primitives.", docs: [{ href: "m-14-evaluation.html", label: "Evaluation" }] },
+      { id: "gov-release", zone: "stack", filter: "governance", tone: "gov", title: "Release control", meta: "apply · promote · reconcile", x: 1172, y: 592, w: 190, h: 76, desc: "Release intents, checkpoints, rollback coordination, and promotion workflows.", docs: [{ href: "m-19-runbook.html", label: "Operations runbook" }] },
+      { id: "gov-ledgers", zone: "stack", filter: "governance", tone: "gov", title: "Ledgers", meta: "audit log · effect ledger", x: 1396, y: 592, w: 190, h: 76, desc: "Audit and effect ledgers plus redaction boundaries for durable review.", docs: [{ href: "m-09-observability.html", label: "Observability" }] },
+
+      { id: "kernel-config", zone: "stack", filter: "kernel", tone: "ctrl", title: "Config & secrets", meta: "app state", x: 430, y: 752, w: 160, h: 70, desc: "Configuration and secret resolution owned by the app runtime.", docs: [{ href: "m-01-platform.html", label: "Platform" }] },
+      { id: "kernel-db", zone: "stack", filter: "kernel", tone: "ctrl", title: "Persistence", meta: "SQLAlchemy · Alembic", x: 612, y: 752, w: 160, h: 70, desc: "Relational metadata layer and migration system.", docs: [{ href: "m-01-platform.html", label: "Platform" }] },
+      { id: "kernel-storage", zone: "stack", filter: "kernel", tone: "ctrl", title: "Storage service", meta: "artifact store", x: 794, y: 752, w: 160, h: 70, desc: "Abstraction over object storage and file ownership boundaries.", docs: [{ href: "m-07-object-store.html", label: "Object store" }] },
+      { id: "kernel-sandbox", zone: "stack", filter: "kernel", tone: "ctrl", title: "Tool execution", meta: "bounded subprocess", x: 976, y: 752, w: 160, h: 70, desc: "Bounded subprocess execution and tool sandboxing interfaces.", docs: [{ href: "m-03-tools.html", label: "Tools" }] },
+      { id: "kernel-events", zone: "stack", filter: "kernel", tone: "async", title: "Event bus", meta: "async work · webhooks", x: 1158, y: 752, w: 160, h: 70, desc: "In-process or external transport for background work and webhook settlement.", docs: [{ href: "m-09-observability.html", label: "Observability" }] },
+      { id: "kernel-observe", zone: "stack", filter: "kernel", tone: "ctrl", title: "Observability core", meta: "tracing · readiness", x: 1340, y: 752, w: 160, h: 70, desc: "Readiness, service health, trace access, and operational telemetry.", docs: [{ href: "m-09-observability.html", label: "Observability" }] },
+      { id: "kernel-adapters", zone: "stack", filter: "kernel", tone: "ext", title: "Provider adapters", meta: "LLM · Eval · Promoter", x: 1522, y: 752, w: 160, h: 70, desc: "Adapters for external providers, evaluators, and promotion targets.", docs: [{ href: "m-10-gateways.html", label: "Gateways" }] },
+
+      { id: "infra-host", zone: "stack", filter: "infrastructure", tone: "store", title: "ASGI host", meta: "embedded or standalone", x: 480, y: 912, w: 178, h: 72, desc: "Process host that serves the app embedded in MLflow or as a standalone service.", docs: [{ href: "m-01-platform.html", label: "Platform" }] },
+      { id: "infra-postgres", zone: "stack", filter: "infrastructure", tone: "store", title: "PostgreSQL / SQLite", meta: "pgvector · AGE · dev DB", x: 700, y: 912, w: 178, h: 72, desc: "Metadata database substrate for durable control-plane state.", docs: [{ href: "m-08-knowledge-bases.html", label: "Knowledge bases" }] },
+      { id: "infra-objects", zone: "stack", filter: "infrastructure", tone: "store", title: "Object storage", meta: "S3 · MinIO · local", x: 920, y: 912, w: 178, h: 72, desc: "Artifact and file-byte ownership boundary for uploads, previews, and outputs.", docs: [{ href: "m-07-object-store.html", label: "Object store" }] },
+      { id: "infra-mlflow", zone: "stack", filter: "infrastructure", tone: "ext", title: "MLflow", meta: "tracking · registry · traces", x: 1140, y: 912, w: 178, h: 72, desc: "Reused substrate for experiments, traces, prompts, artifacts, and evaluation helpers.", docs: [{ href: "m-01-platform.html", label: "Platform" }, { href: "m-02-prompts.html", label: "Prompts" }] },
+      { id: "infra-transport", zone: "stack", filter: "infrastructure", tone: "async", title: "Event transport", meta: "in-process · NATS · Redis", x: 1360, y: 912, w: 178, h: 72, desc: "Transport layer for background execution and event propagation.", docs: [{ href: "m-09-observability.html", label: "Observability" }] },
+
+      { id: "tier-full-loop", zone: "tier", filter: "tiers", tone: "tier", title: "Full loop", meta: "prompt family", x: 1866, y: 228, w: 270, h: 150, desc: "Full lifecycle governance: immutable prompt versions, advisory verdicts, operator reconciliation, and exact rollback targets.", docs: [{ href: "m-02-prompts.html", label: "Prompts" }, { href: "m-00-refinement-loop.html", label: "The refinement loop" }] },
+      { id: "tier-deployed", zone: "tier", filter: "tiers", tone: "tier", title: "Deployed", meta: "workflows · knowledge bases", x: 1866, y: 462, w: 270, h: 170, desc: "Deployed runtime assets with aliases, active versions, checkpoints, and activation-history rollback semantics.", docs: [{ href: "m-06-workflows.html", label: "Workflows" }, { href: "m-08-knowledge-bases.html", label: "Knowledge bases" }] },
+      { id: "tier-managed", zone: "tier", filter: "tiers", tone: "tier", title: "Versioned / managed", meta: "skills · tools · test sets · MCP", x: 1866, y: 720, w: 270, h: 190, desc: "Managed or versioned assets that do not all share one live-alias contract. Rollback semantics vary by family.", docs: [{ href: "m-03-tools.html", label: "Tools" }, { href: "m-04-skills.html", label: "Skills" }, { href: "m-05-mcp.html", label: "MCP servers" }] },
+    ];
+
+    const edges = [
+      ["svc-evidence", "mode-evaluate"], ["svc-evidence", "asset-testsets"], ["svc-evidence", "mode-observe"],
+      ["svc-eval", "mode-evaluate"], ["svc-calibration", "mode-calibrate"], ["svc-capability", "surface-aria"],
+      ["svc-capability", "surface-api"], ["svc-integration", "asset-mcp"], ["svc-integration", "surface-headless"],
+      ["svc-scoping", "gov-identity"],
+      ["surface-spa", "mode-author"], ["surface-api", "mode-author"], ["surface-api", "mode-release"],
+      ["surface-aria", "mode-author"], ["surface-aria", "mode-observe"], ["surface-headless", "mode-release"],
+      ["mode-author", "asset-prompts"], ["mode-author", "asset-workflows"], ["mode-author", "asset-skills"],
+      ["mode-test", "asset-tools"], ["mode-test", "asset-testsets"], ["mode-evaluate", "asset-judges"],
+      ["mode-evaluate", "asset-testsets"], ["mode-calibrate", "asset-prompts"], ["mode-calibrate", "asset-kbs"],
+      ["mode-release", "asset-workflows"], ["mode-release", "asset-mcp"], ["mode-observe", "asset-agents"],
+      ["asset-prompts", "tier-full-loop"], ["asset-workflows", "tier-deployed"], ["asset-kbs", "tier-deployed"],
+      ["asset-skills", "tier-managed"], ["asset-tools", "tier-managed"], ["asset-testsets", "tier-managed"], ["asset-mcp", "tier-managed"],
+      ["asset-prompts", "gov-verdicts"], ["asset-workflows", "gov-release"], ["asset-agents", "gov-execution"], ["asset-mcp", "gov-execution"],
+      ["gov-identity", "kernel-config"], ["gov-execution", "kernel-sandbox"], ["gov-verdicts", "kernel-observe"], ["gov-release", "kernel-events"], ["gov-ledgers", "kernel-db"],
+      ["kernel-config", "infra-host"], ["kernel-db", "infra-postgres"], ["kernel-storage", "infra-objects"], ["kernel-observe", "infra-mlflow"], ["kernel-events", "infra-transport"], ["kernel-adapters", "infra-mlflow"],
+      ["mode-evaluate", "gov-verdicts"], ["mode-release", "gov-release"], ["mode-observe", "gov-ledgers"], ["surface-api", "gov-identity"],
+    ].map(([from, to]) => ({ from, to, id: from + "->" + to }));
+
+    const paths = [
+      {
+        id: "prompt-loop",
+        label: "Prompt refinement",
+        title: "Prompt refinement loop",
+        desc: "Start at the UI or API, draft a prompt, evaluate it against evidence, calibrate it, and release through MLflow-backed prompt versions.",
+        nodes: ["surface-spa", "surface-api", "mode-author", "asset-prompts", "mode-evaluate", "svc-evidence", "svc-eval", "mode-calibrate", "svc-calibration", "gov-verdicts", "mode-release", "gov-release", "infra-mlflow", "tier-full-loop"],
+        docs: [{ href: "m-00-refinement-loop.html", label: "The refinement loop" }, { href: "m-02-prompts.html", label: "Prompts" }]
+      },
+      {
+        id: "workflow-deploy",
+        label: "Workflow deployment",
+        title: "Workflow deployment path",
+        desc: "Compile and validate a workflow, promote it with release controls, and hand execution to the event/runtime substrate.",
+        nodes: ["surface-spa", "mode-author", "asset-workflows", "mode-release", "gov-release", "kernel-events", "infra-transport", "kernel-storage", "infra-objects", "tier-deployed"],
+        docs: [{ href: "m-06-workflows.html", label: "Workflows" }, { href: "m-19-runbook.html", label: "Operations runbook" }]
+      },
+      {
+        id: "agentic-operations",
+        label: "Agentic operations",
+        title: "Agentic operations path",
+        desc: "Trace how Aria's agentic loop passes through capability declarations, execution policy, provider adapters, and audit surfaces.",
+        nodes: ["surface-aria", "svc-capability", "asset-agents", "gov-execution", "gov-ledgers", "kernel-sandbox", "kernel-adapters", "infra-mlflow", "mode-observe"],
+        docs: [{ href: "m-12-assistant.html", label: "Aria assistant" }, { href: "m-10-gateways.html", label: "Gateways" }]
+      },
+      {
+        id: "integration",
+        label: "Integration path",
+        title: "Integration path",
+        desc: "Follow external integrations from the API and headless surfaces into the integration hub, MCP, and provider boundaries.",
+        nodes: ["surface-api", "surface-headless", "svc-integration", "asset-mcp", "gov-execution", "kernel-adapters", "infra-host", "tier-managed"],
+        docs: [{ href: "m-05-mcp.html", label: "MCP servers" }, { href: "m-26-rest-api-overview.html", label: "REST API overview" }]
+      },
+    ];
+
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const neighborMap = new Map(nodes.map((node) => [node.id, new Set()]));
+    edges.forEach((edge) => {
+      neighborMap.get(edge.from)?.add(edge.to);
+      neighborMap.get(edge.to)?.add(edge.from);
+    });
+
+    const state = {
+      filter: "all",
+      path: null,
+      selected: null,
+      scale: 1,
+      tx: 0,
+      ty: 0,
+      dragging: false,
+      dragStartX: 0,
+      dragStartY: 0,
+      dragTx: 0,
+      dragTy: 0,
+    };
+
+    const ZOOM_MIN = 0.48;
+    const ZOOM_MAX = 1.7;
+
+    function el(name, attrs = {}) {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+      Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+      return node;
+    }
+
+    function appendText(group, text, x, y, cls, maxWidth, lineHeight) {
+      const node = el("text", { x, y, class: cls });
+      const words = String(text).split(/\s+/);
+      const lines = [];
+      let current = "";
+      words.forEach((word) => {
+        const next = current ? current + " " + word : word;
+        if (next.length > maxWidth && current) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = next;
+        }
+      });
+      if (current) lines.push(current);
+      lines.slice(0, 3).forEach((line, idx) => {
+        const span = el("tspan", { x, dy: idx === 0 ? 0 : lineHeight });
+        span.textContent = line;
+        node.appendChild(span);
+      });
+      group.appendChild(node);
+    }
+
+    function nodeCenter(node) {
+      return { x: node.x + node.w / 2, y: node.y + node.h / 2 };
+    }
+
+    function edgePath(source, target) {
+      const s = nodeCenter(source);
+      const t = nodeCenter(target);
+      const dx = t.x - s.x;
+      const dy = t.y - s.y;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        const startX = dx >= 0 ? source.x + source.w : source.x;
+        const startY = s.y;
+        const endX = dx >= 0 ? target.x : target.x + target.w;
+        const endY = t.y;
+        const bend = Math.max(80, Math.abs(dx) * 0.36);
+        const c1x = startX + (dx >= 0 ? bend : -bend);
+        const c2x = endX - (dx >= 0 ? bend : -bend);
+        return `M ${startX} ${startY} C ${c1x} ${startY}, ${c2x} ${endY}, ${endX} ${endY}`;
+      }
+      const startX = s.x;
+      const startY = dy >= 0 ? source.y + source.h : source.y;
+      const endX = t.x;
+      const endY = dy >= 0 ? target.y : target.y + target.h;
+      const bend = Math.max(70, Math.abs(dy) * 0.32);
+      const c1y = startY + (dy >= 0 ? bend : -bend);
+      const c2y = endY - (dy >= 0 ? bend : -bend);
+      return `M ${startX} ${startY} C ${startX} ${c1y}, ${endX} ${c2y}, ${endX} ${endY}`;
+    }
+
+    function activePathNodeSet() {
+      if (!state.path) return null;
+      const path = paths.find((item) => item.id === state.path);
+      return path ? new Set(path.nodes) : null;
+    }
+
+    function shouldDimNode(node, pathSet) {
+      const inFilter = state.filter === "all" || node.filter === state.filter;
+      if (!inFilter) return true;
+      if (state.selected) {
+        const related = node.id === state.selected || neighborMap.get(state.selected)?.has(node.id);
+        return !related;
+      }
+      if (pathSet) return !pathSet.has(node.id);
+      return false;
+    }
+
+    function edgeState(edge, pathSet) {
+      const sourceDim = shouldDimNode(byId.get(edge.from), pathSet);
+      const targetDim = shouldDimNode(byId.get(edge.to), pathSet);
+      const isSelectedPath = pathSet && pathSet.has(edge.from) && pathSet.has(edge.to);
+      const touchesSelected = state.selected && (edge.from === state.selected || edge.to === state.selected);
+      return { dim: sourceDim || targetDim, active: Boolean(isSelectedPath || touchesSelected) };
+    }
+
+    function renderToolbar() {
+      filterToolbar.querySelectorAll(".chip").forEach((node) => node.remove());
+      pathToolbar.querySelectorAll(".chip").forEach((node) => node.remove());
+      filters.forEach((filter) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "chip" + (state.filter === filter.id ? " is-active" : "");
+        button.textContent = filter.label;
+        button.addEventListener("click", () => {
+          state.filter = filter.id;
+          state.selected = null;
+          fitForCurrentState();
+          render();
+        });
+        filterToolbar.appendChild(button);
+      });
+      const allPathsButton = document.createElement("button");
+      allPathsButton.type = "button";
+      allPathsButton.className = "chip" + (!state.path ? " is-active" : "");
+      allPathsButton.textContent = "None";
+      allPathsButton.addEventListener("click", () => {
+        state.path = null;
+        fitForCurrentState();
+        render();
+      });
+      pathToolbar.appendChild(allPathsButton);
+      paths.forEach((path) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "chip" + (state.path === path.id ? " is-active" : "");
+        button.textContent = path.label;
+        button.addEventListener("click", () => {
+          state.path = state.path === path.id ? null : path.id;
+          state.selected = null;
+          fitForCurrentState();
+          render();
+        });
+        pathToolbar.appendChild(button);
+      });
+    }
+
+    function renderPanel() {
+      if (state.selected) {
+        const node = byId.get(state.selected);
+        panelKicker.textContent = labelForFilter(node.filter);
+        panelTitle.textContent = node.title;
+        panelDescription.textContent = node.desc;
+        panelMeta.innerHTML = "";
+        [
+          ["Layer focus", labelForFilter(node.filter)],
+          ["Immediate connections", String(neighborMap.get(node.id)?.size || 0)],
+          ["Zone", node.zone === "support" ? "Platform services" : node.zone === "tier" ? "Governed asset tiers" : "CALIBER stack"],
+        ].forEach(([key, value]) => {
+          const block = document.createElement("div");
+          block.innerHTML = `<strong>${key}</strong>${value}`;
+          panelMeta.appendChild(block);
+        });
+        panelLinks.innerHTML = "";
+        (node.docs || []).forEach((doc) => {
+          const link = document.createElement("a");
+          link.href = doc.href;
+          link.innerHTML = `${doc.label} <span aria-hidden="true">↗</span>`;
+          panelLinks.appendChild(link);
+        });
+        return;
+      }
+      const activePath = paths.find((path) => path.id === state.path);
+      if (activePath) {
+        panelKicker.textContent = "Guided path";
+        panelTitle.textContent = activePath.title;
+        panelDescription.textContent = activePath.desc;
+        panelMeta.innerHTML = "";
+        [
+          ["Highlighted nodes", String(activePath.nodes.length)],
+          ["Primary outcome", activePath.label],
+          ["Explorer behavior", "Nodes on this path stay bright; other nodes stay visible for context."],
+        ].forEach(([key, value]) => {
+          const block = document.createElement("div");
+          block.innerHTML = `<strong>${key}</strong>${value}`;
+          panelMeta.appendChild(block);
+        });
+        panelLinks.innerHTML = "";
+        activePath.docs.forEach((doc) => {
+          const link = document.createElement("a");
+          link.href = doc.href;
+          link.innerHTML = `${doc.label} <span aria-hidden="true">↗</span>`;
+          panelLinks.appendChild(link);
+        });
+        return;
+      }
+      panelKicker.textContent = state.filter === "all" ? "Overview" : labelForFilter(state.filter);
+      panelTitle.textContent = state.filter === "all" ? "Layered system map" : labelForFilter(state.filter);
+      panelDescription.textContent = state.filter === "all"
+        ? "The full stack is visible. Use a filter, guided path, or node click to inspect one concern."
+        : "Showing one slice of the system while keeping the overall stack in place.";
+      panelMeta.innerHTML = "";
+      [
+        ["Visible focus", state.filter === "all" ? "All layers and zones" : labelForFilter(state.filter)],
+        ["Interaction model", "Click nodes for details, drag to pan, wheel to zoom."],
+        ["Best paired with", "The static layered architecture doc for the full prose explanation."],
+      ].forEach(([key, value]) => {
+        const block = document.createElement("div");
+        block.innerHTML = `<strong>${key}</strong>${value}`;
+        panelMeta.appendChild(block);
+      });
+      panelLinks.innerHTML = `
+        <a href="m-00-layered-architecture.html">Open the static layered architecture page <span aria-hidden="true">↗</span></a>
+        <a href="m-01-platform.html">Read the platform runtime breakdown <span aria-hidden="true">↗</span></a>
+        <a href="m-06-workflows.html">Inspect workflow deployment semantics <span aria-hidden="true">↗</span></a>
+      `;
+    }
+
+    function labelForFilter(filter) {
+      return filters.find((item) => item.id === filter)?.label || "Overview";
+    }
+
+    function computeBounds(nodeIds, padding = 80) {
+      const selectedNodes = nodeIds.map((id) => byId.get(id)).filter(Boolean);
+      if (!selectedNodes.length) return null;
+      const minX = Math.min(...selectedNodes.map((node) => node.x)) - padding;
+      const minY = Math.min(...selectedNodes.map((node) => node.y)) - padding;
+      const maxX = Math.max(...selectedNodes.map((node) => node.x + node.w)) + padding;
+      const maxY = Math.max(...selectedNodes.map((node) => node.y + node.h)) + padding;
+      return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+    }
+
+    function fitToNodeIds(nodeIds, padding = 80) {
+      const bounds = computeBounds(nodeIds, padding);
+      if (!bounds) return;
+      const vb = svg.viewBox.baseVal;
+      const scale = clampScale(Math.min(vb.width / bounds.width, vb.height / bounds.height) * 0.94);
+      state.scale = scale;
+      state.tx = (vb.width - bounds.width * scale) / 2 - bounds.minX * scale;
+      state.ty = (vb.height - bounds.height * scale) / 2 - bounds.minY * scale;
+    }
+
+    function visibleNodeIdsForCurrentState() {
+      if (state.selected) {
+        return [state.selected];
+      }
+      if (state.path) {
+        const path = paths.find((item) => item.id === state.path);
+        if (path) return path.nodes;
+      }
+      if (state.filter !== "all") {
+        return nodes.filter((node) => node.filter === state.filter).map((node) => node.id);
+      }
+      return nodes.map((node) => node.id);
+    }
+
+    function fitForCurrentState() {
+      fitToNodeIds(
+        visibleNodeIdsForCurrentState(),
+        state.selected ? 120 : state.path ? 150 : state.filter !== "all" ? 130 : 90
+      );
+    }
+
+    function render() {
+      renderToolbar();
+      renderPanel();
+      scene.innerHTML = "";
+      applyTransform();
+
+      [
+        { x: 24, y: 62, w: 330, h: 1128, title: "Platform services", subtitle: "Cross-cutting shared services" },
+        { x: 388, y: 62, w: 1458, h: 1128, title: "The CALIBER stack", subtitle: "The six layers the system stands on" },
+        { x: 1860, y: 62, w: 300, h: 1128, title: "Governed asset", subtitle: "What different families promise" },
+      ].forEach((zone) => {
+        scene.appendChild(el("rect", { class: "map-zone", x: zone.x, y: zone.y, width: zone.w, height: zone.h }));
+        const title = el("text", { class: "map-zone-title", x: zone.x + 24, y: zone.y + 34 });
+        title.textContent = zone.title;
+        scene.appendChild(title);
+        const subtitle = el("text", { class: "map-zone-subtitle", x: zone.x + 24, y: zone.y + 58 });
+        subtitle.textContent = zone.subtitle;
+        scene.appendChild(subtitle);
+      });
+
+      [
+        { x: 420, y: 92, w: 1394, h: 118, title: "6 · Surfaces" },
+        { x: 420, y: 250, w: 1394, h: 118, title: "5 · Lifecycle modes" },
+        { x: 420, y: 410, w: 1394, h: 124, title: "4 · Asset families" },
+        { x: 420, y: 570, w: 1394, h: 124, title: "3 · Governance" },
+        { x: 420, y: 730, w: 1394, h: 124, title: "2 · Kernel" },
+        { x: 420, y: 890, w: 1394, h: 124, title: "1 · Infrastructure" },
+      ].forEach((lane) => {
+        scene.appendChild(el("rect", { class: "map-lane", x: lane.x, y: lane.y, width: lane.w, height: lane.h }));
+        const title = el("text", { class: "map-lane-title", x: lane.x + 22, y: lane.y + 32 });
+        title.textContent = lane.title;
+        scene.appendChild(title);
+      });
+
+      const pathSet = activePathNodeSet();
+      edges.forEach((edge) => {
+        const source = byId.get(edge.from);
+        const target = byId.get(edge.to);
+        const status = edgeState(edge, pathSet);
+        scene.appendChild(el("path", {
+          class: "edge" + (status.active ? " edge-path" : "") + (status.dim ? " edge-dim" : ""),
+          d: edgePath(source, target),
+          "marker-end": "url(#edgeArrow)",
+        }));
+      });
+
+      nodes.forEach((node) => {
+        const group = el("g", {
+          class: "map-node node-" + node.tone,
+          transform: `translate(${node.x}, ${node.y})`,
+          tabindex: "0",
+          role: "button",
+          "aria-label": node.title,
+          "data-id": node.id,
+        });
+        const dim = shouldDimNode(node, pathSet);
+        const soft = !dim && pathSet && !pathSet.has(node.id);
+        if (dim) group.classList.add("node-dim");
+        else if (soft) group.classList.add("node-soft");
+        if (state.selected === node.id) group.classList.add("is-selected");
+        group.appendChild(el("rect", { x: 0, y: 0, width: node.w, height: node.h }));
+        appendText(group, node.title, 16, 24, "title", 18, 16);
+        appendText(group, node.meta, 16, Math.min(node.h - 20, 50), "meta", 24, 14);
+        group.addEventListener("click", (event) => {
+          event.stopPropagation();
+          state.selected = node.id;
+          fitForCurrentState();
+          render();
+        });
+        group.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            state.selected = node.id;
+            fitForCurrentState();
+            render();
+          }
+        });
+        scene.appendChild(group);
+      });
+    }
+
+    function applyTransform() {
+      scene.setAttribute("transform", `translate(${state.tx}, ${state.ty}) scale(${state.scale})`);
+    }
+
+    function clampScale(next) {
+      return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+    }
+
+    function zoomAt(clientX, clientY, factor) {
+      const rect = svg.getBoundingClientRect();
+      const ox = clientX - rect.left;
+      const oy = clientY - rect.top;
+      const nextScale = clampScale(state.scale * factor);
+      const scaleFactor = nextScale / state.scale;
+      state.tx = ox - (ox - state.tx) * scaleFactor;
+      state.ty = oy - (oy - state.ty) * scaleFactor;
+      state.scale = nextScale;
+      applyTransform();
+    }
+
+    svg.addEventListener("pointerdown", (event) => {
+      if (event.target && typeof event.target.closest === "function" && event.target.closest("g.map-node")) {
+        return;
+      }
+      state.dragging = true;
+      state.dragStartX = event.clientX;
+      state.dragStartY = event.clientY;
+      state.dragTx = state.tx;
+      state.dragTy = state.ty;
+      svg.classList.add("is-panning");
+      try { svg.setPointerCapture(event.pointerId); } catch (err) {}
+    });
+    svg.addEventListener("pointermove", (event) => {
+      if (!state.dragging) return;
+      state.tx = state.dragTx + (event.clientX - state.dragStartX);
+      state.ty = state.dragTy + (event.clientY - state.dragStartY);
+      applyTransform();
+    });
+    function endPan(event) {
+      state.dragging = false;
+      svg.classList.remove("is-panning");
+      try { svg.releasePointerCapture(event.pointerId); } catch (err) {}
+    }
+    svg.addEventListener("pointerup", endPan);
+    svg.addEventListener("pointercancel", endPan);
+    svg.addEventListener("click", (event) => {
+      if (event.target === svg) {
+        state.selected = null;
+        fitForCurrentState();
+        render();
+      }
+    });
+    svg.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 1.08 : 1 / 1.08);
+    }, { passive: false });
+
+    document.getElementById("zoomInBtn").addEventListener("click", () => {
+      const rect = svg.getBoundingClientRect();
+      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1.12);
+    });
+    document.getElementById("zoomOutBtn").addEventListener("click", () => {
+      const rect = svg.getBoundingClientRect();
+      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1 / 1.12);
+    });
+    document.getElementById("resetViewBtn").addEventListener("click", () => {
+      fitForCurrentState();
+      applyTransform();
+    });
+    document.getElementById("clearFocusBtn").addEventListener("click", () => {
+      state.filter = "all";
+      state.path = null;
+      state.selected = null;
+      fitForCurrentState();
+      render();
+    });
+
+    fitForCurrentState();
+    render();
+  </script>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+</body>
+
+</html>
