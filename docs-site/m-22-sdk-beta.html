@@ -111,16 +111,20 @@ if job.awaits_human:
     makes no further progress on its own — polling past it would burn the whole
     timeout on the expected outcome.
     """
-    plan = caliber.aria.create_plan(goal)
-    settled = caliber.aria.wait_for_plan(plan.plan_id, timeout=120)
+    detail = caliber.aria.create_plan(goal)
+    settled = caliber.aria.wait_for_plan(detail.plan.plan_id, timeout=120)
 
-    if settled.needs_you:
+    if settled.plan.needs_you:
         # The plan is waiting on a human decision. Approving is that decision,
         # made explicitly rather than inferred from the script continuing.
-        caliber.aria.approve_plan(settled.plan_id)
-        settled = caliber.aria.execute_plan(settled.plan_id)
+        caliber.aria.approve_plan(settled.plan.plan_id)
+        settled = caliber.aria.execute_plan(settled.plan.plan_id)
 
-    return {"plan_id": settled.plan_id, "status": settled.status, "steps": settled.step_count}</code></pre><figcaption>From <code>sdk/caliber-sdk/examples/agentic.py</code> — executed by the SDK test suite.</figcaption></figure>
+    return {
+        "plan_id": settled.plan.plan_id,
+        "status": settled.plan.status,
+        "steps": len(settled.steps),
+    }</code></pre><figcaption>From <code>sdk/caliber-sdk/examples/agentic.py</code> — executed by the SDK test suite.</figcaption></figure>
 <p><code>aria.capabilities()</code> reports what Aria may do in this deployment — a plan can be refused at execution time by policy, so reading capabilities first turns a runtime rejection into a decision you made.</p>
 <h2 id="cookbooks">Cookbooks<a class="anchor" href="#cookbooks" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Cookbooks are complete, installable example workflows. Each one reports <strong>readiness</strong> computed from the live environment: whether a model provider is configured, whether runtime approvals exist, whether the connectors a recipe needs are connected.</p>
