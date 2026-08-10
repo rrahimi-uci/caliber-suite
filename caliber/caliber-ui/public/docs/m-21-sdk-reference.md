@@ -32,7 +32,7 @@ The reference tables below are generated directly from the current SDK source. B
 | Group | Modules |
 | --- | --- |
 | Package index | [`caliber_sdk`](#module-caliber_sdk), [`caliber_sdk.client`](#module-caliber_sdkclient), [`caliber_sdk.auth`](#module-caliber_sdkauth), [`caliber_sdk.transport`](#module-caliber_sdktransport), [`caliber_sdk.errors`](#module-caliber_sdkerrors), [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
-| Resource modules | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth), [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem), [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects), [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets), [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows), [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality), [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations), [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations), [`caliber_sdk.resources.raw`](#module-caliber_sdkresourcesraw) |
+| Resource modules | [`caliber_sdk.resources`](#module-caliber_sdkresources), [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth), [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem), [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects), [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets), [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows), [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality), [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations), [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations), [`caliber_sdk.resources.raw`](#module-caliber_sdkresourcesraw) |
 | Model modules | [`caliber_sdk.models`](#module-caliber_sdkmodels), [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon), [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore), [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets), [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality), [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations), [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations), [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows), [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
 | Async client | [`caliber_sdk.aio`](#module-caliber_sdkaio), [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient), [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport), [`caliber_sdk.aio.waiters`](#module-caliber_sdkaiowaiters) |
 
@@ -124,7 +124,6 @@ Operate on the caliber client surface with the supplied arguments and return the
 
 | Attribute | Type | Notes |
 | --- | --- | --- |
-| `_transport` | `Transport` | — |
 | `raw` | `RawAPI` | Low-level route access through the SDK transport. |
 | `auth` | `AuthAPI` | Session inspection plus token and account sub-resources. |
 | `me` | `MeAPI` | The caller identity surface. |
@@ -178,7 +177,7 @@ Return this instance so it can be used inside a context manager.
 
 This callable takes no public parameters.
 
-**Returns:** `[CaliberClient](#caliberclient)`
+**Returns:** [`CaliberClient`](#caliberclient)
 
 ###### `__exit__(*_: object) -> None`
 
@@ -201,6 +200,11 @@ This callable takes no public parameters.
 
 **Returns:** `Any`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `openapi() -> Any`
 
 The management OpenAPI document, generated from the live routes.
@@ -208,6 +212,11 @@ The management OpenAPI document, generated from the live routes.
 This callable takes no public parameters.
 
 **Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ###### `whoami() -> Any`
 
@@ -225,6 +234,11 @@ This callable takes no public parameters.
 
 **Returns:** `Any`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `health() -> Any`
 
 Fetch the lightweight health/readiness view exposed by the deployment.
@@ -232,6 +246,11 @@ Fetch the lightweight health/readiness view exposed by the deployment.
 This callable takes no public parameters.
 
 **Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ###### `bootstrap_csrf() -> str | None`
 
@@ -327,12 +346,6 @@ Operate on the token auth surface with the supplied arguments and return the ser
 
 - [`CaliberConfigError`](#caliberconfigerror)
 
-**Attributes**
-
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `_token` | `Any` | — |
-
 **Properties**
 
 ###### `uses_cookie_auth() -> bool`
@@ -387,13 +400,6 @@ Operate on the trusted header auth surface with the supplied arguments and retur
 **Raises:**
 
 - [`CaliberConfigError`](#caliberconfigerror)
-
-**Attributes**
-
-| Attribute | Type | Notes |
-| --- | --- | --- |
-| `_user` | `Any` | — |
-| `_proxy_secret` | `Any` | — |
 
 **Properties**
 
@@ -539,9 +545,6 @@ Send a prepared request through the shared transport and decode the typed respon
 | `base_url` | `Any` | — |
 | `auth` | `Any` | Session inspection plus token and account sub-resources. |
 | `project` | `Any` | — |
-| `_owns_client` | `Any` | — |
-| `_client` | `Any` | — |
-| `_user_agent` | `Any` | — |
 
 **Methods**
 
@@ -613,8 +616,8 @@ Perform one API call, returning the unwrapped payload.
 
 **Raises:**
 
+- [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
-- [`error_for_response`](#error_for_response)
 
 ###### `get(path: str, **kwargs) -> Response`
 
@@ -627,6 +630,11 @@ Fetch one record from the transport surface identified by `path`.
 
 **Returns:** `Response`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `post(path: str, **kwargs) -> Response`
 
 Send a prepared request through the shared transport and decode the typed response wrapper.
@@ -637,6 +645,11 @@ Send a prepared request through the shared transport and decode the typed respon
 | `kwargs` | var-keyword | `Any` | `—` |
 
 **Returns:** `Response`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ###### `put(path: str, **kwargs) -> Response`
 
@@ -649,6 +662,11 @@ Send a prepared request through the shared transport and decode the typed respon
 
 **Returns:** `Response`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `patch(path: str, **kwargs) -> Response`
 
 Send a prepared request through the shared transport and decode the typed response wrapper.
@@ -660,6 +678,11 @@ Send a prepared request through the shared transport and decode the typed respon
 
 **Returns:** `Response`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `delete(path: str, **kwargs) -> Response`
 
 Delete a record on the transport surface and return the server acknowledgement.
@@ -670,6 +693,11 @@ Delete a record on the transport surface and return the server acknowledgement.
 | `kwargs` | var-keyword | `Any` | `—` |
 
 **Returns:** `Response`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ###### `download(path: str, **kwargs) -> bytes`
 
@@ -687,8 +715,8 @@ no envelope to unwrap and decoding it would corrupt binary data.
 
 **Raises:**
 
+- [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
-- [`error_for_response`](#error_for_response)
 
 ###### `stream_lines(path: str, *, params: Mapping[str, Any] | None = None, timeout: float | None = None) -> Iterator[str]`
 
@@ -709,8 +737,8 @@ the success case, not a hang.
 
 **Raises:**
 
+- [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
-- [`error_for_response`](#error_for_response)
 
 ###### `paginate(path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100) -> Iterator[Any]`
 
@@ -727,6 +755,11 @@ change this signature.
 | `limit` | keyword-only | `int` | `100` |
 
 **Returns:** `Iterator[Any]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ### Module `caliber_sdk.errors`
 
@@ -760,7 +793,7 @@ usable exception rather than a KeyError inside the SDK.
 | `url` | keyword-only | `str` | `—` |
 | `request_id` | keyword-only | `str | None` | `None` |
 
-**Returns:** `[CaliberAPIError](#caliberapierror)`
+**Returns:** [`CaliberAPIError`](#caliberapierror)
 
 #### Classes
 
@@ -778,7 +811,7 @@ A caller who wants "any SDK failure" catches this and nothing else.
 
 `class CaliberConfigError()`
 
-**Bases:** `CaliberError`
+**Bases:** [`CaliberError`](#calibererror)
 
 The client was constructed with an unusable configuration.
 
@@ -786,7 +819,7 @@ The client was constructed with an unusable configuration.
 
 `class CaliberTransportError()`
 
-**Bases:** `CaliberError`
+**Bases:** [`CaliberError`](#calibererror)
 
 The request never produced an HTTP response.
 
@@ -798,7 +831,7 @@ and because retrying is often correct here and often wrong there.
 
 `class CaliberAPIError(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None)`
 
-**Bases:** `CaliberError`
+**Bases:** [`CaliberError`](#calibererror)
 
 The server returned a non-2xx response.
 
@@ -835,7 +868,7 @@ Operate on the caliber a p i error surface with the supplied arguments and retur
 
 `class CaliberAuthenticationError()`
 
-**Bases:** `CaliberAPIError`
+**Bases:** [`CaliberAPIError`](#caliberapierror)
 
 401 — no usable identity. The credential is missing, wrong, or revoked.
 
@@ -843,7 +876,7 @@ Operate on the caliber a p i error surface with the supplied arguments and retur
 
 `class CaliberPermissionError()`
 
-**Bases:** `CaliberAPIError`
+**Bases:** [`CaliberAPIError`](#caliberapierror)
 
 403 — authenticated, but the identity lacks the required scope.
 
@@ -851,7 +884,7 @@ Operate on the caliber a p i error surface with the supplied arguments and retur
 
 `class CaliberNotFoundError()`
 
-**Bases:** `CaliberAPIError`
+**Bases:** [`CaliberAPIError`](#caliberapierror)
 
 404 — no such resource.
 
@@ -862,7 +895,7 @@ user, deliberately: distinguishing the two would let a caller enumerate ids.
 
 `class CaliberConflictError()`
 
-**Bases:** `CaliberAPIError`
+**Bases:** [`CaliberAPIError`](#caliberapierror)
 
 409 — the request conflicts with current state (duplicate name, etc.).
 
@@ -870,7 +903,7 @@ user, deliberately: distinguishing the two would let a caller enumerate ids.
 
 `class CaliberValidationError(message: str, *, errors: list[dict[str, Any]], **kwargs)`
 
-**Bases:** `CaliberAPIError`
+**Bases:** [`CaliberAPIError`](#caliberapierror)
 
 400 with a structured ``errors`` list.
 
@@ -898,7 +931,7 @@ Operate on the caliber validation error surface with the supplied arguments and 
 
 `class CaliberRateLimitError()`
 
-**Bases:** `CaliberAPIError`
+**Bases:** [`CaliberAPIError`](#caliberapierror)
 
 429 — too many requests.
 
@@ -906,7 +939,7 @@ Operate on the caliber validation error surface with the supplied arguments and 
 
 `class CaliberServerError()`
 
-**Bases:** `CaliberAPIError`
+**Bases:** [`CaliberAPIError`](#caliberapierror)
 
 5xx — the server failed. Usually worth retrying; never worth assuming.
 
@@ -950,7 +983,7 @@ have to spend real seconds proving this.
 
 **Raises:**
 
-- [`ValueError`](#valueerror)
+- `ValueError`
 - [`WaitTimeout`](#waittimeout)
 
 ###### `state_of(payload, *, keys: Sequence[str] = ('status', 'state')) -> str`
@@ -993,7 +1026,7 @@ off rather than wrapping every call in a try.
 
 `class WaitTimeout(message: str, *, last = None, elapsed: float = 0.0)`
 
-**Bases:** `CaliberError`
+**Bases:** [`CaliberError`](#calibererror)
 
 The operation did not reach a terminal state within the budget.
 
@@ -1022,7 +1055,7 @@ Operate on the wait timeout surface with the supplied arguments and return the s
 
 `class WaitFailed(message: str, *, state: str, last = None)`
 
-**Bases:** `CaliberError`
+**Bases:** [`CaliberError`](#calibererror)
 
 The operation reached a terminal state that indicates failure.
 
@@ -1049,6 +1082,14 @@ Operate on the wait failed surface with the supplied arguments and return the se
 
 ## Resource modules
 
+### Module `caliber_sdk.resources`
+
+Resource modules — typed façades over route groups.
+
+**Public exports**
+
+`AccountsAPI`, `AriaAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+
 ### Module `caliber_sdk.resources.auth`
 
 Authentication, tokens, and accounts.
@@ -1069,8 +1110,6 @@ sdk/caliber-sdk/examples/tokens.py#issue_scoped_token
 
 `class TokensAPI()`
 
-**Bases:** `Resource`
-
 Personal access tokens for automation.
 
 **Methods**
@@ -1081,7 +1120,7 @@ Every token belonging to the caller. Never includes a secret.
 
 This callable takes no public parameters.
 
-**Returns:** `list[[PersonalAccessToken](#personalaccesstoken)]`
+**Returns:** [`list[PersonalAccessToken]`](#personalaccesstoken)
 
 **Raises:**
 
@@ -1103,7 +1142,7 @@ is refused rather than silently narrowed.
 | `scopes` | keyword-only | `Sequence[str] | None` | `None` |
 | `expires_at` | keyword-only | `str | None` | `None` |
 
-**Returns:** `[IssuedToken](#issuedtoken)`
+**Returns:** [`IssuedToken`](#issuedtoken)
 
 **Raises:**
 
@@ -1137,7 +1176,7 @@ two live tokens or none.
 | --- | --- | --- | --- |
 | `token_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[IssuedToken](#issuedtoken)`
+**Returns:** [`IssuedToken`](#issuedtoken)
 
 **Raises:**
 
@@ -1147,8 +1186,6 @@ two live tokens or none.
 ##### `AccountsAPI`
 
 `class AccountsAPI()`
-
-**Bases:** `Resource`
 
 User accounts. Admin-only on the server.
 
@@ -1160,7 +1197,7 @@ Return the current collection of user accounts, applying any supported filters.
 
 This callable takes no public parameters.
 
-**Returns:** `list[[Account](#account)]`
+**Returns:** [`list[Account]`](#account)
 
 **Raises:**
 
@@ -1222,8 +1259,6 @@ Sign an account out everywhere. Returns how many sessions were cut.
 
 `class AuthAPI(transport)`
 
-**Bases:** `Resource`
-
 Session inspection, plus the token and account sub-resources.
 
 **Constructor**
@@ -1253,7 +1288,7 @@ How this client's identity was established.
 
 This callable takes no public parameters.
 
-**Returns:** `[SessionInfo](#sessioninfo)`
+**Returns:** [`SessionInfo`](#sessioninfo)
 
 **Raises:**
 
@@ -1280,8 +1315,6 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 `class MeAPI()`
 
-**Bases:** `Resource`
-
 The caller's own identity.
 
 **Methods**
@@ -1296,7 +1329,7 @@ an anonymous identity instead of raising. Check
 
 This callable takes no public parameters.
 
-**Returns:** `[Identity](#identity)`
+**Returns:** [`Identity`](#identity)
 
 **Raises:**
 
@@ -1306,8 +1339,6 @@ This callable takes no public parameters.
 ##### `CapabilitiesAPI`
 
 `class CapabilitiesAPI()`
-
-**Bases:** `Resource`
 
 Runtime feature flags and API stability tiers.
 
@@ -1319,7 +1350,7 @@ Fetch one record from the runtime capabilities surface identified by `id`.
 
 This callable takes no public parameters.
 
-**Returns:** `[Capabilities](#capabilities)`
+**Returns:** [`Capabilities`](#capabilities)
 
 **Raises:**
 
@@ -1329,8 +1360,6 @@ This callable takes no public parameters.
 ##### `SettingsAPI`
 
 `class SettingsAPI()`
-
-**Bases:** `Resource`
 
 Runtime configuration inventory and LLM credential status.
 
@@ -1342,7 +1371,7 @@ Return the current runtime settings snapshot for the deployment.
 
 This callable takes no public parameters.
 
-**Returns:** `[RuntimeSettings](#runtimesettings)`
+**Returns:** [`RuntimeSettings`](#runtimesettings)
 
 **Raises:**
 
@@ -1358,7 +1387,7 @@ disclose key values, deliberately.
 
 This callable takes no public parameters.
 
-**Returns:** `[LlmSetupStatus](#llmsetupstatus)`
+**Returns:** [`LlmSetupStatus`](#llmsetupstatus)
 
 **Raises:**
 
@@ -1400,8 +1429,6 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 `class ProjectFilesAPI()`
 
-**Bases:** `Resource`
-
 Files inside one project.
 
 **Methods**
@@ -1418,7 +1445,7 @@ from a missing one.
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `tuple[list[[ProjectFile](#projectfile)], list[[ProjectFolder](#projectfolder)]]`
+**Returns:** `tuple[list[ProjectFile], list[ProjectFolder]]` — see [`ProjectFile`](#projectfile), [`ProjectFolder`](#projectfolder)
 
 **Raises:**
 
@@ -1438,7 +1465,7 @@ Upload a file. Multipart, so it does not go through the JSON path.
 | `kind` | keyword-only | `str` | `'input'` |
 | `media_type` | keyword-only | `str | None` | `None` |
 
-**Returns:** `[ProjectFile](#projectfile)`
+**Returns:** [`ProjectFile`](#projectfile)
 
 **Raises:**
 
@@ -1454,7 +1481,7 @@ Operate on the project files and folders surface with the supplied arguments and
 | `project_id` | positional-or-keyword | `str` | `—` |
 | `path` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[ProjectFolder](#projectfolder)`
+**Returns:** [`ProjectFolder`](#projectfolder)
 
 **Raises:**
 
@@ -1497,8 +1524,6 @@ Raw bytes. Not JSON, so it bypasses the envelope entirely.
 
 `class ProjectsAPI(transport)`
 
-**Bases:** `Resource`
-
 Projects, plus their file sub-resource.
 
 **Related APIs:** [`ProjectFilesAPI`](#projectfilesapi)
@@ -1531,7 +1556,7 @@ Active projects by default; pass ``status="all"`` for everything.
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `list[[Project](#project)]`
+**Returns:** [`list[Project]`](#project)
 
 **Raises:**
 
@@ -1546,7 +1571,7 @@ Fetch one record from the projects surface identified by `project_id`.
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Project](#project)`
+**Returns:** [`Project`](#project)
 
 **Raises:**
 
@@ -1562,7 +1587,7 @@ Create a new record on the projects surface and return the server-normalized res
 | `name` | positional-or-keyword | `str` | `—` |
 | `description` | keyword-only | `str | None` | `None` |
 
-**Returns:** `[Project](#project)`
+**Returns:** [`Project`](#project)
 
 **Raises:**
 
@@ -1580,7 +1605,7 @@ Patch an existing record on the projects surface and return the updated result. 
 | `description` | keyword-only | `str | None` | `None` |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `[Project](#project)`
+**Returns:** [`Project`](#project)
 
 **Raises:**
 
@@ -1620,8 +1645,6 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 `class PromptsAPI()`
 
-**Bases:** `Resource`
-
 Prompt registry surfaces.
 
 Prompts are MLflow registry objects that CALIBER governs. Versions are
@@ -1644,7 +1667,7 @@ Return the current collection of prompts and prompt versions, applying any suppo
 
 This callable takes no public parameters.
 
-**Returns:** `list[[Prompt](#prompt)]`
+**Returns:** [`list[Prompt]`](#prompt)
 
 **Raises:**
 
@@ -1659,7 +1682,7 @@ Fetch one record from the prompts and prompt versions surface identified by `age
 | --- | --- | --- | --- |
 | `agent_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Prompt](#prompt)`
+**Returns:** [`Prompt`](#prompt)
 
 **Raises:**
 
@@ -1739,8 +1762,6 @@ Point an alias at a version. This is the deployment step.
 
 `class SkillsAPI()`
 
-**Bases:** `Resource`
-
 Skill registry, rendering, selection testing, and versions.
 
 **Related APIs:** [`JudgesAPI`](#judgesapi), [`EvaluationsAPI`](#evaluationsapi)
@@ -1756,7 +1777,7 @@ Return the current collection of skills, applying any supported filters.
 | `status` | keyword-only | `str | None` | `None` |
 | `tag` | keyword-only | `str | None` | `None` |
 
-**Returns:** `list[[Skill](#skill)]`
+**Returns:** [`list[Skill]`](#skill)
 
 **Raises:**
 
@@ -1771,7 +1792,7 @@ Fetch one record from the skills surface identified by `skill_id`.
 | --- | --- | --- | --- |
 | `skill_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Skill](#skill)`
+**Returns:** [`Skill`](#skill)
 
 **Raises:**
 
@@ -1796,7 +1817,7 @@ accident of which credential happened to run the script.
 | `description` | keyword-only | `str | None` | `None` |
 | `tags` | keyword-only | `Sequence[str] | None` | `None` |
 
-**Returns:** `[Skill](#skill)`
+**Returns:** [`Skill`](#skill)
 
 **Raises:**
 
@@ -1812,7 +1833,7 @@ Patch an existing record on the skills surface and return the updated result. Va
 | `skill_id` | positional-or-keyword | `str` | `—` |
 | `changes` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Skill](#skill)`
+**Returns:** [`Skill`](#skill)
 
 **Raises:**
 
@@ -1828,7 +1849,7 @@ Substitute ``{{variables}}`` and report what was left unresolved.
 | `skill_id` | positional-or-keyword | `str` | `—` |
 | `variables` | keyword-only | `dict[str, Any] | None` | `None` |
 
-**Returns:** `[SkillRender](#skillrender)`
+**Returns:** [`SkillRender`](#skillrender)
 
 **Raises:**
 
@@ -1844,14 +1865,14 @@ Would this skill be auto-selected for this query?
 | `skill_id` | positional-or-keyword | `str` | `—` |
 | `query` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[SkillSelection](#skillselection)`
+**Returns:** [`SkillSelection`](#skillselection)
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `versions(skill_id: str) -> _List[SkillVersion]`
+###### `versions(skill_id: str) -> list[SkillVersion]`
 
 Operate on the skills surface with the supplied arguments and return the server response.
 
@@ -1859,7 +1880,7 @@ Operate on the skills surface with the supplied arguments and return the server 
 | --- | --- | --- | --- |
 | `skill_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `_List[[SkillVersion](#skillversion)]`
+**Returns:** [`list[SkillVersion]`](#skillversion)
 
 **Raises:**
 
@@ -1869,8 +1890,6 @@ Operate on the skills surface with the supplied arguments and return the server 
 ##### `ToolsAPI`
 
 `class ToolsAPI()`
-
-**Bases:** `Resource`
 
 Tool registry, fixtures, and calibration.
 
@@ -1884,7 +1903,7 @@ Return the current collection of tools and calibration cases, applying any suppo
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `list[[Tool](#tool)]`
+**Returns:** [`list[Tool]`](#tool)
 
 **Raises:**
 
@@ -1899,7 +1918,7 @@ Fetch one record from the tools and calibration cases surface identified by `too
 | --- | --- | --- | --- |
 | `tool_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Tool](#tool)`
+**Returns:** [`Tool`](#tool)
 
 **Raises:**
 
@@ -1920,7 +1939,7 @@ Operate on the tools and calibration cases surface with the supplied arguments a
 | `output_schema` | keyword-only | `dict[str, Any] | None` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Tool](#tool)`
+**Returns:** [`Tool`](#tool)
 
 **Raises:**
 
@@ -1936,7 +1955,7 @@ Patch an existing record on the tools and calibration cases surface and return t
 | `tool_id` | positional-or-keyword | `str` | `—` |
 | `changes` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Tool](#tool)`
+**Returns:** [`Tool`](#tool)
 
 **Raises:**
 
@@ -1952,7 +1971,7 @@ Queue a calibration run. Returns immediately with a job to poll.
 | `tool_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[CalibrationJob](#calibrationjob)`
+**Returns:** [`CalibrationJob`](#calibrationjob)
 
 **Raises:**
 
@@ -1968,14 +1987,14 @@ Operate on the tools and calibration cases surface with the supplied arguments a
 | `tool_id` | positional-or-keyword | `str` | `—` |
 | `job_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[CalibrationJob](#calibrationjob)`
+**Returns:** [`CalibrationJob`](#calibrationjob)
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `calibration_jobs(tool_id: str) -> _List[CalibrationJob]`
+###### `calibration_jobs(tool_id: str) -> list[CalibrationJob]`
 
 Operate on the tools and calibration cases surface with the supplied arguments and return the server response.
 
@@ -1983,7 +2002,7 @@ Operate on the tools and calibration cases surface with the supplied arguments a
 | --- | --- | --- | --- |
 | `tool_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `_List[[CalibrationJob](#calibrationjob)]`
+**Returns:** [`list[CalibrationJob]`](#calibrationjob)
 
 **Raises:**
 
@@ -2004,7 +2023,7 @@ calibration is a result to inspect, not an error in the call.
 | `timeout` | keyword-only | `float` | `600.0` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[CalibrationJob](#calibrationjob)`
+**Returns:** [`CalibrationJob`](#calibrationjob)
 
 **Raises:**
 
@@ -2033,7 +2052,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 `class WorkflowRunFailed(run: WorkflowRun)`
 
-**Bases:** `CaliberError`
+**Bases:** [`CaliberError`](#calibererror)
 
 A run reached a terminal state that is not success.
 
@@ -2045,7 +2064,7 @@ Operate on the workflow run failed surface with the supplied arguments and retur
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
-| `run` | positional-or-keyword | `[WorkflowRun](#workflowrun)` | `—` |
+| `run` | positional-or-keyword | [`WorkflowRun`](#workflowrun) | `—` |
 
 **Returns:** `None`
 
@@ -2059,15 +2078,13 @@ Operate on the workflow run failed surface with the supplied arguments and retur
 
 `class WorkflowVersionsAPI()`
 
-**Bases:** `Resource`
-
 Immutable manifest snapshots of one workflow.
 
 **Related APIs:** [`WorkflowsAPI`](#workflowsapi), [`WorkflowRunsAPI`](#workflowrunsapi), [`WorkflowServicesAPI`](#workflowservicesapi)
 
 **Methods**
 
-###### `list(workflow_id: str) -> _List[WorkflowVersion]`
+###### `list(workflow_id: str) -> list[WorkflowVersion]`
 
 Return the current collection of workflow versions, applying any supported filters.
 
@@ -2075,7 +2092,7 @@ Return the current collection of workflow versions, applying any supported filte
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `_List[[WorkflowVersion](#workflowversion)]`
+**Returns:** [`list[WorkflowVersion]`](#workflowversion)
 
 **Raises:**
 
@@ -2090,7 +2107,7 @@ Fetch one record from the workflow versions surface identified by `version_id`.
 | --- | --- | --- | --- |
 | `version_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[WorkflowVersion](#workflowversion)`
+**Returns:** [`WorkflowVersion`](#workflowversion)
 
 **Raises:**
 
@@ -2106,7 +2123,7 @@ Register a draft version. Drafts are not runnable until published.
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 | `manifest` | positional-or-keyword | `dict[str, Any]` | `—` |
 
-**Returns:** `[WorkflowVersion](#workflowversion)`
+**Returns:** [`WorkflowVersion`](#workflowversion)
 
 **Raises:**
 
@@ -2155,7 +2172,7 @@ Promote the draft or version into the published state used by operators or runti
 | --- | --- | --- | --- |
 | `version_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[WorkflowVersion](#workflowversion)`
+**Returns:** [`WorkflowVersion`](#workflowversion)
 
 **Raises:**
 
@@ -2165,8 +2182,6 @@ Promote the draft or version into the published state used by operators or runti
 ##### `WorkflowRunsAPI`
 
 `class WorkflowRunsAPI()`
-
-**Bases:** `Resource`
 
 Executions, and waiting on them.
 
@@ -2180,7 +2195,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Methods**
 
-###### `list(workflow_id: str, *, status: str | None = None) -> _List[WorkflowRun]`
+###### `list(workflow_id: str, *, status: str | None = None) -> list[WorkflowRun]`
 
 Runs of one workflow.
 
@@ -2193,7 +2208,7 @@ otherwise returned 405 at runtime, which is how this was found.
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `_List[[WorkflowRun](#workflowrun)]`
+**Returns:** [`list[WorkflowRun]`](#workflowrun)
 
 **Raises:**
 
@@ -2208,7 +2223,7 @@ Fetch one record from the workflow runs surface identified by `run_id`.
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -2235,7 +2250,7 @@ mutating call the SDK cannot safely retry on its own.
 | `idempotency_key` | keyword-only | `str | None` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -2250,7 +2265,7 @@ Operate on the workflow runs surface with the supplied arguments and return the 
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -2273,7 +2288,7 @@ instead.
 | `raise_on_failure` | keyword-only | `bool` | `True` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -2286,8 +2301,6 @@ instead.
 ##### `WorkflowServicesAPI`
 
 `class WorkflowServicesAPI()`
-
-**Bases:** `Resource`
 
 Workflows published as external HTTP services.
 
@@ -2313,7 +2326,7 @@ Fetch one record from the workflow services surface identified by `workflow_id`.
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[WorkflowService](#workflowservice)`
+**Returns:** [`WorkflowService`](#workflowservice)
 
 **Raises:**
 
@@ -2329,7 +2342,7 @@ Promote the draft or version into the published state used by operators or runti
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[WorkflowService](#workflowservice)`
+**Returns:** [`WorkflowService`](#workflowservice)
 
 **Raises:**
 
@@ -2391,8 +2404,6 @@ client carries.
 
 `class WorkflowsAPI(transport)`
 
-**Bases:** `Resource`
-
 Workflows, plus versions, runs, and services as sub-resources.
 
 **Usage example**
@@ -2425,7 +2436,7 @@ Operate on the workflows surface with the supplied arguments and return the serv
 
 **Methods**
 
-###### `list(*, status: str | None = None) -> _List[Workflow]`
+###### `list(*, status: str | None = None) -> list[Workflow]`
 
 Return the current collection of workflows, applying any supported filters.
 
@@ -2433,7 +2444,7 @@ Return the current collection of workflows, applying any supported filters.
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `_List[[Workflow](#workflow)]`
+**Returns:** [`list[Workflow]`](#workflow)
 
 **Raises:**
 
@@ -2448,7 +2459,7 @@ Fetch one record from the workflows surface identified by `workflow_id`.
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Workflow](#workflow)`
+**Returns:** [`Workflow`](#workflow)
 
 **Raises:**
 
@@ -2465,7 +2476,7 @@ Create a new record on the workflows surface and return the server-normalized re
 | `description` | keyword-only | `str | None` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Workflow](#workflow)`
+**Returns:** [`Workflow`](#workflow)
 
 **Raises:**
 
@@ -2481,7 +2492,7 @@ Patch an existing record on the workflows surface and return the updated result.
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 | `changes` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Workflow](#workflow)`
+**Returns:** [`Workflow`](#workflow)
 
 **Raises:**
 
@@ -2523,8 +2534,6 @@ sdk/caliber-sdk/examples/evaluation.py#build_and_score
 
 `class EvalDatasetsAPI()`
 
-**Bases:** `Resource`
-
 Versioned evaluation datasets and their examples.
 
 **Usage example**
@@ -2537,7 +2546,7 @@ sdk/caliber-sdk/examples/evaluation.py#build_and_score
 
 **Methods**
 
-###### `list(*, status: str | None = None) -> _List[EvalDataset]`
+###### `list(*, status: str | None = None) -> list[EvalDataset]`
 
 Return the current collection of evaluation datasets, applying any supported filters.
 
@@ -2545,7 +2554,7 @@ Return the current collection of evaluation datasets, applying any supported fil
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `_List[[EvalDataset](#evaldataset)]`
+**Returns:** [`list[EvalDataset]`](#evaldataset)
 
 **Raises:**
 
@@ -2560,7 +2569,7 @@ Fetch one record from the evaluation datasets surface identified by `dataset_id`
 | --- | --- | --- | --- |
 | `dataset_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[EvalDataset](#evaldataset)`
+**Returns:** [`EvalDataset`](#evaldataset)
 
 **Raises:**
 
@@ -2582,7 +2591,7 @@ something to infer from whichever credential ran the script.
 | `description` | keyword-only | `str | None` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[EvalDataset](#evaldataset)`
+**Returns:** [`EvalDataset`](#evaldataset)
 
 **Raises:**
 
@@ -2600,14 +2609,14 @@ Append one labeled example row to the targeted evaluation dataset.
 | `expected` | keyword-only | `Any` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[EvalExample](#evalexample)`
+**Returns:** [`EvalExample`](#evalexample)
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `examples(dataset_id: str) -> _List[EvalExample]`
+###### `examples(dataset_id: str) -> list[EvalExample]`
 
 Return the example rows currently stored for the targeted evaluation dataset.
 
@@ -2615,7 +2624,7 @@ Return the example rows currently stored for the targeted evaluation dataset.
 | --- | --- | --- | --- |
 | `dataset_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `_List[[EvalExample](#evalexample)]`
+**Returns:** [`list[EvalExample]`](#evalexample)
 
 **Raises:**
 
@@ -2635,7 +2644,7 @@ the refinement loop starts.
 | `trace_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[EvalExample](#evalexample)`
+**Returns:** [`EvalExample`](#evalexample)
 
 **Raises:**
 
@@ -2645,8 +2654,6 @@ the refinement loop starts.
 ##### `JudgesAPI`
 
 `class JudgesAPI()`
-
-**Bases:** `Resource`
 
 Model-backed graders and their human alignment.
 
@@ -2658,13 +2665,13 @@ sdk/caliber-sdk/examples/evaluation.py#build_and_score
 
 **Methods**
 
-###### `list() -> _List[Judge]`
+###### `list() -> list[Judge]`
 
 Return the current collection of judges and alignment assets, applying any supported filters.
 
 This callable takes no public parameters.
 
-**Returns:** `_List[[Judge](#judge)]`
+**Returns:** [`list[Judge]`](#judge)
 
 **Raises:**
 
@@ -2679,7 +2686,7 @@ Fetch one record from the judges and alignment assets surface identified by `jud
 | --- | --- | --- | --- |
 | `judge_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Judge](#judge)`
+**Returns:** [`Judge`](#judge)
 
 **Raises:**
 
@@ -2708,7 +2715,7 @@ field to know which they have.
 | `model` | keyword-only | `str | None` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Judge](#judge)`
+**Returns:** [`Judge`](#judge)
 
 **Raises:**
 
@@ -2743,7 +2750,7 @@ way agrees with a skewed sample while measuring nothing.
 | `judge_id` | positional-or-keyword | `str` | `—` |
 | `payload` | var-keyword | `Any` | `—` |
 
-**Returns:** `[JudgeAlignment](#judgealignment)`
+**Returns:** [`JudgeAlignment`](#judgealignment)
 
 **Raises:**
 
@@ -2753,8 +2760,6 @@ way agrees with a skewed sample while measuring nothing.
 ##### `EvaluationsAPI`
 
 `class EvaluationsAPI()`
-
-**Bases:** `Resource`
 
 Scored runs over datasets.
 
@@ -2768,7 +2773,7 @@ sdk/caliber-sdk/examples/evaluation.py#build_and_score
 
 **Methods**
 
-###### `list(*, dataset_id: str | None = None) -> _List[Evaluation]`
+###### `list(*, dataset_id: str | None = None) -> list[Evaluation]`
 
 Return the current collection of evaluation runs, applying any supported filters.
 
@@ -2776,7 +2781,7 @@ Return the current collection of evaluation runs, applying any supported filters
 | --- | --- | --- | --- |
 | `dataset_id` | keyword-only | `str | None` | `None` |
 
-**Returns:** `_List[[Evaluation](#evaluation)]`
+**Returns:** [`list[Evaluation]`](#evaluation)
 
 **Raises:**
 
@@ -2791,7 +2796,7 @@ Fetch one record from the evaluation runs surface identified by `evaluation_id`.
 | --- | --- | --- | --- |
 | `evaluation_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Evaluation](#evaluation)`
+**Returns:** [`Evaluation`](#evaluation)
 
 **Raises:**
 
@@ -2807,7 +2812,7 @@ Create a new record on the evaluation runs surface and return the server-normali
 | `dataset_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Evaluation](#evaluation)`
+**Returns:** [`Evaluation`](#evaluation)
 
 **Raises:**
 
@@ -2827,7 +2832,7 @@ measurement, not an error in the call.
 | `timeout` | keyword-only | `float` | `900.0` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Evaluation](#evaluation)`
+**Returns:** [`Evaluation`](#evaluation)
 
 **Raises:**
 
@@ -2856,21 +2861,19 @@ sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook
 
 `class McpServersAPI()`
 
-**Bases:** `Resource`
-
 Managed MCP server definitions and governed tool use.
 
 **Related APIs:** [`ToolsAPI`](#toolsapi), [`GatewayAPI`](#gatewayapi)
 
 **Methods**
 
-###### `list() -> _List[McpServer]`
+###### `list() -> list[McpServer]`
 
 Return the current collection of MCP servers and governed tools, applying any supported filters.
 
 This callable takes no public parameters.
 
-**Returns:** `_List[[McpServer](#mcpserver)]`
+**Returns:** [`list[McpServer]`](#mcpserver)
 
 **Raises:**
 
@@ -2885,7 +2888,7 @@ Fetch one record from the MCP servers and governed tools surface identified by `
 | --- | --- | --- | --- |
 | `server_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[McpServer](#mcpserver)`
+**Returns:** [`McpServer`](#mcpserver)
 
 **Raises:**
 
@@ -2916,7 +2919,7 @@ Create a new record on the MCP servers and governed tools surface and return the
 | `name` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[McpServer](#mcpserver)`
+**Returns:** [`McpServer`](#mcpserver)
 
 **Raises:**
 
@@ -2932,7 +2935,7 @@ Patch an existing record on the MCP servers and governed tools surface and retur
 | `server_id` | positional-or-keyword | `str` | `—` |
 | `changes` | var-keyword | `Any` | `—` |
 
-**Returns:** `[McpServer](#mcpserver)`
+**Returns:** [`McpServer`](#mcpserver)
 
 **Raises:**
 
@@ -3016,7 +3019,7 @@ Write the policy overlay that governs one discovered tool.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `save_test_cases(server_id: str, tool_name: str, test_cases: _List[dict[str, Any]]) -> Any`
+###### `save_test_cases(server_id: str, tool_name: str, test_cases: list[dict[str, Any]]) -> Any`
 
 Persist deterministic calibration cases for the targeted integration tool.
 
@@ -3024,7 +3027,7 @@ Persist deterministic calibration cases for the targeted integration tool.
 | --- | --- | --- | --- |
 | `server_id` | positional-or-keyword | `str` | `—` |
 | `tool_name` | positional-or-keyword | `str` | `—` |
-| `test_cases` | positional-or-keyword | `_List[dict[str, Any]]` | `—` |
+| `test_cases` | positional-or-keyword | `list[dict[str, Any]]` | `—` |
 
 **Returns:** `Any`
 
@@ -3072,8 +3075,6 @@ makes tool policy, secret resolution, and audit apply at all.
 ##### `GatewayAPI`
 
 `class GatewayAPI()`
-
-**Bases:** `Resource`
 
 External LLM gateway discovery, guardrails, and usage.
 
@@ -3184,15 +3185,13 @@ Operate on the gateway policies and usage surface with the supplied arguments an
 
 `class KnowledgeBasesAPI()`
 
-**Bases:** `Resource`
-
 Versioned RAG corpora, retrieval, and calibration.
 
 **Related APIs:** [`ProjectsAPI`](#projectsapi), [`EvaluationsAPI`](#evaluationsapi)
 
 **Methods**
 
-###### `list(*, status: str | None = None) -> _List[KnowledgeBase]`
+###### `list(*, status: str | None = None) -> list[KnowledgeBase]`
 
 Return the current collection of knowledge bases, applying any supported filters.
 
@@ -3200,7 +3199,7 @@ Return the current collection of knowledge bases, applying any supported filters
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `_List[[KnowledgeBase](#knowledgebase)]`
+**Returns:** [`list[KnowledgeBase]`](#knowledgebase)
 
 **Raises:**
 
@@ -3215,7 +3214,7 @@ Fetch one record from the knowledge bases surface identified by `knowledge_base_
 | --- | --- | --- | --- |
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[KnowledgeBase](#knowledgebase)`
+**Returns:** [`KnowledgeBase`](#knowledgebase)
 
 **Raises:**
 
@@ -3231,7 +3230,7 @@ Create a new record on the knowledge bases surface and return the server-normali
 | `name` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[KnowledgeBase](#knowledgebase)`
+**Returns:** [`KnowledgeBase`](#knowledgebase)
 
 **Raises:**
 
@@ -3247,7 +3246,7 @@ Patch an existing record on the knowledge bases surface and return the updated r
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
 | `changes` | var-keyword | `Any` | `—` |
 
-**Returns:** `[KnowledgeBase](#knowledgebase)`
+**Returns:** [`KnowledgeBase`](#knowledgebase)
 
 **Raises:**
 
@@ -3570,8 +3569,6 @@ Run a query against the server-managed corpus or knowledge surface and return th
 
 `class ObjectStoreAPI()`
 
-**Bases:** `Resource`
-
 S3/MinIO console operations.
 
 Distinct from ``projects.files``: that is CALIBER's managed file registry
@@ -3592,13 +3589,13 @@ This callable takes no public parameters.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `buckets() -> _List[Bucket]`
+###### `buckets() -> list[Bucket]`
 
 Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
-**Returns:** `_List[[Bucket](#bucket)]`
+**Returns:** [`list[Bucket]`](#bucket)
 
 **Raises:**
 
@@ -3653,7 +3650,7 @@ Operate on the object store buckets and objects surface with the supplied argume
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `objects(bucket: str, *, prefix: str | None = None, token: str | None = None, recursive: bool = False) -> _List[StoredObject]`
+###### `objects(bucket: str, *, prefix: str | None = None, token: str | None = None, recursive: bool = False) -> list[StoredObject]`
 
 Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
@@ -3664,14 +3661,14 @@ Operate on the object store buckets and objects surface with the supplied argume
 | `token` | keyword-only | `str | None` | `None` |
 | `recursive` | keyword-only | `bool` | `False` |
 
-**Returns:** `_List[[StoredObject](#storedobject)]`
+**Returns:** [`list[StoredObject]`](#storedobject)
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `folders(bucket: str, *, prefix: str | None = None) -> _List[str]`
+###### `folders(bucket: str, *, prefix: str | None = None) -> list[str]`
 
 Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
@@ -3680,7 +3677,7 @@ Operate on the object store buckets and objects surface with the supplied argume
 | `bucket` | positional-or-keyword | `str` | `—` |
 | `prefix` | keyword-only | `str | None` | `None` |
 
-**Returns:** `_List[str]`
+**Returns:** `list[str]`
 
 **Raises:**
 
@@ -3724,14 +3721,14 @@ Operate on the object store buckets and objects surface with the supplied argume
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `delete_objects(bucket: str, *, keys: _List[str] | None = None, prefix: str | None = None) -> Any`
+###### `delete_objects(bucket: str, *, keys: list[str] | None = None, prefix: str | None = None) -> Any`
 
 Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `bucket` | positional-or-keyword | `str` | `—` |
-| `keys` | keyword-only | `_List[str] | None` | `None` |
+| `keys` | keyword-only | `list[str] | None` | `None` |
 | `prefix` | keyword-only | `str | None` | `None` |
 
 **Returns:** `Any`
@@ -3846,13 +3843,11 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 
 `class JobsAPI()`
 
-**Bases:** `Resource`
-
 Durable background jobs — refinement, calibration, reporting.
 
 **Methods**
 
-###### `list(*, status: str | None = None) -> _List[Job]`
+###### `list(*, status: str | None = None) -> list[Job]`
 
 Return the current collection of background jobs, applying any supported filters.
 
@@ -3860,7 +3855,7 @@ Return the current collection of background jobs, applying any supported filters
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `_List[[Job](#job)]`
+**Returns:** [`list[Job]`](#job)
 
 **Raises:**
 
@@ -3875,7 +3870,7 @@ Fetch one record from the background jobs surface identified by `job_id`.
 | --- | --- | --- | --- |
 | `job_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Job](#job)`
+**Returns:** [`Job`](#job)
 
 **Raises:**
 
@@ -3928,7 +3923,7 @@ expected outcome.
 | `timeout` | keyword-only | `float` | `900.0` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Job](#job)`
+**Returns:** [`Job`](#job)
 
 **Raises:**
 
@@ -3941,21 +3936,19 @@ expected outcome.
 
 `class ReviewQueuesAPI()`
 
-**Bases:** `Resource`
-
 Structured human review.
 
 **Related APIs:** [`JudgesAPI`](#judgesapi), [`ObservabilityAPI`](#observabilityapi), [`EvalDatasetsAPI`](#evaldatasetsapi)
 
 **Methods**
 
-###### `list() -> _List[ReviewQueue]`
+###### `list() -> list[ReviewQueue]`
 
 Return the current collection of review queues and queue items, applying any supported filters.
 
 This callable takes no public parameters.
 
-**Returns:** `_List[[ReviewQueue](#reviewqueue)]`
+**Returns:** [`list[ReviewQueue]`](#reviewqueue)
 
 **Raises:**
 
@@ -3970,7 +3963,7 @@ Fetch one record from the review queues and queue items surface identified by `q
 | --- | --- | --- | --- |
 | `queue_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[ReviewQueue](#reviewqueue)`
+**Returns:** [`ReviewQueue`](#reviewqueue)
 
 **Raises:**
 
@@ -3986,7 +3979,7 @@ Create a new record on the review queues and queue items surface and return the 
 | `name` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[ReviewQueue](#reviewqueue)`
+**Returns:** [`ReviewQueue`](#reviewqueue)
 
 **Raises:**
 
@@ -4002,7 +3995,7 @@ Patch an existing record on the review queues and queue items surface and return
 | `queue_id` | positional-or-keyword | `str` | `—` |
 | `changes` | var-keyword | `Any` | `—` |
 
-**Returns:** `[ReviewQueue](#reviewqueue)`
+**Returns:** [`ReviewQueue`](#reviewqueue)
 
 **Raises:**
 
@@ -4061,8 +4054,6 @@ Human labels usable for judge-alignment scoring.
 
 `class AriaAPI()`
 
-**Bases:** `Resource`
-
 Aria goal-plans: the permissioned agentic loop.
 
 **Usage example**
@@ -4088,7 +4079,7 @@ This callable takes no public parameters.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `plans(*, session_id: str | None = None, limit: int | None = None, offset: int | None = None) -> _List[AriaPlan]`
+###### `plans(*, session_id: str | None = None, limit: int | None = None, offset: int | None = None) -> list[AriaPlan]`
 
 Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
 
@@ -4098,7 +4089,7 @@ Operate on the Aria plans and interaction state surface with the supplied argume
 | `limit` | keyword-only | `int | None` | `None` |
 | `offset` | keyword-only | `int | None` | `None` |
 
-**Returns:** `_List[[AriaPlan](#ariaplan)]`
+**Returns:** [`list[AriaPlan]`](#ariaplan)
 
 **Raises:**
 
@@ -4113,7 +4104,7 @@ Operate on the Aria plans and interaction state surface with the supplied argume
 | --- | --- | --- | --- |
 | `plan_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
@@ -4129,7 +4120,7 @@ State an intent. Aria plans the steps; you approve them.
 | `goal` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
@@ -4145,7 +4136,7 @@ Operate on the Aria plans and interaction state surface with the supplied argume
 | `plan_id` | positional-or-keyword | `str` | `—` |
 | `changes` | var-keyword | `Any` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
@@ -4161,7 +4152,7 @@ Operate on the Aria plans and interaction state surface with the supplied argume
 | `plan_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
@@ -4177,7 +4168,7 @@ Operate on the Aria plans and interaction state surface with the supplied argume
 | `plan_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
@@ -4193,14 +4184,14 @@ Operate on the Aria plans and interaction state surface with the supplied argume
 | `plan_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `interactions(plan_id: str, *, limit: int | None = None, offset: int | None = None) -> _List[AriaInteraction]`
+###### `interactions(plan_id: str, *, limit: int | None = None, offset: int | None = None) -> list[AriaInteraction]`
 
 Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
 
@@ -4210,7 +4201,7 @@ Operate on the Aria plans and interaction state surface with the supplied argume
 | `limit` | keyword-only | `int | None` | `None` |
 | `offset` | keyword-only | `int | None` | `None` |
 
-**Returns:** `_List[[AriaInteraction](#ariainteraction)]`
+**Returns:** [`list[AriaInteraction]`](#ariainteraction)
 
 **Raises:**
 
@@ -4226,7 +4217,7 @@ Answer a question Aria paused to ask.
 | `interaction_id` | positional-or-keyword | `str` | `—` |
 | `payload` | var-keyword | `Any` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
@@ -4247,7 +4238,7 @@ the whole timeout waiting for something that cannot happen.
 | `timeout` | keyword-only | `float` | `900.0` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+**Returns:** [`AriaPlanDetail`](#ariaplandetail)
 
 **Raises:**
 
@@ -4260,21 +4251,19 @@ the whole timeout waiting for something that cannot happen.
 
 `class ReleasesAPI()`
 
-**Bases:** `Resource`
-
 Release candidates, evidence, waivers, and signoff.
 
 **Related APIs:** [`EvaluationsAPI`](#evaluationsapi), [`ReviewQueuesAPI`](#reviewqueuesapi), [`WorkflowsAPI`](#workflowsapi)
 
 **Methods**
 
-###### `candidates() -> _List[ReleaseCandidate]`
+###### `candidates() -> list[ReleaseCandidate]`
 
 Operate on the release candidates and signoffs surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
-**Returns:** `_List[[ReleaseCandidate](#releasecandidate)]`
+**Returns:** [`list[ReleaseCandidate]`](#releasecandidate)
 
 **Raises:**
 
@@ -4289,7 +4278,7 @@ Operate on the release candidates and signoffs surface with the supplied argumen
 | --- | --- | --- | --- |
 | `candidate_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[ReleaseCandidate](#releasecandidate)`
+**Returns:** [`ReleaseCandidate`](#releasecandidate)
 
 **Raises:**
 
@@ -4305,7 +4294,7 @@ Create a release candidate with its decision criteria, evidence, and rollback me
 | `name` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[ReleaseCandidate](#releasecandidate)`
+**Returns:** [`ReleaseCandidate`](#releasecandidate)
 
 **Raises:**
 
@@ -4321,7 +4310,7 @@ Recompute the weighted score from current evidence.
 | `candidate_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[ReleaseCandidate](#releasecandidate)`
+**Returns:** [`ReleaseCandidate`](#releasecandidate)
 
 **Raises:**
 
@@ -4384,13 +4373,11 @@ without a reason is not evidence of a decision.
 
 `class ObservabilityAPI()`
 
-**Bases:** `Resource`
-
 Traces, experiments, and metrics.
 
 **Methods**
 
-###### `traces(**params) -> _List[Trace]`
+###### `traces(**params) -> list[Trace]`
 
 Operate on the observability traces and metrics surface with the supplied arguments and return the server response.
 
@@ -4398,7 +4385,7 @@ Operate on the observability traces and metrics surface with the supplied argume
 | --- | --- | --- | --- |
 | `params` | var-keyword | `Any` | `—` |
 
-**Returns:** `_List[[Trace](#trace)]`
+**Returns:** [`list[Trace]`](#trace)
 
 **Raises:**
 
@@ -4453,13 +4440,11 @@ Operate on the observability traces and metrics surface with the supplied argume
 
 `class AuditAPI()`
 
-**Bases:** `Resource`
-
 The audit log.
 
 **Methods**
 
-###### `list(**params) -> _List[AuditEntry]`
+###### `list(**params) -> list[AuditEntry]`
 
 Return the current collection of audit log entries, applying any supported filters.
 
@@ -4467,7 +4452,7 @@ Return the current collection of audit log entries, applying any supported filte
 | --- | --- | --- | --- |
 | `params` | var-keyword | `Any` | `—` |
 
-**Returns:** `_List[[AuditEntry](#auditentry)]`
+**Returns:** [`list[AuditEntry]`](#auditentry)
 
 **Raises:**
 
@@ -4493,8 +4478,6 @@ Raw export bytes. CSV by default; JSON is admin-only on the server.
 ##### `EventsAPI`
 
 `class EventsAPI()`
-
-**Bases:** `Resource`
 
 Server-sent events.
 
@@ -4523,8 +4506,6 @@ shipped — the opposite of what a stream consumer wants.
 
 `class CookbooksAPI()`
 
-**Bases:** `Resource`
-
 Built-in, installable examples.
 
 **Usage example**
@@ -4537,13 +4518,13 @@ sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook
 
 **Methods**
 
-###### `list() -> _List[CookbookRecipe]`
+###### `list() -> list[CookbookRecipe]`
 
 Return the current collection of built-in cookbook recipes, applying any supported filters.
 
 This callable takes no public parameters.
 
-**Returns:** `_List[[CookbookRecipe](#cookbookrecipe)]`
+**Returns:** [`list[CookbookRecipe]`](#cookbookrecipe)
 
 **Raises:**
 
@@ -4574,8 +4555,6 @@ runs.
 ##### `SecretsAPI`
 
 `class SecretsAPI()`
-
-**Bases:** `Resource`
 
 Secret references. Write-only: values are never returned.
 
@@ -4659,8 +4638,6 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 ##### `RawAPI`
 
 `class RawAPI()`
-
-**Bases:** `Resource`
 
 Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 
@@ -4866,7 +4843,7 @@ Operate on the stability surface with the supplied arguments and return the serv
 | --- | --- | --- | --- |
 | `payload` | positional-or-keyword | `Any` | `—` |
 
-**Returns:** `[Stability](#stability)`
+**Returns:** [`Stability`](#stability)
 
 ###### `tier_of(tag: str) -> str | None`
 
@@ -4890,7 +4867,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`Account`, `Capabilities`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`
+`Account`, `Capabilities`, `Extensibility`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `OptimizerPlugin`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `RegisteredOptimizer`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`
 
 #### Classes
 
@@ -4990,7 +4967,7 @@ rotate calls return — mirroring the server, where a listed token has no
 
 `class IssuedToken()`
 
-**Bases:** `PersonalAccessToken`
+**Bases:** [`PersonalAccessToken`](#personalaccesstoken)
 
 A freshly issued token. ``token`` is returned exactly once, ever.
 
@@ -5021,6 +4998,124 @@ Which workflow-run features the deployment has switched on.
 | `approval_readiness` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
+##### `RegisteredOptimizer`
+
+`class RegisteredOptimizer()`
+
+One optimizer the deployment can run, with its provenance.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `name` | `str` | `''` |
+| `summary` | `str` | `''` |
+| `artifact_types` | `list[str]` | `field(default_factory=list)` |
+| `source` | `str` | `'builtin'` |
+| `requires` | `str | None` | `None` |
+| `distribution` | `str | None` | `None` |
+| `explicit_only` | `bool` | `False` |
+| `experimental` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_third_party() -> bool`
+
+True when a distribution other than CALIBER registered this.
+
+Worth checking before pinning an agent to an optimizer: a third-party
+optimizer authors the artifact that gets promoted to production, and it
+is only present because the deployment allowlisted its distribution.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+**Methods**
+
+###### `can_target(artifact_type: str) -> bool`
+
+Operate on the registered optimizer surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `artifact_type` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+##### `OptimizerPlugin`
+
+`class OptimizerPlugin()`
+
+An installed optimizer plugin and whether the deployment enabled it.
+
+An entry with ``allowlisted=False`` is installed and inert. That is the
+normal state for a freshly installed plugin, not an error — CALIBER
+discovers plugins automatically and enables none of them automatically.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `name` | `str` | `''` |
+| `distribution` | `str | None` | `None` |
+| `value` | `str` | `''` |
+| `allowlisted` | `bool` | `False` |
+| `error` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_active() -> bool`
+
+Operate on the optimizer plugin surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `Extensibility`
+
+`class Extensibility()`
+
+What this deployment can run, and what it has been permitted to run.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `optimizers` | [`list[RegisteredOptimizer]`](#registeredoptimizer) | `field(default_factory=list)` |
+| `plugins` | [`list[OptimizerPlugin]`](#optimizerplugin) | `field(default_factory=list)` |
+| `allowlist_env_var` | `str` | `'CALIBER_PLUGIN_ALLOWLIST'` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Methods**
+
+###### `optimizers_for(artifact_type: str) -> list[RegisteredOptimizer]`
+
+Optimizers that can target one artifact kind.
+
+Filtering matters because the artifact kinds are not interchangeable:
+submitting a skill job with a prompt-only optimizer is rejected by the
+server, and asking here is how a caller avoids finding out that way.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `artifact_type` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`list[RegisteredOptimizer]`](#registeredoptimizer)
+
+###### `optimizer(name: str) -> RegisteredOptimizer | None`
+
+Operate on the extensibility surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`RegisteredOptimizer | None`](#registeredoptimizer)
+
 ##### `Capabilities`
 
 `class Capabilities()`
@@ -5036,11 +5131,11 @@ uniformity the platform does not have.
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `workflow_runs` | `[WorkflowRunCapabilities](#workflowruncapabilities)` | `field(default_factory=[WorkflowRunCapabilities](#workflowruncapabilities))` |
+| `workflow_runs` | [`WorkflowRunCapabilities`](#workflowruncapabilities) | `field(default_factory=WorkflowRunCapabilities)` |
 | `sync_workflow_version_run` | `bool` | `True` |
 | `artifact_families` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `sdk_stability` | `dict[str, list[str]]` | `field(default_factory=dict)` |
-| `extensibility` | `[Extensibility](#extensibility)` | `field(default_factory=[Extensibility](#extensibility))` |
+| `extensibility` | [`Extensibility`](#extensibility) | `field(default_factory=Extensibility)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 **Methods**
@@ -5116,7 +5211,7 @@ Grouped inventory of runtime configuration knobs.
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `summary` | `[RuntimeSettingsSummary](#runtimesettingssummary)` | `field(default_factory=[RuntimeSettingsSummary](#runtimesettingssummary))` |
+| `summary` | [`RuntimeSettingsSummary`](#runtimesettingssummary) | `field(default_factory=RuntimeSettingsSummary)` |
 | `groups` | `list[dict[str, Any]]` | `field(default_factory=list)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
@@ -5836,8 +5931,8 @@ A plan plus its steps.
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `plan` | `[AriaPlan](#ariaplan)` | `field(default_factory=[AriaPlan](#ariaplan))` |
-| `steps` | `list[[AriaPlanStep](#ariaplanstep)]` | `field(default_factory=list)` |
+| `plan` | [`AriaPlan`](#ariaplan) | `field(default_factory=AriaPlan)` |
+| `steps` | [`list[AriaPlanStep]`](#ariaplanstep) | `field(default_factory=list)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `AriaInteraction`
@@ -6164,7 +6259,7 @@ Operate on the field error surface with the supplied arguments and return the se
 | --- | --- | --- | --- |
 | `payload` | positional-or-keyword | `Any` | `—` |
 
-**Returns:** `[FieldError](#fielderror)`
+**Returns:** [`FieldError`](#fielderror)
 
 ##### `ErrorBody`
 
@@ -6178,7 +6273,7 @@ Operate on the field error surface with the supplied arguments and return the se
 | --- | --- | --- |
 | `detail` | `str` | `''` |
 | `status_code` | `int` | `0` |
-| `errors` | `list[[FieldError](#fielderror)]` | `field(default_factory=list)` |
+| `errors` | [`list[FieldError]`](#fielderror) | `field(default_factory=list)` |
 
 **Methods**
 
@@ -6190,7 +6285,7 @@ Operate on the error body surface with the supplied arguments and return the ser
 | --- | --- | --- | --- |
 | `payload` | positional-or-keyword | `Any` | `—` |
 
-**Returns:** `[ErrorBody](#errorbody)`
+**Returns:** [`ErrorBody`](#errorbody)
 
 ## Async client
 
@@ -6270,7 +6365,6 @@ Operate on the caliber client surface with the supplied arguments and return the
 
 | Attribute | Type | Notes |
 | --- | --- | --- |
-| `_transport` | `AsyncTransport` | — |
 | `raw` | `AsyncRawAPI` | Low-level route access through the SDK transport. |
 | `me` | `AsyncMeAPI` | The caller identity surface. |
 | `capabilities_api` | `AsyncCapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
@@ -6294,7 +6388,7 @@ Return this instance so it can be used inside an async context manager.
 
 This callable takes no public parameters.
 
-**Returns:** `[AsyncCaliberClient](#asynccaliberclient)`
+**Returns:** [`AsyncCaliberClient`](#asynccaliberclient)
 
 ###### `__aexit__(*_: object) -> None`
 
@@ -6309,8 +6403,6 @@ Close any owned resources when leaving the async context manager.
 ##### `AsyncRawAPI`
 
 `class AsyncRawAPI()`
-
-**Bases:** `_AsyncResource`
 
 Any endpoint, with the SDK's auth, retries, and typed errors.
 
@@ -6436,8 +6528,6 @@ Not a coroutine: an async generator, so it is iterated rather than awaited.
 
 `class AsyncMeAPI()`
 
-**Bases:** `_AsyncResource`
-
 Typed access to the caller identity surface.
 
 **Methods**
@@ -6449,7 +6539,7 @@ an anonymous identity, not an exception.
 
 This callable takes no public parameters.
 
-**Returns:** `[Identity](#identity)`
+**Returns:** [`Identity`](#identity)
 
 **Raises:**
 
@@ -6459,8 +6549,6 @@ This callable takes no public parameters.
 ##### `AsyncCapabilitiesAPI`
 
 `class AsyncCapabilitiesAPI()`
-
-**Bases:** `_AsyncResource`
 
 Typed access to the runtime capabilities surface.
 
@@ -6472,7 +6560,7 @@ Fetch one record from the runtime capabilities surface identified by `id`.
 
 This callable takes no public parameters.
 
-**Returns:** `[Capabilities](#capabilities)`
+**Returns:** [`Capabilities`](#capabilities)
 
 **Raises:**
 
@@ -6482,8 +6570,6 @@ This callable takes no public parameters.
 ##### `AsyncWorkflowRunsAPI`
 
 `class AsyncWorkflowRunsAPI()`
-
-**Bases:** `_AsyncResource`
 
 Submit runs and await them.
 
@@ -6507,7 +6593,7 @@ Create a new execution run on the server and return its initial state.
 | `idempotency_key` | keyword-only | `str | None` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -6522,7 +6608,7 @@ Fetch one record from the workflow runs surface identified by `run_id`.
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -6541,7 +6627,7 @@ POST-only. An earlier SDK method implying otherwise returned 405.
 | `workflow_id` | positional-or-keyword | `str` | `—` |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `list[[WorkflowRun](#workflowrun)]`
+**Returns:** [`list[WorkflowRun]`](#workflowrun)
 
 **Raises:**
 
@@ -6556,7 +6642,7 @@ Operate on the workflow runs surface with the supplied arguments and return the 
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -6574,7 +6660,7 @@ Poll until the targeted run or job reaches a terminal state, then return the fin
 | `raise_on_failure` | keyword-only | `bool` | `True` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[WorkflowRun](#workflowrun)`
+**Returns:** [`WorkflowRun`](#workflowrun)
 
 **Raises:**
 
@@ -6588,8 +6674,6 @@ Poll until the targeted run or job reaches a terminal state, then return the fin
 
 `class AsyncJobsAPI()`
 
-**Bases:** `_AsyncResource`
-
 Background jobs, and waiting on ones that stop for a person.
 
 **Methods**
@@ -6602,7 +6686,7 @@ Fetch one record from the background jobs surface identified by `job_id`.
 | --- | --- | --- | --- |
 | `job_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `[Job](#job)`
+**Returns:** [`Job`](#job)
 
 **Raises:**
 
@@ -6617,7 +6701,7 @@ Return the current collection of background jobs, applying any supported filters
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
 
-**Returns:** `list[[Job](#job)]`
+**Returns:** [`list[Job]`](#job)
 
 **Raises:**
 
@@ -6638,7 +6722,7 @@ past it would spend the whole timeout on the expected outcome.
 | `timeout` | keyword-only | `float` | `900.0` |
 | `options` | var-keyword | `Any` | `—` |
 
-**Returns:** `[Job](#job)`
+**Returns:** [`Job`](#job)
 
 **Raises:**
 
@@ -6650,8 +6734,6 @@ past it would spend the whole timeout on the expected outcome.
 ##### `AsyncEventsAPI`
 
 `class AsyncEventsAPI()`
-
-**Bases:** `_AsyncResource`
 
 The reason this module exists.
 
@@ -6734,9 +6816,6 @@ Send a prepared request asynchronously through the shared transport and decode t
 | `project` | `Any` | — |
 | `max_retries` | `Any` | — |
 | `backoff_factor` | `Any` | — |
-| `_user_agent` | `Any` | — |
-| `_owns_client` | `Any` | — |
-| `_client` | `Any` | — |
 
 **Methods**
 
@@ -6807,8 +6886,8 @@ Perform one API call, returning the unwrapped payload.
 
 **Raises:**
 
+- [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
-- [`error_for_response`](#error_for_response)
 
 ###### `get(path: str, **kwargs) -> Response`
 
@@ -6821,6 +6900,11 @@ Fetch one record from the transport surface identified by `path`.
 
 **Returns:** `Response`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `post(path: str, **kwargs) -> Response`
 
 Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
@@ -6831,6 +6915,11 @@ Send a prepared request asynchronously through the shared transport and decode t
 | `kwargs` | var-keyword | `Any` | `—` |
 
 **Returns:** `Response`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ###### `put(path: str, **kwargs) -> Response`
 
@@ -6843,6 +6932,11 @@ Send a prepared request asynchronously through the shared transport and decode t
 
 **Returns:** `Response`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `patch(path: str, **kwargs) -> Response`
 
 Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
@@ -6854,6 +6948,11 @@ Send a prepared request asynchronously through the shared transport and decode t
 
 **Returns:** `Response`
 
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `delete(path: str, **kwargs) -> Response`
 
 Delete a record on the transport surface and return the server acknowledgement.
@@ -6864,6 +6963,11 @@ Delete a record on the transport surface and return the server acknowledgement.
 | `kwargs` | var-keyword | `Any` | `—` |
 
 **Returns:** `Response`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ###### `download(path: str, **kwargs) -> bytes`
 
@@ -6878,8 +6982,8 @@ Fetch raw bytes: no envelope, no decoding.
 
 **Raises:**
 
+- [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
-- [`error_for_response`](#error_for_response)
 
 ###### `stream_lines(path: str, *, params: Mapping[str, Any] | None = None, timeout: float | None = None) -> AsyncIterator[str]`
 
@@ -6898,8 +7002,8 @@ staying open is the success case, not a hang.
 
 **Raises:**
 
+- [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
-- [`error_for_response`](#error_for_response)
 
 ###### `paginate(path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100) -> AsyncIterator[Any]`
 
@@ -6912,6 +7016,11 @@ Yield items across ``limit``/``offset`` pages.
 | `limit` | keyword-only | `int` | `100` |
 
 **Returns:** `AsyncIterator[Any]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ### Module `caliber_sdk.aio.waiters`
 
@@ -6950,7 +7059,7 @@ outcome for their script.
 
 **Raises:**
 
-- [`ValueError`](#valueerror)
+- `ValueError`
 - [`WaitTimeout`](#waittimeout)
 
 ###### `wait_for_terminal_state(poll: Callable[[], Awaitable[Any]], *, terminal: frozenset[str] = TERMINAL_STATES, failure: frozenset[str] = FAILURE_STATES, raise_on_failure: bool = True, **options) -> Any`

@@ -218,16 +218,17 @@
 instructions: instructions must reference at least one evaluation variable</code></pre>
 <p>The structured body behind that exception is JSON, and the SDK preserves it on the typed error object:</p>
 <pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
-  <span class="tok-key">"error_code"</span><span class="tok-punctuation">:</span> <span class="tok-string">"validation_error"</span><span class="tok-punctuation">,</span>
-  <span class="tok-key">"message"</span><span class="tok-punctuation">:</span> <span class="tok-string">"request body validation failed"</span><span class="tok-punctuation">,</span>
-  <span class="tok-key">"request_id"</span><span class="tok-punctuation">:</span> <span class="tok-string">"req_123"</span><span class="tok-punctuation">,</span>
-  <span class="tok-key">"fields"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span>
+  <span class="tok-key">"detail"</span><span class="tok-punctuation">:</span> <span class="tok-string">"request body validation failed"</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"status_code"</span><span class="tok-punctuation">:</span> <span class="tok-number">400</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"errors"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span>
     <span class="tok-punctuation">{</span>
-      <span class="tok-key">"field"</span><span class="tok-punctuation">:</span> <span class="tok-string">"instructions"</span><span class="tok-punctuation">,</span>
-      <span class="tok-key">"message"</span><span class="tok-punctuation">:</span> <span class="tok-string">"instructions must reference at least one evaluation variable"</span>
+      <span class="tok-key">"loc"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span><span class="tok-string">"instructions"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+      <span class="tok-key">"msg"</span><span class="tok-punctuation">:</span> <span class="tok-string">"instructions must reference at least one evaluation variable"</span><span class="tok-punctuation">,</span>
+      <span class="tok-key">"type"</span><span class="tok-punctuation">:</span> <span class="tok-string">"value_error"</span>
     <span class="tok-punctuation">}</span>
   <span class="tok-punctuation">]</span>
 <span class="tok-punctuation">}</span></code></pre>
+<p><code>loc</code> is a <em>path</em>, not a field name — it is a list because the failure may sit inside a nested object, as in <code>["manifest", "nodes", 0, "tool_ref"]</code>. That is why <code>CaliberValidationError.errors</code> hands you the list unchanged, and why its <code>__str__</code> joins the path with dots rather than printing only the last segment.</p>
 <h2 id="anything-not-yet-modelled">Anything not yet modelled<a class="anchor" href="#anything-not-yet-modelled" aria-hidden="true" tabindex="-1">#</a></h2>
 <p><code>client.raw</code> reaches any endpoint under <code>/ajax-api/2.0/mlflow/caliber</code>:</p>
 <pre class="language-python"><code class="language-python">caliber<span class="tok-punctuation">.</span>raw<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"/observability/traces"</span><span class="tok-punctuation">)</span>

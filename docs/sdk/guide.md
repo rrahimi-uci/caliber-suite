@@ -202,17 +202,22 @@ the typed error object:
 
 ```json
 {
-  "error_code": "validation_error",
-  "message": "request body validation failed",
-  "request_id": "req_123",
-  "fields": [
+  "detail": "request body validation failed",
+  "status_code": 400,
+  "errors": [
     {
-      "field": "instructions",
-      "message": "instructions must reference at least one evaluation variable"
+      "loc": ["instructions"],
+      "msg": "instructions must reference at least one evaluation variable",
+      "type": "value_error"
     }
   ]
 }
 ```
+
+`loc` is a *path*, not a field name — it is a list because the failure may sit
+inside a nested object, as in `["manifest", "nodes", 0, "tool_ref"]`. That is why
+`CaliberValidationError.errors` hands you the list unchanged, and why its
+`__str__` joins the path with dots rather than printing only the last segment.
 
 ## Anything not yet modelled
 

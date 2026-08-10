@@ -18,7 +18,6 @@ import sys
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SDK_ROOT = REPO_ROOT / "sdk" / "caliber-sdk" / "src" / "caliber_sdk"
@@ -49,10 +48,25 @@ def first_paragraph(value: str | None) -> str:
     return cleaned.split("\n\n", 1)[0].replace("\n", " ").strip()
 
 
+#: Internal aliases the SDK uses to work around Python's own scoping, mapped
+#: back to what a reader should see. ``_List = list`` exists in the resource
+#: modules because a class that defines its own ``list()`` method shadows the
+#: builtin for every annotation written after it -- a real constraint, and one a
+#: caller of the published API has no reason to know about. Left unmapped, 48
+#: signatures advertised a ``_List`` type that does not exist.
+INTERNAL_TYPE_ALIASES: dict[str, str] = {"_List": "list"}
+
+
+def normalize_annotation(text: str) -> str:
+    for alias, real in INTERNAL_TYPE_ALIASES.items():
+        text = re.sub(rf"\b{re.escape(alias)}\b", real, text)
+    return text
+
+
 def format_annotation(node: ast.AST | None) -> str:
     if node is None:
         return "Any"
-    return ast.unparse(node)
+    return normalize_annotation(ast.unparse(node))
 
 
 def format_default(node: ast.AST | None) -> str:
@@ -61,87 +75,132 @@ def format_default(node: ast.AST | None) -> str:
     return ast.unparse(node)
 
 
-def linkify_types(text: str) -> str:
-    anchors = {
-        "CaliberClient": heading_link("`CaliberClient`"),
-        "AsyncCaliberClient": heading_link("`AsyncCaliberClient`"),
-        "WorkflowRunFailed": heading_link("`WorkflowRunFailed`"),
-        "WaitTimeout": heading_link("`WaitTimeout`"),
-        "WaitFailed": heading_link("`WaitFailed`"),
-        "CaliberError": heading_link("`CaliberError`"),
-        "CaliberConfigError": heading_link("`CaliberConfigError`"),
-        "CaliberTransportError": heading_link("`CaliberTransportError`"),
-        "CaliberAPIError": heading_link("`CaliberAPIError`"),
-        "CaliberAuthenticationError": heading_link("`CaliberAuthenticationError`"),
-        "CaliberPermissionError": heading_link("`CaliberPermissionError`"),
-        "CaliberNotFoundError": heading_link("`CaliberNotFoundError`"),
-        "CaliberConflictError": heading_link("`CaliberConflictError`"),
-        "CaliberValidationError": heading_link("`CaliberValidationError`"),
-        "CaliberRateLimitError": heading_link("`CaliberRateLimitError`"),
-        "CaliberServerError": heading_link("`CaliberServerError`"),
-    }
-    for name in (
-        "Account",
-        "AriaInteraction",
-        "AriaPlan",
-        "AriaPlanDetail",
-        "AriaPlanStep",
-        "AuditEntry",
-        "Bucket",
-        "CalibrationJob",
-        "Capabilities",
-        "CookbookRecipe",
-        "ErrorBody",
-        "EvalDataset",
-        "EvalExample",
-        "Evaluation",
-        "Extensibility",
-        "FieldError",
-        "Identity",
-        "IssuedToken",
-        "Job",
-        "Judge",
-        "JudgeAlignment",
-        "KnowledgeBase",
-        "LlmSetupStatus",
-        "McpServer",
-        "OptimizerPlugin",
-        "Page",
-        "PersonalAccessToken",
-        "Project",
-        "ProjectFile",
-        "ProjectFolder",
-        "Prompt",
-        "RegisteredOptimizer",
-        "ReleaseCandidate",
-        "ReviewQueue",
-        "RuntimeSettings",
-        "RuntimeSettingsSummary",
-        "SessionInfo",
-        "Skill",
-        "SkillRender",
-        "SkillSelection",
-        "SkillVersion",
-        "Stability",
-        "StoredObject",
-        "Tool",
-        "Trace",
-        "Workflow",
-        "WorkflowRun",
-        "WorkflowRunCapabilities",
-        "WorkflowService",
-        "WorkflowVersion",
-    ):
-        anchors.setdefault(name, heading_link(f"`{name}`"))
+#: Type names that have their own section in the generated reference, and are
+#: therefore worth linking to. One definition, consumed by both
+#: :func:`linkify_types` (prose) and :func:`render_type` (signatures and tables).
+LINKABLE_TYPES: tuple[str, ...] = (
+    "Account",
+    "AriaInteraction",
+    "AriaPlan",
+    "AriaPlanDetail",
+    "AriaPlanStep",
+    "AsyncCaliberClient",
+    "AuditEntry",
+    "Bucket",
+    "CaliberAPIError",
+    "CaliberAuthenticationError",
+    "CaliberClient",
+    "CaliberConfigError",
+    "CaliberConflictError",
+    "CaliberError",
+    "CaliberNotFoundError",
+    "CaliberPermissionError",
+    "CaliberRateLimitError",
+    "CaliberServerError",
+    "CaliberTransportError",
+    "CaliberValidationError",
+    "CalibrationJob",
+    "Capabilities",
+    "CookbookRecipe",
+    "ErrorBody",
+    "EvalDataset",
+    "EvalExample",
+    "Evaluation",
+    "Extensibility",
+    "FieldError",
+    "Identity",
+    "IssuedToken",
+    "Job",
+    "Judge",
+    "JudgeAlignment",
+    "KnowledgeBase",
+    "LlmSetupStatus",
+    "McpServer",
+    "OptimizerPlugin",
+    "Page",
+    "PersonalAccessToken",
+    "Project",
+    "ProjectFile",
+    "ProjectFolder",
+    "Prompt",
+    "RegisteredOptimizer",
+    "ReleaseCandidate",
+    "ReviewQueue",
+    "RuntimeSettings",
+    "RuntimeSettingsSummary",
+    "SessionInfo",
+    "Skill",
+    "SkillRender",
+    "SkillSelection",
+    "SkillVersion",
+    "Stability",
+    "StoredObject",
+    "Tool",
+    "Trace",
+    "WaitFailed",
+    "WaitTimeout",
+    "Workflow",
+    "WorkflowRun",
+    "WorkflowRunCapabilities",
+    "WorkflowRunFailed",
+    "WorkflowService",
+    "WorkflowVersion",
+)
 
-    def replace(match: re.Match[str]) -> str:
-        token = match.group(0)
-        anchor = anchors.get(token)
-        if not anchor:
-            return token
-        return f"[{token}]({anchor})"
+#: Name -> in-page anchor, built once.
+TYPE_ANCHORS: dict[str, str] = {
+    name: heading_link(f"`{name}`") for name in LINKABLE_TYPES
+}
+
+
+def linkify_types(text: str) -> str:
+    """Link documented type names inside a prose string."""
+
+    def replace(match: "re.Match[str]") -> str:
+        anchor = TYPE_ANCHORS.get(match.group(0))
+        return f"[{match.group(0)}]({anchor})" if anchor else match.group(0)
 
     return re.sub(r"\b[A-Z][A-Za-z0-9_]+\b", replace, text)
+
+
+def render_type(text: str) -> str:
+    """Render a type expression as one code span, linked to its own docs.
+
+    The previous form was ``f"`{linkify_types(text)}`"``, which put markdown
+    link syntax *inside* a code span -- so 82 return types published as the
+    literal text ``[CaliberClient](#caliberclient)`` instead of a link. The goal
+    of cross-linked types was defeated by the wrapping.
+
+    Linking the *whole* span rather than the type name inside it is deliberate:
+    inline ``code`` carries a background and padding, so splitting
+    ``list[WorkflowRun]`` into three adjacent spans to link only the middle one
+    would render as three separate pills.
+
+    When a compound type references exactly one documented name, the span links
+    to it -- ``list[WorkflowRun]`` points at ``WorkflowRun``, which is where a
+    reader wants to go. When it references several, the span stays unlinked and
+    the names follow it, because guessing which one the reader meant would send
+    them to the wrong place half the time.
+    """
+    stripped = (text or "").strip()
+    if not stripped:
+        return "`—`"
+
+    exact = TYPE_ANCHORS.get(stripped)
+    if exact:
+        return f"[`{stripped}`]({exact})"
+
+    referenced = [
+        name
+        for name in dict.fromkeys(re.findall(r"\b[A-Z][A-Za-z0-9_]*\b", stripped))
+        if name in TYPE_ANCHORS
+    ]
+    if len(referenced) == 1:
+        return f"[`{stripped}`]({TYPE_ANCHORS[referenced[0]]})"
+    if referenced:
+        links = ", ".join(f"[`{name}`]({TYPE_ANCHORS[name]})" for name in referenced)
+        return f"`{stripped}` — see {links}"
+    return f"`{stripped}`"
 
 
 @dataclass
@@ -333,6 +392,7 @@ MODULE_GROUPS = [
     (
         "Resource modules",
         [
+            "caliber_sdk.resources",
             "caliber_sdk.resources.auth",
             "caliber_sdk.resources.system",
             "caliber_sdk.resources.projects",
@@ -626,13 +686,17 @@ def parse_exports(tree: ast.Module) -> list[str]:
                     if isinstance(node.value, (ast.List, ast.Tuple)):
                         values: list[str] = []
                         for element in node.value.elts:
-                            if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                            if isinstance(element, ast.Constant) and isinstance(
+                                element.value, str
+                            ):
                                 values.append(element.value)
                         return values
     return []
 
 
-def signature_from_function(node: ast.FunctionDef | ast.AsyncFunctionDef, *, bound: bool) -> tuple[str, list[ParamInfo], str]:
+def signature_from_function(
+    node: ast.FunctionDef | ast.AsyncFunctionDef, *, bound: bool
+) -> tuple[str, list[ParamInfo], str]:
     args = node.args
     params: list[ParamInfo] = []
     parts: list[str] = []
@@ -680,7 +744,9 @@ def signature_from_function(node: ast.FunctionDef | ast.AsyncFunctionDef, *, bou
     return f"({', '.join(parts)}) -> {returns}", params, returns
 
 
-def parse_attributes(init_node: ast.FunctionDef | ast.AsyncFunctionDef | None) -> list[AttributeInfo]:
+def parse_attributes(
+    init_node: ast.FunctionDef | ast.AsyncFunctionDef | None,
+) -> list[AttributeInfo]:
     if init_node is None:
         return []
     attributes: list[AttributeInfo] = []
@@ -702,6 +768,12 @@ def parse_attributes(init_node: ast.FunctionDef | ast.AsyncFunctionDef | None) -
                     inferred = func.id
                 elif isinstance(func, ast.Attribute):
                     inferred = func.attr
+            if target.attr.startswith("_"):
+                # A published reference exists so a reader never has to open the
+                # source; listing the internals they must not touch works against
+                # that. ``_transport`` and friends are implementation, and naming
+                # them here invited callers to reach for them.
+                continue
             note = CLIENT_ATTRIBUTE_NOTES.get(target.attr, "")
             attributes.append(AttributeInfo(target.attr, inferred, note))
     return attributes
@@ -721,22 +793,127 @@ def parse_dataclass_fields(node: ast.ClassDef) -> list[FieldInfo]:
     return fields
 
 
+#: Methods whose call means "this went over the network". ``request`` covers the
+#: transports; the ``_``-prefixed pair covers resource classes routing through
+#: :class:`Resource`.
+_REQUEST_METHODS = frozenset(
+    {
+        "request",
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "download",
+        "stream_lines",
+        "paginate",
+        "_get",
+        "_post",
+        "_put",
+        "_patch",
+        "_delete",
+    }
+)
+
+
+#: Callables that build an exception for a ``raise`` expression, mapped to what
+#: they can produce. ``error_for_response`` picks a subclass from the status code
+#: (see ``caliber_sdk.errors``), so the base class is what a caller can rely on
+#: catching -- and it is a real, documented, linkable type.
+EXCEPTION_FACTORIES: dict[str, set[str]] = {"error_for_response": {"CaliberAPIError"}}
+
+
+def performs_request(member: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True when the body calls something that reaches the server.
+
+    Matched on ``self.x(...)`` / ``self._transport.x(...)`` rather than any call
+    named ``get``, so a dictionary ``.get()`` is not mistaken for an HTTP GET.
+    """
+    for node in ast.walk(member):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr not in _REQUEST_METHODS:
+            continue
+        target = func.value
+        if isinstance(target, ast.Name) and target.id == "self":
+            return True
+        if (
+            isinstance(target, ast.Attribute)
+            and target.attr in {"_transport", "_client"}
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self"
+        ):
+            return True
+    return False
+
+
+def swallows_exceptions(member: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True when a handler absorbs the failure instead of re-raising it.
+
+    Absorbing means the handler returns, passes, or breaks without a bare
+    ``raise``; a handler that re-raises or wraps still surfaces something to the
+    caller and must stay documented.
+    """
+    for node in ast.walk(member):
+        if not isinstance(node, ast.ExceptHandler):
+            continue
+        reraises = any(
+            isinstance(inner, ast.Raise)
+            for inner in ast.walk(ast.Module(body=node.body, type_ignores=[]))
+        )
+        if not reraises:
+            return True
+    return False
+
+
 def infer_raises(
     member: ast.FunctionDef | ast.AsyncFunctionDef,
     *,
     class_name: str | None,
 ) -> list[str]:
     names: set[str] = set()
-    if class_name in RESOURCE_CLASS_NAMES or class_name in {"AsyncRawAPI", "AsyncMeAPI", "AsyncCapabilitiesAPI", "AsyncWorkflowRunsAPI", "AsyncJobsAPI", "AsyncEventsAPI"}:
-        if member.name not in {"__init__", "__enter__", "__exit__", "__aenter__", "__aexit__", "__repr__"}:
+    if class_name in RESOURCE_CLASS_NAMES or class_name in {
+        "AsyncRawAPI",
+        "AsyncMeAPI",
+        "AsyncCapabilitiesAPI",
+        "AsyncWorkflowRunsAPI",
+        "AsyncJobsAPI",
+        "AsyncEventsAPI",
+    }:
+        if member.name not in {
+            "__init__",
+            "__enter__",
+            "__exit__",
+            "__aenter__",
+            "__aexit__",
+            "__repr__",
+        }:
             names.update({"CaliberAPIError", "CaliberTransportError"})
+    elif performs_request(member) and not swallows_exceptions(member):
+        # The exceptions a caller actually has to handle are the ones the
+        # transport raises, and they propagate rather than appearing as a
+        # ``raise`` in the method body -- so a body scan alone reported nothing
+        # for CaliberClient.whoami(), Transport.get(), and seventeen others.
+        # Every one of them performs a request and every one of them can fail.
+        #
+        # ``swallows_exceptions`` is what keeps this honest: bootstrap_csrf
+        # catches and returns None on purpose, because a deployment with CSRF
+        # disabled serves no token, and claiming it raises would be wrong.
+        names.update({"CaliberAPIError", "CaliberTransportError"})
     for node in ast.walk(member):
         if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
             func = node.exc.func
+            raised = ""
             if isinstance(func, ast.Name):
-                names.add(func.id)
+                raised = func.id
             elif isinstance(func, ast.Attribute):
-                names.add(func.attr)
+                raised = func.attr
+            # ``raise error_for_response(...)`` raises whatever the factory
+            # built, not a class called "error_for_response". Recording the
+            # callable's own name documented an exception type that does not
+            # exist and linked to an anchor that never would.
+            names.update(EXCEPTION_FACTORIES.get(raised, {raised} if raised else set()))
         if isinstance(node, ast.Call):
             func = node.func
             func_name = ""
@@ -805,7 +982,7 @@ def parse_class(node: ast.ClassDef) -> ClassInfo:
         signature=f"class {node.name}{signature}",
         doc=doc,
         summary=first_paragraph(doc),
-        bases=[ast.unparse(base) for base in node.bases],
+        bases=[normalize_annotation(ast.unparse(base)) for base in node.bases],
         attributes=parse_attributes(init_node),
         fields=parse_dataclass_fields(node),
         properties=properties,
@@ -821,11 +998,17 @@ def parse_constants(tree: ast.Module, exports: list[str]) -> list[ConstantInfo]:
             if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
                 continue
             name = node.targets[0].id
-            if not exports and (name.startswith("_") or not name.isupper()) and name != "__version__":
+            if (
+                not exports
+                and (name.startswith("_") or not name.isupper())
+                and name != "__version__"
+            ):
                 continue
             if exports and name not in exports:
                 continue
-            if isinstance(node.value, (ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.Set)):
+            if isinstance(
+                node.value, (ast.Constant, ast.List, ast.Tuple, ast.Dict, ast.Set)
+            ):
                 results.append(ConstantInfo(name, ast.unparse(node.value)))
     return results
 
@@ -895,10 +1078,16 @@ def inferred_class_summary(info: ClassInfo) -> str:
         )
     if info.name.endswith("API"):
         return f"Typed access to the {surface_label(info.name)} surface."
-    if info.name.endswith("Error") or info.name.endswith("Failed") or info.name.endswith("Timeout"):
+    if (
+        info.name.endswith("Error")
+        or info.name.endswith("Failed")
+        or info.name.endswith("Timeout")
+    ):
         return "SDK exception type used to report a specific failure mode."
     if info.fields:
-        return f"Data model returned by the SDK for {humanize_camel(info.name)} records."
+        return (
+            f"Data model returned by the SDK for {humanize_camel(info.name)} records."
+        )
     return f"SDK type for {humanize_camel(info.name)}."
 
 
@@ -968,7 +1157,11 @@ def inferred_member_doc(member: MemberInfo, *, class_name: str | None) -> str:
         detail = f"Operate on the {resource} surface with the supplied arguments and return the server response."
     if class_name == "WorkflowRunsAPI" and member.name == "wait":
         detail += " If the run ends in a failure state and `raise_on_failure=True`, the SDK raises `WorkflowRunFailed`."
-    if class_name in RESOURCE_CLASS_NAMES and member.name in {"create", "update", "delete"}:
+    if class_name in RESOURCE_CLASS_NAMES and member.name in {
+        "create",
+        "update",
+        "delete",
+    }:
         detail += " Validation and permission failures are surfaced through the standard CALIBER error hierarchy."
     return detail
 
@@ -989,7 +1182,7 @@ def render_params(params: list[ParamInfo]) -> list[str]:
     ]
     for param in params:
         lines.append(
-            f"| `{param.name}` | {param.kind} | `{linkify_types(param.annotation)}` | `{linkify_types(param.default)}` |"
+            f"| `{param.name}` | {param.kind} | {render_type(param.annotation)} | `{param.default}` |"
         )
     lines.append("")
     return lines
@@ -1006,21 +1199,39 @@ def render_member(
     lines.append(inferred_member_doc(member, class_name=class_name))
     lines.append("")
     lines.extend(render_params(member.params))
-    lines.append(f"**Returns:** `{linkify_types(member.returns)}`")
+    lines.append(f"**Returns:** {render_type(member.returns)}")
     lines.append("")
     if member.raises:
         lines.append("**Raises:**")
         lines.append("")
         for name in member.raises:
-            lines.append(f"- [`{name}`]({heading_link(f'`{name}`')})")
+            # Linked only when the reference has a section for it. Linking
+            # unconditionally produced dead ends: ``ValueError`` is a builtin this
+            # reference does not document, and the link pointed at an anchor that
+            # does not exist -- worse than plain text, because it invites a click
+            # that goes nowhere.
+            anchor = TYPE_ANCHORS.get(name)
+            lines.append(f"- [`{name}`]({anchor})" if anchor else f"- `{name}`")
         lines.append("")
     return lines
 
 
+#: Base classes that carry no public surface. ``Resource`` and ``_AsyncResource``
+#: exist so every resource class shares one envelope-unwrapping request path --
+#: their entire membership is ``_get``/``_post``/..., so a section for them would
+#: document nothing a caller can call. Naming them in a **Bases:** line was worse
+#: than omitting them: 38 classes pointed at a type the reference never defines,
+#: which is a dead end for the reader rather than a hint.
+INTERNAL_BASES = frozenset({"Resource", "_AsyncResource"})
+
+
 def render_class(info: ClassInfo) -> list[str]:
     lines = [f"##### `{info.name}`", "", f"`{info.signature}`", ""]
-    if info.bases:
-        lines.append(f"**Bases:** `{', '.join(info.bases)}`")
+    published_bases = [base for base in info.bases if base not in INTERNAL_BASES]
+    if published_bases:
+        lines.append(
+            f"**Bases:** {', '.join(render_type(base) for base in published_bases)}"
+        )
         lines.append("")
     lines.append(inferred_class_summary(info))
     lines.append("")
@@ -1039,7 +1250,9 @@ def render_class(info: ClassInfo) -> list[str]:
     if info.constructor:
         lines.append("**Constructor**")
         lines.append("")
-        lines.extend(render_member(info.constructor, label_prefix="", class_name=info.name))
+        lines.extend(
+            render_member(info.constructor, label_prefix="", class_name=info.name)
+        )
     if info.attributes:
         lines.append("**Attributes**")
         lines.append("")
@@ -1048,7 +1261,7 @@ def render_class(info: ClassInfo) -> list[str]:
         for attribute in info.attributes:
             note = attribute.note or "—"
             lines.append(
-                f"| `{attribute.name}` | `{linkify_types(attribute.inferred_type)}` | {note} |"
+                f"| `{attribute.name}` | {render_type(attribute.inferred_type)} | {note} |"
             )
         lines.append("")
     if info.fields:
@@ -1058,7 +1271,7 @@ def render_class(info: ClassInfo) -> list[str]:
         lines.append("| --- | --- | --- |")
         for field_info in info.fields:
             lines.append(
-                f"| `{field_info.name}` | `{linkify_types(field_info.annotation)}` | `{linkify_types(field_info.default)}` |"
+                f"| `{field_info.name}` | {render_type(field_info.annotation)} | `{field_info.default}` |"
             )
         lines.append("")
     if info.properties:
@@ -1100,7 +1313,7 @@ def render_module(info: ModuleInfo) -> list[str]:
         lines.append("| Name | Value |")
         lines.append("| --- | --- |")
         for constant in info.constants:
-            lines.append(f"| `{constant.name}` | `{linkify_types(constant.value)}` |")
+            lines.append(f"| `{constant.name}` | `{constant.value}` |")
         lines.append("")
     if info.functions:
         lines.append("#### Functions")
@@ -1116,7 +1329,9 @@ def render_module(info: ModuleInfo) -> list[str]:
 
 
 def render_reference() -> str:
-    modules = {name: parse_module(name) for _group, names in MODULE_GROUPS for name in names}
+    modules = {
+        name: parse_module(name) for _group, names in MODULE_GROUPS for name in names
+    }
     lines = [
         "The most common entry point is `caliber_sdk.CaliberClient`; the rest of the package fans out into typed resource modules, dataclass models, shared transport and error helpers, and an async client.",
         "",
@@ -1163,7 +1378,9 @@ def render_cookbooks() -> str:
         lines.append("")
         lines.append(item["summary"])
         lines.append("")
-        lines.append(f"**SDK surfaces:** {', '.join(f'`{name}`' for name in item['surfaces'])}")
+        lines.append(
+            f"**SDK surfaces:** {', '.join(f'`{name}`' for name in item['surfaces'])}"
+        )
         lines.append("")
         for index, step in enumerate(item["steps"], start=1):
             lines.append(f"{index}. {step}")

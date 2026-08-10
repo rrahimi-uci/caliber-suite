@@ -74,9 +74,7 @@ def test_waiting_on_a_plan_stops_at_paused_rather_than_polling_past_it() -> None
         )
 
     with client_with(handler) as caliber:
-        detail = caliber.aria.wait_for_plan(
-            "PLAN-1", interval=0.001, max_interval=0.001, timeout=5
-        )
+        detail = caliber.aria.wait_for_plan("PLAN-1", interval=0.001, max_interval=0.001, timeout=5)
 
     assert detail.plan.needs_you
 

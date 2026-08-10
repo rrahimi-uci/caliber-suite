@@ -135,6 +135,7 @@ FIXED_SITE_FILES = frozenset(
         "docs.js",
         "docs-nav.js",
         "llms.txt",
+        "interactive-layered-architecture.html",
         "presentation.html",
         "presentation_timed.html",
         "walkthrough.html",
@@ -371,3 +372,25 @@ def test_all_materialized_docs_copies_match_docs_site() -> None:
         for name in sorted(expected):
             expected_content = _served_copy(DOCS_SITE / name)
             assert (PACKAGED_DOCS / name).read_text(encoding="utf-8") == expected_content, name
+
+
+def test_no_published_page_links_to_an_anchor_it_does_not_contain() -> None:
+    """A dead in-page link is worse than plain text: it invites a click.
+
+    Cross-references are generated, so a dangling one is a silent product of the
+    generator rather than a typo somebody can spot in review. Three shipped: two
+    ``Raises`` entries linking exception names the reference does not document
+    (``ValueError`` is a builtin; ``error_for_response`` is a factory, not a
+    type), and ``Capabilities.extensibility`` pointing at a class that was
+    missing from its own module's ``__all__`` and so never rendered.
+    """
+    dangling: dict[str, list[str]] = {}
+    for page in sorted(DOCS_SITE.glob("m-*.html")):
+        html = page.read_text(encoding="utf-8")
+        ids = set(re.findall(r'id="([^"]+)"', html))
+        targets = set(re.findall(r'href="#([^"]+)"', html))
+        missing = sorted(target for target in targets - ids if target)
+        if missing:
+            dangling[page.name] = missing
+
+    assert not dangling, f"pages link to anchors they do not define: {dangling}"
