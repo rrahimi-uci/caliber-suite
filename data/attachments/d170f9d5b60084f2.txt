@@ -1,0 +1,6 @@
+INFO     caliber.orchestrator.worker:worker.py:454 job=RFN-W skipping mlflow run binding: experiment 'exp' is not resolvable
+INFO     caliber.orchestrator.triage:triage.py:136 triage complete: job=RFN-W class={'cluster': 'hallucination', 'artifact_type': 'prompt', 'confidence': 0.6, 'rationale': '[fake] hallucination', 'source': 'llm'}
+INFO     caliber.orchestrator.evidence:evidence.py:110 evidence complete: job=RFN-W summary={'trace_id': None, 'experiment_id': None, 'session_id': None, 'has_trace_link': False, 'has_session_link': False, 'free_text_preview': '...'}
+INFO     caliber.orchestrator.diagnosis:diagnosis.py:144 diagnosis complete: job=RFN-W confidence=0.75 cost_usd=0.0015
+INFO     caliber.orchestrator.candidate:candidate.py:266 candidate complete: job=RFN-W optimizer=MetaPrompt cost_usd=0.0040
+INFO     caliber.orchestrator.eval_stage:eval_stage.py:282 eval rejected: job=RFN-W reasons=['overall 0.300 below min_aggregate_score 0.850'] overall=0.300

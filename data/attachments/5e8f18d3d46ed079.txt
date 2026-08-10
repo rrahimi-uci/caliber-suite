@@ -1,9 +1,0 @@
-{"t":"2026-08-10T18:31:43.968Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-08-10T18:31:43.989Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-08-10T18:31:43.992Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-08-10T18:31:43.993Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-08-10T18:31:44.026Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues \"HTTP/1.1 201 Created\""}
-{"t":"2026-08-10T18:31:44.040Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-0298f905/items \"HTTP/1.1 201 Created\""}
-{"t":"2026-08-10T18:31:44.050Z","severity":"WARNING","logger":"caliber.routes.review_queues","message":"review write-back failed for trace tr-1 (writeback unavailable)","trace_id":"36d55faf78d7e916"}
-{"t":"2026-08-10T18:31:44.056Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-0298f905/items/RVI-128edd41/submit \"HTTP/1.1 502 Bad Gateway\""}
-{"t":"2026-08-10T18:31:44.068Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-0298f905/items/RVI-128edd41/submit \"HTTP/1.1 200 OK\""}

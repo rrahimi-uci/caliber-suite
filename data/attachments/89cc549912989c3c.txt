@@ -1,0 +1,1 @@
+{"t":"2026-08-10T19:27:00.564Z","severity":"INFO","logger":"caliber.test.extras","message":"approved","approval_id":"AP-1","agent_id":"agent-x"}

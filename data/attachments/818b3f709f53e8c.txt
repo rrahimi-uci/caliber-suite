@@ -1,5 +1,0 @@
-{"t":"2026-08-10T18:28:52.404Z","severity":"WARNING","logger":"caliber.llm.circuit_breaker","message":"llm circuit opening: 2 failures within 60.0s window"}
-{"t":"2026-08-10T18:28:52.405Z","severity":"INFO","logger":"caliber.llm.circuit_breaker","message":"llm circuit half-open after cooldown"}
-{"t":"2026-08-10T18:28:52.406Z","severity":"WARNING","logger":"caliber.llm.circuit_breaker","message":"llm circuit re-opening; probe call failed"}
-{"t":"2026-08-10T18:28:52.407Z","severity":"INFO","logger":"caliber.llm.circuit_breaker","message":"llm circuit half-open after cooldown"}
-{"t":"2026-08-10T18:28:52.408Z","severity":"INFO","logger":"caliber.llm.circuit_breaker","message":"llm circuit closing after successful probe"}
