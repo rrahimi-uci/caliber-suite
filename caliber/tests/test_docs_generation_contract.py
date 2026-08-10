@@ -10,6 +10,9 @@ copy. These checks pin the published contract independently of the generator.
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
+from functools import cache
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -106,6 +109,23 @@ def _normalize_published_markdown(markdown: str, source: Path) -> str:
     return "\n".join(lines).replace("&nbsp;", " ")
 
 
+@cache
+def _generated_sdk_fragment(kind: str) -> str:
+    generator = DOCS_SITE / "generate_sdk_docs.py"
+    return subprocess.run(
+        [sys.executable, "-B", str(generator), kind],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _materialize_source_markdown(markdown: str) -> str:
+    return markdown.replace("{{SDK_API_REFERENCE}}", _generated_sdk_fragment("reference")).replace(
+        "{{SDK_COOKBOOKS}}", _generated_sdk_fragment("cookbooks")
+    )
+
+
 #: Site files that are not per-module output. Hoisted out of ``_served_site_files``
 #: so the coverage assertions below can name what they expect rather than counting.
 FIXED_SITE_FILES = frozenset(
@@ -173,7 +193,10 @@ def test_all_manifest_markdown_is_current_and_published() -> None:
 
         assert _without_link_destinations(body) == (
             _without_link_destinations(
-                _normalize_published_markdown(source.read_text(encoding="utf-8"), source)
+                _normalize_published_markdown(
+                    _materialize_source_markdown(source.read_text(encoding="utf-8")),
+                    source,
+                )
             )
         ), f"stale generated Markdown for {source_name}"
 

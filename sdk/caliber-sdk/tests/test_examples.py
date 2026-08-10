@@ -106,7 +106,7 @@ def test_prompt_lifecycle_keeps_authoring_and_promotion_separate() -> None:
         {
             "POST /prompts": record,
             "POST /prompts/intake-classifier/versions": record,
-            "POST /prompts/intake-classifier/promote": record,
+            "POST /prompts/intake-classifier/aliases/prod": record,
         }
     )
     with caliber:
@@ -117,7 +117,7 @@ def test_prompt_lifecycle_keeps_authoring_and_promotion_separate() -> None:
     assert seen == [
         "/prompts",
         "/prompts/intake-classifier/versions",
-        "/prompts/intake-classifier/promote",
+        "/prompts/intake-classifier/aliases/prod",
     ]
 
 

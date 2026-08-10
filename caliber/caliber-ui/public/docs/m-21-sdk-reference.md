@@ -2,126 +2,6356 @@
 
 # CALIBER Python SDK reference
 
-Every GA surface the client exposes, what it decodes into, and the stability
-tier it carries. Tiers come from the deployment itself — `client.stability`
-reports what *your* server advertises, so a script can check rather than assume.
+This reference is generated from the SDK source tree at build time. It follows
+the same pattern as the MLflow Python API docs: start with the top-level
+package, then drill into resource modules, models, errors, waiters, and the
+async client.
 
-## The client
+Most developers should begin with:
 
-```python
-from caliber_sdk import CaliberClient
+- `caliber_sdk.CaliberClient` for the synchronous client
+- `caliber_sdk.aio.AsyncCaliberClient` for async workflows
+- [the Python SDK guide](m-20-sdk-guide.html) for setup and common flows
+- [the SDK cookbook implementations](m-25-sdk-cookbooks.html) for full runnable
+  scenarios
 
-with CaliberClient("https://caliber.example.com", token="calpat_...") as caliber:
-    ...
+The reference below is generated from the current SDK code, so the published
+HTML stays aligned with the package the tests exercise.
+
+## Reference
+
+The most common entry point is `caliber_sdk.CaliberClient`; the rest of the package fans out into typed resource modules, dataclass models, shared transport and error helpers, and an async client.
+
+The reference tables below are generated directly from the current SDK source. Behavior notes and examples come from the SDK docstrings and the executable example files the test suite runs.
+
+## Module index
+
+| Group | Modules |
+| --- | --- |
+| Package index | [`caliber_sdk`](#module-caliber_sdk), [`caliber_sdk.client`](#module-caliber_sdkclient), [`caliber_sdk.auth`](#module-caliber_sdkauth), [`caliber_sdk.transport`](#module-caliber_sdktransport), [`caliber_sdk.errors`](#module-caliber_sdkerrors), [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
+| Resource modules | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth), [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem), [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects), [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets), [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows), [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality), [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations), [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations), [`caliber_sdk.resources.raw`](#module-caliber_sdkresourcesraw) |
+| Model modules | [`caliber_sdk.models`](#module-caliber_sdkmodels), [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon), [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore), [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets), [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality), [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations), [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations), [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows), [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
+| Async client | [`caliber_sdk.aio`](#module-caliber_sdkaio), [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient), [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport), [`caliber_sdk.aio.waiters`](#module-caliber_sdkaiowaiters) |
+
+## Package index
+
+### Module `caliber_sdk`
+
+caliber-sdk — a typed Python client for the CALIBER management API.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
 ```
 
-| Argument | Default | Notes |
-| --- | --- | --- |
-| `base_url` | `$CALIBER_BASE_URL` | required, `http(s)` only |
-| `token` | `$CALIBER_TOKEN` | personal access or session token |
-| `user` | `$CALIBER_USER` | trusted-header identity; only for `trusted_header` deployments |
-| `project` | `$CALIBER_PROJECT` | sent as `X-CALIBER-Project` on every request |
-| `timeout` | `30.0` | seconds |
-| `max_retries` | `2` | idempotent methods only |
-| `verify` | `True` | TLS verification, or a CA bundle path |
-| `http_client` | `None` | bring your own `httpx.Client`; the SDK will not close it |
+**Public exports**
 
-Top-level methods: `capabilities()`, `openapi()`, `whoami()`, `health()`,
-`bootstrap_csrf()`, and the `stability` property.
+`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
+
+**Module constants**
+
+| Name | Value |
+| --- | --- |
+| `__version__` | `'0.1.0.dev0'` |
+
+### Module `caliber_sdk.client`
+
+The root client — what a developer constructs first.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
+
+**Public exports**
+
+`ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `CaliberClient`
+
+**Module constants**
+
+| Name | Value |
+| --- | --- |
+| `ENV_BASE_URL` | `'CALIBER_BASE_URL'` |
+| `ENV_TOKEN` | `'CALIBER_TOKEN'` |
+| `ENV_PROJECT` | `'CALIBER_PROJECT'` |
+| `ENV_USER` | `'CALIBER_USER'` |
+
+#### Classes
+
+##### `CaliberClient`
+
+`class CaliberClient(base_url: str | None = None, *, token: str | None = None, user: str | None = None, proxy_secret: str | None = None, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, verify: bool | str = True, http_client: httpx.Client | None = None)`
+
+A connection to one CALIBER deployment.
+
+**Constructor**
+
+###### `__init__(base_url: str | None = None, *, token: str | None = None, user: str | None = None, proxy_secret: str | None = None, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, verify: bool | str = True, http_client: httpx.Client | None = None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `base_url` | positional-or-keyword | `str | None` | `None` |
+| `token` | keyword-only | `str | None` | `None` |
+| `user` | keyword-only | `str | None` | `None` |
+| `proxy_secret` | keyword-only | `str | None` | `None` |
+| `auth` | keyword-only | `AuthProvider | None` | `None` |
+| `project` | keyword-only | `str | None` | `None` |
+| `timeout` | keyword-only | `float` | `30.0` |
+| `max_retries` | keyword-only | `int` | `2` |
+| `verify` | keyword-only | `bool | str` | `True` |
+| `http_client` | keyword-only | `httpx.Client | None` | `None` |
+
+**Returns:** `None`
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `_transport` | `Transport` | — |
+| `raw` | `RawAPI` | Low-level route access through the SDK transport. |
+| `auth` | `AuthAPI` | Session inspection plus token and account sub-resources. |
+| `me` | `MeAPI` | The caller identity surface. |
+| `capabilities_api` | `CapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
+| `settings` | `SettingsAPI` | Runtime and LLM configuration inventory. |
+| `projects` | `ProjectsAPI` | Projects plus the managed file registry. |
+| `prompts` | `PromptsAPI` | Prompt registry authoring and promotion. |
+| `skills` | `SkillsAPI` | Skill registry, render tests, selection tests, and versions. |
+| `tools` | `ToolsAPI` | Tool registry, schemas, and deterministic calibration. |
+| `workflows` | `WorkflowsAPI` | Workflow registry plus versions, runs, and services. |
+| `datasets` | `EvalDatasetsAPI` | Evaluation datasets and examples. |
+| `judges` | `JudgesAPI` | Model-backed graders and alignment scoring. |
+| `evaluations` | `EvaluationsAPI` | Scored dataset runs. |
+| `mcp_servers` | `McpServersAPI` | Managed MCP server registry and governed tool invocation. |
+| `gateway` | `GatewayAPI` | Gateway discovery, usage, and guardrails. |
+| `knowledge_bases` | `KnowledgeBasesAPI` | RAG corpora, versions, retrieval, and calibration. |
+| `object_store` | `ObjectStoreAPI` | Buckets and objects under the storage substrate. |
+| `jobs` | `JobsAPI` | Long-running background jobs. |
+| `review_queues` | `ReviewQueuesAPI` | Human review queues and queue items. |
+| `aria` | `AriaAPI` | The approval-aware plan and interaction loop. |
+| `releases` | `ReleasesAPI` | Release candidates, waivers, signoff, and reports. |
+| `observability` | `ObservabilityAPI` | Traces, experiments, and metrics. |
+| `audit` | `AuditAPI` | The audit log. |
+| `events` | `EventsAPI` | Server-sent event stream. |
+| `cookbooks` | `CookbooksAPI` | The built-in cookbook catalog and installer. |
+| `secrets` | `SecretsAPI` | Write-only secret references. |
+
+**Properties**
+
+###### `stability() -> dict[str, list[str]]`
+
+Tags grouped by ``ga`` / ``beta`` / ``internal``.
+
+This callable takes no public parameters.
+
+**Returns:** `dict[str, list[str]]`
+
+**Methods**
+
+###### `close() -> None`
+
+This callable takes no public parameters.
+
+**Returns:** `None`
+
+###### `__enter__() -> CaliberClient`
+
+This callable takes no public parameters.
+
+**Returns:** `[CaliberClient](#caliberclient)`
+
+###### `__exit__(*_: object) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `_` | var-positional | `object` | `—` |
+
+**Returns:** `None`
+
+###### `capabilities() -> Any`
+
+Runtime feature flags and the SDK stability tiers.
+
+The cheap half of feature detection: it answers "may I call this?"
+without downloading the full OpenAPI document.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+###### `openapi() -> Any`
+
+The management OpenAPI document, generated from the live routes.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+###### `whoami() -> Any`
+
+The identity and scopes CALIBER resolved for this client's credential.
+
+The first call worth making when a script gets an unexpected 403: it
+distinguishes "wrong credential" from "right credential, wrong scope".
+
+It reports identity rather than requiring it, so an invalid or revoked
+credential does **not** raise here -- it returns ``user_id:
+"anonymous"`` with no scopes. Check the value; do not rely on an
+exception to detect a bad token.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+###### `health() -> Any`
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+###### `bootstrap_csrf() -> str | None`
+
+Fetch a CSRF token up front.
+
+Rarely needed: the transport fetches one automatically when a write is
+refused for want of it. Exposed for callers who would rather pay that
+round trip at startup than on their first write.
+
+This callable takes no public parameters.
+
+**Returns:** `str | None`
+
+###### `__repr__() -> str`
+
+This callable takes no public parameters.
+
+**Returns:** `str`
+
+### Module `caliber_sdk.auth`
+
+Authentication strategies for the CALIBER management API.
+
+**Public exports**
+
+`AuthProvider`, `NoAuth`, `TokenAuth`, `TrustedHeaderAuth`
+
+#### Classes
+
+##### `AuthProvider`
+
+`class AuthProvider()`
+
+**Bases:** `Protocol`
+
+Supplies per-request auth headers.
+
+A protocol rather than a base class so a caller can plug in their own --
+fetching a short-lived token from a secret manager, for instance -- without
+subclassing anything in this package.
+
+**Properties**
+
+###### `uses_cookie_auth() -> bool`
+
+Whether this credential is cookie-based.
+
+Drives CSRF: CALIBER's protection exists for browser credentials, and a
+Bearer client should not be forced to bootstrap a token it does not
+need. See :mod:`caliber_sdk.csrf`.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+**Methods**
+
+###### `headers() -> dict[str, str]`
+
+Headers to attach to every request.
+
+This callable takes no public parameters.
+
+**Returns:** `dict[str, str]`
+
+##### `TokenAuth`
+
+`class TokenAuth(token: str)`
+
+``Authorization: Bearer <token>`` — personal access or session token.
+
+**Constructor**
+
+###### `__init__(token: str) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `token` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `None`
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `_token` | `Any` | — |
+
+**Properties**
+
+###### `uses_cookie_auth() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+**Methods**
+
+###### `headers() -> dict[str, str]`
+
+This callable takes no public parameters.
+
+**Returns:** `dict[str, str]`
+
+###### `__repr__() -> str`
+
+This callable takes no public parameters.
+
+**Returns:** `str`
+
+##### `TrustedHeaderAuth`
+
+`class TrustedHeaderAuth(user: str, *, proxy_secret: str | None = None)`
+
+``X-CALIBER-User`` — only for deployments in ``trusted_header`` mode.
+
+Carries no proof of identity by itself, which is why CALIBER ignores the
+header entirely in the default ``session`` mode. Offered because local
+development and proxy-terminated deployments genuinely use it.
+
+**Constructor**
+
+###### `__init__(user: str, *, proxy_secret: str | None = None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `user` | positional-or-keyword | `str` | `—` |
+| `proxy_secret` | keyword-only | `str | None` | `None` |
+
+**Returns:** `None`
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `_user` | `Any` | — |
+| `_proxy_secret` | `Any` | — |
+
+**Properties**
+
+###### `uses_cookie_auth() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+**Methods**
+
+###### `headers() -> dict[str, str]`
+
+This callable takes no public parameters.
+
+**Returns:** `dict[str, str]`
+
+###### `__repr__() -> str`
+
+This callable takes no public parameters.
+
+**Returns:** `str`
+
+##### `NoAuth`
+
+`class NoAuth()`
+
+Send no credential. Useful for probing an unauthenticated endpoint.
+
+**Properties**
+
+###### `uses_cookie_auth() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+**Methods**
+
+###### `headers() -> dict[str, str]`
+
+This callable takes no public parameters.
+
+**Returns:** `dict[str, str]`
+
+### Module `caliber_sdk.transport`
+
+HTTP transport: envelopes, errors, retries, CSRF, and correlation.
+
+**Public exports**
+
+`API_PREFIX`, `USER_AGENT`, `Response`, `Transport`
+
+**Module constants**
+
+| Name | Value |
+| --- | --- |
+| `USER_AGENT` | `'caliber-sdk-python'` |
+| `API_PREFIX` | `'/ajax-api/2.0/mlflow/caliber'` |
+
+#### Classes
+
+##### `Response`
+
+`class Response(*, data, status_code: int, headers: Mapping[str, str], request_id: str | None)`
+
+A decoded response plus the context needed to debug it.
+
+**Constructor**
+
+###### `__init__(*, data, status_code: int, headers: Mapping[str, str], request_id: str | None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `data` | keyword-only | `Any` | `—` |
+| `status_code` | keyword-only | `int` | `—` |
+| `headers` | keyword-only | `Mapping[str, str]` | `—` |
+| `request_id` | keyword-only | `str | None` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `data` | `Any` | — |
+| `status_code` | `Any` | — |
+| `headers` | `Any` | — |
+| `request_id` | `Any` | — |
+
+##### `Transport`
+
+`class Transport(base_url: str, *, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, backoff_factor: float = 0.5, verify: bool | str = True, client: httpx.Client | None = None, user_agent: str | None = None)`
+
+Synchronous HTTP transport against one CALIBER deployment.
+
+**Constructor**
+
+###### `__init__(base_url: str, *, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, backoff_factor: float = 0.5, verify: bool | str = True, client: httpx.Client | None = None, user_agent: str | None = None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `base_url` | positional-or-keyword | `str` | `—` |
+| `auth` | keyword-only | `AuthProvider | None` | `None` |
+| `project` | keyword-only | `str | None` | `None` |
+| `timeout` | keyword-only | `float` | `30.0` |
+| `max_retries` | keyword-only | `int` | `2` |
+| `backoff_factor` | keyword-only | `float` | `0.5` |
+| `verify` | keyword-only | `bool | str` | `True` |
+| `client` | keyword-only | `httpx.Client | None` | `None` |
+| `user_agent` | keyword-only | `str | None` | `None` |
+
+**Returns:** `None`
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `base_url` | `Any` | — |
+| `auth` | `Any` | Session inspection plus token and account sub-resources. |
+| `project` | `Any` | — |
+| `_owns_client` | `Any` | — |
+| `_client` | `Any` | — |
+| `_user_agent` | `Any` | — |
+
+**Methods**
+
+###### `close() -> None`
+
+This callable takes no public parameters.
+
+**Returns:** `None`
+
+###### `__enter__() -> Transport`
+
+This callable takes no public parameters.
+
+**Returns:** `Transport`
+
+###### `__exit__(*_: object) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `_` | var-positional | `object` | `—` |
+
+**Returns:** `None`
+
+###### `url_for(path: str) -> str`
+
+Absolute URL for an API path, with or without the prefix.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `str`
+
+###### `bootstrap_csrf() -> str | None`
+
+Fetch and cache a CSRF token, returning it.
+
+Idempotent and cheap to call. Returns ``None`` when the deployment does
+not issue one, which is not an error: CSRF enforcement is configurable
+and a Bearer client may not need it.
+
+This callable takes no public parameters.
+
+**Returns:** `str | None`
+
+###### `request(method: str, path: str, *, params: Mapping[str, Any] | None = None, json = None, headers: Mapping[str, str] | None = None, files = None, data: Mapping[str, Any] | None = None, timeout: float | None = None, _csrf_retry: bool = True) -> Response`
+
+Perform one API call, returning the unwrapped payload.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `method` | positional-or-keyword | `str` | `—` |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `json` | keyword-only | `Any` | `None` |
+| `headers` | keyword-only | `Mapping[str, str] | None` | `None` |
+| `files` | keyword-only | `Any` | `None` |
+| `data` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `timeout` | keyword-only | `float | None` | `None` |
+| `_csrf_retry` | keyword-only | `bool` | `True` |
+
+**Returns:** `Response`
+
+**Raises:**
+
+- [`CaliberTransportError`](#calibertransporterror)
+- [`error_for_response`](#error_for_response)
+
+###### `get(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `post(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `put(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `patch(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `delete(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `download(path: str, **kwargs) -> bytes`
+
+Fetch raw bytes.
+
+Separate from :meth:`request` because file content is not JSON: it has
+no envelope to unwrap and decoding it would corrupt binary data.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberTransportError`](#calibertransporterror)
+- [`error_for_response`](#error_for_response)
+
+###### `stream_lines(path: str, *, params: Mapping[str, Any] | None = None, timeout: float | None = None) -> Iterator[str]`
+
+Yield lines from a server-sent-events endpoint.
+
+Streaming needs its own path: the ordinary request reads the whole body
+before returning, which for an endpoint that never ends means blocking
+forever. No default timeout is applied either — a stream staying open is
+the success case, not a hang.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `timeout` | keyword-only | `float | None` | `None` |
+
+**Returns:** `Iterator[str]`
+
+**Raises:**
+
+- [`CaliberTransportError`](#calibertransporterror)
+- [`error_for_response`](#error_for_response)
+
+###### `paginate(path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100) -> Iterator[Any]`
+
+Yield items across ``limit``/``offset`` pages.
+
+CALIBER's list endpoints are offset-based today. Exposing an iterator
+rather than the raw pages means the eventual move to cursors does not
+change this signature.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `limit` | keyword-only | `int` | `100` |
+
+**Returns:** `Iterator[Any]`
+
+### Module `caliber_sdk.errors`
+
+Exception hierarchy for the CALIBER SDK.
+
+**Public exports**
+
+`CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
+
+#### Functions
+
+###### `error_for_response(*, status_code: int, payload, method: str, url: str, request_id: str | None = None) -> CaliberAPIError`
+
+Build the right exception for a non-2xx response.
+
+Tolerates a body that is not the documented shape -- an HTML error page from
+a proxy in front of CALIBER is a realistic response, and it must produce a
+usable exception rather than a KeyError inside the SDK.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status_code` | keyword-only | `int` | `—` |
+| `payload` | keyword-only | `Any` | `—` |
+| `method` | keyword-only | `str` | `—` |
+| `url` | keyword-only | `str` | `—` |
+| `request_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `[CaliberAPIError](#caliberapierror)`
+
+#### Classes
+
+##### `CaliberError`
+
+`class CaliberError()`
+
+**Bases:** `Exception`
+
+Base class for everything this SDK raises.
+
+A caller who wants "any SDK failure" catches this and nothing else.
+
+##### `CaliberConfigError`
+
+`class CaliberConfigError()`
+
+**Bases:** `CaliberError`
+
+The client was constructed with an unusable configuration.
+
+##### `CaliberTransportError`
+
+`class CaliberTransportError()`
+
+**Bases:** `CaliberError`
+
+The request never produced an HTTP response.
+
+Connection refused, DNS failure, timeout. Distinct from
+:class:`CaliberAPIError` because there is no server verdict to inspect --
+and because retrying is often correct here and often wrong there.
+
+##### `CaliberAPIError`
+
+`class CaliberAPIError(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None)`
+
+**Bases:** `CaliberError`
+
+The server returned a non-2xx response.
+
+**Constructor**
+
+###### `__init__(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `message` | positional-or-keyword | `str` | `—` |
+| `status_code` | keyword-only | `int` | `—` |
+| `detail` | keyword-only | `str | None` | `None` |
+| `method` | keyword-only | `str | None` | `None` |
+| `url` | keyword-only | `str | None` | `None` |
+| `request_id` | keyword-only | `str | None` | `None` |
+| `payload` | keyword-only | `Any` | `None` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `status_code` | `Any` | — |
+| `detail` | `Any` | — |
+| `method` | `Any` | — |
+| `url` | `Any` | — |
+| `request_id` | `Any` | — |
+| `payload` | `Any` | — |
+
+##### `CaliberAuthenticationError`
+
+`class CaliberAuthenticationError()`
+
+**Bases:** `CaliberAPIError`
+
+401 — no usable identity. The credential is missing, wrong, or revoked.
+
+##### `CaliberPermissionError`
+
+`class CaliberPermissionError()`
+
+**Bases:** `CaliberAPIError`
+
+403 — authenticated, but the identity lacks the required scope.
+
+##### `CaliberNotFoundError`
+
+`class CaliberNotFoundError()`
+
+**Bases:** `CaliberAPIError`
+
+404 — no such resource.
+
+CALIBER also returns this for a resource that exists but belongs to another
+user, deliberately: distinguishing the two would let a caller enumerate ids.
+
+##### `CaliberConflictError`
+
+`class CaliberConflictError()`
+
+**Bases:** `CaliberAPIError`
+
+409 — the request conflicts with current state (duplicate name, etc.).
+
+##### `CaliberValidationError`
+
+`class CaliberValidationError(message: str, *, errors: list[dict[str, Any]], **kwargs)`
+
+**Bases:** `CaliberAPIError`
+
+400 with a structured ``errors`` list.
+
+**Constructor**
+
+###### `__init__(message: str, *, errors: list[dict[str, Any]], **kwargs) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `message` | positional-or-keyword | `str` | `—` |
+| `errors` | keyword-only | `list[dict[str, Any]]` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `errors` | `Any` | — |
+
+##### `CaliberRateLimitError`
+
+`class CaliberRateLimitError()`
+
+**Bases:** `CaliberAPIError`
+
+429 — too many requests.
+
+##### `CaliberServerError`
+
+`class CaliberServerError()`
+
+**Bases:** `CaliberAPIError`
+
+5xx — the server failed. Usually worth retrying; never worth assuming.
+
+### Module `caliber_sdk.waiters`
+
+Polling helpers for CALIBER's long-running operations.
+
+**Public exports**
+
+`FAILURE_STATES`, `TERMINAL_STATES`, `WaitFailed`, `WaitTimeout`, `state_of`, `wait_for`, `wait_for_terminal_state`
+
+#### Functions
+
+###### `wait_for(poll: Callable[[], T], *, is_done: Callable[[T], bool], timeout: float = 300.0, interval: float = 2.0, max_interval: float = 15.0, backoff: float = 1.5, sleep: Callable[[float], None] = time.sleep, now: Callable[[], float] = time.monotonic) -> T`
+
+Poll until ``is_done`` or the timeout expires.
+
+The interval grows geometrically to ``max_interval``. A fixed short interval
+is what turns a slow job into thousands of requests; a fixed long one makes
+a fast job feel slow. ``sleep`` and ``now`` are injectable so tests do not
+have to spend real seconds proving this.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `poll` | positional-or-keyword | `Callable[[], T]` | `—` |
+| `is_done` | keyword-only | `Callable[[T], bool]` | `—` |
+| `timeout` | keyword-only | `float` | `300.0` |
+| `interval` | keyword-only | `float` | `2.0` |
+| `max_interval` | keyword-only | `float` | `15.0` |
+| `backoff` | keyword-only | `float` | `1.5` |
+| `sleep` | keyword-only | `Callable[[float], None]` | `time.sleep` |
+| `now` | keyword-only | `Callable[[], float]` | `time.monotonic` |
+
+**Returns:** `T`
+
+**Raises:**
+
+- [`ValueError`](#valueerror)
+- [`WaitTimeout`](#waittimeout)
+
+###### `state_of(payload, *, keys: Sequence[str] = ('status', 'state')) -> str`
+
+Read a status field from a payload, tolerating either spelling.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | positional-or-keyword | `Any` | `—` |
+| `keys` | keyword-only | `Sequence[str]` | `('status', 'state')` |
+
+**Returns:** `str`
+
+###### `wait_for_terminal_state(poll: Callable[[], Any], *, terminal: frozenset[str] = TERMINAL_STATES, failure: frozenset[str] = FAILURE_STATES, raise_on_failure: bool = True, **kwargs) -> Any`
+
+Poll until the payload's status is terminal.
+
+``raise_on_failure`` is on by default because the common script wants a
+failed job to stop it; a caller inspecting the outcome themselves turns it
+off rather than wrapping every call in a try.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `poll` | positional-or-keyword | `Callable[[], Any]` | `—` |
+| `terminal` | keyword-only | `frozenset[str]` | `TERMINAL_STATES` |
+| `failure` | keyword-only | `frozenset[str]` | `FAILURE_STATES` |
+| `raise_on_failure` | keyword-only | `bool` | `True` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+#### Classes
+
+##### `WaitTimeout`
+
+`class WaitTimeout(message: str, *, last = None, elapsed: float = 0.0)`
+
+**Bases:** `CaliberError`
+
+The operation did not reach a terminal state within the budget.
+
+**Constructor**
+
+###### `__init__(message: str, *, last = None, elapsed: float = 0.0) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `message` | positional-or-keyword | `str` | `—` |
+| `last` | keyword-only | `Any` | `None` |
+| `elapsed` | keyword-only | `float` | `0.0` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `last` | `Any` | — |
+| `elapsed` | `Any` | — |
+
+##### `WaitFailed`
+
+`class WaitFailed(message: str, *, state: str, last = None)`
+
+**Bases:** `CaliberError`
+
+The operation reached a terminal state that indicates failure.
+
+**Constructor**
+
+###### `__init__(message: str, *, state: str, last = None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `message` | positional-or-keyword | `str` | `—` |
+| `state` | keyword-only | `str` | `—` |
+| `last` | keyword-only | `Any` | `None` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `state` | `Any` | — |
+| `last` | `Any` | — |
 
 ## Resource modules
 
-| Attribute | Surface | Tier |
-| --- | --- | --- |
-| `auth.session()` | how identity was established | `ga` |
-| `auth.tokens` | `list` · `create` · `revoke` · `rotate` | `ga` |
-| `auth.accounts` | `list` · `create` · `update` · `revoke_sessions` | `ga` |
-| `me` | `get` | `ga` |
-| `capabilities_api` | `get` | `ga` |
-| `settings` | `runtime` · `llm` · `update_llm` | `ga` |
-| `projects` | `list` · `get` · `create` · `update` · `storage` | `ga` |
-| `projects.files` | `list` · `upload` · `download` · `create_folder` · `delete` | `ga` |
-| `prompts` | `list` · `get` · `create` · `versions` · `register_version` · `promote` | `ga` |
-| `skills` | `list` · `get` · `create` · `update` · `render` · `test_selection` · `versions` | `ga` |
-| `tools` | `list` · `get` · `register` · `update` · `calibrate` · `calibration_job(s)` · `wait_for_calibration` | `ga` |
-| `workflows` | `list` · `get` · `create` · `update` · `delete` | `ga` |
-| `workflows.versions` | `list` · `get` · `create` · `validate` · `compile` · `publish` | `ga` |
-| `workflows.runs` | `list` · `get` · `submit` · `cancel` · `wait` | `ga` |
-| `workflows.services` | `get` · `publish` · `unpublish` · `openapi` · `invoke` | `ga` |
-| `datasets` | `list` · `get` · `create` · `examples` · `add_example` · `add_from_trace` | `ga` |
-| `judges` | `list` · `get` · `create` · `test` · `alignment` | `ga` |
-| `evaluations` | `list` · `get` · `create` · `wait` | `ga` |
-| `raw` | any path under the API prefix | — |
+### Module `caliber_sdk.resources.auth`
 
-### Paths that are not what they look like
+Authentication, tokens, and accounts.
 
-Two surfaces are split on the server in ways the names do not suggest, and the
-SDK follows the server rather than the naming:
+**Tested example**
 
-- **Runs.** `POST /workflow-runs` submits; there is no unscoped run listing.
-  `workflows.runs.list(workflow_id)` therefore requires a workflow.
-- **Services.** Management lives under `/workflows/{id}/service` — publishing is
-  a property of the workflow. `/services/{id}` is the *external* invocation
-  surface, authenticated by per-service tokens rather than a user credential.
-
-## Models
-
-Dataclasses, not pydantic models — installing a client should not pull a
-compiled core into every developer script for shapes dataclasses already
-express.
-
-| Module | Types |
-| --- | --- |
-| `models.core` | `Identity` · `SessionInfo` · `Account` · `PersonalAccessToken` · `IssuedToken` · `Capabilities` · `WorkflowRunCapabilities` · `LlmSetupStatus` · `RuntimeSettings` · `Project` · `ProjectFile` · `ProjectFolder` |
-| `models.assets` | `Prompt` · `Skill` · `SkillRender` · `SkillSelection` · `SkillVersion` · `Tool` · `CalibrationJob` |
-| `models.workflows` | `Workflow` · `WorkflowVersion` · `WorkflowRun` · `WorkflowService` |
-| `models.quality` | `EvalDataset` · `EvalExample` · `Judge` · `Evaluation` · `JudgeAlignment` |
-
-Every model carries an `extra` mapping holding response fields this SDK does not
-model, so a newer server stays reachable without waiting for a release.
-
-### Properties worth knowing
-
-| Property | Answers |
-| --- | --- |
-| `Identity.is_anonymous` | whether the credential resolved to nobody |
-| `Capabilities.is_ga(tag)` / `.tier_of(tag)` | may I rely on this surface? |
-| `WorkflowRun.is_terminal` / `.succeeded` | stopped, versus stopped *well* |
-| `WorkflowVersion.is_draft` | not runnable until published |
-| `CalibrationJob.is_terminal` | the job stopped, whatever the score |
-| `Evaluation.is_terminal` | scoring finished, whatever the result |
-| `EvalDataset.is_synced` | has *ever* been pushed to MLflow — not that it is currently in sync |
-
-That last one is deliberately narrow. `mlflow_synced_version` lags `version` the
-moment a row is added, and reporting "in sync" would let a caller treat stale
-evidence as current.
-
-`IssuedToken` is a distinct type from `PersonalAccessToken` for the same class
-of reason: only the issue and rotate responses carry a secret, and a listed
-token has no `token` field at all rather than a null one — a null would announce
-a secret in the one payload that must never mention one.
-
-## Waiters
-
-```python
-from caliber_sdk import wait_for, wait_for_terminal_state
+```python-example
+sdk/caliber-sdk/examples/tokens.py#issue_scoped_token
 ```
 
-`wait_for(poll, is_done=..., timeout=..., interval=..., max_interval=...)` polls
-with geometric backoff. A fixed short interval turns a slow job into thousands
-of requests; a fixed long one makes a fast job feel slow.
+**Public exports**
 
-`sleep` and `now` are injectable, so tests do not spend real seconds proving
-polling behaviour.
+`AccountsAPI`, `AuthAPI`, `TokensAPI`
 
-Raises `WaitTimeout` — carrying the last observation, so a caller can report
-*where* it stalled — or `WaitFailed` for a terminal failure state.
+#### Classes
 
-## Exceptions
+##### `TokensAPI`
 
-All inherit `CaliberError`. See the guide for the hierarchy and for what each
-one means about whether retrying could help.
+`class TokensAPI()`
 
-`CaliberAPIError` carries `status_code`, `detail`, `method`, `url`,
-`request_id`, and the decoded `payload` — so a failure in someone else's CI log
-is actionable rather than "the SDK raised".
+**Bases:** `Resource`
+
+Personal access tokens for automation.
+
+**Methods**
+
+###### `list() -> list[PersonalAccessToken]`
+
+Every token belonging to the caller. Never includes a secret.
+
+This callable takes no public parameters.
+
+**Returns:** `list[[PersonalAccessToken](#personalaccesstoken)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, *, scopes: Sequence[str] | None = None, expires_at: str | None = None) -> IssuedToken`
+
+Issue a token. The plaintext is returned **once** — store it now.
+
+``scopes`` is a ceiling, not a grant: the effective authority is the
+intersection with what the owner holds at request time. Omit it to
+inherit the owner's scopes. Requesting a scope the caller does not hold
+is refused rather than silently narrowed.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `scopes` | keyword-only | `Sequence[str] | None` | `None` |
+| `expires_at` | keyword-only | `str | None` | `None` |
+
+**Returns:** `[IssuedToken](#issuedtoken)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `revoke(token_id: str) -> bool`
+
+Revoke a token. Returns whether a live token was actually revoked.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `token_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `rotate(token_id: str) -> IssuedToken`
+
+Replace a token's secret, preserving its name and scope ceiling.
+
+One transaction on the server: the old token is revoked and the
+replacement issued together, so a failure cannot leave an account with
+two live tokens or none.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `token_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[IssuedToken](#issuedtoken)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AccountsAPI`
+
+`class AccountsAPI()`
+
+**Bases:** `Resource`
+
+User accounts. Admin-only on the server.
+
+**Methods**
+
+###### `list() -> list[Account]`
+
+This callable takes no public parameters.
+
+**Returns:** `list[[Account](#account)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(user_id: str, password: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `password` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(user_id: str, *, password: str | None = None, disabled: bool | None = None) -> Any`
+
+Reset a password or enable/disable an account.
+
+Both revoke the account's sessions server-side, so they take effect
+immediately rather than at the next expiry.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `password` | keyword-only | `str | None` | `None` |
+| `disabled` | keyword-only | `bool | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `revoke_sessions(user_id: str) -> int`
+
+Sign an account out everywhere. Returns how many sessions were cut.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `user_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `int`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AuthAPI`
+
+`class AuthAPI(transport)`
+
+**Bases:** `Resource`
+
+Session inspection, plus the token and account sub-resources.
+
+**Constructor**
+
+###### `__init__(transport) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `transport` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `tokens` | `TokensAPI` | — |
+| `accounts` | `AccountsAPI` | — |
+
+**Methods**
+
+###### `session() -> SessionInfo`
+
+How this client's identity was established.
+
+This callable takes no public parameters.
+
+**Returns:** `[SessionInfo](#sessioninfo)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.resources.system`
+
+Identity, capabilities, and settings — the deployment-level surfaces.
+
+**Public exports**
+
+`CapabilitiesAPI`, `MeAPI`, `SettingsAPI`
+
+#### Classes
+
+##### `MeAPI`
+
+`class MeAPI()`
+
+**Bases:** `Resource`
+
+The caller's own identity.
+
+**Methods**
+
+###### `get() -> Identity`
+
+Resolve this client's identity and scopes.
+
+Reports rather than requires: an invalid or revoked credential returns
+an anonymous identity instead of raising. Check
+:attr:`Identity.is_anonymous`; do not rely on an exception.
+
+This callable takes no public parameters.
+
+**Returns:** `[Identity](#identity)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `CapabilitiesAPI`
+
+`class CapabilitiesAPI()`
+
+**Bases:** `Resource`
+
+Runtime feature flags and API stability tiers.
+
+**Methods**
+
+###### `get() -> Capabilities`
+
+This callable takes no public parameters.
+
+**Returns:** `[Capabilities](#capabilities)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `SettingsAPI`
+
+`class SettingsAPI()`
+
+**Bases:** `Resource`
+
+Runtime configuration inventory and LLM credential status.
+
+**Methods**
+
+###### `runtime() -> RuntimeSettings`
+
+This callable takes no public parameters.
+
+**Returns:** `[RuntimeSettings](#runtimesettings)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `llm() -> LlmSetupStatus`
+
+Which LLM credentials are configured.
+
+Presence flags and masked fingerprints only — the endpoint does not
+disclose key values, deliberately.
+
+This callable takes no public parameters.
+
+**Returns:** `[LlmSetupStatus](#llmsetupstatus)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_llm(**changes) -> Any`
+
+Write LLM provider settings. Secrets are write-only on the server.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.resources.projects`
+
+Projects and their files — the workspace-scoping surface.
+
+**Public exports**
+
+`ProjectFilesAPI`, `ProjectsAPI`
+
+#### Classes
+
+##### `ProjectFilesAPI`
+
+`class ProjectFilesAPI()`
+
+**Bases:** `Resource`
+
+Files inside one project.
+
+**Methods**
+
+###### `list(project_id: str) -> tuple[list[ProjectFile], list[ProjectFolder]]`
+
+Files and the directories containing them.
+
+Returned as a pair rather than one flattened list: a directory is not a
+file, and collapsing them would make an empty folder indistinguishable
+from a missing one.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `tuple[list[[ProjectFile](#projectfile)], list[[ProjectFolder](#projectfolder)]]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `upload(project_id: str, *, filename: str, content: bytes | BinaryIO, path: str | None = None, kind: str = 'input', media_type: str | None = None) -> ProjectFile`
+
+Upload a file. Multipart, so it does not go through the JSON path.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `filename` | keyword-only | `str` | `—` |
+| `content` | keyword-only | `bytes | BinaryIO` | `—` |
+| `path` | keyword-only | `str | None` | `None` |
+| `kind` | keyword-only | `str` | `'input'` |
+| `media_type` | keyword-only | `str | None` | `None` |
+
+**Returns:** `[ProjectFile](#projectfile)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_folder(project_id: str, path: str) -> ProjectFolder`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `path` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[ProjectFolder](#projectfolder)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(project_id: str, file_id: str) -> bool`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `download(project_id: str, file_id: str) -> bytes`
+
+Raw bytes. Not JSON, so it bypasses the envelope entirely.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ProjectsAPI`
+
+`class ProjectsAPI(transport)`
+
+**Bases:** `Resource`
+
+Projects, plus their file sub-resource.
+
+**Constructor**
+
+###### `__init__(transport) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `transport` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `files` | `ProjectFilesAPI` | — |
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> list[Project]`
+
+Active projects by default; pass ``status="all"`` for everything.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[[Project](#project)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str) -> Project`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Project](#project)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, *, description: str | None = None) -> Project`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `description` | keyword-only | `str | None` | `None` |
+
+**Returns:** `[Project](#project)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(project_id: str, *, name: str | None = None, description: str | None = None, status: str | None = None) -> Project`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | keyword-only | `str | None` | `None` |
+| `description` | keyword-only | `str | None` | `None` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `[Project](#project)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `storage() -> Any`
+
+Where project files live, and what else the deployment supports.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.resources.assets`
+
+Prompts, skills, and tools — the governed asset families.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
+```
+
+**Public exports**
+
+`PromptsAPI`, `SkillsAPI`, `ToolsAPI`
+
+#### Classes
+
+##### `PromptsAPI`
+
+`class PromptsAPI()`
+
+**Bases:** `Resource`
+
+Prompt registry surfaces.
+
+Prompts are MLflow registry objects that CALIBER governs. Versions are
+immutable and an alias points at one of them, so "update a prompt" is
+always "register a new version", never an edit in place.
+
+**Methods**
+
+###### `list() -> list[Prompt]`
+
+This callable takes no public parameters.
+
+**Returns:** `list[[Prompt](#prompt)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(agent_id: str) -> Prompt`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Prompt](#prompt)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, template: str, *, commit_message: str | None = None) -> Any`
+
+Register a prompt and its first version.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `template` | positional-or-keyword | `str` | `—` |
+| `commit_message` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `versions(agent_id: str) -> Any`
+
+Every registered version, newest first.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `register_version(agent_id: str, template: str, *, commit_message: str | None = None) -> Any`
+
+Add a version without touching the live alias.
+
+The alias is rotated separately by :meth:`promote`, so authoring is
+never a deployment — the property the whole refinement loop depends on.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+| `template` | positional-or-keyword | `str` | `—` |
+| `commit_message` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `promote(agent_id: str, version: int, *, alias: str = 'prod') -> Any`
+
+Point an alias at a version. This is the deployment step.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+| `version` | positional-or-keyword | `int` | `—` |
+| `alias` | keyword-only | `str` | `'prod'` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `SkillsAPI`
+
+`class SkillsAPI()`
+
+**Bases:** `Resource`
+
+Skill registry, rendering, selection testing, and versions.
+
+**Methods**
+
+###### `list(*, status: str | None = None, tag: str | None = None) -> list[Skill]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+| `tag` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[[Skill](#skill)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(skill_id: str) -> Skill`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Skill](#skill)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, *, content: str, owner: str, summary: str | None = None, description: str | None = None, tags: Sequence[str] | None = None) -> Skill`
+
+Create a skill.
+
+``owner`` is required by the server and is therefore keyword-required
+here rather than defaulted to the caller's identity: a skill's owner is
+a governance field, and quietly inferring it would make authorship an
+accident of which credential happened to run the script.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `content` | keyword-only | `str` | `—` |
+| `owner` | keyword-only | `str` | `—` |
+| `summary` | keyword-only | `str | None` | `None` |
+| `description` | keyword-only | `str | None` | `None` |
+| `tags` | keyword-only | `Sequence[str] | None` | `None` |
+
+**Returns:** `[Skill](#skill)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(skill_id: str, **changes) -> Skill`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Skill](#skill)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `render(skill_id: str, *, variables: dict[str, Any] | None = None) -> SkillRender`
+
+Substitute ``{{variables}}`` and report what was left unresolved.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+| `variables` | keyword-only | `dict[str, Any] | None` | `None` |
+
+**Returns:** `[SkillRender](#skillrender)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_selection(skill_id: str, query: str) -> SkillSelection`
+
+Would this skill be auto-selected for this query?
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+| `query` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[SkillSelection](#skillselection)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `versions(skill_id: str) -> _List[SkillVersion]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `_List[[SkillVersion](#skillversion)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ToolsAPI`
+
+`class ToolsAPI()`
+
+**Bases:** `Resource`
+
+Tool registry, fixtures, and calibration.
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> list[Tool]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[[Tool](#tool)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(tool_id: str) -> Tool`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Tool](#tool)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `register(name: str, *, version: str, module_path: str, callable_name: str, input_schema: dict[str, Any] | None = None, output_schema: dict[str, Any] | None = None, **options) -> Tool`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `version` | keyword-only | `str` | `—` |
+| `module_path` | keyword-only | `str` | `—` |
+| `callable_name` | keyword-only | `str` | `—` |
+| `input_schema` | keyword-only | `dict[str, Any] | None` | `None` |
+| `output_schema` | keyword-only | `dict[str, Any] | None` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Tool](#tool)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(tool_id: str, **changes) -> Tool`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Tool](#tool)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibrate(tool_id: str, **options) -> CalibrationJob`
+
+Queue a calibration run. Returns immediately with a job to poll.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[CalibrationJob](#calibrationjob)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibration_job(tool_id: str, job_id: str) -> CalibrationJob`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[CalibrationJob](#calibrationjob)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibration_jobs(tool_id: str) -> _List[CalibrationJob]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `_List[[CalibrationJob](#calibrationjob)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait_for_calibration(tool_id: str, job_id: str, *, timeout: float = 600.0, **options) -> CalibrationJob`
+
+Poll a calibration job until it stops.
+
+Returns the terminal job rather than raising on failure: a failed
+calibration is a result to inspect, not an error in the call.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `600.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[CalibrationJob](#calibrationjob)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+### Module `caliber_sdk.resources.workflows`
+
+Workflows, versions, runs, deployments, and services.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+**Public exports**
+
+`WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+
+#### Classes
+
+##### `WorkflowRunFailed`
+
+`class WorkflowRunFailed(run: WorkflowRun)`
+
+**Bases:** `CaliberError`
+
+A run reached a terminal state that is not success.
+
+**Constructor**
+
+###### `__init__(run: WorkflowRun) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run` | positional-or-keyword | `[WorkflowRun](#workflowrun)` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `run` | `Any` | — |
+
+##### `WorkflowVersionsAPI`
+
+`class WorkflowVersionsAPI()`
+
+**Bases:** `Resource`
+
+Immutable manifest snapshots of one workflow.
+
+**Methods**
+
+###### `list(workflow_id: str) -> _List[WorkflowVersion]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `_List[[WorkflowVersion](#workflowversion)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(version_id: str) -> WorkflowVersion`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[WorkflowVersion](#workflowversion)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(workflow_id: str, manifest: dict[str, Any]) -> WorkflowVersion`
+
+Register a draft version. Drafts are not runnable until published.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `manifest` | positional-or-keyword | `dict[str, Any]` | `—` |
+
+**Returns:** `[WorkflowVersion](#workflowversion)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `validate(version_id: str) -> Any`
+
+Validation report for a version's manifest.
+
+Returned untyped on purpose: the report is produced by the server's
+validator, and a schema here would be a second definition of a contract
+that lives there.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `compile(version_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `publish(version_id: str) -> WorkflowVersion`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[WorkflowVersion](#workflowversion)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `WorkflowRunsAPI`
+
+`class WorkflowRunsAPI()`
+
+**Bases:** `Resource`
+
+Executions, and waiting on them.
+
+**Methods**
+
+###### `list(workflow_id: str, *, status: str | None = None) -> _List[WorkflowRun]`
+
+Runs of one workflow.
+
+Scoped to a workflow because the server has no unscoped run listing:
+``/workflow-runs`` is POST-only (submission). An SDK method implying
+otherwise returned 405 at runtime, which is how this was found.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `_List[[WorkflowRun](#workflowrun)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(run_id: str) -> WorkflowRun`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `submit(*, workflow_version_id: str | None = None, workflow_id: str | None = None, alias: str | None = None, input = None, idempotency_key: str | None = None, **options) -> WorkflowRun`
+
+Queue a run. Returns immediately with a run to poll.
+
+A run targets either a specific version or a workflow plus a deployment
+alias — the server accepts both, and forcing one here would make the
+alias path unreachable, which is how a deployed workflow is invoked.
+
+``idempotency_key`` is passed through because submission is the one
+mutating call the SDK cannot safely retry on its own.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_version_id` | keyword-only | `str | None` | `None` |
+| `workflow_id` | keyword-only | `str | None` | `None` |
+| `alias` | keyword-only | `str | None` | `None` |
+| `input` | keyword-only | `Any` | `None` |
+| `idempotency_key` | keyword-only | `str | None` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `cancel(run_id: str) -> WorkflowRun`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(run_id: str, *, timeout: float = 900.0, raise_on_failure: bool = True, **options) -> WorkflowRun`
+
+Poll until the run stops.
+
+Raises by default, unlike calibration: a script that submitted work and
+got a failure almost always wants to stop, whereas a calibration score
+is the thing being measured. Pass ``raise_on_failure=False`` to inspect
+instead.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `raise_on_failure` | keyword-only | `bool` | `True` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+- [`WorkflowRunFailed`](#workflowrunfailed)
+
+##### `WorkflowServicesAPI`
+
+`class WorkflowServicesAPI()`
+
+**Bases:** `Resource`
+
+Workflows published as external HTTP services.
+
+The server splits this in two, and so does this class. *Management* lives
+under ``/workflows/{id}/service`` — configuring and publishing is a
+property of the workflow. *Invocation* lives under ``/services/{id}`` —
+that is the external surface, authenticated by per-service tokens rather
+than a user credential.
+
+There is no unscoped service listing; a service is reached through its
+workflow. An earlier version of this class invented ``GET /services`` and
+returned 404 at runtime.
+
+**Methods**
+
+###### `get(workflow_id: str) -> WorkflowService`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[WorkflowService](#workflowservice)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `publish(workflow_id: str, **options) -> WorkflowService`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[WorkflowService](#workflowservice)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `unpublish(workflow_id: str) -> bool`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `openapi(workflow_id: str) -> Any`
+
+The per-workflow OpenAPI document the service surface publishes.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `invoke(workflow_id: str, payload = None, **options) -> Any`
+
+Call a published service.
+
+The external surface: in production this is authenticated by a
+per-service token rather than the user credential the rest of this
+client carries.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `payload` | positional-or-keyword | `Any` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `WorkflowsAPI`
+
+`class WorkflowsAPI(transport)`
+
+**Bases:** `Resource`
+
+Workflows, plus versions, runs, and services as sub-resources.
+
+**Constructor**
+
+###### `__init__(transport) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `transport` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `versions` | `WorkflowVersionsAPI` | — |
+| `runs` | `WorkflowRunsAPI` | — |
+| `services` | `WorkflowServicesAPI` | — |
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> _List[Workflow]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `_List[[Workflow](#workflow)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(workflow_id: str) -> Workflow`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Workflow](#workflow)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, *, description: str | None = None, **options) -> Workflow`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `description` | keyword-only | `str | None` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Workflow](#workflow)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(workflow_id: str, **changes) -> Workflow`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Workflow](#workflow)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(workflow_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.resources.quality`
+
+Datasets, judges, and evaluations — the evidence and scoring surfaces.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/evaluation.py#build_and_score
+```
+
+**Public exports**
+
+`EvalDatasetsAPI`, `EvaluationsAPI`, `JudgesAPI`
+
+#### Classes
+
+##### `EvalDatasetsAPI`
+
+`class EvalDatasetsAPI()`
+
+**Bases:** `Resource`
+
+Versioned evaluation datasets and their examples.
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> _List[EvalDataset]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `_List[[EvalDataset](#evaldataset)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(dataset_id: str) -> EvalDataset`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[EvalDataset](#evaldataset)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, *, owner: str, description: str | None = None, **options) -> EvalDataset`
+
+Create a dataset.
+
+``owner`` is required by the server and kept keyword-required here for
+the same reason as skills: ownership is a governance field, not
+something to infer from whichever credential ran the script.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `owner` | keyword-only | `str` | `—` |
+| `description` | keyword-only | `str | None` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[EvalDataset](#evaldataset)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `add_example(dataset_id: str, *, inputs, expected = None, **options) -> EvalExample`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `inputs` | keyword-only | `Any` | `—` |
+| `expected` | keyword-only | `Any` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[EvalExample](#evalexample)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `examples(dataset_id: str) -> _List[EvalExample]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `_List[[EvalExample](#evalexample)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `add_from_trace(dataset_id: str, trace_id: str, **options) -> EvalExample`
+
+Capture a production trace as a dataset row.
+
+The path that turns an observed failure into evidence, which is where
+the refinement loop starts.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `trace_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[EvalExample](#evalexample)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `JudgesAPI`
+
+`class JudgesAPI()`
+
+**Bases:** `Resource`
+
+Model-backed graders and their human alignment.
+
+**Methods**
+
+###### `list() -> _List[Judge]`
+
+This callable takes no public parameters.
+
+**Returns:** `_List[[Judge](#judge)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(judge_id: str) -> Judge`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `judge_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Judge](#judge)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, *, instructions: str, feedback_value_type: str = 'bool', model: str | None = None, **options) -> Judge`
+
+Create a model-backed grader.
+
+``instructions`` must reference at least one evaluation variable —
+``{{ inputs }}``, ``{{ outputs }}``, ``{{ expectations }}``,
+``{{ conversation }}``, or ``{{ trace }}`` — or the server rejects it.
+The rule exists because a judge with no variable grades nothing: it
+would return the same verdict for every example.
+
+``feedback_value_type`` defaults to ``bool``. A numeric judge is not
+interchangeable with a boolean one downstream, so scorecards read this
+field to know which they have.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `instructions` | keyword-only | `str` | `—` |
+| `feedback_value_type` | keyword-only | `str` | `'bool'` |
+| `model` | keyword-only | `str | None` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Judge](#judge)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test(judge_id: str, **payload) -> Any`
+
+Run a judge against sample input without recording a scorecard.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `judge_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `alignment(judge_id: str, **payload) -> JudgeAlignment`
+
+Agreement with human labels.
+
+Read ``kappa``, not ``agreement``: a judge that always answers the same
+way agrees with a skewed sample while measuring nothing.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `judge_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `[JudgeAlignment](#judgealignment)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `EvaluationsAPI`
+
+`class EvaluationsAPI()`
+
+**Bases:** `Resource`
+
+Scored runs over datasets.
+
+**Methods**
+
+###### `list(*, dataset_id: str | None = None) -> _List[Evaluation]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `_List[[Evaluation](#evaluation)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(evaluation_id: str) -> Evaluation`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `evaluation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Evaluation](#evaluation)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(dataset_id: str, **options) -> Evaluation`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Evaluation](#evaluation)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(evaluation_id: str, *, timeout: float = 900.0, **options) -> Evaluation`
+
+Poll until the evaluation stops.
+
+Returns the terminal evaluation rather than raising: a low score is the
+measurement, not an error in the call.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `evaluation_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Evaluation](#evaluation)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+### Module `caliber_sdk.resources.integrations`
+
+MCP servers, the LLM gateway, knowledge bases, and object storage.
+
+**Public exports**
+
+`GatewayAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `ObjectStoreAPI`
+
+#### Classes
+
+##### `McpServersAPI`
+
+`class McpServersAPI()`
+
+**Bases:** `Resource`
+
+Managed MCP server definitions and governed tool use.
+
+**Methods**
+
+###### `list() -> _List[McpServer]`
+
+This callable takes no public parameters.
+
+**Returns:** `_List[[McpServer](#mcpserver)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(server_id: str) -> McpServer`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[McpServer](#mcpserver)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `history(server_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, **options) -> McpServer`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[McpServer](#mcpserver)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(server_id: str, **changes) -> McpServer`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `[McpServer](#mcpserver)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(server_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_connection(server_id: str) -> Any`
+
+Probe the server now, rather than trusting the last known state.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `discover_tools(server_id: str) -> Any`
+
+Refresh the tool inventory from the remote server.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `tools(server_id: str) -> Any`
+
+The tool inventory as last discovered.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_tool_policy(server_id: str, tool_name: str, **policy) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+| `tool_name` | positional-or-keyword | `str` | `—` |
+| `policy` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `save_test_cases(server_id: str, tool_name: str, test_cases: _List[dict[str, Any]]) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+| `tool_name` | positional-or-keyword | `str` | `—` |
+| `test_cases` | positional-or-keyword | `_List[dict[str, Any]]` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibrate_tool(server_id: str, tool_name: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+| `tool_name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `invoke_tool(server_id: str, tool_name: str, arguments = None) -> Any`
+
+Call a remote tool through CALIBER's governed egress path.
+
+Routed through the server rather than called directly, which is what
+makes tool policy, secret resolution, and audit apply at all.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `server_id` | positional-or-keyword | `str` | `—` |
+| `tool_name` | positional-or-keyword | `str` | `—` |
+| `arguments` | positional-or-keyword | `Any` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `GatewayAPI`
+
+`class GatewayAPI()`
+
+**Bases:** `Resource`
+
+External LLM gateway discovery, guardrails, and usage.
+
+**Methods**
+
+###### `get() -> Any`
+
+Discovered endpoints and routing visibility.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `usage(**params) -> Any`
+
+Trace-derived usage. Derived, not metered: it reports what was
+traced, so untraced calls are absent rather than zero.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `guardrails() -> Any`
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `guardrail_catalog() -> Any`
+
+What this deployment *can* enforce, versus what it does.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_guardrail(**payload) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete_guardrail(guardrail_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `guardrail_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `attach_guardrail(endpoint_id: str, **payload) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `endpoint_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `KnowledgeBasesAPI`
+
+`class KnowledgeBasesAPI()`
+
+**Bases:** `Resource`
+
+Versioned RAG corpora, retrieval, and calibration.
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> _List[KnowledgeBase]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `_List[[KnowledgeBase](#knowledgebase)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(knowledge_base_id: str) -> KnowledgeBase`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[KnowledgeBase](#knowledgebase)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, **options) -> KnowledgeBase`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[KnowledgeBase](#knowledgebase)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(knowledge_base_id: str, **changes) -> KnowledgeBase`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `[KnowledgeBase](#knowledgebase)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(knowledge_base_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `options() -> Any`
+
+Embedding models and chunking strategies this deployment offers.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `versions(knowledge_base_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_version(knowledge_base_id: str, **payload) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `activate_version(knowledge_base_id: str, version_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `runs(knowledge_base_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `run_events(run_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `version(version_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `sync_version_to_age(version_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `sources(version_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `chunks(version_id: str, *, q: str | None = None, source_key: str | None = None, limit: int | None = None) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `q` | keyword-only | `str | None` | `None` |
+| `source_key` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `entities(version_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `relationships(version_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `graph(version_id: str, **params) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibrate(knowledge_base_id: str, **options) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_runs(knowledge_base_id: str, *, limit: int | None = None) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_run(test_run_id: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `test_run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `set_baseline(knowledge_base_id: str, **options) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `rollback(knowledge_base_id: str, **options) -> Any`
+
+Roll back to a prior version.
+
+Knowledge bases roll back by activation history, not by an alias
+restore — the semantics differ per asset family, and the server is the
+authority on what this one means.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `knowledge_base_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `query(**payload) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ObjectStoreAPI`
+
+`class ObjectStoreAPI()`
+
+**Bases:** `Resource`
+
+S3/MinIO console operations.
+
+Distinct from ``projects.files``: that is CALIBER's managed file registry
+with lineage and immutable refs, this is the raw bucket browser underneath.
+
+**Methods**
+
+###### `status() -> Any`
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `buckets() -> _List[Bucket]`
+
+This callable takes no public parameters.
+
+**Returns:** `_List[[Bucket](#bucket)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_bucket(bucket: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete_bucket(bucket: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `listing(bucket: str, *, prefix: str | None = None, token: str | None = None, recursive: bool = False) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `prefix` | keyword-only | `str | None` | `None` |
+| `token` | keyword-only | `str | None` | `None` |
+| `recursive` | keyword-only | `bool` | `False` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `objects(bucket: str, *, prefix: str | None = None, token: str | None = None, recursive: bool = False) -> _List[StoredObject]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `prefix` | keyword-only | `str | None` | `None` |
+| `token` | keyword-only | `str | None` | `None` |
+| `recursive` | keyword-only | `bool` | `False` |
+
+**Returns:** `_List[[StoredObject](#storedobject)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `folders(bucket: str, *, prefix: str | None = None) -> _List[str]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `prefix` | keyword-only | `str | None` | `None` |
+
+**Returns:** `_List[str]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `upload(bucket: str, *, filename: str, content: bytes, prefix: str | None = None, key: str | None = None, media_type: str | None = None) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `filename` | keyword-only | `str` | `—` |
+| `content` | keyword-only | `bytes` | `—` |
+| `prefix` | keyword-only | `str | None` | `None` |
+| `key` | keyword-only | `str | None` | `None` |
+| `media_type` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_folder(bucket: str, name: str, *, prefix: str | None = None) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+| `prefix` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete_objects(bucket: str, *, keys: _List[str] | None = None, prefix: str | None = None) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `keys` | keyword-only | `_List[str] | None` | `None` |
+| `prefix` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `download(bucket: str, key: str, *, disposition: str | None = None) -> bytes`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `key` | positional-or-keyword | `str` | `—` |
+| `disposition` | keyword-only | `str | None` | `None` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `preview(bucket: str, key: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `key` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `extract(bucket: str, key: str) -> Any`
+
+Extract text/structure from a stored document.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `key` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `import_object(bucket: str, key: str, **options) -> Any`
+
+Register a stored object as a managed project file.
+
+The bridge from raw storage into the governed registry, where it gains
+a content hash and lineage.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `key` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete_object(bucket: str, key: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `bucket` | positional-or-keyword | `str` | `—` |
+| `key` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.resources.operations`
+
+Jobs, review queues, Aria, releases, observability, audit, events, cookbooks.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#plan_from_intent
+```
+
+**Public exports**
+
+`AriaAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `JobsAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `SecretsAPI`
+
+#### Classes
+
+##### `JobsAPI`
+
+`class JobsAPI()`
+
+**Bases:** `Resource`
+
+Durable background jobs — refinement, calibration, reporting.
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> _List[Job]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `_List[[Job](#job)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(job_id: str) -> Job`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Job](#job)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `targets(job_id: str) -> Any`
+
+What applying this job would change.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `apply(job_id: str, **options) -> Any`
+
+Apply a job's candidate. This is the human decision, made explicit.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(job_id: str, *, timeout: float = 900.0, **options) -> Job`
+
+Poll until the job stops *or* stops for a person.
+
+``awaits_human`` counts as done here on purpose. A refinement job that
+reaches ``candidate_ready`` will never advance on its own, so a waiter
+that only accepted terminal states would block until timeout on the
+expected outcome.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Job](#job)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+##### `ReviewQueuesAPI`
+
+`class ReviewQueuesAPI()`
+
+**Bases:** `Resource`
+
+Structured human review.
+
+**Methods**
+
+###### `list() -> _List[ReviewQueue]`
+
+This callable takes no public parameters.
+
+**Returns:** `_List[[ReviewQueue](#reviewqueue)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(queue_id: str) -> ReviewQueue`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `queue_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[ReviewQueue](#reviewqueue)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, **options) -> ReviewQueue`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[ReviewQueue](#reviewqueue)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(queue_id: str, **changes) -> ReviewQueue`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `queue_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `[ReviewQueue](#reviewqueue)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `enqueue(queue_id: str, **payload) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `queue_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `submit(queue_id: str, item_id: str, **answers) -> Any`
+
+Answer a queued item. The write-back that turns review into evidence.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `queue_id` | positional-or-keyword | `str` | `—` |
+| `item_id` | positional-or-keyword | `str` | `—` |
+| `answers` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `alignment_examples(queue_id: str) -> Any`
+
+Human labels usable for judge-alignment scoring.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `queue_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AriaAPI`
+
+`class AriaAPI()`
+
+**Bases:** `Resource`
+
+Aria goal-plans: the permissioned agentic loop.
+
+**Methods**
+
+###### `capabilities() -> Any`
+
+What Aria is allowed to do in this deployment.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `plans(*, session_id: str | None = None, limit: int | None = None, offset: int | None = None) -> _List[AriaPlan]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `_List[[AriaPlan](#ariaplan)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_plan(plan_id: str) -> AriaPlanDetail`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `plan_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_plan(goal: str, **options) -> AriaPlanDetail`
+
+State an intent. Aria plans the steps; you approve them.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `goal` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_plan(plan_id: str, **changes) -> AriaPlanDetail`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `plan_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `approve_plan(plan_id: str, **options) -> AriaPlanDetail`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `plan_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `execute_plan(plan_id: str, **options) -> AriaPlanDetail`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `plan_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `poll_plan(plan_id: str, **options) -> AriaPlanDetail`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `plan_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `interactions(plan_id: str, *, limit: int | None = None, offset: int | None = None) -> _List[AriaInteraction]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `plan_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `_List[[AriaInteraction](#ariainteraction)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `answer(interaction_id: str, **payload) -> AriaPlanDetail`
+
+Answer a question Aria paused to ask.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `interaction_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait_for_plan(plan_id: str, *, timeout: float = 900.0, **options) -> AriaPlanDetail`
+
+Poll until the plan finishes or pauses for you.
+
+``paused`` is a resting state, not a transient one: the plan makes no
+further progress until a person answers, so polling past it would burn
+the whole timeout waiting for something that cannot happen.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `plan_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[AriaPlanDetail](#ariaplandetail)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+##### `ReleasesAPI`
+
+`class ReleasesAPI()`
+
+**Bases:** `Resource`
+
+Release candidates, evidence, waivers, and signoff.
+
+**Methods**
+
+###### `candidates() -> _List[ReleaseCandidate]`
+
+This callable takes no public parameters.
+
+**Returns:** `_List[[ReleaseCandidate](#releasecandidate)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_candidate(candidate_id: str) -> ReleaseCandidate`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `candidate_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[ReleaseCandidate](#releasecandidate)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_candidate(name: str, **options) -> ReleaseCandidate`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[ReleaseCandidate](#releasecandidate)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `evaluate(candidate_id: str, **options) -> ReleaseCandidate`
+
+Recompute the weighted score from current evidence.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `candidate_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[ReleaseCandidate](#releasecandidate)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `add_waiver(candidate_id: str, **payload) -> Any`
+
+Record an exception. Admin-only, and audited — a waiver is a
+decision someone owns, not a way to raise a score.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `candidate_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `generate_report(candidate_id: str, **options) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `candidate_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `sign(candidate_id: str, *, decision: str, rationale: str, **options) -> Any`
+
+Record go / no-go. ``rationale`` is required by design: a signoff
+without a reason is not evidence of a decision.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `candidate_id` | positional-or-keyword | `str` | `—` |
+| `decision` | keyword-only | `str` | `—` |
+| `rationale` | keyword-only | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ObservabilityAPI`
+
+`class ObservabilityAPI()`
+
+**Bases:** `Resource`
+
+Traces, experiments, and metrics.
+
+**Methods**
+
+###### `traces(**params) -> _List[Trace]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `_List[[Trace](#trace)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `trace(trace_id: str) -> Any`
+
+One trace with its full span tree, left untyped: the node structure
+is MLflow's, and re-declaring it here would drift from it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `trace_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `experiments() -> Any`
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `metrics(**params) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AuditAPI`
+
+`class AuditAPI()`
+
+**Bases:** `Resource`
+
+The audit log.
+
+**Methods**
+
+###### `list(**params) -> _List[AuditEntry]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `_List[[AuditEntry](#auditentry)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `export(*, format: str = 'csv', **params) -> bytes`
+
+Raw export bytes. CSV by default; JSON is admin-only on the server.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `format` | keyword-only | `str` | `'csv'` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `EventsAPI`
+
+`class EventsAPI()`
+
+**Bases:** `Resource`
+
+Server-sent events.
+
+**Methods**
+
+###### `stream(**params) -> Iterator[str]`
+
+Yield raw SSE lines.
+
+Deliberately unparsed. The event vocabulary is a live surface, and a
+client that decoded into fixed types would reject events added after it
+shipped — the opposite of what a stream consumer wants.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Iterator[str]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `CookbooksAPI`
+
+`class CookbooksAPI()`
+
+**Bases:** `Resource`
+
+Built-in, installable examples.
+
+**Methods**
+
+###### `list() -> _List[CookbookRecipe]`
+
+This callable takes no public parameters.
+
+**Returns:** `_List[[CookbookRecipe](#cookbookrecipe)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `install(cookbook_id: str, *, name: str | None = None, **options) -> Any`
+
+Install a recipe as a paused workflow plus an editable draft.
+
+Paused on purpose: an example manifest can carry model, connector, or
+side-effect bindings that an operator should review before anything
+runs.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `cookbook_id` | positional-or-keyword | `str` | `—` |
+| `name` | keyword-only | `str | None` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `SecretsAPI`
+
+`class SecretsAPI()`
+
+**Bases:** `Resource`
+
+Secret references. Write-only: values are never returned.
+
+**Methods**
+
+###### `list() -> Any`
+
+Names and metadata only — no values, by design.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `put(name: str, value: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `value` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `revoke(name: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(name: str) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.resources.raw`
+
+Untyped access to any management endpoint.
+
+**Public exports**
+
+`RawAPI`
+
+#### Classes
+
+##### `RawAPI`
+
+`class RawAPI()`
+
+**Bases:** `Resource`
+
+Call any path under ``/ajax-api/2.0/mlflow/caliber``.
+
+**Methods**
+
+###### `get(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `post(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `put(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `patch(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `paginate(path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100) -> Iterator[Any]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `limit` | keyword-only | `int` | `100` |
+
+**Returns:** `Iterator[Any]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+## Model modules
+
+### Module `caliber_sdk.models`
+
+Shared models for the CALIBER SDK.
+
+**Public exports**
+
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+
+### Module `caliber_sdk.models.common`
+
+Shapes shared across the API, independent of any one resource.
+
+**Public exports**
+
+`STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `Page`, `Stability`
+
+**Module constants**
+
+| Name | Value |
+| --- | --- |
+| `STABILITY_GA` | `'ga'` |
+| `STABILITY_BETA` | `'beta'` |
+| `STABILITY_INTERNAL` | `'internal'` |
+
+#### Classes
+
+##### `Page`
+
+`class Page()`
+
+One page of an offset-paginated list.
+
+Kept even though :meth:`Transport.paginate` hides pagination from most
+callers: a caller who needs to checkpoint and resume needs the offset, and
+reconstructing it from a flat iterator is not possible.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `items` | `list[Any]` | `field(default_factory=list)` |
+| `limit` | `int` | `0` |
+| `offset` | `int` | `0` |
+
+**Properties**
+
+###### `is_last() -> bool`
+
+Whether this looks like the final page.
+
+A short page ends the sequence. A full page might too -- the only way to
+know is to ask for the next one and get nothing.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+###### `next_offset() -> int`
+
+This callable takes no public parameters.
+
+**Returns:** `int`
+
+##### `Stability`
+
+`class Stability()`
+
+Which API tags fall in which tier.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `ga` | `tuple[str, ...]` | `()` |
+| `beta` | `tuple[str, ...]` | `()` |
+| `internal` | `tuple[str, ...]` | `()` |
+
+**Methods**
+
+###### `from_payload(payload) -> Stability`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `[Stability](#stability)`
+
+###### `tier_of(tag: str) -> str | None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tag` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `str | None`
+
+### Module `caliber_sdk.models.core`
+
+Typed models for the core admin surfaces: auth, identity, capabilities, settings.
+
+**Public exports**
+
+`Account`, `Capabilities`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`
+
+#### Classes
+
+##### `Identity`
+
+`class Identity()`
+
+Who the caller is, from ``GET /me``.
+
+Note the server reports identity rather than requiring it: an invalid or
+revoked credential yields ``user_id == "anonymous"`` with no scopes rather
+than an error. :meth:`is_anonymous` is the check to make.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `user_id` | `str` | `''` |
+| `scopes` | `list[str]` | `field(default_factory=list)` |
+| `is_admin` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_anonymous() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `SessionInfo`
+
+`class SessionInfo()`
+
+How the caller's identity was established, from ``GET /auth/session``.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `user_id` | `str` | `''` |
+| `scopes` | `list[str]` | `field(default_factory=list)` |
+| `is_admin` | `bool` | `False` |
+| `auth_mode` | `str` | `''` |
+| `authenticated_by` | `str` | `''` |
+| `login_required` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Account`
+
+`class Account()`
+
+A user account. Never carries a password hash.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `user_id` | `str` | `''` |
+| `disabled` | `bool` | `False` |
+| `created_at` | `str | None` | `None` |
+| `password_updated_at` | `str | None` | `None` |
+| `last_login_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `PersonalAccessToken`
+
+`class PersonalAccessToken()`
+
+Token metadata. Never carries the secret.
+
+The plaintext lives on :class:`IssuedToken`, which only the issue and
+rotate calls return — mirroring the server, where a listed token has no
+``token`` key at all rather than a null one.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `token_id` | `str` | `''` |
+| `user_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `scopes` | `list[str]` | `field(default_factory=list)` |
+| `created_at` | `str | None` | `None` |
+| `created_by` | `str | None` | `None` |
+| `expires_at` | `str | None` | `None` |
+| `last_used_at` | `str | None` | `None` |
+| `revoked_at` | `str | None` | `None` |
+| `revoked_reason` | `str | None` | `None` |
+| `rotated_from` | `str | None` | `None` |
+| `active` | `bool` | `True` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `IssuedToken`
+
+`class IssuedToken()`
+
+**Bases:** `PersonalAccessToken`
+
+A freshly issued token. ``token`` is returned exactly once, ever.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `token` | `str` | `''` |
+
+##### `WorkflowRunCapabilities`
+
+`class WorkflowRunCapabilities()`
+
+Which workflow-run features the deployment has switched on.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `queue_enabled` | `bool` | `False` |
+| `supports_async_submit` | `bool` | `False` |
+| `supports_cancel` | `bool` | `False` |
+| `supports_retry` | `bool` | `False` |
+| `supports_resume` | `bool` | `False` |
+| `runtime_approvals_enabled` | `bool` | `False` |
+| `checkpointing_enabled` | `bool` | `False` |
+| `event_backend` | `str` | `''` |
+| `approval_readiness` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Capabilities`
+
+`class Capabilities()`
+
+Runtime feature flags plus the SDK stability tiers.
+
+``artifact_families`` is deliberately left as a mapping: the server
+documents that each family means something different by the same key
+(``rollback`` in particular), so flattening it here would imply a
+uniformity the platform does not have.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `workflow_runs` | `[WorkflowRunCapabilities](#workflowruncapabilities)` | `field(default_factory=[WorkflowRunCapabilities](#workflowruncapabilities))` |
+| `sync_workflow_version_run` | `bool` | `True` |
+| `artifact_families` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `sdk_stability` | `dict[str, list[str]]` | `field(default_factory=dict)` |
+| `extensibility` | `[Extensibility](#extensibility)` | `field(default_factory=[Extensibility](#extensibility))` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Methods**
+
+###### `tier_of(tag: str) -> str | None`
+
+Which stability tier an API tag falls in, or ``None`` if unknown.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tag` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `str | None`
+
+###### `is_ga(tag: str) -> bool`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tag` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+##### `LlmSetupStatus`
+
+`class LlmSetupStatus()`
+
+Which LLM credentials are configured — presence, never values.
+
+The server returns masked fingerprints only. A field here that looked like
+a key would misrepresent what the endpoint is willing to disclose.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `llm_provider` | `str` | `''` |
+| `gateway_url` | `str` | `''` |
+| `openai_key_env` | `str | None` | `None` |
+| `openai_key_present` | `bool` | `False` |
+| `anthropic_key_present` | `bool` | `False` |
+| `assistant_engine` | `str` | `''` |
+| `openai_key_fingerprint` | `str | None` | `None` |
+| `anthropic_key_fingerprint` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `RuntimeSettingsSummary`
+
+`class RuntimeSettingsSummary()`
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `total` | `int` | `0` |
+| `live_editable` | `int` | `0` |
+| `environment_managed` | `int` | `0` |
+| `configured` | `int` | `0` |
+| `defaults` | `int` | `0` |
+| `secret_sources` | `int` | `0` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `RuntimeSettings`
+
+`class RuntimeSettings()`
+
+Grouped inventory of runtime configuration knobs.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `summary` | `[RuntimeSettingsSummary](#runtimesettingssummary)` | `field(default_factory=[RuntimeSettingsSummary](#runtimesettingssummary))` |
+| `groups` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Project`
+
+`class Project()`
+
+A project/workspace.
+
+``file_count`` is present on list responses and absent on detail ones —
+the server computes it with one grouped query for the list only. ``None``
+means "not reported here", which is why it is not defaulted to 0.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `project_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `owner` | `str` | `''` |
+| `status` | `str` | `''` |
+| `storage_backend` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `file_count` | `int | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ProjectFile`
+
+`class ProjectFile()`
+
+One stored file.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `file_id` | `str` | `''` |
+| `file_ref` | `str | None` | `None` |
+| `name` | `str` | `''` |
+| `kind` | `str | None` | `None` |
+| `relative_path` | `str | None` | `None` |
+| `media_type` | `str | None` | `None` |
+| `size_bytes` | `int | None` | `None` |
+| `sha256` | `str | None` | `None` |
+| `etag` | `str | None` | `None` |
+| `object_version_id` | `str | None` | `None` |
+| `version` | `int | None` | `None` |
+| `status` | `str | None` | `None` |
+| `storage_backend` | `str | None` | `None` |
+| `producer_node_id` | `str | None` | `None` |
+| `project_id` | `str | None` | `None` |
+| `workflow_run_id` | `str | None` | `None` |
+| `playground_run_id` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `immutable_ref` | `dict[str, Any] | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ProjectFolder`
+
+`class ProjectFolder()`
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `path` | `str` | `''` |
+| `name` | `str | None` | `None` |
+| `file_ref` | `str | None` | `None` |
+| `storage_backend` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+### Module `caliber_sdk.models.assets`
+
+Typed models for the governed asset families: prompts, skills, tools.
+
+**Public exports**
+
+`CalibrationJob`, `Prompt`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Tool`
+
+#### Classes
+
+##### `Prompt`
+
+`class Prompt()`
+
+A prompt as the list/detail routes report it.
+
+Prompts live in MLflow's registry, not CALIBER's database, so this carries
+a registry coordinate (``prompt_name``, ``version``, ``alias``) rather than
+a CALIBER row id. ``template_preview`` is truncated by the server; fetch
+the version to read the whole template.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `agent_id` | `str` | `''` |
+| `prompt_name` | `str` | `''` |
+| `version` | `int | None` | `None` |
+| `alias` | `str | None` | `None` |
+| `template_preview` | `str | None` | `None` |
+| `template_length` | `int` | `0` |
+| `approval_id` | `str | None` | `None` |
+| `artifact_ref` | `str | None` | `None` |
+| `agent_name` | `str | None` | `None` |
+| `agent_enabled` | `bool | None` | `None` |
+| `has_prompt` | `bool | None` | `None` |
+| `source` | `str | None` | `None` |
+| `description` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Skill`
+
+`class Skill()`
+
+A reusable instruction asset.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `skill_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `summary` | `str | None` | `None` |
+| `content` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `category` | `str | None` | `None` |
+| `tags` | `list[str]` | `field(default_factory=list)` |
+| `skill_metadata` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `allowed_tools` | `list[str]` | `field(default_factory=list)` |
+| `depends_on` | `list[str]` | `field(default_factory=list)` |
+| `status` | `str` | `''` |
+| `version` | `int | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `SkillRender`
+
+`class SkillRender()`
+
+A skill's content with variables substituted.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `skill_id` | `str` | `''` |
+| `skill_name` | `str` | `''` |
+| `rendered_content` | `str` | `''` |
+| `original_content` | `str` | `''` |
+| `detected_variables` | `list[str]` | `field(default_factory=list)` |
+| `unresolved_variables` | `list[str]` | `field(default_factory=list)` |
+| `variables_applied` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `summary` | `str` | `''` |
+| `word_count` | `int` | `0` |
+| `char_count` | `int` | `0` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `SkillSelection`
+
+`class SkillSelection()`
+
+Whether a skill would be auto-selected for a query, and why.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `skill_id` | `str` | `''` |
+| `skill_name` | `str` | `''` |
+| `is_selected` | `bool` | `False` |
+| `selection_score` | `float` | `0.0` |
+| `selection_reason` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `SkillVersion`
+
+`class SkillVersion()`
+
+One immutable skill snapshot.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `skill_id` | `str` | `''` |
+| `version_number` | `int` | `0` |
+| `content` | `str | None` | `None` |
+| `summary` | `str | None` | `None` |
+| `created_by` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Tool`
+
+`class Tool()`
+
+A registered callable.
+
+``input_schema`` and ``output_schema`` stay open mappings: they are JSON
+Schema documents describing the caller's own function, and CALIBER stores
+them rather than defining them.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `tool_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `version` | `str | None` | `None` |
+| `description` | `str | None` | `None` |
+| `module_path` | `str | None` | `None` |
+| `callable_name` | `str | None` | `None` |
+| `input_schema` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `output_schema` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `side_effect_level` | `str | None` | `None` |
+| `requires_approval` | `bool` | `False` |
+| `allow_in_preview` | `bool` | `True` |
+| `secret_refs` | `list[str]` | `field(default_factory=list)` |
+| `owner` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `deprecated_at` | `str | None` | `None` |
+| `successor_tool_id` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `CalibrationJob`
+
+`class CalibrationJob()`
+
+One tool calibration job.
+
+``result`` is left open: it carries scorer output whose keys vary by suite,
+and the server is the authority on what a run measured.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `job_id` | `str` | `''` |
+| `tool_id` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `requested_by` | `str | None` | `None` |
+| `result` | `dict[str, Any] | None` | `None` |
+| `error` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `claimed_at` | `str | None` | `None` |
+| `claimed_by` | `str | None` | `None` |
+| `finished_at` | `str | None` | `None` |
+| `pass_rate` | `float | None` | `None` |
+| `retry_of_job_id` | `str | None` | `None` |
+| `resolution` | `str | None` | `None` |
+| `resolution_reason` | `str | None` | `None` |
+| `resolved_by` | `str | None` | `None` |
+| `resolved_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_terminal() -> bool`
+
+Whether the job has stopped, successfully or not.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+### Module `caliber_sdk.models.quality`
+
+Typed models for the quality surfaces: datasets, judges, evaluations.
+
+**Public exports**
+
+`EvalDataset`, `EvalExample`, `Evaluation`, `Judge`, `JudgeAlignment`
+
+#### Classes
+
+##### `EvalDataset`
+
+`class EvalDataset()`
+
+A versioned evaluation dataset.
+
+The ``mlflow_*`` fields record the last sync to MLflow's dataset registry.
+They are reported rather than owned: the dataset lives here, and the sync
+is a separate, possibly stale, fact.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `dataset_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `tags` | `list[str]` | `field(default_factory=list)` |
+| `status` | `str` | `''` |
+| `version` | `int | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `mlflow_dataset_id` | `str | None` | `None` |
+| `mlflow_synced_at` | `str | None` | `None` |
+| `mlflow_synced_version` | `int | None` | `None` |
+| `mlflow_record_count` | `int | None` | `None` |
+| `mlflow_digest` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_synced() -> bool`
+
+Whether the dataset has ever been pushed to MLflow.
+
+Not whether it is *currently* in sync — ``mlflow_synced_version`` can
+lag ``version``, and conflating the two would let a caller trust stale
+evidence.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `EvalExample`
+
+`class EvalExample()`
+
+One row of a dataset.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `example_id` | `str` | `''` |
+| `dataset_id` | `str` | `''` |
+| `inputs` | `Any` | `None` |
+| `expected` | `Any` | `None` |
+| `example_metadata` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `source_trace_id` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Judge`
+
+`class Judge()`
+
+A model-backed grader.
+
+``feedback_value_type`` is what a scorecard reads: a bool judge and a
+numeric one are not interchangeable, and the field is how a caller knows
+which they have.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `judge_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `instructions` | `str | None` | `None` |
+| `model` | `str | None` | `None` |
+| `feedback_value_type` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `tags` | `list[str]` | `field(default_factory=list)` |
+| `status` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Evaluation`
+
+`class Evaluation()`
+
+One scored run over a dataset.
+
+``metrics`` and ``results`` stay open: which scorers ran is a property of
+the evaluation, not of this type, and enumerating them here would go stale
+the first time a scorer is added.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `evaluation_id` | `str` | `''` |
+| `dataset_id` | `str | None` | `None` |
+| `name` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `target_type` | `str | None` | `None` |
+| `target_ref` | `str | None` | `None` |
+| `metrics` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `results` | `Any` | `None` |
+| `created_by` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `completed_at` | `str | None` | `None` |
+| `error` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_terminal() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `JudgeAlignment`
+
+`class JudgeAlignment()`
+
+Agreement between a judge and human reviewers.
+
+Cohen's kappa matters more than raw agreement: a judge that always says
+"pass" agrees with a mostly-passing sample while measuring nothing.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `judge_id` | `str` | `''` |
+| `agreement` | `float | None` | `None` |
+| `kappa` | `float | None` | `None` |
+| `sample_size` | `int` | `0` |
+| `per_example` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+### Module `caliber_sdk.models.integrations`
+
+Typed models for the integration and data surfaces (beta tier).
+
+**Public exports**
+
+`Bucket`, `KnowledgeBase`, `McpServer`, `StoredObject`
+
+#### Classes
+
+##### `McpServer`
+
+`class McpServer()`
+
+A managed MCP server definition.
+
+``discovered_tools`` is what the server reported at last connection, not a
+contract: an MCP server can change its tool list, and a stale entry here
+means "we saw this once", which is why ``last_connected_at`` sits beside it.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `server_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `transport` | `str | None` | `None` |
+| `uri` | `str | None` | `None` |
+| `command` | `str | None` | `None` |
+| `args` | `list[str]` | `field(default_factory=list)` |
+| `env` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `headers` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `auth_type` | `str | None` | `None` |
+| `auth_config` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `tool_policies` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `icon` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `connection_error` | `str | None` | `None` |
+| `discovered_tools` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `last_connected_at` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_connected() -> bool`
+
+Whether the last connection attempt succeeded.
+
+Not whether it is reachable *now* — that would require a probe, and
+:meth:`McpServersAPI.test_connection` is how you ask.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `KnowledgeBase`
+
+`class KnowledgeBase()`
+
+A versioned RAG corpus.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `knowledge_base_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `active_version_id` | `str | None` | `None` |
+| `embedding_model` | `str | None` | `None` |
+| `chunking_strategy` | `str | None` | `None` |
+| `document_count` | `int | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Bucket`
+
+`class Bucket()`
+
+One object-store bucket.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `name` | `str` | `''` |
+| `creation_date` | `str | None` | `None` |
+| `object_count` | `int | None` | `None` |
+| `size_bytes` | `int | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `StoredObject`
+
+`class StoredObject()`
+
+One object inside a bucket.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `key` | `str` | `''` |
+| `size` | `int | None` | `None` |
+| `last_modified` | `str | None` | `None` |
+| `etag` | `str | None` | `None` |
+| `content_type` | `str | None` | `None` |
+| `is_directory` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+### Module `caliber_sdk.models.operations`
+
+Typed models for the operational and agentic surfaces (beta tier).
+
+**Public exports**
+
+`AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `CookbookRecipe`, `Job`, `ReleaseCandidate`, `ReviewQueue`, `Trace`
+
+#### Classes
+
+##### `Job`
+
+`class Job()`
+
+A durable background job (refinement, calibration, reporting).
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `job_id` | `str` | `''` |
+| `status` | `str` | `''` |
+| `kind` | `str | None` | `None` |
+| `agent_id` | `str | None` | `None` |
+| `optimizer` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `error` | `str | None` | `None` |
+| `result` | `dict[str, Any] | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_terminal() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+###### `awaits_human() -> bool`
+
+Whether the job stopped for a person rather than finishing.
+
+A refinement job that reaches ``candidate_ready`` is not done — it is
+waiting for an operator to apply it. Treating that as terminal is how a
+script silently drops the human decision the loop exists for.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `ReviewQueue`
+
+`class ReviewQueue()`
+
+A structured human-review queue.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `queue_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `review_questions` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `item_count` | `int | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `AriaPlan`
+
+`class AriaPlan()`
+
+An Aria goal-plan: a sequence of steps awaiting approval or execution.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `plan_id` | `str` | `''` |
+| `session_id` | `str | None` | `None` |
+| `goal` | `str` | `''` |
+| `status` | `str` | `''` |
+| `autonomy` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `step_count` | `int` | `0` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `needs_you() -> bool`
+
+Paused awaiting a human decision — a gate, approval, or confirm.
+
+The state the SPA badges, and the one a script must not poll past: a
+paused plan makes no further progress until someone answers.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `AriaPlanStep`
+
+`class AriaPlanStep()`
+
+One step inside an Aria plan detail response.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `step_id` | `str` | `''` |
+| `plan_id` | `str` | `''` |
+| `title` | `str` | `''` |
+| `capability_key` | `str | None` | `None` |
+| `depends_on` | `list[str]` | `field(default_factory=list)` |
+| `status` | `str` | `''` |
+| `result` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `evidence` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `error` | `str | None` | `None` |
+| `draft_id` | `str | None` | `None` |
+| `job_id` | `str | None` | `None` |
+| `approval_id` | `str | None` | `None` |
+| `checkpoint_id` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `AriaPlanDetail`
+
+`class AriaPlanDetail()`
+
+A plan plus its steps.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `plan` | `[AriaPlan](#ariaplan)` | `field(default_factory=[AriaPlan](#ariaplan))` |
+| `steps` | `list[[AriaPlanStep](#ariaplanstep)]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `AriaInteraction`
+
+`class AriaInteraction()`
+
+One pause/question inside an Aria plan.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `interaction_id` | `str` | `''` |
+| `plan_id` | `str` | `''` |
+| `step_id` | `str` | `''` |
+| `kind` | `str` | `''` |
+| `prompt` | `str` | `''` |
+| `options` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `evidence` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `required_scope` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `response` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `responded_by` | `str | None` | `None` |
+| `responded_at` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ReleaseCandidate`
+
+`class ReleaseCandidate()`
+
+A release candidate with weighted criteria and signoff.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `candidate_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `artifact_type` | `str | None` | `None` |
+| `artifact_ref` | `str | None` | `None` |
+| `version_ref` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `weighted_score` | `float | None` | `None` |
+| `criteria` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `created_by` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `Trace`
+
+`class Trace()`
+
+One MLflow trace as observability reports it.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `trace_id` | `str` | `''` |
+| `request_id` | `str | None` | `None` |
+| `status` | `str | None` | `None` |
+| `timestamp_ms` | `int | None` | `None` |
+| `execution_time_ms` | `float | None` | `None` |
+| `tags` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `AuditEntry`
+
+`class AuditEntry()`
+
+One audit-log row.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `audit_id` | `str` | `''` |
+| `actor` | `str` | `''` |
+| `action` | `str` | `''` |
+| `entity_type` | `str | None` | `None` |
+| `entity_id` | `str | None` | `None` |
+| `details` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `CookbookRecipe`
+
+`class CookbookRecipe()`
+
+A built-in, installable example.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `id` | `str` | `''` |
+| `slug` | `str` | `''` |
+| `title` | `str` | `''` |
+| `summary` | `str` | `''` |
+| `icon` | `str | None` | `None` |
+| `capabilities` | `list[str]` | `field(default_factory=list)` |
+| `prerequisites` | `list[str]` | `field(default_factory=list)` |
+| `activation_requires_review` | `bool` | `True` |
+| `steps` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `readiness` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_ready() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+###### `unmet_checks() -> list[dict[str, Any]]`
+
+Checks standing between this recipe and a clean install.
+
+This callable takes no public parameters.
+
+**Returns:** `list[dict[str, Any]]`
+
+### Module `caliber_sdk.models.workflows`
+
+Typed models for workflows, versions, runs, deployments, and services.
+
+**Public exports**
+
+`FAILED_RUN_STATES`, `TERMINAL_RUN_STATES`, `Workflow`, `WorkflowRun`, `WorkflowService`, `WorkflowVersion`
+
+#### Classes
+
+##### `Workflow`
+
+`class Workflow()`
+
+The container. Versions hold the manifest; this holds identity and status.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `workflow_id` | `str` | `''` |
+| `project_id` | `str | None` | `None` |
+| `name` | `str` | `''` |
+| `description` | `str | None` | `None` |
+| `owner` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `default_experiment_id` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkflowVersion`
+
+`class WorkflowVersion()`
+
+One immutable manifest snapshot.
+
+``manifest`` and ``validation_report`` stay open: the manifest is a
+structured-but-extensible document the server validates, and the report is
+produced by the validator rather than defined here.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `version_id` | `str` | `''` |
+| `workflow_id` | `str` | `''` |
+| `version_number` | `int` | `0` |
+| `status` | `str` | `''` |
+| `manifest` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `manifest_hash` | `str | None` | `None` |
+| `compiler_version` | `str | None` | `None` |
+| `compiled_artifact_uri` | `str | None` | `None` |
+| `validation_report` | `dict[str, Any] | None` | `None` |
+| `compiled_bundle` | `Any` | `None` |
+| `created_by` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `published_by` | `str | None` | `None` |
+| `published_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_draft() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `WorkflowRun`
+
+`class WorkflowRun()`
+
+One execution.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `workflow_run_id` | `str` | `''` |
+| `workflow_id` | `str` | `''` |
+| `project_id` | `str | None` | `None` |
+| `workflow_version_id` | `str | None` | `None` |
+| `deployment_alias` | `str | None` | `None` |
+| `mlflow_run_id` | `str | None` | `None` |
+| `trace_id` | `str | None` | `None` |
+| `session_id` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `source` | `str | None` | `None` |
+| `priority` | `int | None` | `None` |
+| `queued_at` | `str | None` | `None` |
+| `started_at` | `str | None` | `None` |
+| `completed_at` | `str | None` | `None` |
+| `claimed_by` | `str | None` | `None` |
+| `error` | `str | None` | `None` |
+| `output` | `Any` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_terminal() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+###### `succeeded() -> bool`
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `WorkflowService`
+
+`class WorkflowService()`
+
+A workflow published as an externally invocable HTTP service.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `service_id` | `str` | `''` |
+| `workflow_id` | `str` | `''` |
+| `alias` | `str | None` | `None` |
+| `input_schema` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `output_schema` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `enabled` | `bool` | `False` |
+| `auth_required` | `bool` | `True` |
+| `rate_limit_per_minute` | `int | None` | `None` |
+| `cors_allowed_origins` | `list[str]` | `field(default_factory=list)` |
+| `endpoint` | `str | None` | `None` |
+| `created_by` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `token_count` | `int` | `0` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+### Module `caliber_sdk.models.errors`
+
+Typed views over CALIBER's two error body shapes.
+
+**Public exports**
+
+`ErrorBody`, `FieldError`
+
+#### Classes
+
+##### `FieldError`
+
+`class FieldError()`
+
+One entry of a structured validation failure.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `loc` | `tuple[Any, ...]` | `()` |
+| `msg` | `str` | `''` |
+| `type` | `str` | `''` |
+
+**Properties**
+
+###### `field() -> str`
+
+Dotted path of the offending field, or ``<body>`` for whole-body errors.
+
+This callable takes no public parameters.
+
+**Returns:** `str`
+
+**Methods**
+
+###### `from_payload(payload) -> FieldError`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `[FieldError](#fielderror)`
+
+##### `ErrorBody`
+
+`class ErrorBody()`
+
+``{"detail", "status_code"}``, plus ``errors`` when present.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `detail` | `str` | `''` |
+| `status_code` | `int` | `0` |
+| `errors` | `list[[FieldError](#fielderror)]` | `field(default_factory=list)` |
+
+**Methods**
+
+###### `from_payload(payload) -> ErrorBody`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `[ErrorBody](#errorbody)`
+
+## Async client
+
+### Module `caliber_sdk.aio`
+
+Asynchronous client for the CALIBER management API.
+
+**Public exports**
+
+`AsyncCaliberClient`, `AsyncTransport`, `wait_for`, `wait_for_terminal_state`
+
+### Module `caliber_sdk.aio.client`
+
+The async client, and an honest statement of what it covers.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+**Public exports**
+
+`AsyncCaliberClient`, `AsyncCapabilitiesAPI`, `AsyncEventsAPI`, `AsyncJobsAPI`, `AsyncMeAPI`, `AsyncRawAPI`, `AsyncWorkflowRunsAPI`
+
+#### Classes
+
+##### `AsyncCaliberClient`
+
+`class AsyncCaliberClient(base_url: str | None = None, *, token: str | None = None, user: str | None = None, proxy_secret: str | None = None, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, verify: bool | str = True, http_client: httpx.AsyncClient | None = None)`
+
+An asynchronous connection to one CALIBER deployment.
+
+Constructed exactly like :class:`caliber_sdk.CaliberClient`, including the
+same environment fallbacks and the same credential precedence -- a token
+beats a trusted header, because the token is a real credential and the header
+is only an assertion.
+
+**Constructor**
+
+###### `__init__(base_url: str | None = None, *, token: str | None = None, user: str | None = None, proxy_secret: str | None = None, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, verify: bool | str = True, http_client: httpx.AsyncClient | None = None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `base_url` | positional-or-keyword | `str | None` | `None` |
+| `token` | keyword-only | `str | None` | `None` |
+| `user` | keyword-only | `str | None` | `None` |
+| `proxy_secret` | keyword-only | `str | None` | `None` |
+| `auth` | keyword-only | `AuthProvider | None` | `None` |
+| `project` | keyword-only | `str | None` | `None` |
+| `timeout` | keyword-only | `float` | `30.0` |
+| `max_retries` | keyword-only | `int` | `2` |
+| `verify` | keyword-only | `bool | str` | `True` |
+| `http_client` | keyword-only | `httpx.AsyncClient | None` | `None` |
+
+**Returns:** `None`
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `_transport` | `AsyncTransport` | — |
+| `raw` | `AsyncRawAPI` | Low-level route access through the SDK transport. |
+| `me` | `AsyncMeAPI` | The caller identity surface. |
+| `capabilities_api` | `AsyncCapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
+| `workflows` | `AsyncWorkflowRunsAPI` | Workflow registry plus versions, runs, and services. |
+| `jobs` | `AsyncJobsAPI` | Long-running background jobs. |
+| `events` | `AsyncEventsAPI` | Server-sent event stream. |
+
+**Methods**
+
+###### `aclose() -> None`
+
+This callable takes no public parameters.
+
+**Returns:** `None`
+
+###### `__aenter__() -> AsyncCaliberClient`
+
+This callable takes no public parameters.
+
+**Returns:** `[AsyncCaliberClient](#asynccaliberclient)`
+
+###### `__aexit__(*_: object) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `_` | var-positional | `object` | `—` |
+
+**Returns:** `None`
+
+##### `AsyncRawAPI`
+
+`class AsyncRawAPI()`
+
+**Bases:** `_AsyncResource`
+
+Any endpoint, with the SDK's auth, retries, and typed errors.
+
+The reason the typed coverage here can stay narrow without the client being
+limiting: nothing in CALIBER is unreachable from an async caller.
+
+**Methods**
+
+###### `get(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `post(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `put(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `patch(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(path: str, **kwargs) -> Any`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `download(path: str, **kwargs) -> bytes`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `paginate(path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100) -> AsyncIterator[Any]`
+
+Not a coroutine: an async generator, so it is iterated rather than awaited.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `limit` | keyword-only | `int` | `100` |
+
+**Returns:** `AsyncIterator[Any]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AsyncMeAPI`
+
+`class AsyncMeAPI()`
+
+**Bases:** `_AsyncResource`
+
+**Methods**
+
+###### `get() -> Identity`
+
+Reports identity rather than requiring it: a bad credential returns
+an anonymous identity, not an exception.
+
+This callable takes no public parameters.
+
+**Returns:** `[Identity](#identity)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AsyncCapabilitiesAPI`
+
+`class AsyncCapabilitiesAPI()`
+
+**Bases:** `_AsyncResource`
+
+**Methods**
+
+###### `get() -> Capabilities`
+
+This callable takes no public parameters.
+
+**Returns:** `[Capabilities](#capabilities)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AsyncWorkflowRunsAPI`
+
+`class AsyncWorkflowRunsAPI()`
+
+**Bases:** `_AsyncResource`
+
+Submit runs and await them.
+
+The surface async is for on the request side: forty concurrent
+``submit_and_wait`` calls are forty coroutines rather than forty threads.
+
+**Methods**
+
+###### `submit(*, workflow_version_id: str | None = None, workflow_id: str | None = None, alias: str | None = None, input = None, idempotency_key: str | None = None, **options) -> WorkflowRun`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_version_id` | keyword-only | `str | None` | `None` |
+| `workflow_id` | keyword-only | `str | None` | `None` |
+| `alias` | keyword-only | `str | None` | `None` |
+| `input` | keyword-only | `Any` | `None` |
+| `idempotency_key` | keyword-only | `str | None` | `None` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(run_id: str) -> WorkflowRun`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list(workflow_id: str, *, status: str | None = None) -> list[WorkflowRun]`
+
+Runs of one workflow.
+
+Scoped because the server has no unscoped listing: ``/workflow-runs`` is
+POST-only. An earlier SDK method implying otherwise returned 405.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[[WorkflowRun](#workflowrun)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `cancel(run_id: str) -> WorkflowRun`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(run_id: str, *, timeout: float = 900.0, raise_on_failure: bool = True, **options) -> WorkflowRun`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `raise_on_failure` | keyword-only | `bool` | `True` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[WorkflowRun](#workflowrun)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+- [`WorkflowRunFailed`](#workflowrunfailed)
+
+##### `AsyncJobsAPI`
+
+`class AsyncJobsAPI()`
+
+**Bases:** `_AsyncResource`
+
+Background jobs, and waiting on ones that stop for a person.
+
+**Methods**
+
+###### `get(job_id: str) -> Job`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `[Job](#job)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list(*, status: str | None = None) -> list[Job]`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[[Job](#job)]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(job_id: str, *, timeout: float = 900.0, **options) -> Job`
+
+Return when the job finishes *or* stops for a human.
+
+``candidate_ready`` is a resting state: applying the candidate is a
+person's decision, so the job will never advance on its own and polling
+past it would spend the whole timeout on the expected outcome.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `[Job](#job)`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+##### `AsyncEventsAPI`
+
+`class AsyncEventsAPI()`
+
+**Bases:** `_AsyncResource`
+
+The reason this module exists.
+
+**Methods**
+
+###### `stream(**params) -> AsyncIterator[str]`
+
+Yield raw server-sent-event lines as they arrive.
+
+Unparsed on purpose: the event vocabulary grows with the server, and a
+decoder compiled into this SDK would reject events added after it
+shipped -- exactly when a consumer most needs to see them.
+
+Returns an async iterator rather than a coroutine, so it is used with
+``async for`` and never awaited.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `AsyncIterator[str]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.aio.transport`
+
+Asynchronous transport, sharing every decision with the synchronous one.
+
+**Public exports**
+
+`AsyncTransport`
+
+#### Classes
+
+##### `AsyncTransport`
+
+`class AsyncTransport(base_url: str, *, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, backoff_factor: float = 0.5, verify: bool | str = True, user_agent: str | None = None, http_client: httpx.AsyncClient | None = None)`
+
+Asynchronous HTTP transport against one CALIBER deployment.
+
+**Constructor**
+
+###### `__init__(base_url: str, *, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, backoff_factor: float = 0.5, verify: bool | str = True, user_agent: str | None = None, http_client: httpx.AsyncClient | None = None) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `base_url` | positional-or-keyword | `str` | `—` |
+| `auth` | keyword-only | `AuthProvider | None` | `None` |
+| `project` | keyword-only | `str | None` | `None` |
+| `timeout` | keyword-only | `float` | `30.0` |
+| `max_retries` | keyword-only | `int` | `2` |
+| `backoff_factor` | keyword-only | `float` | `0.5` |
+| `verify` | keyword-only | `bool | str` | `True` |
+| `user_agent` | keyword-only | `str | None` | `None` |
+| `http_client` | keyword-only | `httpx.AsyncClient | None` | `None` |
+
+**Returns:** `None`
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `base_url` | `Any` | — |
+| `auth` | `Any` | Session inspection plus token and account sub-resources. |
+| `project` | `Any` | — |
+| `max_retries` | `Any` | — |
+| `backoff_factor` | `Any` | — |
+| `_user_agent` | `Any` | — |
+| `_owns_client` | `Any` | — |
+| `_client` | `Any` | — |
+
+**Methods**
+
+###### `aclose() -> None`
+
+Close the underlying client, but only one we created.
+
+A caller who passed their own client owns its lifetime; closing it here
+would break the next thing that used it.
+
+This callable takes no public parameters.
+
+**Returns:** `None`
+
+###### `__aenter__() -> AsyncTransport`
+
+This callable takes no public parameters.
+
+**Returns:** `AsyncTransport`
+
+###### `__aexit__(*_: object) -> None`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `_` | var-positional | `object` | `—` |
+
+**Returns:** `None`
+
+###### `url_for(path: str) -> str`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `str`
+
+###### `bootstrap_csrf() -> str | None`
+
+This callable takes no public parameters.
+
+**Returns:** `str | None`
+
+###### `request(method: str, path: str, *, params: Mapping[str, Any] | None = None, json = None, headers: Mapping[str, str] | None = None, files = None, data: Mapping[str, Any] | None = None, timeout: float | None = None, _csrf_retry: bool = True) -> Response`
+
+Perform one API call, returning the unwrapped payload.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `method` | positional-or-keyword | `str` | `—` |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `json` | keyword-only | `Any` | `None` |
+| `headers` | keyword-only | `Mapping[str, str] | None` | `None` |
+| `files` | keyword-only | `Any` | `None` |
+| `data` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `timeout` | keyword-only | `float | None` | `None` |
+| `_csrf_retry` | keyword-only | `bool` | `True` |
+
+**Returns:** `Response`
+
+**Raises:**
+
+- [`CaliberTransportError`](#calibertransporterror)
+- [`error_for_response`](#error_for_response)
+
+###### `get(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `post(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `put(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `patch(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `delete(path: str, **kwargs) -> Response`
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `Response`
+
+###### `download(path: str, **kwargs) -> bytes`
+
+Fetch raw bytes: no envelope, no decoding.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `kwargs` | var-keyword | `Any` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberTransportError`](#calibertransporterror)
+- [`error_for_response`](#error_for_response)
+
+###### `stream_lines(path: str, *, params: Mapping[str, Any] | None = None, timeout: float | None = None) -> AsyncIterator[str]`
+
+Yield lines from a server-sent-events endpoint.
+
+The method this whole module exists for. No default timeout: a stream
+staying open is the success case, not a hang.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `timeout` | keyword-only | `float | None` | `None` |
+
+**Returns:** `AsyncIterator[str]`
+
+**Raises:**
+
+- [`CaliberTransportError`](#calibertransporterror)
+- [`error_for_response`](#error_for_response)
+
+###### `paginate(path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100) -> AsyncIterator[Any]`
+
+Yield items across ``limit``/``offset`` pages.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `path` | positional-or-keyword | `str` | `—` |
+| `params` | keyword-only | `Mapping[str, Any] | None` | `None` |
+| `limit` | keyword-only | `int` | `100` |
+
+**Returns:** `AsyncIterator[Any]`
+
+### Module `caliber_sdk.aio.waiters`
+
+Async waiters, holding the same polling policy as the synchronous ones.
+
+**Public exports**
+
+`DEFAULT_BACKOFF`, `DEFAULT_INTERVAL`, `DEFAULT_MAX_INTERVAL`, `DEFAULT_TIMEOUT`, `WaitFailed`, `WaitTimeout`, `wait_for`, `wait_for_terminal_state`
+
+#### Functions
+
+###### `wait_for(poll: Callable[[], Awaitable[T]], *, is_done: Callable[[T], bool], timeout: float = DEFAULT_TIMEOUT, interval: float = DEFAULT_INTERVAL, max_interval: float = DEFAULT_MAX_INTERVAL, backoff: float = DEFAULT_BACKOFF) -> T`
+
+Poll until ``is_done`` or the timeout expires.
+
+A waiter never decides what "finished" means -- the caller supplies the
+predicate, because only they know whether a ``failed`` run is a successful
+outcome for their script.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `poll` | positional-or-keyword | `Callable[[], Awaitable[T]]` | `—` |
+| `is_done` | keyword-only | `Callable[[T], bool]` | `—` |
+| `timeout` | keyword-only | `float` | `DEFAULT_TIMEOUT` |
+| `interval` | keyword-only | `float` | `DEFAULT_INTERVAL` |
+| `max_interval` | keyword-only | `float` | `DEFAULT_MAX_INTERVAL` |
+| `backoff` | keyword-only | `float` | `DEFAULT_BACKOFF` |
+
+**Returns:** `T`
+
+**Raises:**
+
+- [`ValueError`](#valueerror)
+- [`WaitTimeout`](#waittimeout)
+
+###### `wait_for_terminal_state(poll: Callable[[], Awaitable[Any]], *, terminal: frozenset[str] = TERMINAL_STATES, failure: frozenset[str] = FAILURE_STATES, raise_on_failure: bool = True, **options) -> Any`
+
+Poll until a payload reports a terminal status.
+
+``raise_on_failure`` defaults to True because a script that waited for work
+and got a failure almost always wants to stop there.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `poll` | positional-or-keyword | `Callable[[], Awaitable[Any]]` | `—` |
+| `terminal` | keyword-only | `frozenset[str]` | `TERMINAL_STATES` |
+| `failure` | keyword-only | `frozenset[str]` | `FAILURE_STATES` |
+| `raise_on_failure` | keyword-only | `bool` | `True` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)

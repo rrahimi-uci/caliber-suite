@@ -95,6 +95,7 @@ const MODULES = [
   { md: "sdk/beta.md", out: "m-22-sdk-beta.html", group: "sdk", label: "Beta and agentic surfaces", blurb: "Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished." },
   { md: "sdk/plugins.md", out: "m-23-sdk-plugins.html", group: "sdk", label: "Writing a plugin", blurb: "Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it." },
   { md: "sdk/cli.md", out: "m-24-sdk-cli.html", group: "sdk", label: "CLI and async client", blurb: "caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both." },
+  { md: "sdk/cookbooks.md", out: "m-25-sdk-cookbooks.html", group: "sdk", label: "SDK cookbook implementations", blurb: "Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed." },
   { md: "competitive-analysis.md", out: "m-17-competitive-analysis.html", group: "strategy", label: "Competitive analysis", blurb: "How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources." },
   { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];
@@ -276,10 +277,356 @@ function renderPythonExample(ref, fromMdRel) {
     if (lines[i].trim() !== "" && !/^\s/.test(lines[i])) { end = i; break; }
   }
   const body = lines.slice(start, end).join("\n").replace(/\s+$/, "");
-  return `<figure class="code-example" data-example-src="${escapeAttr(spec)}">` +
-    `<pre><code>${escapeHtml(body)}</code></pre>` +
-    `<figcaption>From <code>${escapeHtml(relPath)}</code> \u2014 executed by the SDK test suite.</figcaption>` +
+  return renderCodeFigure(body, "python", {
+    figureClass: "code-example",
+    dataAttrs: ` data-example-src="${escapeAttr(spec)}"`,
+    caption: `From <code>${escapeHtml(relPath)}</code> \u2014 executed by the SDK test suite.`,
+  });
+}
+
+function renderPythonFile(ref, fromMdRel) {
+  const relPath = ref.trim();
+  if (!relPath) {
+    throw new Error(`[build-docs] empty python-file fence in ${fromMdRel}`);
+  }
+  const filePath = resolve(REPO_ROOT, relPath);
+  if (!isWithin(REPO_ROOT, filePath) || !filePath.endsWith(".py")) {
+    throw new Error(`[build-docs] python-file ${relPath} in ${fromMdRel} is outside the repository or not a .py file`);
+  }
+  if (!existsSync(filePath)) {
+    throw new Error(`[build-docs] python-file source ${relPath} referenced from ${fromMdRel} does not exist`);
+  }
+  const body = readFileSync(filePath, "utf8").replace(/\r\n/g, "\n").replace(/\s+$/, "");
+  return renderCodeFigure(body, "python", {
+    figureClass: "code-example",
+    dataAttrs: ` data-example-src="${escapeAttr(relPath)}"`,
+    caption: `Full source from <code>${escapeHtml(relPath)}</code> \u2014 executed by the SDK example test suite.`,
+  });
+}
+
+const GENERATED_DOCS = new Map();
+const SDK_DOCS_GENERATOR = resolve(here, "generate_sdk_docs.py");
+
+function generatedSdkMarkdown(kind) {
+  if (GENERATED_DOCS.has(kind)) return GENERATED_DOCS.get(kind);
+  if (!existsSync(SDK_DOCS_GENERATOR)) {
+    throw new Error(`[build-docs] required SDK docs generator ${relative(REPO_ROOT, SDK_DOCS_GENERATOR)} not found`);
+  }
+  const output = execFileSync("python3", ["-B", SDK_DOCS_GENERATOR, kind], {
+    encoding: "utf8",
+  });
+  GENERATED_DOCS.set(kind, output);
+  return output;
+}
+
+function materializeSdkMarkdown(markdown) {
+  return markdown
+    .replace("{{SDK_API_REFERENCE}}", generatedSdkMarkdown("reference").trim())
+    .replace("{{SDK_COOKBOOKS}}", generatedSdkMarkdown("cookbooks").trim());
+}
+
+function codeLanguage(lang) {
+  const normalized = String(lang || "").trim().toLowerCase();
+  if (normalized === "py") return "python";
+  if (normalized === "yml") return "yaml";
+  if (!normalized) return "";
+  return normalized;
+}
+
+function spanToken(kind, text) {
+  return `<span class="tok-${kind}">${escapeHtml(text)}</span>`;
+}
+
+function renderCodeFigure(code, lang, { figureClass = "code-example", dataAttrs = "", caption = "" } = {}) {
+  const language = codeLanguage(lang);
+  const block = renderCodeBlock(code, language);
+  return `<figure class="${figureClass}"${dataAttrs}>` +
+    `${block}` +
+    (caption ? `<figcaption>${caption}</figcaption>` : "") +
     `</figure>`;
+}
+
+function renderCodeBlock(code, lang = "") {
+  const language = codeLanguage(lang);
+  const cls = language ? ` class="language-${language}"` : "";
+  return `<pre${cls}><code${cls}>${highlightCode(code, language)}</code></pre>`;
+}
+
+function highlightCode(code, lang = "") {
+  switch (codeLanguage(lang)) {
+    case "python":
+      return highlightPython(code);
+    case "json":
+      return highlightJson(code);
+    case "yaml":
+      return highlightYaml(code);
+    default:
+      return escapeHtml(code);
+  }
+}
+
+function isWordChar(ch) {
+  return /[A-Za-z0-9_]/.test(ch);
+}
+
+function readQuotedString(code, start, { allowPrefixes = false } = {}) {
+  let prefixEnd = start;
+  if (allowPrefixes) {
+    while (
+      prefixEnd < code.length &&
+      /[rRbBuUfF]/.test(code[prefixEnd]) &&
+      prefixEnd - start < 3
+    ) {
+      prefixEnd++;
+    }
+  }
+  const quote = code[prefixEnd];
+  if (quote !== "'" && quote !== "\"") return null;
+  if (allowPrefixes && start > 0 && isWordChar(code[start - 1])) return null;
+  const triple = code.slice(prefixEnd, prefixEnd + 3) === quote.repeat(3);
+  let end = prefixEnd + (triple ? 3 : 1);
+  while (end < code.length) {
+    if (!triple && code[end] === "\\") {
+      end += 2;
+      continue;
+    }
+    if (triple) {
+      if (code.slice(end, end + 3) === quote.repeat(3)) {
+        end += 3;
+        return { text: code.slice(start, end), end };
+      }
+      end += 1;
+      continue;
+    }
+    if (code[end] === quote) {
+      end += 1;
+      return { text: code.slice(start, end), end };
+    }
+    end += 1;
+  }
+  return { text: code.slice(start), end: code.length };
+}
+
+const PYTHON_KEYWORDS = new Set([
+  "and", "as", "assert", "async", "await", "break", "case", "class", "continue", "def",
+  "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in",
+  "is", "lambda", "match", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while",
+  "with", "yield",
+]);
+const PYTHON_BOOLEAN_LITERALS = new Set(["True", "False"]);
+
+function highlightPython(code) {
+  let out = "";
+  let i = 0;
+  let expectingName = "";
+  while (i < code.length) {
+    const ch = code[i];
+    const stringToken = readQuotedString(code, i, { allowPrefixes: true });
+    if (stringToken) {
+      out += spanToken("string", stringToken.text);
+      i = stringToken.end;
+      expectingName = "";
+      continue;
+    }
+    if (ch === "#") {
+      let end = i;
+      while (end < code.length && code[end] !== "\n") end++;
+      out += spanToken("comment", code.slice(i, end));
+      i = end;
+      expectingName = "";
+      continue;
+    }
+    if (ch === "@" && (i === 0 || code[i - 1] === "\n")) {
+      let end = i + 1;
+      while (end < code.length && /[A-Za-z0-9_\.]/.test(code[end])) end++;
+      out += spanToken("decorator", code.slice(i, end));
+      i = end;
+      expectingName = "";
+      continue;
+    }
+    if (/[A-Za-z_]/.test(ch)) {
+      let end = i + 1;
+      while (end < code.length && /[A-Za-z0-9_]/.test(code[end])) end++;
+      const word = code.slice(i, end);
+      if (word === "None") {
+        out += spanToken("null", word);
+        expectingName = "";
+      } else if (PYTHON_BOOLEAN_LITERALS.has(word)) {
+        out += spanToken("boolean", word);
+        expectingName = "";
+      } else if (PYTHON_KEYWORDS.has(word)) {
+        out += spanToken("keyword", word);
+        expectingName = word === "def" || word === "class" ? word : "";
+      } else if (expectingName === "def") {
+        out += spanToken("function", word);
+        expectingName = "";
+      } else if (expectingName === "class") {
+        out += spanToken("class", word);
+        expectingName = "";
+      } else {
+        let lookahead = end;
+        while (lookahead < code.length && /\s/.test(code[lookahead])) lookahead++;
+        if (code[lookahead] === "(") out += spanToken("function", word);
+        else out += escapeHtml(word);
+        expectingName = "";
+      }
+      i = end;
+      continue;
+    }
+    if (/[0-9]/.test(ch)) {
+      let end = i + 1;
+      while (end < code.length && /[0-9_\.eE\+\-]/.test(code[end])) end++;
+      out += spanToken("number", code.slice(i, end));
+      i = end;
+      expectingName = "";
+      continue;
+    }
+    if ("()[]{}:,.".includes(ch)) {
+      out += spanToken("punctuation", ch);
+      expectingName = ch === "." ? expectingName : "";
+      i++;
+      continue;
+    }
+    if ("=+-*/%<>!&|^~".includes(ch)) {
+      out += spanToken("operator", ch);
+      expectingName = "";
+      i++;
+      continue;
+    }
+    out += escapeHtml(ch);
+    if (!/\s/.test(ch)) expectingName = "";
+    i++;
+  }
+  return out;
+}
+
+function highlightJson(code) {
+  let out = "";
+  let i = 0;
+  while (i < code.length) {
+    const ch = code[i];
+    const stringToken = readQuotedString(code, i);
+    if (stringToken) {
+      let lookahead = stringToken.end;
+      while (lookahead < code.length && /\s/.test(code[lookahead])) lookahead++;
+      out += spanToken(lookahead < code.length && code[lookahead] === ":" ? "key" : "string", stringToken.text);
+      i = stringToken.end;
+      continue;
+    }
+    if (/[0-9\-]/.test(ch)) {
+      let end = i + 1;
+      while (end < code.length && /[0-9eE\+\-\.]/.test(code[end])) end++;
+      out += spanToken("number", code.slice(i, end));
+      i = end;
+      continue;
+    }
+    if (code.startsWith("true", i) || code.startsWith("false", i)) {
+      const literal = code.startsWith("true", i) ? "true" : "false";
+      out += spanToken("boolean", literal);
+      i += literal.length;
+      continue;
+    }
+    if (code.startsWith("null", i)) {
+      out += spanToken("null", "null");
+      i += 4;
+      continue;
+    }
+    if ("{}[]:,".includes(ch)) {
+      out += spanToken("punctuation", ch);
+      i++;
+      continue;
+    }
+    out += escapeHtml(ch);
+    i++;
+  }
+  return out;
+}
+
+function splitYamlComment(line) {
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (!quote && (ch === "'" || ch === "\"")) {
+      quote = ch;
+      continue;
+    }
+    if (quote) {
+      if (ch === "\\" && quote === "\"") {
+        i++;
+        continue;
+      }
+      if (ch === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (ch === "#") {
+      return { body: line.slice(0, i), comment: line.slice(i) };
+    }
+  }
+  return { body: line, comment: "" };
+}
+
+function highlightYamlValue(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    const stringToken = readQuotedString(text, i);
+    if (stringToken) {
+      out += spanToken("string", stringToken.text);
+      i = stringToken.end;
+      continue;
+    }
+    if (/[0-9\-]/.test(ch)) {
+      let end = i + 1;
+      while (end < text.length && /[0-9_\.]/.test(text[end])) end++;
+      out += spanToken("number", text.slice(i, end));
+      i = end;
+      continue;
+    }
+    if (/^[A-Za-z_]/.test(ch)) {
+      let end = i + 1;
+      while (end < text.length && /[A-Za-z0-9_\-]/.test(text[end])) end++;
+      const word = text.slice(i, end);
+      if (["true", "false", "yes", "no", "on", "off"].includes(word.toLowerCase())) {
+        out += spanToken("boolean", word);
+      } else if (["null", "~"].includes(word.toLowerCase())) {
+        out += spanToken("null", word);
+      } else {
+        out += escapeHtml(word);
+      }
+      i = end;
+      continue;
+    }
+    if ("[]{}:,-".includes(ch)) {
+      out += spanToken("punctuation", ch);
+      i++;
+      continue;
+    }
+    out += escapeHtml(ch);
+    i++;
+  }
+  return out;
+}
+
+function highlightYaml(code) {
+  return code.split("\n").map((line) => {
+    const { body, comment } = splitYamlComment(line);
+    const match = body.match(/^(\s*-\s+)?([A-Za-z0-9_.-]+)(\s*:)(.*)$/);
+    let rendered;
+    if (match) {
+      rendered =
+        escapeHtml(match[1] || "") +
+        spanToken("key", match[2]) +
+        spanToken("punctuation", match[3]) +
+        highlightYamlValue(match[4] || "");
+    } else {
+      rendered = highlightYamlValue(body);
+    }
+    if (comment) rendered += spanToken("comment", comment);
+    return rendered;
+  }).join("\n");
 }
 
 function renderSvgDiagramAsset(ref, fromMdRel) {
@@ -640,13 +987,16 @@ function renderBlocks(md, fromMdRel) {
       } else if (lang === "python-example") {
         // Snippet pulled from the file the tests run, not retyped here.
         out.push(renderPythonExample(code, fromMdRel));
+      } else if (lang === "python-file") {
+        // Full Python source file, used for complete runnable cookbook examples.
+        out.push(renderPythonFile(code, fromMdRel));
       } else if (lang === "legend") {
         // An empty ```legend``` fence renders the shared diagram color key. The
         // dot colors are defined (theme-aware) in docs.css and mirror the
         // semantic classDefs docs.js injects into flowcharts.
         out.push(LEGEND_HTML);
       } else {
-        out.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+        out.push(renderCodeBlock(code, lang));
       }
       continue;
     }
@@ -895,7 +1245,9 @@ ${generatedBanner(sourceRel)}
 // Render one markdown module to a full HTML page.
 function renderModule(mod) {
   const srcPath = resolve(DOCS_DIR, mod.md);
-  const raw = normalizePublishedMarkdown(readFileSync(srcPath, "utf8"), mod.md);
+  const raw = materializeSdkMarkdown(
+    normalizePublishedMarkdown(readFileSync(srcPath, "utf8"), mod.md)
+  );
   const lines = raw.replace(/\r\n/g, "\n").split("\n");
 
   // Pull out the first H1 as the page title; render the rest as the body.
@@ -1061,9 +1413,11 @@ function main() {
     // flattened, so rewrite known module cross-references to their sibling
     // m-*.md names; otherwise source-relative links would escape docs-site or
     // point at directories that do not exist in the published layout.
-    const markdown = normalizePublishedMarkdown(
-      readFileSync(resolve(DOCS_DIR, mod.md), "utf8"),
-      mod.md
+    const markdown = materializeSdkMarkdown(
+      normalizePublishedMarkdown(
+        readFileSync(resolve(DOCS_DIR, mod.md), "utf8"),
+        mod.md
+      )
     );
     // The banner is an HTML comment, so it stays invisible wherever the file is
     // rendered as Markdown (including the in-app docs and the `Copy page`

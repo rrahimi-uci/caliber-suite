@@ -147,7 +147,7 @@
 <ul><li><code>object_file</code> is an existing object-store file (bucket + key), fetched and text-extracted at attach time.</li><li><code>upload</code> is a file uploaded directly through the panel; it is text-extracted and optionally persisted to the object store.</li><li><code>library_resource</code> is an existing CALIBER asset (prompt, skill, tool, workflow, or knowledge_base) resolved into a text summary.</li><li><code>text_snippet</code> is a freeform pasted text block.</li></ul>
 <p>Whatever the kind, each attachment stores a <code>content_text</code> snapshot capped at <code>ATTACHMENT_TEXT_MAX_CHARS</code> (50k chars) and marked with a <code>truncated</code> flag, and each session is bounded by <code>max_attachments_per_session</code> (default 25). These limits keep the prompt-injection surface and context size predictable.</p>
 <p>Drafts move through a single lifecycle, encoded in <code>DraftStatus</code>, that mirrors CALIBER's broader governance progression:</p>
-<pre><code>draft → validating → validated | validation_failed
+<pre class="language-text"><code class="language-text">draft → validating → validated | validation_failed
 validated → testing → tested | test_failed
 tested → approved (manual) | reviewing
 reviewing → approved | review_rejected | review_failed

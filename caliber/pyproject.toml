@@ -235,6 +235,8 @@ src = ["src", "tests"]
 extend-exclude = [
     "src/caliber/db/migrations/versions",   # auto-generated; we don't lint these
     "tests/golden",                          # compiler golden output samples; not hand-written
+    "caliber-ui/public/docs",                # generated docs sync output
+    "src/caliber/ui/docs",                   # packaged generated docs sync output
 ]
 
 [tool.ruff.lint]

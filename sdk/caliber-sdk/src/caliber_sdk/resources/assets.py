@@ -69,7 +69,7 @@ class PromptsAPI(Resource):
 
     def promote(self, agent_id: str, version: int, *, alias: str = "prod") -> Any:
         """Point an alias at a version. This is the deployment step."""
-        return self._post(f"/prompts/{agent_id}/promote", json={"version": version, "alias": alias})
+        return self._post(f"/prompts/{agent_id}/aliases/{alias}", json={"version": version})
 
 
 class SkillsAPI(Resource):

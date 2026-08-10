@@ -91,7 +91,7 @@
         </header>
 <p>Two things built on the Python SDK: a command-line tool for operators, and an asynchronous client for the case where being synchronous costs you a thread.</p>
 <h2 id="caliberctl">caliberctl<a class="anchor" href="#caliberctl" aria-hidden="true" tabindex="-1">#</a></h2>
-<pre><code>pip install caliber-cli
+<pre class="language-bash"><code class="language-bash">pip install caliber-cli
 export CALIBER_BASE_URL=https://caliber.example.com
 export CALIBER_TOKEN=calpat_...
 
@@ -103,7 +103,7 @@ caliberctl workflow run --workflow-id WF-123 --input '{"claim_id": "C-1"}'</code
 <div class="table-wrap"><table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody><tr><td><code>0</code></td><td>The command did what was asked.</td></tr><tr><td><code>1</code></td><td>Failure — API error, missing resource, refused permission.</td></tr><tr><td><code>2</code></td><td>The invocation was wrong, or a confirmation flag was missing.</td></tr><tr><td><code>3</code></td><td><strong>The work stopped because a person has to act.</strong> Not an error.</td></tr><tr><td><code>4</code></td><td>A quality gate said no. The command worked; the answer was no.</td></tr><tr><td><code>5</code></td><td>The wait deadline passed with the work still in progress.</td></tr><tr><td><code>6</code></td><td>No usable credential.</td></tr></tbody></table></div>
 <p>Code 3 is why the others exist. CALIBER stops and asks people things — a refinement job produces a candidate and waits, an Aria plan pauses on a question, a release candidate sits unsigned. None of those is a failure and none is a success, and collapsing them into either one produces a specific bad outcome:</p>
 <ul><li>reported as <strong>success</strong>, a pipeline proceeds as though a human approved something;</li><li>reported as <strong>failure</strong>, it flags a broken build for a system working correctly.</li></ul>
-<pre><code>caliberctl job wait RFN-42
+<pre class="language-bash"><code class="language-bash">caliberctl job wait RFN-42
 case $? in
   0) echo "applied" ;;
   3) echo "candidate ready — someone needs to review it" ;;
@@ -112,11 +112,11 @@ case $? in
 esac</code></pre>
 <h3 id="-json-means-only-json"><code>--json</code> means only JSON<a class="anchor" href="#-json-means-only-json" aria-hidden="true" tabindex="-1">#</a></h3>
 <p>In JSON mode stdout carries JSON and nothing else. Progress notes, warnings, and errors all go to stderr, so this works without a filtering step:</p>
-<pre><code>TOKEN=$(caliberctl token create ci --json | jq -r .token)</code></pre>
+<pre class="language-bash"><code class="language-bash">TOKEN=$(caliberctl token create ci --json | jq -r .token)</code></pre>
 <p>The sharpest case is <code>token create</code>: it prints a human-facing warning that the secret is shown only once, and that warning must not corrupt the stream a script is reading the secret from.</p>
 <h3 id="nothing-prompts">Nothing prompts<a class="anchor" href="#nothing-prompts" aria-hidden="true" tabindex="-1">#</a></h3>
 <p>A command that would do something irreversible requires <code>--yes</code> and fails without it, rather than asking. A tool that blocks on a TTY hangs a CI job instead of failing it, which is much harder to diagnose.</p>
-<pre><code>caliberctl token revoke PAT-9         # exits 2, explains it needs --yes
+<pre class="language-bash"><code class="language-bash">caliberctl token revoke PAT-9         # exits 2, explains it needs --yes
 caliberctl token revoke PAT-9 --yes   # revokes</code></pre>
 <h3 id="commands">Commands<a class="anchor" href="#commands" aria-hidden="true" tabindex="-1">#</a></h3>
 <div class="table-wrap"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody><tr><td><code>whoami</code></td><td>Identity behind the current credential. Exits 6 if anonymous.</td></tr><tr><td><code>capabilities</code></td><td>What the deployment supports.</td></tr><tr><td><code>token list | create | rotate | revoke</code></td><td>Access token lifecycle.</td></tr><tr><td><code>workflow list | run | status</code></td><td>Run a workflow and wait for it.</td></tr><tr><td><code>job list | wait</code></td><td>Background jobs, including the ones that wait for you.</td></tr><tr><td><code>release list | sign</code></td><td>Release candidates and go / no-go.</td></tr><tr><td><code>cookbook list | install</code></td><td>Example workflows, with readiness checked first.</td></tr><tr><td><code>prompt list | show</code></td><td>Governed prompts and the registry coordinate each resolves to.</td></tr><tr><td><code>service show | publish | unpublish</code></td><td>A workflow's external HTTP service.</td></tr><tr><td><code>plugin list</code></td><td>Optimizers, and plugins installed but not enabled.</td></tr></tbody></table></div>
@@ -127,33 +127,33 @@ caliberctl token revoke PAT-9 --yes   # revokes</code></pre>
 <p><strong><code>service publish</code> and <code>service unpublish</code> both need <code>--yes</code>.</strong> Publishing moves invocation to an external endpoint authenticated by per-service tokens rather than a user credential; unpublishing breaks whoever was calling it. Neither is something to do by accident.</p>
 <p><strong><code>release sign --rationale</code> is required.</strong> By the API, and therefore here. A CLI that defaulted it to "signed via caliberctl" would manufacture exactly the record the requirement exists to prevent.</p>
 <h2 id="the-async-client">The async client<a class="anchor" href="#the-async-client" aria-hidden="true" tabindex="-1">#</a></h2>
-<pre><code>import asyncio
-from caliber_sdk.aio import AsyncCaliberClient
+<pre class="language-python"><code class="language-python"><span class="tok-keyword">import</span> asyncio
+<span class="tok-keyword">from</span> caliber_sdk<span class="tok-punctuation">.</span>aio <span class="tok-keyword">import</span> AsyncCaliberClient
 
 
-async def main() -&gt; None:
-    async with AsyncCaliberClient(token="calpat_...") as caliber:
-        async for line in caliber.events.stream():
-            print(line)
+<span class="tok-keyword">async</span> <span class="tok-keyword">def</span> <span class="tok-function">main</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> <span class="tok-null">None</span><span class="tok-punctuation">:</span>
+    <span class="tok-keyword">async</span> <span class="tok-keyword">with</span> <span class="tok-function">AsyncCaliberClient</span><span class="tok-punctuation">(</span>token<span class="tok-operator">=</span><span class="tok-string">"calpat_..."</span><span class="tok-punctuation">)</span> <span class="tok-keyword">as</span> caliber<span class="tok-punctuation">:</span>
+        <span class="tok-keyword">async</span> <span class="tok-keyword">for</span> line <span class="tok-keyword">in</span> caliber<span class="tok-punctuation">.</span>events<span class="tok-punctuation">.</span><span class="tok-function">stream</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+            <span class="tok-function">print</span><span class="tok-punctuation">(</span>line<span class="tok-punctuation">)</span>
 
 
-asyncio.run(main())</code></pre>
+asyncio<span class="tok-punctuation">.</span><span class="tok-function">run</span><span class="tok-punctuation">(</span><span class="tok-function">main</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span></code></pre>
 <p>No extra dependency — <code>httpx</code> provides both clients. Construction, environment fallbacks, and credential precedence are identical to the synchronous client.</p>
 <h3 id="why-it-exists">Why it exists<a class="anchor" href="#why-it-exists" aria-hidden="true" tabindex="-1">#</a></h3>
 <p><strong>Streaming.</strong> An ordinary request reads its whole body before returning. An SSE endpoint never ends, so consuming it synchronously occupies a thread for as long as you want events. This is the case async is actually for.</p>
 <p><strong>Concurrency.</strong> Submitting forty workflow runs and awaiting them together is one coroutine per run instead of forty threads:</p>
-<pre><code>runs = await asyncio.gather(*(
-    caliber.workflows.submit(workflow_version_id=version, input=claim)
-    for claim in claims
-))</code></pre>
+<pre class="language-python"><code class="language-python">runs <span class="tok-operator">=</span> <span class="tok-keyword">await</span> asyncio<span class="tok-punctuation">.</span><span class="tok-function">gather</span><span class="tok-punctuation">(</span><span class="tok-operator">*</span><span class="tok-punctuation">(</span>
+    caliber<span class="tok-punctuation">.</span>workflows<span class="tok-punctuation">.</span><span class="tok-function">submit</span><span class="tok-punctuation">(</span>workflow_version_id<span class="tok-operator">=</span>version<span class="tok-punctuation">,</span> input<span class="tok-operator">=</span>claim<span class="tok-punctuation">)</span>
+    <span class="tok-keyword">for</span> claim <span class="tok-keyword">in</span> claims
+<span class="tok-punctuation">)</span><span class="tok-punctuation">)</span></code></pre>
 <h3 id="what-it-covers-and-what-it-does-not">What it covers, and what it does not<a class="anchor" href="#what-it-covers-and-what-it-does-not" aria-hidden="true" tabindex="-1">#</a></h3>
 <p><code>AsyncCaliberClient</code> gives you the transport, <code>raw</code>, async waiters, and the typed surfaces where async changes the outcome: <code>me</code>, <code>capabilities_api</code>, <code>workflows</code> (runs), <code>jobs</code>, and <code>events</code>.</p>
 <p>It does <strong>not</strong> mirror all twenty-odd typed resource modules, and that is a decision rather than an omission. Two hand-written copies of the same resource tree is two places for a path to be renamed and one place for it to be forgotten. This repository's history includes several wrong paths caught only by driving the SDK against the real server; a second, less-exercised copy would carry exactly that risk with none of that coverage.</p>
 <p>Nothing is unreachable either way — <code>client.raw</code> reaches any endpoint with the same auth, retries, envelope handling, and typed errors, and <code>caliber_sdk.models.decode</code> works on any payload:</p>
-<pre><code>from caliber_sdk.models import Prompt, decode
+<pre class="language-python"><code class="language-python"><span class="tok-keyword">from</span> caliber_sdk<span class="tok-punctuation">.</span>models <span class="tok-keyword">import</span> Prompt<span class="tok-punctuation">,</span> decode
 
-payload = await caliber.raw.get("/prompts")
-prompts = [decode(Prompt, item) for item in payload]</code></pre>
+payload <span class="tok-operator">=</span> <span class="tok-keyword">await</span> caliber<span class="tok-punctuation">.</span>raw<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"/prompts"</span><span class="tok-punctuation">)</span>
+prompts <span class="tok-operator">=</span> <span class="tok-punctuation">[</span><span class="tok-function">decode</span><span class="tok-punctuation">(</span>Prompt<span class="tok-punctuation">,</span> item<span class="tok-punctuation">)</span> <span class="tok-keyword">for</span> item <span class="tok-keyword">in</span> payload<span class="tok-punctuation">]</span></code></pre>
 <h3 id="one-policy-not-two">One policy, not two<a class="anchor" href="#one-policy-not-two" aria-hidden="true" tabindex="-1">#</a></h3>
 <p>The async transport necessarily restates the <em>shape</em> of the request loop — an <code>await</code> cannot be injected into a synchronous function. It must not restate the <em>decisions</em>, so it imports them: which methods may be retried, which statuses are worth retrying, how backoff grows, how <code>Retry-After</code> is read, how a body is decoded, when an envelope is unwrapped, what a CSRF failure looks like, and what the waiter defaults are.</p>
 <p><code>test_async_parity.py</code> asserts that by <strong>identity</strong>, not equality — two equal sets today can diverge on the next edit and nothing would notice. It also asserts that <code>time.sleep(</code> appears nowhere in the async modules, because blocking the loop is the one thing an async client must not do.</p>

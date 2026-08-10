@@ -95,40 +95,40 @@
 <p>The obvious design is: any installed distribution advertising into the <code>caliber.optimizers</code> entry-point group gets loaded. Most plugin systems work that way, and it is the wrong choice here.</p>
 <p>An optimizer authors the artifact CALIBER promotes to production. A transitive dependency — three levels down, in something a developer added for an unrelated reason — that quietly registered one would acquire authority over production prompts with no review step, and nothing would look wrong from the outside: the refinement loop would keep working, jobs would keep completing, candidates would keep passing the eval gate.</p>
 <p>So discovery and enablement are separate. CALIBER reports every installed plugin and loads only the ones whose <strong>distribution</strong> the deployment names:</p>
-<pre><code>export CALIBER_PLUGIN_ALLOWLIST=acme-caliber-optimizers,another-plugin</code></pre>
+<pre class="language-bash"><code class="language-bash">export CALIBER_PLUGIN_ALLOWLIST=acme-caliber-optimizers,another-plugin</code></pre>
 <p>The allowlist matches distributions rather than optimizer names, because allowlisting is a statement about who you trust, not about what they happened to call their entry point.</p>
 <p>An unlisted plugin appears in <code>GET /capabilities</code> as installed and inert — which is what lets an operator enable it, rather than being left to wonder why the wheel they installed had no effect.</p>
 <h2 id="what-a-plugin-is">What a plugin is<a class="anchor" href="#what-a-plugin-is" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Three things.</p>
 <p><strong>One.</strong> A class with an <code>optimize</code> method:</p>
-<pre><code>from caliber_plugin_sdk import (
-    OptimizationRequest,
-    OptimizationResult,
-    OptimizerUnavailable,
-)
+<pre class="language-python"><code class="language-python"><span class="tok-keyword">from</span> caliber_plugin_sdk <span class="tok-keyword">import</span> <span class="tok-punctuation">(</span>
+    OptimizationRequest<span class="tok-punctuation">,</span>
+    OptimizationResult<span class="tok-punctuation">,</span>
+    OptimizerUnavailable<span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span>
 
 
-class ShortenPrompt:
-    def optimize(self, request: OptimizationRequest) -&gt; OptimizationResult:
-        if not request.current_content:
-            raise OptimizerUnavailable("nothing to shorten on cold start")
-        return OptimizationResult(
-            content=request.current_content[:2000],
-            rationale="Truncated to 2000 characters to fit the model's context.",
-        )</code></pre>
+<span class="tok-keyword">class</span> <span class="tok-class">ShortenPrompt</span><span class="tok-punctuation">:</span>
+    <span class="tok-keyword">def</span> <span class="tok-function">optimize</span><span class="tok-punctuation">(</span>self<span class="tok-punctuation">,</span> request<span class="tok-punctuation">:</span> OptimizationRequest<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> OptimizationResult<span class="tok-punctuation">:</span>
+        <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> request<span class="tok-punctuation">.</span>current_content<span class="tok-punctuation">:</span>
+            <span class="tok-keyword">raise</span> <span class="tok-function">OptimizerUnavailable</span><span class="tok-punctuation">(</span><span class="tok-string">"nothing to shorten on cold start"</span><span class="tok-punctuation">)</span>
+        <span class="tok-keyword">return</span> <span class="tok-function">OptimizationResult</span><span class="tok-punctuation">(</span>
+            content<span class="tok-operator">=</span>request<span class="tok-punctuation">.</span>current_content<span class="tok-punctuation">[</span><span class="tok-punctuation">:</span><span class="tok-number">2000</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+            rationale<span class="tok-operator">=</span><span class="tok-string">"Truncated to 2000 characters to fit the model's context."</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">)</span></code></pre>
 <p><strong>Two.</strong> A declaration:</p>
-<pre><code>from caliber_plugin_sdk import declare
+<pre class="language-python"><code class="language-python"><span class="tok-keyword">from</span> caliber_plugin_sdk <span class="tok-keyword">import</span> declare
 
-declaration = declare(
-    "ShortenPrompt",
-    summary="Truncates an over-long prompt to fit the context window.",
-    artifact_types=("prompt",),
-    factory=ShortenPrompt,
-)</code></pre>
+declaration <span class="tok-operator">=</span> <span class="tok-function">declare</span><span class="tok-punctuation">(</span>
+    <span class="tok-string">"ShortenPrompt"</span><span class="tok-punctuation">,</span>
+    summary<span class="tok-operator">=</span><span class="tok-string">"Truncates an over-long prompt to fit the context window."</span><span class="tok-punctuation">,</span>
+    artifact_types<span class="tok-operator">=</span><span class="tok-punctuation">(</span><span class="tok-string">"prompt"</span><span class="tok-punctuation">,</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+    factory<span class="tok-operator">=</span>ShortenPrompt<span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span></code></pre>
 <p><code>name</code> is stored on every job that runs the optimizer, so it is a durable contract rather than a label — renaming it orphans the rows that reference it.</p>
 <p><code>summary</code> is required because it is what an operator reads when deciding whether to allowlist your distribution. An empty summary makes that decision blind.</p>
 <p><strong>Three.</strong> An entry point:</p>
-<pre><code>[project.entry-points."caliber.optimizers"]
+<pre class="language-toml"><code class="language-toml">[project.entry-points."caliber.optimizers"]
 shorten = "your_package:declaration"</code></pre>
 <p>Point it at the declaration, or at a zero-argument callable returning one. The callable form exists so you can probe for an optional dependency and declare honestly instead of registering a capability you cannot deliver.</p>
 <h2 id="what-a-plugin-does-not-get">What a plugin does not get<a class="anchor" href="#what-a-plugin-does-not-get" aria-hidden="true" tabindex="-1">#</a></h2>
@@ -140,13 +140,13 @@ shorten = "your_package:declaration"</code></pre>
 <p>The reference implementation declines in three situations, each one a case where producing a candidate anyway would cost a human review for nothing:</p>
 <div class="table-wrap"><table><thead><tr><th>Situation</th><th>Why declining is right</th></tr></thead><tbody><tr><td>Diagnosis confidence below 0.5</td><td>A hard requirement derived from a guess can make the artifact worse in a way the eval gate does not catch.</td></tr><tr><td>Diagnosis names no root cause</td><td>There is nothing to act on.</td></tr><tr><td>The change is already applied</td><td>A no-op candidate spends the scarcest resource in the loop — a reviewer's attention.</td></tr></tbody></table></div>
 <h2 id="check-it-before-you-ship-it">Check it before you ship it<a class="anchor" href="#check-it-before-you-ship-it" aria-hidden="true" tabindex="-1">#</a></h2>
-<pre><code>from caliber_plugin_sdk.conformance import assert_conformant
+<pre class="language-python"><code class="language-python"><span class="tok-keyword">from</span> caliber_plugin_sdk<span class="tok-punctuation">.</span>conformance <span class="tok-keyword">import</span> assert_conformant
 
-from your_package import declaration
+<span class="tok-keyword">from</span> your_package <span class="tok-keyword">import</span> declaration
 
 
-def test_the_plugin_conforms() -&gt; None:
-    assert_conformant(declaration)</code></pre>
+<span class="tok-keyword">def</span> <span class="tok-function">test_the_plugin_conforms</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> <span class="tok-null">None</span><span class="tok-punctuation">:</span>
+    <span class="tok-function">assert_conformant</span><span class="tok-punctuation">(</span>declaration<span class="tok-punctuation">)</span></code></pre>
 <p>The suite runs your optimizer against every artifact kind it claims, including the <strong>cold-start</strong> case where <code>current_content</code> is empty. That is the first refinement a new agent ever runs, and the one a plugin developed against a populated deployment has never seen.</p>
 <p>It reports every problem it finds rather than stopping at the first, and it checks the things with downstream consequences:</p>
 <div class="table-wrap"><table><thead><tr><th>Check</th><th>Why it matters</th></tr></thead><tbody><tr><td>Non-empty <code>content</code></td><td>An empty candidate that passed the eval gate promotes as a deletion.</td></tr><tr><td>Non-empty <code>rationale</code></td><td>A human approves this diff. Approving one with no stated reason makes the gate a formality.</td></tr><tr><td>Name is not a built-in</td><td>Every agent configured for <code>GEPA</code> would silently start running your code instead.</td></tr><tr><td>Factory does not raise</td><td>A raising factory kills your plugin's registration, not one run. Defer setup into <code>optimize</code>.</td></tr><tr><td>Telemetry is non-negative</td><td><code>None</code> means "not reported"; <code>0</code> means free. <code>-1</code> means neither.</td></tr></tbody></table></div>
@@ -156,14 +156,14 @@ def test_the_plugin_conforms() -&gt; None:
 <p>Both sides refuse it: the conformance suite catches it in your test run, and the server catches it at load time in case conformance never ran.</p>
 <h2 id="what-an-operator-sees">What an operator sees<a class="anchor" href="#what-an-operator-sees" aria-hidden="true" tabindex="-1">#</a></h2>
 <p><code>GET /capabilities</code> reports both what can run and what is installed:</p>
-<pre><code>extensibility = caliber.capabilities_api.get().extensibility
+<pre class="language-python"><code class="language-python">extensibility <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>capabilities_api<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">.</span>extensibility
 
-for optimizer in extensibility.optimizers_for("prompt"):
-    print(optimizer.name, optimizer.source, optimizer.is_third_party)
+<span class="tok-keyword">for</span> optimizer <span class="tok-keyword">in</span> extensibility<span class="tok-punctuation">.</span><span class="tok-function">optimizers_for</span><span class="tok-punctuation">(</span><span class="tok-string">"prompt"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+    <span class="tok-function">print</span><span class="tok-punctuation">(</span>optimizer<span class="tok-punctuation">.</span>name<span class="tok-punctuation">,</span> optimizer<span class="tok-punctuation">.</span>source<span class="tok-punctuation">,</span> optimizer<span class="tok-punctuation">.</span>is_third_party<span class="tok-punctuation">)</span>
 
-for plugin in extensibility.plugins:
-    if not plugin.is_active:
-        print(f"{plugin.distribution} is installed but not enabled")</code></pre>
+<span class="tok-keyword">for</span> plugin <span class="tok-keyword">in</span> extensibility<span class="tok-punctuation">.</span>plugins<span class="tok-punctuation">:</span>
+    <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> plugin<span class="tok-punctuation">.</span>is_active<span class="tok-punctuation">:</span>
+        <span class="tok-function">print</span><span class="tok-punctuation">(</span><span class="tok-string">f"{plugin.distribution} is installed but not enabled"</span><span class="tok-punctuation">)</span></code></pre>
 <p>Reading the plugin list never imports the code it describes — which is what makes it safe to render <em>before</em> deciding whether to trust anything in it.</p>
 <p>A plugin that was allowlisted and then failed to load reports its error rather than disappearing. The deployment asked for it, so silence would read as success.</p>
         <footer>

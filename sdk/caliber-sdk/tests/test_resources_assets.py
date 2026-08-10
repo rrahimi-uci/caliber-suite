@@ -56,7 +56,7 @@ def test_registering_a_version_does_not_touch_the_alias() -> None:
         caliber.prompts.register_version("support", "new template", commit_message="tighten")
         caliber.prompts.promote("support", 4)
 
-    assert seen == ["POST /prompts/support/versions", "POST /prompts/support/promote"]
+    assert seen == ["POST /prompts/support/versions", "POST /prompts/support/aliases/prod"]
 
 
 def test_promote_sends_the_alias_it_was_given() -> None:
@@ -69,7 +69,7 @@ def test_promote_sends_the_alias_it_was_given() -> None:
     with client_with(handler) as caliber:
         caliber.prompts.promote("support", 7, alias="staging")
 
-    assert sent == {"version": 7, "alias": "staging"}
+    assert sent == {"version": 7}
 
 
 # --- skills ---------------------------------------------------------------

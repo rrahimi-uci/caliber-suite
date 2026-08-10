@@ -48,6 +48,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Beta and agentic surfaces](m-22-sdk-beta.md): Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished.
 - [Writing a plugin](m-23-sdk-plugins.md): Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it.
 - [CLI and async client](m-24-sdk-cli.md): caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.
+- [SDK cookbook implementations](m-25-sdk-cookbooks.md): Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed.
 
 ## Strategy & roadmap
 

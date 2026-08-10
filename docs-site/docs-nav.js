@@ -137,6 +137,10 @@ window.DOCS_NAV = [
       {
         "href": "m-24-sdk-cli.html",
         "label": "CLI and async client"
+      },
+      {
+        "href": "m-25-sdk-cookbooks.html",
+        "label": "SDK cookbook implementations"
       }
     ]
   },
