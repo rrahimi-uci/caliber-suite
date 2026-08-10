@@ -16,7 +16,7 @@ import pytest
 
 from caliber_sdk import CaliberClient
 from caliber_sdk.aio import AsyncCaliberClient
-from caliber_sdk.errors import CaliberNotFoundError, CaliberTransportError
+from caliber_sdk.errors import CaliberConfigError, CaliberNotFoundError, CaliberTransportError
 
 BASE = "https://caliber.test"
 
@@ -86,6 +86,37 @@ def test_the_async_client_sends_the_same_credential_header_as_the_sync_one() -> 
 
     assert seen["auth"].startswith("Bearer ")
     assert seen["auth"] == sync_seen["auth"]
+
+
+def test_the_async_client_accepts_the_same_verify_keyword_as_the_sync_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    class DummyAsyncClient:
+        def __init__(self, **kwargs: Any) -> None:
+            seen.update(kwargs)
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpx, "AsyncClient", DummyAsyncClient)
+    client = AsyncCaliberClient(BASE, token="calpat_test", verify=False)
+    run(client.aclose())
+
+    assert seen["verify"] is False
+    assert seen["timeout"] == 30.0
+
+
+def test_the_async_transport_validates_base_url_and_retry_configuration() -> None:
+    from caliber_sdk.aio.transport import AsyncTransport
+
+    with pytest.raises(CaliberConfigError, match="must not be empty"):
+        AsyncTransport("")
+    with pytest.raises(CaliberConfigError, match="http\\(s\\) URL"):
+        AsyncTransport("caliber.test")
+    with pytest.raises(CaliberConfigError, match="must not be negative"):
+        AsyncTransport(BASE, max_retries=-1)
 
 
 def test_an_error_response_raises_the_same_typed_exception() -> None:

@@ -195,15 +195,17 @@ def test_plan_example_approves_only_when_the_plan_asks() -> None:
 
     def record(request: httpx.Request) -> Any:
         seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
-        return {"plan_id": "PLAN-1", "goal": "g", "status": "completed", "step_count": 3}
+        return {
+            "plan": {"plan_id": "PLAN-1", "goal": "g", "status": "completed"},
+            "steps": [{"step_id": "STEP-1", "plan_id": "PLAN-1", "title": "Inspect"}],
+        }
 
     caliber = stub_server(
         {
             "POST /aria/plans": record,
             "GET /aria/plans/PLAN-1": lambda _r: {
-                "plan_id": "PLAN-1",
-                "goal": "g",
-                "status": next(states),
+                "plan": {"plan_id": "PLAN-1", "goal": "g", "status": next(states)},
+                "steps": [{"step_id": "STEP-1", "plan_id": "PLAN-1", "title": "Inspect"}],
             },
             "POST /aria/plans/PLAN-1/approve": record,
             "POST /aria/plans/PLAN-1/execute": record,

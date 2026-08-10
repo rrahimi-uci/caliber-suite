@@ -12,7 +12,10 @@ from typing import Any
 
 from ..models._decode import decode, decode_list
 from ..models.operations import (
+    AriaInteraction,
     AriaPlan,
+    AriaPlanDetail,
+    AriaPlanStep,
     AuditEntry,
     CookbookRecipe,
     Job,
@@ -24,6 +27,15 @@ from ..waiters import wait_for
 from ._base import Resource
 
 _List = list
+
+
+def _decode_plan_detail(payload: Any) -> AriaPlanDetail:
+    if not isinstance(payload, dict):
+        return AriaPlanDetail()
+    detail = decode(AriaPlanDetail, payload)
+    detail.plan = decode(AriaPlan, payload.get("plan"))
+    detail.steps = decode_list(AriaPlanStep, payload.get("steps"))
+    return detail
 
 
 class JobsAPI(Resource):
@@ -94,28 +106,59 @@ class AriaAPI(Resource):
         """What Aria is allowed to do in this deployment."""
         return self._get("/aria/capabilities")
 
-    def plans(self, *, status: str | None = None) -> _List[AriaPlan]:
-        params = {"status": status} if status else None
+    def plans(
+        self,
+        *,
+        session_id: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> _List[AriaPlan]:
+        params: dict[str, Any] = {}
+        for key, value in (("session_id", session_id), ("limit", limit), ("offset", offset)):
+            if value is not None:
+                params[key] = value
         return decode_list(AriaPlan, self._get("/aria/plans", params=params))
 
-    def get_plan(self, plan_id: str) -> AriaPlan:
-        return decode(AriaPlan, self._get(f"/aria/plans/{plan_id}"))
+    def get_plan(self, plan_id: str) -> AriaPlanDetail:
+        return _decode_plan_detail(self._get(f"/aria/plans/{plan_id}"))
 
-    def create_plan(self, goal: str, **options: Any) -> AriaPlan:
+    def create_plan(self, goal: str, **options: Any) -> AriaPlanDetail:
         """State an intent. Aria plans the steps; you approve them."""
-        return decode(AriaPlan, self._post("/aria/plans", json={"goal": goal, **options}))
+        return _decode_plan_detail(self._post("/aria/plans", json={"goal": goal, **options}))
 
-    def approve_plan(self, plan_id: str, **options: Any) -> AriaPlan:
-        return decode(AriaPlan, self._post(f"/aria/plans/{plan_id}/approve", json=options))
+    def update_plan(self, plan_id: str, **changes: Any) -> AriaPlanDetail:
+        return _decode_plan_detail(self._patch(f"/aria/plans/{plan_id}", json=changes))
 
-    def execute_plan(self, plan_id: str, **options: Any) -> AriaPlan:
-        return decode(AriaPlan, self._post(f"/aria/plans/{plan_id}/execute", json=options))
+    def approve_plan(self, plan_id: str, **options: Any) -> AriaPlanDetail:
+        return _decode_plan_detail(self._post(f"/aria/plans/{plan_id}/approve", json=options))
 
-    def answer(self, interaction_id: str, **payload: Any) -> Any:
+    def execute_plan(self, plan_id: str, **options: Any) -> AriaPlanDetail:
+        return _decode_plan_detail(self._post(f"/aria/plans/{plan_id}/execute", json=options))
+
+    def poll_plan(self, plan_id: str, **options: Any) -> AriaPlanDetail:
+        return _decode_plan_detail(self._post(f"/aria/plans/{plan_id}/poll", json=options))
+
+    def interactions(
+        self, plan_id: str, *, limit: int | None = None, offset: int | None = None
+    ) -> _List[AriaInteraction]:
+        params: dict[str, Any] = {}
+        for key, value in (("limit", limit), ("offset", offset)):
+            if value is not None:
+                params[key] = value
+        return decode_list(
+            AriaInteraction,
+            self._get(f"/aria/plans/{plan_id}/interactions", params=params or None),
+        )
+
+    def answer(self, interaction_id: str, **payload: Any) -> AriaPlanDetail:
         """Answer a question Aria paused to ask."""
-        return self._post(f"/aria/interactions/{interaction_id}/answer", json=payload)
+        return _decode_plan_detail(
+            self._post(f"/aria/interactions/{interaction_id}/answer", json=payload)
+        )
 
-    def wait_for_plan(self, plan_id: str, *, timeout: float = 900.0, **options: Any) -> AriaPlan:
+    def wait_for_plan(
+        self, plan_id: str, *, timeout: float = 900.0, **options: Any
+    ) -> AriaPlanDetail:
         """Poll until the plan finishes or pauses for you.
 
         ``paused`` is a resting state, not a transient one: the plan makes no
@@ -124,9 +167,10 @@ class AriaAPI(Resource):
         """
         return wait_for(
             lambda: self.get_plan(plan_id),
-            is_done=lambda plan: (
-                plan.needs_you
-                or plan.status in {"completed", "succeeded", "failed", "cancelled", "rejected"}
+            is_done=lambda detail: (
+                detail.plan.needs_you
+                or detail.plan.status
+                in {"completed", "succeeded", "failed", "cancelled", "rejected"}
             ),
             timeout=timeout,
             **options,

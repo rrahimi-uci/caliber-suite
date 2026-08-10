@@ -18,16 +18,20 @@ def plan_from_intent(caliber: CaliberClient, goal: str) -> dict[str, Any]:
     makes no further progress on its own — polling past it would burn the whole
     timeout on the expected outcome.
     """
-    plan = caliber.aria.create_plan(goal)
-    settled = caliber.aria.wait_for_plan(plan.plan_id, timeout=120)
+    detail = caliber.aria.create_plan(goal)
+    settled = caliber.aria.wait_for_plan(detail.plan.plan_id, timeout=120)
 
-    if settled.needs_you:
+    if settled.plan.needs_you:
         # The plan is waiting on a human decision. Approving is that decision,
         # made explicitly rather than inferred from the script continuing.
-        caliber.aria.approve_plan(settled.plan_id)
-        settled = caliber.aria.execute_plan(settled.plan_id)
+        caliber.aria.approve_plan(settled.plan.plan_id)
+        settled = caliber.aria.execute_plan(settled.plan.plan_id)
 
-    return {"plan_id": settled.plan_id, "status": settled.status, "steps": settled.step_count}
+    return {
+        "plan_id": settled.plan.plan_id,
+        "status": settled.plan.status,
+        "steps": len(settled.steps),
+    }
 
 
 def install_ready_cookbook(caliber: CaliberClient) -> dict[str, Any]:

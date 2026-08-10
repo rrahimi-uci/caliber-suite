@@ -121,6 +121,7 @@ pip install -e ".[dev]"
 pytest
 mypy
 ruff check .
+python -m build
 ```
 
 Zero runtime dependencies, and that is the design: a plugin that had to import

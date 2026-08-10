@@ -64,6 +64,7 @@ class AsyncCaliberClient:
         project: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 2,
+        verify: bool | str = True,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         resolved_url = (base_url or os.environ.get(ENV_BASE_URL) or "").strip()
@@ -80,6 +81,7 @@ class AsyncCaliberClient:
             project=project or os.environ.get(ENV_PROJECT) or None,
             timeout=timeout,
             max_retries=max_retries,
+            verify=verify,
             http_client=http_client,
         )
         self.raw = AsyncRawAPI(self._transport)

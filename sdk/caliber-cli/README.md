@@ -118,4 +118,5 @@ pip install -e ../caliber-sdk -e ".[dev]"
 pytest
 mypy
 ruff check .
+python -m build
 ```

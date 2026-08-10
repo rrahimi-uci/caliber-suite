@@ -49,22 +49,27 @@ class AsyncTransport:
         timeout: float = 30.0,
         max_retries: int = 2,
         backoff_factor: float = 0.5,
+        verify: bool | str = True,
         user_agent: str | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        if not base_url:
-            raise CaliberConfigError(
-                "a base URL is required; pass base_url= or set CALIBER_BASE_URL"
-            )
-        self.base_url = base_url.rstrip("/")
+        cleaned = (base_url or "").strip().rstrip("/")
+        if not cleaned:
+            raise CaliberConfigError("base_url must not be empty")
+        if not cleaned.startswith(("http://", "https://")):
+            raise CaliberConfigError(f"base_url must be an http(s) URL, got {base_url!r}")
+        if max_retries < 0:
+            raise CaliberConfigError("max_retries must not be negative")
+
+        self.base_url = cleaned
         self.auth = auth or NoAuth()
         self.project = project
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
-        self._user_agent = f"{user_agent} {USER_AGENT}" if user_agent else USER_AGENT
+        self._user_agent = user_agent or USER_AGENT
         self._csrf_token: str | None = None
         self._owns_client = http_client is None
-        self._client = http_client or httpx.AsyncClient(timeout=timeout, follow_redirects=True)
+        self._client = http_client or httpx.AsyncClient(timeout=timeout, verify=verify)
 
     async def aclose(self) -> None:
         """Close the underlying client, but only one we created.

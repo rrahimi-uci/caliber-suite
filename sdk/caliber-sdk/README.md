@@ -101,6 +101,16 @@ for item in caliber.raw.paginate("/workflows", limit=50):
 This is deliberate and permanent. A typed façade that lags the server would
 otherwise make new endpoints unreachable until the SDK catches up.
 
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest
+mypy
+ruff check .
+python -m build
+```
+
 ## Status
 
 Alpha. The transport, auth, error, and waiter contracts above are stable;

@@ -32,7 +32,10 @@ from .core import (
 from .errors import ErrorBody, FieldError
 from .integrations import Bucket, KnowledgeBase, McpServer, StoredObject
 from .operations import (
+    AriaInteraction,
     AriaPlan,
+    AriaPlanDetail,
+    AriaPlanStep,
     AuditEntry,
     CookbookRecipe,
     Job,
@@ -57,7 +60,10 @@ __all__ = [
     "STABILITY_INTERNAL",
     "TERMINAL_RUN_STATES",
     "Account",
+    "AriaInteraction",
     "AriaPlan",
+    "AriaPlanDetail",
+    "AriaPlanStep",
     "AuditEntry",
     "Bucket",
     "CalibrationJob",

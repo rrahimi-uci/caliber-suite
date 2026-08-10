@@ -69,12 +69,55 @@ def test_waiting_on_a_plan_stops_at_paused_rather_than_polling_past_it() -> None
     states = iter(["planning", "paused"])
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return envelope({"plan_id": "PLAN-1", "goal": "g", "status": next(states)})
+        return envelope(
+            {"plan": {"plan_id": "PLAN-1", "goal": "g", "status": next(states)}, "steps": []}
+        )
 
     with client_with(handler) as caliber:
-        plan = caliber.aria.wait_for_plan("PLAN-1", interval=0.001, max_interval=0.001, timeout=5)
+        detail = caliber.aria.wait_for_plan(
+            "PLAN-1", interval=0.001, max_interval=0.001, timeout=5
+        )
 
-    assert plan.needs_you
+    assert detail.plan.needs_you
+
+
+def test_getting_a_plan_decodes_the_nested_detail_shape() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/aria/plans/PLAN-1")
+        return envelope(
+            {
+                "plan": {"plan_id": "PLAN-1", "goal": "stabilize", "status": "draft"},
+                "steps": [{"step_id": "STEP-1", "plan_id": "PLAN-1", "title": "Inspect"}],
+            }
+        )
+
+    with client_with(handler) as caliber:
+        detail = caliber.aria.get_plan("PLAN-1")
+
+    assert detail.plan.plan_id == "PLAN-1"
+    assert [step.step_id for step in detail.steps] == ["STEP-1"]
+
+
+def test_listing_plan_interactions_hits_the_documented_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/aria/plans/PLAN-1/interactions")
+        return envelope(
+            [
+                {
+                    "interaction_id": "ASK-1",
+                    "plan_id": "PLAN-1",
+                    "step_id": "STEP-1",
+                    "kind": "confirm",
+                    "prompt": "Proceed?",
+                    "status": "pending",
+                }
+            ]
+        )
+
+    with client_with(handler) as caliber:
+        interactions = caliber.aria.interactions("PLAN-1")
+
+    assert interactions[0].interaction_id == "ASK-1"
 
 
 # --- integrations ---------------------------------------------------------
@@ -114,6 +157,79 @@ def test_invoking_an_mcp_tool_goes_through_the_governed_path() -> None:
     assert seen["body"] == {"tool_name": "search", "arguments": {"q": "refund"}}
 
 
+def test_mcp_tool_policy_update_uses_the_documented_path() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        seen["body"] = jsonlib.loads(request.content)
+        return envelope({"policy": {"allowed": True}})
+
+    with client_with(handler) as caliber:
+        caliber.mcp_servers.update_tool_policy("M-1", "search", allowed=True)
+
+    assert seen["path"] == "/mcp-servers/M-1/tools/search/policy"
+    assert seen["body"] == {"allowed": True}
+
+
+def test_mcp_tool_test_cases_and_calibration_use_the_tool_subroutes() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
+        return envelope({"ok": True})
+
+    with client_with(handler) as caliber:
+        caliber.mcp_servers.save_test_cases("M-1", "search", [{"name": "case", "input": {}}])
+        caliber.mcp_servers.calibrate_tool("M-1", "search")
+
+    assert seen == [
+        "PUT /mcp-servers/M-1/tools/search/test-cases",
+        "POST /mcp-servers/M-1/tools/search/calibrate",
+    ]
+
+
+def test_knowledge_base_extended_routes_hit_the_documented_paths() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
+        return envelope({})
+
+    with client_with(handler) as caliber:
+        caliber.knowledge_bases.versions("KB-1")
+        caliber.knowledge_bases.create_version("KB-1", sources=[{"key": "docs/policy.md"}])
+        caliber.knowledge_bases.activate_version("KB-1", "KBV-1")
+        caliber.knowledge_bases.version("KBV-1")
+        caliber.knowledge_bases.sync_version_to_age("KBV-1")
+        caliber.knowledge_bases.sources("KBV-1")
+        caliber.knowledge_bases.chunks("KBV-1", q="refund", source_key="docs/policy.md", limit=25)
+        caliber.knowledge_bases.entities("KBV-1")
+        caliber.knowledge_bases.relationships("KBV-1")
+        caliber.knowledge_bases.graph("KBV-1", q="chargeback")
+        caliber.knowledge_bases.run_events("KBR-1")
+        caliber.knowledge_bases.test_runs("KB-1", limit=5)
+        caliber.knowledge_bases.test_run("KBT-1")
+        caliber.knowledge_bases.query(knowledge_base_id="KB-1", query="refund window")
+
+    assert seen == [
+        "GET /knowledge-bases/KB-1/versions",
+        "POST /knowledge-bases/KB-1/versions",
+        "POST /knowledge-bases/KB-1/versions/KBV-1/activate",
+        "GET /knowledge-base-versions/KBV-1",
+        "POST /knowledge-base-versions/KBV-1/age-sync",
+        "GET /knowledge-base-versions/KBV-1/sources",
+        "GET /knowledge-base-versions/KBV-1/chunks",
+        "GET /knowledge-base-versions/KBV-1/entities",
+        "GET /knowledge-base-versions/KBV-1/relationships",
+        "GET /knowledge-base-versions/KBV-1/graph",
+        "GET /knowledge-runs/KBR-1/events",
+        "GET /knowledge-bases/KB-1/test-runs",
+        "GET /knowledge/test-runs/KBT-1",
+        "POST /knowledge/query",
+    ]
+
+
 def test_object_import_bridges_raw_storage_into_the_managed_registry() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/object/import")
@@ -123,6 +239,42 @@ def test_object_import_bridges_raw_storage_into_the_managed_registry() -> None:
         result = caliber.object_store.import_object("docs", "policy.md")
 
     assert result["file_id"] == "F-1"
+
+
+def test_object_store_create_bucket_uses_the_server_field_name() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(jsonlib.loads(request.content))
+        return envelope({"name": "docs"})
+
+    with client_with(handler) as caliber:
+        caliber.object_store.create_bucket("docs")
+
+    assert sent == {"name": "docs"}
+
+
+def test_object_store_listing_splits_objects_and_prefixes() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "bucket": "docs",
+                "prefix": "",
+                "prefixes": ["policies/"],
+                "objects": [{"key": "readme.md", "size": 123}],
+                "next_token": "next",
+                "is_truncated": True,
+            }
+        )
+
+    with client_with(handler) as caliber:
+        objects = caliber.object_store.objects("docs")
+        folders = caliber.object_store.folders("docs")
+        listing = caliber.object_store.listing("docs")
+
+    assert [obj.key for obj in objects] == ["readme.md"]
+    assert folders == ["policies/"]
+    assert listing["next_token"] == "next"
 
 
 # --- releases -------------------------------------------------------------

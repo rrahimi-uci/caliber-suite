@@ -86,6 +86,57 @@ class AriaPlan:
 
 
 @dataclass
+class AriaPlanStep:
+    """One step inside an Aria plan detail response."""
+
+    step_id: str = ""
+    plan_id: str = ""
+    title: str = ""
+    capability_key: str | None = None
+    depends_on: list[str] = field(default_factory=list)
+    status: str = ""
+    result: dict[str, Any] = field(default_factory=dict)
+    evidence: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    draft_id: str | None = None
+    job_id: str | None = None
+    approval_id: str | None = None
+    checkpoint_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AriaPlanDetail:
+    """A plan plus its steps."""
+
+    plan: AriaPlan = field(default_factory=AriaPlan)
+    steps: list[AriaPlanStep] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AriaInteraction:
+    """One pause/question inside an Aria plan."""
+
+    interaction_id: str = ""
+    plan_id: str = ""
+    step_id: str = ""
+    kind: str = ""
+    prompt: str = ""
+    options: list[dict[str, Any]] = field(default_factory=list)
+    evidence: dict[str, Any] = field(default_factory=dict)
+    required_scope: str | None = None
+    status: str = ""
+    response: dict[str, Any] = field(default_factory=dict)
+    responded_by: str | None = None
+    responded_at: str | None = None
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class ReleaseCandidate:
     """A release candidate with weighted criteria and signoff."""
 
@@ -159,7 +210,10 @@ class CookbookRecipe:
 
 
 __all__ = [
+    "AriaInteraction",
     "AriaPlan",
+    "AriaPlanDetail",
+    "AriaPlanStep",
     "AuditEntry",
     "CookbookRecipe",
     "Job",
