@@ -1,0 +1,2 @@
+{"t":"2026-08-10T23:36:32.721Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://unused.test/prompts/support-agent?alias=prod \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-10T23:36:32.723Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://unused.test/prompts/support-agent?alias=prod \"HTTP/1.1 503 Service Unavailable\""}

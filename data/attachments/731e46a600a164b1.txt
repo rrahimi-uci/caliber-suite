@@ -1,0 +1,1 @@
+{"t":"2026-08-10T23:29:17.088Z","severity":"ERROR","logger":"caliber.bundle","message":"bundle promotion failed for approval=AP-1: bundle promotion failed at tool-use/skill: version already claimed"}
