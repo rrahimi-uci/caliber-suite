@@ -86,9 +86,17 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 A connection to one CALIBER deployment.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
+
 **Constructor**
 
 ###### `__init__(base_url: str | None = None, *, token: str | None = None, user: str | None = None, proxy_secret: str | None = None, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, verify: bool | str = True, http_client: httpx.Client | None = None) -> None`
+
+Operate on the caliber client surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -155,17 +163,23 @@ This callable takes no public parameters.
 
 ###### `close() -> None`
 
+Close the underlying HTTP client or transport owned by this object.
+
 This callable takes no public parameters.
 
 **Returns:** `None`
 
 ###### `__enter__() -> CaliberClient`
 
+Return this instance so it can be used inside a context manager.
+
 This callable takes no public parameters.
 
 **Returns:** `[CaliberClient](#caliberclient)`
 
 ###### `__exit__(*_: object) -> None`
+
+Close any owned resources when leaving the context manager.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -210,6 +224,8 @@ This callable takes no public parameters.
 
 ###### `health() -> Any`
 
+Fetch the lightweight health/readiness view exposed by the deployment.
+
 This callable takes no public parameters.
 
 **Returns:** `Any`
@@ -228,6 +244,8 @@ This callable takes no public parameters.
 
 ###### `__repr__() -> str`
 
+Operate on the caliber client surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `str`
@@ -235,6 +253,12 @@ This callable takes no public parameters.
 ### Module `caliber_sdk.auth`
 
 Authentication strategies for the CALIBER management API.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/tokens.py#issue_scoped_token
+```
 
 **Public exports**
 
@@ -288,6 +312,8 @@ This callable takes no public parameters.
 
 ###### `__init__(token: str) -> None`
 
+Operate on the token auth surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `token` | positional-or-keyword | `str` | `—` |
@@ -308,6 +334,8 @@ This callable takes no public parameters.
 
 ###### `uses_cookie_auth() -> bool`
 
+Report whether this auth strategy relies on cookie-backed authentication.
+
 This callable takes no public parameters.
 
 **Returns:** `bool`
@@ -316,11 +344,15 @@ This callable takes no public parameters.
 
 ###### `headers() -> dict[str, str]`
 
+Build the authentication headers added to outgoing HTTP requests.
+
 This callable takes no public parameters.
 
 **Returns:** `dict[str, str]`
 
 ###### `__repr__() -> str`
+
+Operate on the token auth surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
@@ -339,6 +371,8 @@ development and proxy-terminated deployments genuinely use it.
 **Constructor**
 
 ###### `__init__(user: str, *, proxy_secret: str | None = None) -> None`
+
+Operate on the trusted header auth surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -362,6 +396,8 @@ development and proxy-terminated deployments genuinely use it.
 
 ###### `uses_cookie_auth() -> bool`
 
+Report whether this auth strategy relies on cookie-backed authentication.
+
 This callable takes no public parameters.
 
 **Returns:** `bool`
@@ -370,11 +406,15 @@ This callable takes no public parameters.
 
 ###### `headers() -> dict[str, str]`
 
+Build the authentication headers added to outgoing HTTP requests.
+
 This callable takes no public parameters.
 
 **Returns:** `dict[str, str]`
 
 ###### `__repr__() -> str`
+
+Operate on the trusted header auth surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
@@ -390,6 +430,8 @@ Send no credential. Useful for probing an unauthenticated endpoint.
 
 ###### `uses_cookie_auth() -> bool`
 
+Report whether this auth strategy relies on cookie-backed authentication.
+
 This callable takes no public parameters.
 
 **Returns:** `bool`
@@ -398,6 +440,8 @@ This callable takes no public parameters.
 
 ###### `headers() -> dict[str, str]`
 
+Build the authentication headers added to outgoing HTTP requests.
+
 This callable takes no public parameters.
 
 **Returns:** `dict[str, str]`
@@ -405,6 +449,12 @@ This callable takes no public parameters.
 ### Module `caliber_sdk.transport`
 
 HTTP transport: envelopes, errors, retries, CSRF, and correlation.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
 
 **Public exports**
 
@@ -428,6 +478,8 @@ A decoded response plus the context needed to debug it.
 **Constructor**
 
 ###### `__init__(*, data, status_code: int, headers: Mapping[str, str], request_id: str | None) -> None`
+
+Operate on the response surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -456,6 +508,8 @@ Synchronous HTTP transport against one CALIBER deployment.
 **Constructor**
 
 ###### `__init__(base_url: str, *, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, backoff_factor: float = 0.5, verify: bool | str = True, client: httpx.Client | None = None, user_agent: str | None = None) -> None`
+
+Send a prepared request through the shared transport and decode the typed response wrapper.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -490,17 +544,23 @@ Synchronous HTTP transport against one CALIBER deployment.
 
 ###### `close() -> None`
 
+Close the underlying HTTP client or transport owned by this object.
+
 This callable takes no public parameters.
 
 **Returns:** `None`
 
 ###### `__enter__() -> Transport`
 
+Return this instance so it can be used inside a context manager.
+
 This callable takes no public parameters.
 
 **Returns:** `Transport`
 
 ###### `__exit__(*_: object) -> None`
+
+Close any owned resources when leaving the context manager.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -555,6 +615,8 @@ Perform one API call, returning the unwrapped payload.
 
 ###### `get(path: str, **kwargs) -> Response`
 
+Fetch one record from the transport surface identified by `path`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -563,6 +625,8 @@ Perform one API call, returning the unwrapped payload.
 **Returns:** `Response`
 
 ###### `post(path: str, **kwargs) -> Response`
+
+Send a prepared request through the shared transport and decode the typed response wrapper.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -573,6 +637,8 @@ Perform one API call, returning the unwrapped payload.
 
 ###### `put(path: str, **kwargs) -> Response`
 
+Send a prepared request through the shared transport and decode the typed response wrapper.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -582,6 +648,8 @@ Perform one API call, returning the unwrapped payload.
 
 ###### `patch(path: str, **kwargs) -> Response`
 
+Send a prepared request through the shared transport and decode the typed response wrapper.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -590,6 +658,8 @@ Perform one API call, returning the unwrapped payload.
 **Returns:** `Response`
 
 ###### `delete(path: str, **kwargs) -> Response`
+
+Delete a record on the transport surface and return the server acknowledgement.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -659,6 +729,12 @@ change this signature.
 
 Exception hierarchy for the CALIBER SDK.
 
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
+
 **Public exports**
 
 `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
@@ -726,6 +802,8 @@ The server returned a non-2xx response.
 **Constructor**
 
 ###### `__init__(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None) -> None`
+
+Operate on the caliber a p i error surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -797,6 +875,8 @@ user, deliberately: distinguishing the two would let a caller enumerate ids.
 
 ###### `__init__(message: str, *, errors: list[dict[str, Any]], **kwargs) -> None`
 
+Operate on the caliber validation error surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `message` | positional-or-keyword | `str` | `—` |
@@ -830,6 +910,12 @@ user, deliberately: distinguishing the two would let a caller enumerate ids.
 ### Module `caliber_sdk.waiters`
 
 Polling helpers for CALIBER's long-running operations.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
 
 **Public exports**
 
@@ -912,6 +998,8 @@ The operation did not reach a terminal state within the budget.
 
 ###### `__init__(message: str, *, last = None, elapsed: float = 0.0) -> None`
 
+Operate on the wait timeout surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `message` | positional-or-keyword | `str` | `—` |
@@ -938,6 +1026,8 @@ The operation reached a terminal state that indicates failure.
 **Constructor**
 
 ###### `__init__(message: str, *, state: str, last = None) -> None`
+
+Operate on the wait failed surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1063,6 +1153,8 @@ User accounts. Admin-only on the server.
 
 ###### `list() -> list[Account]`
 
+Return the current collection of user accounts, applying any supported filters.
+
 This callable takes no public parameters.
 
 **Returns:** `list[[Account](#account)]`
@@ -1073,6 +1165,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create(user_id: str, password: str) -> Any`
+
+Create a new record on the user accounts surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1133,6 +1227,8 @@ Session inspection, plus the token and account sub-resources.
 
 ###### `__init__(transport) -> None`
 
+Operate on the authentication and session state surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `transport` | positional-or-keyword | `Any` | `—` |
@@ -1164,6 +1260,12 @@ This callable takes no public parameters.
 ### Module `caliber_sdk.resources.system`
 
 Identity, capabilities, and settings — the deployment-level surfaces.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
 
 **Public exports**
 
@@ -1210,6 +1312,8 @@ Runtime feature flags and API stability tiers.
 
 ###### `get() -> Capabilities`
 
+Fetch one record from the runtime capabilities surface identified by `id`.
+
 This callable takes no public parameters.
 
 **Returns:** `[Capabilities](#capabilities)`
@@ -1230,6 +1334,8 @@ Runtime configuration inventory and LLM credential status.
 **Methods**
 
 ###### `runtime() -> RuntimeSettings`
+
+Return the current runtime settings snapshot for the deployment.
 
 This callable takes no public parameters.
 
@@ -1274,6 +1380,12 @@ Write LLM provider settings. Secrets are write-only on the server.
 ### Module `caliber_sdk.resources.projects`
 
 Projects and their files — the workspace-scoping surface.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
+```
 
 **Public exports**
 
@@ -1332,6 +1444,8 @@ Upload a file. Multipart, so it does not go through the JSON path.
 
 ###### `create_folder(project_id: str, path: str) -> ProjectFolder`
 
+Operate on the project files and folders surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
@@ -1345,6 +1459,8 @@ Upload a file. Multipart, so it does not go through the JSON path.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `delete(project_id: str, file_id: str) -> bool`
+
+Delete a record on the project files and folders surface and return the server acknowledgement. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1382,9 +1498,13 @@ Raw bytes. Not JSON, so it bypasses the envelope entirely.
 
 Projects, plus their file sub-resource.
 
+**Related APIs:** [`ProjectFilesAPI`](#projectfilesapi)
+
 **Constructor**
 
 ###### `__init__(transport) -> None`
+
+Operate on the projects surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1417,6 +1537,8 @@ Active projects by default; pass ``status="all"`` for everything.
 
 ###### `get(project_id: str) -> Project`
 
+Fetch one record from the projects surface identified by `project_id`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
@@ -1429,6 +1551,8 @@ Active projects by default; pass ``status="all"`` for everything.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create(name: str, *, description: str | None = None) -> Project`
+
+Create a new record on the projects surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1443,6 +1567,8 @@ Active projects by default; pass ``status="all"`` for everything.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `update(project_id: str, *, name: str | None = None, description: str | None = None, status: str | None = None) -> Project`
+
+Patch an existing record on the projects surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1499,9 +1625,19 @@ Prompts are MLflow registry objects that CALIBER governs. Versions are
 immutable and an alias points at one of them, so "update a prompt" is
 always "register a new version", never an edit in place.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
+```
+
+**Related APIs:** [`EvaluationsAPI`](#evaluationsapi), [`ReviewQueuesAPI`](#reviewqueuesapi)
+
 **Methods**
 
 ###### `list() -> list[Prompt]`
+
+Return the current collection of prompts and prompt versions, applying any supported filters.
 
 This callable takes no public parameters.
 
@@ -1513,6 +1649,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(agent_id: str) -> Prompt`
+
+Fetch one record from the prompts and prompt versions surface identified by `agent_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1602,9 +1740,13 @@ Point an alias at a version. This is the deployment step.
 
 Skill registry, rendering, selection testing, and versions.
 
+**Related APIs:** [`JudgesAPI`](#judgesapi), [`EvaluationsAPI`](#evaluationsapi)
+
 **Methods**
 
 ###### `list(*, status: str | None = None, tag: str | None = None) -> list[Skill]`
+
+Return the current collection of skills, applying any supported filters.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1619,6 +1761,8 @@ Skill registry, rendering, selection testing, and versions.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(skill_id: str) -> Skill`
+
+Fetch one record from the skills surface identified by `skill_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1657,6 +1801,8 @@ accident of which credential happened to run the script.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `update(skill_id: str, **changes) -> Skill`
+
+Patch an existing record on the skills surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1704,6 +1850,8 @@ Would this skill be auto-selected for this query?
 
 ###### `versions(skill_id: str) -> _List[SkillVersion]`
 
+Operate on the skills surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `skill_id` | positional-or-keyword | `str` | `—` |
@@ -1727,6 +1875,8 @@ Tool registry, fixtures, and calibration.
 
 ###### `list(*, status: str | None = None) -> list[Tool]`
 
+Return the current collection of tools and calibration cases, applying any supported filters.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
@@ -1740,6 +1890,8 @@ Tool registry, fixtures, and calibration.
 
 ###### `get(tool_id: str) -> Tool`
 
+Fetch one record from the tools and calibration cases surface identified by `tool_id`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `tool_id` | positional-or-keyword | `str` | `—` |
@@ -1752,6 +1904,8 @@ Tool registry, fixtures, and calibration.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `register(name: str, *, version: str, module_path: str, callable_name: str, input_schema: dict[str, Any] | None = None, output_schema: dict[str, Any] | None = None, **options) -> Tool`
+
+Operate on the tools and calibration cases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1771,6 +1925,8 @@ Tool registry, fixtures, and calibration.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `update(tool_id: str, **changes) -> Tool`
+
+Patch an existing record on the tools and calibration cases surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1802,6 +1958,8 @@ Queue a calibration run. Returns immediately with a job to poll.
 
 ###### `calibration_job(tool_id: str, job_id: str) -> CalibrationJob`
 
+Operate on the tools and calibration cases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `tool_id` | positional-or-keyword | `str` | `—` |
@@ -1815,6 +1973,8 @@ Queue a calibration run. Returns immediately with a job to poll.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `calibration_jobs(tool_id: str) -> _List[CalibrationJob]`
+
+Operate on the tools and calibration cases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1878,6 +2038,8 @@ A run reached a terminal state that is not success.
 
 ###### `__init__(run: WorkflowRun) -> None`
 
+Operate on the workflow run failed surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `run` | positional-or-keyword | `[WorkflowRun](#workflowrun)` | `—` |
@@ -1898,9 +2060,13 @@ A run reached a terminal state that is not success.
 
 Immutable manifest snapshots of one workflow.
 
+**Related APIs:** [`WorkflowsAPI`](#workflowsapi), [`WorkflowRunsAPI`](#workflowrunsapi), [`WorkflowServicesAPI`](#workflowservicesapi)
+
 **Methods**
 
 ###### `list(workflow_id: str) -> _List[WorkflowVersion]`
+
+Return the current collection of workflow versions, applying any supported filters.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1914,6 +2080,8 @@ Immutable manifest snapshots of one workflow.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(version_id: str) -> WorkflowVersion`
+
+Fetch one record from the workflow versions surface identified by `version_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1963,6 +2131,8 @@ that lives there.
 
 ###### `compile(version_id: str) -> Any`
 
+Ask the server to compile the draft workflow or asset into its executable form.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `version_id` | positional-or-keyword | `str` | `—` |
@@ -1975,6 +2145,8 @@ that lives there.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `publish(version_id: str) -> WorkflowVersion`
+
+Promote the draft or version into the published state used by operators or runtime callers.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1994,6 +2166,14 @@ that lives there.
 **Bases:** `Resource`
 
 Executions, and waiting on them.
+
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+**Related APIs:** [`WorkflowsAPI`](#workflowsapi), [`WorkflowVersionsAPI`](#workflowversionsapi), [`WorkflowServicesAPI`](#workflowservicesapi)
 
 **Methods**
 
@@ -2018,6 +2198,8 @@ otherwise returned 405 at runtime, which is how this was found.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(run_id: str) -> WorkflowRun`
+
+Fetch one record from the workflow runs surface identified by `run_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2058,6 +2240,8 @@ mutating call the SDK cannot safely retry on its own.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `cancel(run_id: str) -> WorkflowRun`
+
+Operate on the workflow runs surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2114,9 +2298,13 @@ There is no unscoped service listing; a service is reached through its
 workflow. An earlier version of this class invented ``GET /services`` and
 returned 404 at runtime.
 
+**Related APIs:** [`WorkflowsAPI`](#workflowsapi), [`WorkflowVersionsAPI`](#workflowversionsapi)
+
 **Methods**
 
 ###### `get(workflow_id: str) -> WorkflowService`
+
+Fetch one record from the workflow services surface identified by `workflow_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2131,6 +2319,8 @@ returned 404 at runtime.
 
 ###### `publish(workflow_id: str, **options) -> WorkflowService`
 
+Promote the draft or version into the published state used by operators or runtime callers.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
@@ -2144,6 +2334,8 @@ returned 404 at runtime.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `unpublish(workflow_id: str) -> bool`
+
+Remove the published state from the targeted runtime asset.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2200,9 +2392,19 @@ client carries.
 
 Workflows, plus versions, runs, and services as sub-resources.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+**Related APIs:** [`WorkflowVersionsAPI`](#workflowversionsapi), [`WorkflowRunsAPI`](#workflowrunsapi), [`WorkflowServicesAPI`](#workflowservicesapi)
+
 **Constructor**
 
 ###### `__init__(transport) -> None`
+
+Operate on the workflows surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2222,6 +2424,8 @@ Workflows, plus versions, runs, and services as sub-resources.
 
 ###### `list(*, status: str | None = None) -> _List[Workflow]`
 
+Return the current collection of workflows, applying any supported filters.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
@@ -2235,6 +2439,8 @@ Workflows, plus versions, runs, and services as sub-resources.
 
 ###### `get(workflow_id: str) -> Workflow`
 
+Fetch one record from the workflows surface identified by `workflow_id`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
@@ -2247,6 +2453,8 @@ Workflows, plus versions, runs, and services as sub-resources.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create(name: str, *, description: str | None = None, **options) -> Workflow`
+
+Create a new record on the workflows surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2263,6 +2471,8 @@ Workflows, plus versions, runs, and services as sub-resources.
 
 ###### `update(workflow_id: str, **changes) -> Workflow`
 
+Patch an existing record on the workflows surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
@@ -2276,6 +2486,8 @@ Workflows, plus versions, runs, and services as sub-resources.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `delete(workflow_id: str) -> Any`
+
+Delete a record on the workflows surface and return the server acknowledgement. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2312,9 +2524,19 @@ sdk/caliber-sdk/examples/evaluation.py#build_and_score
 
 Versioned evaluation datasets and their examples.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/evaluation.py#build_and_score
+```
+
+**Related APIs:** [`EvaluationsAPI`](#evaluationsapi), [`JudgesAPI`](#judgesapi), [`ReviewQueuesAPI`](#reviewqueuesapi)
+
 **Methods**
 
 ###### `list(*, status: str | None = None) -> _List[EvalDataset]`
+
+Return the current collection of evaluation datasets, applying any supported filters.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2328,6 +2550,8 @@ Versioned evaluation datasets and their examples.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(dataset_id: str) -> EvalDataset`
+
+Fetch one record from the evaluation datasets surface identified by `dataset_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2364,6 +2588,8 @@ something to infer from whichever credential ran the script.
 
 ###### `add_example(dataset_id: str, *, inputs, expected = None, **options) -> EvalExample`
 
+Append one labeled example row to the targeted evaluation dataset.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `dataset_id` | positional-or-keyword | `str` | `—` |
@@ -2379,6 +2605,8 @@ something to infer from whichever credential ran the script.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `examples(dataset_id: str) -> _List[EvalExample]`
+
+Return the example rows currently stored for the targeted evaluation dataset.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2419,9 +2647,17 @@ the refinement loop starts.
 
 Model-backed graders and their human alignment.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/evaluation.py#build_and_score
+```
+
 **Methods**
 
 ###### `list() -> _List[Judge]`
+
+Return the current collection of judges and alignment assets, applying any supported filters.
 
 This callable takes no public parameters.
 
@@ -2433,6 +2669,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(judge_id: str) -> Judge`
+
+Fetch one record from the judges and alignment assets surface identified by `judge_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2517,9 +2755,19 @@ way agrees with a skewed sample while measuring nothing.
 
 Scored runs over datasets.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/evaluation.py#build_and_score
+```
+
+**Related APIs:** [`EvalDatasetsAPI`](#evaldatasetsapi), [`JudgesAPI`](#judgesapi), [`ReviewQueuesAPI`](#reviewqueuesapi)
+
 **Methods**
 
 ###### `list(*, dataset_id: str | None = None) -> _List[Evaluation]`
+
+Return the current collection of evaluation runs, applying any supported filters.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2534,6 +2782,8 @@ Scored runs over datasets.
 
 ###### `get(evaluation_id: str) -> Evaluation`
 
+Fetch one record from the evaluation runs surface identified by `evaluation_id`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `evaluation_id` | positional-or-keyword | `str` | `—` |
@@ -2546,6 +2796,8 @@ Scored runs over datasets.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create(dataset_id: str, **options) -> Evaluation`
+
+Create a new record on the evaluation runs surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2585,6 +2837,12 @@ measurement, not an error in the call.
 
 MCP servers, the LLM gateway, knowledge bases, and object storage.
 
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook
+```
+
 **Public exports**
 
 `GatewayAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `ObjectStoreAPI`
@@ -2599,9 +2857,13 @@ MCP servers, the LLM gateway, knowledge bases, and object storage.
 
 Managed MCP server definitions and governed tool use.
 
+**Related APIs:** [`ToolsAPI`](#toolsapi), [`GatewayAPI`](#gatewayapi)
+
 **Methods**
 
 ###### `list() -> _List[McpServer]`
+
+Return the current collection of MCP servers and governed tools, applying any supported filters.
 
 This callable takes no public parameters.
 
@@ -2613,6 +2875,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(server_id: str) -> McpServer`
+
+Fetch one record from the MCP servers and governed tools surface identified by `server_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2627,6 +2891,8 @@ This callable takes no public parameters.
 
 ###### `history(server_id: str) -> Any`
 
+Return the recorded history for the targeted managed integration.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `server_id` | positional-or-keyword | `str` | `—` |
@@ -2639,6 +2905,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create(name: str, **options) -> McpServer`
+
+Create a new record on the MCP servers and governed tools surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2654,6 +2922,8 @@ This callable takes no public parameters.
 
 ###### `update(server_id: str, **changes) -> McpServer`
 
+Patch an existing record on the MCP servers and governed tools surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `server_id` | positional-or-keyword | `str` | `—` |
@@ -2667,6 +2937,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `delete(server_id: str) -> Any`
+
+Delete a record on the MCP servers and governed tools surface and return the server acknowledgement. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2726,6 +2998,8 @@ The tool inventory as last discovered.
 
 ###### `update_tool_policy(server_id: str, tool_name: str, **policy) -> Any`
 
+Write the policy overlay that governs one discovered tool.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `server_id` | positional-or-keyword | `str` | `—` |
@@ -2741,6 +3015,8 @@ The tool inventory as last discovered.
 
 ###### `save_test_cases(server_id: str, tool_name: str, test_cases: _List[dict[str, Any]]) -> Any`
 
+Persist deterministic calibration cases for the targeted integration tool.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `server_id` | positional-or-keyword | `str` | `—` |
@@ -2755,6 +3031,8 @@ The tool inventory as last discovered.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `calibrate_tool(server_id: str, tool_name: str) -> Any`
+
+Start or run the calibration pass for the targeted integration tool.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2829,6 +3107,8 @@ traced, so untraced calls are absent rather than zero.
 
 ###### `guardrails() -> Any`
 
+Return the configured gateway guardrails for the connected deployment.
+
 This callable takes no public parameters.
 
 **Returns:** `Any`
@@ -2853,6 +3133,8 @@ This callable takes no public parameters.
 
 ###### `create_guardrail(**payload) -> Any`
 
+Create a new gateway guardrail from the supplied configuration payload.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `payload` | var-keyword | `Any` | `—` |
@@ -2866,6 +3148,8 @@ This callable takes no public parameters.
 
 ###### `delete_guardrail(guardrail_id: str) -> Any`
 
+Delete the targeted gateway guardrail definition.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `guardrail_id` | positional-or-keyword | `str` | `—` |
@@ -2878,6 +3162,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `attach_guardrail(endpoint_id: str, **payload) -> Any`
+
+Operate on the gateway policies and usage surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2899,9 +3185,13 @@ This callable takes no public parameters.
 
 Versioned RAG corpora, retrieval, and calibration.
 
+**Related APIs:** [`ProjectsAPI`](#projectsapi), [`EvaluationsAPI`](#evaluationsapi)
+
 **Methods**
 
 ###### `list(*, status: str | None = None) -> _List[KnowledgeBase]`
+
+Return the current collection of knowledge bases, applying any supported filters.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2916,6 +3206,8 @@ Versioned RAG corpora, retrieval, and calibration.
 
 ###### `get(knowledge_base_id: str) -> KnowledgeBase`
 
+Fetch one record from the knowledge bases surface identified by `knowledge_base_id`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
@@ -2928,6 +3220,8 @@ Versioned RAG corpora, retrieval, and calibration.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create(name: str, **options) -> KnowledgeBase`
+
+Create a new record on the knowledge bases surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2943,6 +3237,8 @@ Versioned RAG corpora, retrieval, and calibration.
 
 ###### `update(knowledge_base_id: str, **changes) -> KnowledgeBase`
 
+Patch an existing record on the knowledge bases surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
@@ -2956,6 +3252,8 @@ Versioned RAG corpora, retrieval, and calibration.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `delete(knowledge_base_id: str) -> Any`
+
+Delete a record on the knowledge bases surface and return the server acknowledgement. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2983,6 +3281,8 @@ This callable takes no public parameters.
 
 ###### `versions(knowledge_base_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
@@ -2995,6 +3295,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create_version(knowledge_base_id: str, **payload) -> Any`
+
+Create a new version under the targeted top-level asset.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3010,6 +3312,8 @@ This callable takes no public parameters.
 
 ###### `activate_version(knowledge_base_id: str, version_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
@@ -3024,6 +3328,8 @@ This callable takes no public parameters.
 
 ###### `runs(knowledge_base_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
@@ -3036,6 +3342,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `run_events(run_id: str) -> Any`
+
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3050,6 +3358,8 @@ This callable takes no public parameters.
 
 ###### `version(version_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `version_id` | positional-or-keyword | `str` | `—` |
@@ -3062,6 +3372,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `sync_version_to_age(version_id: str) -> Any`
+
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3076,6 +3388,8 @@ This callable takes no public parameters.
 
 ###### `sources(version_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `version_id` | positional-or-keyword | `str` | `—` |
@@ -3088,6 +3402,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `chunks(version_id: str, *, q: str | None = None, source_key: str | None = None, limit: int | None = None) -> Any`
+
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3105,6 +3421,8 @@ This callable takes no public parameters.
 
 ###### `entities(version_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `version_id` | positional-or-keyword | `str` | `—` |
@@ -3118,6 +3436,8 @@ This callable takes no public parameters.
 
 ###### `relationships(version_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `version_id` | positional-or-keyword | `str` | `—` |
@@ -3130,6 +3450,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `graph(version_id: str, **params) -> Any`
+
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3145,6 +3467,8 @@ This callable takes no public parameters.
 
 ###### `calibrate(knowledge_base_id: str, **options) -> Any`
 
+Start the calibration flow exposed by the knowledge bases surface.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `knowledge_base_id` | positional-or-keyword | `str` | `—` |
@@ -3158,6 +3482,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `test_runs(knowledge_base_id: str, *, limit: int | None = None) -> Any`
+
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3173,6 +3499,8 @@ This callable takes no public parameters.
 
 ###### `test_run(test_run_id: str) -> Any`
 
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `test_run_id` | positional-or-keyword | `str` | `—` |
@@ -3185,6 +3513,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `set_baseline(knowledge_base_id: str, **options) -> Any`
+
+Operate on the knowledge bases surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3220,6 +3550,8 @@ authority on what this one means.
 
 ###### `query(**payload) -> Any`
 
+Run a query against the server-managed corpus or knowledge surface and return the response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `payload` | var-keyword | `Any` | `—` |
@@ -3246,6 +3578,8 @@ with lineage and immutable refs, this is the raw bucket browser underneath.
 
 ###### `status() -> Any`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `Any`
@@ -3257,6 +3591,8 @@ This callable takes no public parameters.
 
 ###### `buckets() -> _List[Bucket]`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `_List[[Bucket](#bucket)]`
@@ -3267,6 +3603,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create_bucket(bucket: str) -> Any`
+
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3281,6 +3619,8 @@ This callable takes no public parameters.
 
 ###### `delete_bucket(bucket: str) -> Any`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `bucket` | positional-or-keyword | `str` | `—` |
@@ -3293,6 +3633,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `listing(bucket: str, *, prefix: str | None = None, token: str | None = None, recursive: bool = False) -> Any`
+
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3310,6 +3652,8 @@ This callable takes no public parameters.
 
 ###### `objects(bucket: str, *, prefix: str | None = None, token: str | None = None, recursive: bool = False) -> _List[StoredObject]`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `bucket` | positional-or-keyword | `str` | `—` |
@@ -3326,6 +3670,8 @@ This callable takes no public parameters.
 
 ###### `folders(bucket: str, *, prefix: str | None = None) -> _List[str]`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `bucket` | positional-or-keyword | `str` | `—` |
@@ -3339,6 +3685,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `upload(bucket: str, *, filename: str, content: bytes, prefix: str | None = None, key: str | None = None, media_type: str | None = None) -> Any`
+
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3358,6 +3706,8 @@ This callable takes no public parameters.
 
 ###### `create_folder(bucket: str, name: str, *, prefix: str | None = None) -> Any`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `bucket` | positional-or-keyword | `str` | `—` |
@@ -3372,6 +3722,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `delete_objects(bucket: str, *, keys: _List[str] | None = None, prefix: str | None = None) -> Any`
+
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3388,6 +3740,8 @@ This callable takes no public parameters.
 
 ###### `download(bucket: str, key: str, *, disposition: str | None = None) -> bytes`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `bucket` | positional-or-keyword | `str` | `—` |
@@ -3402,6 +3756,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `preview(bucket: str, key: str) -> Any`
+
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3453,6 +3809,8 @@ a content hash and lineage.
 
 ###### `delete_object(bucket: str, key: str) -> Any`
 
+Operate on the object store buckets and objects surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `bucket` | positional-or-keyword | `str` | `—` |
@@ -3493,6 +3851,8 @@ Durable background jobs — refinement, calibration, reporting.
 
 ###### `list(*, status: str | None = None) -> _List[Job]`
 
+Return the current collection of background jobs, applying any supported filters.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `status` | keyword-only | `str | None` | `None` |
@@ -3505,6 +3865,8 @@ Durable background jobs — refinement, calibration, reporting.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(job_id: str) -> Job`
+
+Fetch one record from the background jobs surface identified by `job_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3580,9 +3942,13 @@ expected outcome.
 
 Structured human review.
 
+**Related APIs:** [`JudgesAPI`](#judgesapi), [`ObservabilityAPI`](#observabilityapi), [`EvalDatasetsAPI`](#evaldatasetsapi)
+
 **Methods**
 
 ###### `list() -> _List[ReviewQueue]`
+
+Return the current collection of review queues and queue items, applying any supported filters.
 
 This callable takes no public parameters.
 
@@ -3594,6 +3960,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(queue_id: str) -> ReviewQueue`
+
+Fetch one record from the review queues and queue items surface identified by `queue_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3607,6 +3975,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create(name: str, **options) -> ReviewQueue`
+
+Create a new record on the review queues and queue items surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3622,6 +3992,8 @@ This callable takes no public parameters.
 
 ###### `update(queue_id: str, **changes) -> ReviewQueue`
 
+Patch an existing record on the review queues and queue items surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `queue_id` | positional-or-keyword | `str` | `—` |
@@ -3635,6 +4007,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `enqueue(queue_id: str, **payload) -> Any`
+
+Add the supplied items to the targeted review queue.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3688,6 +4062,14 @@ Human labels usable for judge-alignment scoring.
 
 Aria goal-plans: the permissioned agentic loop.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#plan_from_intent
+```
+
+**Related APIs:** [`JobsAPI`](#jobsapi), [`ReviewQueuesAPI`](#reviewqueuesapi), [`JudgesAPI`](#judgesapi), [`EvalDatasetsAPI`](#evaldatasetsapi)
+
 **Methods**
 
 ###### `capabilities() -> Any`
@@ -3705,6 +4087,8 @@ This callable takes no public parameters.
 
 ###### `plans(*, session_id: str | None = None, limit: int | None = None, offset: int | None = None) -> _List[AriaPlan]`
 
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `session_id` | keyword-only | `str | None` | `None` |
@@ -3719,6 +4103,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get_plan(plan_id: str) -> AriaPlanDetail`
+
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3749,6 +4135,8 @@ State an intent. Aria plans the steps; you approve them.
 
 ###### `update_plan(plan_id: str, **changes) -> AriaPlanDetail`
 
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `plan_id` | positional-or-keyword | `str` | `—` |
@@ -3762,6 +4150,8 @@ State an intent. Aria plans the steps; you approve them.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `approve_plan(plan_id: str, **options) -> AriaPlanDetail`
+
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3777,6 +4167,8 @@ State an intent. Aria plans the steps; you approve them.
 
 ###### `execute_plan(plan_id: str, **options) -> AriaPlanDetail`
 
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `plan_id` | positional-or-keyword | `str` | `—` |
@@ -3791,6 +4183,8 @@ State an intent. Aria plans the steps; you approve them.
 
 ###### `poll_plan(plan_id: str, **options) -> AriaPlanDetail`
 
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `plan_id` | positional-or-keyword | `str` | `—` |
@@ -3804,6 +4198,8 @@ State an intent. Aria plans the steps; you approve them.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `interactions(plan_id: str, *, limit: int | None = None, offset: int | None = None) -> _List[AriaInteraction]`
+
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3865,9 +4261,13 @@ the whole timeout waiting for something that cannot happen.
 
 Release candidates, evidence, waivers, and signoff.
 
+**Related APIs:** [`EvaluationsAPI`](#evaluationsapi), [`ReviewQueuesAPI`](#reviewqueuesapi), [`WorkflowsAPI`](#workflowsapi)
+
 **Methods**
 
 ###### `candidates() -> _List[ReleaseCandidate]`
+
+Operate on the release candidates and signoffs surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
@@ -3879,6 +4279,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get_candidate(candidate_id: str) -> ReleaseCandidate`
+
+Operate on the release candidates and signoffs surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3892,6 +4294,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `create_candidate(name: str, **options) -> ReleaseCandidate`
+
+Create a release candidate with its decision criteria, evidence, and rollback metadata.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3940,6 +4344,8 @@ decision someone owns, not a way to raise a score.
 
 ###### `generate_report(candidate_id: str, **options) -> Any`
 
+Start the durable report-generation job for the targeted release candidate.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `candidate_id` | positional-or-keyword | `str` | `—` |
@@ -3983,6 +4389,8 @@ Traces, experiments, and metrics.
 
 ###### `traces(**params) -> _List[Trace]`
 
+Operate on the observability traces and metrics surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `params` | var-keyword | `Any` | `—` |
@@ -4012,6 +4420,8 @@ is MLflow's, and re-declaring it here would drift from it.
 
 ###### `experiments() -> Any`
 
+Operate on the observability traces and metrics surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `Any`
@@ -4022,6 +4432,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `metrics(**params) -> Any`
+
+Operate on the observability traces and metrics surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4045,6 +4457,8 @@ The audit log.
 **Methods**
 
 ###### `list(**params) -> _List[AuditEntry]`
+
+Return the current collection of audit log entries, applying any supported filters.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4110,9 +4524,19 @@ shipped — the opposite of what a stream consumer wants.
 
 Built-in, installable examples.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook
+```
+
+**Related APIs:** [`WorkflowsAPI`](#workflowsapi), [`ProjectsAPI`](#projectsapi), [`ReviewQueuesAPI`](#reviewqueuesapi), [`AriaAPI`](#ariaapi)
+
 **Methods**
 
 ###### `list() -> _List[CookbookRecipe]`
+
+Return the current collection of built-in cookbook recipes, applying any supported filters.
 
 This callable takes no public parameters.
 
@@ -4169,6 +4593,8 @@ This callable takes no public parameters.
 
 ###### `put(name: str, value: str) -> Any`
 
+Operate on the secret references surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `name` | positional-or-keyword | `str` | `—` |
@@ -4183,6 +4609,8 @@ This callable takes no public parameters.
 
 ###### `revoke(name: str) -> Any`
 
+Operate on the secret references surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `name` | positional-or-keyword | `str` | `—` |
@@ -4195,6 +4623,8 @@ This callable takes no public parameters.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `delete(name: str) -> Any`
+
+Delete a record on the secret references surface and return the server acknowledgement. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4210,6 +4640,12 @@ This callable takes no public parameters.
 ### Module `caliber_sdk.resources.raw`
 
 Untyped access to any management endpoint.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#plan_from_intent
+```
 
 **Public exports**
 
@@ -4229,6 +4665,8 @@ Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 
 ###### `get(path: str, **kwargs) -> Any`
 
+Fetch one record from the low-level management API routes surface identified by `path`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -4242,6 +4680,8 @@ Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `post(path: str, **kwargs) -> Any`
+
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4257,6 +4697,8 @@ Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 
 ###### `put(path: str, **kwargs) -> Any`
 
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -4270,6 +4712,8 @@ Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `patch(path: str, **kwargs) -> Any`
+
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4285,6 +4729,8 @@ Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 
 ###### `delete(path: str, **kwargs) -> Any`
 
+Delete a record on the low-level management API routes surface and return the server acknowledgement. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -4298,6 +4744,8 @@ Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `paginate(path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100) -> Iterator[Any]`
+
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4318,6 +4766,12 @@ Call any path under ``/ajax-api/2.0/mlflow/caliber``.
 
 Shared models for the CALIBER SDK.
 
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
+
 **Public exports**
 
 `FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
@@ -4325,6 +4779,12 @@ Shared models for the CALIBER SDK.
 ### Module `caliber_sdk.models.common`
 
 Shapes shared across the API, independent of any one resource.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
 
 **Public exports**
 
@@ -4373,6 +4833,8 @@ This callable takes no public parameters.
 
 ###### `next_offset() -> int`
 
+Operate on the page surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `int`
@@ -4395,6 +4857,8 @@ Which API tags fall in which tier.
 
 ###### `from_payload(payload) -> Stability`
 
+Operate on the stability surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `payload` | positional-or-keyword | `Any` | `—` |
@@ -4402,6 +4866,8 @@ Which API tags fall in which tier.
 **Returns:** `[Stability](#stability)`
 
 ###### `tier_of(tag: str) -> str | None`
+
+Operate on the stability surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4412,6 +4878,12 @@ Which API tags fall in which tier.
 ### Module `caliber_sdk.models.core`
 
 Typed models for the core admin surfaces: auth, identity, capabilities, settings.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
 
 **Public exports**
 
@@ -4441,6 +4913,8 @@ than an error. :meth:`is_anonymous` is the check to make.
 **Properties**
 
 ###### `is_anonymous() -> bool`
+
+Operate on the identity surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
@@ -4580,6 +5054,8 @@ Which stability tier an API tag falls in, or ``None`` if unknown.
 
 ###### `is_ga(tag: str) -> bool`
 
+Operate on the capabilities surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `tag` | positional-or-keyword | `str` | `—` |
@@ -4612,6 +5088,8 @@ a key would misrepresent what the endpoint is willing to disclose.
 ##### `RuntimeSettingsSummary`
 
 `class RuntimeSettingsSummary()`
+
+Data model returned by the SDK for runtime settings summary records.
 
 **Dataclass fields**
 
@@ -4700,6 +5178,8 @@ One stored file.
 
 `class ProjectFolder()`
 
+Data model returned by the SDK for project folder records.
+
 **Dataclass fields**
 
 | Field | Type | Default |
@@ -4714,6 +5194,12 @@ One stored file.
 ### Module `caliber_sdk.models.assets`
 
 Typed models for the governed asset families: prompts, skills, tools.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
+```
 
 **Public exports**
 
@@ -4914,6 +5400,12 @@ This callable takes no public parameters.
 
 Typed models for the quality surfaces: datasets, judges, evaluations.
 
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/evaluation.py#build_and_score
+```
+
 **Public exports**
 
 `EvalDataset`, `EvalExample`, `Evaluation`, `Judge`, `JudgeAlignment`
@@ -5042,6 +5534,8 @@ the first time a scorer is added.
 
 ###### `is_terminal() -> bool`
 
+Operate on the evaluation surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `bool`
@@ -5069,6 +5563,12 @@ Cohen's kappa matters more than raw agreement: a judge that always says
 ### Module `caliber_sdk.models.integrations`
 
 Typed models for the integration and data surfaces (beta tier).
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook
+```
 
 **Public exports**
 
@@ -5186,6 +5686,12 @@ One object inside a bucket.
 
 Typed models for the operational and agentic surfaces (beta tier).
 
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#plan_from_intent
+```
+
 **Public exports**
 
 `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `CookbookRecipe`, `Job`, `ReleaseCandidate`, `ReviewQueue`, `Trace`
@@ -5216,6 +5722,8 @@ A durable background job (refinement, calibration, reporting).
 **Properties**
 
 ###### `is_terminal() -> bool`
+
+Operate on the job surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
@@ -5439,6 +5947,8 @@ A built-in, installable example.
 
 ###### `is_ready() -> bool`
 
+Operate on the cookbook recipe surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `bool`
@@ -5454,6 +5964,12 @@ This callable takes no public parameters.
 ### Module `caliber_sdk.models.workflows`
 
 Typed models for workflows, versions, runs, deployments, and services.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
 
 **Public exports**
 
@@ -5516,6 +6032,8 @@ produced by the validator rather than defined here.
 
 ###### `is_draft() -> bool`
 
+Operate on the workflow version surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `bool`
@@ -5553,11 +6071,15 @@ One execution.
 
 ###### `is_terminal() -> bool`
 
+Operate on the workflow run surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `bool`
 
 ###### `succeeded() -> bool`
+
+Operate on the workflow run surface with the supplied arguments and return the server response.
 
 This callable takes no public parameters.
 
@@ -5593,6 +6115,12 @@ A workflow published as an externally invocable HTTP service.
 
 Typed views over CALIBER's two error body shapes.
 
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
+
 **Public exports**
 
 `ErrorBody`, `FieldError`
@@ -5627,6 +6155,8 @@ This callable takes no public parameters.
 
 ###### `from_payload(payload) -> FieldError`
 
+Operate on the field error surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `payload` | positional-or-keyword | `Any` | `—` |
@@ -5651,6 +6181,8 @@ This callable takes no public parameters.
 
 ###### `from_payload(payload) -> ErrorBody`
 
+Operate on the error body surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `payload` | positional-or-keyword | `Any` | `—` |
@@ -5662,6 +6194,12 @@ This callable takes no public parameters.
 ### Module `caliber_sdk.aio`
 
 Asynchronous client for the CALIBER management API.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
 
 **Public exports**
 
@@ -5694,9 +6232,17 @@ same environment fallbacks and the same credential precedence -- a token
 beats a trusted header, because the token is a real credential and the header
 is only an assertion.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
 **Constructor**
 
 ###### `__init__(base_url: str | None = None, *, token: str | None = None, user: str | None = None, proxy_secret: str | None = None, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, verify: bool | str = True, http_client: httpx.AsyncClient | None = None) -> None`
+
+Operate on the caliber client surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -5733,17 +6279,23 @@ is only an assertion.
 
 ###### `aclose() -> None`
 
+Operate on the caliber client surface with the supplied arguments and return the server response.
+
 This callable takes no public parameters.
 
 **Returns:** `None`
 
 ###### `__aenter__() -> AsyncCaliberClient`
 
+Return this instance so it can be used inside an async context manager.
+
 This callable takes no public parameters.
 
 **Returns:** `[AsyncCaliberClient](#asynccaliberclient)`
 
 ###### `__aexit__(*_: object) -> None`
+
+Close any owned resources when leaving the async context manager.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -5766,6 +6318,8 @@ limiting: nothing in CALIBER is unreachable from an async caller.
 
 ###### `get(path: str, **kwargs) -> Any`
 
+Fetch one record from the low-level management API routes surface identified by `path`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -5779,6 +6333,8 @@ limiting: nothing in CALIBER is unreachable from an async caller.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `post(path: str, **kwargs) -> Any`
+
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -5794,6 +6350,8 @@ limiting: nothing in CALIBER is unreachable from an async caller.
 
 ###### `put(path: str, **kwargs) -> Any`
 
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -5807,6 +6365,8 @@ limiting: nothing in CALIBER is unreachable from an async caller.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `patch(path: str, **kwargs) -> Any`
+
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -5822,6 +6382,8 @@ limiting: nothing in CALIBER is unreachable from an async caller.
 
 ###### `delete(path: str, **kwargs) -> Any`
 
+Delete a record on the low-level management API routes surface and return the server acknowledgement.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -5835,6 +6397,8 @@ limiting: nothing in CALIBER is unreachable from an async caller.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `download(path: str, **kwargs) -> bytes`
+
+Operate on the low-level management API routes surface with the supplied arguments and return the server response.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -5871,6 +6435,8 @@ Not a coroutine: an async generator, so it is iterated rather than awaited.
 
 **Bases:** `_AsyncResource`
 
+Typed access to the caller identity surface.
+
 **Methods**
 
 ###### `get() -> Identity`
@@ -5893,9 +6459,13 @@ This callable takes no public parameters.
 
 **Bases:** `_AsyncResource`
 
+Typed access to the runtime capabilities surface.
+
 **Methods**
 
 ###### `get() -> Capabilities`
+
+Fetch one record from the runtime capabilities surface identified by `id`.
 
 This callable takes no public parameters.
 
@@ -5917,9 +6487,13 @@ Submit runs and await them.
 The surface async is for on the request side: forty concurrent
 ``submit_and_wait`` calls are forty coroutines rather than forty threads.
 
+**Related APIs:** [`WorkflowsAPI`](#workflowsapi), [`WorkflowVersionsAPI`](#workflowversionsapi), [`WorkflowServicesAPI`](#workflowservicesapi)
+
 **Methods**
 
 ###### `submit(*, workflow_version_id: str | None = None, workflow_id: str | None = None, alias: str | None = None, input = None, idempotency_key: str | None = None, **options) -> WorkflowRun`
+
+Create a new execution run on the server and return its initial state.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -5938,6 +6512,8 @@ The surface async is for on the request side: forty concurrent
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(run_id: str) -> WorkflowRun`
+
+Fetch one record from the workflow runs surface identified by `run_id`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -5971,6 +6547,8 @@ POST-only. An earlier SDK method implying otherwise returned 405.
 
 ###### `cancel(run_id: str) -> WorkflowRun`
 
+Operate on the workflow runs surface with the supplied arguments and return the server response.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `run_id` | positional-or-keyword | `str` | `—` |
@@ -5983,6 +6561,8 @@ POST-only. An earlier SDK method implying otherwise returned 405.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `wait(run_id: str, *, timeout: float = 900.0, raise_on_failure: bool = True, **options) -> WorkflowRun`
+
+Poll until the targeted run or job reaches a terminal state, then return the final record.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -6013,6 +6593,8 @@ Background jobs, and waiting on ones that stop for a person.
 
 ###### `get(job_id: str) -> Job`
 
+Fetch one record from the background jobs surface identified by `job_id`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `job_id` | positional-or-keyword | `str` | `—` |
@@ -6025,6 +6607,8 @@ Background jobs, and waiting on ones that stop for a person.
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `list(*, status: str | None = None) -> list[Job]`
+
+Return the current collection of background jobs, applying any supported filters.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -6096,6 +6680,12 @@ Returns an async iterator rather than a coroutine, so it is used with
 
 Asynchronous transport, sharing every decision with the synchronous one.
 
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
 **Public exports**
 
 `AsyncTransport`
@@ -6111,6 +6701,8 @@ Asynchronous HTTP transport against one CALIBER deployment.
 **Constructor**
 
 ###### `__init__(base_url: str, *, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, backoff_factor: float = 0.5, verify: bool | str = True, user_agent: str | None = None, http_client: httpx.AsyncClient | None = None) -> None`
+
+Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -6158,11 +6750,15 @@ This callable takes no public parameters.
 
 ###### `__aenter__() -> AsyncTransport`
 
+Return this instance so it can be used inside an async context manager.
+
 This callable takes no public parameters.
 
 **Returns:** `AsyncTransport`
 
 ###### `__aexit__(*_: object) -> None`
+
+Close any owned resources when leaving the async context manager.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -6172,6 +6768,8 @@ This callable takes no public parameters.
 
 ###### `url_for(path: str) -> str`
 
+Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -6179,6 +6777,8 @@ This callable takes no public parameters.
 **Returns:** `str`
 
 ###### `bootstrap_csrf() -> str | None`
+
+Fetch a CSRF token up front so browser-style authenticated writes can reuse it.
 
 This callable takes no public parameters.
 
@@ -6209,6 +6809,8 @@ Perform one API call, returning the unwrapped payload.
 
 ###### `get(path: str, **kwargs) -> Response`
 
+Fetch one record from the transport surface identified by `path`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -6217,6 +6819,8 @@ Perform one API call, returning the unwrapped payload.
 **Returns:** `Response`
 
 ###### `post(path: str, **kwargs) -> Response`
+
+Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -6227,6 +6831,8 @@ Perform one API call, returning the unwrapped payload.
 
 ###### `put(path: str, **kwargs) -> Response`
 
+Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -6236,6 +6842,8 @@ Perform one API call, returning the unwrapped payload.
 
 ###### `patch(path: str, **kwargs) -> Response`
 
+Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
@@ -6244,6 +6852,8 @@ Perform one API call, returning the unwrapped payload.
 **Returns:** `Response`
 
 ###### `delete(path: str, **kwargs) -> Response`
+
+Delete a record on the transport surface and return the server acknowledgement.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -6303,6 +6913,12 @@ Yield items across ``limit``/``offset`` pages.
 ### Module `caliber_sdk.aio.waiters`
 
 Async waiters, holding the same polling policy as the synchronous ones.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
 
 **Public exports**
 

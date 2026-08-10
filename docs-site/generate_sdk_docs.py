@@ -277,12 +277,45 @@ CLIENT_ATTRIBUTE_NOTES = {
 MODULE_EXAMPLES = {
     "caliber_sdk": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
     "caliber_sdk.client": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.auth": "sdk/caliber-sdk/examples/tokens.py#issue_scoped_token",
+    "caliber_sdk.transport": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.errors": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.waiters": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
     "caliber_sdk.resources.auth": "sdk/caliber-sdk/examples/tokens.py#issue_scoped_token",
+    "caliber_sdk.resources.system": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.resources.projects": "sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle",
     "caliber_sdk.resources.assets": "sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle",
     "caliber_sdk.resources.quality": "sdk/caliber-sdk/examples/evaluation.py#build_and_score",
     "caliber_sdk.resources.workflows": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
+    "caliber_sdk.resources.integrations": "sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook",
     "caliber_sdk.resources.operations": "sdk/caliber-sdk/examples/agentic.py#plan_from_intent",
+    "caliber_sdk.resources.raw": "sdk/caliber-sdk/examples/agentic.py#plan_from_intent",
+    "caliber_sdk.models": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.models.common": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.models.core": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.models.assets": "sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle",
+    "caliber_sdk.models.quality": "sdk/caliber-sdk/examples/evaluation.py#build_and_score",
+    "caliber_sdk.models.integrations": "sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook",
+    "caliber_sdk.models.operations": "sdk/caliber-sdk/examples/agentic.py#plan_from_intent",
+    "caliber_sdk.models.workflows": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
+    "caliber_sdk.models.errors": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
+    "caliber_sdk.aio": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
     "caliber_sdk.aio.client": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
+    "caliber_sdk.aio.transport": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
+    "caliber_sdk.aio.waiters": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
+}
+
+CLASS_EXAMPLES = {
+    "CaliberClient": MODULE_EXAMPLES["caliber_sdk.client"],
+    "AsyncCaliberClient": MODULE_EXAMPLES["caliber_sdk.aio.client"],
+    "WorkflowRunsAPI": MODULE_EXAMPLES["caliber_sdk.resources.workflows"],
+    "WorkflowsAPI": MODULE_EXAMPLES["caliber_sdk.resources.workflows"],
+    "PromptsAPI": MODULE_EXAMPLES["caliber_sdk.resources.assets"],
+    "EvalDatasetsAPI": MODULE_EXAMPLES["caliber_sdk.resources.quality"],
+    "JudgesAPI": MODULE_EXAMPLES["caliber_sdk.resources.quality"],
+    "EvaluationsAPI": MODULE_EXAMPLES["caliber_sdk.resources.quality"],
+    "CookbooksAPI": "sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook",
+    "AriaAPI": MODULE_EXAMPLES["caliber_sdk.resources.operations"],
 }
 
 MODULE_GROUPS = [
@@ -530,6 +563,59 @@ COOKBOOKS = [
         ],
     },
 ]
+
+RESOURCE_SURFACE_LABELS = {
+    "AccountsAPI": "user accounts",
+    "AriaAPI": "Aria plans and interaction state",
+    "AuditAPI": "audit log entries",
+    "AuthAPI": "authentication and session state",
+    "CapabilitiesAPI": "runtime capabilities",
+    "CookbooksAPI": "built-in cookbook recipes",
+    "EvalDatasetsAPI": "evaluation datasets",
+    "EvaluationsAPI": "evaluation runs",
+    "EventsAPI": "event streams",
+    "GatewayAPI": "gateway policies and usage",
+    "JobsAPI": "background jobs",
+    "JudgesAPI": "judges and alignment assets",
+    "KnowledgeBasesAPI": "knowledge bases",
+    "McpServersAPI": "MCP servers and governed tools",
+    "MeAPI": "caller identity",
+    "ObjectStoreAPI": "object store buckets and objects",
+    "ObservabilityAPI": "observability traces and metrics",
+    "ProjectFilesAPI": "project files and folders",
+    "ProjectsAPI": "projects",
+    "PromptsAPI": "prompts and prompt versions",
+    "RawAPI": "low-level management API routes",
+    "ReleasesAPI": "release candidates and signoffs",
+    "ReviewQueuesAPI": "review queues and queue items",
+    "SecretsAPI": "secret references",
+    "SettingsAPI": "runtime settings",
+    "SkillsAPI": "skills",
+    "TokensAPI": "personal access tokens",
+    "ToolsAPI": "tools and calibration cases",
+    "WorkflowRunsAPI": "workflow runs",
+    "WorkflowServicesAPI": "workflow services",
+    "WorkflowVersionsAPI": "workflow versions",
+    "WorkflowsAPI": "workflows",
+}
+
+RELATED_CLASS_LINKS = {
+    "AriaAPI": ["JobsAPI", "ReviewQueuesAPI", "JudgesAPI", "EvalDatasetsAPI"],
+    "CookbooksAPI": ["WorkflowsAPI", "ProjectsAPI", "ReviewQueuesAPI", "AriaAPI"],
+    "EvalDatasetsAPI": ["EvaluationsAPI", "JudgesAPI", "ReviewQueuesAPI"],
+    "EvaluationsAPI": ["EvalDatasetsAPI", "JudgesAPI", "ReviewQueuesAPI"],
+    "KnowledgeBasesAPI": ["ProjectsAPI", "EvaluationsAPI"],
+    "McpServersAPI": ["ToolsAPI", "GatewayAPI"],
+    "ProjectsAPI": ["ProjectFilesAPI"],
+    "PromptsAPI": ["EvaluationsAPI", "ReviewQueuesAPI"],
+    "ReleasesAPI": ["EvaluationsAPI", "ReviewQueuesAPI", "WorkflowsAPI"],
+    "ReviewQueuesAPI": ["JudgesAPI", "ObservabilityAPI", "EvalDatasetsAPI"],
+    "SkillsAPI": ["JudgesAPI", "EvaluationsAPI"],
+    "WorkflowRunsAPI": ["WorkflowsAPI", "WorkflowVersionsAPI", "WorkflowServicesAPI"],
+    "WorkflowServicesAPI": ["WorkflowsAPI", "WorkflowVersionsAPI"],
+    "WorkflowVersionsAPI": ["WorkflowsAPI", "WorkflowRunsAPI", "WorkflowServicesAPI"],
+    "WorkflowsAPI": ["WorkflowVersionsAPI", "WorkflowRunsAPI", "WorkflowServicesAPI"],
+}
 
 
 def parse_exports(tree: ast.Module) -> list[str]:
@@ -782,6 +868,118 @@ def parse_module(module_name: str) -> ModuleInfo:
     )
 
 
+def humanize_camel(name: str) -> str:
+    text = re.sub(r"(?<!^)(?=[A-Z])", " ", name).strip().lower()
+    return text.replace("mcp", "MCP").replace("aria", "Aria")
+
+
+def surface_label(class_name: str | None) -> str:
+    if not class_name:
+        return "SDK surface"
+    normalized = class_name.removeprefix("Async")
+    if normalized in RESOURCE_SURFACE_LABELS:
+        return RESOURCE_SURFACE_LABELS[normalized]
+    if normalized.endswith("API"):
+        return humanize_camel(normalized[:-3])
+    return humanize_camel(normalized)
+
+
+def inferred_class_summary(info: ClassInfo) -> str:
+    if info.doc:
+        return info.doc
+    if info.name in {"CaliberClient", "AsyncCaliberClient"}:
+        mode = "synchronous" if info.name == "CaliberClient" else "asynchronous"
+        return (
+            f"The {mode} entry point that binds authentication, transport, and "
+            "typed CALIBER resource APIs into one client."
+        )
+    if info.name.endswith("API"):
+        return f"Typed access to the {surface_label(info.name)} surface."
+    if info.name.endswith("Error") or info.name.endswith("Failed") or info.name.endswith("Timeout"):
+        return "SDK exception type used to report a specific failure mode."
+    if info.fields:
+        return f"Data model returned by the SDK for {humanize_camel(info.name)} records."
+    return f"SDK type for {humanize_camel(info.name)}."
+
+
+def inferred_member_doc(member: MemberInfo, *, class_name: str | None) -> str:
+    if member.doc:
+        return member.doc
+    resource = surface_label(class_name)
+    id_param = member.params[0].name if member.params else "id"
+    behaviors = {
+        "__enter__": "Return this instance so it can be used inside a context manager.",
+        "__aenter__": "Return this instance so it can be used inside an async context manager.",
+        "__exit__": "Close any owned resources when leaving the context manager.",
+        "__aexit__": "Close any owned resources when leaving the async context manager.",
+        "close": "Close the underlying HTTP client or transport owned by this object.",
+        "headers": "Build the authentication headers added to outgoing HTTP requests.",
+        "uses_cookie_auth": "Report whether this auth strategy relies on cookie-backed authentication.",
+        "health": "Fetch the lightweight health/readiness view exposed by the deployment.",
+        "openapi": "Return the live management OpenAPI document from the connected deployment.",
+        "whoami": "Return the identity and scopes that CALIBER resolved for the current credential.",
+        "capabilities": "Fetch the runtime capability inventory and SDK stability tiers.",
+        "runtime": "Return the current runtime settings snapshot for the deployment.",
+        "list": f"Return the current collection of {resource}, applying any supported filters.",
+        "get": f"Fetch one record from the {resource} surface identified by `{id_param}`.",
+        "create": f"Create a new record on the {resource} surface and return the server-normalized result.",
+        "update": f"Patch an existing record on the {resource} surface and return the updated result.",
+        "delete": f"Delete a record on the {resource} surface and return the server acknowledgement.",
+        "render": "Render the templated asset with the supplied variables without running the full workflow.",
+        "test_selection": "Score whether this asset would be selected for the supplied input.",
+        "test_connection": "Probe the remote integration endpoint and return the connection result.",
+        "discover_tools": "Refresh the tool inventory exposed by the connected integration.",
+        "update_tool_policy": "Write the policy overlay that governs one discovered tool.",
+        "save_test_cases": "Persist deterministic calibration cases for the targeted integration tool.",
+        "calibrate_tool": "Start or run the calibration pass for the targeted integration tool.",
+        "calibrate": f"Start the calibration flow exposed by the {resource} surface.",
+        "compile": "Ask the server to compile the draft workflow or asset into its executable form.",
+        "validate": "Run the server-side validation pass against the targeted draft.",
+        "publish": "Promote the draft or version into the published state used by operators or runtime callers.",
+        "unpublish": "Remove the published state from the targeted runtime asset.",
+        "submit": "Create a new execution run on the server and return its initial state.",
+        "wait": "Poll until the targeted run or job reaches a terminal state, then return the final record.",
+        "query": "Run a query against the server-managed corpus or knowledge surface and return the response.",
+        "create_version": "Create a new version under the targeted top-level asset.",
+        "add_example": "Append one labeled example row to the targeted evaluation dataset.",
+        "add_from_trace": "Promote one trace into an evaluation example row with the supplied expectations.",
+        "examples": "Return the example rows currently stored for the targeted evaluation dataset.",
+        "install": "Materialize the built-in cookbook recipe as CALIBER assets and return the created identifiers.",
+        "create_candidate": "Create a release candidate with its decision criteria, evidence, and rollback metadata.",
+        "evaluate": "Recompute the current release or evaluation verdict from the latest stored evidence.",
+        "generate_report": "Start the durable report-generation job for the targeted release candidate.",
+        "sign": "Record the final release decision together with operator rationale.",
+        "enqueue": "Add the supplied items to the targeted review queue.",
+        "history": "Return the recorded history for the targeted managed integration.",
+        "guardrails": "Return the configured gateway guardrails for the connected deployment.",
+        "create_guardrail": "Create a new gateway guardrail from the supplied configuration payload.",
+        "delete_guardrail": "Delete the targeted gateway guardrail definition.",
+        "bootstrap_csrf": "Fetch a CSRF token up front so browser-style authenticated writes can reuse it.",
+    }
+    if member.name in behaviors:
+        detail = behaviors[member.name]
+    elif class_name == "Transport":
+        detail = "Send a prepared request through the shared transport and decode the typed response wrapper."
+    elif class_name == "AsyncTransport":
+        detail = "Send a prepared request asynchronously through the shared transport and decode the typed response wrapper."
+    elif member.name.startswith("wait_for_"):
+        detail = "Poll until the named condition becomes true or the timeout budget is exhausted."
+    else:
+        detail = f"Operate on the {resource} surface with the supplied arguments and return the server response."
+    if class_name == "WorkflowRunsAPI" and member.name == "wait":
+        detail += " If the run ends in a failure state and `raise_on_failure=True`, the SDK raises `WorkflowRunFailed`."
+    if class_name in RESOURCE_CLASS_NAMES and member.name in {"create", "update", "delete"}:
+        detail += " Validation and permission failures are surfaced through the standard CALIBER error hierarchy."
+    return detail
+
+
+def related_class_links(class_name: str | None) -> list[str]:
+    if not class_name:
+        return []
+    related = RELATED_CLASS_LINKS.get(class_name.removeprefix("Async"), [])
+    return [f"[`{name}`]({heading_link(f'`{name}`')})" for name in related]
+
+
 def render_params(params: list[ParamInfo]) -> list[str]:
     if not params:
         return ["This callable takes no public parameters.", ""]
@@ -797,12 +995,16 @@ def render_params(params: list[ParamInfo]) -> list[str]:
     return lines
 
 
-def render_member(member: MemberInfo, *, label_prefix: str = "") -> list[str]:
+def render_member(
+    member: MemberInfo,
+    *,
+    label_prefix: str = "",
+    class_name: str | None = None,
+) -> list[str]:
     title = f"`{label_prefix}{member.name}{member.signature}`"
     lines = [f"###### {title}", ""]
-    if member.doc:
-        lines.append(member.doc)
-        lines.append("")
+    lines.append(inferred_member_doc(member, class_name=class_name))
+    lines.append("")
     lines.extend(render_params(member.params))
     lines.append(f"**Returns:** `{linkify_types(member.returns)}`")
     lines.append("")
@@ -820,13 +1022,24 @@ def render_class(info: ClassInfo) -> list[str]:
     if info.bases:
         lines.append(f"**Bases:** `{', '.join(info.bases)}`")
         lines.append("")
-    if info.doc:
-        lines.append(info.doc)
+    lines.append(inferred_class_summary(info))
+    lines.append("")
+    class_example = CLASS_EXAMPLES.get(info.name)
+    if class_example:
+        lines.append("**Usage example**")
+        lines.append("")
+        lines.append("```python-example")
+        lines.append(class_example)
+        lines.append("```")
+        lines.append("")
+    related = related_class_links(info.name)
+    if related:
+        lines.append(f"**Related APIs:** {', '.join(related)}")
         lines.append("")
     if info.constructor:
         lines.append("**Constructor**")
         lines.append("")
-        lines.extend(render_member(info.constructor, label_prefix=""))
+        lines.extend(render_member(info.constructor, label_prefix="", class_name=info.name))
     if info.attributes:
         lines.append("**Attributes**")
         lines.append("")
@@ -852,12 +1065,12 @@ def render_class(info: ClassInfo) -> list[str]:
         lines.append("**Properties**")
         lines.append("")
         for member in info.properties:
-            lines.extend(render_member(member, label_prefix=""))
+            lines.extend(render_member(member, label_prefix="", class_name=info.name))
     if info.methods:
         lines.append("**Methods**")
         lines.append("")
         for member in info.methods:
-            lines.extend(render_member(member, label_prefix=""))
+            lines.extend(render_member(member, label_prefix="", class_name=info.name))
     return lines
 
 
@@ -893,7 +1106,7 @@ def render_module(info: ModuleInfo) -> list[str]:
         lines.append("#### Functions")
         lines.append("")
         for function in info.functions:
-            lines.extend(render_member(function))
+            lines.extend(render_member(function, class_name=None))
     if info.classes:
         lines.append("#### Classes")
         lines.append("")
