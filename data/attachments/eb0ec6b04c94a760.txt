@@ -1,0 +1,21 @@
+INFO     caliber:server.py:403 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:245 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:656 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e9076ac1/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-dba3acaa/validate "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-dba3acaa/compile "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-dba3acaa/preview-run "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-dba3acaa/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e9076ac1/deployments/dev/promote "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e9076ac1/deployments/prod/promote "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-promotions/WPR-bb2e7255/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e9076ac1/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-4a9fca2c/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e9076ac1/deployments/prod/promote "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-promotions/WPR-13c31538/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-e9076ac1/deployments/prod/rollback "HTTP/1.1 200 OK"
