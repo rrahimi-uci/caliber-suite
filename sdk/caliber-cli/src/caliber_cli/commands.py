@@ -251,6 +251,71 @@ def cookbook_install(client: CaliberClient, args: argparse.Namespace, out: Print
     return exits.OK
 
 
+# -- prompts ---------------------------------------------------------------
+
+
+def prompt_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """List governed prompts and the registry coordinate each one resolves to.
+
+    The columns are the registry coordinate, not a CALIBER row id: prompts live
+    in MLflow's registry, versions are immutable, and an alias points at one of
+    them -- so "which version is live" is the question an operator has.
+    """
+    out.table(
+        client.prompts.list(),
+        columns=["prompt_name", "agent_id", "version", "alias", "source"],
+    )
+    return exits.OK
+
+
+def prompt_show(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    out.data(client.prompts.get(args.name))
+    return exits.OK
+
+
+# -- services --------------------------------------------------------------
+
+
+def service_show(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Show a workflow's service configuration.
+
+    Scoped to a workflow because that is how the server models it: management
+    lives under ``/workflows/{id}/service``, and there is no unscoped service
+    listing. An earlier SDK method that invented one returned 404.
+    """
+    out.data(client.workflows.services.get(args.workflow_id))
+    return exits.OK
+
+
+def service_publish(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Publish a workflow as an external HTTP service.
+
+    Publishing widens the workflow's reachable surface: invocation moves to
+    ``/services/{id}`` authenticated by per-service tokens rather than a user
+    credential. That is not something to do by accident, so it needs --yes.
+    """
+    if not args.yes:
+        out.error(
+            f"publishing {args.workflow_id} exposes it as an external HTTP service; "
+            "pass --yes to confirm"
+        )
+        return exits.USAGE
+    out.data(client.workflows.services.publish(args.workflow_id))
+    return exits.OK
+
+
+def service_unpublish(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    if not args.yes:
+        out.error(
+            f"unpublishing {args.workflow_id} will break callers of its service "
+            "endpoint; pass --yes to confirm"
+        )
+        return exits.USAGE
+    unpublished = client.workflows.services.unpublish(args.workflow_id)
+    out.data({"workflow_id": args.workflow_id, "unpublished": unpublished})
+    return exits.OK if unpublished else exits.FAILURE
+
+
 # -- plugins ---------------------------------------------------------------
 
 
@@ -325,8 +390,13 @@ __all__ = [
     "job_list",
     "job_wait",
     "plugin_list",
+    "prompt_list",
+    "prompt_show",
     "release_list",
     "release_sign",
+    "service_publish",
+    "service_show",
+    "service_unpublish",
     "token_create",
     "token_list",
     "token_revoke",

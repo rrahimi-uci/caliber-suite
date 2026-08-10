@@ -107,8 +107,7 @@ def check_declaration(declaration: object) -> list[str]:
     built: object = optimizer
     if not isinstance(built, Optimizer):
         problems.append(
-            f"factory returned {type(built).__name__}, which has no usable "
-            "optimize(request) method"
+            f"factory returned {type(built).__name__}, which has no usable optimize(request) method"
         )
 
     return problems

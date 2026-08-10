@@ -469,3 +469,53 @@ def test_the_help_text_states_the_exit_codes() -> None:
     text = build_parser().format_help()
     for fragment in ("0 ok", "3 awaiting a human", "4 gate", "5 timed out"):
         assert fragment in text
+
+
+# --- prompts and services -------------------------------------------------
+
+
+def test_prompt_list_reads_the_registry(stub: Any, capsys: pytest.CaptureFixture[str]) -> None:
+    """Reports the registry coordinate -- prompt name, version, alias -- because
+    a prompt is an MLflow registry object rather than a CALIBER row."""
+    run = stub({"GET /prompts": [{"agent_id": "AGT-1", "prompt_name": "triage", "version": 4}]})
+    assert run(["--json", "prompt", "list"]) == exits.OK
+    out, _ = out_err(capsys)
+    assert jsonlib.loads(out)[0]["prompt_name"] == "triage"
+
+
+def test_publishing_a_service_without_confirmation_does_nothing(
+    stub: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Publishing widens the reachable surface: invocation moves to an external
+    endpoint authenticated by per-service tokens rather than a user credential."""
+    published: list[str] = []
+
+    def record(request: httpx.Request) -> Any:
+        published.append("published")
+        return {}
+
+    run = stub({"POST /workflows/WF-1/service": record})
+    assert run(["service", "publish", "WF-1"]) == exits.USAGE
+    assert published == []
+    _, err = out_err(capsys)
+    assert "external HTTP service" in err
+
+
+def test_publishing_with_confirmation_publishes(stub: Any) -> None:
+    run = stub({"POST /workflows/WF-1/service": {"workflow_id": "WF-1", "status": "published"}})
+    assert run(["service", "publish", "WF-1", "--yes"]) == exits.OK
+
+
+def test_unpublishing_requires_confirmation_because_it_breaks_callers(
+    stub: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = stub({"DELETE /workflows/WF-1/service": {"status": "unpublished"}})
+    assert run(["service", "unpublish", "WF-1"]) == exits.USAGE
+    assert run(["service", "unpublish", "WF-1", "--yes"]) == exits.OK
+
+
+def test_the_service_surface_is_scoped_to_a_workflow(stub: Any) -> None:
+    """There is no unscoped service listing; an earlier SDK method that invented
+    ``GET /services`` returned 404."""
+    run = stub({"GET /workflows/WF-1/service": {"workflow_id": "WF-1", "status": "published"}})
+    assert run(["service", "show", "WF-1"]) == exits.OK

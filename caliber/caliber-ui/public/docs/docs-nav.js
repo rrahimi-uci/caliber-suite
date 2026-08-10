@@ -133,6 +133,10 @@ window.DOCS_NAV = [
       {
         "href": "m-23-sdk-plugins.html",
         "label": "Writing a plugin"
+      },
+      {
+        "href": "m-24-sdk-cli.html",
+        "label": "CLI and async client"
       }
     ]
   },

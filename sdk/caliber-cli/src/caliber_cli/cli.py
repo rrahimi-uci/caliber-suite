@@ -155,6 +155,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="install despite unmet readiness checks"
     )
 
+    # -- prompt --------------------------------------------------------------
+    prompt = _group(subparsers, "prompt", "inspect governed prompts")
+    _add(prompt, "list", commands.prompt_list, "list prompts and their live versions")
+    show = _add(prompt, "show", commands.prompt_show, "show one prompt")
+    show.add_argument("name", help="prompt name or agent id")
+
+    # -- service -------------------------------------------------------------
+    service = _group(subparsers, "service", "publish a workflow as an HTTP service")
+    service_show = _add(service, "show", commands.service_show, "show a workflow's service")
+    service_show.add_argument("workflow_id")
+
+    publish = _add(service, "publish", commands.service_publish, "publish a workflow's service")
+    publish.add_argument("workflow_id")
+    publish.add_argument("--yes", action="store_true", help="confirm exposing an external endpoint")
+
+    unpublish = _add(
+        service, "unpublish", commands.service_unpublish, "withdraw a workflow's service"
+    )
+    unpublish.add_argument("workflow_id")
+    unpublish.add_argument("--yes", action="store_true", help="confirm breaking its callers")
+
     # -- plugin --------------------------------------------------------------
     plugin = _group(subparsers, "plugin", "optimizers and third-party plugins")
     _add(plugin, "list", commands.plugin_list, "list optimizers and installed plugins")
