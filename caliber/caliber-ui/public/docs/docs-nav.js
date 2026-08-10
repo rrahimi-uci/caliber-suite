@@ -129,6 +129,10 @@ window.DOCS_NAV = [
       {
         "href": "m-22-sdk-beta.html",
         "label": "Beta and agentic surfaces"
+      },
+      {
+        "href": "m-23-sdk-plugins.html",
+        "label": "Writing a plugin"
       }
     ]
   },

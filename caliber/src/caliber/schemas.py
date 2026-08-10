@@ -2195,6 +2195,55 @@ class DeletedSchema(BaseModel):
     status: str = "deleted"
 
 
+class RegisteredOptimizerSchema(BaseModel):
+    """One optimizer the deployment can run.
+
+    Includes provenance, because "which code may write the prompt that goes to
+    production" is a question an operator has to be able to answer, and a list
+    that flattened built-ins together with third-party plugins would answer it
+    wrongly.
+    """
+
+    name: str
+    summary: str = ""
+    artifact_types: list[str] = Field(default_factory=list)
+    #: ``builtin`` or ``plugin``.
+    source: str = "builtin"
+    #: Optional distribution the optimizer needs installed, when it has one.
+    requires: str | None = None
+    #: Distribution that registered a plugin. ``None`` for built-ins.
+    distribution: str | None = None
+    #: True when no automatic rule selects it, so only an explicit override can.
+    explicit_only: bool = False
+    experimental: bool = False
+
+
+class OptimizerPluginSchema(BaseModel):
+    """An installed third-party optimizer plugin and whether it is enabled.
+
+    Reported even when not allowlisted, and *especially* then: an operator who
+    installed a wheel that silently did nothing has no other way to find out.
+    """
+
+    name: str
+    distribution: str | None = None
+    #: The entry-point target, so an operator can see what would be imported.
+    value: str = ""
+    allowlisted: bool = False
+    #: Present when the plugin was allowlisted and then failed to load.
+    error: str | None = None
+
+
+class ExtensibilityCapabilitySchema(BaseModel):
+    """What this deployment can run, and what it has been permitted to run."""
+
+    optimizers: list[RegisteredOptimizerSchema] = Field(default_factory=list)
+    plugins: list[OptimizerPluginSchema] = Field(default_factory=list)
+    #: The environment variable that enables a plugin, named here so the UI does
+    #: not hardcode it and can tell an operator exactly what to set.
+    allowlist_env_var: str = "CALIBER_PLUGIN_ALLOWLIST"
+
+
 class PlatformCapabilitiesSchema(BaseModel):
     """Response payload for ``GET /caliber/capabilities``."""
 
@@ -2205,6 +2254,9 @@ class PlatformCapabilitiesSchema(BaseModel):
     #: Lets an SDK decide what it may call without downloading and parsing the
     #: full management OpenAPI document.
     sdk_stability: dict[str, list[str]] = Field(default_factory=dict)
+    extensibility: ExtensibilityCapabilitySchema = Field(
+        default_factory=ExtensibilityCapabilitySchema
+    )
 
 
 class WorkflowComponentFieldSchema(BaseModel):

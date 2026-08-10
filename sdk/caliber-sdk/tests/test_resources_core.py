@@ -232,3 +232,122 @@ def test_missing_fields_fall_back_to_defaults() -> None:
 def test_decoding_a_non_object_yields_defaults_rather_than_raising(payload: Any) -> None:
     """A proxy returning something unexpected should not crash the caller."""
     assert decode(Identity, payload).user_id == ""
+
+
+# --- extensibility --------------------------------------------------------
+
+
+def test_capabilities_decodes_the_extensibility_block_two_levels_down() -> None:
+    """``decode`` is one level, and this block nests lists of dataclasses."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "extensibility": {
+                    "allowlist_env_var": "CALIBER_PLUGIN_ALLOWLIST",
+                    "optimizers": [
+                        {
+                            "name": "MetaPrompt",
+                            "artifact_types": ["prompt"],
+                            "source": "builtin",
+                        },
+                        {
+                            "name": "AcmeOptimizer",
+                            "artifact_types": ["prompt", "skill"],
+                            "source": "plugin",
+                            "distribution": "acme-caliber-optimizers",
+                            "experimental": True,
+                        },
+                    ],
+                    "plugins": [
+                        {
+                            "name": "acme",
+                            "distribution": "acme-caliber-optimizers",
+                            "allowlisted": True,
+                        }
+                    ],
+                }
+            }
+        )
+
+    with client_with(handler) as caliber:
+        extensibility = caliber.capabilities_api.get().extensibility
+
+    assert [item.name for item in extensibility.optimizers] == ["MetaPrompt", "AcmeOptimizer"]
+    # The distinction an operator needs before pinning an agent to one.
+    assert not extensibility.optimizer("MetaPrompt").is_third_party  # type: ignore[union-attr]
+    assert extensibility.optimizer("AcmeOptimizer").is_third_party  # type: ignore[union-attr]
+    assert extensibility.plugins[0].is_active
+
+
+def test_filtering_optimizers_by_artifact_kind_avoids_a_server_rejection() -> None:
+    """A prompt-only optimizer on a skill job is refused by the server."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "extensibility": {
+                    "optimizers": [
+                        {"name": "MetaPrompt", "artifact_types": ["prompt"]},
+                        {"name": "SkillMetaPrompt", "artifact_types": ["skill"]},
+                        {"name": "GEPA", "artifact_types": ["prompt", "skill"]},
+                    ]
+                }
+            }
+        )
+
+    with client_with(handler) as caliber:
+        extensibility = caliber.capabilities_api.get().extensibility
+
+    assert [item.name for item in extensibility.optimizers_for("skill")] == [
+        "SkillMetaPrompt",
+        "GEPA",
+    ]
+    assert extensibility.optimizer("NotReal") is None
+
+
+def test_an_installed_but_unlisted_plugin_is_not_active() -> None:
+    """The normal state for a freshly installed plugin, and not an error."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"extensibility": {"plugins": [{"name": "acme", "allowlisted": False}]}})
+
+    with client_with(handler) as caliber:
+        plugin = caliber.capabilities_api.get().extensibility.plugins[0]
+
+    assert not plugin.is_active
+    assert plugin.error is None
+
+
+def test_an_allowlisted_plugin_that_failed_to_load_is_not_active() -> None:
+    """Enabled and broken must not read the same as enabled and working."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "extensibility": {
+                    "plugins": [
+                        {"name": "acme", "allowlisted": True, "error": "ImportError: no dspy"}
+                    ]
+                }
+            }
+        )
+
+    with client_with(handler) as caliber:
+        plugin = caliber.capabilities_api.get().extensibility.plugins[0]
+
+    assert not plugin.is_active
+    assert plugin.error
+
+
+def test_a_server_without_the_extensibility_block_decodes_to_an_empty_one() -> None:
+    """An older server predates the field; that is not an error."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"sync_workflow_version_run": True})
+
+    with client_with(handler) as caliber:
+        extensibility = caliber.capabilities_api.get().extensibility
+
+    assert extensibility.optimizers == []
+    assert extensibility.allowlist_env_var == "CALIBER_PLUGIN_ALLOWLIST"

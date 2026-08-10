@@ -139,6 +139,103 @@ jobs:
           CHECK
 
 
+  plugin-sdk:
+    name: Plugin SDK (caliber-plugin-sdk)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/caliber-plugin-sdk
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: sdk/caliber-plugin-sdk/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install the plugin SDK and its dev extras
+        run: uv pip install --system -e ".[dev]"
+      - name: ruff check
+        run: ruff check .
+      - name: mypy (strict)
+        run: mypy
+      - name: pytest
+        run: pytest
+      - name: Build the wheel
+        run: |
+          uv pip install --system build
+          python -m build --wheel --outdir dist
+      - name: Assert the plugin contract has no runtime dependencies
+        # A plugin imports this package to declare what it is. If it also had to
+        # import CALIBER, every plugin would pull in the whole server and the
+        # conformance suite would be testing an integration rather than a
+        # contract. Zero dependencies is the design, so it is asserted.
+        run: |
+          python - <<'CHECK'
+          import glob, re, sys, zipfile
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          archive = zipfile.ZipFile(wheel)
+          name = next(n for n in archive.namelist() if n.endswith("METADATA"))
+          metadata = archive.read(name).decode()
+          runtime = [
+              line for line in re.findall(r"^Requires-Dist: (.+)$", metadata, re.M)
+              if "extra ==" not in line
+          ]
+          print("runtime requirements:", runtime)
+          if runtime:
+              sys.exit(f"caliber-plugin-sdk must have no runtime dependencies: {runtime}")
+          CHECK
+
+
+  cli:
+    name: CLI (caliberctl)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/caliber-cli
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: sdk/caliber-cli/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install the CLI against the local SDK
+        # The published ``caliber-sdk`` dependency would resolve from PyPI, which
+        # is the wrong thing to test here: the CLI must work against the SDK in
+        # this commit, not the last released one.
+        run: |
+          uv pip install --system -e ../caliber-sdk
+          uv pip install --system -e ".[dev]"
+      - name: ruff check
+        run: ruff check .
+      - name: mypy (strict)
+        run: mypy
+      - name: pytest
+        run: pytest
+      - name: Smoke-test the installed console script
+        # The entry point is packaging, not code, and the unit tests call
+        # ``main()`` directly -- so they would still pass with a broken
+        # ``[project.scripts]`` target. This is the only check that the thing
+        # users type actually runs.
+        run: |
+          caliberctl --version
+          caliberctl --help | grep -q "awaiting a human"
+          # A bare invocation prints help and exits USAGE (2), never 0: it did
+          # no work, so a script must not read it as success.
+          if caliberctl; then
+            echo "a bare caliberctl exited 0 having done nothing" >&2
+            exit 1
+          fi
+      - name: Build the wheel
+        run: |
+          uv pip install --system build
+          python -m build --wheel --outdir dist
+
+
   type-check:
     name: Type check
     runs-on: ubuntu-latest
@@ -173,6 +270,17 @@ jobs:
           python-version: "3.11"
       - name: Install package + dev extras
         run: uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
+      - name: Install the client and plugin SDKs
+        # Without these, the cross-package suites skip -- and a skipped test is
+        # not coverage. ``test_sdk_against_server.py`` is the only place the SDK
+        # is driven against the real application, which is where wrong paths and
+        # renamed keys have actually been caught; ``test_plugin_contract.py``
+        # likewise proves the server accepts the plugin SDK's own declaration
+        # type rather than a stand-in. Both need the packages present.
+        working-directory: .
+        run: |
+          uv pip install --system -e sdk/caliber-sdk
+          uv pip install --system -e sdk/caliber-plugin-sdk
       # Balance free-function modules across workers. Tests with real subprocess timing
       # or loopback-port coupling use explicit ``xdist_group`` serialization.
       - name: Run tests (coverage + Allure)
@@ -673,6 +781,8 @@ jobs:
       - lint
       - type-check
       - sdk
+      - plugin-sdk
+      - cli
       - test
       - compatibility
       - integration

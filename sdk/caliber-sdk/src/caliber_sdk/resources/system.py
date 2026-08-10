@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..models._decode import decode
+from ..models._decode import decode, decode_list
 from ..models.core import (
     Capabilities,
+    Extensibility,
     Identity,
     LlmSetupStatus,
+    OptimizerPlugin,
+    RegisteredOptimizer,
     RuntimeSettings,
     RuntimeSettingsSummary,
     WorkflowRunCapabilities,
@@ -40,7 +43,22 @@ class CapabilitiesAPI(Resource):
             capabilities.workflow_runs = decode(
                 WorkflowRunCapabilities, payload.get("workflow_runs")
             )
+            capabilities.extensibility = self._decode_extensibility(payload.get("extensibility"))
         return capabilities
+
+    @staticmethod
+    def _decode_extensibility(payload: Any) -> Extensibility:
+        """Two levels down, so decoded by hand rather than by ``decode``.
+
+        Older servers predate the block entirely and send nothing; an empty
+        :class:`Extensibility` is the right answer there, not an exception.
+        """
+        if not isinstance(payload, dict):
+            return Extensibility()
+        block = decode(Extensibility, payload)
+        block.optimizers = decode_list(RegisteredOptimizer, payload.get("optimizers"))
+        block.plugins = decode_list(OptimizerPlugin, payload.get("plugins"))
+        return block
 
 
 class SettingsAPI(Resource):

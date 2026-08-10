@@ -103,6 +103,82 @@ class WorkflowRunCapabilities:
 
 
 @dataclass
+class RegisteredOptimizer:
+    """One optimizer the deployment can run, with its provenance."""
+
+    name: str = ""
+    summary: str = ""
+    artifact_types: list[str] = field(default_factory=list)
+    #: ``"builtin"`` or ``"plugin"``.
+    source: str = "builtin"
+    requires: str | None = None
+    distribution: str | None = None
+    explicit_only: bool = False
+    experimental: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_third_party(self) -> bool:
+        """True when a distribution other than CALIBER registered this.
+
+        Worth checking before pinning an agent to an optimizer: a third-party
+        optimizer authors the artifact that gets promoted to production, and it
+        is only present because the deployment allowlisted its distribution.
+        """
+        return self.source != "builtin"
+
+    def can_target(self, artifact_type: str) -> bool:
+        return artifact_type in self.artifact_types
+
+
+@dataclass
+class OptimizerPlugin:
+    """An installed optimizer plugin and whether the deployment enabled it.
+
+    An entry with ``allowlisted=False`` is installed and inert. That is the
+    normal state for a freshly installed plugin, not an error — CALIBER
+    discovers plugins automatically and enables none of them automatically.
+    """
+
+    name: str = ""
+    distribution: str | None = None
+    value: str = ""
+    allowlisted: bool = False
+    #: Set when the plugin *was* allowlisted and then failed to load.
+    error: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_active(self) -> bool:
+        return self.allowlisted and not self.error
+
+
+@dataclass
+class Extensibility:
+    """What this deployment can run, and what it has been permitted to run."""
+
+    optimizers: list[RegisteredOptimizer] = field(default_factory=list)
+    plugins: list[OptimizerPlugin] = field(default_factory=list)
+    allowlist_env_var: str = "CALIBER_PLUGIN_ALLOWLIST"
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def optimizers_for(self, artifact_type: str) -> list[RegisteredOptimizer]:
+        """Optimizers that can target one artifact kind.
+
+        Filtering matters because the artifact kinds are not interchangeable:
+        submitting a skill job with a prompt-only optimizer is rejected by the
+        server, and asking here is how a caller avoids finding out that way.
+        """
+        return [item for item in self.optimizers if item.can_target(artifact_type)]
+
+    def optimizer(self, name: str) -> RegisteredOptimizer | None:
+        for item in self.optimizers:
+            if item.name == name:
+                return item
+        return None
+
+
+@dataclass
 class Capabilities:
     """Runtime feature flags plus the SDK stability tiers.
 
@@ -116,6 +192,7 @@ class Capabilities:
     sync_workflow_version_run: bool = True
     artifact_families: dict[str, Any] = field(default_factory=dict)
     sdk_stability: dict[str, list[str]] = field(default_factory=dict)
+    extensibility: Extensibility = field(default_factory=Extensibility)
     extra: dict[str, Any] = field(default_factory=dict)
 
     def tier_of(self, tag: str) -> str | None:

@@ -7,18 +7,80 @@ rollout flags (queue-based runs, runtime approvals, checkpoints, etc.).
 from __future__ import annotations
 
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.artifact_capabilities import ARTIFACT_FAMILY_CAPABILITIES
 from caliber.auth import require_user
+from caliber.extensibility import optimizer_registry
+from caliber.extensibility.entrypoints import (
+    ALLOWLIST_ENV_VAR,
+    available_optimizer_plugins,
+)
 from caliber.routes._deps import envelope_response
 from caliber.routes.openapi import stability_summary
-from caliber.schemas import PlatformCapabilitiesSchema, WorkflowRunCapabilitySchema
+from caliber.schemas import (
+    ExtensibilityCapabilitySchema,
+    OptimizerPluginSchema,
+    PlatformCapabilitiesSchema,
+    RegisteredOptimizerSchema,
+    WorkflowRunCapabilitySchema,
+)
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 CAPABILITIES_PATH = PREFIX + "/capabilities"
+
+
+def _extensibility() -> ExtensibilityCapabilitySchema:
+    """Report what can run here and what has been permitted to run.
+
+    Two lists rather than one. ``optimizers`` is what the deployment can
+    actually dispatch; ``plugins`` is what is *installed*, including entries
+    that are inert because nobody allowlisted them. Collapsing them would hide
+    the case an operator most needs to see -- a wheel that was installed and
+    then did nothing -- and reading ``plugins`` never imports the code it
+    describes, which is what makes it safe to render before deciding to trust
+    anything in it.
+
+    Offloaded to a thread by the caller, not because listing is expensive but
+    because the *first* call also loads allowlisted plugins -- reading dist-info
+    and importing modules from disk. That is blocking I/O, and one slow plugin
+    import must not stall the event loop for every other request.
+    """
+    registry = optimizer_registry()
+    optimizers = [
+        RegisteredOptimizerSchema(
+            name=spec.name,
+            summary=spec.summary,
+            artifact_types=sorted(spec.artifact_types),
+            source=spec.source,
+            requires=spec.requires,
+            distribution=spec.distribution,
+            explicit_only=spec.explicit_only,
+            experimental=spec.experimental,
+        )
+        for spec in registry
+    ]
+    plugins = [
+        OptimizerPluginSchema(
+            name=str(entry["name"]),
+            distribution=(str(entry["distribution"]) if entry["distribution"] else None),
+            value=str(entry["value"]),
+            allowlisted=bool(entry["allowlisted"]),
+            # An allowlisted plugin that failed to load is the case worth
+            # surfacing: the deployment asked for it, so silence would read as
+            # success.
+            error=registry.load_errors.get(str(entry["distribution"] or entry["name"])),
+        )
+        for entry in available_optimizer_plugins()
+    ]
+    return ExtensibilityCapabilitySchema(
+        optimizers=optimizers,
+        plugins=plugins,
+        allowlist_env_var=ALLOWLIST_ENV_VAR,
+    )
 
 
 async def get_capabilities(request: Request) -> JSONResponse:
@@ -70,6 +132,7 @@ async def get_capabilities(request: Request) -> JSONResponse:
         # ``x-caliber-stability`` so an SDK can feature-detect without parsing
         # a 189 KB specification. A test asserts the two never disagree.
         sdk_stability=stability_summary(),
+        extensibility=await run_in_threadpool(_extensibility),
     )
     return envelope_response(payload)
 

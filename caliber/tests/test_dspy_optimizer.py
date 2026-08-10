@@ -360,8 +360,12 @@ def test_provider_unknown_optimizer_raises(monkeypatch) -> None:
         "_generate_candidate_metaprompt",
         lambda ctx: (_ for _ in ()).throw(AssertionError("should not be reached")),
     )
-    with pytest.raises(LLMProviderError, match="not implemented"):
+    # The registry owns the name set now, and its rejection names what *is*
+    # registered rather than only that this one is not -- the old
+    # "not implemented yet" left the reader to go find the list in source.
+    with pytest.raises(LLMProviderError, match="not registered") as caught:
         provider.generate_candidate(_ctx(optimizer_type="TextGrad"))
+    assert "MetaPrompt" in str(caught.value)
 
 
 def test_provider_dspy_runtime_advisory_falls_back_to_metaprompt(monkeypatch) -> None:

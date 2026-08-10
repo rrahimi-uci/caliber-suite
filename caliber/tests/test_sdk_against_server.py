@@ -165,7 +165,8 @@ def test_the_sdk_round_trips_a_workflow_and_a_dataset(sdk: object) -> None:
     assert not dataset.is_synced
 
     judge = sdk.judges.create(  # type: ignore[attr-defined]
-        "sdk-integration-judge", instructions="Given {{ inputs }} and {{ outputs }}, return true if valid JSON."
+        "sdk-integration-judge",
+        instructions="Given {{ inputs }} and {{ outputs }}, return true if valid JSON.",
     )
     assert judge.judge_id
     assert judge.feedback_value_type == "bool"
@@ -280,3 +281,29 @@ def test_the_sdk_reads_a_trace_listing_and_an_audit_page(sdk: object) -> None:
     assert isinstance(sdk.observability.traces(), list)  # type: ignore[attr-defined]
     entries = sdk.audit.list(limit=5)  # type: ignore[attr-defined]
     assert len(entries) <= 5
+
+
+def test_the_sdk_reads_the_optimizer_registry_from_the_real_server(sdk: object) -> None:
+    """The registry the server actually dispatches on, decoded by the client.
+
+    Worth driving end to end because the block nests two levels and the SDK
+    decodes it by hand — a wrong key would produce an empty list rather than an
+    error, which is the failure mode a mocked test happily reproduces.
+    """
+    extensibility = sdk.capabilities_api.get().extensibility  # type: ignore[attr-defined]
+
+    metaprompt = extensibility.optimizer("MetaPrompt")
+    assert metaprompt is not None
+    assert not metaprompt.is_third_party
+    assert metaprompt.can_target("prompt")
+    # The scoping that keeps a skill job off a prompt-only optimizer.
+    assert not metaprompt.can_target("skill")
+
+    skill_capable = {item.name for item in extensibility.optimizers_for("skill")}
+    assert {"SkillMetaPrompt", "GEPA"} <= skill_capable
+    assert "MetaPrompt" not in skill_capable
+
+    # Nothing is allowlisted in a test deployment, and that is the secure
+    # default rather than a missing feature.
+    assert extensibility.plugins == []
+    assert extensibility.allowlist_env_var == "CALIBER_PLUGIN_ALLOWLIST"

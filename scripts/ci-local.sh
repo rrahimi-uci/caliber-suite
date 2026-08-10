@@ -35,13 +35,18 @@ CALIBER_DIR="$REPO_ROOT/caliber"
 UI_DIR="$CALIBER_DIR/caliber-ui"
 SDK_DIR="$REPO_ROOT/sdk/caliber-sdk"
 SDK_VENV_PY="$SDK_DIR/.venv-sdk/bin/python"
+PLUGIN_SDK_DIR="$REPO_ROOT/sdk/caliber-plugin-sdk"
+PLUGIN_SDK_VENV_PY="$PLUGIN_SDK_DIR/.venv-plugin-sdk/bin/python"
+CLI_DIR="$REPO_ROOT/sdk/caliber-cli"
+CLI_VENV="$CLI_DIR/.venv-cli"
+CLI_VENV_PY="$CLI_VENV/bin/python"
 VENV_PY="$CALIBER_DIR/.venv/bin/python"
 
 # Mirrors CALIBER_CI_EXTRAS in the workflow, so a locally-missing optional dependency
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test compatibility integration ui cookbook-ui-only compose package security sdk)
+ALL_JOBS=(lint type-check test compatibility integration ui cookbook-ui-only compose package security sdk plugin-sdk cli)
 FAST_SKIP=(integration package)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -103,8 +108,13 @@ job_type_check() {
 # Coverage on, matching CI: the repo gate is 80% and running without it locally is how
 # a coverage regression reaches CI unnoticed. Explicit xdist groups serialize only the
 # subprocess/loopback-sensitive tests instead of pinning every large module to one worker.
+# The cross-package suites (SDK-against-server, plugin contract) skip when their
+# packages are absent, and a skipped test is not coverage -- so install them
+# rather than letting the strongest tests in the suite quietly not run.
 job_test() {
   cd "$CALIBER_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
   "$VENV_PY" -m pytest -n auto --dist loadgroup
 }
 
@@ -323,6 +333,65 @@ CHECK
 }
 
 
+# caliber-plugin-sdk is the experimental extension contract. Its own venv and
+# config for the same reason as caliber-sdk, plus one assertion the server jobs
+# cannot make: the contract must have *no* runtime dependencies at all.
+job_plugin_sdk() {
+  cd "$PLUGIN_SDK_DIR" || return 1
+  if [ ! -x "$PLUGIN_SDK_VENV_PY" ]; then
+    python3 -m venv "$PLUGIN_SDK_DIR/.venv-plugin-sdk" || return 1
+    "$PLUGIN_SDK_VENV_PY" -m pip install -q --upgrade pip hatchling build || return 1
+  fi
+  "$PLUGIN_SDK_VENV_PY" -m pip install -q -e ".[dev]" || return 1
+  "$PLUGIN_SDK_VENV_PY" -m ruff check . || return 1
+  "$PLUGIN_SDK_VENV_PY" -m mypy || return 1
+  "$PLUGIN_SDK_VENV_PY" -m pytest || return 1
+  rm -rf "$PLUGIN_SDK_DIR/dist"
+  "$PLUGIN_SDK_VENV_PY" -m build --wheel --outdir "$PLUGIN_SDK_DIR/dist" || return 1
+  "$PLUGIN_SDK_VENV_PY" - <<'CHECK'
+import glob, re, sys, zipfile
+wheel = sorted(glob.glob("dist/*.whl"))[-1]
+archive = zipfile.ZipFile(wheel)
+name = next(n for n in archive.namelist() if n.endswith("METADATA"))
+metadata = archive.read(name).decode()
+runtime = [
+    line for line in re.findall(r"^Requires-Dist: (.+)$", metadata, re.M)
+    if "extra ==" not in line
+]
+print("runtime requirements:", runtime)
+if runtime:
+    sys.exit(f"caliber-plugin-sdk must have no runtime dependencies: {runtime}")
+CHECK
+}
+
+
+# caliberctl is installed against the *local* SDK rather than the published one,
+# because the CLI has to work with the SDK in this commit. The console-script
+# smoke test is the only check that ``[project.scripts]`` points somewhere real:
+# the unit tests call main() directly and would pass with a broken entry point.
+job_cli() {
+  cd "$CLI_DIR" || return 1
+  if [ ! -x "$CLI_VENV_PY" ]; then
+    python3 -m venv "$CLI_VENV" || return 1
+    "$CLI_VENV_PY" -m pip install -q --upgrade pip hatchling build || return 1
+  fi
+  "$CLI_VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
+  "$CLI_VENV_PY" -m pip install -q -e ".[dev]" || return 1
+  "$CLI_VENV_PY" -m ruff check . || return 1
+  "$CLI_VENV_PY" -m mypy || return 1
+  "$CLI_VENV_PY" -m pytest || return 1
+  "$CLI_VENV/bin/caliberctl" --version || return 1
+  "$CLI_VENV/bin/caliberctl" --help | grep -q "awaiting a human" || return 1
+  # A bare invocation prints help and exits USAGE (2), never 0.
+  if "$CLI_VENV/bin/caliberctl" >/dev/null 2>&1; then
+    red "  a bare caliberctl exited 0 having done nothing"
+    return 1
+  fi
+  rm -rf "$CLI_DIR/dist"
+  "$CLI_VENV_PY" -m build --wheel --outdir "$CLI_DIR/dist" || return 1
+}
+
+
 job_security() {
   cd "$REPO_ROOT" || return 1
   "$CALIBER_DIR/scripts/run-supported-python-security-audit.sh" \
@@ -395,6 +464,8 @@ main() {
       package) run_job package job_package ;;
       security) run_job security job_security ;;
       sdk) run_job sdk job_sdk ;;
+      plugin-sdk) run_job plugin-sdk job_plugin_sdk ;;
+      cli) run_job cli job_cli ;;
       *)
         red "unknown job '$job' (known: ${ALL_JOBS[*]})"
         return 2
