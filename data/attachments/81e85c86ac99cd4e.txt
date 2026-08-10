@@ -1,3 +1,0 @@
-{"t":"2026-08-10T21:34:20.965Z","severity":"WARNING","logger":"caliber.llm.circuit_breaker","message":"llm circuit opening: 2 failures within 60.0s window"}
-{"t":"2026-08-10T21:34:20.967Z","severity":"INFO","logger":"caliber.llm.circuit_breaker","message":"llm circuit half-open after cooldown"}
-{"t":"2026-08-10T21:34:20.968Z","severity":"INFO","logger":"caliber.llm.circuit_breaker","message":"llm circuit closing after successful probe"}

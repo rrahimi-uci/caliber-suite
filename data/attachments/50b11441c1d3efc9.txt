@@ -1,3 +1,0 @@
-{"t":"2026-08-10T21:35:00.375Z","severity":"WARNING","logger":"caliber.orchestrator.janitor","message":"reaped stale job=RFN-0 agent=agent stage=evidence heartbeat=2026-08-10T20:35:00.356543","trace_id":"ae495759824a5458"}
-{"t":"2026-08-10T21:35:00.379Z","severity":"WARNING","logger":"caliber.orchestrator.janitor","message":"reaped stale job=RFN-1 agent=agent stage=evidence heartbeat=2026-08-10T20:35:00.360752","trace_id":"ae495759824a5458"}
-{"t":"2026-08-10T21:35:00.383Z","severity":"WARNING","logger":"caliber.orchestrator.janitor","message":"reaped stale job=RFN-2 agent=agent stage=evidence heartbeat=2026-08-10T20:35:00.363158","trace_id":"ae495759824a5458"}

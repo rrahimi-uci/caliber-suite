@@ -1,3 +1,0 @@
-{"t":"2026-08-10T21:33:33.702Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=2, events=*, pending_capacity=2048)"}
-{"t":"2026-08-10T21:33:33.718Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook delivery exhausted, dead-lettering: url=https://doomed.example/hook event='run.completed' err=receiver returned HTTP 400","trace_id":"01f1d45f92c57163"}
-{"t":"2026-08-10T21:33:34.021Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped with 1 undelivered event(s); recorded as 'shutdown' dead letters for replay"}
