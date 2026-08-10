@@ -4,48 +4,84 @@
 
 The pages below are the published architecture, workflow, and strategy documentation. Each link is a flattened Markdown copy built for programmatic access.
 
-## Platform docs
+## Start here
 
-- [Layered architecture](m-00-layered-architecture.md): The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams.
-- [Platform](m-01-platform.md): Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on.
-- [The refinement loop](m-00-refinement-loop.md): The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and durable release — plus the evidence and recovery boundaries that differ across other asset families. Read this first.
-- [Prompts](m-02-prompts.md): Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation.
-- [Tools](m-03-tools.md): Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration.
-- [Skills](m-04-skills.md): Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.
-- [MCP servers](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
-- [Workflows](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.
-- [Workflow components](m-06-workflows-components.md): The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 31 built-in components.
-- [Object store](m-07-object-store.md): MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing.
-- [Knowledge bases](m-08-knowledge-bases.md): Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration.
-- [Test sets](m-11-test-sets.md): Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring.
-- [Evaluation](m-14-evaluation.md): Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation.
-- [Calibration](m-15-calibration.md): Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued.
-- [Observability](m-09-observability.md): MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention.
-- [Gateways](m-10-gateways.md): External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility.
-- [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
-- [Operations runbook](m-19-runbook.md): The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove.
-- [Aria assistant](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
+- [5-minute quickstart](m-37-five-minute-quickstart.md): The shortest path to a real CALIBER success: bring up the local stack, verify readiness, or jump into the right next guide.
+- [Choose your CALIBER path](m-30-choose-your-path.md): The role-first entry point into the docs: choose the right path for integration, operations, governance, architecture, or product fit.
+- [Decision-maker overview](m-35-decision-maker-overview.md): A concise non-implementation path through what CALIBER is, what it solves, and where to go next for technical proof.
 
-## REST API
+## Use CALIBER
 
-- [Overview](m-26-rest-api-overview.md): Where the management API lives, when to integrate at the HTTP layer, and where the served OpenAPI documents fit.
-- [Authentication and conventions](m-27-rest-api-auth.md): Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes.
-- [Resource catalog](m-28-rest-api-resources.md): The route families mounted under the CALIBER management API, grouped by the domains developers actually integrate with.
-- [HTTP reference](m-29-rest-api-reference.md): The concrete contract map: core endpoints, representative operations, and the served OpenAPI entry points for management and workflow services.
+- [Prompts](m-38-use-prompts.md): The task-oriented entry point for prompt assets in CALIBER: author, evaluate, calibrate, release, and recover without starting from deep architecture.
+- [Tools](m-39-use-tools.md): The practical guide to defining, testing, governing, and using callable tools in workflows and assistant surfaces.
+- [Skills](m-40-use-skills.md): The task-oriented guide to packaging reusable instructions, testing selection behavior, and using skills with assistant and workflow flows.
+- [MCP servers](m-41-use-mcp-servers.md): The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use.
+- [Workflows](m-42-use-workflows.md): The user and operator path for authoring, previewing, running, deploying, and debugging workflows in CALIBER.
+- [Knowledge bases](m-43-use-knowledge-bases.md): The practical guide for ingesting knowledge, improving retrieval quality, and connecting grounded content to assistant or workflow behavior.
+- [Evaluation and test sets](m-44-use-evaluation-and-test-sets.md): The practical trust loop: define evidence, run scorecards, inspect judges, and decide what still needs review before live change.
+- [Calibration](m-45-use-calibration.md): The practical calibration path: choose the asset family, generate candidates, inspect evidence, and move to explicit review or apply.
+- [Trust and governance](m-33-trust-and-governance.md): A curated reader path across the trust surfaces that connect evidence, calibration, review, and apply.
+- [Aria assistant](m-46-use-aria-assistant.md): The operator and user guide for supervised assistant sessions, governed tool use, and explicit review boundaries.
+- [Review and release flows](m-47-use-review-and-release-flows.md): The practical path from candidate evidence to human review, explicit apply, release, rollback, and operator recovery.
 
-## Python SDK
+## Build & integrate
 
 - [Guide](m-20-sdk-guide.md): Install, authenticate, scope to a project, and call the management API from Python — with every snippet taken from the executable examples the SDK test suite runs.
-- [API reference](m-21-sdk-reference.md): Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries.
+- [Auth and project scoping](m-31-auth-and-project-scoping.md): The minimum authentication and project-scoping decisions a developer must get right before calling CALIBER programmatically.
+- [SDK vs REST API](m-36-sdk-vs-rest-api.md): The first integration decision for developers: when to use the typed Python SDK and when to work at the raw HTTP layer.
+- [Error handling and retries](m-53-error-handling-and-retries.md): The practical integration policy for CALIBER failures: classify them correctly, use waiters where available, and retry only what is actually safe to retry.
 - [Beta and agentic surfaces](m-22-sdk-beta.md): Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished.
 - [Writing a plugin](m-23-sdk-plugins.md): Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it.
 - [CLI and async client](m-24-sdk-cli.md): caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.
+- [REST API overview](m-26-rest-api-overview.md): Where the management API lives, when to integrate at the HTTP layer, and where the served OpenAPI documents fit.
+- [Authentication and conventions](m-27-rest-api-auth.md): Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes.
+- [CI/CD automation](m-54-ci-cd-automation.md): The repository-grounded automation path for CALIBER development: docs generation, focused contract tests, and the human-review boundaries that remain deliberate.
+- [Developer troubleshooting](m-55-developer-troubleshooting.md): The first-pass diagnosis path for CALIBER SDK and REST integrations: auth, project scoping, CSRF, uploads, waiters, and workflow invocation.
+
+## Operate CALIBER
+
+- [Local bring-up](m-32-local-bring-up.md): The operator-first path for starting CALIBER locally, verifying readiness, and choosing the next guide based on your job.
+- [Configuration and provider setup](m-48-configuration-and-provider-setup.md): The operator path for configuring CALIBER: ports, database, LLM provider and gateway, object store, workflow storage, and event backend.
+- [Storage and state](m-49-storage-and-state.md): The operator guide to where CALIBER keeps metadata, files, workflow workspaces, and retention-controlled artifacts.
+- [Health and readiness](m-50-health-and-readiness.md): The operator meaning of CALIBER liveness, readiness, and the deeper evidence surfaces to use when a runtime is up but not actually usable.
+- [Operator troubleshooting](m-51-operator-troubleshooting.md): The first-pass diagnosis path for degraded CALIBER deployments before a failure escalates into full runbook recovery.
+- [Backup and recovery](m-52-backup-and-recovery.md): The operator view of what CALIBER state must be preserved, what can be rebuilt, and where disaster recovery stops and asset-specific rollback begins.
+- [Operations runbook](m-19-runbook.md): The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove.
 
 ## Examples
 
 - [SDK recipes](m-25-sdk-cookbooks.md): Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed.
 
-## Strategy & roadmap
+## Reference
+
+- [SDK API reference](m-21-sdk-reference.md): Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries.
+- [Resource catalog](m-28-rest-api-resources.md): The route families mounted under the CALIBER management API, grouped by the domains developers actually integrate with.
+- [HTTP reference](m-29-rest-api-reference.md): The concrete contract map: core endpoints, representative operations, and the served OpenAPI entry points for management and workflow services.
+- [Workflow components](m-06-workflows-components.md): The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 31 built-in components.
+- [Config and environment reference](m-56-config-and-environment-reference.md): The operator and integrator lookup surface for the configuration families exposed in the current repository.
+
+## Architecture
+
+- [Architecture reader guide](m-34-architecture-reader-guide.md): The curated entry point into the architecture corpus: start with the right deep page instead of reading the whole tree.
+- [Layered architecture](m-00-layered-architecture.md): The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams.
+- [Platform](m-01-platform.md): Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on.
+- [The refinement loop](m-00-refinement-loop.md): The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and durable release — plus the evidence and recovery boundaries that differ across other asset families. Read this first.
+- [Prompts architecture](m-02-prompts.md): Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation.
+- [Tools architecture](m-03-tools.md): Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration.
+- [Skills architecture](m-04-skills.md): Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.
+- [MCP architecture](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
+- [Workflows architecture](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.
+- [Object store](m-07-object-store.md): MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing.
+- [Knowledge bases architecture](m-08-knowledge-bases.md): Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration.
+- [Test sets architecture](m-11-test-sets.md): Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring.
+- [Evaluation architecture](m-14-evaluation.md): Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation.
+- [Calibration architecture](m-15-calibration.md): Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued.
+- [Observability architecture](m-09-observability.md): MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention.
+- [Gateways](m-10-gateways.md): External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility.
+- [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
+- [Assistant architecture](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
+
+## Strategy
 
 - [Competitive analysis](m-17-competitive-analysis.md): How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources.
 - [Roadmap](m-18-roadmap.md): The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review.

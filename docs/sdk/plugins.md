@@ -1,3 +1,20 @@
+---
+audience:
+  - developer
+doc_type: how-to
+product_area: sdk
+stability: experimental
+prerequisites:
+  - A CALIBER deployment or SDK extension question
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - sdk
+  - plugins
+  - extensibility
+  - optimizers
+---
+
 # Writing a CALIBER plugin
 
 `caliber-plugin-sdk` lets a third party add an optimizer to CALIBER without

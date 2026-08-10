@@ -1,3 +1,22 @@
+---
+audience:
+  - architect
+  - developer
+  - evaluator
+doc_type: concept
+product_area: skills
+stability: ga
+prerequisites:
+  - Layered architecture overview
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - skills
+  - registry
+  - assistant
+  - calibration
+---
+
 # Skills Architecture
 
 ## At a glance

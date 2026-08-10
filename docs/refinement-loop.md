@@ -1,3 +1,22 @@
+---
+audience:
+  - architect
+  - developer
+  - evaluator
+doc_type: concept
+product_area: calibration
+stability: ga
+prerequisites:
+  - Layered architecture overview
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - refinement
+  - evaluation
+  - release
+  - governance
+---
+
 # CALIBER — The Refinement Loop
 
 *The one idea that ties the rest of these docs together. Read this before the reference pages: it explains why the building blocks exist and how they connect.*

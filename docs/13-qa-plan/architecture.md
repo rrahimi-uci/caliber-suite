@@ -1,3 +1,22 @@
+---
+audience:
+  - architect
+  - developer
+  - evaluator
+doc_type: concept
+product_area: governance
+stability: ga
+prerequisites:
+  - Layered architecture overview
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - qa
+  - governance
+  - quality
+  - review
+---
+
 # QA Plan Architecture
 
 This document describes the QA plan, the subsystem in CALIBER that governs

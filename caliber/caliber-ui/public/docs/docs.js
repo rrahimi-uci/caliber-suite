@@ -367,12 +367,129 @@
   var menuToggle = document.getElementById("menuToggle");
   var searchKeycaps = document.querySelectorAll("[data-doc-search-key]");
   var topbarBrowseMenu = null;
+  var docsData = window.DOCS_DATA || { sections: window.DOCS_NAV || [], pages: [] };
+  var docsSections = Array.isArray(docsData.sections) ? docsData.sections : (Array.isArray(window.DOCS_NAV) ? window.DOCS_NAV : []);
+  var docsPages = Array.isArray(docsData.pages) ? docsData.pages : [];
   var currentPage = (location.pathname.split("/").pop() || "index.html").toLowerCase();
   if (!currentPage || currentPage === "") currentPage = "index.html";
+  var pageMetaByPage = {};
+  docsPages.forEach(function (page) {
+    if (!page || !page.href) return;
+    pageMetaByPage[pageOf(page.href)] = page;
+  });
 
   function pageOf(href) {
     var p = (href || "").split("#")[0].split("/").pop().toLowerCase();
     return p || "index.html";
+  }
+
+  function humanizeToken(value) {
+    return String(value || "")
+      .split(/[-_]/)
+      .filter(Boolean)
+      .map(function (part) {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(" ");
+  }
+
+  function formatAudienceLabel(audience) {
+    if (audience === "system-user") return "System user";
+    if (audience === "decision-maker") return "Decision-maker";
+    return humanizeToken(audience);
+  }
+
+  function formatDocType(docType) {
+    return humanizeToken(docType);
+  }
+
+  function buildDocMetaElement(meta, options) {
+    var pageMeta = meta || {};
+    var opts = options || {};
+    var audience = Array.isArray(pageMeta.audience) ? pageMeta.audience : [];
+    var prerequisites = Array.isArray(pageMeta.prerequisites) ? pageMeta.prerequisites : [];
+    var hasBasics = audience.length || pageMeta.doc_type || pageMeta.stability;
+    var hasSummary = opts.showSummary && pageMeta.summary;
+    var hasNotes = pageMeta.reviewed_on || pageMeta.version_applicability;
+    if (!hasBasics && !hasSummary && !prerequisites.length && !hasNotes) return null;
+
+    var root = document.createElement("div");
+    root.className = "doc-meta";
+
+    if (hasBasics) {
+      var chips = document.createElement("div");
+      chips.className = "doc-meta-chips";
+      audience.forEach(function (item) {
+        var chip = document.createElement("span");
+        chip.className = "doc-meta-chip";
+        chip.textContent = formatAudienceLabel(item);
+        chips.appendChild(chip);
+      });
+      if (pageMeta.doc_type) {
+        var typeChip = document.createElement("span");
+        typeChip.className = "doc-meta-chip doc-meta-chip-type";
+        typeChip.textContent = formatDocType(pageMeta.doc_type);
+        chips.appendChild(typeChip);
+      }
+      if (pageMeta.stability) {
+        var stabilityChip = document.createElement("span");
+        stabilityChip.className = "doc-meta-chip doc-meta-chip-stability";
+        stabilityChip.textContent = String(pageMeta.stability).toUpperCase();
+        chips.appendChild(stabilityChip);
+      }
+      root.appendChild(chips);
+    }
+
+    if (hasSummary) {
+      var summary = document.createElement("div");
+      summary.className = "doc-summary";
+      summary.textContent = pageMeta.summary;
+      root.appendChild(summary);
+    }
+
+    if (prerequisites.length) {
+      var extra = document.createElement("div");
+      extra.className = "doc-meta-extra";
+      var label = document.createElement("span");
+      label.className = "doc-meta-label";
+      label.textContent = "Prerequisites";
+      extra.appendChild(label);
+      var values = document.createElement("span");
+      values.className = "doc-meta-prereqs";
+      values.textContent = prerequisites.join(" · ");
+      extra.appendChild(values);
+      root.appendChild(extra);
+    }
+
+    if (hasNotes) {
+      var notes = [];
+      if (pageMeta.reviewed_on) notes.push("Reviewed " + pageMeta.reviewed_on);
+      if (pageMeta.version_applicability) notes.push(pageMeta.version_applicability);
+      var noteEl = document.createElement("div");
+      noteEl.className = "doc-meta-notes";
+      noteEl.textContent = notes.join(" · ");
+      root.appendChild(noteEl);
+    }
+
+    return root;
+  }
+
+  function injectHandAuthoredPageMeta() {
+    if (!document.body || document.body.dataset.docPage !== "module") return;
+    var article = document.querySelector("article.content");
+    if (!article) return;
+    if (article.querySelector(".doc-header .doc-meta")) return;
+    if (article.querySelector(".doc-breadcrumb + .doc-meta")) return;
+    var meta = pageMetaByPage[currentPage];
+    if (!meta) return;
+    var metaEl = buildDocMetaElement(meta, { showSummary: true });
+    if (!metaEl) return;
+    var breadcrumb = article.querySelector(".doc-breadcrumb");
+    if (breadcrumb && breadcrumb.parentNode === article) {
+      article.insertBefore(metaEl, breadcrumb.nextSibling);
+      return;
+    }
+    article.insertBefore(metaEl, article.firstChild);
   }
 
   function setSidebarOpen(open) {
@@ -382,7 +499,7 @@
   }
 
   function sectionLabel(sec) {
-    return sec && sec.section === "Documentation" ? "Overview" : (sec && sec.section) || "";
+    return (sec && sec.section) || "";
   }
 
   function sectionHref(sec) {
@@ -395,20 +512,32 @@
     }));
   }
 
+  function currentSection() {
+    for (var i = 0; i < docsSections.length; i++) {
+      if (sectionIsCurrent(docsSections[i])) return docsSections[i];
+    }
+    return null;
+  }
+
   function sectionSummary(sec) {
+    if (sec && sec.summary) return sec.summary;
     switch (sectionLabel(sec)) {
-      case "Overview":
-        return "Start here for the product story, quickstart, and documentation paths.";
-      case "Platform docs":
-        return "Architecture, runtime behavior, governance, and operations.";
-      case "REST API":
-        return "The raw HTTP contract, auth conventions, and route families.";
-      case "Python SDK":
-        return "Typed client entry points, async support, plugins, and examples.";
+      case "Start here":
+        return "Product overview, quickstart, and documentation paths.";
+      case "Use CALIBER":
+        return "Feature areas and concepts for using the product.";
+      case "Build & integrate":
+        return "SDK, API, authentication, and automation guidance.";
+      case "Operate CALIBER":
+        return "Bring-up, observability, recovery, and operator guidance.";
       case "Examples":
-        return "Cookbooks, walkthroughs, and runnable end-to-end implementation patterns.";
-      case "Strategy & roadmap":
-        return "Competitive positioning, future direction, and planning context.";
+        return "Cookbooks, recipes, and runnable end-to-end implementation patterns.";
+      case "Reference":
+        return "Exact API, SDK, and component lookup material.";
+      case "Architecture":
+        return "Deep platform architecture, trust boundaries, and implementation concepts.";
+      case "Strategy":
+        return "Roadmap, market context, and supporting collateral.";
       default:
         return "Browse this documentation section.";
     }
@@ -425,9 +554,20 @@
     });
   }
 
-  if (navRoot && Array.isArray(window.DOCS_NAV)) {
+  if (navRoot && docsSections.length) {
+    var activeSectionForNav = document.body && document.body.dataset.docPage === "module"
+      ? currentSection()
+      : null;
+    var navSections = docsSections.slice();
+    if (activeSectionForNav) {
+      navSections.sort(function (a, b) {
+        if (a === activeSectionForNav) return -1;
+        if (b === activeSectionForNav) return 1;
+        return 0;
+      });
+    }
     var frag = document.createDocumentFragment();
-    window.DOCS_NAV.forEach(function (sec) {
+    navSections.forEach(function (sec, idx) {
       var head = document.createElement("div");
       head.className = "nav-section";
       head.textContent = sec.section;
@@ -453,16 +593,22 @@
         }
         frag.appendChild(a);
       });
+      if (idx === 0 && activeSectionForNav && navSections.length > 1) {
+        var divider = document.createElement("div");
+        divider.className = "nav-section nav-section-secondary";
+        divider.textContent = "All docs";
+        frag.appendChild(divider);
+      }
     });
     navRoot.appendChild(frag);
   }
 
-  if (sectionTabsRoot && Array.isArray(window.DOCS_NAV)) {
-    var currentSection = null;
-    window.DOCS_NAV.forEach(function (sec) {
-      if (!currentSection && sectionIsCurrent(sec)) currentSection = sec;
+  if (sectionTabsRoot && docsSections.length) {
+    var currentSectionRef = null;
+    docsSections.forEach(function (sec) {
+      if (!currentSectionRef && sectionIsCurrent(sec)) currentSectionRef = sec;
     });
-    if (!currentSection) currentSection = window.DOCS_NAV[0] || null;
+    if (!currentSectionRef) currentSectionRef = docsSections[0] || null;
 
     var topbarFrag = document.createDocumentFragment();
     topbarBrowseMenu = document.createElement("details");
@@ -481,7 +627,7 @@
 
     var browseList = document.createElement("div");
     browseList.className = "docs-browse-list";
-    window.DOCS_NAV.forEach(function (sec) {
+    docsSections.forEach(function (sec) {
       if (!sec || !sec.links || !sec.links.length) return;
       var item = document.createElement("a");
       item.className = "docs-browse-item";
@@ -509,12 +655,12 @@
     topbarBrowseMenu.appendChild(browsePanel);
     topbarFrag.appendChild(topbarBrowseMenu);
 
-    if (currentSection) {
+    if (currentSectionRef) {
       var activeSection = document.createElement("a");
       activeSection.className = "topbar-pill topbar-active-section";
-      activeSection.href = sectionHref(currentSection);
-      activeSection.textContent = sectionLabel(currentSection);
-      activeSection.setAttribute("aria-label", "Current section: " + sectionLabel(currentSection));
+      activeSection.href = sectionHref(currentSectionRef);
+      activeSection.textContent = sectionLabel(currentSectionRef);
+      activeSection.setAttribute("aria-label", "Current section: " + sectionLabel(currentSectionRef));
       topbarFrag.appendChild(activeSection);
     }
 
@@ -644,8 +790,32 @@
   }
 
   function renderPager() {
-    if (!Array.isArray(window.DOCS_NAV)) return;
-    var pages = flattenPages(window.DOCS_NAV);
+    if (!docsSections.length) return;
+    if (document.body && document.body.dataset.docPage === "landing") return;
+    var currentMeta = pageMetaByPage[currentPage] || null;
+    if (!currentMeta || !currentMeta.section_id) return;
+    var pages = docsPages
+      .filter(function (page) {
+        return page &&
+          page.section_id === currentMeta.section_id &&
+          !page.nav_hidden &&
+          page.href &&
+          pageOf(page.href) !== "index.html";
+      })
+      .slice()
+      .sort(function (a, b) {
+        var orderA = typeof a.nav_order === "number" ? a.nav_order : 9999;
+        var orderB = typeof b.nav_order === "number" ? b.nav_order : 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        return String(a.label || "").localeCompare(String(b.label || ""));
+      })
+      .map(function (page) {
+        return {
+          href: String(page.href).split("#")[0],
+          label: page.label || pageOf(page.href),
+          section: page.section || "",
+        };
+      });
     if (!pages.length) return;
 
     var idx = -1;
@@ -669,7 +839,7 @@
 
     var meta = document.createElement("div");
     meta.className = "doc-pager-meta";
-    meta.textContent = "Page " + String(idx + 1) + " of " + String(pages.length) + " \u00b7 Alt+\u2190 / Alt+\u2192";
+    meta.textContent = (currentMeta.section || "Section") + " \u00b7 " + String(idx + 1) + " of " + String(pages.length) + " \u00b7 Alt+\u2190 / Alt+\u2192";
     nav.appendChild(meta);
 
     nav.appendChild(buildPagerLink("next", next));
@@ -699,24 +869,33 @@
     });
   }
   renderPager();
+  injectHandAuthoredPageMeta();
 
   /* ---------- Per-page table of contents ---------- */
   // Module pages tag their <h2> with ids; the landing page uses <section id>.
   var content = document.querySelector(".content");
   var tocTargets = [];
   if (content) {
-    var taggedH2 = content.querySelectorAll("h2[id]");
-    if (taggedH2.length) {
-      tocTargets = Array.prototype.slice.call(taggedH2).map(function (h) {
-        return { id: h.id, text: h.textContent.replace(/#\s*$/, "").trim(), el: h };
+    var headings = content.querySelectorAll("h2[id], h3[id]");
+    if (headings.length) {
+      tocTargets = Array.prototype.slice.call(headings).map(function (h) {
+        return {
+          id: h.id,
+          text: h.textContent.replace(/#\s*$/, "").trim(),
+          el: h,
+          level: Number((h.tagName || "H2").slice(1)),
+        };
       });
+      if (tocTargets.length > 24 && tocTargets.some(function (t) { return t.level === 3; })) {
+        tocTargets = tocTargets.filter(function (t) { return t.level === 2; });
+      }
     } else {
       var secs = content.querySelectorAll("section[id]");
       tocTargets = Array.prototype.slice
         .call(secs)
         .filter(function (s) { return s.querySelector("h2"); })
         .map(function (s) {
-          return { id: s.id, text: s.querySelector("h2").textContent.trim(), el: s };
+          return { id: s.id, text: s.querySelector("h2").textContent.trim(), el: s, level: 2 };
         });
     }
   }
@@ -728,6 +907,7 @@
       var a = document.createElement("a");
       a.href = "#" + t.id;
       a.textContent = t.text;
+      if (t.level > 2) a.classList.add("toc-link-level-" + String(t.level));
       tocRoot.appendChild(a);
       tocById[t.id] = a;
     });
@@ -780,28 +960,259 @@
   }
   if (location.hash) revealHash(location.hash);
 
+  /* ---------- Search index ---------- */
+  var searchIndexPromise = null;
+
+  function searchIndexPath() {
+    return "search-index.json";
+  }
+
+  function loadSearchIndex() {
+    if (searchIndexPromise) return searchIndexPromise;
+    searchIndexPromise = fetch(searchIndexPath(), { credentials: "same-origin" })
+      .then(function (resp) {
+        if (!resp.ok) throw new Error("search index unavailable");
+        return resp.json();
+      })
+      .then(function (payload) {
+        return Array.isArray(payload && payload.pages) ? payload.pages : [];
+      })
+      .catch(function () {
+        return [];
+      });
+    return searchIndexPromise;
+  }
+
+  function searchTerms(query) {
+    return String(query || "")
+      .toLowerCase()
+      .split(/\s+/)
+      .map(function (term) { return term.trim(); })
+      .filter(Boolean);
+  }
+
+  function scoreSearchEntry(entry, query, terms) {
+    if (!entry) return 0;
+    var title = String(entry.label || "").toLowerCase();
+    var pageLabel = String(entry.page_label || "").toLowerCase();
+    var href = String(entry.href || "").toLowerCase();
+    var section = String(entry.section || "").toLowerCase();
+    var summary = String(entry.summary || "").toLowerCase();
+    var symbolList = Array.isArray(entry.symbols) ? entry.symbols.map(function (item) { return String(item || ""); }) : [];
+    var routeList = Array.isArray(entry.routes) ? entry.routes.map(function (item) { return String(item || ""); }) : [];
+    var headingList = Array.isArray(entry.headings) ? entry.headings.map(function (item) { return String(item || ""); }) : [];
+    var symbols = symbolList.join(" ").toLowerCase();
+    var routes = routeList.join(" ").toLowerCase();
+    var headings = headingList.join(" ").toLowerCase();
+    var body = String(entry.body || "").toLowerCase();
+    var tags = Array.isArray(entry.tags) ? entry.tags.join(" ").toLowerCase() : "";
+    var docType = String(entry.doc_type || "").toLowerCase();
+    var audience = Array.isArray(entry.audience) ? entry.audience.join(" ").toLowerCase() : "";
+    var isReferencePage = docType === "reference" || section === "reference";
+    var full = [title, pageLabel, href, section, summary, symbols, routes, headings, body, tags, docType, audience].join(" ");
+    var fullQuery = String(query || "").toLowerCase();
+    var exactSymbolMatch = symbolList.some(function (item) { return item.toLowerCase() === fullQuery; });
+    var exactRouteMatch = routeList.some(function (item) { return item.toLowerCase() === fullQuery; });
+    var exactHeadingMatch = headingList.some(function (item) { return item.toLowerCase() === fullQuery; });
+    var score = 0;
+    if (title === fullQuery) score += 140;
+    if (pageLabel === fullQuery) score += 95;
+    if (exactSymbolMatch) score += 220;
+    if (exactRouteMatch) score += 210;
+    if (exactHeadingMatch) score += 120;
+    if (symbols.indexOf(fullQuery) !== -1) score += 135;
+    if (routes.indexOf(fullQuery) !== -1) score += 125;
+    if (isReferencePage && symbols.indexOf(fullQuery) !== -1) score += 80;
+    if (isReferencePage && routes.indexOf(fullQuery) !== -1) score += 80;
+    if (href.indexOf(fullQuery) !== -1) score += 110;
+    if (title.indexOf(fullQuery) !== -1) score += 100;
+    if (pageLabel.indexOf(fullQuery) !== -1) score += 65;
+    if (symbols.indexOf(fullQuery) !== -1) score += 50;
+    if (routes.indexOf(fullQuery) !== -1) score += 45;
+    if (headings.indexOf(fullQuery) !== -1) score += 70;
+    if (summary.indexOf(fullQuery) !== -1) score += 55;
+    if (section.indexOf(fullQuery) !== -1) score += 35;
+    if (docType.indexOf(fullQuery) !== -1) score += 20;
+    if (!score && !terms.length) return 0;
+    for (var i = 0; i < terms.length; i++) {
+      var term = terms[i];
+      if (!term) continue;
+      if (title.indexOf(term) !== -1) score += 18;
+      if (pageLabel.indexOf(term) !== -1) score += 10;
+      if (symbols.indexOf(term) !== -1) score += 26;
+      if (routes.indexOf(term) !== -1) score += 24;
+      if (headings.indexOf(term) !== -1) score += 12;
+      if (summary.indexOf(term) !== -1) score += 8;
+      if (tags.indexOf(term) !== -1) score += 6;
+      if (body.indexOf(term) !== -1) score += 3;
+      if (full.indexOf(term) === -1) return 0;
+    }
+    return score;
+  }
+
+  function runSearch(index, query, limit) {
+    var terms = searchTerms(query);
+    var fullQuery = String(query || "").trim().toLowerCase();
+    if (!fullQuery) return [];
+    return (index || [])
+      .map(function (entry) {
+        return { entry: entry, score: scoreSearchEntry(entry, fullQuery, terms) };
+      })
+      .filter(function (item) { return item.score > 0; })
+      .sort(function (a, b) {
+        if (b.score !== a.score) return b.score - a.score;
+        if ((a.entry.result_type || "page") !== (b.entry.result_type || "page")) {
+          return (a.entry.result_type || "page") === "page" ? -1 : 1;
+        }
+        return String(a.entry.label || "").localeCompare(String(b.entry.label || ""));
+      })
+      .slice(0, limit || 12)
+      .map(function (item) { return item.entry; });
+  }
+
+  function resultMeta(entry) {
+    var bits = [];
+    if (entry.section) bits.push(entry.section);
+    if (entry.page_label) bits.push(entry.page_label);
+    if ((entry.result_type || "page") === "anchor") bits.push("In-page match");
+    if (entry.doc_type) bits.push(String(entry.doc_type).replace(/-/g, " "));
+    return bits.join(" · ");
+  }
+
+  function groupSearchResults(results) {
+    var groups = [];
+    (results || []).forEach(function (entry) {
+      var section = entry && entry.section ? entry.section : "Documentation";
+      var existing = null;
+      for (var i = 0; i < groups.length; i++) {
+        if (groups[i].section === section) {
+          existing = groups[i];
+          break;
+        }
+      }
+      if (!existing) {
+        existing = { section: section, entries: [] };
+        groups.push(existing);
+      }
+      existing.entries.push(entry);
+    });
+    return groups;
+  }
+
+  function renderNavSearchResults(results, query) {
+    if (!navRoot) return;
+    navRoot.innerHTML = "";
+    var head = document.createElement("div");
+    head.className = "nav-section";
+    head.textContent = results.length ? 'Search results' : 'No results';
+    navRoot.appendChild(head);
+    if (!results.length) {
+      var empty = document.createElement("div");
+      empty.className = "nav-search-empty";
+      empty.textContent = 'No documentation pages matched "' + query + '".';
+      navRoot.appendChild(empty);
+      return;
+    }
+    groupSearchResults(results).forEach(function (group, index) {
+      if (index > 0) {
+        var sectionHead = document.createElement("div");
+        sectionHead.className = "nav-section nav-search-group";
+        sectionHead.textContent = group.section;
+        navRoot.appendChild(sectionHead);
+      }
+      group.entries.forEach(function (entry) {
+        var a = document.createElement("a");
+        a.className = "nav-link nav-search-link";
+        a.href = entry.href;
+        var title = document.createElement("span");
+        title.className = "nav-search-title";
+        title.textContent = entry.label || entry.href;
+        a.appendChild(title);
+        var meta = resultMeta(entry);
+        if (meta) {
+          var metaEl = document.createElement("span");
+          metaEl.className = "nav-search-meta";
+          metaEl.textContent = meta;
+          a.appendChild(metaEl);
+        }
+        if (entry.summary) {
+          var summaryEl = document.createElement("span");
+          summaryEl.className = "nav-search-summary";
+          summaryEl.textContent = entry.summary;
+          a.appendChild(summaryEl);
+        }
+        navRoot.appendChild(a);
+      });
+    });
+  }
+
+  function ensureLandingSearchResults() {
+    if (!landingSearch) return null;
+    var panel = document.getElementById("landingSearchResults");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "landingSearchResults";
+    panel.className = "landing-search-results";
+    panel.hidden = true;
+    var searchPanel = landingSearch.closest(".landing-search-panel");
+    if (searchPanel && searchPanel.parentNode) {
+      searchPanel.parentNode.insertBefore(panel, searchPanel.nextSibling);
+    }
+    return panel;
+  }
+
+  function renderLandingSearchResults(results, query) {
+    var panel = ensureLandingSearchResults();
+    if (!panel) return;
+    panel.innerHTML = "";
+    panel.hidden = false;
+    if (!results.length) {
+      var empty = document.createElement("p");
+      empty.className = "landing-search-empty";
+      empty.textContent = 'No documentation pages matched "' + query + '".';
+      panel.appendChild(empty);
+      return;
+    }
+    groupSearchResults(results).forEach(function (group) {
+      var groupSection = document.createElement("section");
+      groupSection.className = "landing-search-group";
+      var heading = document.createElement("div");
+      heading.className = "landing-search-group-title";
+      heading.textContent = group.section;
+      groupSection.appendChild(heading);
+      group.entries.forEach(function (entry) {
+        var a = document.createElement("a");
+        a.className = "ref-card ref-row landing-search-result";
+        a.href = entry.href;
+        var kicker = document.createElement("span");
+        kicker.className = "ref-row-kicker";
+        kicker.textContent = resultMeta(entry) || "Documentation";
+        var title = document.createElement("span");
+        title.className = "ref-row-title";
+        title.textContent = entry.label || entry.href;
+        var summary = document.createElement("span");
+        summary.className = "ref-row-summary";
+        summary.textContent = entry.summary || "";
+        a.appendChild(kicker);
+        a.appendChild(title);
+        a.appendChild(summary);
+        groupSection.appendChild(a);
+      });
+      panel.appendChild(groupSection);
+    });
+  }
+
   /* ---------- Sidebar search filter ---------- */
   if (filterInput && navRoot) {
+    var defaultNavMarkup = navRoot.innerHTML;
     filterInput.addEventListener("input", function () {
       var q = filterInput.value.trim().toLowerCase();
-      var groups = [];
-      var g = null;
-      Array.prototype.slice.call(navRoot.children).forEach(function (el) {
-        if (el.classList.contains("nav-section")) {
-          g = { header: el, links: [] };
-          groups.push(g);
-        } else if (el.classList.contains("nav-link") && g) {
-          g.links.push(el);
-        }
-      });
-      groups.forEach(function (grp) {
-        var visible = 0;
-        grp.links.forEach(function (a) {
-          var show = !q || a.textContent.toLowerCase().indexOf(q) !== -1;
-          a.style.display = show ? "" : "none";
-          if (show) visible++;
-        });
-        grp.header.style.display = visible ? "" : "none";
+      if (!q) {
+        navRoot.innerHTML = defaultNavMarkup;
+        return;
+      }
+      loadSearchIndex().then(function (index) {
+        renderNavSearchResults(runSearch(index, q, 14), q);
       });
     });
   }
@@ -820,34 +1231,30 @@
 
     landingSearch.addEventListener("input", function () {
       var q = landingSearch.value.trim().toLowerCase();
-      var visibleCards = 0;
-
-      referenceGroups.forEach(function (group) {
-        var cards = Array.prototype.slice.call(group.querySelectorAll(".ref-card"));
-        var groupVisible = 0;
-
-        cards.forEach(function (card) {
-          var text = (card.textContent || "").trim().toLowerCase();
-          var show = !q || text.indexOf(q) !== -1;
-          card.style.display = show ? "" : "none";
-          if (show) {
-            groupVisible += 1;
-            visibleCards += 1;
-          }
-        });
-
-        if (group.hasAttribute && group.hasAttribute("data-ref-group")) {
-          group.style.display = groupVisible ? "" : "none";
-        } else {
-          group.style.display = groupVisible ? "" : "none";
+      var resultsPanel = ensureLandingSearchResults();
+      if (!q) {
+        referenceGroups.forEach(function (group) {
+          group.style.display = "";
           var heading = group.previousElementSibling;
-          if (heading && heading.tagName === "H3") {
-            heading.style.display = groupVisible ? "" : "none";
-          }
+          if (heading && heading.tagName === "H3") heading.style.display = "";
+        });
+        if (resultsPanel) {
+          resultsPanel.hidden = true;
+          resultsPanel.innerHTML = "";
         }
+        if (landingSearchEmpty) landingSearchEmpty.hidden = true;
+        return;
+      }
+      loadSearchIndex().then(function (index) {
+        var results = runSearch(index, q, 12);
+        referenceGroups.forEach(function (group) {
+          group.style.display = "none";
+          var heading = group.previousElementSibling;
+          if (heading && heading.tagName === "H3") heading.style.display = "none";
+        });
+        renderLandingSearchResults(results, q);
+        if (landingSearchEmpty) landingSearchEmpty.hidden = true;
       });
-
-      if (landingSearchEmpty) landingSearchEmpty.hidden = visibleCards !== 0;
     });
   }
 

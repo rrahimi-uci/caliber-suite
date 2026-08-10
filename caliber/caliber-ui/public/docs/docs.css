@@ -855,6 +855,13 @@ li {
   color: var(--text-muted);
 }
 
+.toc-links a.toc-link-level-3 {
+  margin-left: .9rem;
+  padding-left: .85rem;
+  border-left-style: dashed;
+  font-size: .76rem;
+}
+
 .toc-links a.active {
   border-left-color: var(--accent);
   color: var(--accent-dark);
@@ -1154,6 +1161,29 @@ body[data-doc-page="landing"] .content > section {
 
 .landing-search-empty {
   margin-bottom: 1rem;
+}
+
+.landing-search-results {
+  display: grid;
+  gap: .75rem;
+  margin: .85rem 0 0;
+}
+
+.landing-search-group {
+  display: grid;
+  gap: .5rem;
+}
+
+.landing-search-group-title {
+  font-size: .74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-dim);
+}
+
+.landing-search-result {
+  text-decoration: none;
 }
 
 .reference-search-panel {
@@ -2300,11 +2330,103 @@ footer {
   color: var(--text-muted);
 }
 
+.doc-meta {
+  display: grid;
+  gap: .45rem;
+  margin-top: .95rem;
+}
+
+.doc-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+
+.doc-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: .24rem .62rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .01em;
+}
+
+.doc-meta-chip-type {
+  border-color: rgba(31, 111, 235, .22);
+  background: var(--accent-glow);
+  color: var(--accent-dark);
+}
+
+.doc-meta-chip-stability {
+  border-color: rgba(16, 185, 129, .25);
+  background: rgba(16, 185, 129, .10);
+  color: #0f766e;
+}
+
+.doc-meta-notes {
+  font-size: .8rem;
+  color: var(--text-dim);
+}
+
+.doc-meta-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem .65rem;
+  align-items: baseline;
+  font-size: .83rem;
+  color: var(--text-muted);
+}
+
+.doc-meta-label {
+  font-size: .74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-dim);
+}
+
+.doc-meta-prereqs {
+  color: var(--text-muted);
+}
+
 .doc-actions {
   display: flex;
   align-items: center;
   gap: .65rem;
   margin-top: 1rem;
+}
+
+.nav-search-link {
+  display: grid;
+  gap: .18rem;
+  align-items: start;
+}
+
+.nav-search-title {
+  font-weight: 700;
+}
+
+.nav-search-meta,
+.nav-search-summary,
+.nav-search-empty {
+  font-size: .78rem;
+  color: var(--text-muted);
+}
+
+.nav-search-group {
+  margin-top: .55rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.nav-section-secondary {
+  margin-top: .85rem;
+  padding-top: .85rem;
+  border-top: 1px solid var(--border-light);
 }
 
 .doc-copy-button {

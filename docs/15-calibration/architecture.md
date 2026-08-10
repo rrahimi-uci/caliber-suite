@@ -1,3 +1,22 @@
+---
+audience:
+  - architect
+  - developer
+  - evaluator
+doc_type: concept
+product_area: calibration
+stability: ga
+prerequisites:
+  - Layered architecture overview
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - calibration
+  - refinement
+  - gates
+  - promotion
+---
+
 # Calibration Architecture
 
 This document describes the asset-specific operations CALIBER calls calibration.

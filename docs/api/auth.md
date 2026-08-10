@@ -1,3 +1,20 @@
+---
+audience:
+  - developer
+doc_type: reference
+product_area: api
+stability: ga
+prerequisites:
+  - A running CALIBER deployment
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - api
+  - auth
+  - headers
+  - errors
+---
+
 # REST API authentication and conventions
 
 These pages document the HTTP contract itself: the headers you send, the

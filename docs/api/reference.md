@@ -1,3 +1,20 @@
+---
+audience:
+  - developer
+doc_type: reference
+product_area: api
+stability: ga
+prerequisites:
+  - A CALIBER API integration question
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - api
+  - reference
+  - routes
+  - openapi
+---
+
 # REST API HTTP reference
 
 This is the wire-level reference for the CALIBER management API. It is not the
@@ -54,6 +71,8 @@ GET /ajax-api/2.0/mlflow/caliber/services/{workflow_id}/openapi.json
 
 That document is about the externally invocable service for one workflow, not
 the CALIBER management API itself.
+
+{{REST_API_ROUTE_INVENTORY}}
 
 ## Practical integration order
 

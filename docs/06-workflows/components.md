@@ -1,3 +1,21 @@
+---
+audience:
+  - developer
+  - operator
+doc_type: reference
+product_area: workflows
+stability: ga
+prerequisites:
+  - Workflow Studio or manifest familiarity
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - workflows
+  - components
+  - nodes
+  - reference
+---
+
 # Workflow Components
 
 Components are the building blocks of a CALIBER workflow. Each component is a

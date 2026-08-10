@@ -1,3 +1,21 @@
+---
+audience:
+  - developer
+doc_type: reference
+product_area: sdk
+stability: ga
+prerequisites:
+  - Python 3.10+
+  - A CALIBER integration question
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - sdk
+  - reference
+  - api
+  - models
+---
+
 # CALIBER Python SDK API reference
 
 This reference is generated from the SDK source tree at build time. It follows

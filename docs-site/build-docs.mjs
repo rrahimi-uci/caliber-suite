@@ -32,6 +32,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(here, ".."); // caliber-suite
 const DOCS_DIR = resolve(here, "../docs"); // caliber-suite/docs
 const OUT_DIR = here; // caliber-suite/docs-site
+const SITE_MAP_PATH = resolve(here, "docs-site-map.json");
 const GITHUB_SOURCE_BASE = "https://github.com/rrahimi-uci/caliber-suite";
 const BRAND_SHORT = "CALIBER";
 const BRAND_FULL = "CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement";
@@ -88,6 +89,33 @@ const MODULES = [
   { md: "api/auth.md", out: "m-27-rest-api-auth.html", group: "api", label: "Authentication and conventions", blurb: "Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes." },
   { md: "api/resources.md", out: "m-28-rest-api-resources.html", group: "api", label: "Resource catalog", blurb: "The route families mounted under the CALIBER management API, grouped by the domains developers actually integrate with." },
   { md: "api/reference.md", out: "m-29-rest-api-reference.html", group: "api", label: "HTTP reference", blurb: "The concrete contract map: core endpoints, representative operations, and the served OpenAPI entry points for management and workflow services." },
+  { md: "start/choose-your-path.md", out: "m-30-choose-your-path.html", group: "platform", label: "Choose your CALIBER path", blurb: "The role-first entry point into the docs: choose the right path for integration, operations, governance, architecture, or product fit." },
+  { md: "start/decision-maker-overview.md", out: "m-35-decision-maker-overview.html", group: "strategy", label: "Decision-maker overview", blurb: "A concise non-implementation path through what CALIBER is, what it solves, and where to go next for technical proof." },
+  { md: "start/five-minute-quickstart.md", out: "m-37-five-minute-quickstart.html", group: "platform", label: "5-minute quickstart", blurb: "The shortest path to a real CALIBER success: bring up the local stack, verify readiness, or jump into the right next guide." },
+  { md: "build/auth-and-project-scoping.md", out: "m-31-auth-and-project-scoping.html", group: "api", label: "Auth and project scoping", blurb: "The minimum authentication and project-scoping decisions a developer must get right before calling CALIBER programmatically." },
+  { md: "build/sdk-vs-rest-api.md", out: "m-36-sdk-vs-rest-api.html", group: "sdk", label: "SDK vs REST API", blurb: "The first integration decision for developers: when to use the typed Python SDK and when to work at the raw HTTP layer." },
+  { md: "build/error-handling-and-retries.md", out: "m-53-error-handling-and-retries.html", group: "sdk", label: "Error handling and retries", blurb: "The practical integration policy for CALIBER failures: classify them correctly, use waiters where available, and retry only what is actually safe to retry." },
+  { md: "build/ci-cd-automation.md", out: "m-54-ci-cd-automation.html", group: "sdk", label: "CI/CD automation", blurb: "The repository-grounded automation path for CALIBER development: docs generation, focused contract tests, and the human-review boundaries that remain deliberate." },
+  { md: "build/developer-troubleshooting.md", out: "m-55-developer-troubleshooting.html", group: "sdk", label: "Developer troubleshooting", blurb: "The first-pass diagnosis path for CALIBER SDK and REST integrations: auth, project scoping, CSRF, uploads, waiters, and workflow invocation." },
+  { md: "operate/local-bring-up.md", out: "m-32-local-bring-up.html", group: "platform", label: "Local bring-up", blurb: "The operator-first path for starting CALIBER locally, verifying readiness, and choosing the next guide based on your job." },
+  { md: "operate/configuration-and-provider-setup.md", out: "m-48-configuration-and-provider-setup.html", group: "platform", label: "Configuration and provider setup", blurb: "The operator path for configuring CALIBER: ports, database, LLM provider and gateway, object store, workflow storage, and event backend." },
+  { md: "operate/storage-and-state.md", out: "m-49-storage-and-state.html", group: "platform", label: "Storage and state", blurb: "The operator guide to where CALIBER keeps metadata, files, workflow workspaces, and retention-controlled artifacts." },
+  { md: "operate/health-and-readiness.md", out: "m-50-health-and-readiness.html", group: "platform", label: "Health and readiness", blurb: "The operator meaning of CALIBER liveness, readiness, and the deeper evidence surfaces to use when a runtime is up but not actually usable." },
+  { md: "operate/troubleshooting.md", out: "m-51-operator-troubleshooting.html", group: "platform", label: "Operator troubleshooting", blurb: "The first-pass diagnosis path for degraded CALIBER deployments before a failure escalates into full runbook recovery." },
+  { md: "operate/backup-and-recovery.md", out: "m-52-backup-and-recovery.html", group: "platform", label: "Backup and recovery", blurb: "The operator view of what CALIBER state must be preserved, what can be rebuilt, and where disaster recovery stops and asset-specific rollback begins." },
+  { md: "use/trust-and-governance.md", out: "m-33-trust-and-governance.html", group: "platform", label: "Trust and governance", blurb: "A curated reader path across the trust surfaces that connect evidence, calibration, review, and apply." },
+  { md: "use/prompts.md", out: "m-38-use-prompts.html", group: "platform", label: "Prompts", blurb: "The task-oriented entry point for prompt assets in CALIBER: author, evaluate, calibrate, release, and recover without starting from deep architecture." },
+  { md: "use/tools.md", out: "m-39-use-tools.html", group: "platform", label: "Tools", blurb: "The practical guide to defining, testing, governing, and using callable tools in workflows and assistant surfaces." },
+  { md: "use/skills.md", out: "m-40-use-skills.html", group: "platform", label: "Skills", blurb: "The task-oriented guide to packaging reusable instructions, testing selection behavior, and using skills with assistant and workflow flows." },
+  { md: "use/mcp-servers.md", out: "m-41-use-mcp-servers.html", group: "platform", label: "MCP servers", blurb: "The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use." },
+  { md: "use/workflows.md", out: "m-42-use-workflows.html", group: "platform", label: "Workflows", blurb: "The user and operator path for authoring, previewing, running, deploying, and debugging workflows in CALIBER." },
+  { md: "use/knowledge-bases.md", out: "m-43-use-knowledge-bases.html", group: "platform", label: "Knowledge bases", blurb: "The practical guide for ingesting knowledge, improving retrieval quality, and connecting grounded content to assistant or workflow behavior." },
+  { md: "use/evaluation-and-test-sets.md", out: "m-44-use-evaluation-and-test-sets.html", group: "platform", label: "Evaluation and test sets", blurb: "The practical trust loop: define evidence, run scorecards, inspect judges, and decide what still needs review before live change." },
+  { md: "use/calibration.md", out: "m-45-use-calibration.html", group: "platform", label: "Calibration", blurb: "The practical calibration path: choose the asset family, generate candidates, inspect evidence, and move to explicit review or apply." },
+  { md: "use/aria-assistant.md", out: "m-46-use-aria-assistant.html", group: "platform", label: "Aria assistant", blurb: "The operator and user guide for supervised assistant sessions, governed tool use, and explicit review boundaries." },
+  { md: "use/review-and-release-flows.md", out: "m-47-use-review-and-release-flows.html", group: "platform", label: "Review and release flows", blurb: "The practical path from candidate evidence to human review, explicit apply, release, rollback, and operator recovery." },
+  { md: "architecture/index.md", out: "m-34-architecture-reader-guide.html", group: "platform", label: "Architecture reader guide", blurb: "The curated entry point into the architecture corpus: start with the right deep page instead of reading the whole tree." },
+  { md: "reference/config-and-environment.md", out: "m-56-config-and-environment-reference.html", group: "api", label: "Config and environment reference", blurb: "The operator and integrator lookup surface for the configuration families exposed in the current repository." },
   { md: "sdk/guide.md", out: "m-20-sdk-guide.html", group: "sdk", label: "Guide", blurb: "Install, authenticate, scope to a project, and call the management API from Python \u2014 with every snippet taken from the executable examples the SDK test suite runs." },
   { md: "sdk/reference.md", out: "m-21-sdk-reference.html", group: "sdk", label: "API reference", blurb: "Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries." },
   { md: "sdk/beta.md", out: "m-22-sdk-beta.html", group: "sdk", label: "Beta and agentic surfaces", blurb: "Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished." },
@@ -142,6 +170,159 @@ const sourceToModule = new Map(
 const outputToModule = new Map(
   MODULES.map((m) => [resolve(OUT_DIR, m.out), m])
 );
+const moduleByOutput = new Map(
+  MODULES.map((m) => [m.out, m])
+);
+
+const ALLOWED_AUDIENCES = new Set([
+  "developer",
+  "system-user",
+  "operator",
+  "architect",
+  "evaluator",
+  "decision-maker",
+]);
+const ALLOWED_DOC_TYPES = new Set([
+  "tutorial",
+  "how-to",
+  "concept",
+  "reference",
+  "runbook",
+  "example",
+  "strategy",
+]);
+const ALLOWED_STABILITY = new Set(["ga", "beta", "experimental", "internal"]);
+const DOCS_SECTION_FALLBACK_SUMMARY = "Browse this documentation section.";
+
+function readJsonFile(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function ensureStringArray(values, where) {
+  if (!Array.isArray(values) || !values.every((item) => typeof item === "string" && item.trim())) {
+    throw new Error(`[build-docs] ${where} must be an array of non-empty strings`);
+  }
+  return values.map((item) => item.trim());
+}
+
+function validateDocMetadata(metadata, where) {
+  if (!metadata || typeof metadata !== "object") return;
+  if (metadata.audience !== undefined) {
+    for (const audience of ensureStringArray(metadata.audience, `${where}.audience`)) {
+      if (!ALLOWED_AUDIENCES.has(audience)) {
+        throw new Error(`[build-docs] ${where}.audience has invalid value ${audience}`);
+      }
+    }
+  }
+  if (metadata.doc_type !== undefined && !ALLOWED_DOC_TYPES.has(metadata.doc_type)) {
+    throw new Error(`[build-docs] ${where}.doc_type has invalid value ${metadata.doc_type}`);
+  }
+  if (metadata.stability !== undefined && !ALLOWED_STABILITY.has(metadata.stability)) {
+    throw new Error(`[build-docs] ${where}.stability has invalid value ${metadata.stability}`);
+  }
+  if (metadata.prerequisites !== undefined) {
+    ensureStringArray(metadata.prerequisites, `${where}.prerequisites`);
+  }
+  if (metadata.tags !== undefined) {
+    ensureStringArray(metadata.tags, `${where}.tags`);
+  }
+}
+
+function loadSiteMap() {
+  if (!existsSync(SITE_MAP_PATH)) {
+    throw new Error(`[build-docs] required site map ${relative(REPO_ROOT, SITE_MAP_PATH)} not found`);
+  }
+  const raw = readJsonFile(SITE_MAP_PATH);
+  const defaults = raw.default_metadata && typeof raw.default_metadata === "object" ? raw.default_metadata : {};
+  validateDocMetadata(defaults, "default_metadata");
+
+  if (!Array.isArray(raw.sections) || !raw.sections.length) {
+    throw new Error("[build-docs] docs-site-map.json must define a non-empty sections array");
+  }
+  if (!Array.isArray(raw.pages) || !raw.pages.length) {
+    throw new Error("[build-docs] docs-site-map.json must define a non-empty pages array");
+  }
+
+  const sections = raw.sections.map((section, idx) => {
+    if (!section || typeof section !== "object") {
+      throw new Error(`[build-docs] sections[${idx}] must be an object`);
+    }
+    if (!section.id || !section.title) {
+      throw new Error(`[build-docs] sections[${idx}] must define id and title`);
+    }
+    const metadataDefaults =
+      section.metadata_defaults && typeof section.metadata_defaults === "object"
+        ? section.metadata_defaults
+        : {};
+    validateDocMetadata(metadataDefaults, `sections[${idx}].metadata_defaults`);
+    return {
+      id: String(section.id),
+      title: String(section.title),
+      summary: typeof section.summary === "string" && section.summary.trim()
+        ? section.summary.trim()
+        : DOCS_SECTION_FALLBACK_SUMMARY,
+      order: Number.isFinite(section.order) ? section.order : (idx + 1) * 10,
+      metadata_defaults: metadataDefaults,
+    };
+  });
+
+  const sectionIds = new Set();
+  for (const section of sections) {
+    if (sectionIds.has(section.id)) {
+      throw new Error(`[build-docs] duplicate section id ${section.id} in docs-site-map.json`);
+    }
+    sectionIds.add(section.id);
+  }
+
+  const pages = raw.pages.map((page, idx) => {
+    if (!page || typeof page !== "object") {
+      throw new Error(`[build-docs] pages[${idx}] must be an object`);
+    }
+    if (!page.href || !page.label || !page.section) {
+      throw new Error(`[build-docs] pages[${idx}] must define href, label, and section`);
+    }
+    if (!sectionIds.has(page.section)) {
+      throw new Error(`[build-docs] pages[${idx}] references unknown section ${page.section}`);
+    }
+    validateDocMetadata(page, `pages[${idx}]`);
+    return {
+      href: String(page.href),
+      label: String(page.label),
+      section: String(page.section),
+      nav_order: Number.isFinite(page.nav_order) ? page.nav_order : (idx + 1) * 10,
+      summary: typeof page.summary === "string" && page.summary.trim() ? page.summary.trim() : "",
+      audience: page.audience,
+      doc_type: page.doc_type,
+      product_area: typeof page.product_area === "string" ? page.product_area : "",
+      prerequisites: page.prerequisites,
+      stability: page.stability,
+      reviewed_on: typeof page.reviewed_on === "string" ? page.reviewed_on : "",
+      version_applicability:
+        typeof page.version_applicability === "string" ? page.version_applicability : "",
+      tags: page.tags,
+      nav_hidden: Boolean(page.nav_hidden),
+      newtab: Boolean(page.newtab),
+    };
+  });
+
+  const hrefs = new Set();
+  for (const page of pages) {
+    if (hrefs.has(page.href)) {
+      throw new Error(`[build-docs] duplicate page href ${page.href} in docs-site-map.json`);
+    }
+    hrefs.add(page.href);
+  }
+
+  return { defaults, sections, pages };
+}
+
+const SITE_MAP = loadSiteMap();
+const SITE_SECTION_BY_ID = new Map(
+  SITE_MAP.sections.map((section) => [section.id, section])
+);
+const SITE_PAGE_BY_HREF = new Map(
+  SITE_MAP.pages.map((page) => [page.href, page])
+);
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -171,6 +352,113 @@ function slugify(text) {
 function leadingSpaces(line) {
   const m = line.match(/^(\s*)/);
   return m ? m[1].replace(/\t/g, "    ").length : 0;
+}
+
+function humanizeSlug(value) {
+  return String(value || "")
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function parseFrontMatterScalar(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1);
+  }
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^-?\d+$/.test(value)) return Number(value);
+  return value;
+}
+
+function parseFrontMatter(markdown) {
+  const text = markdown.replace(/^\uFEFF/, "");
+  if (!text.startsWith("---\n")) {
+    return { metadata: {}, body: markdown };
+  }
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const end = lines.indexOf("---", 1);
+  if (end <= 0) {
+    return { metadata: {}, body: markdown };
+  }
+  const metadata = {};
+  let currentKey = null;
+  for (let i = 1; i < end; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const listItem = line.match(/^\s*-\s+(.*)$/);
+    if (listItem && currentKey) {
+      if (!Array.isArray(metadata[currentKey])) metadata[currentKey] = [];
+      metadata[currentKey].push(parseFrontMatterScalar(listItem[1]));
+      continue;
+    }
+    const match = line.match(/^([A-Za-z0-9_]+):(?:\s*(.*))?$/);
+    if (!match) {
+      throw new Error(`[build-docs] unsupported front matter line "${line}"`);
+    }
+    const [, key, rawValue] = match;
+    currentKey = key;
+    if (rawValue === undefined || rawValue === "") {
+      metadata[key] = [];
+      continue;
+    }
+    metadata[key] = parseFrontMatterScalar(rawValue);
+  }
+  validateDocMetadata(metadata, "front matter");
+  return { metadata, body: lines.slice(end + 1).join("\n") };
+}
+
+function normalizeArray(value) {
+  if (value === undefined || value === null || value === "") return [];
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  return [String(value).trim()].filter(Boolean);
+}
+
+function mergePageMetadata(...layers) {
+  const merged = {};
+  for (const layer of layers) {
+    if (!layer || typeof layer !== "object") continue;
+    for (const [key, value] of Object.entries(layer)) {
+      if (value === undefined || value === null || value === "") continue;
+      if ((key === "audience" || key === "prerequisites" || key === "tags")) {
+        const items = normalizeArray(value);
+        if (items.length) merged[key] = items;
+        continue;
+      }
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function plainTextFromHtml(html) {
+  return String(html || "")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function markdownHeadings(markdown) {
+  return markdown
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.match(/^#{2,4}\s+(.*)$/))
+    .filter(Boolean)
+    .map((match) => match[1].trim());
 }
 
 /**
@@ -223,6 +511,105 @@ function generatedBanner(sourceRel) {
 /** Repository-relative path of a module's Markdown source. */
 function moduleSourceRel(mod) {
   return relative(REPO_ROOT, resolve(DOCS_DIR, mod.md)).replaceAll("\\", "/");
+}
+
+function sectionForPage(pageConfig) {
+  const section = pageConfig ? SITE_SECTION_BY_ID.get(pageConfig.section) : null;
+  if (!section) {
+    throw new Error(`[build-docs] page ${pageConfig && pageConfig.href ? pageConfig.href : "(unknown)"} is missing a valid section assignment`);
+  }
+  return section;
+}
+
+function pageConfigForHref(href) {
+  const page = SITE_PAGE_BY_HREF.get(href);
+  if (!page) {
+    throw new Error(`[build-docs] docs-site-map.json has no page entry for ${href}`);
+  }
+  return page;
+}
+
+function pageMetadataForHref(href, overrides = {}) {
+  const page = pageConfigForHref(href);
+  const section = sectionForPage(page);
+  return mergePageMetadata(
+    SITE_MAP.defaults,
+    section.metadata_defaults,
+    page,
+    overrides,
+  );
+}
+
+function titleCaseDocType(docType) {
+  return humanizeSlug(docType);
+}
+
+function formatAudienceLabel(audience) {
+  switch (audience) {
+    case "system-user":
+      return "System user";
+    case "decision-maker":
+      return "Decision-maker";
+    default:
+      return humanizeSlug(audience);
+  }
+}
+
+function renderMetadataBlock(metadata) {
+  const chips = [];
+  for (const audience of normalizeArray(metadata.audience)) {
+    chips.push(`<span class="doc-meta-chip">${escapeHtml(formatAudienceLabel(audience))}</span>`);
+  }
+  if (metadata.doc_type) {
+    chips.push(`<span class="doc-meta-chip doc-meta-chip-type">${escapeHtml(titleCaseDocType(metadata.doc_type))}</span>`);
+  }
+  if (metadata.stability) {
+    chips.push(`<span class="doc-meta-chip doc-meta-chip-stability">${escapeHtml(String(metadata.stability).toUpperCase())}</span>`);
+  }
+  const prerequisites = normalizeArray(metadata.prerequisites);
+  if (!chips.length && !prerequisites.length && !metadata.reviewed_on && !metadata.version_applicability) {
+    return "";
+  }
+  const notes = [];
+  if (metadata.reviewed_on) notes.push(`Reviewed ${escapeHtml(metadata.reviewed_on)}`);
+  if (metadata.version_applicability) notes.push(escapeHtml(metadata.version_applicability));
+  return `<div class="doc-meta">` +
+    (chips.length ? `<div class="doc-meta-chips">${chips.join("")}</div>` : "") +
+    (prerequisites.length
+      ? `<div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">${prerequisites.map((item) => escapeHtml(item)).join(" · ")}</span></div>`
+      : "") +
+    (notes.length ? `<div class="doc-meta-notes">${notes.join(" · ")}</div>` : "") +
+    `</div>`;
+}
+
+function loadModuleSource(mod) {
+  const srcPath = resolve(DOCS_DIR, mod.md);
+  const sourceRel = moduleSourceRel(mod);
+  const authored = materializeGeneratedMarkdown(
+    normalizePublishedMarkdown(readFileSync(srcPath, "utf8"), mod.md)
+  );
+  const { metadata, body } = parseFrontMatter(authored);
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+
+  let title = mod.label;
+  let startIdx = 0;
+  for (let j = 0; j < lines.length; j++) {
+    if (/^\s*$/.test(lines[j])) continue;
+    const h1 = lines[j].match(/^#\s+(.*)$/);
+    if (h1) {
+      title = h1[1].trim();
+      startIdx = j + 1;
+    }
+    break;
+  }
+  const bodyMd = lines.slice(startIdx).join("\n");
+  return {
+    sourceRel,
+    metadata,
+    authoredMarkdown: authored,
+    bodyMarkdown: bodyMd,
+    title,
+  };
 }
 
 function isThematicBreak(line) {
@@ -304,6 +691,13 @@ function renderPythonFile(ref, fromMdRel) {
 
 const GENERATED_DOCS = new Map();
 const SDK_DOCS_GENERATOR = resolve(here, "generate_sdk_docs.py");
+const REST_API_DOCS_GENERATOR = resolve(here, "generate_rest_api_docs.py");
+
+function caliberDocsPython() {
+  const repositoryPython = resolve(REPO_ROOT, "caliber/.venv/bin/python");
+  return process.env.CALIBER_DOCS_PYTHON ||
+    (existsSync(repositoryPython) ? repositoryPython : null);
+}
 
 function generatedSdkMarkdown(kind) {
   if (GENERATED_DOCS.has(kind)) return GENERATED_DOCS.get(kind);
@@ -317,10 +711,32 @@ function generatedSdkMarkdown(kind) {
   return output;
 }
 
-function materializeSdkMarkdown(markdown) {
+function generatedRestApiMarkdown() {
+  const kind = "rest-api-reference";
+  if (GENERATED_DOCS.has(kind)) return GENERATED_DOCS.get(kind);
+  if (!existsSync(REST_API_DOCS_GENERATOR)) {
+    throw new Error(`[build-docs] required REST API docs generator ${relative(REPO_ROOT, REST_API_DOCS_GENERATOR)} not found`);
+  }
+  const runtimePython = caliberDocsPython();
+  if (!runtimePython) {
+    throw new Error("[build-docs] CALIBER runtime python is unavailable for REST API docs generation");
+  }
+  const output = execFileSync(runtimePython, ["-B", REST_API_DOCS_GENERATOR], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      CALIBER_LOG_LEVEL: process.env.CALIBER_LOG_LEVEL || "ERROR",
+    },
+  });
+  GENERATED_DOCS.set(kind, output);
+  return output;
+}
+
+function materializeGeneratedMarkdown(markdown) {
   return markdown
     .replace("{{SDK_API_REFERENCE}}", generatedSdkMarkdown("reference").trim())
-    .replace("{{SDK_COOKBOOKS}}", generatedSdkMarkdown("cookbooks").trim());
+    .replace("{{SDK_COOKBOOKS}}", generatedSdkMarkdown("cookbooks").trim())
+    .replace("{{REST_API_ROUTE_INVENTORY}}", generatedRestApiMarkdown().trim());
 }
 
 function codeLanguage(lang) {
@@ -1164,7 +1580,7 @@ function topbar() {
   </header>`;
 }
 
-function pageHtml({ title, groupTitle, label, bodyHtml, sourceRel }) {
+function pageHtml({ title, summary, groupTitle, label, bodyHtml, sourceRel }) {
   return `<!DOCTYPE html>
 ${generatedBanner(sourceRel)}
 <html lang="en">
@@ -1173,7 +1589,7 @@ ${generatedBanner(sourceRel)}
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)} | ${escapeHtml(BRAND_FULL)}</title>
-  <meta name="description" content="${escapeAttr(`${title} — part of the ${BRAND_FULL} architecture documentation series.`)}">
+  <meta name="description" content="${escapeAttr(summary || `${title} — part of the ${BRAND_FULL} documentation.`)}">
   <link rel="icon" type="image/png" href="caliber-icon.png">
   ${THEME_BOOT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1241,35 +1657,23 @@ ${generatedBanner(sourceRel)}
 }
 
 // Render one markdown module to a full HTML page.
-function renderModule(mod) {
-  const srcPath = resolve(DOCS_DIR, mod.md);
-  const raw = materializeSdkMarkdown(
-    normalizePublishedMarkdown(readFileSync(srcPath, "utf8"), mod.md)
-  );
-  const lines = raw.replace(/\r\n/g, "\n").split("\n");
-
-  // Pull out the first H1 as the page title; render the rest as the body.
-  let title = mod.label;
-  let startIdx = 0;
-  for (let j = 0; j < lines.length; j++) {
-    if (/^\s*$/.test(lines[j])) continue;
-    const h1 = lines[j].match(/^#\s+(.*)$/);
-    if (h1) {
-      title = h1[1].trim();
-      startIdx = j + 1;
-    }
-    break;
-  }
-  const bodyMd = lines.slice(startIdx).join("\n");
-  const group = GROUPS.find((g) => g.id === mod.group);
-  const groupTitle = group ? group.title : "Documentation";
-  const blurb = typeof mod.blurb === "string" ? mod.blurb.trim() : "";
-  const eyebrow = group && group.eyebrow ? `${group.title} · ${group.eyebrow}` : groupTitle;
+function renderModule(mod, moduleSource) {
+  const page = pageConfigForHref(mod.out);
+  const section = sectionForPage(page);
+  const metadata = pageMetadataForHref(mod.out, moduleSource.metadata);
+  const title = moduleSource.title || page.label || mod.label;
+  const bodyMd = moduleSource.bodyMarkdown;
+  const groupTitle = section.title;
+  const blurb =
+    metadata.summary ||
+    (typeof mod.blurb === "string" ? mod.blurb.trim() : "");
+  const eyebrow = groupTitle;
 
   const header = `<header class="doc-header">
           <div class="doc-eyebrow">${escapeHtml(eyebrow)}</div>
           <h1 id="top">${escapeHtml(title)}</h1>
           ${blurb ? `<p class="doc-summary">${escapeHtml(blurb)}</p>` : ""}
+          ${renderMetadataBlock(metadata)}
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -1280,72 +1684,239 @@ function renderModule(mod) {
   const bodyHtml = header + "\n" + applyReferenceTier(renderBlocks(bodyMd, mod.md));
   return pageHtml({
     title,
+    summary: blurb,
     groupTitle,
-    label: mod.label,
+    label: page.label || mod.label,
     bodyHtml,
-    sourceRel: moduleSourceRel(mod),
+    sourceRel: moduleSource.sourceRel,
   });
 }
 
-// Emit docs-nav.js — the shared sidebar definition consumed by docs.js. Only the
-// modules whose source actually exists are listed, so a deleted .md drops out of
-// the nav automatically rather than leaving a dangling link.
-function buildNavData(present) {
-  const sections = [
-    { section: "Documentation", links: [{ href: "index.html", label: "Overview" }] },
+function pageRecordForModule(mod, moduleSource) {
+  const page = pageConfigForHref(mod.out);
+  const section = sectionForPage(page);
+  const metadata = pageMetadataForHref(mod.out, moduleSource.metadata);
+  return {
+    href: mod.out,
+    label: page.label || mod.label,
+    sectionId: section.id,
+    sectionTitle: section.title,
+    sectionSummary: section.summary,
+    nav_order: page.nav_order,
+    summary: metadata.summary || (typeof mod.blurb === "string" ? mod.blurb.trim() : ""),
+    audience: normalizeArray(metadata.audience),
+    doc_type: metadata.doc_type || "",
+    prerequisites: normalizeArray(metadata.prerequisites),
+    stability: metadata.stability || "",
+    reviewed_on: metadata.reviewed_on || "",
+    version_applicability: metadata.version_applicability || "",
+    tags: normalizeArray(metadata.tags),
+    newtab: Boolean(page.newtab),
+    nav_hidden: Boolean(page.nav_hidden),
+    search_hidden: false,
+    sourceRel: moduleSource.sourceRel,
+    product_area: metadata.product_area || section.id,
+  };
+}
+
+function manualPageRecords() {
+  const manualHrefs = [
+    "index.html",
+    "interactive-layered-architecture.html",
+    "walkthrough.html",
+    "presentation.html",
+    "presentation_timed.html",
   ];
-  function getOrCreateSection(sectionName) {
-    let section = sections.find((item) => item.section === sectionName);
-    if (!section) {
-      section = { section: sectionName, links: [] };
-      sections.push(section);
-    }
-    return section;
-  }
-  for (const g of GROUPS) {
-    const links = present
-      .filter((m) => m.group === g.id)
-      .map((m) => ({ href: m.out, label: m.label }));
-    if (links.length) sections.push({ section: g.title, links });
-  }
-  const platformSection = sections.find((item) => item.section === "Platform docs");
-  const interactiveLayered = "interactive-layered-architecture.html";
-  if (platformSection && existsSync(resolve(OUT_DIR, interactiveLayered))) {
-    platformSection.links.splice(1, 0, {
-      href: interactiveLayered,
-      label: "Interactive layered architecture",
+  return manualHrefs
+    .filter((href) => existsSync(resolve(OUT_DIR, href)))
+    .map((href) => {
+      const page = pageConfigForHref(href);
+      const section = sectionForPage(page);
+      const metadata = pageMetadataForHref(href);
+      return {
+        href,
+        label: page.label,
+        sectionId: section.id,
+        sectionTitle: section.title,
+        sectionSummary: section.summary,
+        nav_order: page.nav_order,
+        summary: metadata.summary || "",
+        audience: normalizeArray(metadata.audience),
+        doc_type: metadata.doc_type || "",
+        prerequisites: normalizeArray(metadata.prerequisites),
+        stability: metadata.stability || "",
+        reviewed_on: metadata.reviewed_on || "",
+        version_applicability: metadata.version_applicability || "",
+        tags: normalizeArray(metadata.tags),
+        newtab: Boolean(page.newtab),
+        nav_hidden: Boolean(page.nav_hidden),
+        search_hidden: false,
+        sourceRel: relative(REPO_ROOT, resolve(OUT_DIR, href)).replaceAll("\\", "/"),
+        product_area: metadata.product_area || section.id,
+      };
     });
+}
+
+function cookbookPageRecords() {
+  const section = SITE_SECTION_BY_ID.get("examples");
+  if (!section) return [];
+  const defaults = mergePageMetadata(SITE_MAP.defaults, section.metadata_defaults);
+  const manifest = resolve(OUT_DIR, "cookbooks-nav.json");
+  if (!existsSync(manifest)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(manifest, "utf8"));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && typeof item.href === "string" && existsSync(resolve(OUT_DIR, item.href)))
+      .map((item, idx) => ({
+        href: item.href,
+        label: item.href === "m-16-cookbooks.html" ? "Cookbook gallery" : (item.label || item.href),
+        sectionId: section.id,
+        sectionTitle: section.title,
+        sectionSummary: section.summary,
+        nav_order: 20 + idx,
+        summary: "",
+        audience: normalizeArray(defaults.audience),
+        doc_type: defaults.doc_type || "example",
+        prerequisites: normalizeArray(defaults.prerequisites),
+        stability: defaults.stability || "",
+        reviewed_on: defaults.reviewed_on || "",
+        version_applicability: defaults.version_applicability || "",
+        tags: ["cookbook", "example"],
+        newtab: false,
+        nav_hidden: false,
+        search_hidden: false,
+        sourceRel: relative(REPO_ROOT, resolve(OUT_DIR, item.href)).replaceAll("\\", "/"),
+        product_area: "examples",
+      }));
+  } catch {
+    return [];
   }
-  // Cookbook pages are generated separately and belong in Examples.
-  if (existsSync(resolve(OUT_DIR, "m-16-cookbooks.html"))) {
-    let links = [{ href: "m-16-cookbooks.html", label: "Cookbook gallery" }];
-    const manifest = resolve(OUT_DIR, "cookbooks-nav.json");
-    if (existsSync(manifest)) {
-      try {
-        const parsed = JSON.parse(readFileSync(manifest, "utf8"));
-        if (Array.isArray(parsed) && parsed.length) {
-          links = parsed.map((item) =>
-            item && item.href === "m-16-cookbooks.html"
-              ? { ...item, label: "Cookbook gallery" }
-              : item
-          );
-        }
-      } catch {
-        /* keep the fallback link */
+}
+
+function buildNavData(pageRecords) {
+  return SITE_MAP.sections
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((section) => {
+      const links = pageRecords
+        .filter((page) => page.sectionId === section.id && !page.nav_hidden)
+        .sort((a, b) => a.nav_order - b.nav_order || a.label.localeCompare(b.label))
+        .map((page) => ({ href: page.href, label: page.label, newtab: page.newtab }));
+      return {
+        section: section.title,
+        summary: section.summary,
+        links,
+      };
+    })
+    .filter((section) => section.links.length);
+}
+
+function searchHeadingEntriesFromHtml(html) {
+  return Array.from(
+    String(html || "").matchAll(/<h([1-3])([^>]*)>([\s\S]*?)<\/h\1>/gi),
+    (match) => {
+      const level = Number(match[1]);
+      const attrs = match[2] || "";
+      const idMatch = attrs.match(/\sid="([^"]+)"/i);
+      const text = plainTextFromHtml(match[3]).trim();
+      return {
+        id: idMatch ? idMatch[1] : "",
+        level,
+        text,
+      };
+    },
+  ).filter((entry) => entry.text);
+}
+
+function searchHeadingsFromHtml(html) {
+  return searchHeadingEntriesFromHtml(html).map((entry) => entry.text);
+}
+
+function firstParagraphFromHtml(html) {
+  const match = String(html || "").match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+  return match ? plainTextFromHtml(match[1]).trim() : "";
+}
+
+function extractCodeTokensFromHtml(html) {
+  const tokens = new Set();
+  for (const match of String(html || "").matchAll(/<code[^>]*>([\s\S]*?)<\/code>/gi)) {
+    const codeText = plainTextFromHtml(match[1]).trim();
+    if (!codeText) continue;
+    for (const token of codeText.match(/\b[A-Za-z_][A-Za-z0-9_.]{2,}\b/g) || []) {
+      if (/[A-Z]/.test(token) || token.includes("_") || token.includes(".")) {
+        tokens.add(token);
       }
     }
-    getOrCreateSection("Examples").links.push(...links);
   }
-  // Narrated views. The guided walkthrough now uses the shared docs shell, so it
-  // navigates in place like any module page. The presentation is a standalone
-  // full-screen slide deck (its own 1920×1080 layout), so it opens in a new tab
-  // (newtab) to avoid yanking the reader out of the docs chrome.
-  const decks = [
-    { href: "walkthrough.html", label: "Guided walkthrough" },
-    { href: "presentation.html", label: "Presentation", newtab: true },
-  ].filter((d) => existsSync(resolve(OUT_DIR, d.href)));
-  if (decks.length) getOrCreateSection("Examples").links.push(...decks);
-  return sections;
+  return Array.from(tokens).sort((a, b) => a.localeCompare(b));
+}
+
+function extractRouteTokensFromHtml(html) {
+  const routes = new Set();
+  const source = plainTextFromHtml(String(html || ""));
+  for (const match of source.match(/\/[A-Za-z0-9._{}:-]+(?:\/[A-Za-z0-9._{}:-]+)+/g) || []) {
+    routes.add(match);
+  }
+  return Array.from(routes).sort((a, b) => a.localeCompare(b));
+}
+
+function buildSearchIndex(pageRecords) {
+  const pages = pageRecords
+    .filter((page) => !page.search_hidden && existsSync(resolve(OUT_DIR, page.href)))
+    .map((page) => {
+      const html = readFileSync(resolve(OUT_DIR, page.href), "utf8");
+      const headingEntries = searchHeadingEntriesFromHtml(html);
+      const headings = headingEntries.map((entry) => entry.text);
+      const body = plainTextFromHtml(html);
+      const symbols = extractCodeTokensFromHtml(html);
+      const routes = extractRouteTokensFromHtml(html);
+      const pageEntry = {
+        href: page.href,
+        label: page.label,
+        result_type: "page",
+        section: page.sectionTitle,
+        section_id: page.sectionId,
+        summary: page.summary || firstParagraphFromHtml(html),
+        audience: page.audience,
+        doc_type: page.doc_type,
+        stability: page.stability,
+        reviewed_on: page.reviewed_on,
+        version_applicability: page.version_applicability,
+        tags: page.tags,
+        product_area: page.product_area,
+        symbols,
+        routes,
+        headings,
+        body,
+      };
+      const anchorEntries = headingEntries
+        .filter((entry) => entry.id && entry.level >= 2)
+        .map((entry) => ({
+          href: `${page.href}#${entry.id}`,
+          label: entry.text,
+          page_label: page.label,
+          result_type: "anchor",
+          section: page.sectionTitle,
+          section_id: page.sectionId,
+          summary: page.summary || firstParagraphFromHtml(html) || page.label,
+          audience: page.audience,
+          doc_type: page.doc_type,
+          stability: page.stability,
+          reviewed_on: page.reviewed_on,
+          version_applicability: page.version_applicability,
+          tags: page.tags,
+          product_area: page.product_area,
+          symbols: [],
+          routes: [],
+          headings: [entry.text],
+          body,
+        }));
+      return [pageEntry, ...anchorEntries];
+    });
+  return {
+    pages: pages.flat(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1361,9 +1932,7 @@ function main() {
     "caliber/scripts/export_cookbook_capabilities.py",
   );
   if (existsSync(cookbookCapabilityExport)) {
-    const repositoryPython = resolve(REPO_ROOT, "caliber/.venv/bin/python");
-    const cookbookPython = process.env.CALIBER_DOCS_PYTHON ||
-      (existsSync(repositoryPython) ? repositoryPython : null);
+    const cookbookPython = caliberDocsPython();
     if (cookbookPython) {
       try {
         execFileSync(cookbookPython, ["-B", cookbookCapabilityExport], {
@@ -1406,6 +1975,7 @@ function main() {
   }
 
   const present = [];
+  const pageRecords = [];
   for (const mod of MODULES) {
     const src = resolve(DOCS_DIR, mod.md);
     if (!existsSync(src)) {
@@ -1420,7 +1990,8 @@ function main() {
       }
       continue;
     }
-    const html = renderModule(mod);
+    const moduleSource = loadModuleSource(mod);
+    const html = renderModule(mod, moduleSource);
     if (!html.trim() || !html.includes("<!DOCTYPE html>")) {
       throw new Error(`[build-docs] refusing to write invalid output for ${mod.out}`);
     }
@@ -1429,12 +2000,7 @@ function main() {
     // flattened, so rewrite known module cross-references to their sibling
     // m-*.md names; otherwise source-relative links would escape docs-site or
     // point at directories that do not exist in the published layout.
-    const markdown = materializeSdkMarkdown(
-      normalizePublishedMarkdown(
-        readFileSync(resolve(DOCS_DIR, mod.md), "utf8"),
-        mod.md
-      )
-    );
+    const markdown = moduleSource.authoredMarkdown;
     // The banner is an HTML comment, so it stays invisible wherever the file is
     // rendered as Markdown (including the in-app docs and the `Copy page`
     // payload) while being the first thing an editor sees.
@@ -1442,18 +2008,46 @@ function main() {
       resolve(OUT_DIR, mod.out.replace(/\.html$/, ".md")),
       generatedBanner(moduleSourceRel(mod)) +
         "\n\n" +
-        rewriteMarkdownCrossReferences(markdown, mod.md)
+        rewriteMarkdownCrossReferences(moduleSource.bodyMarkdown ? moduleSource.authoredMarkdown.replace(/^---\n[\s\S]*?\n---\n?/, "") : markdown, mod.md)
     );
     present.push(mod);
+    pageRecords.push(pageRecordForModule(mod, moduleSource));
   }
 
-  const nav = buildNavData(present);
+  const cookbookRecords = cookbookPageRecords().filter(
+    (page) => !pageRecords.some((existing) => existing.href === page.href)
+  );
+  const manualRecords = manualPageRecords();
+  pageRecords.push(...manualRecords, ...cookbookRecords);
+
+  const nav = buildNavData(pageRecords);
+  const pageMeta = pageRecords.map((page) => ({
+    href: page.href,
+    label: page.label,
+    section: page.sectionTitle,
+    section_id: page.sectionId,
+    summary: page.summary,
+    audience: page.audience,
+    doc_type: page.doc_type,
+    prerequisites: page.prerequisites,
+    stability: page.stability,
+    reviewed_on: page.reviewed_on,
+    version_applicability: page.version_applicability,
+    tags: page.tags,
+    newtab: page.newtab,
+    nav_hidden: page.nav_hidden,
+  }));
   const navJs =
     "/* Generated by build-docs.mjs — do not edit by hand. */\n" +
-    "window.DOCS_NAV = " +
-    JSON.stringify(nav, null, 2) +
-    ";\n";
+    "window.DOCS_DATA = " +
+    JSON.stringify({ sections: nav, pages: pageMeta }, null, 2) +
+    ";\n" +
+    "window.DOCS_NAV = window.DOCS_DATA.sections;\n";
   writeTextAtomic(resolve(OUT_DIR, "docs-nav.js"), navJs);
+  writeTextAtomic(
+    resolve(OUT_DIR, "search-index.json"),
+    JSON.stringify(buildSearchIndex(pageRecords), null, 2) + "\n"
+  );
 
   // llms.txt — a machine index of the documentation (https://llmstxt.org/). Links
   // point at the raw .md siblings (clean source, no chrome) so an agent can read
@@ -1466,20 +2060,27 @@ function main() {
     "The pages below are the published architecture, workflow, and strategy documentation. Each link is a flattened Markdown copy built for programmatic access.",
     "",
   ];
-  for (const g of GROUPS) {
-    const mods = present.filter((m) => m.group === g.id);
-    if (!mods.length) continue;
-    llmsLines.push(`## ${g.title}`, "");
-    for (const m of mods) {
-      const mdName = m.out.replace(/\.html$/, ".md");
-      const blurb = typeof m.blurb === "string" ? m.blurb.trim().replace(/\s+/g, " ") : "";
-      llmsLines.push(`- [${m.label}](${mdName})${blurb ? ": " + blurb : ""}`);
+  for (const section of SITE_MAP.sections.slice().sort((a, b) => a.order - b.order)) {
+    const pages = pageRecords
+      .filter((page) => (
+        page.sectionId === section.id &&
+        page.href.startsWith("m-") &&
+        page.href.endsWith(".html") &&
+        existsSync(resolve(OUT_DIR, page.href.replace(/\.html$/, ".md")))
+      ))
+      .sort((a, b) => a.nav_order - b.nav_order || a.label.localeCompare(b.label));
+    if (!pages.length) continue;
+    llmsLines.push(`## ${section.title}`, "");
+    for (const page of pages) {
+      const mdName = page.href.replace(/\.html$/, ".md");
+      const blurb = page.summary ? page.summary.trim().replace(/\s+/g, " ") : "";
+      llmsLines.push(`- [${page.label}](${mdName})${blurb ? ": " + blurb : ""}`);
     }
     llmsLines.push("");
   }
   writeTextAtomic(resolve(OUT_DIR, "llms.txt"), llmsLines.join("\n"));
 
-  console.log(`[build-docs] generated ${present.length} module pages + ${present.length} .md + docs-nav.js + llms.txt`);
+  console.log(`[build-docs] generated ${present.length} module pages + ${present.length} .md + docs-nav.js + search-index.json + llms.txt`);
 }
 
 main();

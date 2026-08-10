@@ -1,3 +1,19 @@
+---
+audience:
+  - developer
+doc_type: tutorial
+product_area: sdk
+stability: ga
+prerequisites:
+  - Python 3.10+
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - sdk
+  - quickstart
+  - auth
+---
+
 # CALIBER Python SDK
 
 `caliber-sdk` is a typed Python client for the CALIBER management API. Installing

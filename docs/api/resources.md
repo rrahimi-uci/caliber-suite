@@ -1,3 +1,20 @@
+---
+audience:
+  - developer
+doc_type: reference
+product_area: api
+stability: ga
+prerequisites:
+  - A CALIBER API integration question
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - api
+  - reference
+  - routes
+  - resources
+---
+
 # REST API resource catalog
 
 This page is the domain map for the CALIBER management API. It answers "where

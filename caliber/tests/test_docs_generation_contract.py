@@ -9,6 +9,7 @@ copy. These checks pin the published contract independently of the generator.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -24,6 +25,43 @@ PUBLIC_DOCS = REPO_ROOT / "caliber" / "caliber-ui" / "public" / "docs"
 PACKAGED_DOCS = REPO_ROOT / "caliber" / "src" / "caliber" / "ui" / "docs"
 MARKDOWN_LINK = re.compile(r"!?\[[^\]\n]*\]\(([^\n)]*)\)")
 MODULE_ENTRY = re.compile(r'\{\s*md: "([^"]+)",\s*out: "([^"]+\.html)"')
+ALLOWED_AUDIENCES = {
+    "developer",
+    "system-user",
+    "operator",
+    "architect",
+    "evaluator",
+    "decision-maker",
+}
+ALLOWED_DOC_TYPES = {
+    "tutorial",
+    "how-to",
+    "concept",
+    "reference",
+    "runbook",
+    "example",
+    "strategy",
+}
+ALLOWED_STABILITY = {"ga", "beta", "experimental", "internal"}
+REQUIRED_SOURCE_FRONT_MATTER_KEYS = frozenset(
+    {
+        "audience",
+        "doc_type",
+        "product_area",
+        "stability",
+        "prerequisites",
+        "reviewed_on",
+        "version_applicability",
+        "tags",
+    }
+)
+HAND_AUTHORED_PAGES = {
+    "index.html",
+    "interactive-layered-architecture.html",
+    "walkthrough.html",
+    "presentation.html",
+    "presentation_timed.html",
+}
 
 #: Provenance banner the generator stamps onto every published page. Spelled out
 #: here rather than scraped from the generator so a change to the wording has to
@@ -120,10 +158,46 @@ def _generated_sdk_fragment(kind: str) -> str:
     ).stdout.strip()
 
 
+@cache
+def _generated_rest_api_fragment() -> str:
+    generator = DOCS_SITE / "generate_rest_api_docs.py"
+    return subprocess.run(
+        [sys.executable, "-B", str(generator)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
 def _materialize_source_markdown(markdown: str) -> str:
-    return markdown.replace("{{SDK_API_REFERENCE}}", _generated_sdk_fragment("reference")).replace(
-        "{{SDK_COOKBOOKS}}", _generated_sdk_fragment("cookbooks")
+    return (
+        markdown.replace("{{SDK_API_REFERENCE}}", _generated_sdk_fragment("reference"))
+        .replace("{{SDK_COOKBOOKS}}", _generated_sdk_fragment("cookbooks"))
+        .replace("{{REST_API_ROUTE_INVENTORY}}", _generated_rest_api_fragment())
     )
+
+
+def _strip_front_matter(markdown: str) -> str:
+    if not markdown.startswith("---\n"):
+        return markdown
+    _, _, remainder = markdown.partition("\n---\n")
+    return remainder if remainder else markdown
+
+
+def _front_matter_keys(markdown: str) -> set[str]:
+    if not markdown.startswith("---\n"):
+        return set()
+
+    keys: set[str] = set()
+    for line in markdown.splitlines()[1:]:
+        if line == "---":
+            break
+        if not line or line.startswith("  - ") or line[:1].isspace():
+            continue
+        key, sep, _ = line.partition(":")
+        if sep:
+            keys.add(key.strip())
+    return keys
 
 
 #: Site files that are not per-module output. Hoisted out of ``_served_site_files``
@@ -134,6 +208,7 @@ FIXED_SITE_FILES = frozenset(
         "docs.css",
         "docs.js",
         "docs-nav.js",
+        "search-index.json",
         "llms.txt",
         "interactive-layered-architecture.html",
         "presentation.html",
@@ -195,11 +270,33 @@ def test_all_manifest_markdown_is_current_and_published() -> None:
         assert _without_link_destinations(body) == (
             _without_link_destinations(
                 _normalize_published_markdown(
-                    _materialize_source_markdown(source.read_text(encoding="utf-8")),
+                    _strip_front_matter(
+                        _materialize_source_markdown(source.read_text(encoding="utf-8"))
+                    ),
                     source,
                 )
             )
         ), f"stale generated Markdown for {source_name}"
+
+
+def test_generated_markdown_sources_define_front_matter_metadata() -> None:
+    modules = _manifest_modules()
+    assert modules, "the manifest parsed empty; the source metadata contract cannot be checked"
+
+    for source_name, _ in modules:
+        if source_name == "../ARCHITECTURE.md":
+            continue
+
+        source = DOCS_SOURCE / source_name
+        markdown = source.read_text(encoding="utf-8")
+        assert markdown.startswith("---\n"), (
+            f"{source_name} is published through docs-site/build-docs.mjs and must define "
+            "source-owned front matter"
+        )
+
+        keys = _front_matter_keys(markdown)
+        missing = REQUIRED_SOURCE_FRONT_MATTER_KEYS - keys
+        assert not missing, f"{source_name} missing front matter keys: {sorted(missing)}"
 
 
 def test_every_generated_html_page_names_its_source() -> None:
@@ -394,3 +491,327 @@ def test_no_published_page_links_to_an_anchor_it_does_not_contain() -> None:
             dangling[page.name] = missing
 
     assert not dangling, f"pages link to anchors they do not define: {dangling}"
+
+
+def _docs_data() -> dict[str, object]:
+    text = (DOCS_SITE / "docs-nav.js").read_text(encoding="utf-8")
+    match = re.search(r"window\.DOCS_DATA = (\{[\s\S]*?\});\nwindow\.DOCS_NAV =", text)
+    assert match, "docs-nav.js no longer exposes window.DOCS_DATA"
+    return json.loads(match.group(1))
+
+
+def _search_results(query: str, limit: int = 12) -> list[dict[str, object]]:
+    payload = json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))
+    pages = payload["pages"]
+    q = query.strip().lower()
+    terms = [term.strip() for term in q.split() if term.strip()]
+    scored: list[tuple[int, dict[str, object]]] = []
+    for entry in pages:
+        title = str(entry.get("label", "")).lower()
+        page_label = str(entry.get("page_label", "")).lower()
+        href = str(entry.get("href", "")).lower()
+        section = str(entry.get("section", "")).lower()
+        summary = str(entry.get("summary", "")).lower()
+        symbol_list = [str(item) for item in entry.get("symbols", [])]
+        route_list = [str(item) for item in entry.get("routes", [])]
+        heading_list = [str(item) for item in entry.get("headings", [])]
+        symbols = " ".join(symbol_list).lower()
+        routes = " ".join(route_list).lower()
+        headings = " ".join(heading_list).lower()
+        body = str(entry.get("body", "")).lower()
+        tags = " ".join(entry.get("tags", [])).lower()
+        doc_type = str(entry.get("doc_type", "")).lower()
+        audience = " ".join(entry.get("audience", [])).lower()
+        is_reference_page = doc_type == "reference" or section == "reference"
+        full = " ".join(
+            [title, page_label, href, section, summary, symbols, routes, headings, body, tags, doc_type, audience]
+        )
+        exact_symbol_match = any(item.lower() == q for item in symbol_list)
+        exact_route_match = any(item.lower() == q for item in route_list)
+        exact_heading_match = any(item.lower() == q for item in heading_list)
+        score = 0
+        if title == q:
+            score += 140
+        if page_label == q:
+            score += 95
+        if exact_symbol_match:
+            score += 220
+        if exact_route_match:
+            score += 210
+        if exact_heading_match:
+            score += 120
+        if q in symbols:
+            score += 135
+        if q in routes:
+            score += 125
+        if is_reference_page and q in symbols:
+            score += 80
+        if is_reference_page and q in routes:
+            score += 80
+        if q in href:
+            score += 110
+        if q in title:
+            score += 100
+        if q in page_label:
+            score += 65
+        if q in symbols:
+            score += 50
+        if q in routes:
+            score += 45
+        if q in headings:
+            score += 70
+        if q in summary:
+            score += 55
+        if q in section:
+            score += 35
+        if q in doc_type:
+            score += 20
+
+        ok = True
+        for term in terms:
+            if term in title:
+                score += 18
+            if term in page_label:
+                score += 10
+            if term in symbols:
+                score += 26
+            if term in routes:
+                score += 24
+            if term in headings:
+                score += 12
+            if term in summary:
+                score += 8
+            if term in tags:
+                score += 6
+            if term in body:
+                score += 3
+            if term not in full:
+                ok = False
+                break
+        if ok and score > 0:
+            scored.append((score, entry))
+
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            0 if item[1].get("result_type", "page") == "page" else 1,
+            str(item[1].get("label", "")),
+        )
+    )
+    return [entry for _, entry in scored[:limit]]
+
+
+def test_nav_reflects_the_refactored_information_architecture() -> None:
+    data = _docs_data()
+    sections = data["sections"]
+    assert [section["section"] for section in sections] == [
+        "Start here",
+        "Use CALIBER",
+        "Build & integrate",
+        "Operate CALIBER",
+        "Examples",
+        "Reference",
+        "Architecture",
+        "Strategy",
+    ]
+
+    links_by_section = {
+        section["section"]: {link["href"] for link in section.get("links", [])}
+        for section in sections
+    }
+    assert "walkthrough.html" in links_by_section["Operate CALIBER"]
+    assert "m-32-local-bring-up.html" in links_by_section["Operate CALIBER"]
+    assert "m-37-five-minute-quickstart.html" in links_by_section["Start here"]
+    assert "m-30-choose-your-path.html" in links_by_section["Start here"]
+    assert "m-35-decision-maker-overview.html" in links_by_section["Start here"]
+    assert "m-20-sdk-guide.html" in links_by_section["Build & integrate"]
+    assert "m-31-auth-and-project-scoping.html" in links_by_section["Build & integrate"]
+    assert "m-36-sdk-vs-rest-api.html" in links_by_section["Build & integrate"]
+    assert "m-53-error-handling-and-retries.html" in links_by_section["Build & integrate"]
+    assert "m-54-ci-cd-automation.html" in links_by_section["Build & integrate"]
+    assert "m-55-developer-troubleshooting.html" in links_by_section["Build & integrate"]
+    assert "m-38-use-prompts.html" in links_by_section["Use CALIBER"]
+    assert "m-42-use-workflows.html" in links_by_section["Use CALIBER"]
+    assert "m-47-use-review-and-release-flows.html" in links_by_section["Use CALIBER"]
+    assert "m-48-configuration-and-provider-setup.html" in links_by_section["Operate CALIBER"]
+    assert "m-50-health-and-readiness.html" in links_by_section["Operate CALIBER"]
+    assert "m-21-sdk-reference.html" in links_by_section["Reference"]
+    assert "m-56-config-and-environment-reference.html" in links_by_section["Reference"]
+    assert "m-34-architecture-reader-guide.html" in links_by_section["Architecture"]
+    assert "m-02-prompts.html" in links_by_section["Architecture"]
+    assert "m-33-trust-and-governance.html" in links_by_section["Use CALIBER"]
+    assert "m-02-prompts.html" not in links_by_section["Use CALIBER"]
+    assert "presentation.html" not in {
+        href for hrefs in links_by_section.values() for href in hrefs
+    }
+    assert "presentation_timed.html" not in {
+        href for hrefs in links_by_section.values() for href in hrefs
+    }
+
+
+def test_landing_page_stays_orientation_first_and_keeps_collateral_secondary() -> None:
+    html = (DOCS_SITE / "index.html").read_text(encoding="utf-8")
+
+    assert "<h2>Choose your path</h2>" in html
+    assert "<h2>Browse by documentation area</h2>" in html
+    assert "<h2>First success</h2>" in html
+    assert "<h2>Featured references</h2>" in html
+    assert "<h2>Secondary resources</h2>" in html
+    assert 'href="walkthrough.html"' in html
+    assert 'href="interactive-layered-architecture.html"' in html
+    assert 'href="presentation.html"' in html
+    assert 'href="presentation_timed.html"' in html
+
+    for unexpected in [
+        "Aria: the agentic copilot",
+        "Verification and calibration",
+        "Workflow runtime and QA",
+        "<h2>Configuration</h2>",
+        "<h2>Observability and operations</h2>",
+        "<h2>Security</h2>",
+        "<h2>FAQ</h2>",
+        'class="guide-section"',
+    ]:
+        assert unexpected not in html
+
+
+def test_page_metadata_is_complete_and_uses_allowed_values() -> None:
+    data = _docs_data()
+    pages = data["pages"]
+    assert pages, "docs-nav.js published no page metadata"
+
+    for page in pages:
+        assert page["href"], page
+        assert page["label"], page
+        assert page["section"], page
+        assert page["section_id"], page
+        assert page["doc_type"] in ALLOWED_DOC_TYPES, page
+        assert isinstance(page["prerequisites"], list), page
+        assert page["stability"] in ALLOWED_STABILITY, page
+        assert page["reviewed_on"], page
+        assert page["version_applicability"], page
+        assert page["audience"], page
+        assert set(page["audience"]).issubset(ALLOWED_AUDIENCES), page
+
+
+def test_hand_authored_pages_have_metadata_and_search_records() -> None:
+    data = _docs_data()
+    nav_pages = {page["href"]: page for page in data["pages"]}
+    search_pages = {
+        page["href"]: page
+        for page in json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))["pages"]
+    }
+
+    for href in HAND_AUTHORED_PAGES:
+        assert href in nav_pages, f"{href} missing from docs-nav metadata"
+        assert href in search_pages, f"{href} missing from search-index"
+        assert nav_pages[href]["doc_type"] in ALLOWED_DOC_TYPES
+        assert nav_pages[href]["stability"] in ALLOWED_STABILITY
+        assert nav_pages[href]["audience"], href
+        assert search_pages[href]["section"], href
+
+    assert nav_pages["walkthrough.html"]["prerequisites"], nav_pages["walkthrough.html"]
+    assert nav_pages["interactive-layered-architecture.html"]["prerequisites"], (
+        nav_pages["interactive-layered-architecture.html"]
+    )
+
+
+def test_search_index_covers_generated_and_hand_authored_pages() -> None:
+    payload = json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))
+    pages = payload["pages"]
+    assert pages, "search-index.json published no pages"
+
+    by_href = {page["href"]: page for page in pages}
+    for href in [
+        "index.html",
+        "m-37-five-minute-quickstart.html",
+        "m-30-choose-your-path.html",
+        "m-35-decision-maker-overview.html",
+        "walkthrough.html",
+        "m-32-local-bring-up.html",
+        "m-38-use-prompts.html",
+        "m-42-use-workflows.html",
+        "m-48-configuration-and-provider-setup.html",
+        "m-50-health-and-readiness.html",
+        "interactive-layered-architecture.html",
+        "m-20-sdk-guide.html",
+        "m-31-auth-and-project-scoping.html",
+        "m-36-sdk-vs-rest-api.html",
+        "m-53-error-handling-and-retries.html",
+        "m-55-developer-troubleshooting.html",
+        "m-29-rest-api-reference.html",
+        "m-56-config-and-environment-reference.html",
+        "m-33-trust-and-governance.html",
+        "m-34-architecture-reader-guide.html",
+    ]:
+      assert href in by_href, f"search index is missing {href}"
+
+    assert by_href["walkthrough.html"]["section"] == "Operate CALIBER"
+    assert "operator" in by_href["walkthrough.html"]["audience"]
+    assert by_href["m-21-sdk-reference.html"]["doc_type"] == "reference"
+    assert by_href["m-20-sdk-guide.html"]["doc_type"] == "tutorial"
+    assert by_href["m-38-use-prompts.html"]["section"] == "Use CALIBER"
+    assert by_href["m-02-prompts.html"]["section"] == "Architecture"
+
+    assert "m-21-sdk-reference.html#reference" in by_href
+    assert by_href["m-21-sdk-reference.html#reference"]["page_label"] == "SDK API reference"
+    assert by_href["m-21-sdk-reference.html#reference"]["result_type"] == "anchor"
+    assert "CaliberClient" in by_href["m-21-sdk-reference.html"]["symbols"]
+    assert "/ajax-api/2.0/mlflow/caliber/openapi.json" in by_href["m-29-rest-api-reference.html"]["routes"]
+
+
+def test_rest_api_reference_publishes_generated_route_inventory() -> None:
+    html = (DOCS_SITE / "m-29-rest-api-reference.html").read_text(encoding="utf-8")
+    payload = json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))
+    by_href = {page["href"]: page for page in payload["pages"]}
+
+    assert "Shared contract building blocks" in html
+    assert "Security and scoping schemes" in html
+    assert "SDK coverage by route family" in html
+    assert "CaliberClient.openapi()" in html
+    assert "client.prompts" in html
+    assert "client.raw" in html
+    assert "Current route inventory" in html
+    assert "Jump by resource family" in html
+    assert "GA routes index" in html
+    assert '#prompts-prompts">Prompts' in html
+    assert "OpenAPI JSON" in html
+    assert "/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute" in html
+    assert "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters" in by_href[
+        "m-29-rest-api-reference.html"
+    ]["routes"]
+
+
+def test_search_prefers_reference_pages_for_symbol_and_route_queries() -> None:
+    symbol_results = _search_results("CaliberClient", limit=5)
+    assert symbol_results, "CaliberClient returned no search results"
+    assert symbol_results[0]["href"] == "m-21-sdk-reference.html"
+
+    route_results = _search_results("/ajax-api/2.0/mlflow/caliber/openapi.json", limit=5)
+    assert route_results, "REST API route query returned no search results"
+    assert route_results[0]["href"] == "m-29-rest-api-reference.html"
+
+    collateral_results = _search_results("presentation", limit=5)
+    assert collateral_results, "presentation returned no search results"
+    assert collateral_results[0]["href"] == "presentation.html"
+
+    walkthrough_results = _search_results("walkthrough", limit=5)
+    assert walkthrough_results, "walkthrough returned no search results"
+    assert walkthrough_results[0]["href"] == "walkthrough.html"
+
+
+def test_beta_sdk_page_is_visibly_labeled_beta() -> None:
+    html = (DOCS_SITE / "m-22-sdk-beta.html").read_text(encoding="utf-8")
+    assert 'doc-meta-chip-stability">BETA<' in html
+
+
+def test_published_metadata_block_surfaces_prerequisites_on_generated_pages() -> None:
+    guide = (DOCS_SITE / "m-20-sdk-guide.html").read_text(encoding="utf-8")
+    api_reference = (DOCS_SITE / "m-29-rest-api-reference.html").read_text(encoding="utf-8")
+    sdk_reference = (DOCS_SITE / "m-21-sdk-reference.html").read_text(encoding="utf-8")
+
+    assert 'doc-meta-label">Prerequisites<' in guide
+    assert "Python 3.10+" in guide
+    assert 'doc-meta-label">Prerequisites<' in api_reference
+    assert "CALIBER API integration question" in api_reference
+    assert 'doc-meta-chip-type">Reference<' in sdk_reference

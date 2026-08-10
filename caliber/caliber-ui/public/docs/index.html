@@ -50,7 +50,7 @@
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -85,11 +85,11 @@
             asset family exposes the lifecycle controls it actually implements.
           </p>
           <div class="hero-cta">
-            <a class="btn" href="#playbook-build">5-minute quickstart</a>
+            <a class="btn" href="m-37-five-minute-quickstart.html">5-minute quickstart</a>
             <a class="btn btn-secondary" href="m-00-layered-architecture.html">Layered architecture</a>
-            <a class="btn btn-secondary" href="interactive-layered-architecture.html">Interactive explorer</a>
-            <a class="btn btn-secondary" href="#reference">Browse modules</a>
-            <a class="btn btn-secondary" href="m-16-cookbooks.html">Cookbooks</a>
+            <a class="btn btn-secondary" href="m-30-choose-your-path.html">Choose your path</a>
+            <a class="btn btn-secondary" href="#reference">Browse docs</a>
+            <a class="btn btn-secondary" href="m-16-cookbooks.html">Examples</a>
           </div>
           <div class="hero-highlights">
             <div class="hero-highlight">
@@ -107,40 +107,114 @@
           </div>
         </section>
 
+        <section id="paths">
+          <div class="section-lead">
+            <div>
+              <h2>Choose your path</h2>
+              <p>
+                Start from your job, not from the repository structure. These entry points route to the
+                shortest useful path for integration, operations, trust review, architecture, or product fit.
+              </p>
+            </div>
+          </div>
+          <div class="guide-map-grid">
+            <a class="quickstart-card" href="m-30-choose-your-path.html">
+              <div class="quickstart-label">Start here</div>
+              <strong>All reader paths</strong>
+              <span>The role-first entry page for developers, operators, evaluators, architects, and decision-makers.</span>
+            </a>
+            <a class="quickstart-card" href="m-20-sdk-guide.html">
+              <div class="quickstart-label">Developer</div>
+              <strong>Build &amp; integrate</strong>
+              <span>Start with the SDK, then move into auth, scoping, REST, and exact API reference.</span>
+            </a>
+            <a class="quickstart-card" href="m-32-local-bring-up.html">
+              <div class="quickstart-label">Operator</div>
+              <strong>Operate CALIBER</strong>
+              <span>Bring the system up locally, verify readiness, and then move into observability and recovery.</span>
+            </a>
+            <a class="quickstart-card" href="m-33-trust-and-governance.html">
+              <div class="quickstart-label">Governance</div>
+              <strong>Trust and governance</strong>
+              <span>Follow the path across test sets, evaluation, calibration, QA, and apply/release semantics.</span>
+            </a>
+            <a class="quickstart-card" href="m-34-architecture-reader-guide.html">
+              <div class="quickstart-label">Architecture</div>
+              <strong>Deep system understanding</strong>
+              <span>Use the curated architecture guide to jump to the right deep page instead of reading the whole tree.</span>
+            </a>
+            <a class="quickstart-card" href="m-35-decision-maker-overview.html">
+              <div class="quickstart-label">Strategy</div>
+              <strong>Does CALIBER fit?</strong>
+              <span>Start from the concise decision-maker overview, then inspect market position, roadmap, and technical proof.</span>
+            </a>
+          </div>
+        </section>
+
         <section id="principles">
           <div class="section-lead">
             <div>
               <h2>Design principles</h2>
               <p>
-                Ten principles govern what CALIBER builds and what it refuses to build. They are ordered
-                deliberately &mdash; purpose and trust first, then capability and architecture, then operational
-                quality, and finally technology choices and longevity. When two pull against each other, the lower
-                number wins. The canonical statement, with the mechanism that discharges each one, lives in
+                Ten principles govern what CALIBER builds and what it refuses to build. The order is
+                deliberate, and when two principles pull against each other, the lower number wins. The
+                full explanation of how the platform discharges each principle lives in
                 <a href="m-00-layered-architecture.html#design-principles">the layered architecture</a>.
               </p>
             </div>
           </div>
           <ol class="principles-list">
-            <li><strong>Governed Agentic Workflows</strong><span>Build agentic workflows with governance, security, compliance, and policy enforcement at the core.</span></li>
-            <li><strong>Progressive Autonomy</strong><span>Support the path from human-led processes to fully autonomous agent-driven execution.</span></li>
-            <li><strong>Auditability &amp; Observability</strong><span>Make every workflow, decision, and agent action traceable, transparent, and explainable.</span></li>
-            <li><strong>Evaluation by Design</strong><span>Build in testing, verification, validation, benchmarking, calibration, and optimization from the start.</span></li>
-            <li><strong>Open &amp; Extensible</strong><span>Integrate easily with enterprise systems, AI models, tools, and external agent platforms through open APIs and SDKs.</span></li>
-            <li><strong>Modular &amp; Composable</strong><span>Use loosely coupled components that are reusable, flexible, and easy to extend.</span></li>
-            <li><strong>Scalable &amp; Reliable</strong><span>Deliver enterprise-grade performance, resilience, and operational reliability.</span></li>
-            <li><strong>Open-Source First</strong><span>Prefer proven open-source building blocks with strong community support.</span></li>
-            <li><strong>Developer &amp; User Friendly</strong><span>Provide a clear, productive experience for both developers and business users.</span></li>
-            <li><strong>Future Ready</strong><span>Design for evolving AI capabilities, orchestration patterns, and enterprise needs.</span></li>
+            <li>
+              <strong>Governed Agentic Workflows</strong>
+              <span>Governance, security, compliance, and policy enforcement at the core.</span>
+            </li>
+            <li>
+              <strong>Progressive Autonomy</strong>
+              <span>The path from human-led processes to fully autonomous agent-driven execution.</span>
+            </li>
+            <li>
+              <strong>Auditability &amp; Observability</strong>
+              <span>Every workflow, decision, and agent action traceable, transparent, and explainable.</span>
+            </li>
+            <li>
+              <strong>Evaluation by Design</strong>
+              <span>Testing, verification, validation, benchmarking, calibration, and optimization from the start.</span>
+            </li>
+            <li>
+              <strong>Open &amp; Extensible</strong>
+              <span>Enterprise systems, AI models, tools, and external agent platforms through open APIs and SDKs.</span>
+            </li>
+            <li>
+              <strong>Modular &amp; Composable</strong>
+              <span>Loosely coupled components that are reusable, flexible, and easy to extend.</span>
+            </li>
+            <li>
+              <strong>Scalable &amp; Reliable</strong>
+              <span>Enterprise-grade performance, resilience, and operational reliability.</span>
+            </li>
+            <li>
+              <strong>Open-Source First</strong>
+              <span>Proven open-source building blocks with strong community support.</span>
+            </li>
+            <li>
+              <strong>Developer &amp; User Friendly</strong>
+              <span>A clear, productive experience for both developers and business users.</span>
+            </li>
+            <li>
+              <strong>Future Ready</strong>
+              <span>Evolving AI capabilities, orchestration patterns, and enterprise needs.</span>
+            </li>
           </ol>
         </section>
 
         <section id="reference">
           <div class="section-lead section-lead-reference">
             <div>
-              <h2>Documentation paths</h2>
+              <h2>Browse by documentation area</h2>
               <p>
-                Start from the task you are doing, not from the repository folder layout. Platform docs explain how CALIBER works,
-                REST API docs explain the raw HTTP contract, Python SDK docs explain the typed client, and Examples show complete runnable flows.
+                The primary documentation areas mirror the published information architecture: start here,
+                use the product, build and integrate, operate safely, inspect exact reference, and then
+                drop into architecture or strategy when you need deeper context.
               </p>
             </div>
           </div>
@@ -151,105 +225,128 @@
           <div class="reference-directory">
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
-                <h3>Platform docs</h3>
-                <p>Architecture, authoring, runtime, evaluation, operations, and Aria. Use this section to understand how CALIBER works.</p>
+                <h3>Start here</h3>
+                <p>Orientation, role-based entry points, and the shortest path to a useful starting page.</p>
               </div>
               <div class="ref-list">
-                <a class="ref-card ref-row" href="m-00-layered-architecture.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">Layered architecture</span>
-                  <span class="ref-row-summary">The six-layer stack, abstract lifecycle chain, governed-asset anatomy, real per-family guarantees, execution model, state ownership, and trust boundaries.</span>
-                </a>
-                <a class="ref-card ref-row" href="interactive-layered-architecture.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">Interactive layered architecture</span>
-                  <span class="ref-row-summary">A presentation-grade explorer for the layered system map: isolate one layer, trace one path, and inspect one node at a time.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-01-platform.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">Platform</span>
-                  <span class="ref-row-summary">Embedded and standalone topologies, shared runtime state, async workers, and trust boundary.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-00-refinement-loop.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">The refinement loop</span>
-                  <span class="ref-row-summary">The canonical prompt-refinement path and the evidence, review, alias, and rollback boundaries that differ across asset families.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-06-workflows.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">Workflows</span>
-                  <span class="ref-row-summary">Manifest authoring, deployments, queued execution, and workflow-as-a-service.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-14-evaluation.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">Evaluation</span>
-                  <span class="ref-row-summary">Dataset scorecards, per-example results, scorers, judges, and fail-closed checks.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-09-observability.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">Observability</span>
-                  <span class="ref-row-summary">Traces, metrics, events, incidents, and runtime evidence.</span>
-                </a>
-                <a class="ref-card ref-row" href="m-12-assistant.html">
-                  <span class="ref-row-kicker">Platform docs</span>
-                  <span class="ref-row-title">Aria assistant</span>
-                  <span class="ref-row-summary">Sessions, permissioned tool use, approval modes, and transparent execution.</span>
-                </a>
-              </div>
-            </section>
-            <section class="reference-group" data-ref-group>
-              <div class="reference-group-head">
-                <h3>REST API</h3>
-                <p>Use this section for the raw HTTP contract: route prefixes, auth headers, envelopes, and the served OpenAPI documents.</p>
-              </div>
-              <div class="ref-list">
-                <a class="ref-card ref-row" href="m-26-rest-api-overview.html">
-                  <span class="ref-row-kicker">REST API</span>
+                <a class="ref-card ref-row" href="index.html">
+                  <span class="ref-row-kicker">Start here</span>
                   <span class="ref-row-title">Overview</span>
-                  <span class="ref-row-summary">Where the management API lives, when to integrate at the HTTP layer, and how it relates to the SDK.</span>
+                  <span class="ref-row-summary">Product overview, quickstart entry, and the main documentation landing page.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-27-rest-api-auth.html">
-                  <span class="ref-row-kicker">REST API</span>
-                  <span class="ref-row-title">Authentication and conventions</span>
-                  <span class="ref-row-summary">Bearer auth, trusted-header deployments, CSRF, project scoping, envelopes, pagination, and errors.</span>
+                <a class="ref-card ref-row" href="m-37-five-minute-quickstart.html">
+                  <span class="ref-row-kicker">Start here</span>
+                  <span class="ref-row-title">5-minute quickstart</span>
+                  <span class="ref-row-summary">The shortest path to a real CALIBER success: local bring-up, deployment verification, and the right next guide.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-28-rest-api-resources.html">
-                  <span class="ref-row-kicker">REST API</span>
-                  <span class="ref-row-title">Resource catalog</span>
-                  <span class="ref-row-summary">The route families grouped by the domains developers actually build with.</span>
+                <a class="ref-card ref-row" href="m-30-choose-your-path.html">
+                  <span class="ref-row-kicker">Start here</span>
+                  <span class="ref-row-title">Choose your CALIBER path</span>
+                  <span class="ref-row-summary">The role-first entry page for developers, operators, evaluators, architects, and decision-makers.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-29-rest-api-reference.html">
-                  <span class="ref-row-kicker">REST API</span>
-                  <span class="ref-row-title">HTTP reference</span>
-                  <span class="ref-row-summary">Representative routes, common operations, and the management/workflow-service OpenAPI entry points.</span>
+                <a class="ref-card ref-row" href="m-35-decision-maker-overview.html">
+                  <span class="ref-row-kicker">Start here</span>
+                  <span class="ref-row-title">Decision-maker overview</span>
+                  <span class="ref-row-summary">The concise non-implementation path through what CALIBER is, what it solves, and where to go next.</span>
                 </a>
               </div>
             </section>
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
-                <h3>Python SDK</h3>
-                <p>Use this section when you are integrating from Python and want typed resources, waiters, retries, and executable examples.</p>
+                <h3>Use CALIBER</h3>
+                <p>Feature areas, trust surfaces, and the pages that help system users and evaluators understand product behavior.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-42-use-workflows.html">
+                  <span class="ref-row-kicker">Use CALIBER</span>
+                  <span class="ref-row-title">Workflows</span>
+                  <span class="ref-row-summary">The practical path for authoring, running, deploying, and debugging workflows.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-38-use-prompts.html">
+                  <span class="ref-row-kicker">Use CALIBER</span>
+                  <span class="ref-row-title">Prompts</span>
+                  <span class="ref-row-summary">The task-oriented path for prompt authoring, evaluation, calibration, and release.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-43-use-knowledge-bases.html">
+                  <span class="ref-row-kicker">Use CALIBER</span>
+                  <span class="ref-row-title">Knowledge bases</span>
+                  <span class="ref-row-summary">The practical guide to ingesting source material, improving retrieval, and grounding assistant behavior.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-46-use-aria-assistant.html">
+                  <span class="ref-row-kicker">Use CALIBER</span>
+                  <span class="ref-row-title">Aria assistant</span>
+                  <span class="ref-row-summary">The supervised assistant path for sessions, tool use, approvals, and review boundaries.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-33-trust-and-governance.html">
+                  <span class="ref-row-kicker">Use CALIBER</span>
+                  <span class="ref-row-title">Trust and governance</span>
+                  <span class="ref-row-summary">The curated path across test sets, evaluation, calibration, QA, and apply/release controls.</span>
+                </a>
+              </div>
+            </section>
+            <section class="reference-group" data-ref-group>
+              <div class="reference-group-head">
+                <h3>Build &amp; integrate</h3>
+                <p>Programmatic integration, SDK usage, raw HTTP guidance, and the development paths that get developers to a working integration quickly.</p>
               </div>
               <div class="ref-list">
                 <a class="ref-card ref-row" href="m-20-sdk-guide.html">
-                  <span class="ref-row-kicker">Python SDK</span>
-                  <span class="ref-row-title">Guide</span>
-                  <span class="ref-row-summary">Install, authenticate, scope to a project, and call CALIBER from Python.</span>
+                  <span class="ref-row-kicker">Build &amp; integrate</span>
+                  <span class="ref-row-title">SDK guide</span>
+                  <span class="ref-row-summary">Install, authenticate, scope to a project, and make the first CALIBER call from Python.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-21-sdk-reference.html">
-                  <span class="ref-row-kicker">Python SDK</span>
-                  <span class="ref-row-title">API reference</span>
-                  <span class="ref-row-summary">Typed client entry points, resource modules, models, errors, waiters, and async support.</span>
+                <a class="ref-card ref-row" href="m-31-auth-and-project-scoping.html">
+                  <span class="ref-row-kicker">Build &amp; integrate</span>
+                  <span class="ref-row-title">Auth and project scoping</span>
+                  <span class="ref-row-summary">The minimum auth and scoping decisions a developer must get right before calling CALIBER programmatically.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-24-sdk-cli.html">
-                  <span class="ref-row-kicker">Python SDK</span>
-                  <span class="ref-row-title">CLI and async client</span>
-                  <span class="ref-row-summary">Operator-oriented CLI flows and the intentionally smaller async surface.</span>
+                <a class="ref-card ref-row" href="m-36-sdk-vs-rest-api.html">
+                  <span class="ref-row-kicker">Build &amp; integrate</span>
+                  <span class="ref-row-title">SDK vs REST API</span>
+                  <span class="ref-row-summary">The first integration decision for developers: typed Python surface or raw HTTP.</span>
                 </a>
-                <a class="ref-card ref-row" href="m-22-sdk-beta.html">
-                  <span class="ref-row-kicker">Python SDK</span>
-                  <span class="ref-row-title">Beta and agentic surfaces</span>
-                  <span class="ref-row-summary">What is stable, what is beta, and how the agentic loop changes waiting and control flow.</span>
+                <a class="ref-card ref-row" href="m-53-error-handling-and-retries.html">
+                  <span class="ref-row-kicker">Build &amp; integrate</span>
+                  <span class="ref-row-title">Error handling and retries</span>
+                  <span class="ref-row-summary">The practical integration policy for classifying failures, using waiters, and retrying safely.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-54-ci-cd-automation.html">
+                  <span class="ref-row-kicker">Build &amp; integrate</span>
+                  <span class="ref-row-title">CI/CD automation</span>
+                  <span class="ref-row-summary">The repository-grounded automation path for docs, tests, and integration-safe delivery.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-55-developer-troubleshooting.html">
+                  <span class="ref-row-kicker">Build &amp; integrate</span>
+                  <span class="ref-row-title">Developer troubleshooting</span>
+                  <span class="ref-row-summary">The first-pass diagnosis path across auth, project scoping, CSRF, uploads, waiters, and workflow invocation.</span>
+                </a>
+              </div>
+            </section>
+            <section class="reference-group" data-ref-group>
+              <div class="reference-group-head">
+                <h3>Operate CALIBER</h3>
+                <p>Bring-up, configuration, readiness, storage, troubleshooting, and recovery paths for operators and admins.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-32-local-bring-up.html">
+                  <span class="ref-row-kicker">Operate CALIBER</span>
+                  <span class="ref-row-title">Local bring-up</span>
+                  <span class="ref-row-summary">The operator-first path for starting CALIBER locally and verifying readiness.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-48-configuration-and-provider-setup.html">
+                  <span class="ref-row-kicker">Operate CALIBER</span>
+                  <span class="ref-row-title">Configuration and provider setup</span>
+                  <span class="ref-row-summary">Ports, database, provider, gateway, object-store, workflow-storage, and event-backend setup.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-50-health-and-readiness.html">
+                  <span class="ref-row-kicker">Operate CALIBER</span>
+                  <span class="ref-row-title">Health and readiness</span>
+                  <span class="ref-row-summary">The operational meaning of CALIBER liveness, readiness, and runtime evidence.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-19-runbook.html">
+                  <span class="ref-row-kicker">Operate CALIBER</span>
+                  <span class="ref-row-title">Operations runbook</span>
+                  <span class="ref-row-summary">The on-call recovery guide for failures CALIBER cannot settle on its own.</span>
                 </a>
               </div>
             </section>
@@ -269,26 +366,87 @@
                   <span class="ref-row-title">Cookbook gallery</span>
                   <span class="ref-row-summary">The platform cookbook catalog with every scenario, readiness requirement, and installable recipe.</span>
                 </a>
-                <a class="ref-card ref-row" href="walkthrough.html">
-                  <span class="ref-row-kicker">Examples</span>
-                  <span class="ref-row-title">Guided walkthrough</span>
-                  <span class="ref-row-summary">A narrated product tour using the shared docs shell.</span>
+              </div>
+            </section>
+            <section class="reference-group" data-ref-group>
+              <div class="reference-group-head">
+                <h3>Reference</h3>
+                <p>Exact API, SDK, workflow-component, and configuration lookup material.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-21-sdk-reference.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">SDK API reference</span>
+                  <span class="ref-row-summary">Typed client entry points, resource modules, models, errors, waiters, and async support.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-28-rest-api-resources.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">Resource catalog</span>
+                  <span class="ref-row-summary">The route families grouped by the domains developers actually build with.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-29-rest-api-reference.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">HTTP reference</span>
+                  <span class="ref-row-summary">The concrete contract map for representative operations and the published OpenAPI entry points.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-06-workflows-components.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">Workflow components</span>
+                  <span class="ref-row-summary">The built-in workflow node catalog and the component model behind visual workflow authoring.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-56-config-and-environment-reference.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">Config and environment reference</span>
+                  <span class="ref-row-summary">The fast index for the repository’s current configuration families and representative environment variables.</span>
                 </a>
               </div>
             </section>
             <section class="reference-group" data-ref-group>
               <div class="reference-group-head">
-                <h3>Strategy &amp; roadmap</h3>
-                <p>Where CALIBER sits in the market, and the feasibility-grounded plan for where it goes next.</p>
+                <h3>Architecture</h3>
+                <p>Deep architecture, runtime boundaries, and the technical model behind the platform.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-34-architecture-reader-guide.html">
+                  <span class="ref-row-kicker">Architecture</span>
+                  <span class="ref-row-title">Architecture reader guide</span>
+                  <span class="ref-row-summary">The curated entry point into the architecture corpus, organized by technical question.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-00-layered-architecture.html">
+                  <span class="ref-row-kicker">Architecture</span>
+                  <span class="ref-row-title">Layered architecture</span>
+                  <span class="ref-row-summary">The six-layer stack, lifecycle model, trust boundaries, and extension seams.</span>
+                </a>
+                <a class="ref-card ref-row" href="interactive-layered-architecture.html">
+                  <span class="ref-row-kicker">Architecture</span>
+                  <span class="ref-row-title">Interactive layered architecture</span>
+                  <span class="ref-row-summary">A presentation-grade explorer for tracing one layer, one path, or one node at a time.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-01-platform.html">
+                  <span class="ref-row-kicker">Architecture</span>
+                  <span class="ref-row-title">Platform</span>
+                  <span class="ref-row-summary">Embedded and standalone topologies, shared runtime state, async workers, and trust boundary.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-00-refinement-loop.html">
+                  <span class="ref-row-kicker">Architecture</span>
+                  <span class="ref-row-title">The refinement loop</span>
+                  <span class="ref-row-summary">The canonical prompt-refinement path and the review, alias, and rollback boundaries that differ across asset families.</span>
+                </a>
+              </div>
+            </section>
+            <section class="reference-group" data-ref-group>
+              <div class="reference-group-head">
+                <h3>Strategy</h3>
+                <p>Market context, roadmap, and the supporting material used to explain where CALIBER fits.</p>
               </div>
               <div class="ref-list">
                 <a class="ref-card ref-row" href="m-17-competitive-analysis.html">
-                  <span class="ref-row-kicker">Strategy &amp; roadmap</span>
+                  <span class="ref-row-kicker">Strategy</span>
                   <span class="ref-row-title">Competitive analysis</span>
                   <span class="ref-row-summary">CALIBER vs. Langflow/Flowise/Dify, n8n/Flowable, the LLMOps &amp; eval tools, MLflow GenAI, and the AWS/Google/Microsoft stacks.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-18-roadmap.html">
-                  <span class="ref-row-kicker">Strategy &amp; roadmap</span>
+                  <span class="ref-row-kicker">Strategy</span>
                   <span class="ref-row-title">Roadmap</span>
                   <span class="ref-row-summary">The quarter-by-quarter plan derived from the analysis and verified against the architecture.</span>
                 </a>
@@ -297,545 +455,153 @@
           </div>
         </section>
 
-        <details class="guide-section" id="playbook-build">
-          <summary>
-            <div class="guide-section-meta">
-              <div class="guide-section-kicker">Build playbook</div>
-              <strong>Quick start</strong>
-              <span>Launch paths, boot verification, and the fastest way to get a local CALIBER runtime up.</span>
-            </div>
-            <span class="guide-section-chevron" aria-hidden="true"></span>
-          </summary>
-          <div class="guide-section-body">
-        <section id="quickstart">
-          <h2>Quick start</h2>
-          <p>
-            The current repository supports two real launch paths. The full suite path brings up the containerized
-            platform around CALIBER. The plugin path runs the MLflow plugin directly and is the tighter loop for local
-            development inside <code>caliber/</code>.
-          </p>
-          <div class="tabs" data-tabs>
-            <div class="tab-bar" role="tablist">
-              <button type="button" class="tab-btn" role="tab" data-tab="suite" aria-selected="true">Full suite</button>
-              <button type="button" class="tab-btn" role="tab" data-tab="plugin" aria-selected="false">Plugin dev</button>
-            </div>
-
-            <div class="tab-pane" data-tab="suite" data-active="true" role="tabpanel">
-              <p>Recommended when you want the complete local platform: MinIO, Postgres, MLflow, MLflow AI Gateway, and CALIBER.</p>
-              <pre><code>make setup
-make start
-
-# CALIBER UI:  http://127.0.0.1:5001/caliber/
-# MLflow UI:   http://127.0.0.1:5000
-# AI Gateway:  http://127.0.0.1:5002/api/2.0/endpoints/</code></pre>
-              <p>The repo-root launcher uses <code>start.sh</code> and the container stack defined under <code>deploy/</code>. It also prepares the Allure report mount used by the in-product observability surface.</p>
-            </div>
-
-            <div class="tab-pane" data-tab="plugin" data-active="false" role="tabpanel">
-              <p>Recommended when you want the plugin alone with a shorter local edit-test loop.</p>
-              <pre><code>cd caliber
-make install
-make dev
-
-# CALIBER UI:  http://127.0.0.1:5000/caliber/
-# CALIBER API: http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/</code></pre>
-              <p>Optional frontend HMR stays separate:</p>
-              <pre><code>cd caliber/caliber-ui
-npm install
-npm run dev</code></pre>
+        <section id="first-success">
+          <div class="section-lead">
+            <div>
+              <h2>First success</h2>
+              <p>
+                Pick the shortest path that proves CALIBER is working for your job. These are the pages to open first
+                for local bring-up, SDK integration, trust review, and workflow authoring.
+              </p>
             </div>
           </div>
-          <div class="callout callout-warn">
-            <strong>First local login:</strong> both loopback launchers explicitly opt into
-            <code>admin</code> / <code>admin</code> only while the account table is empty. Change it immediately in
-            Administration. The product default keeps <code>CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false</code>;
-            a network-reachable deployment must provide a strong bootstrap password source instead.
-          </div>
-          <div class="callout">
-            <strong>Boot verification:</strong> use <code>GET /health</code> for a liveness check and
-            <code>GET /readiness</code> to confirm backing dependencies and provider posture after either launch path.
-          </div>
-          <pre><code>curl -s http://127.0.0.1:&lt;port&gt;/ajax-api/2.0/mlflow/caliber/readiness | jq</code></pre>
-        </section>
-          </div>
-        </details>
-
-        <details class="guide-section" id="playbook-trust">
-          <summary>
-            <div class="guide-section-meta">
-              <div class="guide-section-kicker">Trust playbook</div>
-              <strong>Aria, verification, and workflow QA</strong>
-              <span>Assistant behavior, trust evidence, runtime approvals, and how quality is measured across artifacts and runs.</span>
-            </div>
-            <span class="guide-section-chevron" aria-hidden="true"></span>
-          </summary>
-          <div class="guide-section-body">
-        <section id="aria">
-          <h2>Aria: the agentic copilot</h2>
-          <p>
-            Aria is CALIBER's embedded copilot, not a separate service. On the OpenAI and Anthropic (Claude) engines it
-            runs a real tool-calling loop: within a single turn it reads live CALIBER state, executes and observes real
-            capabilities, and iterates before it answers — the same <em>run, observe, fix</em> shape a code assistant
-            uses. It owns session state, message history, attachments, intent plans, and draft governance, and persists
-            per-session interaction-mode and approval-mode choices (routes under <code>/assistant</code>). For larger
-            work it can also take a stated <strong>goal</strong>, decompose it into a durable, reviewable <strong>plan</strong>
-            of capability-bound steps, and walk that plan under supervision — pausing mid-run for permission, enforcing
-            separation of duties on <code>gated</code> steps, parking on long-running jobs, and escalating below-gate results (routes under
-            <code>/aria/plans</code>).
-          </p>
           <div class="grid">
             <div class="card">
-              <div class="icon">TL</div>
-              <h4>Agentic tool loop</h4>
-              <p>On OpenAI and Claude, Aria reasons, calls read/execute tools, observes the result — including a workflow run's MLflow trace — and iterates within the turn, bounded to eight tool steps.</p>
-            </div>
-            <div class="card">
-              <div class="icon">MD</div>
-              <h4>Permissioned tools</h4>
-              <p>A per-turn toolset is gated by interaction mode &times; approval mode: read tools in every mode, reversible or subprocess-contained tools in <code>build</code> + <code>auto_safe</code>, and admitted mutations or real runs in <code>build</code> + <code>auto_all</code>. Draft approval and publication are withheld from every synchronous turn.</p>
-            </div>
-            <div class="card">
-              <div class="icon">EV</div>
-              <h4>Develop and test any artifact</h4>
-              <p>Aria can preview-run and patch workflows, run a tool draft in the bounded subprocess runner, query a knowledge base, and create an eval dataset from the conversation then score a prompt, tool, workflow, or skill against it.</p>
-            </div>
-            <div class="card">
-              <div class="icon">DR</div>
-              <h4>Governed drafts</h4>
-              <p>Drafts use validate, test, approved-status, and publish via <code>/drafts/{draft_id}/*</code>. A human performs approval and publication in the draft lifecycle UI/API; <code>gated</code> registry capabilities pause durable plans, and prompt-alias publication retains its separate approval-provenance control.</p>
-            </div>
-            <div class="card">
-              <div class="icon">SS</div>
-              <h4>Sessions, queue, and steer</h4>
-              <p><code>/assistant/sessions</code>, <code>/messages</code>, and <code>/queue</code> persist active work, queued follow-ups, and priority steering messages, with attachments and chat history.</p>
-            </div>
-            <div class="card">
-              <div class="icon">TC</div>
-              <h4>Transparent execution</h4>
-              <p>Each turn persists the executed <code>tool_calls</code> and a compact <code>process_steps</code> trail, so an operator can see exactly which actions Aria took and how the turn resolved.</p>
-            </div>
-            <div class="card">
-              <div class="icon">GP</div>
-              <h4>Goal-plan orchestration</h4>
-              <p>For multi-step work Aria decomposes a goal into a durable plan and walks it under supervision: it pauses mid-plan for an explicit approve/deny <code>interaction</code>, enforces separation of duties on <code>gated</code> steps, parks on long async jobs (a background worker resumes them), and escalates below-gate results instead of silently passing. Routes under <code>/aria/plans</code>.</p>
-            </div>
-          </div>
-          <div class="diagram">
-            <pre class="mermaid">sequenceDiagram
-    participant U as Operator
-    participant API as /assistant/*
-    participant SVC as AssistantService
-    participant ENG as Engine (OpenAI / Claude)
-    participant T as Permissioned toolset
-
-    U->>API: POST /assistant/sessions/{id}/messages
-    API->>SVC: resolve session, mode, approval mode, attachments
-    SVC->>ENG: run_turn(request, toolset)
-    loop until done (max 8 tool steps)
-        ENG->>T: call a tool (read / preview-run / evaluate / publish)
-        T-->>ENG: observed result (e.g. run trace, scores)
-    end
-    ENG-->>SVC: reply, draft_deltas, tool_calls
-    SVC-->>U: message, drafts, and the recorded actions</pre>
-          </div>
-          <div class="callout">
-            <strong>Two execution models:</strong> a single chat turn runs a <em>synchronous</em> tool loop, so within
-            that turn Aria cannot pause for a human click — the toolset only <em>exposes</em> the tools the current mode
-            and approval level allow, mirroring a code assistant's permission modes. For larger work the goal-plan
-            orchestrator (<code>/aria/plans</code>) is the durable, <em>interruptible</em> path: it persists every step,
-            can pause mid-plan for an explicit approve/deny interaction, enforces separation of duties on
-            <code>gated</code> steps, and resumes from where it stopped — including after a long async job finishes.
-            Aria persists tool calls and a post-turn
-            <code>process_steps</code> trail (Thinking, Actions, Drafted, Tested, Review required), but does not yet
-            expose a token-by-token streaming transcript.
-          </div>
-        </section>
-
-        <section id="verification">
-          <h2>Verification and calibration</h2>
-          <p>
-            CALIBER's trust model is built around measured change. Prompts and skills use queued,
-            optimizer-backed refinement; workflows use bounded manifest search and replay in the queued job shell.
-            Tools use a different calibration algorithm: deterministic
-            replay of an immutable definition-and-case snapshot through the configured execution backend. The tool suite is
-            exposed inline and through durable queued jobs; both revision-fence attribution so edited definitions
-            cannot inherit stale evidence.
-          </p>
-          <div class="diagram">
-            <pre class="mermaid">flowchart LR
-    SIG[Calibration request]
-    VI[Verification item]
-    JOB[Refinement job]
-    WRK[Refinement worker]
-    CAND[Asset-specific candidate or search]
-    EVAL[Asset-specific evaluation and gate]
-    READY[Candidate ready]
-    APPLY[Apply]
-    CKPT[Checkpoint anchor]
-    RB[Rollback]
-
-    SIG --> VI --> JOB --> WRK --> CAND --> EVAL --> READY --> APPLY --> CKPT --> RB</pre>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Asset</th>
-                  <th>Entry point</th>
-                  <th>Execution model</th>
-                  <th>Outcome</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Prompts</td>
-                  <td><code>/prompts/calibration/options</code><br><code>/prompts/calibration/runs</code></td>
-                  <td>Queued refinement job</td>
-                  <td>Candidate-ready prompt change or rejected run</td>
-                </tr>
-                <tr>
-                  <td>Skills</td>
-                  <td><code>/skills/{skill_id}/calibrate</code></td>
-                  <td>Queued refinement job</td>
-                  <td>Agent-free candidate generation against a hidden runtime target</td>
-                </tr>
-                <tr>
-                  <td>Tools</td>
-                  <td><code>/tools/{tool_id}/test-cases</code><br><code>/tools/{tool_id}/calibrate</code><br><code>/tools/{tool_id}/calibration-jobs</code></td>
-                  <td>Inline thread-pool run or durable drain + poll</td>
-                  <td>Job/result history; pass-rate attaches to the tool only at the submitted revision</td>
-                </tr>
-                <tr>
-                  <td>Workflows</td>
-                  <td><code>/workflows/{workflow_id}/calibration/options</code><br><code>/workflows/{workflow_id}/calibration/runs</code></td>
-                  <td>Queued workflow calibration</td>
-                  <td>Patch candidate for review and follow-on apply</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="callout">
-            <strong>Promotion semantics changed:</strong> for artifact calibration jobs, the public operator action is
-            <code>apply</code>, not a generic approval-vote API. Jobs that clear the gate land at
-            <code>candidate_ready</code> and move live via <code>POST /jobs/{job_id}/apply</code>. Workflow runtime
-            approvals under <code>/workflow-runs/*</code> remain separate because they govern live execution rather
-            than offline artifact promotion.
-          </div>
-          <h3>Test-set-driven evaluation, conversationally</h3>
-          <p>
-            The same evidence loop is available to Aria as gated tools, so quality can be measured in a conversation
-            rather than only through the calibration job. Aria assembles a dataset of representative
-            <code>{input, expected}</code> cases from the conversation and attachments with
-            <code>create_eval_dataset</code>, then scores an artifact against it: <code>run_quick_eval</code> for a
-            prompt, <code>evaluate_tool_draft</code> for a tool (subprocess-contained, scored against expected),
-            <code>evaluate_workflow_draft</code> for a workflow (structural quality, tool-adherence, completion, and
-            safety), and <code>evaluate_skill_selection</code> for skill-selection accuracy. Scores come from the real
-            scorecard and calibration scorers — never fabricated — and the tools stay inside the
-            <code>auto_safe</code> permission tier.
-          </p>
-        </section>
-
-        <section id="workflow-qa">
-          <h2>Workflow runtime and QA</h2>
-          <p>
-            The QA plan architecture intentionally separates three planes: runtime QA for artifacts, runtime approvals
-            for live workflow execution, and engineering validation for the repository itself. They converge only at
-            the evidence layer, which is how CALIBER can distinguish "this candidate should not be applied" from "this
-            code change should not ship" while still presenting one operator-facing quality story.
-          </p>
-          <div class="diagram">
-            <pre class="mermaid">flowchart LR
-    subgraph RuntimeQA[Runtime QA and workflow control]
-      FB[Trace feedback]
-      VQ[Verification items]
-      RJ[Refinement jobs]
-      AP[Apply and rollback]
-      WR[Workflow runs]
-      RA[Runtime approvals]
-      CK[Run checkpoints]
-      FB --> VQ --> RJ --> AP
-      WR --> RA
-      WR --> CK
-    end
-
-    subgraph EngValidation[Engineering validation]
-      DEV[Developer or CI]
-      MK[Test entrypoints]
-      PY[Pytest]
-      VT[Vitest]
-      PW[Playwright]
-      DEV --> MK --> PY
-      MK --> VT
-      MK --> PW
-    end
-
-    PY --> AL[Allure report]
-    VT --> AL
-    PW --> AL
-    AL --> OBS[Observability report]</pre>
-          </div>
-          <p>
-            Live workflow execution uses queued runs, lifecycle events, checkpoints, resume paths, and runtime
-            approvals under <code>/workflow-runs</code>. Engineering validation uses repo-root orchestration
-            (<code>make test</code>, <code>./test-all.sh</code>, <code>make allure-report</code>) and merges backend,
-            UI, and browser evidence into the Allure report CALIBER serves in-product.
-          </p>
-          <pre><code>make test
-./test-all.sh
-make allure-report</code></pre>
-        </section>
-          </div>
-        </details>
-
-        <details class="guide-section" id="playbook-interface">
-          <summary>
-            <div class="guide-section-meta">
-              <div class="guide-section-kicker">Interface playbook</div>
-              <strong>Documentation paths and configuration</strong>
-              <span>Choose the right doc set first, then wire the runtime variables that shape deployment identity and behavior.</span>
-            </div>
-            <span class="guide-section-chevron" aria-hidden="true"></span>
-          </summary>
-          <div class="guide-section-body">
-        <section id="api">
-          <h2>Choose the right documentation path</h2>
-          <p>
-            The current docs are split by developer intent rather than by repository folder. Start with the section
-            that matches how you are integrating, then drop into lower-level details only when you need them.
-          </p>
-          <div class="grid">
-            <div class="card">
-              <div class="icon">PD</div>
-              <h4>Platform docs</h4>
-              <p>Architecture, authoring, evaluation, operations, and Aria. Use this when you need to understand product behavior and system boundaries.</p>
-              <p><a href="m-00-layered-architecture.html">Start with the layered architecture</a></p>
-            </div>
-            <div class="card">
-              <div class="icon">RA</div>
-              <h4>REST API</h4>
-              <p>The raw HTTP contract: route families, auth headers, envelopes, errors, and the served OpenAPI documents.</p>
-              <p><a href="m-26-rest-api-overview.html">Open the REST API overview</a></p>
+              <div class="icon">QS</div>
+              <h4>Run CALIBER locally</h4>
+              <p>Use the shortest bring-up path, confirm readiness, and move into operator guides only if you need them.</p>
+              <p><a href="m-37-five-minute-quickstart.html">Start with the 5-minute quickstart</a></p>
             </div>
             <div class="card">
               <div class="icon">SD</div>
-              <h4>Python SDK</h4>
-              <p>The typed Python client for CALIBER automation, with resource wrappers, retries, waiters, and executable examples.</p>
+              <h4>Make the first SDK call</h4>
+              <p>Start with the typed client, then drop into auth, scoping, or raw HTTP only when integration needs it.</p>
               <p><a href="m-20-sdk-guide.html">Open the SDK guide</a></p>
             </div>
             <div class="card">
-              <div class="icon">EX</div>
-              <h4>Examples</h4>
-              <p>Cookbooks, SDK-native recipes, and walkthroughs for end-to-end scenarios.</p>
-              <p><a href="m-16-cookbooks.html">Browse the cookbook gallery</a></p>
-            </div>
-          </div>
-        </section>
-
-        <section id="config">
-          <h2>Configuration</h2>
-          <p>
-            Runtime configuration is rooted in <code>CaliberConfig</code>, surfaced through environment variables, and
-            exposed in-product through the Settings pages. The most important settings are the ones that shape process
-            identity, storage, outbound routing, async execution, and Aria's engine posture.
-          </p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Env var</th>
-                  <th>Role</th>
-                  <th>Why it matters</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>CALIBER_DATABASE_URL</code></td>
-                  <td>Metadata store</td>
-                  <td>Backs assistant state, jobs, workflow runs, KB state, audit, and the rest of CALIBER's durable control-plane rows.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_WORKFLOW_STORAGE_*</code></td>
-                  <td>File and artifact storage</td>
-                  <td>Selects local or S3/MinIO-backed storage, endpoint URLs, credentials, limits, signed URLs, and retention behavior.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_ASSISTANT_ENABLED</code></td>
-                  <td>Assistant availability</td>
-                  <td>Enables or disables Aria as a product surface.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_ASSISTANT_ENGINE</code><br><code>CALIBER_ASSISTANT_MODEL</code></td>
-                  <td>Assistant provider selection</td>
-                  <td>Selects Aria's engine and model. The default is <code>auto</code>, which resolves to a real provider by available API key (OpenAI, then Anthropic); explicit values are <code>openai</code>, <code>anthropic</code>, and <code>ollama</code>. The <code>fake</code> engine is test-only. OpenAI and Anthropic run the full agentic tool loop; Ollama is single-shot.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_WORKFLOW_RUN_QUEUE_ENABLED</code></td>
-                  <td>Workflow execution model</td>
-                  <td>Controls whether workflow runs are accepted and processed through the queued runtime path.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES</code></td>
-                  <td>Published-service request bound</td>
-                  <td>Caps the raw streamed JSON envelope for protected and explicitly public workflow services (1 MiB by default). It bounds per-request parse/memory work, not ingress IP or connection rates.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_KNOWLEDGE_BUILD_QUEUE_ENABLED</code></td>
-                  <td>Knowledge-base build queue</td>
-                  <td>Turns durable queued KB build processing on or off.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_GATEWAY_URI</code></td>
-                  <td>Gateway endpoint discovery</td>
-                  <td>Tells CALIBER where to probe for external endpoint inventory. Guardrail governance uses the MLflow tracking store; usage comes from traces; pricing overrides are database-backed.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_LLM_BASE_URL</code></td>
-                  <td>Outbound routing</td>
-                  <td>Controls whether CALIBER itself sends LLM traffic to providers directly or through the gateway.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_ADMIN_USERS</code></td>
-                  <td>RBAC assignment</td>
-                  <td>Declares admin identities; operator and approver lists follow the same config-driven pattern.</td>
-                </tr>
-                <tr>
-                  <td><code>CALIBER_ALLURE_REPORT_DIR</code></td>
-                  <td>Report serving</td>
-                  <td>Points the observability report route at a filesystem or object-store-backed Allure HTML directory.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-          </div>
-        </details>
-
-        <details class="guide-section" id="playbook-operate">
-          <summary>
-            <div class="guide-section-meta">
-              <div class="guide-section-kicker">Operations playbook</div>
-              <strong>Observability and security</strong>
-              <span>Runtime evidence, service health, report serving, and the scope model that governs operator actions.</span>
-            </div>
-            <span class="guide-section-chevron" aria-hidden="true"></span>
-          </summary>
-          <div class="guide-section-body">
-        <section id="ops">
-          <h2>Observability and operations</h2>
-          <p>
-            Observability in CALIBER is broader than traces. The current platform exposes trace browsing and feedback,
-            metrics, live event streams, durable SLO incident history/routing, accepted-webhook/dead-letter recovery,
-            gateway governance/usage/pricing, backing-service visibility, and merged test evidence. The key
-            design choice is that these are served surfaces over real runtime state and built artifacts, not placeholder
-            dashboards.
-          </p>
-          <div class="grid">
-            <div class="card">
-              <div class="icon">TR</div>
-              <h4>Trace and feedback surfaces</h4>
-              <p><code>/observability/traces</code>, trace detail, and trace feedback routes bridge MLflow runtime evidence into CALIBER quality workflows.</p>
+              <div class="icon">GV</div>
+              <h4>Review trust posture</h4>
+              <p>Follow the path across evidence, evaluation, calibration, QA, and apply or release boundaries.</p>
+              <p><a href="m-33-trust-and-governance.html">Open trust and governance</a></p>
             </div>
             <div class="card">
-              <div class="icon">MT</div>
-              <h4>Metrics and live events</h4>
-              <p><code>/metrics</code> exports Prometheus metrics, while <code>/events/stream</code> pushes SSE updates for active product surfaces.</p>
+              <div class="icon">WF</div>
+              <h4>Build a workflow</h4>
+              <p>Start from the practical workflow guide before you read deeper runtime or architecture pages.</p>
+              <p><a href="m-42-use-workflows.html">Open workflows</a></p>
             </div>
-            <div class="card">
-              <div class="icon">SV</div>
-              <h4>Service and recovery truth</h4>
-              <p><code>/gateway/*</code> and <code>/system/services</code> expose external-gateway governance and backing-service health; <code>/system/incidents</code> and <code>/system/webhook-dead-letters</code> retain actionable failure history.</p>
-            </div>
-            <div class="card">
-              <div class="icon">AL</div>
-              <h4>Allure evidence</h4>
-              <p><code>/observability/allure-report</code> serves the merged report after the repo's backend, UI, and E2E suites emit results and build HTML.</p>
-            </div>
-          </div>
-          <div class="callout">
-            <strong>Allure serving model:</strong> the backend serves a built report directory. It does not generate the
-            report on request. Use <code>make allure-report</code> or the UI scripts first, then inspect the report
-            through the observability route.
           </div>
         </section>
 
-        <section id="security">
-          <h2>Security</h2>
-          <p>
-            CALIBER defaults to its own server-validated session login: passwords are stored as scrypt hashes and a
-            successful login issues a revocable HttpOnly session cookie. In this mode
-            <code>X-CALIBER-User</code> is ignored. A deployment behind a real identity proxy can explicitly select
-            <code>trusted_header</code> mode and require a shared proxy secret; direct access to the app port must then
-            be blocked. Route-specific project visibility and write guards apply explicit scope checks rather than trusting a client assertion; coverage is path-specific rather than a repository-wide isolation guarantee.
-          </p>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Scope</th>
-                  <th>Current meaning</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><span class="badge badge-cyan">viewer</span></td>
-                  <td>Implicit for authenticated users; admits viewer-scoped reads where a route exposes them, subject to path-specific visibility controls.</td>
-                </tr>
-                <tr>
-                  <td><span class="badge badge-cyan">operator</span></td>
-                  <td>Artifact mutation, workflow runtime control, Aria operations, evaluation runs, apply, rollback, and most write paths.</td>
-                </tr>
-                <tr>
-                  <td><span class="badge badge-orange">approver</span></td>
-                  <td>Higher-sensitivity approval surfaces where the route explicitly asks for approver authority.</td>
-                </tr>
-                <tr>
-                  <td><span class="badge badge-red">admin</span></td>
-                  <td>Administrative mutation such as user-list authority, object-store administration, MCP server administration, and cross-project power paths.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p>
-            Scope assignment is currently config-driven through the user lists in <code>CaliberConfig</code>. The
-            loopback launchers' first-boot <code>admin</code> / <code>admin</code> convenience must be rotated before
-            exposure; network deployments leave the insecure-bootstrap flag off and supply a strong secret. Because
-            CALIBER is same-origin with MLflow in plugin mode, TLS, cookie, proxy, and direct-port controls remain part
-            of the deployment boundary.
-          </p>
-        </section>
-          </div>
-        </details>
-
-        <details class="guide-section" id="playbook-faq">
-          <summary>
-            <div class="guide-section-meta">
-              <div class="guide-section-kicker">Reference answers</div>
-              <strong>FAQ</strong>
-              <span>Short answers to the recurring platform-boundary, gateway, promotion, and evidence questions.</span>
+        <section id="featured-references">
+          <div class="section-lead">
+            <div>
+              <h2>Featured references</h2>
+              <p>
+                These are the most commonly needed lookup pages once you already know which area of the
+                platform you are working in.
+              </p>
             </div>
-            <span class="guide-section-chevron" aria-hidden="true"></span>
-          </summary>
-          <div class="guide-section-body">
-        <section id="faq">
-          <h2>FAQ</h2>
-
-          <h4>Must CALIBER be a separate microservice?</h4>
-          <p>No. The same ASGI application supports two topologies: an embedded MLflow <code>mlflow.app</code> that shares its process, or a standalone CALIBER service that reaches vanilla MLflow over HTTP. The bundled loopback Compose stack uses standalone mode and separate logical databases.</p>
-
-          <h4>Does CALIBER ship its own gateway?</h4>
-          <p>No. CALIBER does not proxy model traffic itself. Its Gateway surface discovers the external MLflow AI Gateway, governs tracking-store guardrails, derives usage from traces, and maintains pricing overrides. Discovery uses <code>CALIBER_GATEWAY_URI</code>; actual outbound routing uses <code>CALIBER_LLM_BASE_URL</code>.</p>
-
-          <h4>Does Aria stream its internal thinking?</h4>
-          <p>Not in the current route surface. Aria persists a final assistant message, tool-call transparency, and a compact post-turn <code>process_steps</code> trail, but not a live token-stream reasoning transcript.</p>
-
-          <h4>Where does promotion happen now?</h4>
-          <p>For candidate-ready calibration jobs, promotion happens through <code>POST /jobs/{job_id}/apply</code>. Direct prompt authoring stays non-live; releasing a chosen immutable version uses <code>POST /prompts/{name}/aliases/{alias}</code>. Prompt alias paths commit an idempotent operation before calling MLflow, and operators can inspect or reconcile incomplete outcomes under <code>/releases/operations</code>. Live workflow approvals remain under <code>/workflow-runs/*</code> because they govern running executions, not offline artifact apply.</p>
-
-          <h4>How do I publish test evidence into the product?</h4>
-          <p>Run the repo test entry points so they emit Allure results, build the combined report with <code>make allure-report</code>, and then open <code>/observability/allure-report</code> from the running CALIBER backend.</p>
-        </section>
           </div>
-        </details>
+          <div class="reference-directory">
+            <section class="reference-group">
+              <div class="reference-group-head">
+                <h3>Developer lookup</h3>
+                <p>Exact interfaces, route contracts, and environment/configuration details.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-21-sdk-reference.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">SDK API reference</span>
+                  <span class="ref-row-summary">Typed Python client modules, models, errors, waiters, and async surfaces.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-29-rest-api-reference.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">REST API HTTP reference</span>
+                  <span class="ref-row-summary">Wire-level routes, auth/scoping contract, and the live-generated route inventory.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-56-config-and-environment-reference.html">
+                  <span class="ref-row-kicker">Reference</span>
+                  <span class="ref-row-title">Config and environment reference</span>
+                  <span class="ref-row-summary">The runtime variables and operational settings that shape CALIBER deployments.</span>
+                </a>
+              </div>
+            </section>
+            <section class="reference-group">
+              <div class="reference-group-head">
+                <h3>Operational and architecture lookup</h3>
+                <p>Pages that answer the next question after orientation: how it runs, what it stores, and how it is governed.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="m-19-runbook.html">
+                  <span class="ref-row-kicker">Operate CALIBER</span>
+                  <span class="ref-row-title">Operations runbook</span>
+                  <span class="ref-row-summary">Failure handling, recovery, and the operator path once initial bring-up is done.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-34-architecture-reader-guide.html">
+                  <span class="ref-row-kicker">Architecture</span>
+                  <span class="ref-row-title">Architecture reader guide</span>
+                  <span class="ref-row-summary">The curated path into layered architecture, workflows, trust, and runtime boundaries.</span>
+                </a>
+                <a class="ref-card ref-row" href="m-47-use-review-and-release-flows.html">
+                  <span class="ref-row-kicker">Use CALIBER</span>
+                  <span class="ref-row-title">Review and release flows</span>
+                  <span class="ref-row-summary">How candidate review, signoff, apply, and rollback work across artifacts and workflows.</span>
+                </a>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="secondary-resources">
+          <div class="section-lead">
+            <div>
+              <h2>Secondary resources</h2>
+              <p>
+                These pages stay published because they help with walkthroughs, demos, and presentations,
+                but they are intentionally secondary to the main documentation paths above.
+              </p>
+            </div>
+          </div>
+          <div class="reference-directory">
+            <section class="reference-group">
+              <div class="reference-group-head">
+                <h3>Interactive and hands-on</h3>
+                <p>Visual and guided material that complements the main guides without replacing them.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="walkthrough.html">
+                  <span class="ref-row-kicker">Operate CALIBER</span>
+                  <span class="ref-row-title">Guided walkthrough</span>
+                  <span class="ref-row-summary">A step-by-step operator walkthrough for a local product tour and initial system verification.</span>
+                </a>
+                <a class="ref-card ref-row" href="interactive-layered-architecture.html">
+                  <span class="ref-row-kicker">Architecture</span>
+                  <span class="ref-row-title">Interactive layered architecture</span>
+                  <span class="ref-row-summary">A visual exploration layer for the platform architecture and subsystem boundaries.</span>
+                </a>
+              </div>
+            </section>
+            <section class="reference-group">
+              <div class="reference-group-head">
+                <h3>Collateral</h3>
+                <p>Presentation-grade summaries for sharing CALIBER outside the core documentation flow.</p>
+              </div>
+              <div class="ref-list">
+                <a class="ref-card ref-row" href="presentation.html">
+                  <span class="ref-row-kicker">Collateral</span>
+                  <span class="ref-row-title">Product presentation</span>
+                  <span class="ref-row-summary">The main presentation surface for demonstrating CALIBER in a browser-friendly narrative format.</span>
+                </a>
+                <a class="ref-card ref-row" href="presentation_timed.html">
+                  <span class="ref-row-kicker">Collateral</span>
+                  <span class="ref-row-title">Timed presentation</span>
+                  <span class="ref-row-summary">The timed or speaker-paced presentation variant published as secondary collateral.</span>
+                </a>
+              </div>
+            </section>
+          </div>
+        </section>
 
       </article>
     </main>

@@ -1,3 +1,19 @@
+---
+audience:
+  - developer
+doc_type: how-to
+product_area: api
+stability: ga
+prerequisites:
+  - A running CALIBER deployment
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - api
+  - auth
+  - openapi
+---
+
 # CALIBER REST API
 
 The CALIBER management API is the raw HTTP contract exposed under

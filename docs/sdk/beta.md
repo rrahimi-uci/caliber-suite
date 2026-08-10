@@ -1,3 +1,20 @@
+---
+audience:
+  - developer
+doc_type: how-to
+product_area: sdk
+stability: beta
+prerequisites:
+  - A running CALIBER deployment
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - sdk
+  - beta
+  - aria
+  - integrations
+---
+
 # Beta and agentic surfaces
 
 The GA surfaces in the [SDK guide](guide.md) are stable: their paths

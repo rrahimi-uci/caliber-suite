@@ -1,3 +1,21 @@
+---
+audience:
+  - developer
+  - operator
+doc_type: how-to
+product_area: sdk
+stability: ga
+prerequisites:
+  - A running CALIBER deployment
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - sdk
+  - cli
+  - async
+  - automation
+---
+
 # caliberctl and the async client
 
 Two things built on the Python SDK: a command-line tool for operators, and an

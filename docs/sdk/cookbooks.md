@@ -1,3 +1,21 @@
+---
+audience:
+  - developer
+  - operator
+doc_type: example
+product_area: sdk
+stability: ga
+prerequisites:
+  - A running CALIBER deployment
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - sdk
+  - cookbook
+  - examples
+  - workflows
+---
+
 # SDK recipes
 
 These recipes are the SDK-native counterparts to the platform cookbook gallery.

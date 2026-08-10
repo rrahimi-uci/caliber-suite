@@ -4,7 +4,7 @@
  *
  * The site is a multi-page set: the hand-authored landing page (index.html), the
  * shared design system (docs.css + docs.js), the generated sidebar nav data
- * (docs-nav.js), and one generated page per published module (m-*.html). The
+ * (docs-nav.js), the generated search index (search-index.json), and one generated page per published module (m-*.html). The
  * The layered overview is produced from root ARCHITECTURE.md; the architecture,
  * workflow-reference, and strategy modules come from docs/**.md. The shared
  * docs-site/build-docs.mjs builder emits those pages plus docs-nav.js, and this
@@ -83,6 +83,7 @@ const SITE_FILES = readdirSync(DOCS_SITE).filter(
     f === "docs.css" ||
     f === "docs.js" ||
     f === "docs-nav.js" ||
+    f === "search-index.json" ||
     f === "llms.txt" ||
     f === "interactive-layered-architecture.html" ||
     f === "presentation.html" ||

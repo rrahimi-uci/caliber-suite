@@ -1,0 +1,490 @@
+{
+  "default_metadata": {
+    "stability": "ga",
+    "reviewed_on": "2026-08-10",
+    "version_applicability": "current main branch docs contract"
+  },
+  "sections": [
+    {
+      "id": "start",
+      "title": "Start here",
+      "summary": "Product overview, quickstart, and role-based entry points.",
+      "order": 10,
+      "metadata_defaults": {
+        "audience": ["developer", "system-user", "operator", "architect", "evaluator", "decision-maker"],
+        "doc_type": "tutorial"
+      }
+    },
+    {
+      "id": "use",
+      "title": "Use CALIBER",
+      "summary": "Feature areas and operating concepts for people using the product.",
+      "order": 20,
+      "metadata_defaults": {
+        "audience": ["system-user", "operator"],
+        "doc_type": "concept"
+      }
+    },
+    {
+      "id": "build",
+      "title": "Build & integrate",
+      "summary": "Programmatic integration, SDK usage, authentication, and automation.",
+      "order": 30,
+      "metadata_defaults": {
+        "audience": ["developer"],
+        "doc_type": "how-to"
+      }
+    },
+    {
+      "id": "operate",
+      "title": "Operate CALIBER",
+      "summary": "Bring-up, runtime operations, observability, recovery, and runbooks.",
+      "order": 40,
+      "metadata_defaults": {
+        "audience": ["operator"],
+        "doc_type": "how-to"
+      }
+    },
+    {
+      "id": "examples",
+      "title": "Examples",
+      "summary": "Runnable cookbooks, recipes, and end-to-end worked examples.",
+      "order": 50,
+      "metadata_defaults": {
+        "audience": ["developer", "operator", "system-user"],
+        "doc_type": "example"
+      }
+    },
+    {
+      "id": "reference",
+      "title": "Reference",
+      "summary": "Exact API, SDK, and component lookup material.",
+      "order": 60,
+      "metadata_defaults": {
+        "audience": ["developer", "operator"],
+        "doc_type": "reference"
+      }
+    },
+    {
+      "id": "architecture",
+      "title": "Architecture",
+      "summary": "Deep platform architecture, trust boundaries, and implementation concepts.",
+      "order": 70,
+      "metadata_defaults": {
+        "audience": ["architect", "developer", "evaluator"],
+        "doc_type": "concept"
+      }
+    },
+    {
+      "id": "strategy",
+      "title": "Strategy",
+      "summary": "Market context, roadmap, and published collateral.",
+      "order": 80,
+      "metadata_defaults": {
+        "audience": ["architect", "decision-maker"],
+        "doc_type": "strategy"
+      }
+    }
+  ],
+  "pages": [
+    {
+      "href": "index.html",
+      "label": "Overview",
+      "section": "start",
+      "nav_order": 10,
+      "summary": "Start from the product overview, quickstart, and documentation paths."
+    },
+    {
+      "href": "m-37-five-minute-quickstart.html",
+      "label": "5-minute quickstart",
+      "section": "start",
+      "nav_order": 15
+    },
+    {
+      "href": "m-30-choose-your-path.html",
+      "label": "Choose your CALIBER path",
+      "section": "start",
+      "nav_order": 20
+    },
+    {
+      "href": "m-35-decision-maker-overview.html",
+      "label": "Decision-maker overview",
+      "section": "start",
+      "nav_order": 30
+    },
+    {
+      "href": "m-38-use-prompts.html",
+      "label": "Prompts",
+      "section": "use",
+      "nav_order": 10
+    },
+    {
+      "href": "m-39-use-tools.html",
+      "label": "Tools",
+      "section": "use",
+      "nav_order": 20
+    },
+    {
+      "href": "m-40-use-skills.html",
+      "label": "Skills",
+      "section": "use",
+      "nav_order": 30
+    },
+    {
+      "href": "m-41-use-mcp-servers.html",
+      "label": "MCP servers",
+      "section": "use",
+      "nav_order": 40
+    },
+    {
+      "href": "m-42-use-workflows.html",
+      "label": "Workflows",
+      "section": "use",
+      "nav_order": 50
+    },
+    {
+      "href": "m-43-use-knowledge-bases.html",
+      "label": "Knowledge bases",
+      "section": "use",
+      "nav_order": 60
+    },
+    {
+      "href": "m-44-use-evaluation-and-test-sets.html",
+      "label": "Evaluation and test sets",
+      "section": "use",
+      "nav_order": 70
+    },
+    {
+      "href": "m-45-use-calibration.html",
+      "label": "Calibration",
+      "section": "use",
+      "nav_order": 80
+    },
+    {
+      "href": "m-33-trust-and-governance.html",
+      "label": "Trust and governance",
+      "section": "use",
+      "nav_order": 90
+    },
+    {
+      "href": "m-46-use-aria-assistant.html",
+      "label": "Aria assistant",
+      "section": "use",
+      "nav_order": 100
+    },
+    {
+      "href": "m-47-use-review-and-release-flows.html",
+      "label": "Review and release flows",
+      "section": "use",
+      "nav_order": 110
+    },
+    {
+      "href": "m-20-sdk-guide.html",
+      "label": "Guide",
+      "section": "build",
+      "nav_order": 10
+    },
+    {
+      "href": "m-31-auth-and-project-scoping.html",
+      "label": "Auth and project scoping",
+      "section": "build",
+      "nav_order": 15
+    },
+    {
+      "href": "m-36-sdk-vs-rest-api.html",
+      "label": "SDK vs REST API",
+      "section": "build",
+      "nav_order": 18
+    },
+    {
+      "href": "m-53-error-handling-and-retries.html",
+      "label": "Error handling and retries",
+      "section": "build",
+      "nav_order": 19
+    },
+    {
+      "href": "m-22-sdk-beta.html",
+      "label": "Beta and agentic surfaces",
+      "section": "build",
+      "nav_order": 20
+    },
+    {
+      "href": "m-23-sdk-plugins.html",
+      "label": "Writing a plugin",
+      "section": "build",
+      "nav_order": 30
+    },
+    {
+      "href": "m-24-sdk-cli.html",
+      "label": "CLI and async client",
+      "section": "build",
+      "nav_order": 40
+    },
+    {
+      "href": "m-26-rest-api-overview.html",
+      "label": "REST API overview",
+      "section": "build",
+      "nav_order": 50
+    },
+    {
+      "href": "m-27-rest-api-auth.html",
+      "label": "Authentication and conventions",
+      "section": "build",
+      "nav_order": 60
+    },
+    {
+      "href": "m-54-ci-cd-automation.html",
+      "label": "CI/CD automation",
+      "section": "build",
+      "nav_order": 70
+    },
+    {
+      "href": "m-55-developer-troubleshooting.html",
+      "label": "Developer troubleshooting",
+      "section": "build",
+      "nav_order": 80
+    },
+    {
+      "href": "m-32-local-bring-up.html",
+      "label": "Local bring-up",
+      "section": "operate",
+      "nav_order": 5
+    },
+    {
+      "href": "walkthrough.html",
+      "label": "Guided walkthrough",
+      "section": "operate",
+      "nav_order": 10,
+      "doc_type": "tutorial",
+      "audience": ["developer", "operator"],
+      "summary": "Local bring-up, operator flow, and guided product walk-through.",
+      "prerequisites": ["Repository checkout or a local CALIBER environment question"]
+    },
+    {
+      "href": "m-48-configuration-and-provider-setup.html",
+      "label": "Configuration and provider setup",
+      "section": "operate",
+      "nav_order": 20,
+      "doc_type": "how-to"
+    },
+    {
+      "href": "m-49-storage-and-state.html",
+      "label": "Storage and state",
+      "section": "operate",
+      "nav_order": 30
+    },
+    {
+      "href": "m-50-health-and-readiness.html",
+      "label": "Health and readiness",
+      "section": "operate",
+      "nav_order": 40
+    },
+    {
+      "href": "m-51-operator-troubleshooting.html",
+      "label": "Operator troubleshooting",
+      "section": "operate",
+      "nav_order": 50
+    },
+    {
+      "href": "m-52-backup-and-recovery.html",
+      "label": "Backup and recovery",
+      "section": "operate",
+      "nav_order": 60,
+      "doc_type": "runbook"
+    },
+    {
+      "href": "m-19-runbook.html",
+      "label": "Operations runbook",
+      "section": "operate",
+      "nav_order": 70,
+      "doc_type": "runbook"
+    },
+    {
+      "href": "m-25-sdk-cookbooks.html",
+      "label": "SDK recipes",
+      "section": "examples",
+      "nav_order": 10
+    },
+    {
+      "href": "m-16-cookbooks.html",
+      "label": "Cookbook gallery",
+      "section": "examples",
+      "nav_order": 20
+    },
+    {
+      "href": "m-21-sdk-reference.html",
+      "label": "SDK API reference",
+      "section": "reference",
+      "nav_order": 10
+    },
+    {
+      "href": "m-28-rest-api-resources.html",
+      "label": "Resource catalog",
+      "section": "reference",
+      "nav_order": 20
+    },
+    {
+      "href": "m-29-rest-api-reference.html",
+      "label": "HTTP reference",
+      "section": "reference",
+      "nav_order": 30
+    },
+    {
+      "href": "m-06-workflows-components.html",
+      "label": "Workflow components",
+      "section": "reference",
+      "nav_order": 40
+    },
+    {
+      "href": "m-56-config-and-environment-reference.html",
+      "label": "Config and environment reference",
+      "section": "reference",
+      "nav_order": 50
+    },
+    {
+      "href": "m-34-architecture-reader-guide.html",
+      "label": "Architecture reader guide",
+      "section": "architecture",
+      "nav_order": 5
+    },
+    {
+      "href": "m-00-layered-architecture.html",
+      "label": "Layered architecture",
+      "section": "architecture",
+      "nav_order": 10
+    },
+    {
+      "href": "interactive-layered-architecture.html",
+      "label": "Interactive layered architecture",
+      "section": "architecture",
+      "nav_order": 20,
+      "summary": "Interactive layered system explorer with guided paths through the platform.",
+      "prerequisites": ["A technical question about CALIBER architecture"]
+    },
+    {
+      "href": "m-01-platform.html",
+      "label": "Platform",
+      "section": "architecture",
+      "nav_order": 30
+    },
+    {
+      "href": "m-00-refinement-loop.html",
+      "label": "The refinement loop",
+      "section": "architecture",
+      "nav_order": 40
+    },
+    {
+      "href": "m-02-prompts.html",
+      "label": "Prompts architecture",
+      "section": "architecture",
+      "nav_order": 45
+    },
+    {
+      "href": "m-03-tools.html",
+      "label": "Tools architecture",
+      "section": "architecture",
+      "nav_order": 50
+    },
+    {
+      "href": "m-04-skills.html",
+      "label": "Skills architecture",
+      "section": "architecture",
+      "nav_order": 55
+    },
+    {
+      "href": "m-05-mcp.html",
+      "label": "MCP architecture",
+      "section": "architecture",
+      "nav_order": 60
+    },
+    {
+      "href": "m-06-workflows.html",
+      "label": "Workflows architecture",
+      "section": "architecture",
+      "nav_order": 65
+    },
+    {
+      "href": "m-07-object-store.html",
+      "label": "Object store",
+      "section": "architecture",
+      "nav_order": 70
+    },
+    {
+      "href": "m-08-knowledge-bases.html",
+      "label": "Knowledge bases architecture",
+      "section": "architecture",
+      "nav_order": 75
+    },
+    {
+      "href": "m-11-test-sets.html",
+      "label": "Test sets architecture",
+      "section": "architecture",
+      "nav_order": 80
+    },
+    {
+      "href": "m-14-evaluation.html",
+      "label": "Evaluation architecture",
+      "section": "architecture",
+      "nav_order": 85
+    },
+    {
+      "href": "m-15-calibration.html",
+      "label": "Calibration architecture",
+      "section": "architecture",
+      "nav_order": 90
+    },
+    {
+      "href": "m-09-observability.html",
+      "label": "Observability architecture",
+      "section": "architecture",
+      "nav_order": 95
+    },
+    {
+      "href": "m-10-gateways.html",
+      "label": "Gateways",
+      "section": "architecture",
+      "nav_order": 100
+    },
+    {
+      "href": "m-13-qa-plan.html",
+      "label": "QA plan",
+      "section": "architecture",
+      "nav_order": 110
+    },
+    {
+      "href": "m-12-assistant.html",
+      "label": "Assistant architecture",
+      "section": "architecture",
+      "nav_order": 120
+    },
+    {
+      "href": "m-17-competitive-analysis.html",
+      "label": "Competitive analysis",
+      "section": "strategy",
+      "nav_order": 10
+    },
+    {
+      "href": "m-18-roadmap.html",
+      "label": "Roadmap",
+      "section": "strategy",
+      "nav_order": 20
+    },
+    {
+      "href": "presentation.html",
+      "label": "Presentation",
+      "section": "strategy",
+      "nav_order": 30,
+      "nav_hidden": true,
+      "newtab": true,
+      "summary": "Standalone presentation deck for collateral and overview use."
+    },
+    {
+      "href": "presentation_timed.html",
+      "label": "Timed presentation",
+      "section": "strategy",
+      "nav_order": 40,
+      "nav_hidden": true,
+      "summary": "Timed presentation variant published as collateral outside primary navigation."
+    }
+  ]
+}

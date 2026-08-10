@@ -1,3 +1,22 @@
+---
+audience:
+  - architect
+  - developer
+  - evaluator
+doc_type: concept
+product_area: architecture
+stability: ga
+prerequisites:
+  - Layered architecture overview
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - platform
+  - architecture
+  - runtime
+  - state
+---
+
 # CALIBER Platform Architecture
 
 This document is the authoritative implementation reference for the CALIBER

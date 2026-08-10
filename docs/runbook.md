@@ -1,3 +1,19 @@
+---
+audience:
+  - operator
+doc_type: runbook
+product_area: operations
+stability: ga
+prerequisites:
+  - Access to a CALIBER deployment
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - operations
+  - recovery
+  - runbook
+---
+
 # Operations runbook
 
 When a governed release goes wrong, the useful question is rarely "what broke" — the

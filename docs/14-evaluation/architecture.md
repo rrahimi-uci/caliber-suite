@@ -1,3 +1,22 @@
+---
+audience:
+  - architect
+  - developer
+  - evaluator
+doc_type: concept
+product_area: evaluation
+stability: ga
+prerequisites:
+  - Layered architecture overview
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - evaluation
+  - scoring
+  - judges
+  - scorecards
+---
+
 # Evaluation Architecture
 
 This document describes how CALIBER turns a dataset and an artifact into scores.

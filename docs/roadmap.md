@@ -1,3 +1,21 @@
+---
+audience:
+  - architect
+  - decision-maker
+doc_type: strategy
+product_area: strategy
+stability: ga
+prerequisites:
+  - Competitive analysis context
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - roadmap
+  - strategy
+  - planning
+  - execution
+---
+
 # CALIBER — Roadmap
 
 *A feasibility-grounded, quarter-by-quarter plan derived from the [competitive analysis](./competitive-analysis.md) and **verified against the actual codebase**. Built for a **two-person team — you (product/strategy lead) and me (AI pair-programmer)** — and scoped to what that team can realistically ship and, above all, *review*.*

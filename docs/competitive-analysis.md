@@ -1,3 +1,21 @@
+---
+audience:
+  - architect
+  - decision-maker
+doc_type: strategy
+product_area: strategy
+stability: ga
+prerequisites:
+  - Decision-maker overview
+reviewed_on: 2026-08-10
+version_applicability: current main branch docs contract
+tags:
+  - strategy
+  - competition
+  - market
+  - positioning
+---
+
 # CALIBER — Competitive Analysis
 
 *Where an MLflow-integrated, self-hosted "agent lifecycle control plane" stands against the visual builders, automation/BPM engines, LLMOps & evaluation platforms, and hyperscaler stacks it is measured against — with every competitor claim grounded in primary sources ([§13](#13-references)).*
