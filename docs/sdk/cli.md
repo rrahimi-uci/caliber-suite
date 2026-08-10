@@ -77,7 +77,7 @@ In JSON mode stdout carries JSON and nothing else. Progress notes, warnings, and
 errors all go to stderr, so this works without a filtering step:
 
 ```bash
-TOKEN=$(caliberctl token create ci --json | jq -r .token)
+TOKEN=$(caliberctl --json token create ci | jq -r .token)
 ```
 
 The sharpest case is `token create`: it prints a human-facing warning that the

@@ -414,16 +414,7 @@ jobs:
       - name: Run unit tests (emits Allure results)
         run: npm test
       - name: Build
-        env:
-          CALIBER_DOCS_STRICT: "1"
         run: npm run build
-      - name: Require committed generated docs to match their sources
-        working-directory: ${{ github.workspace }}
-        run: >-
-          git diff --exit-code --
-          docs-site
-          caliber/caliber-ui/public/docs
-          caliber/src/caliber/ui/docs
       # Convenience hand-off only. The package job rebuilds the SPA when this is
       # absent, so a failed upload costs build minutes rather than a skipped
       # release job. Non-fatal for the same reason as the evidence uploads below:
@@ -450,6 +441,59 @@ jobs:
           path: caliber/caliber-ui/allure-results
           if-no-files-found: warn
           retention-days: 1
+
+  docs-validation:
+    name: Docs validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install CALIBER with CI extras
+        run: uv pip install --system -e ".[${CALIBER_CI_EXTRAS}]"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - name: Regenerate and sync docs from markdown sources
+        working-directory: ${{ github.workspace }}
+        env:
+          CALIBER_DOCS_PYTHON: python
+          CALIBER_DOCS_STRICT: "1"
+        run: node caliber/caliber-ui/scripts/sync-docs.mjs
+      - name: Require committed generated docs to match their sources
+        working-directory: ${{ github.workspace }}
+        run: >-
+          git diff --exit-code --
+          docs-site
+          caliber/caliber-ui/public/docs
+          caliber/src/caliber/ui/docs
+      - name: Run docs contract tests
+        working-directory: ${{ github.workspace }}
+        run: >-
+          python -m pytest
+          caliber/tests/test_docs_generation_contract.py
+          caliber/tests/test_sdk_docs_contract.py
+          caliber/tests/test_cookbook_doc_contract.py
+          caliber/tests/test_cookbook_steps_contract.py
+          caliber/tests/test_design_principles_contract.py
+          caliber/tests/test_ci_published_site_gate_contract.py
+          caliber/tests/test_docs_executable_spec_contract.py
+          --no-cov
+          --junitxml=docs-validation-junit.xml
+      - name: Upload docs validation report
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-validation-junit
+          path: docs-validation-junit.xml
+          if-no-files-found: warn
+          retention-days: 14
 
   cookbook-ui-only:
     name: Cookbook UI-only browser journeys
@@ -660,8 +704,6 @@ jobs:
       - name: Rebuild the SPA
         if: steps.fetch_spa.outcome != 'success'
         working-directory: caliber/caliber-ui
-        env:
-          CALIBER_DOCS_STRICT: "1"
         run: |
           echo "dist artifact unavailable (upload likely blocked by artifact storage); rebuilding from source"
           npm ci

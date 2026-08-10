@@ -29,7 +29,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | `GET /readiness` | Dependency/readiness posture |
 | `GET /capabilities` | Surface discovery and stability tiers |
 | `GET /openapi.json` | Full management API contract |
-| `GET /settings` | Runtime configuration summary |
+| `GET /settings/runtime` | Runtime configuration summary |
 | `GET /me` | Caller identity and effective session information |
 
 ## Representative resource families

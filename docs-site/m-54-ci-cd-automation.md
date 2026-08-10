@@ -12,9 +12,9 @@ where human review is still deliberate rather than accidental.
 | Task | Current repo path |
 | --- | --- |
 | backend and UI quality gate | `make test`, `make test-all` |
-| focused docs rebuild | `node docs-site/build-docs.mjs` |
-| sync served docs copies | `node caliber/caliber-ui/scripts/sync-docs.mjs` |
-| focused docs validation | `caliber/.venv/bin/python -m pytest caliber/tests/test_docs_generation_contract.py caliber/tests/test_sdk_docs_contract.py caliber/tests/test_ci_published_site_gate_contract.py --no-cov` |
+| strict docs rebuild + sync | `CALIBER_DOCS_PYTHON=caliber/.venv/bin/python CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs` |
+| focused docs validation | `caliber/.venv/bin/python -m pytest caliber/tests/test_docs_generation_contract.py caliber/tests/test_sdk_docs_contract.py caliber/tests/test_cookbook_doc_contract.py caliber/tests/test_cookbook_steps_contract.py caliber/tests/test_design_principles_contract.py caliber/tests/test_ci_published_site_gate_contract.py caliber/tests/test_docs_executable_spec_contract.py --no-cov` |
+| CI docs gate | `.github/workflows/ci.yml` → `docs-validation` job (uploads `docs-validation-junit.xml`) |
 
 ## 1. Keep docs and code in the same automation loop
 
@@ -25,10 +25,18 @@ Do not separate docs generation from normal development validation.
 
 For docs and integration changes in this repository:
 
-1. rebuild the docs
-2. sync the served copies
-3. run focused docs contracts
-4. run the broader quality gate that matches the change surface
+1. run the strict docs sync command
+2. run the focused docs contracts
+3. run the broader quality gate that matches the change surface
+
+The current CI pipeline keeps this explicit:
+
+- `ui` builds the SPA from the committed docs copies
+- `docs-validation` is the place that regenerates docs, checks generated-copy
+  parity, and fails on invalid snippets, stale routes, or hallucinated config
+  names
+- Pages publishes only after CI succeeds on `main`, so the public HTML comes
+  from a commit that already passed the docs gate
 
 ## 3. Preserve human review where the product expects it
 

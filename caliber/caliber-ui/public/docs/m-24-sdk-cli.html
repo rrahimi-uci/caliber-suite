@@ -113,7 +113,7 @@ case $? in
 esac</code></pre>
 <h3 id="-json-means-only-json"><code>--json</code> means only JSON<a class="anchor" href="#-json-means-only-json" aria-hidden="true" tabindex="-1">#</a></h3>
 <p>In JSON mode stdout carries JSON and nothing else. Progress notes, warnings, and errors all go to stderr, so this works without a filtering step:</p>
-<pre class="language-bash"><code class="language-bash">TOKEN=$(caliberctl token create ci --json | jq -r .token)</code></pre>
+<pre class="language-bash"><code class="language-bash">TOKEN=$(caliberctl --json token create ci | jq -r .token)</code></pre>
 <p>The sharpest case is <code>token create</code>: it prints a human-facing warning that the secret is shown only once, and that warning must not corrupt the stream a script is reading the secret from.</p>
 <h3 id="nothing-prompts">Nothing prompts<a class="anchor" href="#nothing-prompts" aria-hidden="true" tabindex="-1">#</a></h3>
 <p>A command that would do something irreversible requires <code>--yes</code> and fails without it, rather than asking. A tool that blocks on a TTY hangs a CI job instead of failing it, which is much harder to diagnose.</p>

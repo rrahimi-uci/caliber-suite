@@ -46,7 +46,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test compatibility integration ui cookbook-ui-only compose package security sdk plugin-sdk cli)
+ALL_JOBS=(lint type-check test compatibility integration docs-validation ui cookbook-ui-only compose package security sdk plugin-sdk cli)
 FAST_SKIP=(integration package)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -172,7 +172,7 @@ job_ui() {
     && npm run typecheck \
     && npx eslint . \
     && npx vitest run \
-    && CALIBER_DOCS_STRICT=1 npm run build || return 1
+    && npm run build || return 1
   docs_after=$(
     {
       git -C "$REPO_ROOT" diff --binary -- \
@@ -208,6 +208,21 @@ job_cookbook_ui_only() {
   return "$status"
 }
 
+job_docs_validation() {
+  cd "$REPO_ROOT" || return 1
+  CALIBER_DOCS_PYTHON="$VENV_PY" CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs \
+    || return 1
+  "$VENV_PY" -m pytest \
+    caliber/tests/test_docs_generation_contract.py \
+    caliber/tests/test_sdk_docs_contract.py \
+    caliber/tests/test_cookbook_doc_contract.py \
+    caliber/tests/test_cookbook_steps_contract.py \
+    caliber/tests/test_design_principles_contract.py \
+    caliber/tests/test_ci_published_site_gate_contract.py \
+    caliber/tests/test_docs_executable_spec_contract.py \
+    --no-cov || return 1
+}
+
 # Parse the fully merged development stack using only committed example values. This
 # catches cross-fragment interpolation, include, profile, and dependency defects that
 # per-file YAML parsing cannot see, without printing expanded values into CI logs.
@@ -233,7 +248,7 @@ job_package() {
   # A pre-existing dist/ may come from an older source tree. Rebuild every time
   # so the local package gate has the same commit binding as the remote UI
   # artifact/rebuild path.
-  (cd "$UI_DIR" && CALIBER_DOCS_STRICT=1 npm run build) || return 1
+  (cd "$UI_DIR" && npm run build) || return 1
   rm -rf src/caliber/ui && mkdir -p src/caliber/ui && cp -R caliber-ui/dist/. src/caliber/ui/ || return 1
   "$VENV_PY" -m build --outdir dist . >/dev/null 2>&1 || {
     red "  python -m build failed (is 'build' installed? $VENV_PY -m pip install build)"
@@ -476,6 +491,7 @@ main() {
       test) run_job test job_test ;;
       compatibility) run_job compatibility job_compatibility ;;
       integration) run_job integration job_integration ;;
+      docs-validation) run_job docs-validation job_docs_validation ;;
       ui) run_job ui job_ui ;;
       cookbook-ui-only) run_job cookbook-ui-only job_cookbook_ui_only ;;
       compose) run_job compose job_compose ;;

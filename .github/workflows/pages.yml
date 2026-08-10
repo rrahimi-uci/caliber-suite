@@ -4,9 +4,8 @@ name: Pages
 # want that URL, so this workflow composes both into one artifact rather than
 # letting them race:
 #
-#   /         the CALIBER documentation site (docs-site/), regenerated from root
-#             ARCHITECTURE.md plus docs/**/*.md by the dependency-free builder so
-#             a source edit flows through to the published pages;
+#   /         the CALIBER documentation site (docs-site/), already regenerated
+#             and contract-tested by CI's dedicated docs-validation job;
 #   /tests/   the Allure test report rendered by CI's ``allure-report`` job.
 #
 # Why compose here instead of letting CI publish the report itself: a Pages
@@ -15,9 +14,9 @@ name: Pages
 # keeps pushing the report to the ``gh-pages`` branch — which is its trend-history
 # store, not a served site — and this workflow pulls the rendered artifact in.
 #
-# The corollary is load-bearing: because a deploy replaces everything, a docs-only
-# run must RE-publish the report, or /tests/ 404s until the next CI run. That is
-# what the fallback lookup in "Stage the test report" is for.
+# The corollary is load-bearing: because a deploy replaces everything, every
+# publish must RE-publish the report, or /tests/ 404s until the next CI run.
+# That is what the fallback lookup in "Stage the test report" is for.
 #
 # Size, measured rather than assumed: docs-site is ~26 MB (20 MB of it the overview
 # video) and the report is ~126 MB across ~9k files — 105 MB of per-test JSON under
@@ -26,18 +25,8 @@ name: Pages
 # and the trend history is the part with no upper bound.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "ARCHITECTURE.md"
-      - "docs/**"
-      - "docs-site/**"
-      - "caliber/caliber-ui/scripts/sync-docs.mjs"
-      - "caliber/caliber-ui/public/docs/**"
-      - "caliber/src/caliber/ui/docs/**"
-      - ".github/workflows/pages.yml"
-  # Republish after CI finishes on main, so a fresh test report reaches /tests/
-  # without waiting for a docs change.
+  # Publish only after CI succeeds on main, so Pages never serves a docs commit
+  # that failed the docs-validation gate.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -68,21 +57,6 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-      - name: Regenerate and sync docs from markdown sources
-        env:
-          CALIBER_DOCS_STRICT: "1"
-        run: node caliber/caliber-ui/scripts/sync-docs.mjs
-      # Runs BEFORE the report is staged, so the tree it checks is the committed
-      # one. Staging into docs-site/tests/ after this point cannot fail it.
-      - name: Require committed generated docs to match their sources
-        run: >-
-          git diff --exit-code --
-          docs-site
-          caliber/caliber-ui/public/docs
-          caliber/src/caliber/ui/docs
       - name: Stage the test report at /tests/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,8 +66,8 @@ jobs:
           set -uo pipefail
           run_id="${TRIGGER_RUN_ID:-}"
           if [ -z "$run_id" ]; then
-            # Docs push or manual dispatch: re-publish the newest report there is,
-            # because deploying without it would delete the live /tests/.
+            # Manual dispatch: re-publish the newest report there is, because
+            # deploying without it would delete the live /tests/.
             run_id=$(gh run list --workflow=ci.yml --branch main \
               --status success --limit 1 --json databaseId -q '.[0].databaseId')
           fi

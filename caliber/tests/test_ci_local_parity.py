@@ -129,7 +129,7 @@ def test_remote_and_local_package_gates_require_index_and_assets() -> None:
 def test_local_package_gate_always_rebuilds_the_spa() -> None:
     """A stale ``dist/`` must never be accepted merely because index.html exists."""
     text = SCRIPT.read_text()
-    rebuild = '(cd "$UI_DIR" && CALIBER_DOCS_STRICT=1 npm run build) || return 1'
+    rebuild = '(cd "$UI_DIR" && npm run build) || return 1'
     stage = "rm -rf src/caliber/ui && mkdir -p src/caliber/ui"
     assert rebuild in text
     assert text.index(rebuild) < text.index(stage)
@@ -153,8 +153,30 @@ def test_remote_and_local_backend_gates_use_the_grouped_xdist_scheduler() -> Non
 
 
 def test_docs_sources_are_not_excluded_from_pull_request_ci() -> None:
-    """The UI prebuild consumes ``docs/**`` and checks generated-copy parity."""
+    """The docs-validation gate reads ``docs/**`` and regenerates committed copies."""
     assert '- "docs/**"' not in WORKFLOW.read_text()
+
+
+def test_docs_validation_is_the_explicit_strict_docs_gate() -> None:
+    """Docs regeneration should fail in the dedicated docs job, not hide in UI packaging."""
+    workflow = WORKFLOW.read_text()
+    script = SCRIPT.read_text()
+    required_remote = (
+        'name: Docs validation',
+        'CALIBER_DOCS_PYTHON: python',
+        'CALIBER_DOCS_STRICT: "1"',
+        "node caliber/caliber-ui/scripts/sync-docs.mjs",
+        "caliber/tests/test_docs_executable_spec_contract.py",
+    )
+    for fragment in required_remote:
+        assert fragment in workflow
+
+    required_local = (
+        'CALIBER_DOCS_PYTHON="$VENV_PY" CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs',
+        "caliber/tests/test_docs_executable_spec_contract.py",
+    )
+    for fragment in required_local:
+        assert fragment in script
 
 
 def test_remote_and_local_compose_gates_validate_the_merged_quiet_model() -> None:
