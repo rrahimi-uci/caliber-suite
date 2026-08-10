@@ -117,6 +117,26 @@
 <p>Everything can come from the environment, so a CI job needs no argument plumbing of its own:</p>
 <div class="table-wrap"><table><thead><tr><th>Variable</th><th>Meaning</th></tr></thead><tbody><tr><td><code>CALIBER_BASE_URL</code></td><td>deployment URL</td></tr><tr><td><code>CALIBER_TOKEN</code></td><td>personal access token</td></tr><tr><td><code>CALIBER_PROJECT</code></td><td>active project/workspace, sent as <code>X-CALIBER-Project</code></td></tr><tr><td><code>CALIBER_USER</code></td><td>trusted-header identity, only for <code>trusted_header</code> deployments</td></tr></tbody></table></div>
 <p>An explicit argument always wins over the environment, and a token always wins over a trusted header — the token is a real credential and the header is only an assertion, so silently preferring the weaker one would be the wrong surprise.</p>
+<p>If you are wiring the SDK into CI/CD, the configuration usually lands in a YAML workflow rather than an interactive shell:</p>
+<pre class="language-yaml"><code class="language-yaml"><span class="tok-key">name</span><span class="tok-punctuation">:</span> release-readiness
+<span class="tok-key">on</span><span class="tok-punctuation">:</span>
+  workflow_dispatch<span class="tok-punctuation">:</span>
+
+<span class="tok-key">jobs</span><span class="tok-punctuation">:</span>
+  score-release<span class="tok-punctuation">:</span>
+    runs-on<span class="tok-punctuation">:</span> ubuntu-latest
+    steps<span class="tok-punctuation">:</span>
+      - <span class="tok-key">uses</span><span class="tok-punctuation">:</span> actions/checkout@v4
+      - <span class="tok-key">uses</span><span class="tok-punctuation">:</span> actions/setup-python@v5
+        with<span class="tok-punctuation">:</span>
+          python-version<span class="tok-punctuation">:</span> <span class="tok-string">"3.12"</span>
+      - <span class="tok-key">run</span><span class="tok-punctuation">:</span> pip install caliber-sdk
+      - <span class="tok-key">env</span><span class="tok-punctuation">:</span>
+          CALIBER_BASE_URL<span class="tok-punctuation">:</span> https<span class="tok-punctuation">:</span>//caliber.example.com
+          CALIBER_TOKEN<span class="tok-punctuation">:</span> $<span class="tok-punctuation">{</span><span class="tok-punctuation">{</span> secrets.CALIBER_TOKEN <span class="tok-punctuation">}</span><span class="tok-punctuation">}</span>
+          CALIBER_PROJECT<span class="tok-punctuation">:</span> release-governance
+        run<span class="tok-punctuation">:</span> python scripts/score_release.py</code></pre>
+<p>That example stays deliberately small: the point is that the SDK can be dropped into a normal build job without a server-side Python environment.</p>
 <h2 id="authentication">Authentication<a class="anchor" href="#authentication" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Personal access tokens are the supported credential for automation. Sessions are the wrong tool for a script: they come from password login, expire on a human timescale, and carry the user's full authority.</p>
 <figure class="code-example" data-example-src="sdk/caliber-sdk/examples/tokens.py#issue_scoped_token"><pre class="language-python"><code class="language-python"><span class="tok-keyword">def</span> <span class="tok-function">issue_scoped_token</span><span class="tok-punctuation">(</span>caliber<span class="tok-punctuation">:</span> CaliberClient<span class="tok-punctuation">,</span> <span class="tok-operator">*</span><span class="tok-punctuation">,</span> name<span class="tok-punctuation">:</span> str <span class="tok-operator">=</span> <span class="tok-string">"ci"</span><span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
@@ -195,6 +215,18 @@
 <p>A validation failure prints the field <em>and</em> the server's reason:</p>
 <pre class="language-text"><code class="language-text">[400] request body validation failed (POST .../judges) request_id=… —
 instructions: instructions must reference at least one evaluation variable</code></pre>
+<p>The structured body behind that exception is JSON, and the SDK preserves it on the typed error object:</p>
+<pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
+  <span class="tok-key">"error_code"</span><span class="tok-punctuation">:</span> <span class="tok-string">"validation_error"</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"message"</span><span class="tok-punctuation">:</span> <span class="tok-string">"request body validation failed"</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"request_id"</span><span class="tok-punctuation">:</span> <span class="tok-string">"req_123"</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"fields"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span>
+    <span class="tok-punctuation">{</span>
+      <span class="tok-key">"field"</span><span class="tok-punctuation">:</span> <span class="tok-string">"instructions"</span><span class="tok-punctuation">,</span>
+      <span class="tok-key">"message"</span><span class="tok-punctuation">:</span> <span class="tok-string">"instructions must reference at least one evaluation variable"</span>
+    <span class="tok-punctuation">}</span>
+  <span class="tok-punctuation">]</span>
+<span class="tok-punctuation">}</span></code></pre>
 <h2 id="anything-not-yet-modelled">Anything not yet modelled<a class="anchor" href="#anything-not-yet-modelled" aria-hidden="true" tabindex="-1">#</a></h2>
 <p><code>client.raw</code> reaches any endpoint under <code>/ajax-api/2.0/mlflow/caliber</code>:</p>
 <pre class="language-python"><code class="language-python">caliber<span class="tok-punctuation">.</span>raw<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"/observability/traces"</span><span class="tok-punctuation">)</span>

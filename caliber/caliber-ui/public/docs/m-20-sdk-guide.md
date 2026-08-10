@@ -61,6 +61,33 @@ An explicit argument always wins over the environment, and a token always wins
 over a trusted header — the token is a real credential and the header is only
 an assertion, so silently preferring the weaker one would be the wrong surprise.
 
+If you are wiring the SDK into CI/CD, the configuration usually lands in a YAML
+workflow rather than an interactive shell:
+
+```yaml
+name: release-readiness
+on:
+  workflow_dispatch:
+
+jobs:
+  score-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install caliber-sdk
+      - env:
+          CALIBER_BASE_URL: https://caliber.example.com
+          CALIBER_TOKEN: ${{ secrets.CALIBER_TOKEN }}
+          CALIBER_PROJECT: release-governance
+        run: python scripts/score_release.py
+```
+
+That example stays deliberately small: the point is that the SDK can be dropped
+into a normal build job without a server-side Python environment.
+
 ## Authentication
 
 Personal access tokens are the supported credential for automation. Sessions
@@ -165,6 +192,23 @@ A validation failure prints the field *and* the server's reason:
 ```text
 [400] request body validation failed (POST .../judges) request_id=… —
 instructions: instructions must reference at least one evaluation variable
+```
+
+The structured body behind that exception is JSON, and the SDK preserves it on
+the typed error object:
+
+```json
+{
+  "error_code": "validation_error",
+  "message": "request body validation failed",
+  "request_id": "req_123",
+  "fields": [
+    {
+      "field": "instructions",
+      "message": "instructions must reference at least one evaluation variable"
+    }
+  ]
+}
 ```
 
 ## Anything not yet modelled
