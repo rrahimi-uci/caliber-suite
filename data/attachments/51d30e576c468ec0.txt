@@ -1,0 +1,1 @@
+{"t":"2026-08-10T21:33:34.311Z","severity":"WARNING","logger":"caliber.trace_client","message":"trace fetch failed for T1 (tracking server down); skipping trace evidence"}

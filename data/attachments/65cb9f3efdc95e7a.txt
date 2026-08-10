@@ -1,0 +1,27 @@
+INFO     caliber:server.py:403 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:245 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:656 CALIBER assistant engine: fake (configured=fake)
+INFO     botocore.credentials:credentials.py:1252 Found credentials in environment variables.
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/versions "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-7bc7ac47/sources "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-7bc7ac47/chunks?limit=50 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-7bc7ac47/entities "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-7bc7ac47/relationships "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-7bc7ac47/graph "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-7bc7ac47/graph?source=age "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/runs "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-runs/KBR-4fe89275/events "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/versions "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge/query "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge/query "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/versions/KBV-7bc7ac47/activate "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/rollback "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/versions/KBV-7bc7ac47/activate "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/versions/KBV-b5c7873b/activate "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/versions/KBV-b5c7873b/activate "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-70eb531f/rollback "HTTP/1.1 200 OK"
