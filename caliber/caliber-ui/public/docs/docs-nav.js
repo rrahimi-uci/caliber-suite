@@ -125,6 +125,10 @@ window.DOCS_NAV = [
       {
         "href": "m-21-sdk-reference.html",
         "label": "Python SDK reference"
+      },
+      {
+        "href": "m-22-sdk-beta.html",
+        "label": "Beta and agentic surfaces"
       }
     ]
   },

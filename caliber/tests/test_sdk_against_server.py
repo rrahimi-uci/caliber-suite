@@ -201,3 +201,82 @@ def test_the_sdk_can_read_the_served_openapi_document(sdk: object) -> None:
     document = sdk.openapi()  # type: ignore[attr-defined]
     assert document["openapi"] == "3.0.3"
     assert document["paths"]
+
+
+# --- beta surfaces --------------------------------------------------------
+#
+# M3 wires thirteen beta route groups into the client. Their paths were read
+# from the served OpenAPI document, which is the right source but not proof: a
+# path can exist and still be the wrong method, or return a shape the SDK
+# decodes from the wrong key. These drive them.
+
+
+def test_the_sdk_lists_every_beta_surface_it_models(sdk: object) -> None:
+    """A smoke pass over the beta tree against real routes.
+
+    Empty results are the honest answer for a fresh fixture database. What is
+    proved is that each path resolves with the method the SDK uses and decodes
+    without raising — the failure mode that put ``GET /workflow-runs`` and
+    ``GET /services`` in this suite's history.
+    """
+    for call in (
+        sdk.jobs.list,  # type: ignore[attr-defined]
+        sdk.review_queues.list,  # type: ignore[attr-defined]
+        sdk.mcp_servers.list,  # type: ignore[attr-defined]
+        sdk.knowledge_bases.list,  # type: ignore[attr-defined]
+        sdk.aria.plans,  # type: ignore[attr-defined]
+        sdk.releases.candidates,  # type: ignore[attr-defined]
+        sdk.audit.list,  # type: ignore[attr-defined]
+        sdk.cookbooks.list,  # type: ignore[attr-defined]
+    ):
+        assert isinstance(call(), list)
+
+
+def test_the_sdk_reads_cookbook_readiness_from_the_real_catalog(sdk: object) -> None:
+    """The catalog is seeded, so this asserts on content rather than shape.
+
+    Readiness is computed server-side from the live environment, so a recipe
+    that is not ready must name what is unmet — that list is the whole value of
+    the field, and a client that dropped it would leave a caller with a badge
+    and no cause.
+    """
+    recipes = sdk.cookbooks.list()  # type: ignore[attr-defined]
+    assert recipes, "the cookbook catalog ships with the product"
+    assert all(recipe.id and recipe.title for recipe in recipes)
+
+    for recipe in recipes:
+        if not recipe.is_ready:
+            assert recipe.unmet_checks, f"{recipe.id} is not ready but names no unmet check"
+            assert all(check.get("label") for check in recipe.unmet_checks)
+
+
+def test_the_secret_store_fails_closed_rather_than_serving_plaintext(sdk: object) -> None:
+    """Two acceptable answers, and neither one is a secret value.
+
+    The fixture app has no ``CALIBER_SECRET_ENCRYPTION_KEY_SOURCE``, so the
+    store refuses to serve at all — 503 with an actionable message. That is the
+    property worth pinning: an unconfigured store must not degrade into
+    unencrypted storage. Where a key *is* configured the listing must still
+    carry only names and metadata, so both branches are asserted here and the
+    test does not depend on which environment it runs in.
+
+    Checked against the raw payload rather than the decoded model, because a
+    decoder that silently dropped ``value`` would hide a real leak.
+    """
+    try:
+        payload = sdk.raw.get("/secrets")  # type: ignore[attr-defined]
+    except caliber_sdk.CaliberAPIError as exc:
+        assert exc.status_code == 503
+        assert "CALIBER_SECRET_ENCRYPTION_KEY_SOURCE" in (exc.detail or "")
+        return
+
+    entries = payload.get("secrets") if isinstance(payload, dict) else payload
+    for entry in entries or []:
+        assert "value" not in entry, "a secret value reached the client"
+
+
+def test_the_sdk_reads_a_trace_listing_and_an_audit_page(sdk: object) -> None:
+    """Observability and audit are read-only surfaces, so listing is the flow."""
+    assert isinstance(sdk.observability.traces(), list)  # type: ignore[attr-defined]
+    entries = sdk.audit.list(limit=5)  # type: ignore[attr-defined]
+    assert len(entries) <= 5

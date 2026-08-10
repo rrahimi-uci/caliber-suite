@@ -1,0 +1,152 @@
+# Beta and agentic surfaces
+
+The GA surfaces in the [SDK guide](m-20-sdk-guide.html) are stable: their paths
+and payload keys will not change without a deprecation. This page covers the
+thirteen **beta** surfaces — integrations, data, operations, and the agentic
+loop — which are complete and tested but whose shapes may still move.
+
+Ask the deployment rather than assuming, because the tier is a property of the
+running server and not of the SDK version:
+
+```python
+tier = caliber.capabilities_api.get().tier_of("aria")   # "beta"
+```
+
+Every code block below is extracted from
+[`sdk/caliber-sdk/examples/`](../../sdk/caliber-sdk/examples/) at build time, and
+the SDK test suite executes those functions.
+
+## Stopped is not finished
+
+This is the one idea to carry into every beta surface, and the reason the
+waiters here behave differently from `workflows.runs.wait()`.
+
+A governed system stops to ask people things. A refinement job that produced a
+candidate has stopped; it will never advance on its own, because applying the
+candidate is a human decision. An Aria plan that paused has stopped for the same
+reason. Neither is *finished*, and neither is *running*.
+
+A waiter that treated those states as transient would spend its whole timeout
+waiting for the expected outcome and then raise a timeout error — the worst
+possible reading of a successful result. So the models say which is which:
+
+| Surface | Property | True when |
+| --- | --- | --- |
+| `Job` | `is_terminal` | the job will do no more work, ever |
+| `Job` | `awaits_human` | `candidate_ready`, `awaiting_approval`, `paused` |
+| `AriaPlan` | `needs_you` | `paused` — a question is outstanding |
+| `WorkflowRun` | `is_terminal` | succeeded, failed, or cancelled |
+
+`jobs.wait()` and `aria.wait_for_plan()` both return as soon as their subject
+stops for a person. Check the property, act on it, and call the waiter again if
+the answer resumes work:
+
+```python
+job = caliber.jobs.wait(job_id, timeout=600)
+if job.awaits_human:
+    caliber.jobs.apply(job.job_id)     # the decision, made explicitly
+```
+
+## The agentic loop
+
+Aria takes an intent, proposes a plan, and executes it only once someone
+approves. The approval is a distinct call, not a flag on the request, because
+"the script kept going" is not a record that anyone agreed:
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#plan_from_intent
+```
+
+`aria.capabilities()` reports what Aria may do in this deployment — a plan can
+be refused at execution time by policy, so reading capabilities first turns a
+runtime rejection into a decision you made.
+
+## Cookbooks
+
+Cookbooks are complete, installable example workflows. Each one reports
+**readiness** computed from the live environment: whether a model provider is
+configured, whether runtime approvals exist, whether the connectors a recipe
+needs are connected.
+
+Check readiness before installing, and read the check list rather than the
+badge — the status alone names no cause:
+
+```python-example
+sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook
+```
+
+An installed cookbook arrives **paused**, never running. The manifest can carry
+model bindings, connector bindings, and side-effecting tools, and an operator
+should see those before anything executes.
+
+## Integrations
+
+| Resource | What it is |
+| --- | --- |
+| `caliber.mcp_servers` | Registered MCP servers; discover and invoke their tools |
+| `caliber.gateway` | The governed egress path — policy, budgets, and audit |
+| `caliber.knowledge_bases` | Retrieval corpora with versioned activation |
+| `caliber.object_store` | Buckets and objects for large artifacts |
+
+Two distinctions the method names alone will not tell you.
+
+**`McpServer.is_connected` is history, not reachability.** It means the last
+connection attempt succeeded, which is a fact about the past. If you need to
+know whether a server is up *now*, probe it:
+
+```python
+if not caliber.mcp_servers.test_connection(server_id)["ok"]:
+    ...
+```
+
+**`invoke_tool` goes through CALIBER, not around it.** Calling the MCP server
+directly would work and would also bypass policy checks, budget accounting, and
+the audit record. The governed path is the point of the method existing.
+
+**`object_store` is not `projects.files`.** Object store is raw bucket storage
+addressed by key. Project files are registry entries with lineage, checksums,
+and workflow attribution. `object_store.import_object()` is the bridge: it
+promotes a stored object into the managed registry.
+
+## Operations
+
+| Resource | What it is |
+| --- | --- |
+| `caliber.jobs` | Durable background work — refinement, calibration, reporting |
+| `caliber.review_queues` | Human labelling, and the alignment examples it produces |
+| `caliber.releases` | Candidates, evidence, waivers, signoff |
+| `caliber.observability` | Traces, experiments, metrics |
+| `caliber.audit` | The audit log |
+| `caliber.events` | Server-sent events |
+| `caliber.secrets` | Write-only secret references |
+
+`releases.sign()` requires a `rationale` as a positional-by-keyword argument
+rather than an option, because a signoff without a reason is not evidence that
+anyone decided anything. Waivers are admin-only and audited for the same
+reason — a waiver is a decision someone owns, not a way to raise a score.
+
+`secrets` has no method that returns a value, and there is no server route that
+would serve one. The SDK models names and metadata only. An unconfigured secret
+store fails closed with a `503` naming the missing key source; it never degrades
+into unencrypted storage.
+
+`events.stream()` yields **unparsed** SSE lines:
+
+```python
+for line in caliber.events.stream():
+    if line.startswith("data:"):
+        payload = json.loads(line[5:])
+```
+
+Leaving them unparsed is deliberate. The event vocabulary grows as the server
+grows, and a decoder compiled into this SDK would reject events added after it
+shipped — exactly the case where a consumer most needs to see them.
+
+## What beta means in practice
+
+- The paths and payloads may change in a minor release. The
+  [reference](m-21-sdk-reference.html) records the tier per surface.
+- Unknown response fields are kept in `model.extra`, so a newer server does not
+  break an older client.
+- `client.raw` reaches anything not yet modelled, with the same auth, retries,
+  and error mapping as the typed surfaces.

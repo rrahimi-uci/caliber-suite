@@ -312,6 +312,41 @@ class Transport:
             )
         return raw.content
 
+    def stream_lines(
+        self, path: str, *, params: Mapping[str, Any] | None = None, timeout: float | None = None
+    ) -> Iterator[str]:
+        """Yield lines from a server-sent-events endpoint.
+
+        Streaming needs its own path: the ordinary request reads the whole body
+        before returning, which for an endpoint that never ends means blocking
+        forever. No default timeout is applied either — a stream staying open is
+        the success case, not a hang.
+        """
+        url = self.url_for(path)
+        options: dict[str, Any] = {}
+        if timeout is not None:
+            options["timeout"] = timeout
+        try:
+            with self._client.stream(
+                "GET",
+                url,
+                params=dict(params) if params else None,
+                headers={**self._headers("GET", None), "Accept": "text/event-stream"},
+                **options,
+            ) as response:
+                if response.status_code >= 400:
+                    response.read()
+                    raise error_for_response(
+                        status_code=response.status_code,
+                        payload=_decode(response),
+                        method="GET",
+                        url=url,
+                        request_id=response.headers.get("X-Request-Id"),
+                    )
+                yield from response.iter_lines()
+        except httpx.HTTPError as exc:
+            raise CaliberTransportError(f"GET {url} stream failed: {exc}") from exc
+
     def paginate(
         self, path: str, *, params: Mapping[str, Any] | None = None, limit: int = 100
     ) -> Iterator[Any]:

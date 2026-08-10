@@ -34,7 +34,9 @@ def _referenced() -> list[tuple[str, str]]:
 
 def test_the_guide_embeds_examples_rather_than_inlining_them() -> None:
     referenced = _referenced()
-    assert len(referenced) >= 5, (
+    # A ratchet, not a floor with slack: raise it when a page adds an example,
+    # so "the docs stopped embedding one" is a failure rather than a margin.
+    assert len(referenced) >= 7, (
         f"only {len(referenced)} embedded examples; a page has probably reverted "
         "to a hand-written ```python block, which cannot be kept honest"
     )

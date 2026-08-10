@@ -20,15 +20,28 @@ import httpx
 from .auth import AuthProvider, NoAuth, TokenAuth, TrustedHeaderAuth
 from .errors import CaliberConfigError
 from .resources import (
+    AriaAPI,
+    AuditAPI,
     AuthAPI,
     CapabilitiesAPI,
+    CookbooksAPI,
     EvalDatasetsAPI,
     EvaluationsAPI,
+    EventsAPI,
+    GatewayAPI,
+    JobsAPI,
     JudgesAPI,
+    KnowledgeBasesAPI,
+    McpServersAPI,
     MeAPI,
+    ObjectStoreAPI,
+    ObservabilityAPI,
     ProjectsAPI,
     PromptsAPI,
     RawAPI,
+    ReleasesAPI,
+    ReviewQueuesAPI,
+    SecretsAPI,
     SettingsAPI,
     SkillsAPI,
     ToolsAPI,
@@ -90,6 +103,21 @@ class CaliberClient:
         self.datasets = EvalDatasetsAPI(self._transport)
         self.judges = JudgesAPI(self._transport)
         self.evaluations = EvaluationsAPI(self._transport)
+        #: Beta surfaces. Real and supported, but their shapes are still
+        #: moving -- check ``client.stability`` before depending on one.
+        self.mcp_servers = McpServersAPI(self._transport)
+        self.gateway = GatewayAPI(self._transport)
+        self.knowledge_bases = KnowledgeBasesAPI(self._transport)
+        self.object_store = ObjectStoreAPI(self._transport)
+        self.jobs = JobsAPI(self._transport)
+        self.review_queues = ReviewQueuesAPI(self._transport)
+        self.aria = AriaAPI(self._transport)
+        self.releases = ReleasesAPI(self._transport)
+        self.observability = ObservabilityAPI(self._transport)
+        self.audit = AuditAPI(self._transport)
+        self.events = EventsAPI(self._transport)
+        self.cookbooks = CookbooksAPI(self._transport)
+        self.secrets = SecretsAPI(self._transport)
 
     @staticmethod
     def _auth_from(token: str | None, user: str | None, proxy_secret: str | None) -> AuthProvider:

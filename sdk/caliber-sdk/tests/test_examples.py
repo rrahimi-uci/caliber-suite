@@ -18,6 +18,7 @@ import httpx
 import pytest
 
 from caliber_sdk import CaliberClient
+from examples.agentic import install_ready_cookbook, plan_from_intent
 from examples.evaluation import build_and_score
 from examples.prompt_lifecycle import prompt_lifecycle
 from examples.quickstart import quickstart
@@ -182,3 +183,79 @@ def test_workflow_example_reports_a_failed_run_rather_than_crashing() -> None:
         result = run_and_wait(caliber, workflow_id="WF-1")
 
     assert result == {"run_id": "WR-1", "status": "failed"}
+
+
+# --- agentic examples ------------------------------------------------------
+
+
+def test_plan_example_approves_only_when_the_plan_asks() -> None:
+    """The human decision stays explicit rather than implied by continuing."""
+    states = iter(["planning", "paused"])
+    seen: list[str] = []
+
+    def record(request: httpx.Request) -> Any:
+        seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
+        return {"plan_id": "PLAN-1", "goal": "g", "status": "completed", "step_count": 3}
+
+    caliber = stub_server(
+        {
+            "POST /aria/plans": record,
+            "GET /aria/plans/PLAN-1": lambda _r: {
+                "plan_id": "PLAN-1",
+                "goal": "g",
+                "status": next(states),
+            },
+            "POST /aria/plans/PLAN-1/approve": record,
+            "POST /aria/plans/PLAN-1/execute": record,
+        }
+    )
+    with caliber:
+        result = plan_from_intent(caliber, "create a judge and a test set")
+
+    assert result["status"] == "completed"
+    assert "POST /aria/plans/PLAN-1/approve" in seen
+    assert "POST /aria/plans/PLAN-1/execute" in seen
+
+
+def test_cookbook_example_reports_blockers_instead_of_failing() -> None:
+    """Readiness is checked before installing, not discovered by a 400."""
+    caliber = stub_server(
+        {
+            "GET /cookbooks": {
+                "recipes": [
+                    {
+                        "id": "03",
+                        "title": "Policy-Safe",
+                        "readiness": {
+                            "status": "configuration_required",
+                            "checks": [
+                                {"label": "Runtime approvals", "status": "configuration_required"}
+                            ],
+                        },
+                    }
+                ]
+            }
+        }
+    )
+    with caliber:
+        result = install_ready_cookbook(caliber)
+
+    assert result["installed"] is None
+    assert result["blocked_by"] == {"03": ["Runtime approvals"]}
+
+
+def test_cookbook_example_installs_a_ready_recipe_paused() -> None:
+    caliber = stub_server(
+        {
+            "GET /cookbooks": {
+                "recipes": [
+                    {"id": "02", "title": "Precision Skills", "readiness": {"status": "ready"}}
+                ]
+            },
+            "POST /cookbooks/02/install": {"workflow": {"status": "paused"}},
+        }
+    )
+    with caliber:
+        result = install_ready_cookbook(caliber)
+
+    assert result == {"installed": "02", "workflow_status": "paused"}
