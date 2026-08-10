@@ -24,8 +24,11 @@ from .resources import (
     CapabilitiesAPI,
     MeAPI,
     ProjectsAPI,
+    PromptsAPI,
     RawAPI,
     SettingsAPI,
+    SkillsAPI,
+    ToolsAPI,
 )
 from .transport import Transport
 
@@ -56,9 +59,7 @@ class CaliberClient:
     ) -> None:
         resolved_url = (base_url or os.environ.get(ENV_BASE_URL) or "").strip()
         if not resolved_url:
-            raise CaliberConfigError(
-                f"base_url is required (pass it, or set {ENV_BASE_URL})"
-            )
+            raise CaliberConfigError(f"base_url is required (pass it, or set {ENV_BASE_URL})")
 
         self._transport = Transport(
             resolved_url,
@@ -78,11 +79,12 @@ class CaliberClient:
         self.capabilities_api = CapabilitiesAPI(self._transport)
         self.settings = SettingsAPI(self._transport)
         self.projects = ProjectsAPI(self._transport)
+        self.prompts = PromptsAPI(self._transport)
+        self.skills = SkillsAPI(self._transport)
+        self.tools = ToolsAPI(self._transport)
 
     @staticmethod
-    def _auth_from(
-        token: str | None, user: str | None, proxy_secret: str | None
-    ) -> AuthProvider:
+    def _auth_from(token: str | None, user: str | None, proxy_secret: str | None) -> AuthProvider:
         """Pick a credential, preferring the explicit one.
 
         A token beats a trusted header when both are present: the token is a

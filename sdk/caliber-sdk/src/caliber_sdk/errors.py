@@ -101,8 +101,7 @@ class CaliberValidationError(CaliberAPIError):
         if not self.errors:
             return super().__str__()
         fields = ", ".join(
-            ".".join(str(part) for part in item.get("loc", [])) or "<body>"
-            for item in self.errors
+            ".".join(str(part) for part in item.get("loc", [])) or "<body>" for item in self.errors
         )
         return f"{super().__str__()} — invalid: {fields}"
 

@@ -255,14 +255,14 @@ Scope:
 
 Scope:
 
-- [ ] implement `prompts.py`
-- [ ] implement `skills.py`
-- [ ] implement `tools.py`
-- [ ] include the cookbook-critical typed methods already identified in the plan
+- [x] implement `prompts.py`
+- [x] implement `skills.py`
+- [x] implement `tools.py`
+- [x] include the cookbook-critical typed methods already identified in the plan (render, selection, versions, calibration + waiter)
 
 Validation:
 
-- [ ] prompt/skill/tool SDK tests
+- [x] prompt/skill/tool SDK tests (10 new; 76 total) + live skill round trip against the server
 - [ ] local example script for prompt lifecycle
 
 ### M2-PR3 — Workflow/service surfaces

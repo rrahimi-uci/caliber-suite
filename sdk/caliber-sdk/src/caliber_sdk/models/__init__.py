@@ -1,6 +1,15 @@
 """Shared models for the CALIBER SDK."""
 
 from ._decode import decode, decode_list
+from .assets import (
+    CalibrationJob,
+    Prompt,
+    Skill,
+    SkillRender,
+    SkillSelection,
+    SkillVersion,
+    Tool,
+)
 from .common import STABILITY_BETA, STABILITY_GA, STABILITY_INTERNAL, Page, Stability
 from .core import (
     Account,
@@ -24,6 +33,7 @@ __all__ = [
     "STABILITY_GA",
     "STABILITY_INTERNAL",
     "Account",
+    "CalibrationJob",
     "Capabilities",
     "ErrorBody",
     "FieldError",
@@ -35,10 +45,16 @@ __all__ = [
     "Project",
     "ProjectFile",
     "ProjectFolder",
+    "Prompt",
     "RuntimeSettings",
     "RuntimeSettingsSummary",
     "SessionInfo",
+    "Skill",
+    "SkillRender",
+    "SkillSelection",
+    "SkillVersion",
     "Stability",
+    "Tool",
     "WorkflowRunCapabilities",
     "decode",
     "decode_list",

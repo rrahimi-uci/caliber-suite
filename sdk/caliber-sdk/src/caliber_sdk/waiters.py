@@ -24,8 +24,19 @@ T = TypeVar("T")
 #: common case needs no argument, and exported so callers can extend it rather
 #: than retype it.
 TERMINAL_STATES: frozenset[str] = frozenset(
-    {"succeeded", "success", "completed", "complete", "failed", "error", "cancelled", "canceled",
-     "rejected", "timed_out", "expired"}
+    {
+        "succeeded",
+        "success",
+        "completed",
+        "complete",
+        "failed",
+        "error",
+        "cancelled",
+        "canceled",
+        "rejected",
+        "timed_out",
+        "expired",
+    }
 )
 
 #: Terminal states that mean the work did not succeed.

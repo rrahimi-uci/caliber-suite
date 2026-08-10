@@ -116,6 +116,39 @@ def test_the_sdk_round_trips_a_project_and_a_file(sdk: object) -> None:
     assert sdk.projects.files.download(project.project_id, record.file_id) == b"hello"  # type: ignore[attr-defined]
 
 
+def test_the_sdk_lists_the_asset_families_from_the_real_server(sdk: object) -> None:
+    """Prompts, skills, and tools decode against the live routes.
+
+    Empty registries are the honest case for a fresh fixture database; what is
+    being proved is that the paths resolve and the payloads decode, not that
+    seed data exists.
+    """
+    assert isinstance(sdk.prompts.list(), list)  # type: ignore[attr-defined]
+    assert isinstance(sdk.skills.list(), list)  # type: ignore[attr-defined]
+    assert isinstance(sdk.tools.list(), list)  # type: ignore[attr-defined]
+
+
+def test_the_sdk_round_trips_a_skill(sdk: object) -> None:
+    """Create, render, and version a skill through the typed surface."""
+    skill = sdk.skills.create(  # type: ignore[attr-defined]
+        "sdk-integration-skill",
+        content="Handle {{topic}} requests carefully.",
+        owner="@sdk-tests",
+        summary="Integration fixture",
+    )
+    assert skill.skill_id and skill.name == "sdk-integration-skill"
+
+    rendered = sdk.skills.render(skill.skill_id, variables={"topic": "refund"})  # type: ignore[attr-defined]
+    assert "refund" in rendered.rendered_content
+    assert rendered.unresolved_variables == []
+
+    unresolved = sdk.skills.render(skill.skill_id, variables={})  # type: ignore[attr-defined]
+    assert unresolved.unresolved_variables == ["topic"]
+
+    versions = sdk.skills.versions(skill.skill_id)  # type: ignore[attr-defined]
+    assert all(v.skill_id == skill.skill_id for v in versions)
+
+
 def test_the_sdk_raises_typed_errors_from_real_failures(sdk: object) -> None:
     """The exception mapping is only meaningful against real status codes."""
     with pytest.raises(caliber_sdk.CaliberNotFoundError) as caught:

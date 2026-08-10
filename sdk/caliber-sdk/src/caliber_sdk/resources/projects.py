@@ -88,7 +88,11 @@ class ProjectsAPI(Resource):
         return decode(Project, self._post("/projects", json=body))
 
     def update(
-        self, project_id: str, *, name: str | None = None, description: str | None = None,
+        self,
+        project_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
         status: str | None = None,
     ) -> Project:
         body: dict[str, Any] = {}

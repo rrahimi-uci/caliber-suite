@@ -1,6 +1,7 @@
 """Resource modules — typed façades over route groups."""
 
 from ._base import Resource
+from .assets import PromptsAPI, SkillsAPI, ToolsAPI
 from .auth import AccountsAPI, AuthAPI, TokensAPI
 from .projects import ProjectFilesAPI, ProjectsAPI
 from .raw import RawAPI
@@ -13,8 +14,11 @@ __all__ = [
     "MeAPI",
     "ProjectFilesAPI",
     "ProjectsAPI",
+    "PromptsAPI",
     "RawAPI",
     "Resource",
     "SettingsAPI",
+    "SkillsAPI",
     "TokensAPI",
+    "ToolsAPI",
 ]
