@@ -175,3 +175,32 @@ def test_remote_and_local_compose_gates_validate_the_merged_quiet_model() -> Non
     for fragment in required:
         assert fragment in workflow
         assert fragment in script
+
+
+def test_the_ruff_pin_in_ci_matches_the_one_developers_install() -> None:
+    """A version skew here fails CI on files the author never touched.
+
+    ruff's formatter output shifts between releases, so a developer whose venv
+    resolved a newer ruff formats a file the way *their* version wants, and CI's
+    pinned version rejects it. The diff then points at unrelated files, which is
+    the least useful possible signal -- and it happened: a local ruff 0.16.1
+    disagreed with CI's 0.15.20 on three files nobody had edited.
+
+    Both pins are asserted equal so bumping one alone is a test failure rather
+    than a confusing CI failure later.
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    ci_pins = re.findall(r'ruff==([0-9][^"\'\s]*)', workflow)
+    assert ci_pins, "the CI lint job no longer pins ruff to an exact version"
+
+    pyproject = (REPO_ROOT / "caliber" / "pyproject.toml").read_text(encoding="utf-8")
+    dev_pins = re.findall(r'"ruff==([0-9][^"]*)"', pyproject)
+    assert dev_pins, (
+        "caliber's dev extras no longer pin ruff exactly; a developer venv would "
+        "be free to resolve a version whose formatter disagrees with CI's"
+    )
+
+    assert set(ci_pins) == set(dev_pins), (
+        f"ruff pin drifted: CI installs {sorted(set(ci_pins))}, "
+        f"dev extras install {sorted(set(dev_pins))}"
+    )

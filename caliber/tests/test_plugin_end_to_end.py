@@ -86,9 +86,7 @@ def installed_plugin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     site.mkdir()
 
     def install(*, entry_point: str = "acme_caliber:declaration") -> None:
-        _write_distribution(
-            site, distribution="acme-caliber-optimizers", entry_point=entry_point
-        )
+        _write_distribution(site, distribution="acme-caliber-optimizers", entry_point=entry_point)
         monkeypatch.syspath_prepend(str(site))
         importlib.invalidate_caches()
 

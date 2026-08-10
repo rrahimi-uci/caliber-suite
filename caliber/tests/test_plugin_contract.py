@@ -155,7 +155,7 @@ def test_the_reserved_name_list_matches_what_the_server_ships() -> None:
 
     from caliber.extensibility.registry import BUILTIN_OPTIMIZERS
 
-    assert RESERVED_NAMES == {spec.name for spec in BUILTIN_OPTIMIZERS}
+    assert {spec.name for spec in BUILTIN_OPTIMIZERS} == RESERVED_NAMES
 
 
 # --- what the loader refuses from untyped third-party code -----------------
