@@ -7,10 +7,19 @@ is checked against the metadata rather than trusted to review.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
-import tomllib  # type: ignore[import-untyped]  # stdlib module, ships no stubs
+# ``tomllib`` is stdlib only from 3.11, and this package supports 3.10 -- a floor
+# that :func:`test_the_supported_python_floor_matches_the_server` asserts right
+# here. A bare ``import tomllib`` made that assertion untestable on the very
+# version it was about: the module failed to import on 3.10, and mypy (configured
+# for 3.10) resolved typeshed without it and reported import-not-found.
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover - only taken on the 3.10 floor
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"

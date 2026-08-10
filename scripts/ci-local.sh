@@ -299,6 +299,24 @@ PY
 
 # gitleaks is what CI uses. Absent locally it is reported as skipped rather than passed:
 # a check that did not run must never look like one that did.
+# The Python CI runs the packaged distributions on. Matched deliberately: these
+# three packages configure mypy for ``python_version = "3.10"`` while their venvs
+# were built from whatever ``python3`` happened to be, so a local pass on 3.14
+# said nothing about CI on 3.11 -- and it hid a real one (``tomllib`` is stdlib
+# only from 3.11, and the SDK's declared floor is 3.10). Falls back with a
+# warning rather than failing, because a missing interpreter should not block a
+# local run.
+CI_PYTHON_VERSION="3.11"
+
+sdk_interpreter() {
+  if command -v "python${CI_PYTHON_VERSION}" >/dev/null 2>&1; then
+    printf 'python%s' "$CI_PYTHON_VERSION"
+    return 0
+  fi
+  yellow "  python${CI_PYTHON_VERSION} not found; using python3 ($(python3 -V 2>&1)). CI uses ${CI_PYTHON_VERSION}." >&2
+  printf 'python3'
+}
+
 # caliber-sdk is a separate distribution with its own ruff/mypy/pytest config, so it
 # gets its own virtualenv rather than borrowing the server's. The wheel assertion is
 # the point of the package existing: installing it must not drag in the server runtime,
@@ -306,7 +324,7 @@ PY
 job_sdk() {
   cd "$SDK_DIR" || return 1
   if [ ! -x "$SDK_VENV_PY" ]; then
-    python3 -m venv "$SDK_DIR/.venv-sdk" || return 1
+    "$(sdk_interpreter)" -m venv "$SDK_DIR/.venv-sdk" || return 1
     "$SDK_VENV_PY" -m pip install -q --upgrade pip hatchling build || return 1
   fi
   "$SDK_VENV_PY" -m pip install -q -e ".[dev]" || return 1
@@ -339,7 +357,7 @@ CHECK
 job_plugin_sdk() {
   cd "$PLUGIN_SDK_DIR" || return 1
   if [ ! -x "$PLUGIN_SDK_VENV_PY" ]; then
-    python3 -m venv "$PLUGIN_SDK_DIR/.venv-plugin-sdk" || return 1
+    "$(sdk_interpreter)" -m venv "$PLUGIN_SDK_DIR/.venv-plugin-sdk" || return 1
     "$PLUGIN_SDK_VENV_PY" -m pip install -q --upgrade pip hatchling build || return 1
   fi
   "$PLUGIN_SDK_VENV_PY" -m pip install -q -e ".[dev]" || return 1
@@ -372,7 +390,7 @@ CHECK
 job_cli() {
   cd "$CLI_DIR" || return 1
   if [ ! -x "$CLI_VENV_PY" ]; then
-    python3 -m venv "$CLI_VENV" || return 1
+    "$(sdk_interpreter)" -m venv "$CLI_VENV" || return 1
     "$CLI_VENV_PY" -m pip install -q --upgrade pip hatchling build || return 1
   fi
   "$CLI_VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
