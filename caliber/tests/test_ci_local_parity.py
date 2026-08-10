@@ -175,3 +175,61 @@ def test_remote_and_local_compose_gates_validate_the_merged_quiet_model() -> Non
     for fragment in required:
         assert fragment in workflow
         assert fragment in script
+
+
+def test_the_ruff_pin_in_ci_matches_the_one_developers_install() -> None:
+    """A version skew here fails CI on files the author never touched.
+
+    ruff's formatter output shifts between releases, so a developer whose venv
+    resolved a newer ruff formats a file the way *their* version wants, and CI's
+    pinned version rejects it. The diff then points at unrelated files, which is
+    the least useful possible signal -- and it happened: a local ruff 0.16.1
+    disagreed with CI's 0.15.20 on three files nobody had edited.
+
+    Both pins are asserted equal so bumping one alone is a test failure rather
+    than a confusing CI failure later.
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    ci_pins = re.findall(r'ruff==([0-9][^"\'\s]*)', workflow)
+    assert ci_pins, "the CI lint job no longer pins ruff to an exact version"
+
+    pyproject = (REPO_ROOT / "caliber" / "pyproject.toml").read_text(encoding="utf-8")
+    dev_pins = re.findall(r'"ruff==([0-9][^"]*)"', pyproject)
+    assert dev_pins, (
+        "caliber's dev extras no longer pin ruff exactly; a developer venv would "
+        "be free to resolve a version whose formatter disagrees with CI's"
+    )
+
+    assert set(ci_pins) == set(dev_pins), (
+        f"ruff pin drifted: CI installs {sorted(set(ci_pins))}, "
+        f"dev extras install {sorted(set(dev_pins))}"
+    )
+
+
+def test_the_local_sdk_venvs_target_the_python_ci_uses() -> None:
+    """A local pass on a different interpreter is not evidence about CI.
+
+    The three packaged distributions configure mypy for ``python_version =
+    "3.10"``, but their virtualenvs were built from whatever ``python3`` resolved
+    to. That skew hid a real failure: ``tomllib`` is stdlib only from 3.11, the
+    SDK's declared floor is 3.10, and a local run on 3.14 reported clean while
+    CI's 3.11 leg reported two mypy errors.
+
+    Asserted as a version match between the script and the workflow so bumping
+    one alone is a test failure rather than silent divergence.
+    """
+    script = (REPO_ROOT / "scripts" / "ci-local.sh").read_text(encoding="utf-8")
+    declared = re.search(r'CI_PYTHON_VERSION="([0-9.]+)"', script)
+    assert declared, "ci-local.sh no longer declares the Python version CI uses"
+
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow_versions = set(re.findall(r'python-version:\s*"([0-9.]+)"', workflow))
+    assert declared.group(1) in workflow_versions, (
+        f"ci-local targets Python {declared.group(1)}, which no CI job uses "
+        f"(CI uses {sorted(workflow_versions)})"
+    )
+
+    # And the venvs must actually use it rather than falling back to python3
+    # unconditionally.
+    assert 'python3 -m venv "$SDK_DIR' not in script
+    assert script.count('"$(sdk_interpreter)" -m venv') == 3

@@ -63,6 +63,7 @@ const GROUPS = [
   { id: "quality", title: "Quality & trust" },
   { id: "operations", title: "Operations" },
   { id: "aria", title: "Aria assistant" },
+  { id: "sdk", title: "SDK" },
   { id: "strategy", title: "Strategy & roadmap" },
 ];
 
@@ -89,6 +90,11 @@ const MODULES = [
   // The Aria group publishes the overview only. Any further Aria design specs
   // (orchestration, execution plans, service proposals) are deliberately kept out
   // of the manifest rather than published alongside it.
+  { md: "sdk/guide.md", out: "m-20-sdk-guide.html", group: "sdk", label: "Python SDK guide", blurb: "Install, authenticate, scope to a project, and call the management API from Python \u2014 with every snippet taken from the executable examples the SDK test suite runs." },
+  { md: "sdk/reference.md", out: "m-21-sdk-reference.html", group: "sdk", label: "Python SDK reference", blurb: "Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries." },
+  { md: "sdk/beta.md", out: "m-22-sdk-beta.html", group: "sdk", label: "Beta and agentic surfaces", blurb: "Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished." },
+  { md: "sdk/plugins.md", out: "m-23-sdk-plugins.html", group: "sdk", label: "Writing a plugin", blurb: "Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it." },
+  { md: "sdk/cli.md", out: "m-24-sdk-cli.html", group: "sdk", label: "CLI and async client", blurb: "caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both." },
   { md: "competitive-analysis.md", out: "m-17-competitive-analysis.html", group: "strategy", label: "Competitive analysis", blurb: "How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources." },
   { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];
@@ -234,6 +240,46 @@ function resolveDocAsset(ref, fromMdRel) {
     throw new Error(`[build-docs] missing asset ${ref} referenced from ${fromMdRel}`);
   }
   return assetPath;
+}
+
+/**
+ * Inline a named Python function from a source file, verbatim.
+ *
+ * The SDK plan requires documentation snippets to come from tested code rather
+ * than hand-written prose. A copied snippet is correct exactly once; this reads
+ * the function out of the file the test suite executes, so a signature change
+ * either updates the docs or fails the build.
+ *
+ * Fence body is `path/to/file.py#symbol`, repository-root relative.
+ */
+function renderPythonExample(ref, fromMdRel) {
+  const spec = ref.trim();
+  const [relPath, symbol] = spec.split("#");
+  if (!relPath || !symbol) {
+    throw new Error(`[build-docs] python-example fence in ${fromMdRel} must be "path.py#symbol", got ${spec!==""?spec:"(empty)"}`);
+  }
+  const filePath = resolve(REPO_ROOT, relPath);
+  if (!isWithin(REPO_ROOT, filePath) || !filePath.endsWith(".py")) {
+    throw new Error(`[build-docs] python-example ${relPath} in ${fromMdRel} is outside the repository or not a .py file`);
+  }
+  if (!existsSync(filePath)) {
+    throw new Error(`[build-docs] python-example source ${relPath} referenced from ${fromMdRel} does not exist`);
+  }
+  const lines = readFileSync(filePath, "utf8").replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => new RegExp(`^def ${symbol}\\b`).test(line));
+  if (start === -1) {
+    throw new Error(`[build-docs] python-example ${relPath} has no top-level def ${symbol} (referenced from ${fromMdRel})`);
+  }
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    // A top-level statement ends the function body.
+    if (lines[i].trim() !== "" && !/^\s/.test(lines[i])) { end = i; break; }
+  }
+  const body = lines.slice(start, end).join("\n").replace(/\s+$/, "");
+  return `<figure class="code-example" data-example-src="${escapeAttr(spec)}">` +
+    `<pre><code>${escapeHtml(body)}</code></pre>` +
+    `<figcaption>From <code>${escapeHtml(relPath)}</code> \u2014 executed by the SDK test suite.</figcaption>` +
+    `</figure>`;
 }
 
 function renderSvgDiagramAsset(ref, fromMdRel) {
@@ -591,6 +637,9 @@ function renderBlocks(md, fromMdRel) {
         // doc that uses them. We inline the exported SVG so theme variables from
         // docs.css can restyle it live without adding a new asset pipeline.
         out.push(renderSvgDiagramAsset(code, fromMdRel));
+      } else if (lang === "python-example") {
+        // Snippet pulled from the file the tests run, not retyped here.
+        out.push(renderPythonExample(code, fromMdRel));
       } else if (lang === "legend") {
         // An empty ```legend``` fence renders the shared diagram color key. The
         // dot colors are defined (theme-aware) in docs.css and mirror the

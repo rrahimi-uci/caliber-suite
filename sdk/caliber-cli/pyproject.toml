@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caliber-cli"
+version = "0.1.0.dev0"
+description = "caliberctl — non-interactive operator commands for CALIBER"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "CALIBER" }]
+keywords = ["caliber", "cli", "llmops", "operations"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+
+# The SDK, and nothing else. Argument parsing is ``argparse`` and output
+# formatting is hand-rolled, both from the standard library.
+#
+# A separate distribution from caliber-sdk because a library and a program have
+# different contracts: the SDK's dependency floor is asserted by a test, and a
+# console script installed by the library would land in PATH for everyone who
+# merely imports it.
+dependencies = [
+    "caliber-sdk",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "mypy>=1.11",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+caliberctl = "caliber_cli.cli:run"
+
+[project.urls]
+Homepage = "https://github.com/rrahimi-uci/caliber-suite"
+Documentation = "https://rrahimi-uci.github.io/caliber-suite/"
+Source = "https://github.com/rrahimi-uci/caliber-suite/tree/main/sdk/caliber-cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/caliber_cli"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]

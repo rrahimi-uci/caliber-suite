@@ -98,13 +98,22 @@ class CaliberValidationError(CaliberAPIError):
         self.errors = errors
 
     def __str__(self) -> str:
+        """Render the field *and* the server's reason for rejecting it.
+
+        Naming only the field ("invalid: instructions") is the difference
+        between a caller reading the answer and going to read server source.
+        CALIBER's messages are specific — "instructions must reference at least
+        one evaluation variable" — and dropping them threw away the most useful
+        part of the response.
+        """
         if not self.errors:
             return super().__str__()
-        fields = ", ".join(
-            ".".join(str(part) for part in item.get("loc", [])) or "<body>"
-            for item in self.errors
-        )
-        return f"{super().__str__()} — invalid: {fields}"
+        details = []
+        for item in self.errors:
+            field = ".".join(str(part) for part in item.get("loc", [])) or "<body>"
+            message = str(item.get("msg") or "").strip()
+            details.append(f"{field}: {message}" if message else field)
+        return f"{super().__str__()} — {'; '.join(details)}"
 
 
 class CaliberRateLimitError(CaliberAPIError):

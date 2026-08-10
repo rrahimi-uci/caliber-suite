@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caliber-plugin-sdk"
+version = "0.1.0.dev0"
+description = "Experimental contracts for writing CALIBER extensions"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "CALIBER" }]
+keywords = ["caliber", "plugin", "optimizer", "llmops"]
+classifiers = [
+    # Pre-alpha, and stated rather than implied: the plugin contract is
+    # experimental until it survives a release, and a plugin author needs to
+    # know that from the metadata and not only from the README.
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+
+# Zero runtime dependencies, and that is the design.
+#
+# A plugin imports this package to declare what it is. If it also imported the
+# CALIBER server, every plugin would pull in mlflow, sqlalchemy, and starlette,
+# and the conformance suite would be testing an integration rather than a
+# contract. Protocols and dataclasses are enough to express both sides.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "mypy>=1.11",
+    "ruff>=0.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/rrahimi-uci/caliber-suite"
+Documentation = "https://rrahimi-uci.github.io/caliber-suite/"
+Source = "https://github.com/rrahimi-uci/caliber-suite/tree/main/sdk/caliber-plugin-sdk"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/caliber_plugin_sdk"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]

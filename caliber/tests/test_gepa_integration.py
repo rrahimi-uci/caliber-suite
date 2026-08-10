@@ -788,8 +788,10 @@ class TestOpenAIAgentsGEPADispatch:
             ),
         )
 
-        with pytest.raises(LLMProviderError, match="not implemented"):
+        # Rejected by the registry, which also reports the alternatives.
+        with pytest.raises(LLMProviderError, match="not registered") as caught:
             provider.generate_candidate(ctx)
+        assert "GEPA" in str(caught.value)
 
     def test_skill_meta_prompt_still_works(self) -> None:
         """SkillMetaPrompt is now also accepted (not just MetaPrompt)."""

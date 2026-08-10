@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from caliber.extensibility import OptimizerSpec, PluginError, optimizer_registry
 from caliber.llm.provider import (
     CandidateContext,
     Diagnosis,
@@ -352,7 +353,11 @@ class OpenAIAgentsLLMProvider:
     def generate_candidate(self, context: CandidateContext) -> tuple[PromptCandidate, LLMUsage]:
         """Run the candidate Agent and return the structured PromptCandidate.
 
-        Dispatches on ``context.optimizer_type``:
+        Which optimizers exist, and what each may target, comes from
+        :mod:`caliber.extensibility.registry` rather than from a chain of string
+        comparisons here. The registry answers "is this a real name" and "may it
+        target this artifact kind"; this method only knows how to run the
+        built-in engines:
 
         * ``"MetaPrompt"`` / ``"SkillMetaPrompt"`` — single-pass rewrite
           via the OpenAI Agents SDK.
@@ -364,22 +369,54 @@ class OpenAIAgentsLLMProvider:
           Fall back to MetaPrompt if the ``[dspy]`` extra is not installed or
           the trainset is empty.
 
-        Unknown values raise :class:`LLMProviderError` to surface a
-        config mistake loudly.
+        An unregistered name raises :class:`LLMProviderError` naming what *is*
+        available, so a config mistake reads as one.
         """
-        if context.optimizer_type == "GEPA":
+        spec = self._resolve_optimizer(context)
+
+        if spec.name == "GEPA":
             return self._generate_candidate_gepa(context)
 
-        if context.optimizer_type in ("DSPyBootstrapFewShot", "DSPyMIPRO"):
+        if spec.name in ("DSPyBootstrapFewShot", "DSPyMIPRO"):
             return self._generate_candidate_dspy(context)
 
-        if context.optimizer_type not in ("MetaPrompt", "SkillMetaPrompt"):
+        if spec.name in ("MetaPrompt", "SkillMetaPrompt"):
+            return self._generate_candidate_metaprompt(context)
+
+        # Registered, and this provider has no engine for it. Reachable only via
+        # a plugin, whose own execution path lands in a later milestone; until
+        # then saying so beats running MetaPrompt under the plugin's name and
+        # attributing the result to code that never ran.
+        raise LLMProviderError(
+            f"optimizer {spec.name!r} is registered by "
+            f"{spec.distribution or 'an unknown distribution'} but this provider "
+            "has no engine for it"
+        )
+
+    def _resolve_optimizer(self, context: CandidateContext) -> OptimizerSpec:
+        """Look the optimizer up and check it against the job's artifact kind.
+
+        The artifact check is the part the old dispatch chain could not do. A
+        skill job routed to ``MetaPrompt`` used to run: it rewrote the content
+        with the prompt formatter and ignored ``allowed_tools`` entirely, so a
+        skill could come back with its tool restrictions dropped and nothing in
+        the result would say so. A mismatch is a configuration error and now
+        reads as one.
+        """
+        try:
+            spec = optimizer_registry().get(context.optimizer_type)
+        except PluginError as exc:
+            raise LLMProviderError(str(exc)) from exc
+
+        if not spec.can_target(context.artifact_type):
             raise LLMProviderError(
-                f"optimizer_type {context.optimizer_type!r} is not implemented yet; "
-                "supported: 'MetaPrompt', 'SkillMetaPrompt', 'GEPA', "
-                "'DSPyBootstrapFewShot', 'DSPyMIPRO'"
+                f"optimizer {spec.name!r} cannot target artifact_type "
+                f"{context.artifact_type!r} (it targets "
+                f"{sorted(spec.artifact_types)}); "
+                f"available for {context.artifact_type!r}: "
+                f"{optimizer_registry().names(artifact_type=context.artifact_type)}"
             )
-        return self._generate_candidate_metaprompt(context)
+        return spec
 
     def _generate_candidate_metaprompt(
         self, context: CandidateContext

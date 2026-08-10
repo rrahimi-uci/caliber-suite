@@ -38,7 +38,7 @@ from .errors import (
     CaliberValidationError,
 )
 from .models import ErrorBody, FieldError, Page, Stability
-from .resources import RawAPI
+from .resources import RawAPI, WorkflowRunFailed
 from .transport import API_PREFIX, Response, Transport
 from .waiters import (
     FAILURE_STATES,
@@ -84,6 +84,7 @@ __all__ = [
     "TrustedHeaderAuth",
     "WaitFailed",
     "WaitTimeout",
+    "WorkflowRunFailed",
     "__version__",
     "wait_for",
     "wait_for_terminal_state",

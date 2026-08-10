@@ -116,6 +116,31 @@ window.DOCS_NAV = [
     ]
   },
   {
+    "section": "SDK",
+    "links": [
+      {
+        "href": "m-20-sdk-guide.html",
+        "label": "Python SDK guide"
+      },
+      {
+        "href": "m-21-sdk-reference.html",
+        "label": "Python SDK reference"
+      },
+      {
+        "href": "m-22-sdk-beta.html",
+        "label": "Beta and agentic surfaces"
+      },
+      {
+        "href": "m-23-sdk-plugins.html",
+        "label": "Writing a plugin"
+      },
+      {
+        "href": "m-24-sdk-cli.html",
+        "label": "CLI and async client"
+      }
+    ]
+  },
+  {
     "section": "Strategy & roadmap",
     "links": [
       {

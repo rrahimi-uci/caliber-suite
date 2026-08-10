@@ -19,7 +19,34 @@ import httpx
 
 from .auth import AuthProvider, NoAuth, TokenAuth, TrustedHeaderAuth
 from .errors import CaliberConfigError
-from .resources import RawAPI
+from .resources import (
+    AriaAPI,
+    AuditAPI,
+    AuthAPI,
+    CapabilitiesAPI,
+    CookbooksAPI,
+    EvalDatasetsAPI,
+    EvaluationsAPI,
+    EventsAPI,
+    GatewayAPI,
+    JobsAPI,
+    JudgesAPI,
+    KnowledgeBasesAPI,
+    McpServersAPI,
+    MeAPI,
+    ObjectStoreAPI,
+    ObservabilityAPI,
+    ProjectsAPI,
+    PromptsAPI,
+    RawAPI,
+    ReleasesAPI,
+    ReviewQueuesAPI,
+    SecretsAPI,
+    SettingsAPI,
+    SkillsAPI,
+    ToolsAPI,
+    WorkflowsAPI,
+)
 from .transport import Transport
 
 #: Environment variables the client falls back to, so a script that runs in CI
@@ -49,9 +76,7 @@ class CaliberClient:
     ) -> None:
         resolved_url = (base_url or os.environ.get(ENV_BASE_URL) or "").strip()
         if not resolved_url:
-            raise CaliberConfigError(
-                f"base_url is required (pass it, or set {ENV_BASE_URL})"
-            )
+            raise CaliberConfigError(f"base_url is required (pass it, or set {ENV_BASE_URL})")
 
         self._transport = Transport(
             resolved_url,
@@ -63,11 +88,39 @@ class CaliberClient:
             client=http_client,
         )
         self.raw = RawAPI(self._transport)
+        #: Typed resource modules. ``raw`` stays available for anything not
+        #: yet modelled, so the SDK is never the reason something is
+        #: unreachable.
+        self.auth = AuthAPI(self._transport)
+        self.me = MeAPI(self._transport)
+        self.capabilities_api = CapabilitiesAPI(self._transport)
+        self.settings = SettingsAPI(self._transport)
+        self.projects = ProjectsAPI(self._transport)
+        self.prompts = PromptsAPI(self._transport)
+        self.skills = SkillsAPI(self._transport)
+        self.tools = ToolsAPI(self._transport)
+        self.workflows = WorkflowsAPI(self._transport)
+        self.datasets = EvalDatasetsAPI(self._transport)
+        self.judges = JudgesAPI(self._transport)
+        self.evaluations = EvaluationsAPI(self._transport)
+        #: Beta surfaces. Real and supported, but their shapes are still
+        #: moving -- check ``client.stability`` before depending on one.
+        self.mcp_servers = McpServersAPI(self._transport)
+        self.gateway = GatewayAPI(self._transport)
+        self.knowledge_bases = KnowledgeBasesAPI(self._transport)
+        self.object_store = ObjectStoreAPI(self._transport)
+        self.jobs = JobsAPI(self._transport)
+        self.review_queues = ReviewQueuesAPI(self._transport)
+        self.aria = AriaAPI(self._transport)
+        self.releases = ReleasesAPI(self._transport)
+        self.observability = ObservabilityAPI(self._transport)
+        self.audit = AuditAPI(self._transport)
+        self.events = EventsAPI(self._transport)
+        self.cookbooks = CookbooksAPI(self._transport)
+        self.secrets = SecretsAPI(self._transport)
 
     @staticmethod
-    def _auth_from(
-        token: str | None, user: str | None, proxy_secret: str | None
-    ) -> AuthProvider:
+    def _auth_from(token: str | None, user: str | None, proxy_secret: str | None) -> AuthProvider:
         """Pick a credential, preferring the explicit one.
 
         A token beats a trusted header when both are present: the token is a
@@ -112,6 +165,11 @@ class CaliberClient:
 
         The first call worth making when a script gets an unexpected 403: it
         distinguishes "wrong credential" from "right credential, wrong scope".
+
+        It reports identity rather than requiring it, so an invalid or revoked
+        credential does **not** raise here -- it returns ``user_id:
+        "anonymous"`` with no scopes. Check the value; do not rely on an
+        exception to detect a bad token.
         """
         return self._transport.get("/me").data
 

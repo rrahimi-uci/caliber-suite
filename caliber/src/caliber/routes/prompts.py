@@ -51,6 +51,7 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import apply_visibility_filter
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
+from caliber.extensibility import optimizer_registry
 from caliber.gate_verdicts import GATE_STATES, record_gate_verdict
 from caliber.ids import new_item_id, new_job_id, new_prompt_test_run_id
 from caliber.prompt_targets import (
@@ -113,6 +114,12 @@ BASELINE_PATH = "/ajax-api/2.0/mlflow/caliber/prompts/{name}/baseline"
 _TEST_RUNS_DEFAULT_LIMIT = 20
 _TEST_RUNS_MAX_LIMIT = 100
 
+# Optimizers the *manual* calibration form offers. Narrower than what the
+# registry knows how to run, and deliberately so: the DSPy engines are gated
+# behind a runtime advisory flag, and widening this tuple would route around
+# that gate rather than through it. ``test_routes_prompts_optimizers`` asserts
+# the tuple stays a subset of the registry's prompt-capable names, so a rename
+# there cannot leave this pointing at an optimizer that no longer exists.
 _SUPPORTED_PROMPT_OPTIMIZERS: tuple[str, ...] = ("MetaPrompt", "GEPA")
 _DEEPEVAL_INSTALL_COMMAND = "pip install -U deepeval"
 # v1 single-environment mode: prompts resolve and publish against one live
@@ -342,6 +349,18 @@ def enqueue_prompt_optimization_run(  # noqa: PLR0912, PLR0915 - sequential vali
     project_id: str | None = None,
 ) -> PromptOptimizationRunResponse:
     """Create verification item + refinement job for manual prompt optimization."""
+    registry = optimizer_registry()
+    if not registry.has(payload.optimizer_type):
+        # Not an optimizer at all. Named separately from "not offered here"
+        # because the fixes differ: one is a typo, the other is a deployment
+        # decision.
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unknown optimizer_type {payload.optimizer_type!r}; "
+                f"registered: {registry.names(artifact_type='prompt')}"
+            ),
+        )
     if payload.optimizer_type not in _SUPPORTED_PROMPT_OPTIMIZERS:
         raise HTTPException(
             status_code=400,

@@ -199,3 +199,37 @@ def test_capabilities_requires_authentication(client: TestClient) -> None:
 
     resp = client.get(CAPABILITIES_PATH, headers={"X-CALIBER-User": ""})
     assert resp.status_code in {401, 403}
+
+
+def test_capabilities_reports_which_code_may_write_production_artifacts(
+    client: TestClient,
+) -> None:
+    """An operator needs the provenance, not just the names.
+
+    Optimizers author the prompt that gets promoted. A list that showed only
+    names would answer "what can I pick" while hiding "whose code runs", which
+    is the question that matters for a third-party plugin.
+    """
+    payload = client.get(f"{PREFIX}/capabilities").json()["data"]
+    extensibility = payload["extensibility"]
+
+    names = {entry["name"]: entry for entry in extensibility["optimizers"]}
+    assert {"MetaPrompt", "SkillMetaPrompt", "GEPA"} <= set(names)
+    assert all(entry["source"] == "builtin" for entry in names.values())
+
+    # The scoping the dispatch chain could not express, now visible to the UI.
+    assert names["SkillMetaPrompt"]["artifact_types"] == ["skill"]
+    assert names["MetaPrompt"]["artifact_types"] == ["prompt"]
+    # And the optional dependency, so a control can say why GEPA is unavailable.
+    assert names["GEPA"]["requires"] == "gepa"
+    # DSPyMIPRO is implemented and never auto-selected; the flag says so.
+    assert names["DSPyMIPRO"]["explicit_only"] is True
+
+
+def test_capabilities_names_the_variable_that_enables_a_plugin(client: TestClient) -> None:
+    """So the UI can tell an operator what to set instead of hardcoding it."""
+    extensibility = client.get(f"{PREFIX}/capabilities").json()["data"]["extensibility"]
+    assert extensibility["allowlist_env_var"] == "CALIBER_PLUGIN_ALLOWLIST"
+    # No plugins installed in a test environment, and an empty list is the
+    # honest answer rather than a missing key.
+    assert extensibility["plugins"] == []

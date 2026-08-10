@@ -890,6 +890,47 @@ export interface PlatformCapabilities {
       calibration: string;
     }
   >;
+  extensibility?: Extensibility;
+}
+
+/** One optimizer the deployment can run, with its provenance. */
+export interface RegisteredOptimizer {
+  name: string;
+  summary: string;
+  /** Which artifact kinds it can target. A prompt-only optimizer on a skill job
+   *  is rejected server-side, so this is what a picker must filter on. */
+  artifact_types: string[];
+  source: 'builtin' | 'plugin';
+  /** Optional distribution the optimizer needs installed, when it has one. Lets
+   *  a control say *why* an option is unavailable instead of hiding it. */
+  requires: string | null;
+  distribution: string | null;
+  /** No automatic rule selects it; only an explicit override reaches it. */
+  explicit_only: boolean;
+  experimental: boolean;
+}
+
+/** An installed optimizer plugin and whether the deployment enabled it.
+ *
+ *  `allowlisted: false` is the normal state for a freshly installed plugin, not
+ *  an error — CALIBER discovers plugins automatically and enables none of them
+ *  automatically. Rendering it is how an operator learns that the wheel they
+ *  installed is inert.
+ */
+export interface OptimizerPlugin {
+  name: string;
+  distribution: string | null;
+  value: string;
+  allowlisted: boolean;
+  /** Set when the plugin *was* allowlisted and then failed to load. */
+  error: string | null;
+}
+
+export interface Extensibility {
+  optimizers: RegisteredOptimizer[];
+  plugins: OptimizerPlugin[];
+  /** Named by the server so the UI does not hardcode it. */
+  allowlist_env_var: string;
 }
 
 export interface ToolUsage {

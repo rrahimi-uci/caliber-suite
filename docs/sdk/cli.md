@@ -1,0 +1,193 @@
+# caliberctl and the async client
+
+Two things built on the Python SDK: a command-line tool for operators, and an
+asynchronous client for the case where being synchronous costs you a thread.
+
+## caliberctl
+
+```bash
+pip install caliber-cli
+export CALIBER_BASE_URL=https://caliber.example.com
+export CALIBER_TOKEN=calpat_...
+
+caliberctl whoami
+caliberctl workflow run --workflow-id WF-123 --input '{"claim_id": "C-1"}'
+```
+
+`caliberctl` is a thin wrapper. It invents no backend semantics: where a command
+appears to decide something, it is translating a state the server reported into
+an exit code.
+
+### Exit codes are the interface
+
+A CLI for CI jobs that only ever exits 0 or 1 forces every caller to parse its
+output. This one has six codes:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The command did what was asked. |
+| `1` | Failure — API error, missing resource, refused permission. |
+| `2` | The invocation was wrong, or a confirmation flag was missing. |
+| `3` | **The work stopped because a person has to act.** Not an error. |
+| `4` | A quality gate said no. The command worked; the answer was no. |
+| `5` | The wait deadline passed with the work still in progress. |
+| `6` | No usable credential. |
+
+Code 3 is why the others exist. CALIBER stops and asks people things — a
+refinement job produces a candidate and waits, an Aria plan pauses on a question,
+a release candidate sits unsigned. None of those is a failure and none is a
+success, and collapsing them into either one produces a specific bad outcome:
+
+- reported as **success**, a pipeline proceeds as though a human approved
+  something;
+- reported as **failure**, it flags a broken build for a system working
+  correctly.
+
+```bash
+caliberctl job wait RFN-42
+case $? in
+  0) echo "applied" ;;
+  3) echo "candidate ready — someone needs to review it" ;;
+  5) echo "still running" ;;
+  *) exit 1 ;;
+esac
+```
+
+### `--json` means only JSON
+
+In JSON mode stdout carries JSON and nothing else. Progress notes, warnings, and
+errors all go to stderr, so this works without a filtering step:
+
+```bash
+TOKEN=$(caliberctl token create ci --json | jq -r .token)
+```
+
+The sharpest case is `token create`: it prints a human-facing warning that the
+secret is shown only once, and that warning must not corrupt the stream a script
+is reading the secret from.
+
+### Nothing prompts
+
+A command that would do something irreversible requires `--yes` and fails
+without it, rather than asking. A tool that blocks on a TTY hangs a CI job
+instead of failing it, which is much harder to diagnose.
+
+```bash
+caliberctl token revoke PAT-9         # exits 2, explains it needs --yes
+caliberctl token revoke PAT-9 --yes   # revokes
+```
+
+### Commands
+
+| Command | What it does |
+| --- | --- |
+| `whoami` | Identity behind the current credential. Exits 6 if anonymous. |
+| `capabilities` | What the deployment supports. |
+| `token list \| create \| rotate \| revoke` | Access token lifecycle. |
+| `workflow list \| run \| status` | Run a workflow and wait for it. |
+| `job list \| wait` | Background jobs, including the ones that wait for you. |
+| `release list \| sign` | Release candidates and go / no-go. |
+| `cookbook list \| install` | Example workflows, with readiness checked first. |
+| `prompt list \| show` | Governed prompts and the registry coordinate each resolves to. |
+| `service show \| publish \| unpublish` | A workflow's external HTTP service. |
+| `plugin list` | Optimizers, and plugins installed but not enabled. |
+
+Five choices worth knowing about:
+
+**`whoami` exits 6 on an anonymous identity.** `GET /me` reports rather than
+requires, so an unusable credential returns 200 with `user_id: anonymous`. That
+is right for the API and wrong for a script that ran `whoami` to confirm its
+credential — exit 0 for "nobody" would let it proceed on a false premise.
+
+**`workflow run` waits by default.** The non-waiting form is only useful to
+something that will poll later, and a deploy script that forgot to wait reports
+success for work that has not happened.
+
+**`--idempotency-key` is passed through, never generated.** Submission is the one
+mutating call the SDK will not retry on its own. A key this tool invented would
+differ on your retry, which is the opposite of what the key is for.
+
+**`service publish` and `service unpublish` both need `--yes`.** Publishing moves
+invocation to an external endpoint authenticated by per-service tokens rather
+than a user credential; unpublishing breaks whoever was calling it. Neither is
+something to do by accident.
+
+**`release sign --rationale` is required.** By the API, and therefore here. A CLI
+that defaulted it to "signed via caliberctl" would manufacture exactly the record
+the requirement exists to prevent.
+
+## The async client
+
+```python
+import asyncio
+from caliber_sdk.aio import AsyncCaliberClient
+
+
+async def main() -> None:
+    async with AsyncCaliberClient(token="calpat_...") as caliber:
+        async for line in caliber.events.stream():
+            print(line)
+
+
+asyncio.run(main())
+```
+
+No extra dependency — `httpx` provides both clients. Construction, environment
+fallbacks, and credential precedence are identical to the synchronous client.
+
+### Why it exists
+
+**Streaming.** An ordinary request reads its whole body before returning. An SSE
+endpoint never ends, so consuming it synchronously occupies a thread for as long
+as you want events. This is the case async is actually for.
+
+**Concurrency.** Submitting forty workflow runs and awaiting them together is one
+coroutine per run instead of forty threads:
+
+```python
+runs = await asyncio.gather(*(
+    caliber.workflows.submit(workflow_version_id=version, input=claim)
+    for claim in claims
+))
+```
+
+### What it covers, and what it does not
+
+`AsyncCaliberClient` gives you the transport, `raw`, async waiters, and the typed
+surfaces where async changes the outcome: `me`, `capabilities_api`, `workflows`
+(runs), `jobs`, and `events`.
+
+It does **not** mirror all twenty-odd typed resource modules, and that is a
+decision rather than an omission. Two hand-written copies of the same resource
+tree is two places for a path to be renamed and one place for it to be forgotten.
+This repository's history includes several wrong paths caught only by driving the
+SDK against the real server; a second, less-exercised copy would carry exactly
+that risk with none of that coverage.
+
+Nothing is unreachable either way — `client.raw` reaches any endpoint with the
+same auth, retries, envelope handling, and typed errors, and
+`caliber_sdk.models.decode` works on any payload:
+
+```python
+from caliber_sdk.models import Prompt, decode
+
+payload = await caliber.raw.get("/prompts")
+prompts = [decode(Prompt, item) for item in payload]
+```
+
+### One policy, not two
+
+The async transport necessarily restates the *shape* of the request loop — an
+`await` cannot be injected into a synchronous function. It must not restate the
+*decisions*, so it imports them: which methods may be retried, which statuses are
+worth retrying, how backoff grows, how `Retry-After` is read, how a body is
+decoded, when an envelope is unwrapped, what a CSRF failure looks like, and what
+the waiter defaults are.
+
+`test_async_parity.py` asserts that by **identity**, not equality — two equal sets
+today can diverge on the next edit and nothing would notice. It also asserts that
+`time.sleep(` appears nowhere in the async modules, because blocking the loop is
+the one thing an async client must not do.
+
+Practically, this means `except WaitTimeout` catches both clients, a script ported
+from one to the other keeps the same timeout, and both authenticate identically.

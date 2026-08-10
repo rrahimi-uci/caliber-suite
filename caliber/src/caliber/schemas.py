@@ -1772,6 +1772,478 @@ class WorkflowRunCapabilitySchema(BaseModel):
     approval_readiness: dict[str, object] = Field(default_factory=dict)
 
 
+class WorkflowCronPreviewSchema(BaseModel):
+    """Next fire-times for a cron trigger. Mirrors the SPA's type of the same name."""
+
+    timezone: str
+    expression: str
+    #: ISO-8601 local datetimes (tz-naive), soonest first.
+    fire_times: list[str] = Field(default_factory=list)
+
+
+class WorkflowCompileSchema(BaseModel):
+    """Result of compiling a workflow version.
+
+    ``report`` stays an open mapping: it is produced by the compiler, and its
+    contents are that module's contract rather than this one's.
+    """
+
+    version_id: str
+    compiled_artifact_uri: str | None = None
+    compiler_version: str | None = None
+    manifest_hash: str | None = None
+    report: dict[str, Any] | None = None
+    generated_python: str | None = None
+    requirements: list[str] = Field(default_factory=list)
+    compile_ms: float | None = None
+    cached: bool = False
+
+
+class RuntimeApprovalAckSchema(BaseModel):
+    """Acknowledgement that a run is waiting on a human decision.
+
+    The quorum counts are declared rather than left to ``extra="allow"``:
+    permissive extras survive validation but are not constructor arguments, so
+    an undeclared field is a type error at every call site that sets it.
+    """
+
+    workflow_run_id: str
+    runtime_approval_id: str
+    status: str
+    approvals: int = 0
+    required_approvals: int = 0
+    remaining_approvals: int = 0
+
+
+class StatusAckSchema(BaseModel):
+    """Minimal acknowledgement for an operation whose only result is its verb."""
+
+    status: str
+
+
+class ExperimentBindingSchema(BaseModel):
+    """The configured experiment plus whatever resolution reports about it.
+
+    ``resolve_experiment`` returns a small, backend-dependent dict that is
+    merged in at the route. Kept open rather than pinned: it reflects MLflow's
+    answer, and inventing a fixed shape here would misrepresent it.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    configured_experiment_id: str | None = None
+
+
+class CalibrationJobSchema(BaseModel):
+    """One tool calibration job.
+
+    ``result`` stays an open mapping: it carries scorer output whose keys vary
+    by suite, and the server is the authority on what a run measured.
+    """
+
+    job_id: str
+    tool_id: str | None = None
+    status: str
+    requested_by: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    created_at: str | None = None
+    claimed_at: str | None = None
+    claimed_by: str | None = None
+    finished_at: str | None = None
+    pass_rate: float | None = None
+    retry_of_job_id: str | None = None
+    resolution: str | None = None
+    resolution_reason: str | None = None
+    resolved_by: str | None = None
+    resolved_at: str | None = None
+
+
+class CalibrationJobListSchema(BaseModel):
+    jobs: list[CalibrationJobSchema] = Field(default_factory=list)
+    total: int = 0
+
+
+class CalibrationResolutionSchema(BaseModel):
+    """Outcome of resolving an ambiguous calibration job.
+
+    Deliberately not :class:`CalibrationJobSchema`: this answers "what did the
+    resolution do", and ``retry_job_id`` links to the successor job that
+    resolution created. Reusing the job schema would have silently dropped that
+    link, which is the only field carrying the lineage.
+    """
+
+    job_id: str
+    status: str
+    resolution: str | None = None
+    retry_job_id: str | None = None
+
+
+class CalibrationQueuedSchema(BaseModel):
+    """Acknowledgement that calibration was queued rather than run inline."""
+
+    job_id: str
+    tool_id: str | None = None
+    status: str
+
+
+class SkillRenderSchema(BaseModel):
+    """Result of rendering a skill's content with its variables applied."""
+
+    skill_id: str
+    skill_name: str
+    rendered_content: str
+    original_content: str
+    detected_variables: list[str] = Field(default_factory=list)
+    unresolved_variables: list[str] = Field(default_factory=list)
+    variables_applied: dict[str, Any] = Field(default_factory=dict)
+    summary: str = ""
+    word_count: int = 0
+    char_count: int = 0
+
+
+class SkillSelectionSchema(BaseModel):
+    """Whether a skill would be selected for a given input, and why."""
+
+    skill_id: str
+    skill_name: str
+    is_selected: bool = False
+    selection_score: float = 0.0
+    selection_reason: str | None = None
+
+
+class SkillVersionSchema(BaseModel):
+    """One immutable skill snapshot."""
+
+    skill_id: str
+    version_number: int
+    content: str | None = None
+    summary: str | None = None
+    created_by: str | None = None
+    created_at: str | None = None
+
+
+class IdentitySchema(BaseModel):
+    """The caller's identity and resolved scopes, as ``/me`` returns them."""
+
+    user_id: str
+    scopes: list[str] = Field(default_factory=list)
+    is_admin: bool = False
+
+
+class LlmSetupStatusSchema(BaseModel):
+    """Which LLM credentials are configured -- presence, never values.
+
+    Fingerprints are a masked tail only. This route previously returned fully
+    resolved provider keys so the Settings UI could prefill password fields,
+    which put live credentials into every operator's browser, query cache, and
+    response log. Declaring the shape here makes that boundary explicit rather
+    than a property of one handler's dict literal.
+    """
+
+    llm_provider: str = ""
+    gateway_url: str = ""
+    openai_key_env: str | None = None
+    openai_key_present: bool = False
+    anthropic_key_present: bool = False
+    assistant_engine: str = ""
+    openai_key_fingerprint: str | None = None
+    anthropic_key_fingerprint: str | None = None
+
+
+class RuntimeSettingsSummarySchema(BaseModel):
+    """Counts across the runtime configuration inventory."""
+
+    total: int = 0
+    live_editable: int = 0
+    environment_managed: int = 0
+    configured: int = 0
+    defaults: int = 0
+    secret_sources: int = 0
+
+
+class RuntimeSettingsSchema(BaseModel):
+    """Grouped, safe inventory of runtime configuration knobs.
+
+    ``groups`` stays loosely typed: its entries are assembled per setting with
+    heterogeneous ``value`` types, and pinning that shape belongs with the
+    settings surface itself rather than being invented here.
+    """
+
+    summary: RuntimeSettingsSummarySchema
+    groups: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LoginSchema(BaseModel):
+    """Result of a successful sign-in.
+
+    The session token is deliberately absent: it is returned only as an
+    HttpOnly cookie, and repeating it here would defeat the boundary that
+    stops injected script from reading it.
+    """
+
+    user_id: str
+    expires_at: str
+
+
+class LogoutSchema(BaseModel):
+    revoked: bool
+
+
+class SessionInfoSchema(BaseModel):
+    """Who the caller is and how that was established."""
+
+    user_id: str
+    scopes: list[str] = Field(default_factory=list)
+    is_admin: bool = False
+    auth_mode: str
+    authenticated_by: str
+    #: The SPA renders a login form only when passwords are the mechanism.
+    login_required: bool = False
+
+
+class AccountSchema(BaseModel):
+    """One user account. Never carries a password hash."""
+
+    user_id: str
+    disabled: bool = False
+    created_at: str | None = None
+    password_updated_at: str | None = None
+    last_login_at: str | None = None
+
+
+class AccountListSchema(BaseModel):
+    accounts: list[AccountSchema] = Field(default_factory=list)
+    total: int = 0
+
+
+class AccountMutationSchema(BaseModel):
+    """Acknowledgement for account create / update / session revocation.
+
+    One model for three routes because they answer the same question -- which
+    account, and what happened to it -- with only the verb differing. Each verb
+    field is optional so a response states just its own outcome.
+    """
+
+    user_id: str
+    disabled: bool | None = None
+    changed: list[str] | None = None
+    revoked: int | None = None
+
+
+class PersonalAccessTokenSchema(BaseModel):
+    """A personal access token's metadata. Never carries the secret.
+
+    The plaintext lives on :class:`IssuedPersonalAccessTokenSchema` instead of
+    being an optional field here. Modelling it as ``token: str | None`` put a
+    ``"token": null`` key into every list response -- announcing a secret that
+    is not there, in the one payload that must never mention one.
+    """
+
+    token_id: str
+    user_id: str
+    name: str
+    scopes: list[str] = Field(default_factory=list)
+    created_at: str | None = None
+    created_by: str | None = None
+    expires_at: str | None = None
+    last_used_at: str | None = None
+    revoked_at: str | None = None
+    revoked_reason: str | None = None
+    rotated_from: str | None = None
+    active: bool = True
+
+
+class IssuedPersonalAccessTokenSchema(PersonalAccessTokenSchema):
+    """The one response that carries the plaintext, returned exactly once."""
+
+    token: str
+
+
+class PersonalAccessTokenListSchema(BaseModel):
+    tokens: list[PersonalAccessTokenSchema] = Field(default_factory=list)
+
+
+class TokenRevocationSchema(BaseModel):
+    token_id: str
+    revoked: bool
+
+
+class ProjectSchema(BaseModel):
+    """A project/workspace as ``/projects`` returns it.
+
+    ``file_count`` is present only on list responses, which compute it with one
+    grouped query; the detail route does not, and modelling it as required would
+    have forced a per-project count nobody asked for.
+    """
+
+    project_id: str
+    name: str
+    description: str | None = None
+    owner: str
+    status: str
+    storage_backend: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    file_count: int | None = None
+
+
+class ProjectStorageSchema(BaseModel):
+    """Where a project's files live, and what else it could be switched to."""
+
+    backend: str
+    backend_label: str
+    available_backends: list[dict[str, Any]] = Field(default_factory=list)
+    base_uri: str | None = None
+    # Present only for object-store backends. Optional rather than defaulted,
+    # so a local-backend response does not claim an empty bucket.
+    bucket: str | None = None
+    prefix: str | None = None
+    public_endpoint_url: str | None = None
+
+
+class ProjectFileImmutableRefSchema(BaseModel):
+    """Content-addressed handle, emitted only once a digest exists."""
+
+    file_id: str
+    file_ref: str | None = None
+    sha256: str | None = None
+    name: str | None = None
+    size_bytes: int | None = None
+    media_type: str | None = None
+    object_version_id: str | None = None
+
+
+class ProjectFileSchema(BaseModel):
+    """One stored file, matching ``CaliberFileRecord.to_api``."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    file_id: str
+    file_ref: str | None = None
+    name: str
+    kind: str | None = None
+    relative_path: str | None = None
+    media_type: str | None = None
+    size_bytes: int | None = None
+    sha256: str | None = None
+    etag: str | None = None
+    object_version_id: str | None = None
+    version: int | None = None
+    status: str | None = None
+    storage_backend: str | None = None
+    producer_node_id: str | None = None
+    # Added by the project routes after ``to_api()``; declaring it is what keeps
+    # it in the response, since an undeclared field is dropped on serialization.
+    project_id: str | None = None
+    workflow_run_id: str | None = None
+    playground_run_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    # ``metadata`` shadows BaseModel.metadata in some tooling, so it is aliased
+    # rather than renamed: the wire name is part of the shipped contract.
+    file_metadata: dict[str, Any] | None = Field(default=None, alias="metadata")
+    immutable_ref: ProjectFileImmutableRefSchema | None = None
+
+
+class ProjectFolderSchema(BaseModel):
+    """A directory marker within a project's file tree.
+
+    Mirrors ``routes/projects.py::_folder_payload`` field for field. Anything
+    omitted here disappears from the response, because Pydantic drops
+    undeclared keys on serialization -- which is exactly how the first version
+    of this schema deleted ``file_ref`` and ``project_id`` from live payloads.
+    """
+
+    path: str
+    name: str | None = None
+    file_ref: str | None = None
+    storage_backend: str | None = None
+    created_at: str | None = None
+
+
+class ProjectFileListSchema(BaseModel):
+    """Files plus the directories that contain them.
+
+    ``next_cursor`` is always null today. It is modelled rather than omitted so
+    adding real pagination later is an additive change for every SDK client.
+    """
+
+    items: list[ProjectFileSchema] = Field(default_factory=list)
+    directories: list[ProjectFolderSchema] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class FileListSchema(BaseModel):
+    """A flat list of stored files.
+
+    Distinct from :class:`ProjectFileListSchema`, which also carries the
+    directory tree. Run- and playground-scoped listings have no folders, and
+    declaring an always-empty ``directories`` would invent a concept those
+    endpoints do not have.
+    """
+
+    items: list[ProjectFileSchema] = Field(default_factory=list)
+    next_cursor: str | None = None
+
+
+class DeletedSchema(BaseModel):
+    """Acknowledgement for a delete that returns an id rather than 204."""
+
+    file_id: str | None = None
+    project_id: str | None = None
+    status: str = "deleted"
+
+
+class RegisteredOptimizerSchema(BaseModel):
+    """One optimizer the deployment can run.
+
+    Includes provenance, because "which code may write the prompt that goes to
+    production" is a question an operator has to be able to answer, and a list
+    that flattened built-ins together with third-party plugins would answer it
+    wrongly.
+    """
+
+    name: str
+    summary: str = ""
+    artifact_types: list[str] = Field(default_factory=list)
+    #: ``builtin`` or ``plugin``.
+    source: str = "builtin"
+    #: Optional distribution the optimizer needs installed, when it has one.
+    requires: str | None = None
+    #: Distribution that registered a plugin. ``None`` for built-ins.
+    distribution: str | None = None
+    #: True when no automatic rule selects it, so only an explicit override can.
+    explicit_only: bool = False
+    experimental: bool = False
+
+
+class OptimizerPluginSchema(BaseModel):
+    """An installed third-party optimizer plugin and whether it is enabled.
+
+    Reported even when not allowlisted, and *especially* then: an operator who
+    installed a wheel that silently did nothing has no other way to find out.
+    """
+
+    name: str
+    distribution: str | None = None
+    #: The entry-point target, so an operator can see what would be imported.
+    value: str = ""
+    allowlisted: bool = False
+    #: Present when the plugin was allowlisted and then failed to load.
+    error: str | None = None
+
+
+class ExtensibilityCapabilitySchema(BaseModel):
+    """What this deployment can run, and what it has been permitted to run."""
+
+    optimizers: list[RegisteredOptimizerSchema] = Field(default_factory=list)
+    plugins: list[OptimizerPluginSchema] = Field(default_factory=list)
+    #: The environment variable that enables a plugin, named here so the UI does
+    #: not hardcode it and can tell an operator exactly what to set.
+    allowlist_env_var: str = "CALIBER_PLUGIN_ALLOWLIST"
+
+
 class PlatformCapabilitiesSchema(BaseModel):
     """Response payload for ``GET /caliber/capabilities``."""
 
@@ -1782,6 +2254,9 @@ class PlatformCapabilitiesSchema(BaseModel):
     #: Lets an SDK decide what it may call without downloading and parsing the
     #: full management OpenAPI document.
     sdk_stability: dict[str, list[str]] = Field(default_factory=dict)
+    extensibility: ExtensibilityCapabilitySchema = Field(
+        default_factory=ExtensibilityCapabilitySchema
+    )
 
 
 class WorkflowComponentFieldSchema(BaseModel):

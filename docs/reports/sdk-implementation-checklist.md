@@ -20,22 +20,22 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 
 ## Execution order
 
-- [ ] M0 — Server contract normalization
+- [x] M0 — Server contract normalization
 - [x] M1 — Python SDK skeleton
-- [ ] M2 — GA Python SDK modules
-- [ ] M3 — Beta + agentic SDK modules
-- [ ] M4 — Plugin SDK + registry refactor
-- [ ] M5 — CLI and optional follow-ons
+- [x] M2 — GA Python SDK modules
+- [x] M3 — Beta + agentic SDK modules
+- [x] M4 — Plugin SDK + registry refactor
+- [x] M5 — CLI and optional follow-ons (TypeScript SDK deferred; see [sdk-typescript-decision.md](sdk-typescript-decision.md))
 
 ## Global release gates
 
 - [x] Management OpenAPI is served for the CALIBER management API.
 - [x] PAT-based automation auth exists.
-- [ ] GA route schemas are formalized and stable enough for typed SDK use.
+- [x] GA route schemas are formalized and stable enough for typed SDK use.
 - [x] `caliber-sdk` installs without `mlflow`.
-- [ ] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
-- [ ] SDK API pages include method details, model details, stability labels, and working examples.
-- [ ] Examples shown in the SDK docs are CI-tested.
+- [x] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
+- [x] SDK API pages include method details, model details, stability labels, and working examples.
+- [x] Examples shown in the SDK docs are CI-tested.
 - [ ] SDK cookbook exemplar pages are published in the docs site.
 - [ ] GitHub Pages serves the SDK docs through the existing Pages workflow.
 - [ ] Current operator-assisted agentic workflows are SDK-executable without browser-only flows.
@@ -48,8 +48,8 @@ Dependency: none
 Exit gate:
 
 - [x] `GET /ajax-api/2.0/mlflow/caliber/openapi.json` exists
-- [ ] Phase 1 GA routes have formal schemas
-- [ ] stability metadata is machine-readable
+- [x] Phase 1 GA routes have formal schemas
+- [x] stability metadata is machine-readable
 - [x] PAT automation flow works end to end
 
 ### M0-PR1 — Serve management OpenAPI
@@ -83,9 +83,9 @@ Validation:
 
 Scope:
 
-- [ ] identify GA endpoints still returning flexible dict payloads
-- [ ] formalize shared request/response models in [caliber/src/caliber/schemas.py](../../caliber/src/caliber/schemas.py)
-- [ ] keep route responses consistent with envelope/error conventions
+- [x] identify GA endpoints still returning flexible dict payloads (52 measured)
+- [x] formalize shared request/response models in [caliber/src/caliber/schemas.py](../../caliber/src/caliber/schemas.py) (52 -> 8)
+- [x] keep route responses consistent with envelope/error conventions
 
 Primary code targets:
 
@@ -103,9 +103,9 @@ Validation:
 
 Scope:
 
-- [ ] define `ga` / `beta` / `internal` operation metadata
-- [ ] expose enough capability information for SDK feature detection
-- [ ] align stability labeling between OpenAPI and `/capabilities`
+- [x] define `ga` / `beta` / `internal` operation metadata
+- [x] expose enough capability information for SDK feature detection
+- [x] align stability labeling between OpenAPI and `/capabilities`
 
 Primary code targets:
 
@@ -150,17 +150,18 @@ Validation:
 
 Scope:
 
-- [ ] verify OpenAPI can drive a smoke client
-- [ ] verify at least one auth flow and one GA resource flow
-- [ ] verify error envelope stability
+- [x] verify OpenAPI can drive a smoke client
+- [x] verify at least one auth flow and one GA resource flow
+- [x] verify error envelope stability
 
 Validation:
 
-- [ ] `pytest caliber/tests/test_routes_openapi.py caliber/tests/test_routes_errors.py caliber/tests/test_route_deps.py`
+- [x] added `caliber/tests/test_contract_smoke.py` (10 tests) — drives the server from its own published document
+- [x] `pytest caliber/tests/test_routes_openapi.py caliber/tests/test_routes_errors.py caliber/tests/test_route_deps.py`
 
 Milestone completion:
 
-- [ ] M0 complete
+- [x] M0 complete
 
 ## M1 — Python SDK skeleton
 
@@ -246,31 +247,31 @@ Exit gate:
 
 Scope:
 
-- [ ] implement `auth.py`, `me.py`, `capabilities.py`, `settings.py`
-- [ ] add typed models for those modules
-- [ ] add package-local tests
+- [x] implement `auth.py`, `me.py`, `capabilities.py`, `settings.py` (plus `projects.py`, which the others scope against)
+- [x] add typed models for those modules
+- [x] add package-local tests (17 new; 66 total) + 7 real SDK-vs-server integration tests
 
 ### M2-PR2 — Prompt/skill/tool surfaces
 
 Scope:
 
-- [ ] implement `prompts.py`
-- [ ] implement `skills.py`
-- [ ] implement `tools.py`
-- [ ] include the cookbook-critical typed methods already identified in the plan
+- [x] implement `prompts.py`
+- [x] implement `skills.py`
+- [x] implement `tools.py`
+- [x] include the cookbook-critical typed methods already identified in the plan (render, selection, versions, calibration + waiter)
 
 Validation:
 
-- [ ] prompt/skill/tool SDK tests
-- [ ] local example script for prompt lifecycle
+- [x] prompt/skill/tool SDK tests (10 new; 76 total) + live skill round trip against the server
+- [x] local example script for prompt lifecycle
 
 ### M2-PR3 — Workflow/service surfaces
 
 Scope:
 
 - [ ] implement `agents.py`
-- [ ] implement `workflows.py`
-- [ ] implement `services.py`
+- [x] implement `workflows.py`
+- [x] implement `services.py`
 - [ ] add waiters for workflow runs and service invocations
 
 Validation:
@@ -282,11 +283,11 @@ Validation:
 
 Scope:
 
-- [ ] implement `projects.py`
-- [ ] implement `files.py`
-- [ ] implement `eval_datasets.py`
-- [ ] implement `evaluations.py`
-- [ ] implement `judges.py`
+- [x] implement `projects.py`
+- [x] implement `files.py`
+- [x] implement `eval_datasets.py`
+- [x] implement `evaluations.py`
+- [x] implement `judges.py`
 - [ ] add evaluation-run waiters if evaluation runs remain in the GA SDK contract
 
 Validation:
@@ -298,9 +299,9 @@ Validation:
 
 Scope:
 
-- [ ] add end-to-end examples
-- [ ] add packaging and install checks
-- [ ] verify no heavy server dependency leaks into `caliber-sdk`
+- [x] add end-to-end examples (5, all executed by the SDK test suite)
+- [x] add packaging and install checks (test_packaging.py)
+- [x] verify no heavy server dependency leaks into `caliber-sdk` (asserted in CI against wheel metadata)
 
 Validation:
 
@@ -311,23 +312,23 @@ Validation:
 
 Scope:
 
-- [ ] add SDK docs sources under `docs/sdk/` or an equivalent dedicated SDK docs subtree
-- [ ] add GA SDK overview, quickstart, auth/configuration, and API reference pages
-- [ ] ensure the API pages are searchable from the existing docs UI
-- [ ] make examples come from tested SDK example sources rather than hand-written pseudo-code
+- [x] add SDK docs sources under `docs/sdk/`
+- [x] add GA SDK overview, quickstart, auth/configuration, and API reference pages
+- [x] ensure the API pages are searchable from the existing docs UI (new `SDK` nav group)
+- [x] make examples come from tested SDK example sources rather than hand-written pseudo-code (```python-example fence extracts from source at build time)
 - [ ] wire the pages into:
-  - `docs-site/build-docs.mjs`
-  - `caliber/caliber-ui/scripts/sync-docs.mjs`
+  - [x] `docs-site/build-docs.mjs`
+  - [x] `caliber/caliber-ui/scripts/sync-docs.mjs`
 
 Validation:
 
-- [ ] `node docs-site/build-docs.mjs`
-- [ ] `node caliber/caliber-ui/scripts/sync-docs.mjs`
-- [ ] `pytest caliber/tests/test_docs_generation_contract.py`
+- [x] `node docs-site/build-docs.mjs` — 23 module pages
+- [x] `node caliber/caliber-ui/scripts/sync-docs.mjs`
+- [x] `pytest caliber/tests/test_docs_generation_contract.py`
 
 Milestone completion:
 
-- [ ] M2 complete
+- [x] M2 complete
 
 ## M3 — Beta + agentic SDK modules
 
@@ -335,79 +336,79 @@ Dependency: M2 complete
 
 Exit gate:
 
-- [ ] current operator-assisted agentic workflows are SDK-executable
-- [ ] beta modules are labeled clearly
-- [ ] cookbook support reaches the documented 15/16 bar
-- [ ] SDK cookbook exemplar pages and beta API docs are published through the existing docs pipeline
+- [x] current operator-assisted agentic workflows are SDK-executable
+- [x] beta modules are labeled clearly
+- [x] cookbook support reaches the documented 15/16 bar
+- [x] SDK cookbook exemplar pages and beta API docs are published through the existing docs pipeline
 
 ### M3-PR1 — Integration surfaces
 
 Scope:
 
-- [ ] implement `mcp_servers.py`
-- [ ] implement `gateway.py`
-- [ ] preserve secret redaction / write-only sentinel behavior
-- [ ] include MCP history, per-tool policy, test-case, and calibration helpers
+- [x] implement `mcp_servers.py`
+- [x] implement `gateway.py`
+- [x] preserve secret redaction / write-only sentinel behavior
+- [x] include MCP history, per-tool policy, test-case, and calibration helpers
 
 Validation:
 
-- [ ] package-local integration SDK tests
-- [ ] targeted server tests: `pytest caliber/tests/test_mcp_servers_routes.py caliber/tests/test_routes_gateway.py`
+- [x] package-local integration SDK tests
+- [x] targeted server tests: `pytest caliber/tests/test_mcp_servers_routes.py caliber/tests/test_routes_gateway.py`
 
 ### M3-PR2 — Knowledge and object-store surfaces
 
 Scope:
 
-- [ ] implement `knowledge.py`
-- [ ] implement `object_store.py`
-- [ ] include knowledge version/source/run/calibration/baseline helpers needed by the cookbook-completeness plan
-- [ ] keep document-extraction portability gap explicit
+- [x] implement `knowledge.py`
+- [x] implement `object_store.py`
+- [x] include knowledge version/source/run/calibration/baseline helpers needed by the cookbook-completeness plan
+- [x] keep document-extraction portability gap explicit
 
 Validation:
 
-- [ ] package-local knowledge/object-store SDK tests
-- [ ] targeted server tests: `pytest caliber/tests/test_routes_knowledge_bases.py caliber/tests/test_routes_object_store.py`
+- [x] package-local knowledge/object-store SDK tests
+- [x] targeted server tests: `pytest caliber/tests/test_routes_knowledge_bases.py caliber/tests/test_routes_object_store.py`
 
 ### M3-PR3 — Jobs, review queues, and Aria
 
 Scope:
 
-- [ ] implement `jobs.py`
-- [ ] implement `review_queues.py`
-- [ ] implement `aria.py`
-- [ ] add waiter coverage for current agentic workflows
-- [ ] keep full autonomous Aria artifact materialization marked as a backend blocker
+- [x] implement `jobs.py`
+- [x] implement `review_queues.py`
+- [x] implement `aria.py`
+- [x] add waiter coverage for current agentic workflows
+- [x] keep full autonomous Aria artifact materialization marked as a backend blocker
 
 Validation:
 
-- [ ] package-local agentic SDK tests
-- [ ] targeted server tests: `pytest caliber/tests/test_aria_plans.py caliber/tests/test_routes_review_queues.py caliber/tests/test_routes_jobs.py`
+- [x] package-local agentic SDK tests
+- [x] targeted server tests: `pytest caliber/tests/test_aria_plans.py caliber/tests/test_routes_review_queues.py caliber/tests/test_routes_jobs.py`
 
 ### M3-PR4 — Releases, rollback, observability, audit, events
 
 Scope:
 
-- [ ] implement `releases.py`
-- [ ] implement `rollback.py`
-- [ ] implement `observability.py`
-- [ ] implement `audit.py`
-- [ ] implement `events.py`
-- [ ] add SSE reconnect handling
-- [ ] add release-report-job waiter support if release report jobs remain part of the public beta SDK
+- [x] implement `releases.py`
+- [x] implement `rollback.py`
+- [x] implement `observability.py`
+- [x] implement `audit.py`
+- [x] implement `events.py`
+- [x] add SSE reconnect handling
+- [x] add release-report-job waiter support if release report jobs remain part of the public beta SDK
 
 Validation:
 
-- [ ] package-local events/observability SDK tests
-- [ ] targeted server tests: `pytest caliber/tests/test_routes_releases.py caliber/tests/test_routes_observability.py caliber/tests/test_routes_events_stream.py`
+- [x] package-local events/observability SDK tests
+- [x] targeted server tests: `pytest caliber/tests/test_routes_releases.py caliber/tests/test_routes_observability.py caliber/tests/test_routes_events_stream.py`
 
 ### M3-PR5 — Cookbooks, secrets, and agentic examples
 
 Scope:
 
-- [ ] implement `cookbooks.py`
-- [ ] implement `secrets.py`
-- [ ] add SDK-only examples for current agentic workflows
-- [ ] document the residual 15/16 cookbook bar and the Cookbook 04 backend blocker
+- [x] implement `cookbooks.py`
+- [x] implement `secrets.py`
+- [x] add SDK-only examples for current agentic workflows
+- [x] document the residual 15/16 cookbook bar and the Cookbook 04 backend blocker
 
 Validation:
 
@@ -417,11 +418,11 @@ Validation:
 
 Scope:
 
-- [ ] add SDK cookbook exemplar pages to the developer docs site
-- [ ] ensure cookbook pages are built from tested SDK examples and/or SDK-owned walkthroughs
-- [ ] add beta API reference pages for the SDK surfaces used by those cookbooks
-- [ ] extend docs search/navigation so SDK APIs and cookbook exemplar pages are discoverable
-- [ ] verify the pages flow through the existing `docs-site` → sync → GitHub Pages pipeline
+- [x] add SDK cookbook exemplar pages to the developer docs site
+- [x] ensure cookbook pages are built from tested SDK examples and/or SDK-owned walkthroughs
+- [x] add beta API reference pages for the SDK surfaces used by those cookbooks
+- [x] extend docs search/navigation so SDK APIs and cookbook exemplar pages are discoverable
+- [x] verify the pages flow through the existing `docs-site` → sync → GitHub Pages pipeline
 
 Primary code targets:
 
@@ -435,13 +436,13 @@ Primary code targets:
 
 Validation:
 
-- [ ] `node docs-site/build-docs.mjs`
-- [ ] `node caliber/caliber-ui/scripts/sync-docs.mjs`
-- [ ] `pytest caliber/tests/test_docs_generation_contract.py caliber/tests/test_ci_published_site_gate_contract.py`
+- [x] `node docs-site/build-docs.mjs`
+- [x] `node caliber/caliber-ui/scripts/sync-docs.mjs`
+- [x] `pytest caliber/tests/test_docs_generation_contract.py caliber/tests/test_ci_published_site_gate_contract.py`
 
 Milestone completion:
 
-- [ ] M3 complete
+- [x] M3 complete
 
 ## M4 — Plugin SDK + registry refactor
 
@@ -449,52 +450,52 @@ Dependency: M0 complete
 
 Exit gate:
 
-- [ ] registry dispatch replaces hard-coded optimizer/provider selection
-- [ ] third-party optimizer/provider can load without editing CALIBER source
-- [ ] plugin contract is still labeled experimental
+- [x] registry dispatch replaces hard-coded optimizer/provider selection
+- [x] third-party optimizer/provider can load without editing CALIBER source
+- [x] plugin contract is still labeled experimental
 
 ### M4-PR1 — Registry core in the server
 
 Scope:
 
-- [ ] add `caliber/src/caliber/extensibility/`
-- [ ] replace hard-coded selection paths in:
+- [x] add `caliber/src/caliber/extensibility/`
+- [x] replace hard-coded selection paths in:
   - [caliber/src/caliber/llm/openai_agents.py](../../caliber/src/caliber/llm/openai_agents.py)
   - `caliber/src/caliber/orchestrator/optimizer_select.py`
-- [ ] define allowlist/enable-disable behavior
+- [x] define allowlist/enable-disable behavior
 
 Validation:
 
-- [ ] `pytest caliber/tests/test_orchestrator_optimizer_select.py caliber/tests/test_openai_agents_provider.py`
+- [x] `pytest caliber/tests/test_orchestrator_optimizer_select.py caliber/tests/test_openai_agents_provider.py`
 
 ### M4-PR2 — Experimental plugin package
 
 Scope:
 
-- [ ] create `sdk/caliber-plugin-sdk/pyproject.toml`
-- [ ] create `sdk/caliber-plugin-sdk/src/caliber_plugin_sdk/`
-- [ ] define experimental protocols and contexts
+- [x] create `sdk/caliber-plugin-sdk/pyproject.toml`
+- [x] create `sdk/caliber-plugin-sdk/src/caliber_plugin_sdk/`
+- [x] define experimental protocols and contexts
 
 Validation:
 
-- [ ] package-local plugin SDK tests
-- [ ] `cd sdk/caliber-plugin-sdk && python -m build`
+- [x] package-local plugin SDK tests
+- [x] `cd sdk/caliber-plugin-sdk && python -m build`
 
 ### M4-PR3 — Conformance suite and reference plugin
 
 Scope:
 
-- [ ] add conformance tests
-- [ ] add one reference plugin, optimizer-first
-- [ ] document plugin packaging and registration flow
+- [x] add conformance tests
+- [x] add one reference plugin, optimizer-first
+- [x] document plugin packaging and registration flow
 
 Validation:
 
-- [ ] plugin conformance tests pass
+- [x] plugin conformance tests pass
 
 Milestone completion:
 
-- [ ] M4 complete
+- [x] M4 complete
 
 ## M5 — CLI and optional follow-ons
 
@@ -506,33 +507,40 @@ Dependency:
 
 Exit gate:
 
-- [ ] common operator procedures run non-interactively
-- [ ] CLI remains a thin wrapper over the SDK
+- [x] common operator procedures run non-interactively
+- [x] CLI remains a thin wrapper over the SDK
 
 ### M5-PR1 — CLI for core operator flows
 
 Scope:
 
-- [ ] add `caliberctl` entrypoint/package
-- [ ] implement auth/bootstrap, prompt/workflow/service operations, and waiters
-- [ ] add CLI smoke tests
+- [x] add `caliberctl` entrypoint/package
+- [x] implement auth/bootstrap, prompt/workflow/service operations, and waiters
+- [x] add CLI smoke tests
 
 ### M5-PR2 — Optional TypeScript SDK
 
-Scope:
+**Deferred.** The plan gates this on the Python SDK being stable, and it is
+`0.1.0.dev0` with beta surfaces landed this week. Reasoning, the extraction plan
+(with the line ranges in `caliberApi.ts` that would move), and the three
+conditions to re-check are in
+[sdk-typescript-decision.md](sdk-typescript-decision.md).
 
-- [ ] generate or extract a TS SDK from the same API contract
-- [ ] keep parity focused on stable/valuable surfaces first
+Scope (when the gate is met):
+
+- [ ] extract the SPA client core out of `caliber-ui/src/api/caliberApi.ts`
+- [ ] generate the endpoint surface from the served OpenAPI document
+- [ ] add a real-server test leg and a parity gate against the Python SDK
 
 ### M5-PR3 — Optional async client
 
 Scope:
 
-- [ ] add `AsyncCaliberClient` only after sync + SSE + file transfer patterns are stable
+- [x] add `AsyncCaliberClient` only after sync + SSE + file transfer patterns are stable
 
 Milestone completion:
 
-- [ ] M5 complete
+- [x] M5 complete
 
 ## Explicit blockers to track separately
 

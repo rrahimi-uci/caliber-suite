@@ -32,12 +32,12 @@ from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
 from caliber.routes._deps import (
     envelope_response,
-    envelope_response_dict,
     get_session_factory,
     parse_json_object,
     scoped_child_or_404,
 )
 from caliber.schemas import (
+    RuntimeApprovalAckSchema,
     WorkflowRunApprovalDecisionRequest,
     WorkflowRunCancelRequest,
     WorkflowRunCheckpointSchema,
@@ -1552,15 +1552,15 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
                 node_id=approval.node_id,
             )
             session.commit()
-            return envelope_response_dict(
-                {
-                    "workflow_run_id": run.workflow_run_id,
-                    "runtime_approval_id": approval.runtime_approval_id,
-                    "status": "pending",
-                    "approvals": len(quorum.approvals),
-                    "required_approvals": quorum.required,
-                    "remaining_approvals": quorum.remaining,
-                }
+            return envelope_response(
+                RuntimeApprovalAckSchema(
+                    workflow_run_id=run.workflow_run_id,
+                    runtime_approval_id=approval.runtime_approval_id,
+                    status="pending",
+                    approvals=len(quorum.approvals),
+                    required_approvals=quorum.required,
+                    remaining_approvals=quorum.remaining,
+                )
             )
 
         approval.status = "approved"

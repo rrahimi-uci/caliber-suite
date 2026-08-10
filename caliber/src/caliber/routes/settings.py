@@ -22,10 +22,15 @@ from starlette.routing import Route
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes
 from caliber.config import CaliberConfig
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
-from caliber.routes._deps import envelope_response_dict, parse_json_object
+from caliber.routes._deps import envelope_response, parse_json_object
 from caliber.runtime_advisories import (
     RuntimeDependencyAdvisory,
     get_runtime_dependency_advisories,
+)
+from caliber.schemas import (
+    LlmSetupStatusSchema,
+    RuntimeSettingsSchema,
+    RuntimeSettingsSummarySchema,
 )
 from caliber.secrets import resolve_secret
 
@@ -1312,7 +1317,11 @@ async def get_runtime_settings(request: Request) -> JSONResponse:
         "defaults": sum(1 for item in flat if item["source"] == "default"),
         "secret_sources": sum(1 for item in flat if item["sensitive"]),
     }
-    return envelope_response_dict({"summary": summary, "groups": groups})
+    return envelope_response(
+        RuntimeSettingsSchema(
+            summary=RuntimeSettingsSummarySchema.model_validate(summary), groups=groups
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1382,7 +1391,9 @@ async def get_llm_setup(request: Request) -> JSONResponse:
     ``••••<last 4>`` fingerprint so an operator can tell *which* key is live.
     """
     require_scopes(request, [SCOPE_OPERATOR])
-    return envelope_response_dict(_llm_setup_status(_config_from(request)))
+    return envelope_response(
+        LlmSetupStatusSchema.model_validate(_llm_setup_status(_config_from(request)))
+    )
 
 
 async def update_llm_setup(request: Request) -> JSONResponse:
@@ -1414,7 +1425,7 @@ async def update_llm_setup(request: Request) -> JSONResponse:
         request.app.state.config = config.model_copy(update={"llm_base_url": gateway_url.strip()})
         config = request.app.state.config
 
-    return envelope_response_dict(_llm_setup_status(config))
+    return envelope_response(LlmSetupStatusSchema.model_validate(_llm_setup_status(config)))
 
 
 def register(app: Starlette) -> None:

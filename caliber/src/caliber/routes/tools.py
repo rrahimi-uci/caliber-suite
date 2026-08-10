@@ -49,12 +49,15 @@ from caliber.ids import new_tool_id, new_tool_test_run_id
 from caliber.orchestrator import calibration_drain
 from caliber.routes._deps import (
     envelope_response,
-    envelope_response_dict,
     get_session_factory,
     parse_json_object,
     visibility_param,
 )
 from caliber.schemas import (
+    CalibrationJobListSchema,
+    CalibrationJobSchema,
+    CalibrationQueuedSchema,
+    CalibrationResolutionSchema,
     ToolBaselineRequest,
     ToolCalibrationResponse,
     ToolRegisterRequest,
@@ -777,8 +780,10 @@ async def submit_calibration(request: Request) -> JSONResponse:
         session.commit()
         job_id = job.job_id
 
-    return envelope_response_dict(
-        {"job_id": job_id, "tool_id": tool_id, "status": calibration_drain.STATUS_QUEUED},
+    return envelope_response(
+        CalibrationQueuedSchema(
+            job_id=job_id, tool_id=tool_id, status=calibration_drain.STATUS_QUEUED
+        ),
         status_code=202,
     )
 
@@ -816,7 +821,7 @@ async def get_calibration_job(request: Request) -> JSONResponse:
             "resolved_by": job.resolved_by,
             "resolved_at": job.resolved_at.isoformat() if job.resolved_at else None,
         }
-    return envelope_response_dict(payload)
+    return envelope_response(CalibrationJobSchema.model_validate(payload))
 
 
 async def list_calibration_jobs(request: Request) -> JSONResponse:
@@ -855,7 +860,11 @@ async def list_calibration_jobs(request: Request) -> JSONResponse:
             }
             for r in rows
         ]
-    return envelope_response_dict({"jobs": items, "total": len(items)})
+    return envelope_response(
+        CalibrationJobListSchema(
+            jobs=[CalibrationJobSchema.model_validate(i) for i in items], total=len(items)
+        )
+    )
 
 
 async def resolve_calibration_job(request: Request) -> JSONResponse:
@@ -888,7 +897,7 @@ async def resolve_calibration_job(request: Request) -> JSONResponse:
         action=action,
         reason=reason,
     )
-    return envelope_response_dict(data)
+    return envelope_response(CalibrationResolutionSchema.model_validate(data))
 
 
 async def calibrate_tool(request: Request) -> JSONResponse:

@@ -50,9 +50,21 @@ from caliber.auth import (
     session_token_from_request,
 )
 from caliber.routes._deps import (
-    envelope_response_dict,
+    envelope_response,
     get_session_factory,
     parse_json_object,
+)
+from caliber.schemas import (
+    AccountListSchema,
+    AccountMutationSchema,
+    AccountSchema,
+    IssuedPersonalAccessTokenSchema,
+    LoginSchema,
+    LogoutSchema,
+    PersonalAccessTokenListSchema,
+    PersonalAccessTokenSchema,
+    SessionInfoSchema,
+    TokenRevocationSchema,
 )
 from caliber.sessions import (
     AccountError,
@@ -197,12 +209,7 @@ async def login(request: Request) -> JSONResponse:
 
     _clear_failed_logins(user_id, client)
     max_age = int(float(getattr(config, "auth_session_ttl_seconds", 43200.0)))
-    response = envelope_response_dict(
-        {
-            "user_id": resolved_user,
-            "expires_at": expires_at,
-        }
-    )
+    response = envelope_response(LoginSchema(user_id=resolved_user, expires_at=expires_at))
     _set_session_cookie(response, config, issued.token, max_age)
     return response
 
@@ -221,7 +228,7 @@ async def logout(request: Request) -> JSONResponse:
             revoked = revoke_session(session, token, reason="logout")
             session.commit()
     config = request.app.state.config
-    response = envelope_response_dict({"revoked": revoked})
+    response = envelope_response(LogoutSchema(revoked=revoked))
     response.delete_cookie(
         key=str(getattr(config, "auth_session_cookie_name", "caliber_session")), path="/"
     )
@@ -248,16 +255,16 @@ async def session_info(request: Request) -> JSONResponse:
         authenticated_by = "trusted_header"
     else:
         authenticated_by = "dev_fallback"
-    return envelope_response_dict(
-        {
-            "user_id": user,
-            "scopes": sorted(scopes),
-            "is_admin": SCOPE_ADMIN in scopes,
-            "auth_mode": mode,
-            "authenticated_by": authenticated_by,
+    return envelope_response(
+        SessionInfoSchema(
+            user_id=user,
+            scopes=sorted(scopes),
+            is_admin=SCOPE_ADMIN in scopes,
+            auth_mode=mode,
+            authenticated_by=authenticated_by,
             # The SPA renders a login form only when passwords are the mechanism.
-            "login_required": mode == AUTH_MODE_SESSION and user == "anonymous",
-        }
+            login_required=mode == AUTH_MODE_SESSION and user == "anonymous",
+        )
     )
 
 
@@ -285,7 +292,11 @@ async def list_accounts(request: Request) -> JSONResponse:
             }
             for row in rows
         ]
-    return envelope_response_dict({"accounts": accounts, "total": len(accounts)})
+    return envelope_response(
+        AccountListSchema(
+            accounts=[AccountSchema.model_validate(a) for a in accounts], total=len(accounts)
+        )
+    )
 
 
 async def create_account_route(request: Request) -> JSONResponse:
@@ -313,7 +324,9 @@ async def create_account_route(request: Request) -> JSONResponse:
         )
         session.commit()
         user_id = account.user_id
-    return envelope_response_dict({"user_id": user_id, "disabled": False}, status_code=201)
+    return envelope_response(
+        AccountMutationSchema(user_id=user_id, disabled=False), status_code=201
+    )
 
 
 async def update_account(request: Request) -> JSONResponse:
@@ -351,7 +364,7 @@ async def update_account(request: Request) -> JSONResponse:
             details={"changed": changed},
         )
         session.commit()
-    return envelope_response_dict({"user_id": user_id, "changed": changed})
+    return envelope_response(AccountMutationSchema(user_id=user_id, changed=changed))
 
 
 async def revoke_account_sessions(request: Request) -> JSONResponse:
@@ -370,7 +383,7 @@ async def revoke_account_sessions(request: Request) -> JSONResponse:
             details={"revoked": count},
         )
         session.commit()
-    return envelope_response_dict({"user_id": user_id, "revoked": count})
+    return envelope_response(AccountMutationSchema(user_id=user_id, revoked=count))
 
 
 # ---------------------------------------------------------------------------
@@ -538,7 +551,11 @@ async def list_tokens(request: Request) -> JSONResponse:
     """Every token belonging to the caller. Never returns a usable secret."""
     actor = require_user(request)
     tokens = await run_in_threadpool(_load_tokens, get_session_factory(request), actor=actor)
-    return envelope_response_dict({"tokens": tokens})
+    return envelope_response(
+        PersonalAccessTokenListSchema(
+            tokens=[PersonalAccessTokenSchema.model_validate(t) for t in tokens]
+        )
+    )
 
 
 async def create_token(request: Request) -> JSONResponse:
@@ -556,7 +573,7 @@ async def create_token(request: Request) -> JSONResponse:
         expires_at=expires_at,
     )
     view["token"] = secret
-    return envelope_response_dict(view, status_code=201)
+    return envelope_response(IssuedPersonalAccessTokenSchema.model_validate(view), status_code=201)
 
 
 async def revoke_token(request: Request) -> JSONResponse:
@@ -566,7 +583,7 @@ async def revoke_token(request: Request) -> JSONResponse:
     revoked = await run_in_threadpool(
         _revoke_token, get_session_factory(request), actor=actor, token_id=token_id
     )
-    return envelope_response_dict({"token_id": token_id, "revoked": revoked})
+    return envelope_response(TokenRevocationSchema(token_id=token_id, revoked=revoked))
 
 
 async def rotate_token(request: Request) -> JSONResponse:
@@ -583,7 +600,7 @@ async def rotate_token(request: Request) -> JSONResponse:
         _rotate_token, get_session_factory(request), actor=actor, token_id=token_id
     )
     view["token"] = secret
-    return envelope_response_dict(view, status_code=201)
+    return envelope_response(IssuedPersonalAccessTokenSchema.model_validate(view), status_code=201)
 
 
 def _PatModel() -> Any:  # noqa: N802

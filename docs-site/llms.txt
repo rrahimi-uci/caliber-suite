@@ -41,6 +41,14 @@ The pages below are the published architecture, workflow, and strategy documenta
 
 - [Overview](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
 
+## SDK
+
+- [Python SDK guide](m-20-sdk-guide.md): Install, authenticate, scope to a project, and call the management API from Python — with every snippet taken from the executable examples the SDK test suite runs.
+- [Python SDK reference](m-21-sdk-reference.md): Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries.
+- [Beta and agentic surfaces](m-22-sdk-beta.md): Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished.
+- [Writing a plugin](m-23-sdk-plugins.md): Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it.
+- [CLI and async client](m-24-sdk-cli.md): caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.
+
 ## Strategy & roadmap
 
 - [Competitive analysis](m-17-competitive-analysis.md): How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources.
