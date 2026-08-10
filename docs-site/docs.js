@@ -366,6 +366,7 @@
   var sidebar = document.getElementById("docsSidebar") || document.querySelector(".sidebar");
   var menuToggle = document.getElementById("menuToggle");
   var searchKeycaps = document.querySelectorAll("[data-doc-search-key]");
+  var topbarBrowseMenu = null;
   var currentPage = (location.pathname.split("/").pop() || "index.html").toLowerCase();
   if (!currentPage || currentPage === "") currentPage = "index.html";
 
@@ -392,6 +393,25 @@
     return Boolean((sec && sec.links || []).some(function (lnk) {
       return pageOf(lnk.href) === currentPage;
     }));
+  }
+
+  function sectionSummary(sec) {
+    switch (sectionLabel(sec)) {
+      case "Overview":
+        return "Start here for the product story, quickstart, and documentation paths.";
+      case "Platform docs":
+        return "Architecture, runtime behavior, governance, and operations.";
+      case "REST API":
+        return "The raw HTTP contract, auth conventions, and route families.";
+      case "Python SDK":
+        return "Typed client entry points, async support, plugins, and examples.";
+      case "Examples":
+        return "Cookbooks, walkthroughs, and runnable end-to-end implementation patterns.";
+      case "Strategy & roadmap":
+        return "Competitive positioning, future direction, and planning context.";
+      default:
+        return "Browse this documentation section.";
+    }
   }
 
   searchKeycaps.forEach(function (el) {
@@ -438,21 +458,67 @@
   }
 
   if (sectionTabsRoot && Array.isArray(window.DOCS_NAV)) {
-    var tabFrag = document.createDocumentFragment();
+    var currentSection = null;
+    window.DOCS_NAV.forEach(function (sec) {
+      if (!currentSection && sectionIsCurrent(sec)) currentSection = sec;
+    });
+    if (!currentSection) currentSection = window.DOCS_NAV[0] || null;
+
+    var topbarFrag = document.createDocumentFragment();
+    topbarBrowseMenu = document.createElement("details");
+    topbarBrowseMenu.className = "docs-browse-menu";
+
+    var browseSummary = document.createElement("summary");
+    browseSummary.className = "docs-browse-trigger";
+    browseSummary.setAttribute("aria-label", "Browse docs");
+    browseSummary.innerHTML =
+      '<span class="docs-browse-trigger-label">Browse docs</span>' +
+      '<svg class="docs-browse-trigger-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+    topbarBrowseMenu.appendChild(browseSummary);
+
+    var browsePanel = document.createElement("div");
+    browsePanel.className = "docs-browse-panel";
+
+    var browseList = document.createElement("div");
+    browseList.className = "docs-browse-list";
     window.DOCS_NAV.forEach(function (sec) {
       if (!sec || !sec.links || !sec.links.length) return;
-      var a = document.createElement("a");
-      a.className = "docs-section-tab";
-      a.href = sectionHref(sec);
-      a.textContent = sectionLabel(sec);
-      if (sectionIsCurrent(sec)) a.classList.add("active");
-      tabFrag.appendChild(a);
+      var item = document.createElement("a");
+      item.className = "docs-browse-item";
+      item.href = sectionHref(sec);
+      if (sectionIsCurrent(sec)) item.classList.add("active");
+
+      var title = document.createElement("span");
+      title.className = "docs-browse-item-title";
+      title.textContent = sectionLabel(sec);
+
+      var summary = document.createElement("span");
+      summary.className = "docs-browse-item-summary";
+      summary.textContent = sectionSummary(sec);
+
+      var meta = document.createElement("span");
+      meta.className = "docs-browse-item-meta";
+      meta.textContent = (sec.links || []).length === 1 ? "1 page" : (sec.links || []).length + " pages";
+
+      item.appendChild(title);
+      item.appendChild(summary);
+      item.appendChild(meta);
+      browseList.appendChild(item);
     });
-    sectionTabsRoot.appendChild(tabFrag);
-    var activeTab = sectionTabsRoot.querySelector(".docs-section-tab.active");
-    if (activeTab && typeof activeTab.scrollIntoView === "function") {
-      activeTab.scrollIntoView({ block: "nearest", inline: "center" });
+    browsePanel.appendChild(browseList);
+    topbarBrowseMenu.appendChild(browsePanel);
+    topbarFrag.appendChild(topbarBrowseMenu);
+
+    if (currentSection) {
+      var activeSection = document.createElement("a");
+      activeSection.className = "topbar-pill topbar-active-section";
+      activeSection.href = sectionHref(currentSection);
+      activeSection.textContent = sectionLabel(currentSection);
+      activeSection.setAttribute("aria-label", "Current section: " + sectionLabel(currentSection));
+      topbarFrag.appendChild(activeSection);
     }
+
+    sectionTabsRoot.appendChild(topbarFrag);
   }
 
   function focusDocSearch() {
@@ -479,6 +545,12 @@
 
   document.addEventListener("keydown", function (e) {
     var key = String(e.key || "");
+    if (key === "Escape" && topbarBrowseMenu && topbarBrowseMenu.open) {
+      topbarBrowseMenu.open = false;
+      var browseTrigger = topbarBrowseMenu.querySelector("summary");
+      if (browseTrigger && typeof browseTrigger.focus === "function") browseTrigger.focus();
+      return;
+    }
     if (key === "Escape" && sidebar && sidebar.classList.contains("open")) {
       setSidebarOpen(false);
       if (filterInput === document.activeElement) filterInput.blur();
@@ -497,6 +569,12 @@
       focusDocSearch();
       return;
     }
+  });
+
+  document.addEventListener("click", function (e) {
+    if (!topbarBrowseMenu || !topbarBrowseMenu.open) return;
+    if (topbarBrowseMenu.contains(e.target)) return;
+    topbarBrowseMenu.open = false;
   });
 
   /* ---------- Page-to-page navigation (Prev / Next) ---------- */

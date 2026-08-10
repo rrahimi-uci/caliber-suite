@@ -1147,7 +1147,7 @@ function topbar() {
         <img src="caliber-icon.png" alt="${escapeAttr(BRAND_SHORT)} logo">
         <strong>${escapeHtml(BRAND_SHORT)}</strong>
       </a>
-      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Documentation sections"></nav>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Browse documentation sections"></nav>
       <div class="topbar-actions">
         <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
           <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
