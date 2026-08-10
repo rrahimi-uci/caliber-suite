@@ -116,6 +116,19 @@ window.DOCS_NAV = [
     ]
   },
   {
+    "section": "SDK",
+    "links": [
+      {
+        "href": "m-20-sdk-guide.html",
+        "label": "Python SDK guide"
+      },
+      {
+        "href": "m-21-sdk-reference.html",
+        "label": "Python SDK reference"
+      }
+    ]
+  },
+  {
     "section": "Strategy & roadmap",
     "links": [
       {

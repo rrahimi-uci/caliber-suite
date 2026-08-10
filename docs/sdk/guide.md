@@ -1,0 +1,186 @@
+# CALIBER Python SDK
+
+`caliber-sdk` is a typed Python client for the CALIBER management API. Installing
+it does **not** install the CALIBER server — no `mlflow`, no `sqlalchemy`, no
+`starlette`. That isolation is the reason it is a separate distribution, and CI
+fails the build if a server dependency ever appears in the wheel metadata.
+
+Every code block on this page is extracted from
+[`sdk/caliber-sdk/examples/`](../../sdk/caliber-sdk/examples/) at build time. The
+SDK test suite executes those functions, so a snippet here cannot drift from
+working code: if a signature changes, either the docs change with it or the
+build fails.
+
+## At a glance
+
+| Dimension | Where the SDK stands |
+| --- | --- |
+| **Runtime dependencies** | `httpx` and `typing-extensions`. Nothing else. |
+| **Typing** | Ships `py.typed`; `mypy --strict` clean. |
+| **Auth** | Personal access token (recommended), or a trusted-proxy header. |
+| **Errors** | Non-2xx becomes a typed exception carrying status, detail, method, URL, and a request id. |
+| **Retries** | Idempotent methods only, capped exponential backoff, honouring `Retry-After`. |
+| **Long-running work** | Waiters that poll with backoff and never sleep past your deadline. |
+| **Coverage** | Every GA surface, plus `client.raw` for anything not yet modelled. |
+
+## Install
+
+```bash
+pip install caliber-sdk
+```
+
+## Quickstart
+
+Construct a client, confirm who you are, and read what the deployment supports:
+
+```python-example
+sdk/caliber-sdk/examples/quickstart.py#quickstart
+```
+
+Two things worth noticing. `me.get()` **reports** identity rather than requiring
+it — an invalid or revoked credential comes back as an anonymous identity, not
+an exception — so the check is on the value, not a `try`. And
+`capabilities` answers "may I call this?" without downloading the full OpenAPI
+document.
+
+## Configuration
+
+Everything can come from the environment, so a CI job needs no argument
+plumbing of its own:
+
+| Variable | Meaning |
+| --- | --- |
+| `CALIBER_BASE_URL` | deployment URL |
+| `CALIBER_TOKEN` | personal access token |
+| `CALIBER_PROJECT` | active project/workspace, sent as `X-CALIBER-Project` |
+| `CALIBER_USER` | trusted-header identity, only for `trusted_header` deployments |
+
+An explicit argument always wins over the environment, and a token always wins
+over a trusted header — the token is a real credential and the header is only
+an assertion, so silently preferring the weaker one would be the wrong surprise.
+
+## Authentication
+
+Personal access tokens are the supported credential for automation. Sessions
+are the wrong tool for a script: they come from password login, expire on a
+human timescale, and carry the user's full authority.
+
+```python-example
+sdk/caliber-sdk/examples/tokens.py#issue_scoped_token
+```
+
+**Scopes are a ceiling, not a grant.** The effective authority is what the token
+requested *intersected with* what its owner holds at request time. So a token
+cannot exceed its owner, and demoting the owner narrows every token they hold —
+immediately, without revoking anything. Omit `scopes` to inherit the owner's.
+
+Requesting a scope you do not hold is refused at issue time rather than quietly
+narrowed, because a token that claims authority it can never exercise fails far
+from its cause.
+
+## CSRF
+
+Handled for you. If a write is refused for want of a token, the client fetches
+one and replays the request exactly once. A 403 that is *not* about CSRF is not
+mistaken for one, so a genuine permission failure surfaces immediately instead
+of looping.
+
+## Authoring versus deploying
+
+The refinement loop depends on being able to register a candidate without it
+going live. The SDK keeps that separation explicit: registering a version never
+moves an alias, and promotion is its own call and its own audit event.
+
+```python-example
+sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
+```
+
+## Evidence and scoring
+
+```python-example
+sdk/caliber-sdk/examples/evaluation.py#build_and_score
+```
+
+Judge instructions must reference at least one evaluation variable —
+`{{ inputs }}`, `{{ outputs }}`, `{{ expectations }}`, `{{ conversation }}`, or
+`{{ trace }}`. The server enforces it because a judge with no variable grades
+nothing: it returns the same verdict for every example, and the resulting
+scorecard would look like evidence while measuring nothing.
+
+## Running workflows
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+Targeting an **alias** rather than a version id is the point of deploying one:
+the caller does not change when a new version is promoted.
+
+Submission is the single mutating call the SDK will not retry for you. It cannot
+know whether a failure happened before or after the run was created, and
+duplicating a run is worse than surfacing an error — pass an `idempotency_key`
+to make your own retry safe.
+
+## Waiting on long-running work
+
+Runs, calibration jobs, and evaluations are asynchronous. The waiters poll with
+capped exponential backoff and never sleep past the deadline you gave them.
+
+They differ on failure, deliberately:
+
+| Call | On a terminal failure |
+| --- | --- |
+| `workflows.runs.wait()` | raises `WorkflowRunFailed` |
+| `tools.wait_for_calibration()` | returns the job |
+| `evaluations.wait()` | returns the evaluation |
+
+A script whose *run* failed almost always wants to stop. A calibration score or
+an evaluation metric, by contrast, **is** the measurement — a low one is the
+result, not an error in the call.
+
+## Errors
+
+```text
+CaliberError
+├── CaliberConfigError        the client was built with unusable configuration
+├── CaliberTransportError     no HTTP response at all (DNS, refused, timeout)
+└── CaliberAPIError           the server answered with a non-2xx
+    ├── CaliberValidationError    400 with a structured field list
+    ├── CaliberAuthenticationError 401
+    ├── CaliberPermissionError     403
+    ├── CaliberNotFoundError       404
+    ├── CaliberConflictError       409
+    ├── CaliberRateLimitError      429
+    └── CaliberServerError         5xx
+```
+
+`CaliberTransportError` is separate from `CaliberAPIError` because there is no
+server verdict to inspect — and because retrying is often right in one case and
+wrong in the other.
+
+A validation failure prints the field *and* the server's reason:
+
+```text
+[400] request body validation failed (POST .../judges) request_id=… —
+instructions: instructions must reference at least one evaluation variable
+```
+
+## Anything not yet modelled
+
+`client.raw` reaches any endpoint under `/ajax-api/2.0/mlflow/caliber`:
+
+```python
+caliber.raw.get("/observability/traces")
+caliber.raw.post("/cookbooks/01/install", json={"name": "My install"})
+for item in caliber.raw.paginate("/workflows", limit=50):
+    ...
+```
+
+This is permanent, not scaffolding. A typed façade that lags the server would
+otherwise make new endpoints unreachable until the SDK caught up.
+
+## Forward compatibility
+
+Unknown response fields are kept in `extra` rather than dropped, and missing
+ones fall back to defaults rather than raising. A newer server does not break an
+older client, and an older server does not break a newer one.

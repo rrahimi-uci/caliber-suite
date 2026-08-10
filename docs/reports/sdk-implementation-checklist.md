@@ -22,7 +22,7 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 
 - [x] M0 — Server contract normalization
 - [x] M1 — Python SDK skeleton
-- [ ] M2 — GA Python SDK modules
+- [x] M2 — GA Python SDK modules
 - [ ] M3 — Beta + agentic SDK modules
 - [ ] M4 — Plugin SDK + registry refactor
 - [ ] M5 — CLI and optional follow-ons
@@ -33,9 +33,9 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 - [x] PAT-based automation auth exists.
 - [x] GA route schemas are formalized and stable enough for typed SDK use.
 - [x] `caliber-sdk` installs without `mlflow`.
-- [ ] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
-- [ ] SDK API pages include method details, model details, stability labels, and working examples.
-- [ ] Examples shown in the SDK docs are CI-tested.
+- [x] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
+- [x] SDK API pages include method details, model details, stability labels, and working examples.
+- [x] Examples shown in the SDK docs are CI-tested.
 - [ ] SDK cookbook exemplar pages are published in the docs site.
 - [ ] GitHub Pages serves the SDK docs through the existing Pages workflow.
 - [ ] Current operator-assisted agentic workflows are SDK-executable without browser-only flows.
@@ -263,7 +263,7 @@ Scope:
 Validation:
 
 - [x] prompt/skill/tool SDK tests (10 new; 76 total) + live skill round trip against the server
-- [ ] local example script for prompt lifecycle
+- [x] local example script for prompt lifecycle
 
 ### M2-PR3 — Workflow/service surfaces
 
@@ -299,9 +299,9 @@ Validation:
 
 Scope:
 
-- [ ] add end-to-end examples
-- [ ] add packaging and install checks
-- [ ] verify no heavy server dependency leaks into `caliber-sdk`
+- [x] add end-to-end examples (5, all executed by the SDK test suite)
+- [x] add packaging and install checks (test_packaging.py)
+- [x] verify no heavy server dependency leaks into `caliber-sdk` (asserted in CI against wheel metadata)
 
 Validation:
 
@@ -312,23 +312,23 @@ Validation:
 
 Scope:
 
-- [ ] add SDK docs sources under `docs/sdk/` or an equivalent dedicated SDK docs subtree
-- [ ] add GA SDK overview, quickstart, auth/configuration, and API reference pages
-- [ ] ensure the API pages are searchable from the existing docs UI
-- [ ] make examples come from tested SDK example sources rather than hand-written pseudo-code
+- [x] add SDK docs sources under `docs/sdk/`
+- [x] add GA SDK overview, quickstart, auth/configuration, and API reference pages
+- [x] ensure the API pages are searchable from the existing docs UI (new `SDK` nav group)
+- [x] make examples come from tested SDK example sources rather than hand-written pseudo-code (```python-example fence extracts from source at build time)
 - [ ] wire the pages into:
-  - `docs-site/build-docs.mjs`
-  - `caliber/caliber-ui/scripts/sync-docs.mjs`
+  - [x] `docs-site/build-docs.mjs`
+  - [x] `caliber/caliber-ui/scripts/sync-docs.mjs`
 
 Validation:
 
-- [ ] `node docs-site/build-docs.mjs`
-- [ ] `node caliber/caliber-ui/scripts/sync-docs.mjs`
-- [ ] `pytest caliber/tests/test_docs_generation_contract.py`
+- [x] `node docs-site/build-docs.mjs` — 23 module pages
+- [x] `node caliber/caliber-ui/scripts/sync-docs.mjs`
+- [x] `pytest caliber/tests/test_docs_generation_contract.py`
 
 Milestone completion:
 
-- [ ] M2 complete
+- [x] M2 complete
 
 ## M3 — Beta + agentic SDK modules
 

@@ -48,6 +48,9 @@ packages = ["src/caliber_sdk"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+# ``examples`` is importable from the test suite so published snippets are
+# executed rather than merely linted.
+pythonpath = ["."]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
 filterwarnings = ["error"]
 
@@ -65,4 +68,4 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.10"
 strict = true
 warn_unreachable = true
-files = ["src", "tests"]
+files = ["src", "tests", "examples"]
