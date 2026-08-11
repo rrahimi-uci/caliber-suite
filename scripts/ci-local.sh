@@ -62,6 +62,13 @@ SKIP_REASON=""
 #: 77 is the conventional EX_NOPERM-adjacent "skipped" code used by autotools suites.
 EXIT_SKIPPED=77
 
+# Local developer machines can have far more logical CPUs than the sandbox-heavy test
+# paths can use efficiently. Leaving xdist on unconstrained "auto" oversubscribes the
+# registered-tool subprocess tests and turns a product-green suite into a local runner
+# timeout. Keep the command line identical to CI (`-n auto --dist loadgroup`) while
+# bounding what "auto" expands to locally; callers can still override it explicitly.
+LOCAL_XDIST_AUTO_WORKERS="${CALIBER_LOCAL_XDIST_AUTO_WORKERS:-8}"
+
 # Run one job, record its outcome, and keep going. Timing is printed because "which
 # gate is slow" is the first thing you want when deciding what to run before a commit.
 run_job() {
@@ -128,7 +135,8 @@ job_test() {
   cd "$CALIBER_DIR" || return 1
   "$VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
   "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
-  "$VENV_PY" -m pytest -n auto --dist loadgroup
+  PYTEST_XDIST_AUTO_NUM_WORKERS="$LOCAL_XDIST_AUTO_WORKERS" \
+    "$VENV_PY" -m pytest -n auto --dist loadgroup
 }
 
 # The full suite is canonical on Python 3.11 in CI. This bounded edge-version gate makes
@@ -209,7 +217,7 @@ job_ui() {
 job_cookbook_ui_only() {
   cd "$UI_DIR" || return 1
   npx playwright install chromium || return 1
-  npm run test:e2e:cookbooks
+  CALIBER_SKIP_UI_BUILD=1 npm run test:e2e:cookbooks
   local status=$?
   CALIBER_E2E_TMP_ROOT="$CALIBER_DIR/.tmp/cookbooks-ui-only" \
     MLFLOW_PORT="${CALIBER_COOKBOOK_E2E_PORT:-5160}" \

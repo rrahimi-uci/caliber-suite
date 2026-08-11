@@ -218,11 +218,14 @@ def grok_parse(pattern: str = "", text: str = "") -> dict[str, Any]:
 
 def sandbox_python(code: str = "", timeout_seconds: float = 2.0) -> dict[str, Any]:
     """Run a short Python snippet in an isolated temp working directory."""
-    timeout = min(max(float(timeout_seconds or 2.0), 0.1), 10.0)
+    # Keep a floor so "0" still means "run with a tiny but real budget", but do not
+    # silently clamp a caller's larger timeout to 10 seconds. Under heavy local/CI load
+    # the cold interpreter start alone can exceed that and report a false timeout.
+    timeout = max(float(timeout_seconds or 2.0), 0.1)
     with tempfile.TemporaryDirectory(prefix="caliber-sandbox-") as tmp:
         try:
             completed = subprocess.run(  # noqa: S603
-                [sys.executable, "-I", "-c", code],
+                [sys.executable, "-I", "-B", "-c", code],
                 cwd=tmp,
                 env={},
                 text=True,

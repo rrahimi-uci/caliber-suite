@@ -18,7 +18,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: `MLFLOW_PORT=${PORT} MLFLOW_WORKERS=1 CALIBER_E2E_ENV_FILE=/dev/null CALIBER_DATABASE_URL= CALIBER_E2E_TMP_ROOT=$PWD/../.tmp/cookbooks-ui-only CALIBER_SKIP_KNOWLEDGE_WARMUP=1 bash ../scripts/run-playwright-server.sh`,
+    command: `MLFLOW_PORT=${PORT} MLFLOW_WORKERS=1 CALIBER_E2E_ENV_FILE=/dev/null CALIBER_DATABASE_URL= CALIBER_E2E_TMP_ROOT=$PWD/../.tmp/cookbooks-ui-only CALIBER_SKIP_KNOWLEDGE_WARMUP=1 CALIBER_BACKGROUND_TASKS_ENABLED=false CALIBER_ASSISTANT_ENGINE=fake bash ../scripts/run-playwright-server.sh`,
     url: `http://127.0.0.1:${PORT}/ajax-api/2.0/mlflow/caliber/health`,
     timeout: 360_000,
     reuseExistingServer: false,

@@ -115,3 +115,27 @@ def test_sandbox_timeout_and_output_clipping(monkeypatch: pytest.MonkeyPatch) ->
         "stdout": "out",
         "stderr": "err",
     }
+
+
+def test_sandbox_python_does_not_silently_clamp_requested_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_run(args, **kwargs):
+        seen["args"] = args
+        seen["timeout"] = kwargs["timeout"]
+
+        class _Completed:
+            returncode = 0
+            stdout = "ok\n"
+            stderr = ""
+
+        return _Completed()
+
+    monkeypatch.setattr(demo_tools.subprocess, "run", fake_run)
+    result = demo_tools.sandbox_python("print('ok')", timeout_seconds=30)
+
+    assert result["timed_out"] is False
+    assert seen["timeout"] == 30
+    assert seen["args"] == [demo_tools.sys.executable, "-I", "-B", "-c", "print('ok')"]

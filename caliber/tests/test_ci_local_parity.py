@@ -153,6 +153,19 @@ def test_remote_and_local_backend_gates_use_the_grouped_xdist_scheduler() -> Non
     assert "pytest -n auto --dist loadgroup" in script
 
 
+def test_local_backend_gate_bounds_auto_xdist_workers_without_changing_the_command() -> None:
+    """Local parity is the command shape, not an unconstrained spawn count.
+
+    The local runner keeps ``-n auto --dist loadgroup`` so scheduling semantics stay in
+    step with CI, but it must bound what ``auto`` means on developer machines with many
+    logical CPUs. Otherwise the tool-sandbox tests time out locally under process
+    pressure even when the product behavior is correct.
+    """
+    script = SCRIPT.read_text()
+    assert 'LOCAL_XDIST_AUTO_WORKERS="${CALIBER_LOCAL_XDIST_AUTO_WORKERS:-8}"' in script
+    assert 'PYTEST_XDIST_AUTO_NUM_WORKERS="$LOCAL_XDIST_AUTO_WORKERS"' in script
+
+
 def test_docs_sources_are_not_excluded_from_pull_request_ci() -> None:
     """The docs-validation gate reads ``docs/**`` and regenerates committed copies."""
     assert '- "docs/**"' not in WORKFLOW.read_text()

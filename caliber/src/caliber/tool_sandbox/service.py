@@ -33,8 +33,10 @@ _OUTPUT_READ_HEADROOM = 4
 #: Wall-clock added on top of the caller's timeout to cover interpreter start and module
 #: import. Not a fudge factor: it is the cost of running out of process at all, which the
 #: caller neither asked for nor can influence. Generous because it is only ever paid when
-#: something is genuinely stuck — a healthy start costs well under a second.
-_DEFAULT_STARTUP_GRACE_SECONDS = 15.0
+#: something is genuinely stuck — a healthy start costs well under a second, but under a
+#: full-suite spawn storm the child can still spend tens of seconds before authored work
+#: begins.
+_DEFAULT_STARTUP_GRACE_SECONDS = 30.0
 _MIN_OUTPUT_READ_CAP = 262_144
 _READ_CHUNK = 8192
 # Must match the stdlib-only child runner. The child cannot emit JSON after a hard
@@ -283,7 +285,7 @@ class LocalSubprocessToolSandbox:
         }
         with tempfile.TemporaryDirectory(prefix="caliber-tool-sandbox-") as cwd:
             process = subprocess.Popen(  # noqa: S603 - fixed interpreter + runner path.
-                [sys.executable, "-I", str(_RUNNER_PATH)],
+                [sys.executable, "-I", "-B", str(_RUNNER_PATH)],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
