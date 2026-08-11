@@ -327,8 +327,8 @@ def hero_banner():
         b.append(rect(64, 150 + i * 17, 132 - i * 12, 8, TEAL, r=4, opacity=1 - i * 0.2))
     b.append(txt(60, 348, "CALIBER", size=104, fill="#FFFFFF", weight="700", ls=-2))
     b.append(rect(64, 388, 92, 5, TEAL, r=3))
-    b.append(txt(64, 452, "A layered control plane for the lifecycle", size=29, fill="#C9DCEB"))
-    b.append(txt(64, 492, "of AI-agent resources", size=29, fill="#C9DCEB"))
+    b.append(txt(64, 452, "AI agent governance, workflow orchestration,", size=29, fill="#C9DCEB"))
+    b.append(txt(64, 492, "and progressive autonomy", size=29, fill="#C9DCEB"))
     b.append(para(64, 546,
                   "Governing the prompts, workflows, tools, MCP servers and retrieval "
                   "corpora an agent depends on — not just one of them.",
@@ -803,8 +803,8 @@ def infographic():
         b.append(rect(M, 44 + i * 12, 60 - i * 6, 5.5, TEAL, r=2.8, opacity=1 - i * 0.2))
     b.append(txt(M - 3, 152, "CALIBER", size=54, fill="#FFFFFF", weight="700", ls=-1.2))
     b.append(rect(M, 172, 56, 4, TEAL, r=2))
-    b.append(txt(M, 214, "A Layered Control Plane for Per-Family", size=21, fill="#BFD4E6"))
-    b.append(txt(M, 242, "Governance of AI-Agent Resources", size=21, fill="#BFD4E6"))
+    b.append(txt(M, 214, "A Layered Control Plane for AI Agent Governance,", size=21, fill="#BFD4E6"))
+    b.append(txt(M, 242, "Workflow Orchestration, and Progressive Autonomy", size=21, fill="#BFD4E6"))
     b.append(txt(M, 288, "Reza Rahimi", size=19, fill="#FFFFFF", weight="700"))
     b.append(txt(M, 312, "Jazzx AI, Los Altos, CA  ·  reza.rahimi@jazzx.ai", size=15, fill="#7E9AB4"))
 

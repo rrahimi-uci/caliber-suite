@@ -693,9 +693,9 @@ CI produces and the one quoted above. The discrepancy appears only under content
 puts it in the same family as §10.4.
 
 Regenerating the implementation counts moved only the git-revision stamp — every count in the
-paper is current at this tree: 322 Python modules / 126k lines, 308 pytest modules / 137k
-lines, 292 TS modules / 176k lines, 487 route declarations across 47 modules, 85 Alembic
-revisions, 76 ORM models, 226 Pydantic schemas, 31 workflow node types.
+paper is current at this tree: 327 Python modules / 129k lines, 324 pytest modules / 142k
+lines, 293 TS modules / 177k lines, 490 route declarations across 48 modules, 86 Alembic
+revisions, 77 ORM models, 263 Pydantic schemas, 31 workflow node types.
 
 **A caveat on CI evidence.** GitHub Actions and Pages were in a declared `major_outage`
 (critical impact, from 15:22Z on 2026-08-06) while this update was written. Jobs died at
@@ -1250,9 +1250,9 @@ it is not `678127229`, the commit the paper ships from; and the `-dirty` suffix 
 a working-tree state that was never committed and cannot be recovered. Nothing checks the
 stamp against `HEAD` — `gen_stats.py` emits it and no test reads it. Low severity, but a
 provenance field that cannot be resolved to a tree is not provenance. The *counts* are current
-and were re-derived: 322 Python modules / **127k** lines (§10.3 said 126k), **310** pytest
-modules (§10.3 said 308) / 137k lines, 292 TS modules / 176k, 487 routes across 47 modules,
-85 migrations, 76 ORM models, 226 schemas, 31 node types. The loop count was re-checked
+and were re-derived: 327 Python modules / **129k** lines (§10.3 said 126k), **324** pytest
+modules (§10.3 said 308) / 142k lines, 293 TS modules / 177k, 490 routes across 48 modules,
+86 migrations, 77 ORM models, 263 schemas, 31 node types. The loop count was re-checked
 against the tree rather than the macro: `server.py` lines 192–204 contain exactly **nine**
 `await <task>.start()` calls, matching `\statLoops{9}`, which is §11.2's derivation working.
 

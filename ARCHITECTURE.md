@@ -105,7 +105,7 @@ flowchart LR
     subgraph L6["6 · SURFACES"]
       direction LR
       s1["<b>React SPA</b><br/><code>/caliber/</code>"]:::ui
-      s2["<b>HTTP API</b><br/>456 method declarations<br/>across route modules"]:::ui
+      s2["<b>HTTP API</b><br/>490 method declarations<br/>across 48 modules"]:::ui
       s3["<b>Aria copilot</b><br/>permissioned<br/>agentic tool loop"]:::ui
       s4["<b>Headless</b><br/>service tokens ·<br/>SSE · webhooks"]:::ui
       s1 --- s2 --- s3 --- s4
@@ -657,6 +657,6 @@ touching the substrate.
 | An **operator** bringing it up | The [walkthrough runbook](docs-site/walkthrough.html) and [deploy/README.md](deploy/README.md) |
 | Anyone asking **"what is actually built?"** | [docs/reports/product-completeness-report.md](docs/reports/product-completeness-report.md) — the dated implementation and validation record; use the latest `main` CI run for current release evidence |
 
-Per-area design specs live under [docs/](docs/), one `architecture.md` per numbered
-area, rendered at [docs-site/](docs-site/). This document is the layered map above
-them; they are the depth beneath it.
+The deeper architecture specs, operator runbooks, integration guides, and audit
+reports live under [docs/](docs/) and are rendered at [docs-site/](docs-site/).
+This document is the layered map above them; they are the depth beneath it.

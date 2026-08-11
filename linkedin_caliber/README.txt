@@ -8,10 +8,10 @@ This package includes:
 - make_images.py                 : regenerates every image in images/ from source
 - head.tex                       : LaTeX preamble used by the PDF build below
 
-The article is based on the paper *CALIBER: A Layered Control Plane for Per-Family
-Governance of AI-Agent Resources* (see ../paper) and is written for a broad LinkedIn
-audience: engineers, platform leads, architects, and researchers working on
-production agent systems.
+The article is based on the paper *CALIBER: A Layered Control Plane for AI Agent
+Governance, Workflow Orchestration, and Progressive Autonomy* (see ../paper) and is
+written for a broad LinkedIn audience: engineers, platform leads, architects, and
+researchers working on production agent systems.
 
 Suggested use:
 1. Open the DOCX or PDF for the most polished reading experience.
