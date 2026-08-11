@@ -220,15 +220,34 @@ FIXED_SITE_FILES = frozenset(
 
 def test_shared_docs_icon_markup_uses_real_svg_wrappers() -> None:
     expected_svg = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"'
-    for script in (DOCS_SITE / "docs.js", PUBLIC_DOCS / "docs.js", PACKAGED_DOCS / "docs.js"):
+    # The packaged copy under ``src/caliber/ui/`` is gitignored — it exists only
+    # after a build — so it is asserted when present and skipped when not, the
+    # same guard ``test_all_materialized_docs_copies_match_docs_site`` already
+    # uses. Reading it unconditionally raised FileNotFoundError on every clean
+    # CI checkout, which is the failure this guard removes.
+    scripts = [DOCS_SITE / "docs.js", PUBLIC_DOCS / "docs.js"]
+    if PACKAGED_DOCS.is_dir():
+        scripts.append(PACKAGED_DOCS / "docs.js")
+    for script in scripts:
         text = script.read_text(encoding="utf-8")
-        assert "function iconMarkup(iconKey)" in text, f"{script} is missing the shared icon wrapper helper"
+        assert "function iconMarkup(iconKey)" in text, (
+            f"{script} is missing the shared icon wrapper helper"
+        )
         assert expected_svg in text, f"{script} does not wrap icon shapes in a real <svg>"
-        assert "node.innerHTML = iconMarkup(iconKey);" in text, f"{script} does not mount wrapped icons"
+        assert "node.innerHTML = iconMarkup(iconKey);" in text, (
+            f"{script} does not mount wrapped icons"
+        )
 
 
 def test_toolbar_brand_is_text_only_in_every_published_html_copy() -> None:
-    for directory in (DOCS_SITE, PUBLIC_DOCS, PACKAGED_DOCS):
+    # Same guard, for a different reason: ``glob`` on a missing directory yields
+    # nothing rather than raising, so this loop was silently asserting against
+    # zero files for the packaged copy instead of failing. Skipping it explicitly
+    # is honest; iterating it implicitly was not.
+    directories = [DOCS_SITE, PUBLIC_DOCS]
+    if PACKAGED_DOCS.is_dir():
+        directories.append(PACKAGED_DOCS)
+    for directory in directories:
         for path in directory.glob("*.html"):
             html = path.read_text(encoding="utf-8")
             if '<header class="topbar">' not in html:
@@ -522,7 +541,7 @@ def _docs_data() -> dict[str, object]:
     return json.loads(match.group(1))
 
 
-def _search_results(query: str, limit: int = 12) -> list[dict[str, object]]:
+def _search_results(query: str, limit: int = 12) -> list[dict[str, object]]:  # noqa: PLR0912, PLR0915
     payload = json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))
     pages = payload["pages"]
     q = query.strip().lower()
@@ -546,7 +565,20 @@ def _search_results(query: str, limit: int = 12) -> list[dict[str, object]]:
         audience = " ".join(entry.get("audience", [])).lower()
         is_reference_page = doc_type == "reference" or section == "reference"
         full = " ".join(
-            [title, page_label, href, section, summary, symbols, routes, headings, body, tags, doc_type, audience]
+            [
+                title,
+                page_label,
+                href,
+                section,
+                summary,
+                symbols,
+                routes,
+                headings,
+                body,
+                tags,
+                doc_type,
+                audience,
+            ]
         )
         exact_symbol_match = any(item.lower() == q for item in symbol_list)
         exact_route_match = any(item.lower() == q for item in route_list)
@@ -721,7 +753,9 @@ def test_hand_authored_pages_have_metadata_and_search_records() -> None:
     nav_pages = {page["href"]: page for page in data["pages"]}
     search_pages = {
         page["href"]: page
-        for page in json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))["pages"]
+        for page in json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))[
+            "pages"
+        ]
     }
 
     for href in HAND_AUTHORED_PAGES:
@@ -733,9 +767,9 @@ def test_hand_authored_pages_have_metadata_and_search_records() -> None:
         assert search_pages[href]["section"], href
 
     assert nav_pages["walkthrough.html"]["prerequisites"], nav_pages["walkthrough.html"]
-    assert nav_pages["interactive-layered-architecture.html"]["prerequisites"], (
-        nav_pages["interactive-layered-architecture.html"]
-    )
+    assert nav_pages["interactive-layered-architecture.html"]["prerequisites"], nav_pages[
+        "interactive-layered-architecture.html"
+    ]
 
 
 def test_search_index_covers_generated_and_hand_authored_pages() -> None:
@@ -766,7 +800,7 @@ def test_search_index_covers_generated_and_hand_authored_pages() -> None:
         "m-33-trust-and-governance.html",
         "m-34-architecture-reader-guide.html",
     ]:
-      assert href in by_href, f"search index is missing {href}"
+        assert href in by_href, f"search index is missing {href}"
 
     assert by_href["walkthrough.html"]["section"] == "Operate CALIBER"
     assert "operator" in by_href["walkthrough.html"]["audience"]
@@ -779,7 +813,10 @@ def test_search_index_covers_generated_and_hand_authored_pages() -> None:
     assert by_href["m-21-sdk-reference.html#reference"]["page_label"] == "SDK API reference"
     assert by_href["m-21-sdk-reference.html#reference"]["result_type"] == "anchor"
     assert "CaliberClient" in by_href["m-21-sdk-reference.html"]["symbols"]
-    assert "/ajax-api/2.0/mlflow/caliber/openapi.json" in by_href["m-29-rest-api-reference.html"]["routes"]
+    assert (
+        "/ajax-api/2.0/mlflow/caliber/openapi.json"
+        in by_href["m-29-rest-api-reference.html"]["routes"]
+    )
 
 
 def test_rest_api_reference_publishes_generated_route_inventory() -> None:
@@ -799,9 +836,10 @@ def test_rest_api_reference_publishes_generated_route_inventory() -> None:
     assert '#prompts-prompts">Prompts' in html
     assert "OpenAPI JSON" in html
     assert "/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute" in html
-    assert "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters" in by_href[
-        "m-29-rest-api-reference.html"
-    ]["routes"]
+    assert (
+        "/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters"
+        in by_href["m-29-rest-api-reference.html"]["routes"]
+    )
 
 
 def test_search_prefers_reference_pages_for_symbol_and_route_queries() -> None:

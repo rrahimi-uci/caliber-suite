@@ -162,8 +162,8 @@ def test_docs_validation_is_the_explicit_strict_docs_gate() -> None:
     workflow = WORKFLOW.read_text()
     script = SCRIPT.read_text()
     required_remote = (
-        'name: Docs validation',
-        'CALIBER_DOCS_PYTHON: python',
+        "name: Docs validation",
+        "CALIBER_DOCS_PYTHON: python",
         'CALIBER_DOCS_STRICT: "1"',
         "node caliber/caliber-ui/scripts/sync-docs.mjs",
         "caliber/tests/test_docs_executable_spec_contract.py",

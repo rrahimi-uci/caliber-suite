@@ -16,11 +16,11 @@ import re
 import shlex
 import subprocess
 import sys
-import tomllib
 from functools import cache
 from pathlib import Path
 
 import pytest
+import tomllib
 
 yaml = pytest.importorskip("yaml", reason="PyYAML is needed to validate YAML code fences")
 
@@ -44,11 +44,12 @@ sys.path.insert(0, str(REPO_ROOT / "sdk" / "caliber-sdk" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "sdk" / "caliber-cli" / "src"))
 sys.path.insert(0, str(REPO_ROOT / "sdk" / "caliber-plugin-sdk" / "src"))
 
-from caliber.routes.openapi import PREFIX, build_openapi_document  # noqa: E402
-from caliber.server import create_app  # noqa: E402
-from caliber_cli import exits  # noqa: E402
-from caliber_cli.cli import build_parser  # noqa: E402
-from caliber_sdk.client import ENV_BASE_URL, ENV_PROJECT, ENV_TOKEN, ENV_USER  # noqa: E402
+from caliber_cli import exits
+from caliber_cli.cli import build_parser
+from caliber_sdk.client import ENV_BASE_URL, ENV_PROJECT, ENV_TOKEN, ENV_USER
+
+from caliber.routes.openapi import PREFIX, build_openapi_document
+from caliber.server import create_app
 
 
 @cache
@@ -66,9 +67,7 @@ def _published_sources() -> list[Path]:
 def _fenced_blocks(path: Path, language: str | None = None) -> list[str]:
     text = path.read_text(encoding="utf-8")
     blocks = [
-        body
-        for lang, body in FENCE.findall(text)
-        if language is None or lang.strip() == language
+        body for lang, body in FENCE.findall(text) if language is None or lang.strip() == language
     ]
     return blocks
 
@@ -111,7 +110,9 @@ def _make_targets() -> dict[Path, set[str]]:
             continue
         names = {
             match.group(1)
-            for match in re.finditer(r"^([A-Za-z0-9_.-]+):", makefile.read_text(encoding="utf-8"), re.M)
+            for match in re.finditer(
+                r"^([A-Za-z0-9_.-]+):", makefile.read_text(encoding="utf-8"), re.M
+            )
             if not match.group(1).startswith(".")
         }
         targets[makefile.parent] = names
@@ -182,7 +183,7 @@ def test_all_plain_python_fences_compile_and_import_real_repo_symbols() -> None:
     assert not missing, f"docs import repo symbols that do not exist: {missing}"
 
 
-def test_shell_examples_are_parseable_and_reference_real_commands() -> None:
+def test_shell_examples_are_parseable_and_reference_real_commands() -> None:  # noqa: PLR0912
     cli_failures: list[str] = []
     route_failures: list[str] = []
     command_failures: list[str] = []
@@ -206,7 +207,9 @@ def test_shell_examples_are_parseable_and_reference_real_commands() -> None:
                 for segment in [piece.strip() for piece in stripped.split("&&") if piece.strip()]:
                     if segment.startswith("cd "):
                         target = segment[3:].strip()
-                        cwd = (cwd / target).resolve() if not target.startswith("/") else Path(target)
+                        cwd = (
+                            (cwd / target).resolve() if not target.startswith("/") else Path(target)
+                        )
                         continue
                     if segment.startswith("make "):
                         tokens = shlex.split(segment, comments=True)
@@ -216,7 +219,9 @@ def test_shell_examples_are_parseable_and_reference_real_commands() -> None:
                             if token.startswith("-"):
                                 continue
                             if token not in targets:
-                                command_failures.append(f"{page.name}: make target {token!r} in {make_dir}")
+                                command_failures.append(
+                                    f"{page.name}: make target {token!r} in {make_dir}"
+                                )
                         continue
                     if segment.startswith("npm run "):
                         tokens = shlex.split(segment, comments=True)
@@ -246,7 +251,9 @@ def test_shell_examples_are_parseable_and_reference_real_commands() -> None:
                 if not _matches_route(path):
                     route_failures.append(f"{page.name}: {path}")
 
-    assert not command_failures, f"docs commands reference missing targets/packages: {command_failures}"
+    assert not command_failures, (
+        f"docs commands reference missing targets/packages: {command_failures}"
+    )
     assert not cli_failures, f"docs CLI examples do not parse: {cli_failures}"
     assert not route_failures, f"docs curl examples reference missing routes: {route_failures}"
 
@@ -273,7 +280,9 @@ def test_sdk_guide_configuration_table_matches_the_client_env_fallbacks() -> Non
     guide = (DOCS_SOURCE / "sdk" / "guide.md").read_text(encoding="utf-8")
     documented = set(re.findall(r"\| `([A-Z_]+)` \|", guide))
     expected = {ENV_BASE_URL, ENV_PROJECT, ENV_TOKEN, ENV_USER}
-    assert expected <= documented, f"sdk guide is missing env fallbacks: {sorted(expected - documented)}"
+    assert expected <= documented, (
+        f"sdk guide is missing env fallbacks: {sorted(expected - documented)}"
+    )
 
 
 def test_cli_docs_publish_the_real_exit_codes() -> None:
@@ -288,12 +297,18 @@ def test_cli_docs_publish_the_real_exit_codes() -> None:
         exits.TIMEOUT,
         exits.UNAUTHENTICATED,
     }
-    assert published == expected, f"CLI docs advertise exit codes {sorted(published)}, expected {sorted(expected)}"
+    assert published == expected, (
+        f"CLI docs advertise exit codes {sorted(published)}, expected {sorted(expected)}"
+    )
 
 
 def test_config_reference_settings_exist_in_repo_configuration() -> None:
-    reference = (DOCS_SOURCE / "reference" / "config-and-environment.md").read_text(encoding="utf-8")
-    settings = sorted(set(re.findall(r"`((?:CALIBER|MLFLOW|OPENAI|ANTHROPIC)_[A-Z0-9_*]+)`", reference)))
+    reference = (DOCS_SOURCE / "reference" / "config-and-environment.md").read_text(
+        encoding="utf-8"
+    )
+    settings = sorted(
+        set(re.findall(r"`((?:CALIBER|MLFLOW|OPENAI|ANTHROPIC)_[A-Z0-9_*]+)`", reference))
+    )
     backing = _implementation_env_names()
     missing: list[str] = []
     for setting in settings:
