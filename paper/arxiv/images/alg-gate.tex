@@ -1,0 +1,50 @@
+%% alg-gate.tex -- Algorithm: the two gates, side by side.
+%%
+%% Written as one figure precisely because the two mechanisms are constantly
+%% conflated. Reading the two procedures together makes the asymmetry structural
+%% rather than rhetorical: one returns a decision that stops the job, the other
+%% returns a record that is filed.
+
+\begin{algorithm}[tbp]
+\caption{The two gates, side by side. \code{advance} \emph{stops the job}: its
+return value is control flow, and there is no override path because withholding a
+candidate that failed its own evaluation is never what an operator needs to
+override. Read ``unbypassable'' as scoped to this state machine: a direct authoring
+route can move a prompt alias without entering it (\secref{sec:limitations}). \code{verdict} \emph{files a record}: its return value is evidence,
+consumed by a human at \mode{Apply}. Placing the unbypassable check on advancement
+rather than on release is design decision D3 (\tabref{tab:decisions}).}
+\label{alg:gate}
+\psig{advance}\ \ \cmtin{ENFORCED --- the return value is control flow}
+\pin{$v$}{a candidate; $b$, the incumbent baseline; $C$, the assembled corpus}
+\pout{\plit{candidate\_ready} \kw{or} \plit{stopped}}{}
+\begin{pseudo}
+\pline{$S \gets \emptyset$}
+\pline{\kw{for each} \pid{scorer} \kw{in} scorecard($v$) \pdo}
+\pline{\I \kw{for each} \pid{x} \kw{in} $C$ \pdo}
+\pline{\II $S[\pid{scorer}] \gets S[\pid{scorer}] \cup
+        \{$\pid{scorer}$(v, x)\}$}
+\pline{}
+\pline{\kw{for each} \pid{d} \kw{in} dimensions($S$) \pdo}
+\pline{\I \kw{if} mean($S[d]$) $<$ mean(baseline($b$, $d$)) $- \epsilon_d$
+        \pthen}
+\pline{\II persist($v$, $S$, \plit{stopped}, reason $= d$)}
+\pline{\II \kw{return} \plit{stopped}
+        \cmt{no human ever sees $v$}}
+\pline{}
+\pline{persist($v$, $S$, \plit{candidate\_ready})}
+\pline{\kw{return} \plit{candidate\_ready}}
+\end{pseudo}
+
+\vspace{0.8ex}
+\psig{verdict}\ \ \cmtin{ADVISORY --- the return value is evidence}
+\pin{$v$}{a version, already released or releasable}
+\pout{a persisted per-version record}{never a control-flow decision}
+\begin{pseudo}
+\pline{$R \gets \langle$ scores($v$), judges($v$), corpus id, timestamp
+       $\rangle$}
+\pline{persist\_version\_verdict($v$, $R$)}
+\pline{\cmtin{deliberately absent: any branch on $R$ that could block}}
+\pline{\cmtin{rotate(). A stale verdict must never gate an urgent fix.}}
+\pline{\kw{return} $R$ \cmt{surfaced in review}}
+\end{pseudo}
+\end{algorithm}

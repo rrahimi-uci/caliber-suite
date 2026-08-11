@@ -1,0 +1,120 @@
+\section{Motivation}
+\label{sec:motivation}
+
+\subsection{A failure no single resource lifecycle closes}
+
+Consider a support agent in production. A customer asks a question about a refund
+window; the agent answers confidently and incorrectly, citing a policy that
+changed last quarter. A reviewer marks the response as bad. Every step up to this
+point is well tooled: the call produced a trace, the trace carries the retrieved
+chunks and the rendered prompt, and the reviewer's judgement is recorded as an
+assessment attached to that trace.
+
+Now enumerate what a team must do to actually fix it, and what tooling exists for
+each step.
+
+\begin{enumerate}[leftmargin=1.5em]
+\item \textbf{Decide the failure is real} and not a mislabel. Tooling: a queue, if
+someone built one.
+\item \textbf{Locate the cause} --- stale retrieval, an over-confident
+instruction, a tool returning a wrong field, or a prompt that never told the model
+to check recency. Tooling: reading the trace.
+\item \textbf{Assemble evidence} beyond this one case, so the fix is not
+overfitted to a single input. Tooling: none standard; teams hand-build spreadsheets.
+\item \textbf{Produce a candidate} change. Tooling: an optimizer, if the team has
+adopted one, run out of band~\cite{khattab2024dspy,yang2024opro}.
+\item \textbf{Measure} the candidate against the incumbent on that evidence, per
+dimension, not just on the reported case. Tooling: an evaluation
+harness~\cite{promptfoo,openaievals}, run manually.
+\item \textbf{Decide} whether to ship. Tooling: a human, informally.
+\item \textbf{Release} it such that running agents pick it up. Tooling: a code
+deployment, because the prompt is a string in a source file.
+\item \textbf{Record} what changed, on what evidence, approved by whom. Tooling:
+a commit message, if anyone writes one.
+\item \textbf{Be able to undo it} to the exact prior state. Tooling: \code{git
+revert} plus another deployment --- which reverts the prompt but not the
+retrieval corpus, the tool version, or the judge that scored it.
+\end{enumerate}
+
+Steps 1--5 are addressed by tools that often do not share one lifecycle. For
+prompts, current registries cover important parts of steps 6--9: immutable versions,
+live labels, rollback, and permissions
+\cite{mlflowpromptregistry,langsmithprompts,langfuseprompts}. The unresolved part is
+applying an evidence-linked release vocabulary across the other agent resources and
+making the guarantee surface explicit per family. This is the gap \sys targets. It
+is not a gap in model quality or observability; it is a gap in \emph{cross-resource
+release engineering for non-code artifacts}, structurally related to the gap continuous
+delivery~\cite{humble2010cd} closed for code and that TFX~\cite{baylor2017tfx} and
+MLflow~\cite{zaharia2018mlflow} closed, partially, for models.
+
+\subsection{Why the obvious answers do not work}
+
+\para{``Put the prompts in git.''} Version control gives history and review, and
+it is genuinely necessary. It does not give a \livetarget{} a running agent can
+resolve without redeployment; it does not attach evidence to a version; it cannot
+express that this version passed a regression gate on that corpus; and it cannot
+record that an operator acting under a declared scope authorized the change. Most
+decisively, it binds the prompt's release to the application's release, which
+means the fastest possible remediation is gated on a deployment pipeline built for
+code.
+
+\para{``Use the prompt platform's evaluation features.''} Current prompt platforms
+do own versioned prompt artifacts and can link evaluations to them; pretending
+otherwise would erase the closest baseline. The narrower limitation is scope:
+those prompt lifecycles do not by themselves define compatible release evidence and
+rollback semantics for workflows, tools, MCP configurations, skills, and retrieval
+corpora (\tabref{tab:platforms}).
+
+\para{``Use an optimizer.''} DSPy, GEPA, MIPRO, OPRO, and TextGrad are real
+advances and \sys uses them~\cite{khattab2024dspy,agrawal2025gepa,
+opsahlong2024mipro,yang2024opro,yuksekgonul2024textgrad}. But an optimizer
+produces a candidate; it does not produce a release. It has no notion of who may
+promote, what the outgoing live target was, or how to restore it. Treating an
+optimizer as a lifecycle solution is a category error: it is the compiler, not the
+deployment system.
+
+\para{``Automate the whole loop.''} This is the tempting answer and we argue it is
+wrong at the current state of the art, which is why \sys keeps a human at
+\mode{Apply} (D4, \tabref{tab:decisions}). A score improvement on an assembled
+corpus is necessary but not sufficient evidence that a change is safe: the corpus
+is a sample, judges are correlated with each other and with the model being
+evaluated~\cite{zheng2023judging}, and the failures that matter most in agent
+systems --- tool misuse, over-confident assertion, prompt injection reached
+through retrieved content~\cite{greshake2023injection} --- are precisely the ones a
+metric constructed from prior failures is least likely to catch. An auto-apply
+threshold converts a visible, reviewable change into an invisible, correlated one.
+
+\subsection{What a solution has to provide}
+
+The scenario above yields five requirements, which the rest of the paper is
+organized around.
+
+\begin{description}
+\item[R1 --- Typed, versioned artifacts.] The unit of change must be a record with
+a schema and an immutable version history, not a string in a file
+(\secref{sec:components}).
+
+\item[R2 --- Late-bound live targets.] Client code must resolve \emph{which}
+version to run at call time, so remediation is decoupled from application
+deployment (\secref{sec:capabilities}).
+
+\item[R3 --- Evidence bound to versions.] Scores, judgements, and the corpus they
+were computed over must be attached to the version they describe, durably, so a
+release is reconstructable months later (\secref{sec:overview}).
+
+\item[R4 --- An enforced gate plus a human decision.] Some check must be
+unbypassable and some judgement must be a person's, and \secref{sec:capabilities}
+argues that these should be different mechanisms acting at different points in the
+path rather than one mechanism doing both.
+
+\item[R5 --- Audited, reversible release.] The release must record what the live
+target \emph{was}, so undo is a restore (\secref{sec:components}).
+\end{description}
+
+R1 through R5 are not novel in the abstract --- they are the standard demands of
+release engineering~\cite{humble2010cd}, artifact provenance~\cite{
+torresarias2019intoto,slsa}, and documented model
+governance~\cite{mitchell2019modelcards,gebru2021datasheets}. The contribution is
+not inventing them but discharging them over a set of artifact types that are
+genuinely heterogeneous, and being precise about where that heterogeneity forces
+the guarantees apart.

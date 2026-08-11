@@ -1,0 +1,92 @@
+\documentclass{scrreprt}
+
+\usepackage{article-layout}
+
+\input{preamble}
+\input{macros}
+
+\renewcommand{\thesection}{\arabic{section}}
+
+\IfFileExists{generated/stats.tex}{\input{generated/stats}}{%
+  \providecommand{\statGitRev}{unknown}}
+
+\makeatletter
+\def\input@path{{sections/}{images/}{tables/}{generated/}{appendix/}}
+\makeatother
+\graphicspath{{images/}{generated/}{generated/diagrams/}}
+
+\hypersetup{
+  pdftitle  = {CALIBER: A Layered Control Plane for AI Agent Governance,
+               Workflow Orchestration, and Progressive Autonomy},
+  pdfauthor = {Reza Rahimi},
+  pdfsubject= {Systems architecture for governed AI-agent resource lifecycles},
+  pdfkeywords={AI agents, LLMOps, control plane, governance, prompt optimization,
+               MLflow, evaluation, provenance, release engineering},
+}
+
+\title{\sysbare: A Layered Control Plane for\\AI Agent Governance, Workflow Orchestration, and Progressive Autonomy}
+
+\author{%
+  Reza Rahimi\\[0.4ex]
+  \normalsize\texttt{reza.rahimi@jazzx.ai}%
+}
+\date{}
+
+\begin{document}
+\maketitle
+
+\input{00-abstract}
+
+\clearpage
+\renewcommand{\contentsname}{Table of Contents}
+\tableofcontents
+
+\clearpage\input{01-introduction}
+\clearpage\input{02-motivation}
+\clearpage\input{03-background}
+\clearpage\input{04-system-overview}
+\clearpage\input{05-architecture}
+\clearpage\input{06-components}
+\clearpage\input{07-capabilities}
+\clearpage\input{08-design-decisions}
+\clearpage\input{09-implementation}
+\clearpage\input{10-evaluation}
+\clearpage\input{11-comparison}
+\clearpage\input{12-limitations}
+\clearpage\input{13-future-work}
+\clearpage\input{14-conclusion}
+
+\clearpage
+\section*{Availability}
+\label{sec:availability}
+\addcontentsline{toc}{section}{Availability}
+\sys is released under the Apache~2.0 license. The implementation identifier
+\code{\statGitRev} records the base revision used for every count in
+\secref{sec:impl}; the \code{-dirty} suffix explicitly means those counts include
+working-tree changes. The manuscript source, generated counts, and build
+instructions are included in this arXiv source package.
+
+The manuscript source is versioned in the same repository as the implementation it
+describes, so a reader can check the paper against one disclosed source state. In a
+dirty checkout, the base revision alone does not identify the uncommitted patch;
+the \code{-dirty} marker is a disclosure, not a reproducibility claim.
+What can be reproduced is the document and its source-derived counts: running
+\code{make} in this directory rebuilds the PDF from the bundled sources and
+generated counts. The unrun performance, scale, baseline, and human-study protocol
+remain future work exactly as \tabref{tab:results} and \secref{sec:limitations}
+state.
+
+\clearpage
+\addcontentsline{toc}{section}{References}
+{\small
+\bibliographystyle{plainnat}
+\bibliography{refs}}
+
+\appendix
+\renewcommand{\thesection}{\Alph{section}}
+\clearpage\input{a-asset-families}
+\clearpage\input{b-api-surface}
+\clearpage\input{c-protocol}
+\clearpage\input{d-config}
+
+\end{document}

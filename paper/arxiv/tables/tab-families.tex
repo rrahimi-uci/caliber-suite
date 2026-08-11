@@ -1,0 +1,43 @@
+%% tab-families.tex -- Table: what each asset family actually guarantees.
+%%
+%% This is the paper's most important table and the hardest to write honestly.
+%% Its whole function is to refute the reading that a shared substrate implies
+%% shared guarantees. Every row is deliberately allowed to differ.
+%%
+%% The rows are GENERATED. They come from caliber/artifact_capabilities.py by way
+%% of paper/scripts/gen_stats.py, which owns the wording and reads the facts off
+%% the implementation's own declarations. This file keeps the float, the caption
+%% and the column spec, because those are typesetting rather than claims.
+%%
+%% The reason is the table's own subject. A table asserting per-family guarantees
+%% while being maintained by hand is a second copy of what the code declares, and
+%% the copy that is not executed is the one that goes stale -- which would leave
+%% the paper's central claim demonstrated by a defect. `make stats' now fails if a
+%% family exists with no wording for its declared mechanism, so the table cannot
+%% quietly describe a system that has moved on.
+%%
+%% To change a row: change the declaration in artifact_capabilities.py. To change
+%% how a mechanism is worded: change the vocabulary in gen_stats.py.
+
+\begin{table}[tp]
+\centering
+\caption{What each \family actually guarantees. The nine families are not even
+the same \emph{kind} of thing: six are authored runtime assets, test sets and
+judges are evidence and scoring assets rather than things one deploys, and
+\emph{agent} is the anchor record that verification items, refinement jobs, and
+approvals hang off. Sharing a substrate does not make the guarantees uniform, and
+this table is the refutation of that inference. Note in particular that the
+shared version-history component is mounted for five families through per-artifact
+adapters --- \emph{sharing the component does not share the semantics}.}
+\label{tab:families}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{cbwide}
+\input{families-table}
+\end{cbwide}
+\tabnote{A \chipnone{} or \chipna{} chip marks a facet the family does not
+implement --- an architectural fact about that row, not a measurement this paper
+omitted. \chipenf{} is unbypassable; \chipadv{} is filed as evidence and blocks
+nothing.}
+\end{table}

@@ -1,0 +1,159 @@
+\section{Comparison with Existing Frameworks}
+\label{sec:compare}
+
+\input{tab-platforms}
+\input{tab-compare}
+
+This section makes two comparisons, and separating them matters. The first is
+narrow and is where the paper is most exposed: against the platforms that already
+manage a prompt lifecycle. The second is broad and is about architectural shape.
+Doing only the second would let a shape argument stand in for a feature argument,
+which is how a comparison section becomes advertising.
+
+\subsection{The prompt-lifecycle platforms already do much of this}
+\label{sec:compare:platforms}
+
+An earlier version of this paper claimed the release concern was unoccupied. That
+was wrong, and \tabref{tab:platforms} states it plainly. As of 2026-08-03:
+\mlflow{}'s Prompt Registry provides commit-based, immutable prompt versions with
+diffs and mutable \emph{aliases}~\cite{mlflowpromptregistry}; LangSmith provides
+commit history, custom commit tags, reserved \code{staging} and \code{production}
+tags resolved at pull time, documented rollback to a prior commit, and owners-only
+control over tagging~\cite{langsmithprompts}; and Langfuse provides versions,
+\code{production} and custom \emph{labels} resolved client-side at fetch time,
+rollback by re-assigning a label, and \emph{protected labels} restricted by
+role~\cite{langfuseprompts}. \mlflow{} additionally ships prompt optimization ---
+\code{optimize\_prompts()} over \textsc{gepa} and metaprompting, driven by a
+labelled dataset and scorers~\cite{mlflowoptimize}.
+
+Four claims a reader might expect this paper to make are therefore unavailable to
+it. Late-bound pointer indirection for prompts is not novel; neither is rollback by
+re-pointing; neither is restricting who may promote; neither is generating a
+candidate automatically. Where an earlier draft treated these as \sys's
+contribution, they are table stakes, and the honest reading of the top block of
+\tabref{tab:platforms} is that \sys re-implements a solved problem for prompts.
+
+\para{What survives.} Three differences do survive, and they are narrower than the
+old framing but they are checkable. \emph{First, family heterogeneity.} These
+platforms govern prompts, and \mlflow{} also governs models; workflows, tool
+definitions, MCP server configurations, and retrieval corpora are not registry
+citizens with versions and pointers. \sys's contribution is the claim that one
+mode vocabulary can span \statFamiliesW{} families --- together with the finding,
+which is the paper's actual intellectual content, that spanning them costs uniform
+guarantees (\secref{sec:arch:claim}). \emph{Second, evidence as a precondition
+rather than an annotation.} All three platforms link evaluations to prompts; none
+of their documentation describes a mechanism that makes a promotion \emph{fail}
+because a score fell. In \sys the advancement gate is such a mechanism --- inside
+the refinement state machine, and, as \secref{sec:limitations} concedes, only
+there. \emph{Third, the wiring rather than the parts.} \mlflow{} optimizes
+prompts and \mlflow{} versions prompts, but the path from a flagged production
+trace to an optimizer run to a gated candidate to a reviewed release is assembled
+by the adopter. \sys's claim is that this path is worth being a first-class
+architectural object.
+
+That is a smaller claim than ``the concern is unoccupied,'' and we would rather
+state the smaller one accurately. A reviewer who finds even this delta insufficient
+is making a reasonable judgement about significance rather than catching an error.
+
+\subsection{Why a ranking across the broader field would be the wrong output}
+
+The four groups in \tabref{tab:compare} are not substitutes. A team does not choose
+between LangGraph and \sys any more than it chooses between a web framework and a
+deployment pipeline; the realistic configuration is an agent composed in a framework,
+traced by an observability platform, optimized by a program optimizer, and governed
+by a control plane. Producing a single ranking across them would require a common
+objective they do not share.
+
+What can be compared is the \emph{organizing abstraction}, because that choice
+determines what each system can and cannot express. Tracking and observability
+platforms organize around the trace \emph{and}, in the three cases discussed
+above, around a versioned prompt --- so they are authoritative about what happened
+and, for prompts specifically, about what is live. What their organizing
+abstraction does not reach is a second artifact type: a system whose registry
+citizen is the prompt has no place to put a workflow definition. Composition
+frameworks organize around the chain or graph, which makes them excellent for
+construction and structurally unable to carry release semantics --- the graph is
+constructed in the host process, so there is no artifact to version. Multi-agent
+frameworks organize around the agent and the conversation, which makes provenance
+per-conversation rather than per-artifact. Optimizers organize around the program
+or the test case, which yields candidates and leaves the release to the caller.
+\sys organizes around the \gasset, which is what lets one vocabulary carry
+version, evidence, authority, and a live target across families --- and is also
+why it has nothing useful to say about how to compose an agent.
+
+\subsection{The dimensions where \sys is genuinely different}
+
+\para{Memory and execution model.} This is the sharpest architectural difference.
+The observability systems are append-mostly stores queried after the fact; the
+composition and multi-agent frameworks hold state in process for the duration of a
+run; the optimizers are batch processes outside the serving path. \sys is the only
+system in the table for which \emph{relational metadata is authoritative} and for
+which durable queue arbitration is part of the architecture rather than an
+application concern. That is a consequence of being a control plane: a system that
+must answer ``who approved this and when'' cannot hold that state in a process.
+
+\para{Automation reach.} Composition frameworks reach, by design, nowhere --- they
+are libraries. Multi-agent frameworks reach into task decomposition inside a single
+run. Standalone optimizers reach to candidate generation and stop. The
+prompt-lifecycle platforms reach further than the previous paragraph's framing
+suggests: \mlflow{} in particular spans evaluation, optimization, versioning, and
+alias promotion, so its reach ends at an \emph{operator-assembled} release rather
+than at alerting~\cite{mlflowpromptregistry,mlflowoptimize}. \sys reaches from a
+trace to a verified signal to a candidate to a scored gate to a reviewed release.
+The distinguishing property is not the length of that span but that it is a single
+wired path with a gate in it, rather than a set of capabilities an adopter connects
+--- and \secref{sec:compare:platforms} is where that distinction is argued rather
+than asserted.
+
+\para{Extensibility, with a caveat we owe the reader.} The composition frameworks are
+more extensible than \sys in the ordinary sense: adding a component is trivial and
+requires no coordination. \sys's extensibility is narrower and has a specific
+qualification --- adding a family requires \emph{explicitly wiring} its modes and
+governance, per \secref{sec:arch:claim}. A reader comparing extensibility columns
+should read \sys's as ``extensible at named seams, with an obligation attached,''
+not as ``more extensible.''
+
+\subsection{The dimensions where \sys is behind}
+
+\para{Developer experience for construction.} If the task is to build an agent, a
+composition framework is the better tool and \sys is not a substitute. \sys's
+developer experience is browser-first and oriented toward the operate-and-release
+loop; its configuration surface is large, which is a genuine onboarding cost that a
+library does not impose.
+
+\para{Multi-agent orchestration.} AutoGen and CrewAI are purpose-built for
+composing agents into a running system, and \sys is not competitive there
+(\figref{fig:capability}). Automatic optimization of a multi-agent \emph{bundle} ---
+as opposed to a single prompt or skill --- is not a shipped \sys capability.
+
+\para{Managed operation.} Every observability platform in the table offers a hosted
+option. \sys must be run by the adopting team, on their own PostgreSQL, object
+storage, and \mlflow{}. For a small team this may outweigh every architectural
+consideration in this paper, and a comparison that omitted it would be dishonest.
+
+\para{Uniformity.} An adopter who wants one release contract across all artifact
+types will find \sys's per-family guarantees unsatisfying. \secref{sec:arch:claim}
+argues this is the honest factoring rather than an incompleteness, but the argument
+does not eliminate the cost: understanding \sys requires reading
+\tabref{tab:families} rather than one sentence, and that is a real burden on the
+adopter.
+
+\subsection{Positioning, stated plainly}
+
+\sys's claim is not that it does more than these systems, and it is not that the
+release path is unoccupied --- for prompts, it is occupied, by at least three
+products, with mechanisms that closely resemble \sys's
+(\secref{sec:compare:platforms}). The claim is narrower on two axes. First, that
+the release path generalizes \emph{beyond prompts} to workflows, tools, MCP
+servers, and corpora, and that a single mode vocabulary can span them. Second, that
+what the generalization costs --- guarantees that are per-family rather than
+uniform --- is a result worth reporting rather than a defect to be hidden.
+
+Whether this warrants a separate control plane, or should be absorbed into a
+tracking platform, is a legitimate open question, and the evidence currently tilts
+toward absorption being feasible: \mlflow{} already has the registry, the aliases,
+the evaluation harness, and the optimizer, and what it lacks is a second artifact
+type and a gate. An absorbing system would need to add a typed multi-family
+registry, an authority model that distinguishes authoring from promoting, and an
+enforced precondition on the pointer move. That is a smaller distance than an
+earlier draft of this paper implied.

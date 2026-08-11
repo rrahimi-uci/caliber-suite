@@ -1,0 +1,55 @@
+%% alg-claim.tex -- Algorithm: the claim, as the loops actually write it.
+%%
+%% An earlier version of this figure showed `FOR UPDATE SKIP LOCKED'. No loop in
+%% the implementation uses it: every one selects a candidate and then issues a
+%% conditional UPDATE whose WHERE clause still names the old status. That predicate
+%% is what does the arbitration, and it is worth showing literally, because the
+%% property it establishes is narrower than the one the earlier draft claimed.
+%%
+%% The property is concurrent mutual exclusion, not exactly-once execution across
+%% crashes. Table tab:loops states what each loop does after a crash, which is where
+%% the two come apart.
+
+\begin{algorithm}[tbp]
+\caption{The claim, as the loops write it. The arbitration is the conditional
+\code{UPDATE} on lines~4--7: two workers may both select row $r$, but only one
+\code{UPDATE} finds it still \plit{queued}, and the loser sees
+\code{rowcount}~$=0$. What this establishes is \emph{concurrent mutual exclusion} ---
+no two workers own a row at the same instant. It does not establish exactly-once
+execution across a crash, because what happens to a row whose owner dies is a
+per-loop recovery policy, not a property of the claim (\tabref{tab:loops}).}
+\label{alg:claim}
+\psig{claim}
+\pin{$Q$}{a queue table with a \pid{status} column and, on some loops,
+  \pid{claimed\_by} and \pid{last\_heartbeat\_at}}
+\pin{$w$}{this worker's identity}
+\pinv{no two workers hold the same row in \plit{running} at the same instant, for
+  any number of replicas}
+\begin{pseudo}
+\pline{$r \gets$ \plit{SELECT} \kw{one} \kw{from} $Q$ \kw{where}
+       \pid{status} $=$ \plit{queued} \kw{order by} \pid{enqueued\_at}}
+\pline{\kw{if} $r = \bot$ \pthen{} \kw{wait}; \kw{return} $\bot$}
+\pline{}
+\pline{$n \gets$ \plit{UPDATE} $Q$ \plit{SET} \pid{status} $=$ \plit{running},
+       \pid{claimed\_by} $= w$}
+\pline{\I \plit{WHERE} \pid{id} $= r.\pid{id}$
+       \kw{and} \pid{status} $=$ \plit{queued}
+       \cmt{the arbitration}}
+\pline{\kw{commit}}
+\pline{\kw{if} $n = 0$ \pthen{} \kw{return} $\bot$
+       \cmt{another worker won it}}
+\pline{}
+\pline{\kw{for each} \pid{step} \kw{in} stages($r$) \pdo}
+\pline{\I run(\pid{step}); persist(\pid{step}); \kw{commit}}
+\pline{\I \kw{if} $Q$ \kw{has} \pid{last\_heartbeat\_at} \pthen{} touch it}
+\pline{\pid{status} $\gets$ \plit{done}; \kw{commit}}
+\end{pseudo}
+
+\vspace{0.6ex}
+\pinv{After the owner of a running row dies, the row's fate is decided by that
+  loop's recovery policy. The refinement janitor marks it \plit{failed}; the
+  workflow-run worker requeues it on lease expiry; the calibration drain records no
+  lease and so has no automatic recovery at all. \tabref{tab:loops} is the
+  authority, and the differences are why this paper no longer states a single
+  delivery guarantee for ``the queue''.}
+\end{algorithm}

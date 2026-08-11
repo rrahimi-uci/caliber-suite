@@ -104,7 +104,7 @@ instructions are under \code{paper/} in the working tree supplied for review.
 The manuscript source is versioned in the same repository as the implementation it
 describes, so a reader can check the paper against one disclosed source state. In a
 dirty checkout, the base revision alone does not identify the uncommitted patch;
-the code{-dirty} marker is a disclosure, not a reproducibility claim.
+the \code{-dirty} marker is a disclosure, not a reproducibility claim.
 What can be reproduced is the document and its source-derived counts: running
 \code{make repro} in \code{paper/} regenerates \code{generated/stats.tex}, fails if
 the result differs from the committed files, forces a four-pass build, and runs the

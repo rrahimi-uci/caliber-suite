@@ -1,0 +1,171 @@
+\section{Limitations}
+\label{sec:limitations}
+
+We group limitations by kind, because they demand different responses: an unrun
+experiment is a schedule problem, an unenforced boundary is a security problem, and
+a per-family guarantee surface is a design consequence.
+
+\subsection{Limitations of this paper}
+
+\para{The quantitative evaluation has not been run.} This remains the paper's primary
+limitation and it is not mitigated by anything else in it. \secref{sec:eval}
+specifies the protocol; \tabref{tab:results} contains no measurements. Claims about
+control-plane overhead, drain throughput, gate agreement, and rollback latency are
+therefore \emph{unsupported} in this draft --- not weakly supported. A reader should
+treat the architectural argument as the paper's contribution and the performance
+characterization as future work. Eight deterministic fault/interleaving checks are
+published separately as structural evidence; they do not change this boundary.
+
+\para{No user study.} \sys's central value claim is that a release becomes
+reviewable. Whether operators actually review more effectively with it, or merely
+click through a richer interface, is an empirical question about people that this
+paper does not address and that no amount of systems measurement answers.
+
+\para{Single-system evidence.} Every architectural claim is grounded in one
+implementation. We argue in \secref{sec:arch:claim} that per-family guarantees follow
+from the heterogeneity of the artifact types rather than from our particular
+engineering, but a single system cannot establish that a different factoring is
+impossible.
+
+\subsection{Limitations of the release path}
+
+These three were found by checking the paper's claims against the implementation
+rather than by reasoning about the design, and each is a case where an earlier
+draft of this paper claimed more than the code delivers.
+
+\para{The prompt fix is not a system-wide release theorem.} Prompt creation and
+version authoring are now non-live, and all in-repository prompt-alias call sites
+use the intent-first service in \algref{alg:promote}. This establishes a durable
+reconciliation obligation before a prompt alias changes. It does not prove that
+workflow, skill, knowledge-base, or future family effects have the same ordering;
+their guarantees remain those in \tabref{tab:families}. Nor does a repository call-
+site inventory prevent an external administrator from changing an \mlflow{} alias
+outside CALIBER. The claim is therefore path- and family-scoped, not universal.
+
+\para{A durable intent is not distributed atomicity.} The prompt provider call and
+SQL settlement still cannot commit atomically. A crash after alias assignment can
+leave an operation in \code{applying}; the difference is that its exact before and
+after versions are already durable and the operation is visible through the
+release-operations endpoint. Reconciliation observes the provider and settles
+\code{applied}, \code{failed}, or \code{reconcile\_required}. This removes silent
+divergence but does not remove the need to operate the reconciler.
+
+\para{\mode{Apply} is an operator confirmation, not an independent approval.} The
+route requires the \operator{} scope and mints an approval record that is already
+in the approved state, with the acting operator recorded as the approver. There is
+a sibling \approver{} scope, but nothing requires that the person who authored or
+requested a change differ from the person who applies it. This is a deliberate
+human decision point placed after an automated gate, and it is real; it is not
+separation of duties, and we no longer describe it as one.
+
+\para{Assistant-draft autonomy is a scoped exception, not a replacement for
+\mode{Apply}.} The assistant now has structural separation for two draft policies:
+\code{agent\_review} records an approver-scoped agent decision by an identity
+different from the author, and \code{full\_autonomy} delegates publication to a
+third operator-scoped service identity. The decision is bound to the draft
+hash/version and rechecked at publication. This does not alter the refinement-job
+\mode{Apply} path above, gated goal-plan steps, or the paper's lack of measured
+reviewer calibration. The implementation evidence shows fail-closed mechanics, not
+that the reviewer agent makes production-quality decisions.
+
+\para{A signoff record does not validate its external evidence.} The release
+candidate service recomputes criteria and blockers, controls waivers and final
+signoff, and binds its Allure-compatible report to a candidate snapshot.  The
+report job currently completes in the application process; it is neither a
+distributed renderer nor evidence that an external trace, evaluation, or review
+reference is reachable in the target deployment.  Operators must verify the exact
+release package and its referenced evidence before treating a ready status as a go.
+
+\subsection{Limitations of the architecture}
+
+\para{Guarantees are per-family, and that is load-bearing.} An adopter must read
+\tabref{tab:families} rather than a summary sentence. We defend the factoring but
+not the cost: the most likely operator error in \sys is assuming a guarantee
+transfers across families because the same interface component is mounted in both
+places. The shared version panel is the canonical trap.
+
+\para{Two dual-write boundaries cannot be closed.} Object-storage writes and
+external registry effects cannot join the caller's SQL transaction
+(\figref{fig:dataflow}). Prompt-alias writes are intent-first and idempotently
+reconciled, which makes their divergence observable but does not make them atomic.
+Other provider and object-storage crossings retain family-specific compensation. A
+failed object write can still leave orphaned bytes requiring a sweeper.
+
+\para{In-memory limiters are per process.} The failed-login throttle and the API rate
+limiter are per-process token buckets, so their effective ceilings scale with the
+worker count (\secref{sec:exec}). An operator who sizes them as though they were
+global will provision a limit several times looser than intended. This is a genuine
+sharp edge and the documentation-only mitigation is unsatisfying.
+
+\para{Loop capacity is coupled to request capacity.} Because there is no worker tier
+(D5), a burst of queued work competes with request serving inside the same process.
+A deployment needing to scale drain capacity independently would be better served by
+a broker.
+
+\para{A single environment.} There is no
+\code{dev}\arrowto\code{staging}\arrowto\code{prod} ladder, so there is no staging
+rehearsal for a release. Because the current prompt record is a born-approved
+provenance anchor, a future multi-environment mode must rebuild a
+pending/approve/reject path with a requester-and-approver distinction rather than
+enable an existing one (D9).
+
+\subsection{Limitations of the security model}
+
+These deserve separate treatment because overclaiming here is more harmful than
+overclaiming about latency.
+
+\para{Containment is not isolation.} Local stdio MCP execution and the shipped local
+tool runner reduce ambient authority --- command and host allowlists, a sanitized
+environment, a private working directory, process timeouts, resource limits --- but
+retain ambient host filesystem and network authority. They are not a security
+boundary against a malicious tool author. Untrusted authorship requires an
+operator-supplied OS-enforced backend~\cite{agache2020firecracker,bubblewrap}. Only
+an attested managed sidecar or a non-loopback HTTPS endpoint counts as an execution
+boundary for production preflight.
+
+\para{Risk tiering is only as good as the classification.} Capabilities declared
+\tier{gated} are correctly withheld from \aria{}'s synchronous tool projection,
+including the hand-written approval and publication tools. The registry still does
+not cover every hand-written operation, so future classification drift remains a
+review and contract-test risk (\secref{sec:components}).
+
+\para{Project scoping is not a verified isolation boundary.} Visibility filters are
+applied per path. This is not the same as a repository-wide, verified multi-tenancy
+guarantee, and \sys should not be deployed as though it were one.
+
+\para{Audit coverage is a property of call sites, not modules.} The transactional
+audit guarantee holds where the helper is called on the caller's session. Importing
+it into a module does not establish that every mutation in that module is audited,
+and we know of no static check that would.
+
+\para{Fail-closed egress does not cover arbitrary user code.} It governs HTTP and MCP
+transports. A tool that makes its own network calls from inside the runner is
+constrained by the runner's environment, not by the egress allowlist.
+
+\para{Connector presets are configuration, not connectivity evidence.} The
+incident, deployment-health, and service-health starters deliberately contain no
+credentials and use non-routable placeholders until an operator configures an
+endpoint and egress policy.  Their paired fixtures establish workflow behaviour,
+not production-source fidelity or reachability.
+
+\para{The body cap is not flood protection.} Published-service admission counts raw
+request chunks against a configured maximum, which is a per-request application
+bound. It is not connection-level or IP-level denial-of-service protection, and a
+deployment needing that must place it in front.
+
+\para{Provenance anchors are internal records.} They are not cryptographic
+attestations in the in-toto or SLSA sense~\cite{torresarias2019intoto,slsa}. They
+establish what \sys recorded, not what an independent verifier can prove.
+
+\para{Prompt injection is constrained, not solved.} Bounding what a capability may do
+limits the blast radius of injection reached through retrieved or tool-returned
+content~\cite{greshake2023injection,perez2022ignore}. It does not prevent the
+injection, and \secref{sec:eval} notes that no adversarial evaluation has been run.
+
+\subsection{Limitations of scope}
+
+\sys is not a composition or multi-agent orchestration framework, has no managed
+cloud offering, and does not optimize multi-agent bundles. The \aria{} capability
+registry is an emerging seam --- \statAriaTools{} hand-written tools plus a
+\statAriaProjected{}-capability projection --- rather than achieved parity, and we
+count it as future work rather than as a contribution.

@@ -1,0 +1,171 @@
+%% fig-capability.tex -- Figure: capability coverage against comparable systems.
+%%
+%% A coverage grid, not a scorecard. Each cell states how far a system carries a
+%% capability, using four levels that are defined once in the caption. Levels are
+%% encoded by fill AND by glyph so the figure survives greyscale printing and is
+%% legible to a reader who cannot distinguish the hues.
+%%
+%% Honesty constraint: this figure claims *architectural coverage* -- whether the
+%% capability exists as a first-class, wired concern -- and claims nothing about
+%% quality, performance, or maturity. Rows where CALIBER is not ahead are included
+%% deliberately; a coverage grid with a winning column everywhere is advertising.
+
+\begin{figure}[tbp]
+\centering
+\begin{cbwide}
+\begin{tikzpicture}[x=1cm,y=1cm]
+
+  \def\LW{5.40}    % capability label column width
+  \def\CWD{1.44}   % per-system column width
+  \def\RH{0.66}    % row height: two lines of \figB plus padding
+
+  % level styles: fill + glyph, so hue is never the only channel
+  \tikzset{
+    lvNone/.style  = {absent, draw=cbRule},
+    lvPart/.style  = {fill=cbMutedBg,    draw=cbMuted},
+    lvAdj/.style   = {fill=cbSurfaceBg,  draw=cbSurface},
+    lvFull/.style  = {fill=cbControlBg,  draw=cbControl},
+  }
+  % Offsets are in cm, not pt: inside a picture with x=1cm, pgfmath reads a bare
+  % number as one x-unit, so writing "+1pt" here would shift a full centimetre.
+  \newcommand{\lv}[4]{% col index, row index, style, glyph
+    \node[#3, anchor=north west, minimum width=\CWD cm-3pt,
+          minimum height=\RH cm-3pt, inner sep=0pt, line width=0.4pt,
+          rounded corners=1pt, font=\figB, text=cbInk]
+      at ({\LW+#1*\CWD+0.05}, {-#2*\RH-0.05}) {#4};}
+
+  % ---- system headers ------------------------------------------------------
+  \foreach [count=\i from 0] \n in {%
+      {\sysbare}, {\mlflow{} 3\\registry}, {LangChain +\\LangGraph},
+      {AutoGen \dt\\CrewAI}, {LangSmith \dt\\Langfuse},
+      {DSPy}, {promptfoo \dt\\Evals}}
+  {
+    \node[anchor=south, font=\figB\bfseries, text width=\CWD cm-3pt,
+          align=center, inner sep=1.5pt]
+      at ({\LW+\i*\CWD+\CWD/2}, 0.08) {\n};
+  }
+  \draw[weak, draw=cbInk] (0,0) -- ({\LW+7*\CWD},0);
+
+  % ---- rows ----------------------------------------------------------------
+  \foreach [count=\r from 0] \cap/\gloss in {%
+      {Typed registry, many families}/{beyond prompts: workflows, tools, corpora},
+      {Live target indirection}/{an alias the client resolves at call time},
+      {Enforced advancement gate}/{a failing evaluation stops the candidate},
+      {Rollback from a record}/{the outgoing target is recorded, not inferred},
+      {Provenance anchor per release}/{candidate and evidence bound to the version},
+      {Human decision in the loop}/{an explicit apply action, not a threshold},
+      {Automated candidate proposal}/{an optimizer proposes the next version},
+      {Trace-to-example capture}/{production traces become test data},
+      {LLM judges + human alignment}/{authored judges, agreement measured},
+      {Governed tool execution}/{allowlists and a process boundary},
+      {Governed MCP transport}/{fail-closed egress; containment or attestation},
+      {RBAC on release}/{scope-checked live-target mutation},
+      {Multi-agent orchestration}/{agents composed into a running system},
+      {Managed cloud operation}/{someone else runs it for you}}
+  {
+    \node[anchor=north west, text width=\LW cm-7pt, font=\figB, align=left,
+          inner sep=1.5pt] at (0,{-\r*\RH-0.03})
+      {\textbf{\cap}\\{\itshape\gloss}};
+    \draw[weak] (0,{-\r*\RH-\RH}) -- ({\LW+7*\CWD},{-\r*\RH-\RH});
+  }
+
+  % ---- the grid ------------------------------------------------------------
+  % Columns: 0 CALIBER | 1 MLflow+LangSmith | 2 LangChain/Graph | 3 AutoGen/CrewAI
+  %          4 Langfuse/Phoenix | 5 DSPy | 6 promptfoo/Evals
+  % Levels:  Full = first-class and wired; Adj = present but partial or
+  %          per-family; Part = achievable by assembling your own; None = absent.
+  \foreach \c/\r/\s/\g in {%
+    % typed asset registry -- MLflow registers prompts AND models; LangSmith and
+    % Langfuse register prompts and datasets. Typed and first-class for those
+    % types; the CALIBER claim is breadth of family, which the caption states.
+    0/0/lvFull/{$\bullet$}, 1/0/lvFull/{$\bullet$}, 2/0/lvPart/{$-$},
+    3/0/lvNone/{}, 4/0/lvFull/{$\bullet$}, 5/0/lvPart/{$-$}, 6/0/lvNone/{},
+    % live target indirection -- MLflow aliases, LangSmith `production' tag,
+    % Langfuse labels, all resolved client-side at call time. Not a differentiator.
+    0/1/lvFull/{$\bullet$}, 1/1/lvFull/{$\bullet$}, 2/1/lvNone/{},
+    3/1/lvNone/{}, 4/1/lvFull/{$\bullet$}, 5/1/lvNone/{}, 6/1/lvNone/{},
+    % enforced advancement gate -- no documented mechanism makes a promotion fail
+    % on a score; all three evaluate, none gate. CI can be assembled around them.
+    0/2/lvFull/{$\bullet$}, 1/2/lvPart/{$-$}, 2/2/lvNone/{},
+    3/2/lvNone/{}, 4/2/lvPart/{$-$}, 5/2/lvAdj/{$\circ$}, 6/2/lvAdj/{$\circ$},
+    % audited release + rollback -- all three roll back by re-pointing; CALIBER
+    % adds a recorded checkpoint, and only on the governed path.
+    0/3/lvAdj/{$\circ$}, 1/3/lvAdj/{$\circ$}, 2/3/lvNone/{},
+    3/3/lvNone/{}, 4/3/lvAdj/{$\circ$}, 5/3/lvNone/{}, 6/3/lvNone/{},
+    % provenance anchor -- evidence linked to a version, but not bound as a
+    % precondition of the promotion.
+    0/4/lvFull/{$\bullet$}, 1/4/lvAdj/{$\circ$}, 2/4/lvNone/{},
+    3/4/lvNone/{}, 4/4/lvAdj/{$\circ$}, 5/4/lvNone/{}, 6/4/lvNone/{},
+    % human decision in the loop -- promotion is a deliberate human action in all
+    % three; what differs is whether it is a step in a modelled state machine.
+    0/5/lvFull/{$\bullet$}, 1/5/lvAdj/{$\circ$}, 2/5/lvPart/{$-$},
+    3/5/lvPart/{$-$}, 4/5/lvAdj/{$\circ$}, 5/5/lvNone/{}, 6/5/lvNone/{},
+    % automated candidate proposal -- MLflow ships optimize_prompts() with GEPA
+    % and metaprompting. This row was wrong in an earlier draft.
+    0/6/lvFull/{$\bullet$}, 1/6/lvFull/{$\bullet$}, 2/6/lvNone/{},
+    3/6/lvNone/{}, 4/6/lvNone/{}, 5/6/lvFull/{$\bullet$}, 6/6/lvNone/{},
+    % trace-to-example capture
+    0/7/lvFull/{$\bullet$}, 1/7/lvAdj/{$\circ$}, 2/7/lvPart/{$-$},
+    3/7/lvNone/{}, 4/7/lvAdj/{$\circ$}, 5/7/lvPart/{$-$}, 6/7/lvPart/{$-$},
+    % LLM judges + human alignment
+    0/8/lvFull/{$\bullet$}, 1/8/lvAdj/{$\circ$}, 2/8/lvPart/{$-$},
+    3/8/lvNone/{}, 4/8/lvAdj/{$\circ$}, 5/8/lvPart/{$-$}, 6/8/lvAdj/{$\circ$},
+    % governed tool execution
+    0/9/lvAdj/{$\circ$}, 1/9/lvNone/{}, 2/9/lvPart/{$-$},
+    3/9/lvPart/{$-$}, 4/9/lvNone/{}, 5/9/lvNone/{}, 6/9/lvNone/{},
+    % governed MCP transport
+    0/10/lvFull/{$\bullet$}, 1/10/lvNone/{}, 2/10/lvPart/{$-$},
+    3/10/lvPart/{$-$}, 4/10/lvNone/{}, 5/10/lvNone/{}, 6/10/lvNone/{},
+    % RBAC on release -- LangSmith owners-only tagging, Langfuse protected
+    % labels; comparable to CALIBER's scope check, and none is Clark--Wilson.
+    0/11/lvAdj/{$\circ$}, 1/11/lvAdj/{$\circ$}, 2/11/lvNone/{},
+    3/11/lvNone/{}, 4/11/lvAdj/{$\circ$}, 5/11/lvNone/{}, 6/11/lvNone/{},
+    % multi-agent orchestration -- CALIBER is deliberately not the leader here
+    0/12/lvPart/{$-$}, 1/12/lvNone/{}, 2/12/lvFull/{$\bullet$},
+    3/12/lvFull/{$\bullet$}, 4/12/lvNone/{}, 5/12/lvAdj/{$\circ$}, 6/12/lvNone/{},
+    % managed cloud operation -- likewise
+    % MLflow itself is a project rather than a service; managed operation comes
+    % from a vendor distribution, so this is partial for the column as labelled.
+    0/13/lvNone/{}, 1/13/lvAdj/{$\circ$}, 2/13/lvFull/{$\bullet$},
+    3/13/lvPart/{$-$}, 4/13/lvFull/{$\bullet$}, 5/13/lvNone/{}, 6/13/lvPart/{$-$}}
+  { \lv{\c}{\r}{\s}{\g} }
+
+  % ---- column rules and the CALIBER column emphasis ------------------------
+  \foreach \c in {0,...,7}
+    { \draw[weak] ({\LW+\c*\CWD},0) -- ({\LW+\c*\CWD},{-14*\RH}); }
+  \draw[draw=cbControl, line width=0.7pt, rounded corners=1.5pt]
+    ({\LW-0.05},0.04) rectangle ({\LW+\CWD+0.05},{-14*\RH-0.04});
+
+  % ---- legend --------------------------------------------------------------
+  \node[anchor=north west, font=\figB, align=left, inner sep=0pt]
+    at (0,{-14*\RH-0.26})
+    {\tikz[baseline=-0.55ex]{\node[lvFull, minimum width=10pt, minimum height=7pt,
+       inner sep=0pt, font=\figB]{$\bullet$};}~first-class and wired\qquad
+     \tikz[baseline=-0.55ex]{\node[lvAdj, minimum width=10pt, minimum height=7pt,
+       inner sep=0pt, font=\figB]{$\circ$};}~present but partial or per-family\qquad
+     \tikz[baseline=-0.55ex]{\node[lvPart, minimum width=10pt, minimum height=7pt,
+       inner sep=0pt, font=\figB]{$-$};}~achievable by assembling your
+       own\qquad
+     \tikz[baseline=-0.55ex]{\node[lvNone, minimum width=8pt, minimum height=6pt,
+       inner sep=0pt]{};}~absent};
+
+\end{tikzpicture}
+\end{cbwide}
+\caption{Capability coverage against comparable systems, \textbf{as of
+2026-08-03}. This is a coverage grid, not a scorecard: a cell records whether a
+capability exists as a first-class, wired concern, and says nothing about quality,
+performance, or maturity. Levels are encoded by fill \emph{and} by glyph so the
+figure reads in greyscale. Claims about the named products are sourced to dated
+documentation and compared row by row in
+\tabref{tab:platforms}~\cite{mlflowpromptregistry,mlflowoptimize,
+langsmithprompts,langfuseprompts}; these are live products and the grid will age.
+Note in particular that \sys shares --- rather than leads --- the pointer
+indirection, rollback, and candidate-proposal rows: an earlier version of this
+figure marked those against \mlflow{}, LangSmith, and Langfuse in error, and the
+corrected grid gives \sys a much thinner lead. Where \sys is behind, the grid
+also says so: it is deliberately not a multi-agent orchestration framework, and it
+has no managed cloud offering, which for many teams is the deciding factor
+(\secref{sec:compare}, \secref{sec:limitations}). A grid whose leftmost column
+won every row would be advertising rather than evidence.}
+\label{fig:capability}
+\end{figure}

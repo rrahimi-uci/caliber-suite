@@ -1,0 +1,87 @@
+\section{Future Work}
+\label{sec:future}
+
+We order this by what would most change the paper's claims rather than by
+implementation convenience.
+
+\para{Execute the evaluation.} The protocol in \appref{app:protocol} is the
+immediate obligation. E3(i) --- whether authored judges generalize off their
+calibration corpus --- is the measurement we most want, because a strong result
+there would undercut this paper's own argument for keeping a human at \mode{Apply}
+(D4). Designing an experiment whose outcome could weaken your position is the only
+way the position ends up meaning anything.
+
+\para{Multi-environment promotion.} The highest-value architectural work, and the
+most involved. A \code{dev}\arrowto\code{staging}\arrowto\code{prod} ladder needs
+per-stage configuration and secrets, approval routing with a requester-and-approver
+distinction, promotion state that survives stage transitions, and cross-stage
+compatibility tests. Because the current prompt record is a born-approved provenance
+anchor, this is a rebuild of the approval path rather than the enabling of a flag
+(D9). The interesting design question is whether stages should be a first-class
+dimension of the \livetarget{} or a separate axis --- the former is simpler and the
+latter composes better with per-family release idioms.
+
+\para{Capability interfaces over the asset families.} \secref{sec:arch:claim}
+identifies the design \sys should have had: a thin base contract every \gasset{}
+satisfies, plus orthogonal capability interfaces --- \code{Releasable},
+\code{Rollbackable}, \code{EvidenceBearing} --- that a family declares and is then
+\emph{required} to implement. The payoff is not elegance. It converts
+\tabref{tab:families} from documentation a reader must consult into a constraint a
+family cannot violate. A first machine-readable registry now emits the nine-family
+contract from \code{/capabilities} and tests every row's shape; it prevents UI and
+documentation from inventing missing fields, but it does not yet prove each route
+implements its declaration. The remaining work is a retrofit across
+\statFamilies{} families and their routes, and it subsumes the registry projection
+described next.
+
+\para{Complete the capability registry.} Approval and publication are now gated in
+the synchronous projection. Converging the remaining \statAriaTools{} hand-written
+tools onto the registry projection would make the seam real and, more importantly,
+would let risk-tier classification be checked mechanically. That directly addresses
+the classification gap in \secref{sec:limitations}: a projection with mandatory tier
+declaration makes an unclassified mutation impossible to introduce, which is a
+stronger property than any amount of review.
+
+\para{Isolation as a first-class backend.} The sandbox protocol already exists; what
+is missing is a shipped OS-enforced implementation. A microVM or seccomp-based
+backend~\cite{agache2020firecracker,bubblewrap} would let \sys offer isolation rather
+than containment for untrusted tool authorship, which is currently the platform's
+sharpest security limitation.
+
+\para{Attestable provenance.} Provenance anchors are internal records. Signing them
+and emitting in-toto-style attestations would make an artifact's history verifiable
+by a party that does not trust the \sys instance that produced
+it~\cite{torresarias2019intoto,slsa}. This matters most for organizations that need
+to demonstrate governance to an external auditor, which is the population most likely
+to want a system like this.
+
+\para{Cross-family impact analysis.} Today a candidate is evaluated against its own
+evidence. A prompt change, a knowledge-base rebuild, and a tool revision can
+interact --- and no current mechanism scores the \emph{bundle}. This is the
+architectural precondition for multi-agent bundle optimization, and it is also the
+work most likely to require revisiting the per-family factoring, since a bundle gate
+would be the first genuinely cross-family enforcement point.
+
+\para{Global rate limiting.} Moving the in-memory limiters to a shared store would
+remove the per-process ceiling described in \secref{sec:exec}. This is
+straightforward, and we list it because leaving a known sharp edge documented rather
+than fixed is a legitimate criticism of the current implementation.
+
+\para{Broader adversarial evaluation.} Injection through retrieved and tool-returned
+content, malicious tool authorship, and compromised MCP servers all warrant
+measurement rather than the architectural argument \secref{sec:components} currently
+offers~\cite{greshake2023injection}. The interesting question is not whether \sys
+prevents injection --- it does not --- but how much the capability model actually
+bounds the blast radius, which is a quantity nobody has measured for any comparable
+system.
+
+\para{Automating \mode{Apply}, conditionally.} We would revisit D4 only under two
+conditions, and we state them so the position is falsifiable rather than
+ideological: calibrated per-family confidence that accounts for corpus coverage, and
+a demonstrated off-corpus generalization result from E3(i). Absent both, an
+auto-apply threshold trades a reviewable change for an invisible one, which is the
+opposite of what this system is for. The shipped assistant-draft
+\code{agent\_review}/\code{full\_autonomy} mechanism supplies the identity,
+hash-binding, expiry, and fail-closed plumbing needed to run that experiment, but it
+does not satisfy either empirical condition and therefore does not automate the
+refinement-job \mode{Apply} path.

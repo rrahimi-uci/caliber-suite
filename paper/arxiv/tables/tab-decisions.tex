@@ -1,0 +1,111 @@
+%% tab-decisions.tex -- Table: the design decisions, each with its price.
+%%
+%% Every row has a "what it costs" cell. A design-decisions table without one is a
+%% list of features; the cost column is what makes it a design record.
+%%
+%% Readability rules applied here: \small rather than \footnotesize, at most two
+%% clauses per cell, alternating row tint, and the expanded argument for the four
+%% contestable decisions moved into Section 8 prose rather than crammed in here.
+
+\begin{table}[tbp]
+\centering
+\caption{The load-bearing design decisions, each with the alternative it displaced
+and the price it charges. Recording the cost is the point: several of these trades
+are contestable, so a reader should be able to disagree with a specific row rather
+than with the system. \secref{sec:design} expands D1, D4, D5 and D9;
+\secref{sec:limitations} is largely the last column read back.}
+\label{tab:decisions}
+% One step down from the body size and tighter rows: ten four-column prose rows
+% do not otherwise fit a portrait page. The alternative was splitting the table,
+% which would break the D1--D10 sequence a reader follows across sections.
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.10}
+\begin{cbwide}
+\begin{tabular}{@{}L{0.86cm}L{3.16cm}L{3.56cm}L{3.72cm}L{3.72cm}@{}}
+\toprule
+\theadrow
+\thead{} & \thead{Decision} & \thead{Alternative} & \thead{Why this one} &
+\thead{What it costs} \\
+\midrule
+
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D1} & Reuse \mlflow{} for traces, prompt versions and evaluation &
+a self-contained store, with uniform semantics and one transaction domain &
+rebuilding tracking competes with a mature system for no governance gain, and
+would force a trace migration to adopt \sys &
+two stores with no shared transaction, so a reconciliation boundary is
+unavoidable (\figref{fig:dataflow}) \\
+
+\zebra
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D2} & Per-family guarantees rather than one uniform contract &
+a single cross-artifact policy every family must satisfy &
+a test set and a prompt are not the same kind of thing; a uniform contract is
+vacuous or excludes useful families &
+the guarantee surface must be read per row and cannot be summarized
+(\tabref{tab:families}) \\
+
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D3} & Enforce the gate on \emph{candidate advancement}; keep the release verdict
+advisory &
+one enforced gate blocking the release itself &
+a blocking gate must be overridable, the override becomes the normal path, and the
+gate stops carrying information &
+``gated'' names two mechanisms and must be stated carefully every time
+(\algref{alg:gate}) \\
+
+\zebra
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D4} & A human decision at refinement \mode{Apply}, always &
+auto-apply above a score threshold &
+score gains on a corpus assembled from past failures are necessary but not
+sufficient, and auto-apply makes a reviewable change invisible &
+refinement throughput is bounded by operator attention; assistant-draft agent review is a separate experimental path \\
+
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D5} & In-process loops with database-arbitrated queues; no worker tier &
+a broker with dedicated workers &
+claim and lease columns give durable arbitration with one deployable and no
+split-brain between broker and database &
+loop capacity is coupled to request capacity; in-memory limiters become
+per-process (\algref{alg:claim}) \\
+
+\zebra
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D6} & Synchronous ORM behind predominantly async routes &
+async SQLAlchemy throughout &
+the workload is transaction-bound, not connection-bound, and the sync ORM is the
+more mature surface &
+every new blocking call site is a latent event-loop stall \\
+
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D7} & Relational metadata authoritative for the file \emph{inventory}; object
+storage for \emph{bytes} &
+treating the bucket as the inventory &
+a bucket listing cannot express versions, scopes or retention, so an inventory
+rebuilt from one is unauditable &
+orphaned bytes are possible after a failed dual write and need a sweeper \\
+
+\zebra
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D8} & Containment for local tool and MCP execution; attestation only for
+production &
+require OS-enforced isolation everywhere &
+requiring a sandbox runtime locally would make the common path unusable, and
+naming the weaker guarantee beats overclaiming &
+the shipped runner keeps ambient host authority, so untrusted authors need an
+operator-supplied backend (\figref{fig:trust}) \\
+
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D9} & Ship a single environment in v1 &
+a \code{dev}\arrowto\code{staging}\arrowto\code{prod} ladder &
+the ladder needs approval routing, requester/approver separation and per-stage
+config; a half-built one is a false assurance &
+no staging rehearsal, and a future multi-environment mode must rebuild the
+pending-approval path \\
+
+\zebra
+\chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D10} & Same-origin SPA served by the backend &
+a separately hosted frontend &
+one origin removes CORS and cross-site cookie handling from every governance
+route &
+frontend and backend release together; no independent frontend rollback \\
+
+\bottomrule
+\end{tabular}
+\end{cbwide}
+\tabnote{Each row is one decision, its displaced alternative, the reason,
+and the price. Alternating bands are a reading aid only.}
+\end{table}

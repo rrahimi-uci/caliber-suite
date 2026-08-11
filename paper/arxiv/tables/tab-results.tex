@@ -1,0 +1,78 @@
+%% tab-results.tex -- Table: the evaluation questions, and the state of each.
+%%
+%% Every quantitative cell is \pending: deterministic structural claim checks run,
+%% but the performance, scale, comparison, and human measurements have not. \pending
+%% renders in a colour and a face that cannot be mistaken for a result. This table
+%% is deliberately structured so a reader can see exactly what is unmeasured, and
+%% so that filling it in requires no change to the surrounding prose.
+
+\begin{table}[tbp]
+\centering
+\caption{Evaluation state. Each row names a question, the metric that answers it,
+and the measurement's current state. A \emph{not measured} chip marks a quantity this draft has not measured; the protocol for each is specified in \appref{app:protocol} in
+enough detail to be executed independently. No cell contains an estimate, a
+projection, or a figure carried over from an earlier configuration. Rows marked
+\emph{structural} are properties established by construction or by inspection
+rather than by measurement, and those are reported as answered because their
+evidence is the implementation itself.}
+\label{tab:results}
+\small
+\renewcommand{\arraystretch}{1.24}
+\begin{tabular}{@{}L{0.52cm}L{7.20cm}L{3.66cm}L{2.16cm}@{}}
+\toprule
+\theadrow
+\thead{} & \thead{Question} & \thead{Metric} & \thead{State} \\
+\midrule
+\tgroup{4}{E1 --- Control-plane cost} \\
+\addlinespace[0.2ex]
+a & Overhead added to a governed read on the serving path &
+    p50 / p99 added latency & \chipunmeasured{} \\
+b & Cost of resolving a \livetarget{} versus a hard-coded version &
+    p99 resolution latency & \chipunmeasured{} \\
+c & Sustained request throughput per replica & req/s at fixed p99 & \chipunmeasured{} \\
+\midrule
+\tgroup{4}{E2 --- Queue arbitration} \\
+\addlinespace[0.2ex]
+d & Do two workers ever own one row as replicas scale? &
+    concurrent double-ownership & \chipunmeasured{} \\
+e & Drain throughput versus replica count & jobs/min & \chipunmeasured{} \\
+f & Does each loop's crash recovery match \tabref{tab:loops}? &
+    per-loop outcome and latency & \chipunmeasured{} \\
+\midrule
+\tgroup{4}{E3 --- The refinement path} \\
+\addlinespace[0.2ex]
+g & Wall-clock from verified signal to candidate-ready &
+    end-to-end latency & \chipunmeasured{} \\
+h & Gate agreement with expert judgement on held-out candidates &
+    Cohen's $\kappa$~\cite{cohen1960kappa} & \chipunmeasured{} \\
+i & Do authored judges generalize off the calibration corpus? &
+    off-corpus agreement & \chipunmeasured{} \\
+\midrule
+\tgroup{4}{E4 --- Release and recovery} \\
+\addlinespace[0.2ex]
+j & Time to roll back a released prompt & alias-restore latency & \chipunmeasured{} \\
+k & Is a release reconstructable from records alone? &
+    audit replay success & \chipunmeasured{} \\
+\midrule
+\tgroup{4}{E6 --- Comparison against baselines} \\
+\addlinespace[0.2ex]
+o & Time and correctness of the same release task on each baseline &
+    task time; records recovered & \chipunmeasured{} \\
+p & What does an adopter gain over \mlflow{} aliases alone? &
+    E4(k) elements recovered & \chipunmeasured{} \\
+\midrule
+\tgroup{4}{E7 --- Operators} \\
+\addlinespace[0.2ex]
+q & Do operators correctly state a family's rollback semantics? &
+    correct answers / \family{} & \chipunmeasured{} \\
+\midrule
+\tgroup{4}{E5 --- Structural properties} \\
+\addlinespace[0.2ex]
+l & Is the control plane exercisable with no model provider? &
+    hermetic suite & \chipyes{} \\
+m & Does a DB-resident mutation share its audit transaction? &
+    inspection & \chipyes{} \\
+n & Per-family guarantee surface & \tabref{tab:families} & \chipstated{} \\
+\bottomrule
+\end{tabular}
+\end{table}

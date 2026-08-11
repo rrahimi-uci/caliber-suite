@@ -1,0 +1,154 @@
+\section{Introduction}
+\label{sec:intro}
+
+An LLM-agent system in production is often thoroughly observable while governance
+varies sharply by resource family.
+
+The observability half is well served. Tracing frameworks capture spans,
+tool calls, retrieved context, and token accounting; evaluation harnesses score
+outputs offline; LLM-as-judge methods approximate human preference at a fraction
+of the cost~\cite{zheng2023judging,liu2023geval}; and hosted platforms
+render all of it in a dashboard~\cite{langsmith,langfuse,phoenix}. When an agent
+produces a bad answer, a competent team will find out, and will be able to point
+at the span where it happened.
+
+What happens next is where the tooling stops. Someone opens a source file and
+edits a prompt string. Perhaps they test it on a handful of examples they
+assembled by hand; perhaps they compare against the previous version, or perhaps
+they only check that the specific reported failure is fixed. They merge, deploy,
+and move on. Six weeks later a different failure arrives, and nobody can
+reconstruct what the prompt used to be, what evidence justified the change, who
+approved it, or whether the change that fixed one class of input silently
+degraded three others. The remediation path is manual, undocumented, and
+irreproducible --- precisely the asymmetry Sculley et~al.\ described for
+conventional ML systems~\cite{sculley2015debt}, displaced from model artifacts
+onto prompts, tool definitions, agent skills, and retrieval corpora.
+
+This gap is not an oversight in any individual tool; it is a consequence of how
+the ecosystem is factored. Composition frameworks are built to answer \emph{how do
+I build this}~\cite{langchain,llamaindex}. Program optimizers are built to answer
+\emph{what should this prompt say}~\cite{khattab2024dspy,agrawal2025gepa,
+opsahlong2024mipro}. Tracking and observability systems are built to answer
+\emph{what happened} --- and, increasingly, more than that: \mlflow{}'s Prompt
+Registry, LangSmith, and Langfuse now version prompts, expose a named pointer the
+client resolves at call time, and roll back by re-pointing
+it~\cite{mlflowpromptregistry,langsmithprompts,langfuseprompts}. The question
+\emph{may this change go live, on what evidence, and how do I undo it} is
+therefore answered today for one artifact type, by pointer discipline, with the
+evidence sitting beside the decision rather than gating it.
+
+What remains unanswered is the same question for everything else an agent depends
+on --- its workflows, tool definitions, MCP server configurations, and retrieval
+corpora --- and the question of what it would cost to answer it for all of them at
+once. That is this paper's subject, and \secref{sec:compare} states the delta
+against those platforms feature by feature rather than by category.
+
+\para{Three words, used deliberately differently.} Because this paper distinguishes
+things a looser treatment would conflate, we pin the vocabulary once and hold to it.
+An \textbf{AI-agent resource} is something in the world an agent depends on at run
+time: a prompt, a workflow, a tool, an MCP server, a corpus. An \textbf{artifact} is
+the generic term for such a thing considered as a versioned object, used when the
+contrast is with \emph{code}, which already has a release discipline. A
+\textbf{\gasset} is \sys's typed record \emph{for} one --- the abstraction this paper
+introduces --- and only the third term is technical. Where the paper says
+``artifact'' it is never referring to an \mlflow{} artifact-store object;
+\appref{app:config} notes that collision explicitly.
+
+\para{This paper.} We present \sysbare{}, a layered control plane for the
+lifecycle of AI-agent resources. \sys{}'s organizing abstraction is the
+\emph{\gasset}: a typed record carrying a schema-validated definition, version
+history, an authority model, a trace and audit trail, and --- where the asset's
+family supports one --- a \livetarget{} that client code resolves at call time,
+so a release changes behaviour without a client deployment. Around that
+abstraction \sys arranges \statLayersW{} layers and \statModesW{} reusable lifecycle
+modes, and composes them into a \chainname{} that carries a flagged production
+trace to a measured candidate, an enforced evaluation gate, an explicit human
+decision, and an audited release that records the outgoing target so rollback is a
+restore rather than a reconstruction.
+
+\para{The central claim, stated narrowly.} It would be easy to claim that a
+layered control plane makes governance uniform across artifact types. That claim
+would be false, and the interesting content of this paper is why. Our actual
+claim is about what layering does and does not buy:
+
+\begin{quote}\itshape
+Adjacency in a layered architecture confers capability \emph{availability}, not
+capability \emph{inheritance}. A family placed in the asset layer obtains
+lifecycle behaviour and governance enforcement only by explicitly wiring them.
+The shared base contract is identity, history, authority, and audit; release,
+rollback, evaluation, and evidence are capability-specific obligations. \sys
+declares those obligations per family in a checked registry, but does not yet tie a
+declaration to the handler that discharges it (\secref{sec:arch:claim}).
+\end{quote}
+
+We defend the per-family capability factoring while treating the remaining gap ---
+declarations that are checked against each other but not against the handlers
+behind them --- as technical debt (\secref{sec:arch}). A prompt
+declares live-target release and rollback; a test set is evidence and declares no
+live target; a judge is evaluatable but not releasable. We therefore give the
+guarantee surface in full, including the rows where it is weaker than a reader
+might assume (\tabref{tab:families}).
+
+\para{Contributions.}
+\begin{enumerate}
+\item \textbf{A typed, per-family governance architecture.} A
+\statLayersW{}-layer factoring in which the unit of governance is an asset rather
+than a model or trace, plus an explicit capability/guarantee matrix that separates
+the shared base contract from family-specific release, rollback, and evidence
+semantics (\secref{sec:overview}, \secref{sec:arch}).
+
+\item \textbf{A \chainname{} distinguished from its implementations.} A
+seven-term reference shape --- \cSignal{}, \cEvidence{}, \cCandidate{},
+\cMeasure{}, \cDecision{}, \cRelease{}, \cTrace{} --- with an explicit account of
+how the concrete six-stage prompt path realizes it non-bijectively, and of what
+durable residue each term leaves so that a release is reconstructable from records
+(\secref{sec:overview}, \figref{fig:chain}).
+
+\item \textbf{A gate taxonomy that survives contact with operators.} The
+separation of an \emph{enforced} \advgate{} from an \emph{advisory} per-version
+release verdict, and the argument that putting the enforced gate on candidate
+advancement rather than on release is what keeps operators from routing around the
+system (\secref{sec:capabilities}, D3 in \tabref{tab:decisions}).
+
+\item \textbf{A stated per-loop guarantee surface for a broker-free execution
+model.} Claim-and-lease columns on relational rows are a known
+pattern~\cite{kleppmann2017ddia} and collapsing the worker tier into the API
+process is an engineering choice rather than a research result; we claim neither as
+novel. What we do contribute is the discipline of stating what each of the
+\statLoopsW{} loops actually guarantees --- they differ, and an earlier draft of
+this paper wrongly described them with one number (\tabref{tab:loops}) --- together
+with the honest converse that in-memory rate limits become per-process and must be
+sized for the worker count (\secref{sec:exec}).
+
+\item \textbf{Precise state ownership, including its limits.} Three stores, three
+owners, and the two dual-write boundaries no transaction can span. Naming those
+boundaries is what allows a precise audit guarantee to be stated at all
+(\secref{sec:components}, \figref{fig:dataflow}).
+
+\item \textbf{A comparison that includes the losses.} \sys against tracking,
+composition, multi-agent, and optimizer systems along \statCompareDims{}
+dimensions, with a cost column for every row including \sys's own
+(\secref{sec:compare}).
+
+\item \textbf{A measurement protocol, offered as an artifact rather than as a
+result.} \appref{app:protocol} specifies the questions, the baselines, the
+fault-injection matrix, and the analysis in enough detail to be executed by someone
+else. We want to be exact about its standing: an unpopulated table is not a
+contribution, and we do not present it as one. The protocol is a usable artifact;
+the results would be the contribution, and they are absent
+(\secref{sec:eval}).
+\end{enumerate}
+
+\para{What this paper does not claim.} \sys is not a composition or multi-agent
+orchestration framework, and does not compete with one; agents are composed
+elsewhere and governed here. It does not rebuild tracking: \mlflow{}'s
+experiments, traces, assessments, prompt registry, artifact store, and evaluation
+entry points are dependencies, not
+reimplementations~\cite{mlflowgenai,mlflowpromptregistry}. It ships a single environment with no
+\code{dev}\arrowto\code{staging}\arrowto\code{prod} ladder. Its local tool and MCP
+execution is \emph{containment}, not isolation, and we are careful throughout
+about which word applies (\secref{sec:limitations}). Most importantly, the
+quantitative evaluation in \secref{sec:eval} is specified but not yet executed.
+We state that plainly and mark each unpopulated result, because a systems paper
+that decorates an unrun experiment with plausible numbers is worse than one that
+reports an empty table.

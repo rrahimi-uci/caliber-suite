@@ -1,0 +1,31 @@
+%% 00-abstract.tex
+%%
+%% Length discipline: under 250 words. An earlier draft ran to 489 and read as a
+%% table of contents. What was cut was the enumeration of everything the paper
+%% covers; what was kept is the problem, the abstraction, the claim, and the
+%% honest statement of what is not established. `make check' asserts the count.
+
+\begin{abstract}
+Production LLM-agent systems are well observed, while release governance remains
+uneven across the resources they depend on. Tracing tells an
+operator that a prompt regressed; the toolchain around it says little about what to
+change, whether the change is better, or how to undo it. Prompt-lifecycle platforms
+now close part of this for prompts --- versions, a named pointer resolved at call
+time, rollback by re-pointing --- but not for the workflows, tool definitions, MCP
+servers, and retrieval corpora an agent equally depends on, and not with the
+evaluation result acting as a precondition rather than an annotation.
+
+We present \sysbare{}, a layered control plane for the lifecycle of AI-agent
+resources. Its organizing abstraction is the \emph{\gasset}: a typed record
+carrying version history, an authority model, an evidence base, and --- where its
+family supports one --- a \livetarget{} that client code resolves at call time.
+\sys spans \statFamiliesW{} \families{} in \statPyLoc{} lines of Python and
+\statUiLoc{} of TypeScript, reusing \mlflow{} rather than rebuilding it.
+
+Layering makes shared capabilities available; explicit per-family wiring determines
+the guarantees. We report that surface in full. Prompt authoring is non-live, and
+every routed prompt-alias mutation uses a durable intent, idempotent provider operation,
+and observable reconciliation state; equivalent crash handling is not yet uniform
+across other families. The quantitative evaluation is specified but not executed;
+every unpopulated result is marked rather than estimated.
+\end{abstract}

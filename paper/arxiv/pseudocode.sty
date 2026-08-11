@@ -1,0 +1,124 @@
+%% pseudocode.sty -- a small, readable pseudocode environment.
+%%
+%% Written from scratch because a TeX Live "basic" scheme ships none of
+%% algorithm2e, algorithmicx, algpseudocode, or clrscode. This reproduces the
+%% conventions those packages establish -- a ruled float with the caption on top,
+%% numbered lines, bold keywords, an explicit indentation ladder -- without
+%% depending on any of them.
+%%
+%% Usage:
+%%
+%%   \begin{algorithm}
+%%   \caption{What it does.}\label{alg:thing}
+%%   \begin{pseudo}
+%%   \pin{x, y}{a description of the inputs}
+%%   \pline{\kw{for each} $r$ \kw{in} rows \pdo}
+%%   \pline{\I \kw{if} claimed($r$) \pthen \kw{continue}}
+%%   \pline{\I run($r$) \cmt{the interesting part}}
+%%   \pline{\kw{return} done}
+%%   \end{pseudo}
+%%   \end{algorithm}
+%%
+%% Design notes:
+%%   * Indentation is explicit (\I, \II, \III) rather than inferred from block
+%%     keywords. Inferred indentation reads better in source but hides the
+%%     rendered shape; for a paper, what the reader sees should be what the
+%%     author wrote.
+%%   * Line numbers are set in the muted grey used for secondary information
+%%     everywhere else in the paper, so they recede rather than compete.
+%%   * Keywords are bold roman, not small caps: small caps collide with the
+%%     paper's use of \textsc for lifecycle modes and chain terms.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{pseudocode}[2026/08/03 v1.0 lightweight pseudocode float]
+
+\RequirePackage{float}
+\RequirePackage{xcolor}
+\RequirePackage{calc}
+
+% The colour the rest of the paper uses for secondary information. Declared with
+% a fallback so this package is usable on its own.
+\providecolor{cbMuted}{HTML}{64748B}
+\providecolor{cbInk}{HTML}{1F2933}
+\providecolor{cbControl}{HTML}{6D28D9}
+
+% ----------------------------------------------------------------- the float ---
+% "ruled" gives the classic algorithm frame: a rule above, the caption, a rule
+% under the caption, and a closing rule at the bottom.
+\floatstyle{ruled}
+\newfloat{algorithm}{tbp}{loa}
+\floatname{algorithm}{Algorithm}
+\floatstyle{plain}
+
+% --------------------------------------------------------------- the listing ---
+\newcounter{pseudoline}
+\newlength{\pseudotab}
+\setlength{\pseudotab}{1.15em}
+
+\newenvironment{pseudo}{%
+  \setcounter{pseudoline}{0}%
+  \par\vspace{0.2ex}%
+  \begin{list}{\scriptsize\textcolor{cbMuted}{\arabic{pseudoline}}}{%
+    \usecounter{pseudoline}%
+    \setlength{\labelwidth}{1.3em}%
+    \setlength{\labelsep}{0.55em}%
+    \setlength{\leftmargin}{1.85em}%
+    \setlength{\rightmargin}{0pt}%
+    \setlength{\itemindent}{0pt}%
+    \setlength{\listparindent}{0pt}%
+    \setlength{\itemsep}{0.15ex}%
+    \setlength{\parsep}{0pt}%
+    \setlength{\topsep}{0.3ex}%
+    \setlength{\partopsep}{0pt}%
+    \small
+    % A wrapped continuation line should hang, not restart at the number.
+    \raggedright
+  }%
+}{%
+  \end{list}%
+  \vspace{-0.2ex}%
+}
+
+% One pseudocode line.
+\newcommand{\pline}[1]{\item #1}
+
+% The indentation ladder. Explicit, so the source shows the rendered shape.
+\newcommand{\I}{\hspace*{\pseudotab}}
+\newcommand{\II}{\hspace*{2\pseudotab}}
+\newcommand{\III}{\hspace*{3\pseudotab}}
+\newcommand{\IV}{\hspace*{4\pseudotab}}
+
+% Keywords, identifiers, and comments.
+\newcommand{\kw}[1]{\textbf{#1}}
+\newcommand{\pid}[1]{\textit{#1}}
+\newcommand{\plit}[1]{{\ttfamily #1}}
+\newcommand{\cmt}[1]{\hfill\textcolor{cbMuted}{\itshape\,// #1}}
+\newcommand{\cmtin}[1]{\textcolor{cbMuted}{\itshape\,// #1}}
+
+% Common block terminators, set so they read as syntax rather than as prose.
+\newcommand{\pdo}{\kw{do}}
+\newcommand{\pthen}{\kw{then}}
+\newcommand{\pelse}{\kw{else}}
+
+% A signature line and an input/output preamble, set above the numbered body so
+% they do not consume line numbers -- a reader citing "line 4" should mean the
+% fourth step, not the fourth row of text.
+\newcommand{\psig}[1]{%
+  \par\noindent{\small\kw{procedure} \pid{#1}}\par\vspace{-0.1ex}}
+% The em-dash gloss is omitted when the description is empty, so \pout{x}{} does
+% not render a dangling dash.
+\newcommand{\pgloss}[1]{\if\relax\detokenize{#1}\relax\else\ --- #1\fi}
+\newcommand{\pin}[2]{%
+  \par\noindent{\footnotesize\hspace*{0.6em}\textcolor{cbMuted}{\textbf{in:}}\;
+    \pid{#1}\pgloss{#2}}\par}
+\newcommand{\pout}[2]{%
+  \par\noindent{\footnotesize\hspace*{0.6em}\textcolor{cbMuted}{\textbf{out:}}\;
+    \pid{#1}\pgloss{#2}}\par}
+\newcommand{\pinv}[1]{%
+  \par\noindent{\footnotesize\hspace*{0.6em}\textcolor{cbControl}{\textbf{invariant:}}\;
+    #1}\par}
+
+% Reference helper matching the paper's \figref / \tabref family.
+\newcommand{\algref}[1]{Algorithm~\ref{#1}}
+
+\endinput

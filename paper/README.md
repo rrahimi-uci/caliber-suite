@@ -5,6 +5,14 @@ Workflow Orchestration, and Progressive Autonomy*, in the authoritative
 single-column KOMA-Script `scrreprt`
 format.
 
+## Publication variants
+
+- [`arxiv/`](arxiv/) — self-contained arXiv-ready source package for the
+  comprehensive technical manuscript.
+- [`mlsys/`](mlsys/) — official MLSys Industry Track adaptation in the conference
+  two-column style, focused on the industrial problem, architecture, deployment,
+  and lessons learned.
+
 ## Build
 
 ```bash

@@ -1,0 +1,346 @@
+%% preamble.tex -- packages, figure/table styling, and the shared visual system.
+
+% ------------------------------------------------------------------ basics ----
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{colortbl}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{xspace}
+
+\usepackage[labelfont=bf,font=small,skip=5pt]{caption}
+\usepackage{subcaption}
+\usepackage{pseudocode}
+
+% ------------------------------------------------------------------- tikz -----
+\usepackage{tikz}
+\usetikzlibrary{%
+  arrows.meta,            % configurable, properly-scaled arrow tips
+  positioning,            % relative placement that survives content changes
+  calc,                   % coordinate arithmetic
+  fit,                    % bands fitted around their contents
+  backgrounds,            % bands drawn behind, not over, their contents
+  decorations.pathreplacing,  % phase braces
+  decorations.markings,   % mid-edge markers on the reconciliation boundaries
+  patterns, patterns.meta,% semantic hatching: an absent cell is struck, not blank
+  scopes,
+}
+%
+% Requested but deliberately not loaded, with reasons, so the list stays honest:
+%
+%   shadows          Superseded by the `softshadow' style below, which composes a
+%                    soft falloff by hand. TikZ's `drop shadow' is a hard offset
+%                    copy and reads as clip-art at figure scale.
+%   shadows.blur     Not present in this pgf build (3.1.11a). `softshadow' delivers
+%                    the effect without it.
+%   shapes.geometric The cylinder was tried for the three datastores in
+%                    fig-dataflow. It sizes its body from the node text and then
+%                    adds elliptical caps, so a box holding seven lines becomes
+%                    enormous and the text escapes it. Right shape for a two-word
+%                    label, wrong one for these. Reverted rather than shipped.
+%   shapes.misc      Pill shapes for aliases: nothing in the current figures needs a
+%                    shape distinct from the card, and adding one would dilute the
+%                    role-based vocabulary the key teaches.
+%   matrix, chains   The grid and pipeline figures are already exactly aligned by
+%                    computed coordinates, and both libraries would replace working
+%                    layout with a second mechanism doing the same job. Loading a
+%                    library nothing uses costs compile time and misdescribes the
+%                    figures, so they are out.
+%   graphs, petri    Would suit a state-machine or Petri-net view of queue
+%                    arbitration -- a genuinely useful addition, but a new figure
+%                    rather than an improvement to an existing one.
+%   mindmap          No figure in a systems paper of this kind wants it.
+%   graphdrawing     Requires LuaLaTeX. The paper builds under lualatex, so this is
+%                    reachable, but automatic layout is worse than computed
+%                    placement for block diagrams whose column alignment carries
+%                    meaning. Switching the engine would also mean revalidating the
+%                    Type 1 font work.
+
+% shadows.blur is not in this pgf build, so the soft shadow is composed by hand:
+% three offset copies at low opacity approximate a Gaussian falloff closely enough
+% at figure scale, and unlike a hard `drop shadow' it does not read as clip-art.
+% Applied through `preaction` so it paints under the node's own fill.
+\tikzset{
+  softshadow/.style={
+    preaction={fill=black, opacity=0.045, transform canvas={xshift=1.7pt, yshift=-1.7pt}},
+    preaction={fill=black, opacity=0.045, transform canvas={xshift=1.1pt, yshift=-1.1pt}},
+    preaction={fill=black, opacity=0.045, transform canvas={xshift=0.5pt, yshift=-0.5pt}},
+  },
+  softshadow/.default=,
+}
+
+% ---------------------------------------------------- the figure palette ------
+% One palette for every figure in the paper. Hues are assigned by *role*, not
+% by decoration, so a reader who learns the key once can read every diagram:
+% each role keeps its hue across all nine figures.
+%
+%   ink      structural outlines, body arrows, axis rules
+%   surface  entry points -- UI, HTTP, copilot, headless clients
+%   control  control-plane machinery: lifecycle modes, kernel services
+%   govern   governance primitives: identity, policy, verdicts, ledgers
+%   asset    governed asset families (the nouns)
+%   extern   systems CALIBER integrates with but does not own
+%   async    asynchronous / durable-queue elements
+%   store    durable state
+%
+% Fills are held at a light tint and strokes at full saturation so the figures
+% survive greyscale printing: the tints differ in luminance, not just in hue.
+\definecolor{cbInk}      {HTML}{1F2933}
+\definecolor{cbAccent}   {HTML}{0B6E99}
+
+\definecolor{cbSurface}  {HTML}{0284C7}
+\definecolor{cbSurfaceBg}{HTML}{E0F2FE}
+\definecolor{cbControl}  {HTML}{6D28D9}
+\definecolor{cbControlBg}{HTML}{EDE9FE}
+\definecolor{cbGovern}   {HTML}{BE185D}
+\definecolor{cbGovernBg} {HTML}{FCE7F3}
+\definecolor{cbAsset}    {HTML}{C2410C}
+\definecolor{cbAssetBg}  {HTML}{FFF2E6}
+\definecolor{cbExtern}   {HTML}{15803D}
+\definecolor{cbExternBg} {HTML}{ECFDF3}
+\definecolor{cbAsync}    {HTML}{B45309}
+\definecolor{cbAsyncBg}  {HTML}{FEF3C7}
+\definecolor{cbStore}    {HTML}{4338CA}
+\definecolor{cbStoreBg}  {HTML}{EEF2FF}
+\definecolor{cbMuted}    {HTML}{64748B}
+\definecolor{cbMutedBg}  {HTML}{F1F5F9}
+\definecolor{cbRule}     {HTML}{CBD5E1}
+% A banding tint light enough that 9pt type stays fully legible on it.
+\definecolor{cbTableAlt} {HTML}{F5F7FA}
+
+% -------------------------------------------------------------- hyperlinks ----
+% Loaded after the palette so link colours can reference it, and late enough
+% that titlesec/natbib redefinitions are already in place.
+\usepackage[pdftex,
+            bookmarks=true,
+            bookmarksnumbered=true,
+            breaklinks=true,
+            colorlinks=true,
+            linkcolor=cbInk,
+            citecolor=cbInk,
+            urlcolor=cbAccent,
+            pdfstartview=FitH]{hyperref}
+\usepackage{url}
+
+% A 3.3in column cannot hold an unbroken 60-character URL, and the default break
+% points (punctuation only) are too few. Allow a break after any letter, and give
+% the inter-character glue a little stretch.
+\makeatletter
+\g@addto@macro\UrlBreaks{%
+  \do\a\do\b\do\c\do\d\do\e\do\f\do\g\do\h\do\i\do\j\do\k\do\l\do\m%
+  \do\n\do\o\do\p\do\q\do\r\do\s\do\t\do\u\do\v\do\w\do\x\do\y\do\z}
+\makeatother
+\Urlmuskip=0mu plus 1mu\relax
+
+% ------------------------------------------------- the figure type scale ------
+% One scale for every figure, so legibility is a single global decision rather
+% than a per-diagram accident. The floor is 7pt: below that, figure text stops
+% being readable in print and in a two-page-per-sheet review printout, which is
+% how most reviewers will see it. Diagram content was trimmed to fit this scale
+% rather than the scale shrunk to fit the content.
+%
+%   \figH  8pt  box headings and band labels
+%   \figB  7pt  detail lines inside a box
+%   \figE  7pt  edge labels
+%
+% ABSOLUTE, not relative. This matters and was got wrong once: with \figB defined
+% as \scriptsize, the figure type tracked the body size, so moving from the 10pt
+% two-column layout to the 11pt single-column one silently enlarged every figure
+% label from 7pt to 8pt. The figures' box geometry is fixed in centimetres, so the
+% larger text wrapped to more lines than the boxes had room for and overflowed into
+% its neighbours -- a failure no overfull-box warning reports, because nothing
+% overflows the *page*. Pinning the sizes means a figure renders exactly as it was
+% laid out, in either layout. Narrow figures are then scaled up by \cbscaled, which
+% is where on-page legibility comes from.
+\newcommand{\figH}{\fontsize{8}{9.4}\selectfont}
+\newcommand{\figB}{\fontsize{7}{8.3}\selectfont}
+\newcommand{\figE}{\fontsize{7}{8.3}\selectfont}
+
+% ------------------------------------------------- shared tikz node styles ----
+\tikzset{
+  cbfont/.style     = {font=\figB},
+  cbtiny/.style     = {font=\figB},
+  % --- box roles -------------------------------------------------------------
+  % A card, not a rectangle: slightly larger corner radius, a hairline-crisp
+  % stroke, and a soft shadow so the layers of a stacked diagram separate
+  % visually rather than relying on colour alone.
+  cbbox/.style      = {draw, rounded corners=2.4pt, line width=0.65pt,
+                       align=center, inner xsep=4.5pt, inner ysep=3.4pt,
+                       font=\figH, text=cbInk, softshadow},
+  % The flat variant, for cells inside a grid where shadows would collide.
+  cbflat/.style     = {draw, rounded corners=1.6pt, line width=0.55pt,
+                       align=center, inner xsep=3pt, inner ysep=2.4pt,
+                       font=\figH, text=cbInk},
+  surface/.style    = {cbbox, fill=cbSurfaceBg, draw=cbSurface},
+  control/.style    = {cbbox, fill=cbControlBg, draw=cbControl},
+  govern/.style     = {cbbox, fill=cbGovernBg,  draw=cbGovern},
+  asset/.style      = {cbbox, fill=cbAssetBg,   draw=cbAsset},
+  extern/.style     = {cbbox, fill=cbExternBg,  draw=cbExtern},
+  async/.style      = {cbbox, fill=cbAsyncBg,   draw=cbAsync},
+  store/.style      = {cbbox, fill=cbStoreBg,   draw=cbStore},
+  muted/.style      = {cbbox, fill=cbMutedBg,   draw=cbMuted},
+  human/.style      = {cbbox, fill=cbAsyncBg,   draw=cbAsync, line width=0.9pt},
+  % --- containers ----------------------------------------------------------
+  band/.style       = {draw=cbRule, line width=0.5pt, rounded corners=2.5pt,
+                       fill=white, inner sep=4.5pt},
+  bandlab/.style    = {font=\figB\bfseries, text=cbMuted, inner sep=1.2pt},
+  % --- datastores get a real cylinder, so a store is distinguishable from a
+  % --- service at a glance rather than by reading its label.
+  db/.style         = {cbbox, fill=cbStoreBg, draw=cbStore,
+                       rounded corners=6pt},
+  cyl/.style        = {cylinder, shape aspect=0.28, draw=cbStore,
+                       fill=cbStoreBg, cylinder uses custom fill,
+                       cylinder end fill=cbStoreBg!70!white,
+                       shape border rotate=90, aspect=0.3,
+                       align=center, font=\figB, text=cbInk,
+                       inner xsep=3pt, inner ysep=5pt, line width=0.65pt},
+  % A pill, for an alias or a token: something resolved rather than executed.
+  pill/.style       = {rounded rectangle, draw, line width=0.6pt,
+                       align=center, font=\figB, inner xsep=5pt, inner ysep=2pt,
+                       fill=cbExternBg, draw=cbExtern, text=cbInk},
+  % A decision point.
+  decide/.style     = {diamond, draw=cbGovern, fill=cbGovernBg, aspect=1.6,
+                       align=center, font=\figB, inner sep=1.5pt,
+                       line width=0.65pt, text=cbInk},
+  % --- semantic fills -------------------------------------------------------
+  % Hatching carries meaning, not decoration: an absent capability is struck
+  % through, an advisory one is dotted. Both survive greyscale, which a tint
+  % alone does not.
+  absent/.style     = {pattern=crosshatch, pattern color=cbRule},
+  advisory/.style   = {pattern={Lines[angle=45,distance=2.4pt,line width=0.35pt]},
+                       pattern color=cbGovern!45},
+  % --- edges ---------------------------------------------------------------
+  % Round-tipped Stealth arrows with rounded joins: at 7pt label sizes a sharp
+  % tip renders as a smudge, a rounded one stays a shape.
+  flow/.style       = {-{Stealth[round, length=4.2pt, width=3.1pt]},
+                       draw=cbInk, line width=0.62pt,
+                       line cap=round, line join=round},
+  % A crossing that no transaction spans: marked mid-edge with a double bar, the
+  % conventional notation for a boundary rather than a link.
+  boundary/.style   = {-{Stealth[round, length=4.2pt, width=3.1pt]},
+                       draw=cbGovern, line width=0.85pt, densely dashed,
+                       postaction={decorate, decoration={markings,
+                         mark=at position 0.52 with {%
+                           \draw[cbGovern, line width=0.8pt]
+                             (-1.6pt,-2.6pt) -- (-1.6pt,2.6pt);
+                           \draw[cbGovern, line width=0.8pt]
+                             (1.6pt,-2.6pt) -- (1.6pt,2.6pt);}}}},
+  flowthick/.style  = {-{Stealth[length=4.2pt,width=3.2pt]},
+                       draw=cbInk, line width=0.9pt},
+  ctlflow/.style    = {-{Stealth[length=4pt,width=3pt]},
+                       draw=cbControl, line width=0.6pt},
+  govflow/.style    = {-{Stealth[length=4pt,width=3pt]},
+                       draw=cbGovern, line width=0.6pt},
+  feedback/.style   = {-{Stealth[length=4pt,width=3pt]},
+                       draw=cbAsync, line width=0.8pt, densely dashed},
+  weak/.style       = {draw=cbRule, line width=0.4pt},
+  elab/.style       = {font=\figE, text=cbMuted, inner sep=1.6pt,
+                       fill=white, fill opacity=0.9, text opacity=1},
+  % --- sequence diagram ----------------------------------------------------
+  lifeline/.style   = {draw=cbRule, line width=0.4pt, densely dotted},
+  actor/.style      = {cbbox, font=\figB\bfseries, minimum height=3.6mm},
+  msg/.style        = {-{Stealth[length=3.6pt,width=2.8pt]},
+                       draw=cbInk, line width=0.55pt},
+  retmsg/.style     = {-{Stealth[length=3.6pt,width=2.8pt]},
+                       draw=cbMuted, line width=0.55pt, densely dashed},
+  activation/.style = {draw=cbControl, fill=cbControlBg, line width=0.4pt},
+}
+
+% ----------------------------------------------------------- code listings ----
+\lstdefinestyle{cbcode}{
+  basicstyle   = \ttfamily\scriptsize,
+  keywordstyle = \color{cbControl}\bfseries,
+  stringstyle  = \color{cbExtern},
+  commentstyle = \color{cbMuted}\itshape,
+  numberstyle  = \tiny\color{cbMuted},
+  showstringspaces = false,
+  breaklines   = true,
+  columns      = fullflexible,
+  keepspaces   = true,
+  frame        = leftline,
+  framerule    = 0.6pt,
+  rulecolor    = \color{cbRule},
+  xleftmargin  = 5pt,
+  aboveskip    = 5pt,
+  belowskip    = 3pt,
+}
+\lstset{style=cbcode}
+
+% ------------------------------------------------------------- table system ----
+% The tables in this paper are dense and carry the paper's most contested claims,
+% so they are built like figures rather than like spreadsheets:
+%
+%   * A saturated header band with reversed type, which separates the head from
+%     the body without a heavy rule.
+%   * Zebra banding, so the eye tracks one row across six columns.
+%   * Group subheads inside the body, for tables that partition their rows.
+%   * Chips instead of dashes. "n/a" set in a bordered chip reads as a deliberate
+%     statement; an em dash reads as a gap someone forgot to fill, which is the
+%     opposite of what these cells mean.
+\newcommand{\thead}[1]{\textcolor{white}{\bfseries #1}}
+\newcommand{\theadrow}{\rowcolor{cbInk}}
+\newcommand{\zebra}{\rowcolor{cbTableAlt}}
+
+% A group subhead spanning #1 columns.
+\newcommand{\tgroup}[2]{%
+  \noalign{\vspace{0.35ex}}%
+  \rowcolor{cbSurfaceBg}\multicolumn{#1}{@{}>{\bfseries}l@{}}{#2}}
+
+% A chip: a small bordered label for a categorical cell value.
+\DeclareRobustCommand{\chip}[2]{%
+  \tikz[baseline=(cbchip.base)]{%
+    \node[#1, rounded corners=1.8pt, inner xsep=3.2pt, inner ysep=0.9pt,
+          line width=0.5pt, font=\footnotesize] (cbchip) {#2};}}
+\DeclareRobustCommand{\chipna}{\chip{draw=cbRule, fill=cbMutedBg, text=cbMuted}{n/a}}
+\DeclareRobustCommand{\chipnone}{\chip{draw=cbRule, fill=white, text=cbMuted}{none}}
+\DeclareRobustCommand{\chipenf}{\chip{draw=cbGovern, fill=cbGovernBg,
+  text=cbGovern, line width=0.8pt}{enforced}}
+\DeclareRobustCommand{\chipadv}{\chip{draw=cbGovern, fill=white, text=cbGovern,
+  densely dashed}{advisory}}
+\DeclareRobustCommand{\chipunmeasured}{\chip{draw=cbGovern, fill=cbGovernBg,
+  text=cbGovern}{not measured}}
+\DeclareRobustCommand{\chipyes}{\chip{draw=cbExtern, fill=cbExternBg, text=cbExtern}{yes}}
+\DeclareRobustCommand{\chipstated}{\chip{draw=cbControl, fill=cbControlBg,
+  text=cbControl}{stated}}
+
+% A rule that marks a column as the subject of the comparison. It has to be a
+% column *type*, not a macro: array does not expand macros while parsing a preamble.
+\newcolumntype{V}{!{\color{cbControl}\vrule width 0.7pt}}
+
+% Rules: booktabs weights tuned so the header band does the separating.
+\setlength{\heavyrulewidth}{0.9pt}
+\setlength{\lightrulewidth}{0.45pt}
+\setlength{\cmidrulewidth}{0.4pt}
+\setlength{\aboverulesep}{0.35ex}
+\setlength{\belowrulesep}{0.45ex}
+
+% ------------------------------------------------------------ table helpers ----
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\arraybackslash}p{#1}}
+% Tables are set one size up from where a dense systems paper usually lands, and
+% cells were shortened to pay for it. A table nobody can read is not evidence.
+\renewcommand{\arraystretch}{1.18}
+\setlength{\tabcolsep}{4.5pt}
+\newcommand{\tabnote}[1]{\par\vspace{0.5ex}\footnotesize\textit{#1}}
+
+% Compact list defaults; systems papers use a lot of them.
+\setlist[itemize]{leftmargin=1.15em,topsep=0.4ex,itemsep=0.25ex,parsep=0pt}
+\setlist[enumerate]{leftmargin=1.35em,topsep=0.4ex,itemsep=0.25ex,parsep=0pt}
+\setlist[description]{leftmargin=0em,topsep=0.4ex,itemsep=0.3ex,parsep=0pt,
+                     font=\normalfont\itshape}
+
+% ------------------------------------------------------------------ misc ------
+\hyphenation{Cal-i-ber ML-flow Post-gres-SQL name-space work-flow work-flows
+             re-fine-ment cal-i-bra-tion pro-vid-er}
+\sloppy
+\clubpenalty=9999
+\widowpenalty=9999
+\displaywidowpenalty=9999
