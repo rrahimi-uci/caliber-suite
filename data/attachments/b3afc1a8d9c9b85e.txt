@@ -1,9 +1,0 @@
-ERROR    caliber.assistant.agent_tools:agent_tools.py:478 agent tool get_workflow_manifest failed
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/agent_tools.py", line 476, in dispatch
-    return handler(arguments)
-           ^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/agent_tools.py", line 560, in _t_get_workflow_manifest
-    q = q.filter(CaliberWorkflowVersion.version_number == int(version_number))
-                                                          ^^^^^^^^^^^^^^^^^^^
-ValueError: invalid literal for int() with base 10: 'abc'
