@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.eval_stage:eval_stage.py:200 eval passed: job=RFN-E status=candidate_ready overall=0.820

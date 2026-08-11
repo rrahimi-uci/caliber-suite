@@ -1,6 +1,0 @@
-{"t":"2026-08-10T23:30:13.951Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-08-10T23:30:13.973Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-08-10T23:30:13.975Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-08-10T23:30:13.977Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-08-10T23:30:14.003Z","severity":"WARNING","logger":"caliber.assistant.openai_engine","message":"OpenAI API key not found in environment variable OPENAI_API_KEY. Assistant engine calls will fail until a valid key is set.","trace_id":"dcb0cc4ab1ba4f25"}
-{"t":"2026-08-10T23:30:14.006Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/assistant/config \"HTTP/1.1 200 OK\""}
