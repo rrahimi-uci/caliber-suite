@@ -1,0 +1,21 @@
+INFO     caliber:server.py:403 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:245 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:656 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-6fef1e7f/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-d2462ec4/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+WARNING  caliber.workflows.runtime:runtime.py:2395 tool lookup_policy failed (attempt 1/3): temporary policy backend outage #1
+WARNING  caliber.workflows.runtime:runtime.py:2395 tool lookup_policy failed (attempt 2/3): temporary policy backend outage #2
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-a5c3f420 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-a5c3f420/approvals "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-a5c3f420/approval/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1092 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-a5c3f420/resume "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1092 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-a5c3f420 "HTTP/1.1 200 OK"
