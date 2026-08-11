@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.workflow_stages:workflow_stages.py:537 workflow calibration candidate complete: job=RFN-WF patch=WP-3819f24f winner=cal-1

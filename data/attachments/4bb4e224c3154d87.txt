@@ -1,1 +1,0 @@
-{"t":"2026-08-11T01:55:22.557Z","severity":"INFO","logger":"caliber.orchestrator.evidence","message":"evidence complete: job=RFN-EVD summary={'trace_id': 'tr-1', 'experiment_id': 'exp', 'session_id': None, 'has_trace_link': True, 'has_session_link': False, 'free_text_preview': 'A long enough rationale for the evidence stub.'}"}
