@@ -267,7 +267,7 @@ pre[class*="language-"] code {
 /* Prose, cards, and metadata should absorb long identifiers instead of letting
    a single path, signature, or code token widen the whole container. */
 .doc-body :is(
-  p, li, dt, dd, td, th, summary,
+  p, li, dt, dd, summary,
   h1, h2, h3, h4, h5, h6,
   .doc-summary, .doc-meta-notes, .doc-meta-prereqs,
   .docs-browse-item-title, .docs-browse-item-summary,
@@ -280,6 +280,42 @@ pre[class*="language-"] code {
 ) {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+/* Table cells are excluded from the rule above, and get `break-word` instead.
+   The two values are not interchangeable here: `anywhere` *reduces* an element's
+   min-content width, and auto table layout sizes columns from exactly that — so
+   it licenses the browser to shrink a column below its longest word and stack
+   that word one character per line. Measured before this fix: a six-column table
+   whose true min-content width was 1034px rendered at 778px, and a two-column
+   cookbook table rendered the label `Instructions` in a 32px column, 43 lines
+   tall.
+
+   `break-word` still rescues a genuinely unbreakable token from overflowing its
+   cell, but leaves min-content intact, so a table that needs more room grows and
+   `.table-wrap` scrolls it — which is what that wrapper is for. */
+.doc-body :is(td, th),
+.doc-body :is(td, th) :is(code, a, span, strong, em, kbd) {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* A table that is allowed to reach its natural width needs somewhere to scroll,
+   or it pushes the whole page sideways instead. Most tables are generated inside
+   `.table-wrap`, which already scrolls; hand-authored pages have bare `<table>`
+   elements that are not. Restoring their min-content width regressed
+   `walkthrough.html` into 38px of horizontal *page* scroll at 390px wide, which
+   is the bug the old `anywhere` had been hiding rather than solving.
+
+   `display: block` makes the table its own scroll container. The rows and cells
+   keep their own display types, so an anonymous table box still lays the columns
+   out — only the outer element stops being a full-width table box. Scoped with
+   `:not()` so wrapped tables keep their existing behaviour and do not end up with
+   two nested scrollers. */
+table:not(.table-wrap > table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 :is(
@@ -444,6 +480,7 @@ li {
   display: block;
   padding: .7rem 1.25rem;
   background: rgba(245, 247, 251, .86);
+  -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid rgba(217, 224, 234, .92);
 }
@@ -665,6 +702,7 @@ li {
   border-radius: 18px;
   background: rgba(255, 255, 255, .98);
   box-shadow: 0 24px 56px rgba(15, 23, 42, .16);
+  -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
 }
 
@@ -745,6 +783,7 @@ li {
   border: 1px solid rgba(217, 224, 234, .9);
   border-radius: 20px;
   background: rgba(255, 255, 255, .8);
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow);
 }
@@ -877,6 +916,7 @@ li {
   border: 1px solid rgba(217, 224, 234, .9);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, .84);
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow);
 }
@@ -2810,7 +2850,7 @@ blockquote.callout li {
 .ck-fill-t{background:var(--bg-card-hover);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);font-weight:700;padding:.3rem .6rem}
 .ck-fill table{width:100%;border-collapse:collapse;font-size:.84rem}
 .ck-fill td{padding:.35rem .6rem;border-top:1px solid var(--border-light);vertical-align:top}
-.ck-fill td:first-child{font-weight:600;color:var(--accent);white-space:normal;width:auto;font-family:var(--mono);font-size:.82em;overflow-wrap:anywhere;word-break:break-word}
+.ck-fill td:first-child{font-weight:600;color:var(--accent);white-space:normal;width:auto;font-family:var(--mono);font-size:.82em;overflow-wrap:break-word;word-break:normal}
 .ck-click{margin:.55rem 0 .2rem;font-size:.86rem;color:var(--text-muted)}
 .ck-btn{display:inline-block;background:var(--accent);color:#fff;font-weight:600;font-size:.78rem;padding:.16rem .65rem;border-radius:.5rem;margin:0 .1rem}
 .ck-see{margin-top:.5rem;font-size:.84rem;color:var(--text-muted);background:var(--accent-glow);border-left:3px solid var(--accent);border-radius:.3rem;padding:.4rem .65rem}

@@ -499,7 +499,7 @@ COOKBOOK_CSS = CSS_MARKER + """
 .ck-fill-t{background:var(--bg-card-hover);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);font-weight:700;padding:.3rem .6rem}
 .ck-fill table{width:100%;border-collapse:collapse;font-size:.84rem}
 .ck-fill td{padding:.35rem .6rem;border-top:1px solid var(--border-light);vertical-align:top}
-.ck-fill td:first-child{font-weight:600;color:var(--accent);white-space:normal;width:auto;font-family:var(--mono);font-size:.82em;overflow-wrap:anywhere;word-break:break-word}
+.ck-fill td:first-child{font-weight:600;color:var(--accent);white-space:normal;width:auto;font-family:var(--mono);font-size:.82em;overflow-wrap:break-word;word-break:normal}
 .ck-click{margin:.55rem 0 .2rem;font-size:.86rem;color:var(--text-muted)}
 .ck-btn{display:inline-block;background:var(--accent);color:#fff;font-weight:600;font-size:.78rem;padding:.16rem .65rem;border-radius:.5rem;margin:0 .1rem}
 .ck-see{margin-top:.5rem;font-size:.84rem;color:var(--text-muted);background:var(--accent-glow);border-left:3px solid var(--accent);border-radius:.3rem;padding:.4rem .65rem}
