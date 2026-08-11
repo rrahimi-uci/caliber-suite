@@ -3,3 +3,4 @@ Compiler: pdflatex
 Bibliography: BibTeX
 
 This package is self-contained and is intended for arXiv source upload.
+The root file uses the PRIME AI / arXiv article template family.

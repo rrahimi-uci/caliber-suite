@@ -3,11 +3,8 @@
 This directory is the self-contained arXiv source package for the comprehensive
 CALIBER technical manuscript.
 
-Important note: arXiv does not provide a branded conference-style class for
-general CS preprints. Its official guidance is to upload a clean TeX/LaTeX source
-package, include every figure and bibliography dependency, avoid extraneous files,
-and ensure the submission compiles from the package root. This directory follows
-that model.
+The package uses the PRIME AI / arXiv article template family as the root
+presentation layer while remaining a clean self-contained source upload.
 
 ## Build
 
@@ -23,11 +20,12 @@ Output:
 
 ## Package structure
 
-- `main.tex` — arXiv root file
+- `main.tex` — arXiv root file using the PRIME AI / arXiv article template
 - `sections/`, `images/`, `tables/`, `appendix/` — manuscript content
 - `generated/` — checked-in source-derived counts and diagram PDFs required to compile
 - `refs.bib` — bibliography
-- `article-layout.sty`, `preamble.tex`, `macros.tex`, `pseudocode.sty` — local style and macros bundled with the submission
+- `PRIMEarxiv.sty` — PRIME AI / arXiv template style file
+- `preamble.tex`, `macros.tex`, `pseudocode.sty` — local manuscript support files bundled with the submission
 
 ## arXiv hygiene
 

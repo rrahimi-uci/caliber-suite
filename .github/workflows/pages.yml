@@ -64,27 +64,43 @@ jobs:
           TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -uo pipefail
+          mkdir -p docs-site/tests
+          try_stage() {
+            local candidate="$1"
+            [ -n "$candidate" ] || return 1
+            rm -rf docs-site/tests
+            mkdir -p docs-site/tests
+            if gh run download "$candidate" -n allure-report-html -D docs-site/tests; then
+              echo "staged the Allure report from CI run $candidate"
+              return 0
+            fi
+            return 1
+          }
+
           run_id="${TRIGGER_RUN_ID:-}"
-          if [ -z "$run_id" ]; then
-            # Manual dispatch: re-publish the newest report there is, because
-            # deploying without it would delete the live /tests/.
-            run_id=$(gh run list --workflow=ci.yml --branch main \
-              --status success --limit 1 --json databaseId -q '.[0].databaseId')
-          fi
-          if [ -z "$run_id" ]; then
-            echo "::warning::no successful CI run on main; /tests/ will be absent"
+          if try_stage "$run_id"; then
             exit 0
           fi
-          mkdir -p docs-site/tests
-          # The report artifact is conditional (CI skips it when no results were
-          # produced) and expires after 14 days, so absence is normal rather than
-          # an error. An absent report costs /tests/; a failed build costs the site.
-          if gh run download "$run_id" -n allure-report-html -D docs-site/tests; then
-            echo "staged the Allure report from CI run $run_id"
-          else
-            echo "::warning::CI run $run_id has no allure-report-html artifact (not produced, or expired); /tests/ will be absent"
-            rmdir docs-site/tests 2>/dev/null || true
-          fi
+
+          # Fast-only CI runs may not produce a rendered report. Preserve /tests/
+          # by falling back to the newest successful CI run on main that still has
+          # the artifact.
+          mapfile -t fallback_runs < <(
+            gh run list --workflow=ci.yml --branch main --status success --limit 10 \
+              --json databaseId -q '.[].databaseId'
+          )
+          for candidate in "${fallback_runs[@]}"; do
+            if [ -n "$run_id" ] && [ "$candidate" = "$run_id" ]; then
+              continue
+            fi
+            if try_stage "$candidate"; then
+              echo "::warning::current CI run had no Allure artifact; reused report from CI run $candidate"
+              exit 0
+            fi
+          done
+
+          echo "::warning::no successful CI run on main had an allure-report-html artifact; /tests/ will be absent"
+          rmdir docs-site/tests 2>/dev/null || true
       - uses: actions/configure-pages@v5
         with:
           enablement: true

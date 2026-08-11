@@ -7,17 +7,18 @@ name: CI
 #
 # Speed model:
 #   * uv replaces pip for every install (cached wheels, ~10-50x faster).
-#   * Allure results are emitted from a SINGLE Python version (3.11) so the
-#     combined report shows each test once, not once per matrix leg.
-#   * Unit tests run under pytest-xdist (``-n auto``); integration tests stay
-#     sequential (they stand up real MLflow/SQLite and are not parallel-safe).
+#   * Fast required gates run on every CI invocation.
+#   * The full backend suite, compatibility matrix, integration slice, and
+#     browser cookbook journeys run only on pushes to main, after the fast gates.
 #
 # Allure model:
-#   * Test jobs only EMIT allure-results/ (no Java needed) and upload them as
-#     artifacts. One ``allure-report`` job merges every result set and renders the
-#     HTML with trend history. It does NOT deploy: a Pages deployment replaces the
-#     whole site, so pages.yml is the single publisher and serves this report at
-#     /tests/ by downloading the ``allure-report-html`` artifact.
+#   * The heavier main-branch-only jobs emit allure-results/ (no Java needed) and
+#     upload them as artifacts.
+#   * One ``allure-report`` job merges every result set and renders the HTML with
+#     trend history. It does NOT deploy: a Pages deployment replaces the whole
+#     site, so pages.yml is the single publisher and serves this report at /tests/
+#     by downloading the ``allure-report-html`` artifact, or falling back to the
+#     newest successful render when a fast-only CI run produced none.
 
 on:
   push:
@@ -29,6 +30,8 @@ on:
       #
       # Each entry below is verified to be read by no test and no build step:
       #   overview-video/**  not referenced anywhere under caliber/tests/
+      #   linkedin_caliber/**  publication collateral, not part of product/runtime CI
+      #   paper/**  publication artifacts and source, not part of product/runtime CI
       #
       # Deliberately NOT ignored, because they ARE test or build inputs:
       #   docs/**            UI prebuild regenerates docs-site from these sources
@@ -39,6 +42,8 @@ on:
       #   .github/workflows/**
       #                      a CI change must always be exercised by CI
       - "overview-video/**"
+      - "linkedin_caliber/**"
+      - "paper/**"
   pull_request:
     branches: [main]
     paths-ignore: *non-ci-paths
@@ -64,6 +69,61 @@ defaults:
     working-directory: caliber
 
 jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      docs: ${{ steps.filter.outputs.docs }}
+      ui: ${{ steps.filter.outputs.ui }}
+      sdk: ${{ steps.filter.outputs.sdk }}
+      plugin_sdk: ${{ steps.filter.outputs.plugin_sdk }}
+      cli: ${{ steps.filter.outputs.cli }}
+      compose: ${{ steps.filter.outputs.compose }}
+      ci: ${{ steps.filter.outputs.ci }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'caliber/src/**'
+              - 'caliber/tests/**'
+              - 'caliber/pyproject.toml'
+              - 'caliber/Makefile'
+              - 'caliber/alembic.ini'
+              - 'caliber/alembic/**'
+              - 'deploy/**'
+              - 'scripts/**'
+            docs:
+              - 'docs/**'
+              - 'docs-site/**'
+              - 'ARCHITECTURE.md'
+              - 'README.md'
+            ui:
+              - 'caliber/caliber-ui/**'
+              - 'docs/**'
+              - 'docs-site/**'
+              - 'ARCHITECTURE.md'
+              - 'README.md'
+            sdk:
+              - 'sdk/caliber-sdk/**'
+            plugin_sdk:
+              - 'sdk/caliber-plugin-sdk/**'
+            cli:
+              - 'sdk/caliber-cli/**'
+            compose:
+              - 'deploy/**'
+              - '.env.example'
+              - 'deploy/.env.example'
+            ci:
+              - '.github/workflows/**'
+              - '.github/scripts/**'
+              - 'scripts/ci-local.sh'
+
   lint:
     name: Lint & format
     runs-on: ubuntu-latest
@@ -89,6 +149,8 @@ jobs:
   sdk:
     name: SDK (caliber-sdk)
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ needs.changes.outputs.sdk == 'true' || needs.changes.outputs.ci == 'true' }}
     # Overrides the repo-wide ``caliber`` default: caliber-sdk is a separate
     # distribution at the repository root, with its own ruff, mypy, and pytest
     # configuration. Inheriting the server's would be the accident this layout
@@ -142,6 +204,8 @@ jobs:
   plugin-sdk:
     name: Plugin SDK (caliber-plugin-sdk)
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ needs.changes.outputs.plugin_sdk == 'true' || needs.changes.outputs.ci == 'true' }}
     defaults:
       run:
         working-directory: sdk/caliber-plugin-sdk
@@ -191,6 +255,8 @@ jobs:
   cli:
     name: CLI (caliberctl)
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: ${{ needs.changes.outputs.cli == 'true' || needs.changes.outputs.ci == 'true' }}
     defaults:
       run:
         working-directory: sdk/caliber-cli
@@ -253,12 +319,50 @@ jobs:
       - name: mypy
         run: mypy src
 
+  test-smoke:
+    name: Backend smoke
+    runs-on: ubuntu-latest
+    needs: [lint, type-check]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install package + dev extras
+        run: uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
+      - name: Install the client and plugin SDKs
+        working-directory: .
+        run: |
+          uv pip install --system -e sdk/caliber-sdk
+          uv pip install --system -e sdk/caliber-plugin-sdk
+      - name: Run backend smoke tests
+        run: >-
+          pytest
+          tests/test_contract_smoke.py
+          tests/test_route_deps.py
+          tests/test_config.py
+          tests/test_migrations.py
+          tests/test_auth_sessions.py
+          --no-cov
+          -q
+
   test:
-    name: Test (Python 3.11)
+    name: Full backend suite (Python 3.11)
     runs-on: ubuntu-latest
     # Single canonical version: running the full ~15-min suite once (not across a
     # 3-version matrix) is the biggest wall-clock win. This leg carries coverage
     # and emits Allure results.
+    needs: [changes, test-smoke]
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        (needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true')
+      }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v9.0.0
@@ -331,6 +435,13 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.12"]
+    needs: [changes, test-smoke]
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        (needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true')
+      }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v9.0.0
@@ -357,7 +468,13 @@ jobs:
     # Integration tests stand the real MLflow integrations up against a
     # SQLite-backed tracking store — slower and not parallel-safe, so they run
     # sequentially (no -n) after the fast gates pass.
-    needs: [lint, type-check]
+    needs: [changes, test-smoke]
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        (needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true')
+      }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v9.0.0
@@ -472,6 +589,12 @@ jobs:
           docs-site
           caliber/caliber-ui/public/docs
           caliber/src/caliber/ui/docs
+      - name: Assert packaged docs copies include the shared bundle
+        working-directory: ${{ github.workspace }}
+        run: |
+          test -f caliber/src/caliber/ui/docs/docs.js
+          test -f caliber/src/caliber/ui/docs/docs.css
+          test -f caliber/src/caliber/ui/docs/index.html
       - name: Run docs contract tests
         working-directory: ${{ github.workspace }}
         run: >-
@@ -498,6 +621,16 @@ jobs:
   cookbook-ui-only:
     name: Cookbook UI-only browser journeys
     runs-on: ubuntu-latest
+    needs: [changes, ui]
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main' &&
+        (needs.changes.outputs.backend == 'true' ||
+         needs.changes.outputs.ui == 'true' ||
+         needs.changes.outputs.docs == 'true' ||
+         needs.changes.outputs.ci == 'true')
+      }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v9.0.0
@@ -541,7 +674,7 @@ jobs:
     needs: [test, integration, ui, cookbook-ui-only]
     # Render even when suites fail — surfacing failures is the whole point of
     # the report. Only skip if the run was cancelled.
-    if: ${{ !cancelled() }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && always() && !cancelled() }}
     # gh-pages publish pushes a branch with the default GITHUB_TOKEN.
     permissions:
       contents: write
@@ -657,19 +790,10 @@ jobs:
   package:
     name: Wheel build (with bundled SPA)
     runs-on: ubuntu-latest
-    # Only ``ui``, and deliberately. This job asserts the wheel contains a bundled
-    # SPA — a correct check that had never once executed, because it sat behind
-    # six unrelated jobs and any one of them failing skipped it. Twelve
-    # consecutive runs counted it as coverage while it produced no evidence, and
-    # the first time it ran it failed: the wheel target had a comment claiming it
-    # included the SPA and no ``artifacts`` key to do it.
-    #
-    # Sequencing a release gate behind the test suite buys nothing — a wheel with
-    # no SPA is broken whether or not the tests pass, and that is exactly when you
-    # most want to know. ``ui`` stays because this job consumes its dist artifact,
-    # and even that is soft: the download is ``continue-on-error`` with a rebuild
-    # fallback below.
-    needs: [ui]
+    # Deliberately independent. This job asserts the wheel contains a bundled
+    # SPA — a release gate that must still speak when tests or artifact uploads
+    # elsewhere fail. It opportunistically reuses the UI dist artifact, but that
+    # hand-off is already soft: a missing artifact triggers a local rebuild.
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v9.0.0
@@ -816,20 +940,15 @@ jobs:
     name: Gate execution ledger
     runs-on: ubuntu-latest
     # ``always()`` because the whole point is to speak up on the runs where
-    # something did not happen. Depends on every gate so it observes their final
-    # conclusions rather than a snapshot mid-run.
+    # a required fast gate did not happen. It waits only on those required
+    # gates; extended jobs are deliberately advisory rather than release-blocking.
     if: ${{ always() }}
     needs:
       - lint
       - type-check
-      - sdk
-      - plugin-sdk
-      - cli
-      - test
-      - compatibility
-      - integration
+      - test-smoke
+      - docs-validation
       - ui
-      - cookbook-ui-only
       - compose
       - package
       - security

@@ -1,5 +1,8 @@
 \documentclass{article}
 
+\newif\ifcameraready
+\camerareadytrue    % named authors, no review line numbers
+
 \usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -8,7 +11,13 @@
 \usepackage{xspace}
 \usepackage[T1]{fontenc}
 \usepackage{hyperref}
-\usepackage{mlsys2026}
+% The style's [accepted] option is what actually de-anonymizes the title block;
+% our \ifcameraready toggle drives it so one switch controls both.
+\ifcameraready
+  \usepackage[accepted]{mlsys2026}
+\else
+  \usepackage{mlsys2026}
+\fi
 \renewcommand{\ttdefault}{lmtt}
 
 \input{macros}
@@ -16,23 +25,60 @@
 \newcommand{\todo}[1]{}
 \newcommand{\code}[1]{\texttt{#1}}
 
-\mlsystitlerunning{CALIBER: Governed AI-Agent Resources and Workflows}
+\mlsystitlerunning{CALIBER: Making a Governance Control Plane Check Its Own Claims}
 
 \begin{document}
 
 \twocolumn[
-\mlsystitle{CALIBER: Building a Governed Control Plane for AI-Agent Resources, Workflows, and Progressive Autonomy}
+\mlsystitle{CALIBER: Making a Governance Control Plane Check Its Own Claims}
 
+% MLSys industry track is double-blind: author *names* must be withheld at
+% submission, though company names, product names, and URLs may appear in the
+% content. Keep \camerareadyfalse for submission; flip it for the camera-ready.
+\ifcameraready
+\begin{mlsysauthorlist}
+\mlsysauthor{Reza Rahimi}{jazzx}
+\end{mlsysauthorlist}
+\mlsysaffiliation{jazzx}{JazzX AI}
+\mlsyscorrespondingauthor{Reza Rahimi}{reza.rahimi@jazzx.ai}
+\else
 \begin{mlsysauthorlist}
 \mlsysauthor{Anonymous Author(s)}{anon}
 \end{mlsysauthorlist}
 \mlsysaffiliation{anon}{Anonymous Organization}
 \mlsyscorrespondingauthor{Anonymous Author}{anon.email@domain.com}
-\mlsyskeywords{AI agents, LLMOps, governance, control plane, MLflow, workflows}
+\fi
+\mlsyskeywords{AI agents, LLMOps, governance, control plane, release engineering, MLflow, executable invariants}
 
 \vskip 0.25in
 \begin{abstract}
-Production AI-agent systems rarely fail because a prompt alone regressed; they fail across prompts, workflows, tools, MCP servers, and retrieval corpora whose release processes are usually fragmented. We present \sys, a layered control plane that governs those heterogeneous resources through typed records, evidence-aware release workflows, explicit per-family guarantees, and one shared operational surface spanning the browser UI, a served management API, a remote Python SDK and CLI, and a server-side plugin contract. The current implementation reuses \mlflow{} as substrate rather than rebuilding observability and prompt-registry primitives, and packages a single-origin enterprise surface with workflow publication, review queues, gateway controls, release signoff, and a permissioned copilot loop. We report the design decisions and operational lessons from building the system, including where the architecture deliberately stops: guarantees remain family-specific, assistant autonomy is scoped, and distributed atomicity across external systems is replaced by durable intent and reconciliation. Large-scale latency and operator-study results remain future work; the evidence in this paper is executable structural and implementation evidence, not a performance claim.
+Agentic systems fail across prompts, workflows, tools, MCP servers, and retrieval
+corpora whose release paths are usually fragmented. We describe \sys, a layered
+control plane that governs those heterogeneous resources through typed records,
+evidence-bearing release paths, and one operational surface spanning a browser UI,
+a served management API, a Python SDK, a CLI, and a plugin contract.
+
+The engineering result we report is not the architecture alone. Building a system
+whose product is \emph{governance} exposed a failure mode we did not anticipate and
+now consider the central lesson: a platform's stated guarantees drift from its
+implementation silently, because the artifacts that state them---documentation,
+capability metadata, dashboards, and gates---keep rendering correctly while
+becoming false. Over the development of \sys we recorded 22 audited findings and a
+recurring class of defect in which a control's description outran its behavior. A
+packaging gate asserting the shipped wheel contained a UI passed for twelve
+consecutive CI runs \emph{by never executing}. A published-site gate reported
+success while the site returned 404. Two client test suites were counted as
+coverage while silently skipping. We responded by encoding platform claims as
+executable invariants---18 contract and ratchet suites that fail when a claim and
+its implementation disagree---and we report what they caught, including cases they
+caught in our own corrective work.
+
+We state the evidence boundary once and plainly: \sys is open source, has been
+used at JazzX AI to build internal products with work under way to extend that
+usage, and is continuously exercised by 6{,}156 backend tests across 17 CI
+jobs---but it does not yet carry external production load, and we present no
+scale study. The contributions are the architecture, the invariant-checking
+methodology, and a measured taxonomy of how governance claims decay.
 \end{abstract}
 ]
 
@@ -40,55 +86,99 @@ Production AI-agent systems rarely fail because a prompt alone regressed; they f
 
 \section{Introduction}
 
-Enterprise teams now operate agentic systems whose behavior depends on far more than a
-single prompt. A production incident may be caused by a prompt, a workflow branch,
-an MCP server policy, a tool implementation, a retrieval corpus refresh, or an
-evaluation asset that silently drifted. Existing platforms partially solve this for
-prompts by adding versions, mutable aliases, and rollback, but the broader release
-surface of an AI-agent application remains fragmented across dashboards, source
-files, and operational runbooks~\cite{mlflowpromptregistry,langsmithprompts,langfuseprompts}.
+Enterprise teams now operate agentic systems whose behavior depends on far more
+than a single prompt. A production incident may originate in a prompt, a workflow
+branch, an MCP server policy, a tool implementation, a retrieval corpus refresh, or
+an evaluation asset that drifted. Existing platforms solve part of this for prompts
+through versions, mutable aliases, and rollback, but the broader release surface of
+an agentic application remains spread across dashboards, source files, and
+runbooks~\cite{mlflowpromptregistry,langsmithprompts,langfuseprompts}.
 
-\sys addresses that operational gap as a control plane rather than as a new
-composition framework. Agents and workflows may be authored elsewhere; \sys governs
-the resources they depend on and the release path that changes them. The design
-centers on three practical requirements:
-\begin{enumerate}[leftmargin=1.1em]
-\item one governable record shape for heterogeneous AI-agent resources;
-\item evidence and evaluation that can block advancement rather than merely annotate it; and
-\item an operational surface that remains usable by browser operators, automation,
-SDK consumers, and extension authors without forcing each group onto a different
-private interface.
-\end{enumerate}
+\sys addresses that gap as a control plane rather than as another composition
+framework. Agents and workflows may be authored elsewhere; \sys governs the
+resources they depend on and the path by which those resources change.
 
-This paper is an MLSys Industry Track adaptation of the full CALIBER technical
-manuscript. The focus here is the industrial system problem, the implemented
-architecture, the engineering tradeoffs, and the operational lessons. Our
-contributions are:
+Building it surfaced a second problem that we believe generalizes beyond our
+system, and which forms the empirical core of this paper. When the product
+\emph{is} governance, the platform's own claims become load-bearing artifacts: a
+capability flag that says a family supports rollback, a gate that says publication
+was verified, a document that says an endpoint accepts a field. Those artifacts
+share an unpleasant property. They fail \emph{legibly}---the page still renders,
+the badge still shows green, the gate still reports success---so ordinary review
+does not catch them, and the failure is discovered by the operator who trusted
+them.
+
+We found this class repeatedly and, eventually, systematically. Our response was to
+stop treating platform claims as prose and start treating them as assertions with
+executable counterparts. This paper reports the architecture, that methodology, and
+what it caught.
+
+\paragraph{Contributions.}
 \begin{itemize}[leftmargin=1.1em]
-\item a layered control-plane architecture for governed AI-agent resources and workflows;
-\item a practical account of per-family guarantees rather than a false universal release contract;
-\item a shared operational surface spanning UI, API, SDK, CLI, and plugin seams; and
-\item implementation and structural evidence from a live, repository-grounded system.
+\item A layered control-plane architecture for governed AI-agent resources in which
+adjacency confers \emph{capability availability}, not \emph{capability
+inheritance}, and per-family release semantics are published rather than implied
+(\S\ref{sec:arch}).
+\item An intent-first release path that replaces unattainable cross-system
+atomicity with durable intent plus explicit reconciliation (\S\ref{sec:intent}).
+\item A methodology for making a governance platform's claims checkable, realized
+as 18 contract and ratchet suites over the running system, its generated artifacts,
+and its own CI configuration (\S\ref{sec:invariants}).
+\item A measured taxonomy of governance-claim decay observed while building the
+system, including gates that pass by not running, generated artifacts that render
+correctly while being wrong, and dependency ranges that promise what no local run
+tests (\S\ref{sec:taxonomy}).
 \end{itemize}
+
+\paragraph{Scope and honesty about evidence.}
+We state this once, here, and do not repeat it as a hedge throughout. \sys is a
+substantial implemented system---\statPyFiles{} Python modules, a React SPA,
+\statRouteDecls{} route declarations across a served OpenAPI surface of 290 paths
+and 359 operations, \statMigrations{} database migrations, and three separately
+published packages---under continuous integration with 6{,}156 backend tests at
+93.2\% statement coverage, 1{,}583 frontend tests, and 18 contract and ratchet
+suites, across 17 CI jobs. It is \emph{not} a system with published
+production-scale operating data: we report no latency distribution under production
+load, no multi-tenant availability record, and no operator productivity study. Our
+own readiness assessment rates production readiness low and unchanged across four
+internal review cycles, because the operational blockers---externalized loop
+ownership, replica safety, and disaster-recovery numbers---are category gaps rather
+than quality gaps. Readers seeking a scale study will not find one here.
+
+What the system does have is real internal use, a roadmap, and public
+availability. \sys is released as open source under Apache-2.0 and has been used at
+JazzX AI to build internal products---authoring and governing the agentic workflows
+those products depend on---rather than to serve external production traffic. Work is
+under way to extend that usage to further internal systems.
+
+We are explicit about which kind of industrial paper this makes. It is a
+retrospective on a built and internally used system, and a report on a platform on a
+product roadmap; it is not a retrospective on a system carrying external production
+load, and we do not present it as one. The distinction matters for how the evidence
+should be read: the defects reported in \S\ref{sec:taxonomy} were found by people
+trying to build products with the platform, not by an evaluation designed to find
+them---which is what makes them worth reporting---but they are drawn from internal
+use rather than from a large operator population. Every measurement in this paper is
+reproducible from the public repository and its continuous-integration
+configuration.
 
 \section{Industrial Problem and Design Target}
 
-The core problem is not lack of observability. Production systems can already trace
-requests, store prompts, and attach evaluation results~\cite{mlflowgenai}. The
-missing piece is a \emph{governed release path} across the non-code resources that
-actually determine agent behavior. In practice, teams need to answer questions such
-as: Which workflow definition is live? Which knowledge-base build answered this
-incident? Which gate failed, and who overrode it? Can an operator roll back safely
-without redeploying the application?
+The core problem is not lack of observability. Systems can already trace requests,
+store prompts, and attach evaluation results~\cite{mlflowgenai}. The missing piece
+is a \emph{governed release path} across the non-code resources that actually
+determine agent behavior. Teams need to answer: Which workflow definition is live?
+Which knowledge-base build answered this incident? Which gate failed, and who
+overrode it? Can an operator roll back without redeploying the application?
 
-Those questions are harder than prompt versioning because the artifact families are
-genuinely heterogeneous. A prompt may have a live alias; a test set is evidence and
-has no live target; a judge is evaluated for agreement but is not itself released.
-That heterogeneity drove the most important design choice in \sys: the platform uses
-one shared governed-record abstraction, but the release, rollback, evaluation, and
-evidence semantics remain explicit per family.
+These questions are harder than prompt versioning because the artifact families are
+genuinely heterogeneous. A prompt has a live alias. A test set is evidence and has
+no live target at all. A judge is evaluated for agreement but is not itself
+released. A workflow can publish an external service and restore a checkpoint. That
+heterogeneity drove the most consequential design decision in \sys, described next.
 
-\section{System Overview}
+\section{Architecture}
+\label{sec:arch}
 
 \begin{figure*}[t]
   \centering
@@ -101,190 +191,644 @@ evidence semantics remain explicit per family.
 \end{figure*}
 
 \sys models each managed resource as a typed governed record with identity, version
-history, authority, and audit. Families currently span prompts, tools, skills, MCP
-servers, workflows, knowledge bases, test sets, judges, and agent anchors. Around
-that record shape, the platform organizes six lifecycle modes: author, test,
-evaluate, calibrate, release, and observe.
+history, authority, and audit. Families span prompts, tools, skills, MCP servers,
+workflows, knowledge bases, test sets, judges, and agent anchors. Around that record
+shape, the platform organizes six lifecycle modes: author, test, evaluate,
+calibrate, release, and observe.
 
-The runtime system is one Starlette-based ASGI application plus a React SPA served
-from the same origin. Operationally, this matters because the browser UI, the
-management API, and published workflow services share one deployment boundary, one
-authentication model, and one audit substrate rather than competing side channels.
-The current implementation exposes \statRouteDecls{} route declarations across
-\statRouteModules{} modules, and the route table is mirrored into a served OpenAPI
-document, a lightweight remote Python SDK, and a thin CLI.
+Around that record shape the platform organizes six lifecycle modes, and the
+separation matters operationally because each answers a different question and
+carries different authority. \emph{Author} produces a new immutable version and
+never moves a live target. \emph{Test} exercises a version in isolation and produces
+no evidence of record. \emph{Evaluate} scores a version against a governed test set
+and produces evidence that binds to the version. \emph{Calibrate} runs the
+improvement loop that proposes candidates from evidence. \emph{Release} moves a live
+target and is the only mode that writes a release intent. \emph{Observe} reads
+production behavior back. Conflating test with evaluate is the common failure in
+practice---it produces numbers that look like evidence but are not attached to
+anything releasable---so the modes are distinct in the API rather than in
+documentation.
 
-\section{Architecture and Design Decisions}
+The runtime is one Starlette ASGI application plus a React SPA served from the same
+origin. Operationally this matters because the browser UI, the management API, and
+published workflow services share one deployment boundary, one authentication
+model, and one audit substrate rather than competing side channels. The route table
+is mirrored into a served OpenAPI document (290 paths, 359 operations), which in
+turn backs a typed Python SDK and a CLI.
 
-\subsection{Layering and family-specific guarantees}
+\subsection{Availability is not inheritance}
 
-The architectural claim is deliberately narrow: adjacency in a layered architecture
+The architectural claim is deliberately narrow: adjacency in the layer diagram
 confers \emph{capability availability}, not \emph{capability inheritance}. A family
-placed in the governed-asset layer can use shared release, evidence, and audit
-primitives, but it gains those guarantees only if it explicitly wires them.
+placed in the governed-asset layer may use shared release, evidence, and audit
+primitives, but it acquires those guarantees only by explicitly wiring them.
 
-This is not rhetorical caution; it is the only honest contract across heterogeneous
-families. A prompt can rotate a live alias. A workflow can publish a service
-version or restore a checkpointed deployment target. A test set has no live target
-to rotate. Treating these as one uniform release theorem would either erase the
-differences or exclude useful families from the platform.
+This is not rhetorical caution. It is the only contract that stays true across
+heterogeneous families, and the alternative is actively dangerous. Four families in
+\sys report \code{rollbackable: true}, and the word means something different in
+each: alias restore for prompts, checkpoint-stack pop for workflow runs, derivation
+from activation history for knowledge bases, and writing a prior snapshot back as a
+\emph{new} version for skills. An operator who sees one shared version-history
+component rendered in four places and infers one rollback guarantee has been misled
+by the interface, not by the documentation. \sys therefore publishes the per-family
+guarantee surface as machine-readable capability metadata that the UI must render,
+rather than as prose that the UI may contradict.
 
-\noindent\textbf{The main engineering tradeoffs are practical, not ornamental.}
-We reused \mlflow{} because prompt-registry, tracing, and gateway primitives already
-exist, accepting the dual-write boundaries that remain between SQL state and
-external effects. We kept guarantees family-specific because heterogeneous assets do
-not share one meaningful release contract, accepting the burden of publishing the
-guarantee surface explicitly. We chose a single-origin control plane so the UI,
-API, workflow services, and docs share one auth and audit boundary, accepting that
-published-service traffic and operator traffic compete inside one process model. We
-split the remote SDK from the plugin SDK so automation and extension authors do not
-need the server runtime just to call a route or declare a plugin, accepting the
-cost of additional package surfaces. And we kept assistant autonomy scoped, because
-delegated draft review is useful operationally but is not evidence that open-ended
-autonomous release is safe.
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Governed family} & \textbf{Live target} & \textbf{Rollback mechanism} \\
+\midrule
+Prompt          & alias      & alias restore \\
+Workflow        & deployment & checkpoint-stack pop \\
+Knowledge base  & activation & derived from history \\
+Skill           & version    & snapshot as new version \\
+\addlinespace
+Tool, MCP server & registration & --- \\
+Test set, judge, anchor & none & --- \\
+\bottomrule
+\end{tabular}
+\caption{Nine governed families; four are rollbackable and no two mean the same
+thing by it. The capability record names the mechanism from a closed vocabulary, so
+a shared version-history component cannot imply a shared guarantee.}
+\label{tab:families}
+\end{table}
 
-\subsection{Intent-first release and reconciliation}
+\subsection{Capability metadata as a rendering obligation}
 
-The platform's strongest release guarantee today is on the prompt family. Every
-governed prompt promotion first writes a durable release intent that records the
-outgoing target, the incoming version, the acting principal, and the evidence
-reference. Only then does the system perform the external alias move. If the
-external system changes and the local settlement does not, reconciliation can
-inspect the durable intent and converge it. This is not distributed atomicity; it
-is explicit, observable compensation.
+Because the four rollback meanings above are genuinely different, \sys represents
+per-family guarantees as structured capability records rather than prose. Each
+family declares its history model, whether it has a live target, whether it is
+promotable, whether it is rollbackable, and---critically---\emph{which} rollback
+mechanism applies, drawn from a closed vocabulary. A contract test requires the
+record to be complete for every family and requires any family claiming
+rollbackability to name a mechanism, so the ambiguous claim cannot be expressed.
 
-\subsection{Broker-free execution model}
+The interface consumes that record instead of hardcoding assumptions. This is the
+concrete form of the paper's methodological argument: the difference between
+families is not documented, it is \emph{typed}, and a family added later cannot
+quietly inherit a guarantee it does not implement.
 
-Background work is drained by \statLoops{} in-process loops. Claim-and-lease loops
-use relational ownership rather than a dedicated broker. This keeps deployment
-lightweight and makes SQL the authoritative arbitration point, which suits an
-operator-facing control plane. The trade is explicit: queue capacity and request
-capacity share a process model, and per-process limiters remain per-process until
-lifted into a shared store.
+\subsection{Broker-free execution}
 
-\section{Interfaces and Extensibility}
+Background work is drained by \statLoops{} in-process loops using claim-and-lease
+ownership in the relational store rather than a dedicated broker. This keeps
+deployment lightweight and makes SQL the arbitration point, which suits an
+operator-facing control plane at moderate scale. The trade is explicit and is the
+system's principal scaling limitation: queue capacity and request capacity share one
+process model, and per-process limiters remain per-process until lifted into a
+shared store. Externalizing loop ownership is the gating prerequisite for
+multi-replica operation, and we have not built it.
 
-\subsection{One management surface, multiple consumers}
+\section{Intent-First Release and Reconciliation}
+\label{sec:intent}
 
-The management surface is deliberately shared. The browser uses the same
-governed-asset API shape the remote SDK consumes. The CLI sits on top of the SDK
-rather than on private admin calls. A machine-generated OpenAPI document exposes the
-current route table, which keeps typed clients and documentation aligned to the
-running surface rather than to hand-maintained wrappers.
+External registries and object stores do not join the caller's SQL transaction.
+Every governed prompt promotion therefore first writes a durable release intent
+recording the outgoing target, the incoming version, the acting principal, and the
+evidence reference; only then does it perform the external alias move. If the
+external system changes and local settlement does not, reconciliation inspects the
+durable intent and converges it.
 
-The current repository also separates extension and automation concerns into three
-peer packages:
-\begin{itemize}[leftmargin=1.1em]
-\item \code{caliber-sdk}: lightweight remote Python client for the management API;
-\item \code{caliber-plugin-sdk}: server-side extension contract kept free of heavy runtime dependencies;
-\item \code{caliber-cli} / \code{caliberctl}: non-interactive operator automation over the SDK.
-\end{itemize}
+This is not distributed atomicity. It is explicit, observable compensation in the
+saga tradition~\cite{garciamolina1987sagas}, applied to a release path rather than
+to a long-running business transaction, and it inherits that tradition's
+premise---that systems which cannot hold a lock across participants must instead
+make their intent durable and their compensation
+explicit~\cite{helland2007apostates,gray1981transaction}. The operationally valuable
+property is not an unattainable all-or-nothing guarantee but a durable record of
+intended change plus surfaces for reconciliation and abandonment. The same pattern
+recurs wherever the control plane must move state it does not own.
 
-That split matters in practice. A developer script should not need to install
-\mlflow{}, SQLAlchemy, and the server runtime merely to call a route. Conversely, a
-plugin contract should not silently depend on a live database or request context.
+What differs from the classical formulation is the audit obligation. A saga needs
+compensation to restore consistency; a governance control plane additionally needs
+the intent to survive as evidence, because the question asked afterward is not only
+``is the system consistent'' but ``who changed this, against what evidence, and
+under whose authority.'' The intent record is therefore written before the external
+call \emph{and} retained after it settles.
 
-\subsection{Operational capability surfaces}
+\subsection{A governed promotion, end to end}
 
-Several recent additions make the platform more than a prompt or workflow registry.
-The LLM Gateway is exposed as a governed surface for endpoint discovery, guardrail
-attachment, pricing, and trace-derived usage. Release signoff adds typed candidates,
-weighted criteria, waivers, immutable go/no-go decisions, and durable report jobs
-that bind Allure-compatible evidence to a candidate snapshot. The workflow catalog
-ships sixteen installable cookbook examples that create paused drafts rather than
-live deployments, which turns system exemplars into governed artifacts rather than
-documentation alone.
+To make the abstractions concrete, we trace one prompt promotion---the family with
+the strongest guarantee in the system---from authoring to rollback.
 
-\section{Deployment and Current Evidence}
+An author edits a prompt and registers a new immutable version; the live alias does
+not move. Evaluation runs against a versioned test set using a judge whose
+agreement with human labels has itself been scored, and the resulting scorecard is
+attached to the version as evidence rather than to a dashboard. Promotion is then
+requested. The release gate reads the attached evidence and either blocks or admits
+the change; a block is a state, not an error page, and it names the criterion that
+failed.
 
-\begin{figure}[t]
+If the promotion is admitted, the system writes the durable release intent
+(\S\ref{sec:intent}) before touching the external registry: outgoing target,
+incoming version, acting principal, evidence reference. Only then does the alias
+move. The audit record is written from the intent, so the record of who promoted
+what against which evidence exists even if the external call fails afterward---and
+if it does fail, reconciliation has the intent it needs to converge or abandon
+explicitly.
+
+Rollback restores the prior alias target. That is the prompt family's mechanism,
+and the capability record names it as such---so the interface showing rollback for
+a workflow beside rollback for a prompt is obliged to show that one pops a
+checkpoint stack while the other restores an alias.
+
+Two properties of this path are worth naming because they were design decisions
+rather than conveniences. The evidence is bound to the version, not to a run, so a
+later reader can ask what justified a promotion without reconstructing a dashboard's
+state at that time. And the human decision is a state in the workflow rather than a
+side effect of a script continuing, which is what makes the audit record a decision
+record rather than a log line.
+
+\section{One Surface, Several Consumers}
+
+The management surface is shared by construction. The browser consumes the same
+governed-asset API shape the SDK does; the CLI sits on the SDK rather than on
+private admin calls; the OpenAPI document is generated from the live route table
+rather than hand-maintained, so a route that does not exist cannot be documented.
+
+Three peer packages separate concerns that are genuinely different:
+\code{caliber-sdk} (a typed remote client, two runtime dependencies),
+\code{caliber-plugin-sdk} (a server-side extension contract with \emph{zero}
+runtime dependencies), and \code{caliberctl} (non-interactive operator automation
+over the SDK). A developer script should not install MLflow, SQLAlchemy, and the
+server runtime merely to call a route; conversely a plugin contract should not
+depend on a live database or request context. Both properties are asserted against
+the built wheels in CI rather than trusted to review.
+
+\subsection{Extension as a supply-chain boundary}
+
+An optimizer plugin authors the artifact the platform promotes to production, which
+makes third-party registration a supply-chain surface rather than a convenience.
+Python entry points are a discovery mechanism, not an authorization one: any
+installed distribution, including one pulled in transitively, can advertise itself.
+\sys therefore discovers plugins automatically and enables none of them
+automatically---a plugin loads only when the deployment names its \emph{distribution}
+in an allowlist, and an unlisted plugin is reported as installed and inert rather
+than hidden, so an operator can see what a wheel added.
+
+This mirrors the direction of software supply-chain
+frameworks~\cite{torresarias2019intoto,slsa}: provenance is established by the
+consumer's policy rather than asserted by the artifact. The plugin's own claim
+about itself is never trusted---the registry records the distribution that
+metadata says shipped it, and marks every third-party optimizer experimental
+regardless of what the plugin declares.
+
+A plugin also may not claim a name the platform ships. That reads as a naming
+convention and is not one: if a plugin could register the name of a built-in
+optimizer, installing a wheel would silently change what that name does for every
+agent already configured to use it---same name in every config, same name in every
+audit record, a different author's code producing the artifacts, and nothing in any
+diff.
+
+\section{Evidence, Judges, and Gates}
+
+A release gate is only as trustworthy as the evidence it reads, which makes the
+evaluation subsystem part of the governance story rather than an adjacent feature.
+
+\sys treats evaluation assets as governed records in their own right. A test set is
+versioned and is evidence with no live target. A judge is a model-backed grader that
+is itself evaluated: the platform scores judge--human agreement on a labeled subset
+and reports it with chance-corrected statistics~\cite{cohen1960kappa,fleiss1971kappa},
+because a judge whose agreement is unmeasured turns a quality gate into an unverified
+opinion~\cite{zheng2023judging,liu2023geval}. Retrieval corpora carry their own
+evaluation path~\cite{es2024ragas}.
+
+Two consequences shaped the design. First, evidence binds to the artifact version
+rather than to a dashboard state, so the justification for a past promotion is
+reconstructible without replaying a UI. Second, a gate verdict is a stored record
+with a criterion, a threshold, and an outcome---not a computed boolean---so a waiver
+is representable as a decision someone owns rather than as a threshold quietly
+lowered. Waivers are admin-only and audited, and signoff requires a rationale as a
+required field, since a signoff without a stated reason is not evidence that anyone
+decided anything.
+
+The calibration loop closes this: refinement proposes a candidate, evaluation scores
+it against the versioned test set, and the gate admits or blocks. The human decision
+between candidate and promotion is a state in that loop rather than an implicit
+consequence of a script continuing.
+
+\section{Authorization and Fail-Closed Defaults}
+
+Three defaults in \sys are worth reporting because each was originally the
+convenient choice and each was changed after review.
+
+\paragraph{Token scopes are a ceiling, not a grant.} Automation credentials carry
+scopes that are intersected at every request with the owner's \emph{current} scopes.
+Revoking a person's permission therefore shrinks their tokens' authority
+immediately, without enumerating tokens. The alternative---copying scopes at
+issuance---leaves a revoked administrator holding a still-administrative token, and
+that failure is invisible from the token list.
+
+\paragraph{An unconfigured secret store refuses to serve.} It returns an error
+naming the missing key source rather than degrading to unencrypted storage. The
+degradation path is the dangerous one precisely because it keeps working.
+
+\paragraph{Host-path and tool-isolation defaults are closed.} Both were originally
+open with documentation advising operators to close them. Documentation is not a
+control: the review that changed them noted that a single-layer defence at a policy
+boundary is exactly the pattern the review existed to find.
+
+These are unremarkable individually. We report them because the pattern connecting
+them is the paper's thesis in a different register---each was a case where the
+system's stated posture and its default behavior had diverged, and the divergence
+was closed only when someone re-derived the mechanism rather than reading the
+description.
+
+\section{Deployment Topologies}
+
+% Rendered across both columns at close to its native width (356pt): at
+% \columnwidth the diagram is shrunk to ~0.67x and its labels fall below 6pt.
+\begin{figure*}[t]
   \centering
-  \includegraphics[width=\columnwidth]{figures/fig-topologies.pdf}
+  \includegraphics[width=0.76\textwidth]{figures/fig-topologies.pdf}
   \caption{Two supported topologies: a loopback-oriented bundled stack for
-  development and an externalized deployment using managed infrastructure. The
-  functional surface is the same in both cases.}
+  development, and an externalized deployment using managed infrastructure. The
+  application surface is identical in both; only what sits beneath it changes.}
   \label{fig:topologies}
-\end{figure}
+\end{figure*}
 
-The current implementation spans \statPyFiles{} Python modules (\statPyLoc{} lines),
-\statUiFiles{} TypeScript modules (\statUiLoc{} lines), \statMigrations{} database
-migrations, \statNodeTypes{} workflow node types, and \statAriaTools{}
-hand-written assistant tools plus \statAriaProjected{} registry-projected
-capabilities. The development topology bundles PostgreSQL with pgvector and Apache
-AGE, object storage, \mlflow{}, gateway support, and optional event backends. The
-externalized topology preserves the same application surface while swapping the
-infrastructure under it.
+\sys runs in two topologies that differ in infrastructure ownership rather than in
+application surface. The bundled topology packages PostgreSQL with pgvector and
+Apache AGE, object storage, MLflow, gateway support, and optional event backends
+behind loopback-only published ports, which makes a complete governed environment
+reproducible on one machine. The externalized topology swaps each of those for
+managed equivalents while preserving the same routes, the same authentication
+model, and the same audit substrate.
 
-The executable evidence today is structural and implementation evidence, not a
-throughput claim. Concretely:
+Keeping the surface identical across both is what makes the bundled topology
+useful as more than a demo: the same contract suites run against both, so a
+behavior verified locally is a statement about the deployed system rather than
+about a simplified stand-in. The deployment contract itself is asserted---published
+ports must be loopback-only, and the container must retain its documented runtime
+hardening---because a topology diagram is a claim like any other.
+
+\section{Making Claims Checkable}
+\label{sec:invariants}
+
+The methodology this paper argues for is simple to state and was learned the hard
+way: in a governance platform, every claim the system makes about itself should
+have an executable counterpart that fails when the claim and the implementation
+disagree.
+
+We realize this as 18 contract and ratchet suites. They differ from ordinary unit
+tests in what they take as the subject. A unit test asserts that a function
+computes; these assert that a \emph{property of the system as a whole} still holds.
+Representative examples:
+
 \begin{itemize}[leftmargin=1.1em]
-\item deterministic fakes sit behind provider seams, so the control plane is testable without paid providers;
-\item deterministic structural checks verify queue ownership, release intent ordering, reconciliation, resolver fallback, and publication gating;
-\item browser, backend, docs, packaging, and cookbook journeys are all part of the CI contract; and
-\item generated counts, diagrams, and documentation are derived from the repository rather than manually transcribed.
+\item \textbf{Capability contract.} Every artifact family must declare the complete
+capability record, and families reporting \code{rollbackable} must name a rollback
+\emph{mechanism} from a closed vocabulary---so ``rollback'' cannot be asserted
+without saying which of the four distinct meanings applies.
+\item \textbf{Async-offload ratchet.} A counted bound on synchronous database calls
+inside async handlers, which may decrease but never increase.
+\item \textbf{Schema-coverage ratchet.} A bound on GA responses lacking a formal
+schema, moved from 52 to 8 with the count asserted exactly, so slack cannot
+silently reappear.
+\item \textbf{CI-local parity.} The local reproduction script must define a job for
+every CI job, so ``it passes locally'' remains a meaningful sentence.
+\item \textbf{Docs bijection.} Every published page must correspond to a source, and
+every source to a page.
+\item \textbf{Gate-execution ledger.} Each CI run emits which gates actually
+executed, because a gate that never runs is indistinguishable from a gate that
+passes.
+\item \textbf{Dependency contract.} A declared version range must not admit a major
+version the code has not been ported to.
 \end{itemize}
 
-This evidence boundary is deliberate. We do \emph{not} claim that current results
-establish latency, throughput, large-scale availability, or operator productivity.
-Those remain measurement obligations.
+The ratchet form matters. A test that asserts an exact count rather than a bound
+with slack converts silent regression into a build failure, and---equally
+important---makes improvement visible as a deliberate edit. The schema-coverage
+baseline is accompanied by a test asserting the baseline is not slack, which caught
+our own off-by-one when the initial figure was transcribed from a grep that had
+counted an import line.
 
-\section{Lessons Learned}
+\section{What the Invariants Caught}
+\label{sec:taxonomy}
 
-\paragraph{The real problem is cross-family release semantics.}
-Prompt lifecycle management is no longer novel by itself. The harder engineering
-problem is extending governed release discipline to workflows, tools, MCP servers,
-knowledge versions, and review assets without pretending they all behave like
-prompts.
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.94\textwidth]{figures/fig-taxonomy.pdf}
+  \caption{Every instance on the left was found by a person, after the fact. Every
+  item on the right now fails in a build. Counts are instances recorded during
+  development of \sys; the gate-execution class is dominated by a single gate that
+  was skipped on twelve consecutive runs.}
+  \label{fig:taxonomy}
+\end{figure*}
+
+We group the recurring failures into four classes. All are drawn from the
+development record of this system; each is a case where ordinary review passed and
+an executable check did not.
+
+\subsection{Class 1: gates that pass by not running}
+
+The most instructive single defect was not a bug in the product. A packaging gate
+asserting that the shipped wheel contained the built SPA was correct, had existed
+from the beginning, and had been skipped on twelve consecutive CI runs because it
+sat behind six other jobs that were failing earlier. It executed for the first time
+only when a branch made every prerequisite pass---and failed immediately. The wheel
+had been shipping without a UI.
+
+The generalizable form: \emph{a gate that never executes is indistinguishable from a
+gate that passes}, and release checklists count both as coverage. A second instance
+followed a different route to the same place: a published-site gate reported
+success while the site served 404s, because it read the deployment workflow's exit
+code rather than the site. A third: two client test suites---the only ones driving
+the SDK and the plugin contract against the real application---were being cited as
+coverage while silently skipping in CI, because the job did not install the
+packages they import.
+
+Our response was the gate-execution ledger: every run emits which gates ran, so
+absence becomes visible rather than inferred.
+
+\subsection{Class 2: artifacts that render correctly while being false}
+
+Generated artifacts fail with unusual quietness because their output looks
+plausible. Our published API reference, generated from source, shipped six defects
+of this kind simultaneously, each of which rendered perfectly:
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Defect in generated API reference} & \textbf{Count} \\
+\midrule
+Cross-links emitted as literal text & 82 \\
+Signatures naming an internal alias as a type & 48 \\
+Request methods documenting no exceptions & 19 \\
+Anchors pointing at nonexistent targets & 3 \\
+Classes omitted from the reference entirely & 3 \\
+A documented error envelope the server never sends & 1 \\
+\bottomrule
+\end{tabular}
+\caption{Defects found in one generated documentation artifact. Every one rendered
+correctly in a browser; none was visible in the generator source.}
+\label{tab:docdefects}
+\end{table}
+
+Two are worth expanding. The cross-links were emitted inside code spans, and
+Markdown does not process links inside code spans---so 82 return types published
+their own link syntax as visible characters. The false error envelope documented
+fields the server has never sent; a reader following the reference exactly would
+have written code against a key that does not exist. A wrong example is worse than
+no example.
+
+The methodological lesson is narrower and sharper than ``test your docs.'' For
+generated artifacts, \emph{the source is not the subject}. Every one of these
+defects is correct-looking generator code emitting wrong output, so the checks we
+added assert against generator \emph{output}---including a sweep verifying that no
+published page links to an anchor it does not define.
+
+A visual instance of the same class: a single CSS declaration
+(\code{overflow-wrap: anywhere} on table cells) reduced the min-content width used
+by automatic table layout, licensing the browser to shrink a column below its
+longest word. A six-column reference table whose true minimum width was 1034\,px
+rendered at 778\,px, and one label rendered in a 32\,px column, 43 lines tall.
+The stylesheet was valid, the page rendered, and 2{,}997 measured occurrences were
+invisible to source review.
+
+\subsection{Class 3: promises about environments no local run tests}
+
+A declared dependency range is a promise about what a \emph{clean} install may
+resolve, and no developer machine tests it---installed environments hold whatever
+they resolved months ago. We hit this four times. Most recently a range of
+\code{>=1.27,<3} admitted a 2.0 release on the day it shipped: CI installed it and
+reported five type errors, while every developer environment held the prior version
+and reported clean. The upper bound looked conservative and protected nothing.
+
+The same asymmetry appears without dependencies. A test asserting a package's
+supported Python floor imported a module that is standard-library only \emph{above}
+that floor, so the assertion about the floor could not run on it. And a
+documentation test read a build artifact that is git-ignored, so it could never pass
+on a clean checkout---while a sibling test globbed the same missing directory and,
+because globbing a missing path yields nothing rather than raising, silently
+asserted against zero files while appearing to cover three copies.
+
+\subsection{Class 4: interface descriptions that outrun the interface}
+
+Client code written against a plausible reading of an API is confidently wrong in
+ways only the real server reveals. Driving our SDK against the running application
+in CI---rather than against mocks---found a listing endpoint that is POST-only (405),
+a resource surface that is workflow-scoped rather than global (404), a method naming
+a route that does not exist, a response schema silently dropping a field during
+serialization, and a schema that \emph{invented} a null secret field on every row of
+a token listing. Mocked tests reproduced none of them, because mocks encode the same
+misreading as the client.
+
+The cross-package instance is the sharpest. Our plugin SDK and our server
+deliberately do not import each other, which is the property that keeps plugins
+lightweight---and precisely the seam at which they diverged: the server's loader
+required its own internal type, so a plugin written against the plugin SDK's
+documented contract was rejected outright. Independence is a design goal and a
+drift risk simultaneously, and only a test that crosses the boundary observes both.
+
+\subsection{Closing the loop}
+
+Figure~\ref{fig:taxonomy} pairs each class with the invariant that now catches it.
+We include it not to claim completeness---these checks bound known classes, and the
+next class will be discovered the way the others were---but because the pairing is
+the argument. Everything on the left was found by a person, late. Everything on the
+right fails in a build, before a human would look.
+
+\subsection{Audit findings and re-derivation}
+
+Separately, an external correctness and security review produced 22 findings, which
+we re-derived from source rather than accepting. Nineteen were confirmed, six
+partly, and one refuted. The result we consider transferable is not the ratio but
+this: the severity assessments were largely sound while the stated \emph{mechanisms}
+were wrong often enough that acting on the ticket text without re-derivation would
+have produced the wrong fix in at least three cases. An audit finding is a
+hypothesis about a system, not an observation of it.
+
+\section{Lessons}
+
+\paragraph{Cross-family release semantics are the real problem.}
+Prompt lifecycle management is no longer novel by itself. The engineering problem is
+extending governed release discipline to workflows, tools, MCP servers, knowledge
+versions, and review assets \emph{without} pretending they behave like prompts.
 
 \paragraph{Shared UI is not shared semantics.}
-The most likely operator mistake is to see one version-history component rendered in
-several places and infer one rollback guarantee. In practice, rollback means alias
-restore for prompts, checkpoint restoration for workflows, activation-history
-derivation for knowledge bases, and ``not supported'' for some families. The system
-must publish that difference explicitly.
+The most likely operator error in our system is inferring one rollback guarantee
+from one rendered component appearing in four places. A platform that reuses
+interface elements across families must publish the differences in a form the
+interface is obliged to render.
 
-\paragraph{A durable intent is often the practical alternative to atomicity.}
-External registries and object stores do not join the caller's SQL transaction. The
-operationally useful property is therefore not impossible atomicity but a durable
-record of intended change plus explicit reconciliation and abandonment surfaces.
+\paragraph{Durable intent beats unattainable atomicity.}
+When the control plane moves state it does not own, the useful guarantee is a
+durable record of intended change plus explicit reconciliation---not a transaction
+that cannot exist.
 
-\paragraph{SDK boundaries are architecture, not packaging polish.}
-Separating the remote SDK from the plugin SDK forced clearer contracts. The same
-decision that keeps developer automation lightweight also prevents server-only
-assumptions from leaking into third-party extension points.
+\paragraph{Work that stops for a person is neither running nor finished.}
+A governed system pauses for human decisions, and modeling that as a transient state
+is a category error with operational consequences. A refinement job that produced a
+candidate has stopped and will never advance on its own. Treating it as running
+makes a client wait out its timeout; treating it as failed reports a broken pipeline
+for a system working correctly. We model it as a first-class state, and our CLI
+gives it a distinct exit code, because pipelines must branch on it.
 
-\section{Limitations and Future Work}
+\paragraph{Discovery is not authorization.}
+For any extension point whose code gains authority over production artifacts, the
+safe default is that installation makes a plugin visible and an explicit deployment
+decision makes it active.
 
-Three limitations are central.
+\paragraph{A per-file test run is a weaker question than the full run.}
+Changing a \emph{default} is never local to the code that reads it: every test that
+never mentioned the setting was relying on it. We recorded this three times, once
+after a focused slice reported green and the full suite reported 66 failures in
+files whose names suggested neither subject.
 
-First, the main quantitative evaluation remains unrun. This paper reports a built
-system and executable structural evidence, not a completed scale or latency study.
+\paragraph{Encode the invariant when you fix the instance.}
+Every failure class above recurred before it was pinned. The marginal cost of adding
+the executable check while the cause is understood is far below the cost of
+rediscovering it, and the check preserves the reasoning---which prose in a commit
+message does not.
 
-Second, guarantees remain per family. The platform publishes a checked capability
-surface, but it does not yet mechanically prove that every declared capability is
-implemented by every handler that claims it.
+\subsection{What we would do differently}
 
-Third, progressive autonomy is scoped. Assistant-driven draft review and delegated
-publication exist, but they are not evidence that open-ended autonomous operations
-are production-safe. The enforced human decision in the refinement path remains a
-deliberate design boundary.
+Three pieces of guidance are transferable to teams building platforms whose product
+is an assurance rather than a computation.
 
-The next highest-value engineering steps are straightforward to state even if not
-small to implement: execute the evaluation protocol; add multi-environment
-promotion; complete capability-to-handler enforcement; and introduce a true
-OS-enforced isolation backend for untrusted tool execution.
+\emph{Write the invariant before the documentation.} Most of our claim-decay
+defects entered when a document or capability flag was authored ahead of, or
+alongside, the mechanism it described. The document then became the specification
+nobody executed. Inverting the order costs little at the time and removes the class.
+
+\emph{Make gate execution a first-class signal.} We spent twelve CI runs believing a
+packaging gate protected us. Any release process with conditional or dependent gates
+should emit which gates ran, not only which passed; ``did not run'' and ``passed''
+must not be the same colour on a dashboard.
+
+\emph{Verify against the running system at the boundary you claim to support.} Our
+mocked client tests encoded the same misreading as the client and reproduced none of
+the six interface defects that driving against the real application found. For any
+published interface, at least one suite should cross the real boundary---and it must
+be installed in CI, because a suite that skips is counted as coverage while
+providing none.
+
+We would also start the operational work earlier. Our readiness assessment moved on
+security and release engineering across four review cycles and did not move at all
+on production readiness, because every cycle improved what existed rather than
+building the externalized loop ownership that multi-replica operation requires. That
+is a defensible sequencing choice for a system seeking design confidence first, but
+it should be made deliberately rather than discovered in a table that refuses to
+move.
+
+\section{Related Work}
+
+\paragraph{Prompt and asset registries.} Prompt registries provide versions,
+mutable aliases, and rollback for a single
+family~\cite{mlflowpromptregistry,langsmithprompts,langfuseprompts}, and tracing and
+evaluation stacks supply observability and
+scoring~\cite{mlflowgenai,phoenix,promptfoo,openaievals}. \sys consumes rather than
+replaces these: it reuses MLflow~\cite{zaharia2018mlflow} as substrate for prompt
+registry, tracing, and gateway concerns. The gap it targets is that these systems
+govern one family well and leave the cross-family release path---workflows, tools,
+MCP servers~\cite{mcp2024}, knowledge versions, evaluation assets---to dashboards and
+runbooks.
+
+\paragraph{Pipeline and lifecycle platforms.} TFX~\cite{baylor2017tfx},
+Kubeflow~\cite{kubeflow}, Airflow~\cite{airflow}, and DVC~\cite{dvc} govern the
+lifecycle of \emph{training and data} artifacts, with provenance as a first-class
+concern~\cite{schelter2017provenance}. \sys addresses the analogous problem one
+layer up, where the governed artifacts are the non-code resources that determine an
+agent's behavior at inference time, and where the release act is an alias move or a
+service publication rather than a pipeline run.
+
+\paragraph{Documentation as governance artifact.} Model cards~\cite{mitchell2019modelcards}
+and datasheets~\cite{gebru2021datasheets} established that a system's claims about
+itself are part of its interface. Our experience sharpens that in one direction: such
+artifacts decay silently, and the decay is invisible to review because they continue
+to render. The invariants in \S\ref{sec:invariants} are an attempt to give those
+claims a failing build rather than a stale page.
+
+\paragraph{Testing and technical debt in ML systems.} Our methodology is closest in
+spirit to the ML Test Score~\cite{breck2017mltest} and to the hidden-technical-debt
+line of work~\cite{sculley2015debt,amershi2019se4ml}, which argue that ML systems
+accumulate risk in the infrastructure around the model rather than in the model. We
+extend the framing to a governance platform, where the accumulated risk is
+specifically that the system's assurances outlive their implementations. The ratchet
+form---an exact bound that may improve but never regress---is a fitness function in
+the continuous-delivery sense~\cite{humble2010cd,beyer2016sre}.
+
+\paragraph{Transactions and compensation.} The intent-first release path is a saga
+with an audit obligation~\cite{garciamolina1987sagas,gray1981transaction}, and its
+premise is Helland's: systems spanning trust or storage boundaries cannot hold a
+lock across them and must make intent durable
+instead~\cite{helland2007apostates,kleppmann2017ddia}.
+
+\paragraph{Supply chain and policy.} The plugin allowlist follows the direction of
+in-toto~\cite{torresarias2019intoto} and SLSA~\cite{slsa}: the consumer's policy
+establishes provenance rather than the artifact's own assertion. Policy engines such
+as OPA~\cite{opa} externalize authorization decisions; \sys keeps its authorization
+in-process but makes the resulting posture machine-readable for the same reason.
+
+\paragraph{Agent frameworks.} Composition frameworks~\cite{langchain,llamaindex,crewai,wu2024autogen,agentssdk}
+and the optimizer literature~\cite{khattab2024dspy,opsahlong2024mipro,agrawal2025gepa}
+address orchestration and prompt improvement respectively. \sys is deliberately not a
+competing composition framework: it governs the resources those frameworks consume,
+and it treats optimizers as a registered, allowlisted extension point rather than as
+a built-in capability.
+
+\section{Limitations}
+
+The evidence boundary stated in \S1 is the principal limitation and we do not
+restate it as a hedge: there is no production-scale operating data here.
+
+Beyond that, three limits are structural. Guarantees remain per family: the platform
+publishes a checked capability surface but does not yet prove that every declared
+capability is implemented by every handler claiming it. Execution remains
+single-process: multi-replica operation is gated on externalizing loop ownership,
+which is unbuilt. Autonomy remains scoped: assistant-driven draft review exists, but
+it is not evidence that open-ended autonomous release is safe, and the enforced human
+decision in the refinement path is a deliberate boundary rather than an unfinished
+feature.
+
+Finally, the taxonomy in \S\ref{sec:taxonomy} is drawn from one system built by a
+small team. We report frequencies within that record, not incidence rates for the
+industry, and the classes should be read as hypotheses that generalize rather than
+as measured population statistics.
 
 \section{Conclusion}
 
-\sys is an implemented answer to a practical enterprise problem: how to govern the
-non-code resources that make AI-agent systems behave the way they do. Its central
-result is not that all such resources can share one universal release contract, but
-that they can share one control-plane architecture while keeping their guarantees
-explicitly family-specific. The engineering consequence is a system whose UI, API,
-SDK, CLI, and plugin seams are aligned around one governed surface, and whose
-release path records enough evidence and authority to make changes reviewable after
-the fact. That is a narrower claim than ``fully autonomous agent governance,'' but
-it is the one the current system actually supports.
+\sys is an implemented answer to a practical enterprise problem: governing the
+non-code resources that determine how agentic systems behave. Its architectural
+result is that heterogeneous resources can share one control plane while keeping
+release guarantees explicitly family-specific---a narrower claim than a universal
+release contract, and the one the system actually supports.
+
+It is also a system on a roadmap rather than a finished one, and the two
+statements are related: the invariants described here exist because extending a
+governance platform to more internal products is precisely the moment its stated
+guarantees start being relied on by people who did not write them.
+
+Its engineering result is the one we did not expect to be writing. A platform whose
+product is governance must treat its own claims as load-bearing artifacts, because
+those claims fail legibly: the page renders, the badge is green, the gate reports
+success, and the operator who trusted them discovers otherwise. Encoding claims as
+executable invariants converted that class of failure from something we discovered
+in production-adjacent surprise into something a build fails on. We would make that
+investment earlier next time, and we would make it before writing the documentation
+that describes what the system guarantees.
+
+\section*{Availability}
+
+\sys is open source under Apache-2.0.
+\ifcameraready
+The repository, including the continuous-integration configuration that produces
+every figure and count in this paper, is at
+\url{https://github.com/rrahimi-uci/caliber-suite}.
+\else
+The repository URL is withheld here only because it identifies the authors; it will
+appear in the camera-ready. Every count, table, and structural claim in this paper is
+derived from the repository by scripts committed alongside it, so the reported
+figures regenerate rather than being transcribed.
+\fi
 
 \bibliographystyle{mlsys2026}
 \bibliography{refs}

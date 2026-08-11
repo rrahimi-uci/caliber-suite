@@ -33,6 +33,7 @@ SCRIPT = REPO_ROOT / "scripts" / "ci-local.sh"
 #: is nothing for a local shell to do. Anything *executing product code* must not be on
 #: this list.
 UNMIRRORED_JOBS = {
+    "changes": "path classification for job-level gating; it does not execute product code",
     "allure-report": "renders and publishes the Allure HTML report to GitHub Pages",
     "gate-ledger": (
         "reads this run's job conclusions from the Actions API to catch a required "

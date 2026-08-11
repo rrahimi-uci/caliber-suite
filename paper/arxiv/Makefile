@@ -11,7 +11,7 @@ BIBTEX := bibtex
 LATEXOPTS := -interaction=nonstopmode -halt-on-error -file-line-error \
              -output-directory=$(BUILDDIR) -jobname=$(JOBNAME)
 
-SOURCES := main.tex article-layout.sty preamble.tex macros.tex pseudocode.sty \
+SOURCES := main.tex PRIMEarxiv.sty preamble.tex macros.tex pseudocode.sty \
            $(wildcard sections/*.tex) $(wildcard images/*.tex) \
            $(wildcard tables/*.tex) $(wildcard appendix/*.tex) \
            $(wildcard generated/*.tex) $(wildcard generated/diagrams/*.pdf) \

@@ -22,7 +22,7 @@
 #
 # Usage:
 #   scripts/ci-local.sh              # everything
-#   scripts/ci-local.sh --fast       # skip integration + package (the slow two)
+#   scripts/ci-local.sh --fast       # skip the extended/heavier jobs
 #   scripts/ci-local.sh lint test    # only the named jobs
 #
 # Exit status is non-zero if any job fails. Every job runs regardless, so one failure
@@ -46,8 +46,8 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test compatibility integration docs-validation ui cookbook-ui-only compose package security sdk plugin-sdk cli)
-FAST_SKIP=(integration package)
+ALL_JOBS=(lint type-check test-smoke test compatibility integration docs-validation ui cookbook-ui-only compose package security sdk plugin-sdk cli)
+FAST_SKIP=(test compatibility integration cookbook-ui-only package)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -103,6 +103,19 @@ job_lint() {
 job_type_check() {
   cd "$CALIBER_DIR" || return 1
   "$VENV_PY" -m mypy src
+}
+
+job_test_smoke() {
+  cd "$CALIBER_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
+  "$VENV_PY" -m pytest \
+    tests/test_contract_smoke.py \
+    tests/test_route_deps.py \
+    tests/test_config.py \
+    tests/test_migrations.py \
+    tests/test_auth_sessions.py \
+    --no-cov -q
 }
 
 # Coverage on, matching CI: the repo gate is 80% and running without it locally is how
@@ -488,6 +501,7 @@ main() {
     case "$job" in
       lint) run_job lint job_lint ;;
       type-check) run_job type-check job_type_check ;;
+      test-smoke) run_job test-smoke job_test_smoke ;;
       test) run_job test job_test ;;
       compatibility) run_job compatibility job_compatibility ;;
       integration) run_job integration job_integration ;;

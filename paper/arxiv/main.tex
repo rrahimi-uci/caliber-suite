@@ -1,11 +1,40 @@
-\documentclass{scrreprt}
+\documentclass{article}
 
-\usepackage{article-layout}
+\usepackage{times}
+\usepackage[T1]{fontenc}
+\usepackage{textcomp}
+\usepackage[protrusion=true,expansion=false]{microtype}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{PRIMEarxiv}
+
+\DeclareFontSubstitution{T1}{ptm}{m}{n}
+\DeclareFontSubstitution{TS1}{ptm}{m}{n}
+\DeclareFontShape{T1}{ptm}{m}{scit}{<->ssub*ptm/m/sc}{}
+\DeclareFontShape{T1}{ptm}{b}{scit}{<->ssub*ptm/b/sc}{}
+\DeclareFontShape{T1}{ptm}{bx}{scit}{<->ssub*ptm/bx/sc}{}
+\renewcommand{\ttdefault}{lmtt}
+\renewcommand{\sfdefault}{lmss}
+\rhead{\textit{CALIBER preprint}}
 
 \input{preamble}
 \input{macros}
 
 \renewcommand{\thesection}{\arabic{section}}
+\setcounter{secnumdepth}{3}
+
+\newcommand{\para}[1]{\vspace{0.5ex}\noindent\textbf{#1}\hspace{0.7em}\ignorespaces}
+\providecommand{\balance}{\relax}
+
+\newsavebox{\cbwidebox}
+\newenvironment{cbwide}%
+  {\begin{lrbox}{\cbwidebox}}%
+  {\end{lrbox}\par\noindent\makebox[\textwidth][c]{\usebox{\cbwidebox}}\par}
+
+\newsavebox{\cbupbox}
+\newenvironment{cbscaled}[1][0.90]%
+  {\def\cbscalefactor{#1}\begin{lrbox}{\cbupbox}}%
+  {\end{lrbox}\par\noindent\makebox[\textwidth][c]{%
+     \resizebox{\cbscalefactor\textwidth}{!}{\usebox{\cbupbox}}}\par}
 
 \IfFileExists{generated/stats.tex}{\input{generated/stats}}{%
   \providecommand{\statGitRev}{unknown}}
@@ -36,30 +65,26 @@
 \maketitle
 
 \input{00-abstract}
+\keywords{AI agents, LLMOps, control plane, governance, prompt optimization,
+          MLflow, evaluation, provenance, release engineering}
 
-\clearpage
-\renewcommand{\contentsname}{Table of Contents}
-\tableofcontents
+\input{01-introduction}
+\input{02-motivation}
+\input{03-background}
+\input{04-system-overview}
+\input{05-architecture}
+\input{06-components}
+\input{07-capabilities}
+\input{08-design-decisions}
+\input{09-implementation}
+\input{10-evaluation}
+\input{11-comparison}
+\input{12-limitations}
+\input{13-future-work}
+\input{14-conclusion}
 
-\clearpage\input{01-introduction}
-\clearpage\input{02-motivation}
-\clearpage\input{03-background}
-\clearpage\input{04-system-overview}
-\clearpage\input{05-architecture}
-\clearpage\input{06-components}
-\clearpage\input{07-capabilities}
-\clearpage\input{08-design-decisions}
-\clearpage\input{09-implementation}
-\clearpage\input{10-evaluation}
-\clearpage\input{11-comparison}
-\clearpage\input{12-limitations}
-\clearpage\input{13-future-work}
-\clearpage\input{14-conclusion}
-
-\clearpage
 \section*{Availability}
 \label{sec:availability}
-\addcontentsline{toc}{section}{Availability}
 \sys is released under the Apache~2.0 license. The implementation identifier
 \code{\statGitRev} records the base revision used for every count in
 \secref{sec:impl}; the \code{-dirty} suffix explicitly means those counts include
@@ -76,17 +101,15 @@ generated counts. The unrun performance, scale, baseline, and human-study protoc
 remain future work exactly as \tabref{tab:results} and \secref{sec:limitations}
 state.
 
-\clearpage
-\addcontentsline{toc}{section}{References}
 {\small
-\bibliographystyle{plainnat}
+\bibliographystyle{unsrtnat}
 \bibliography{refs}}
 
 \appendix
 \renewcommand{\thesection}{\Alph{section}}
-\clearpage\input{a-asset-families}
-\clearpage\input{b-api-surface}
-\clearpage\input{c-protocol}
-\clearpage\input{d-config}
+\input{a-asset-families}
+\input{b-api-surface}
+\input{c-protocol}
+\input{d-config}
 
 \end{document}
