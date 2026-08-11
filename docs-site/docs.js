@@ -8,6 +8,119 @@
   "use strict";
   var docRoot = document.documentElement;
 
+  var DOC_ICON_SVGS = {
+    "compass": '<circle cx="12" cy="12" r="9"></circle><polygon points="15.5 8.5 13.5 13.5 8.5 15.5 10.5 10.5 15.5 8.5"></polygon>',
+    "rocket": '<path d="M5 19c-1.2 1.2-1.4 3-1.4 3S5.4 21.8 6.6 20.6 8 17 8 17s-1.8.4-3 2z"></path><path d="M15 9 9 15"></path><path d="M14 4c2.3-1.1 4.9-1.1 7.2 0 1.1 2.3 1.1 4.9 0 7.2L17 15l-8-8z"></path>',
+    "shield-check": '<path d="M12 3 5 7v5c0 4.7 3 7.6 7 9 4-1.4 7-4.3 7-9V7z"></path><path d="m9.5 12 1.8 1.8 3.7-3.8"></path>',
+    "bot": '<path d="M12 3v3"></path><path d="M8 3h8"></path><rect x="4" y="7" width="16" height="12" rx="2"></rect><path d="M9 11h.01"></path><path d="M15 11h.01"></path><path d="M9 15h6"></path>',
+    "eye": '<path d="M2.5 12s3.8-6 9.5-6 9.5 6 9.5 6-3.8 6-9.5 6-9.5-6-9.5-6z"></path><circle cx="12" cy="12" r="3"></circle>',
+    "flask": '<path d="M10 2v6l-5 8a4 4 0 0 0 3.4 6h7.2A4 4 0 0 0 19 16l-5-8V2"></path><path d="M8 2h8"></path><path d="M7.5 14h9"></path>',
+    "plug": '<path d="M9 3v4"></path><path d="M15 3v4"></path><path d="M8 7h8v4a4 4 0 0 1-4 4 4 4 0 0 1-4-4z"></path><path d="M12 15v6"></path>',
+    "layers": '<path d="m12 3-9 5 9 5 9-5-9-5z"></path><path d="m3 12 9 5 9-5"></path><path d="m3 16 9 5 9-5"></path>',
+    "gauge": '<path d="M4 14a8 8 0 1 1 16 0"></path><path d="m12 14 4-4"></path><path d="M12 14h.01"></path>',
+    "book": '<path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H11v16H5.5A2.5 2.5 0 0 0 3 22z"></path><path d="M21 6.5A2.5 2.5 0 0 0 18.5 4H13v16h5.5A2.5 2.5 0 0 1 21 22z"></path>',
+    "users": '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path><circle cx="9.5" cy="7" r="3"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 4.13a4 4 0 0 1 0 7.75"></path>',
+    "sparkles": '<path d="m12 3 1.4 3.6L17 8l-3.6 1.4L12 13l-1.4-3.6L7 8l3.6-1.4z"></path><path d="m19 14 .9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9z"></path><path d="m5 15 .7 1.7L7.4 17l-1.7.7L5 19.4l-.7-1.7L2.6 17l1.7-.7z"></path>',
+    "message": '<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M8 9h8"></path><path d="M8 13h5"></path>',
+    "wrench": '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.4 2.4-2.2-2.2z"></path>',
+    "workflow": '<circle cx="6" cy="6" r="2"></circle><circle cx="18" cy="6" r="2"></circle><circle cx="18" cy="18" r="2"></circle><path d="M8 6h8"></path><path d="M8 6v10a2 2 0 0 0 2 2h6"></path>',
+    "database": '<ellipse cx="12" cy="5" rx="7" ry="3"></ellipse><path d="M5 5v10c0 1.7 3.1 3 7 3s7-1.3 7-3V5"></path><path d="M5 10c0 1.7 3.1 3 7 3s7-1.3 7-3"></path>',
+    "sliders": '<path d="M4 6h8"></path><path d="M16 6h4"></path><circle cx="14" cy="6" r="2"></circle><path d="M4 12h4"></path><path d="M12 12h8"></path><circle cx="10" cy="12" r="2"></circle><path d="M4 18h10"></path><path d="M18 18h2"></path><circle cx="16" cy="18" r="2"></circle>',
+    "key": '<circle cx="7.5" cy="14.5" r="3.5"></circle><path d="M11 14.5h10"></path><path d="M18 11.5v6"></path><path d="M15 13.5v4"></path>',
+    "code": '<polyline points="9 18 3 12 9 6"></polyline><polyline points="15 6 21 12 15 18"></polyline>',
+    "settings": '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c0 .7.4 1.3 1 1.5h.2H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z"></path>',
+    "activity": '<polyline points="3 12 7 12 10 7 14 17 17 12 21 12"></polyline>',
+    "lifebuoy": '<circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle><path d="m8.5 8.5 7 7"></path><path d="m15.5 8.5-7 7"></path>',
+    "target": '<circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="4"></circle><path d="M12 2v3"></path><path d="M12 19v3"></path><path d="M2 12h3"></path><path d="M19 12h3"></path>',
+    "route": '<circle cx="6" cy="18" r="2"></circle><circle cx="18" cy="6" r="2"></circle><path d="M8 18c5 0 2-8 8-8"></path><path d="M16 10V8h2"></path>',
+    "bar": '<path d="M5 20V10"></path><path d="M12 20V4"></path><path d="M19 20v-7"></path>'
+  };
+
+  function sectionIdForTitle(title) {
+    switch (String(title || "").toLowerCase()) {
+      case "start here": return "start";
+      case "use caliber": return "use";
+      case "build & integrate": return "build";
+      case "operate caliber": return "operate";
+      case "examples": return "examples";
+      case "reference": return "reference";
+      case "architecture": return "architecture";
+      case "strategy": return "strategy";
+      default: return "";
+    }
+  }
+
+  function iconKeyForSection(sectionIdOrTitle) {
+    var sectionId = sectionIdOrTitle;
+    if (!sectionId || sectionId.indexOf(" ") !== -1) sectionId = sectionIdForTitle(sectionIdOrTitle);
+    switch (sectionId) {
+      case "start": return "compass";
+      case "use": return "workflow";
+      case "build": return "code";
+      case "operate": return "shield-check";
+      case "examples": return "flask";
+      case "reference": return "book";
+      case "architecture": return "layers";
+      case "strategy": return "target";
+      default: return "compass";
+    }
+  }
+
+  function iconKeyForPage(meta) {
+    var href = meta && meta.href ? pageOf(meta.href) : "";
+    var label = String(meta && meta.label || "").toLowerCase();
+    if (href === "index.html") return "compass";
+    if (href === "walkthrough.html") return "route";
+    if (href === "interactive-layered-architecture.html") return "layers";
+    if (href === "presentation.html" || href === "presentation_timed.html") return "target";
+    if (href.indexOf("m-cookbook-") === 0 || label.indexOf("cookbook") !== -1 || label.indexOf("recipe") !== -1) return "flask";
+    if (label.indexOf("quickstart") !== -1) return "rocket";
+    if (label.indexOf("choose your") !== -1 || label.indexOf("path") !== -1) return "compass";
+    if (label.indexOf("decision-maker") !== -1 || label.indexOf("competitive") !== -1 || label.indexOf("roadmap") !== -1) return "target";
+    if (label.indexOf("prompt") !== -1) return "message";
+    if (label.indexOf("tool") !== -1) return "wrench";
+    if (label.indexOf("skill") !== -1) return "sparkles";
+    if (label.indexOf("mcp") !== -1 || label.indexOf("gateway") !== -1) return "plug";
+    if (label.indexOf("workflow") !== -1) return "workflow";
+    if (label.indexOf("knowledge") !== -1 || label.indexOf("object store") !== -1 || label.indexOf("storage") !== -1) return "database";
+    if (label.indexOf("evaluation") !== -1 || label.indexOf("test set") !== -1 || label.indexOf("judge") !== -1) return "flask";
+    if (label.indexOf("calibration") !== -1) return "sliders";
+    if (label.indexOf("trust") !== -1 || label.indexOf("governance") !== -1 || label.indexOf("review") !== -1 || label.indexOf("release") !== -1) return "shield-check";
+    if (label.indexOf("assistant") !== -1 || label.indexOf("aria") !== -1) return "bot";
+    if (label.indexOf("auth") !== -1 || label.indexOf("security") !== -1) return "key";
+    if (label.indexOf("sdk") !== -1 || label.indexOf("plugin") !== -1 || label.indexOf("cli") !== -1) return "code";
+    if (label.indexOf("api") !== -1 || label.indexOf("http") !== -1 || label.indexOf("reference") !== -1 || label.indexOf("catalog") !== -1) return "book";
+    if (label.indexOf("config") !== -1 || label.indexOf("provider setup") !== -1) return "settings";
+    if (label.indexOf("health") !== -1 || label.indexOf("readiness") !== -1 || label.indexOf("observability") !== -1) return "activity";
+    if (label.indexOf("recovery") !== -1 || label.indexOf("runbook") !== -1 || label.indexOf("troubleshooting") !== -1) return "lifebuoy";
+    if (label.indexOf("architecture") !== -1 || label.indexOf("platform") !== -1 || label.indexOf("refinement") !== -1) return "layers";
+    return iconKeyForSection(meta && (meta.section_id || meta.section) || "");
+  }
+
+  function makeDocIcon(iconKey, extraClass) {
+    var node = document.createElement("span");
+    node.className = "docs-icon" + (extraClass ? " " + extraClass : "");
+    node.setAttribute("aria-hidden", "true");
+    node.innerHTML = iconMarkup(iconKey);
+    return node;
+  }
+
+  function iconMarkup(iconKey) {
+    var body = DOC_ICON_SVGS[iconKey] || DOC_ICON_SVGS.compass;
+    return (
+      '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">' +
+      body +
+      "</svg>"
+    );
+  }
+
+  function mountInlineIcon(node, iconKey) {
+    if (!node || !iconKey || node.dataset.iconMounted === "1") return;
+    node.innerHTML = iconMarkup(iconKey);
+    node.classList.add("has-svg");
+    node.dataset.iconMounted = "1";
+  }
+
   /* ---------- Mermaid: capture sources so we can re-theme on toggle ---------- */
   var mermaidNodes = Array.prototype.slice.call(document.querySelectorAll("pre.mermaid"));
   mermaidNodes.forEach(function (n) { n.dataset.src = n.textContent; });
@@ -383,6 +496,32 @@
     return p || "index.html";
   }
 
+  function pageMetaForHref(href, fallback) {
+    return pageMetaByPage[pageOf(href)] || fallback || null;
+  }
+
+  function wrapLabelWithIcon(el, iconKey, iconClass) {
+    if (!el || !iconKey || el.dataset.iconized === "1") return;
+    var text = el.textContent;
+    el.textContent = "";
+    el.appendChild(makeDocIcon(iconKey, iconClass || "docs-icon-sm docs-icon-muted"));
+    var label = document.createElement("span");
+    label.textContent = text;
+    el.appendChild(label);
+    el.dataset.iconized = "1";
+  }
+
+  function decorateCardLink(link, meta) {
+    if (!link || link.dataset.iconized === "1") return;
+    var iconKey = iconKeyForPage(meta || pageMetaForHref(link.getAttribute("href"), {
+      href: link.getAttribute("href") || "",
+      label: (link.querySelector("strong") || link).textContent,
+      section: ""
+    }));
+    link.insertBefore(makeDocIcon(iconKey, "docs-icon-sm"), link.firstChild);
+    link.dataset.iconized = "1";
+  }
+
   function humanizeToken(value) {
     return String(value || "")
       .split(/[-_]/)
@@ -570,13 +709,18 @@
     navSections.forEach(function (sec, idx) {
       var head = document.createElement("div");
       head.className = "nav-section";
-      head.textContent = sec.section;
+      head.appendChild(makeDocIcon(iconKeyForSection(sec.section), "docs-icon-sm docs-icon-muted"));
+      head.appendChild(document.createTextNode(sec.section));
       frag.appendChild(head);
       (sec.links || []).forEach(function (lnk) {
+        var meta = pageMetaForHref(lnk.href, { href: lnk.href, label: lnk.label, section: sec.section });
         var a = document.createElement("a");
         a.className = "nav-link";
         a.href = lnk.href;
-        a.textContent = lnk.label;
+        a.appendChild(makeDocIcon(iconKeyForPage(meta), "docs-icon-sm docs-icon-muted"));
+        var label = document.createElement("span");
+        label.className = "nav-link-label";
+        label.textContent = lnk.label;
         // Standalone full-screen views (e.g. the slide deck) open in a new tab so
         // the reader never loses the docs shell. Flagged via DOCS_NAV.
         if (lnk.newtab) {
@@ -587,10 +731,11 @@
           mark.className = "nav-link-external-mark";
           mark.setAttribute("aria-hidden", "true");
           mark.textContent = "↗";
-          a.appendChild(mark);
+          label.appendChild(mark);
         } else if (pageOf(lnk.href) === currentPage) {
           a.classList.add("active");
         }
+        a.appendChild(label);
         frag.appendChild(a);
       });
       if (idx === 0 && activeSectionForNav && navSections.length > 1) {
@@ -636,7 +781,10 @@
 
       var title = document.createElement("span");
       title.className = "docs-browse-item-title";
-      title.textContent = sectionLabel(sec);
+      title.appendChild(makeDocIcon(iconKeyForSection(sec.section), "docs-icon-sm"));
+      var titleText = document.createElement("span");
+      titleText.textContent = sectionLabel(sec);
+      title.appendChild(titleText);
 
       var summary = document.createElement("span");
       summary.className = "docs-browse-item-summary";
@@ -659,12 +807,52 @@
       var activeSection = document.createElement("a");
       activeSection.className = "topbar-pill topbar-active-section";
       activeSection.href = sectionHref(currentSectionRef);
-      activeSection.textContent = sectionLabel(currentSectionRef);
+      activeSection.appendChild(makeDocIcon(iconKeyForSection(currentSectionRef.section), "docs-icon-sm"));
+      activeSection.appendChild(document.createTextNode(sectionLabel(currentSectionRef)));
       activeSection.setAttribute("aria-label", "Current section: " + sectionLabel(currentSectionRef));
       topbarFrag.appendChild(activeSection);
     }
 
     sectionTabsRoot.appendChild(topbarFrag);
+  }
+
+  function mountStaticDocIcons() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-doc-icon]"), function (node) {
+      mountInlineIcon(node, node.getAttribute("data-doc-icon"));
+    });
+  }
+
+  function enhanceDocChrome() {
+    var meta = pageMetaForHref(currentPage, {
+      href: currentPage,
+      label: (document.querySelector(".doc-breadcrumb .current") || {}).textContent || currentPage,
+      section_id: "",
+      section: ""
+    });
+    var pageIcon = iconKeyForPage(meta);
+    var sectionIcon = iconKeyForSection(meta && (meta.section_id || meta.section) || "");
+
+    var eyebrow = document.querySelector(".doc-eyebrow");
+    if (eyebrow && !eyebrow.querySelector("svg")) {
+      eyebrow.insertBefore(makeDocIcon(pageIcon, "docs-icon-sm"), eyebrow.firstChild);
+    }
+
+    var breadcrumb = document.querySelector(".doc-breadcrumb");
+    if (breadcrumb) {
+      var breadcrumbItems = breadcrumb.querySelectorAll("a, span");
+      Array.prototype.forEach.call(breadcrumbItems, function (item) {
+        if (item.getAttribute("aria-hidden") === "true") return;
+        if (item.classList.contains("current")) wrapLabelWithIcon(item, pageIcon, "docs-icon-sm docs-icon-muted");
+        else if (!item.querySelector(".docs-icon")) wrapLabelWithIcon(item, sectionIcon, "docs-icon-sm docs-icon-muted");
+        item.classList.add("docs-crumb");
+      });
+    }
+  }
+
+  function enhanceLandingCards() {
+    Array.prototype.forEach.call(document.querySelectorAll("a.quickstart-card, a.guide-map-card, a.hero-panel-link"), function (link) {
+      decorateCardLink(link);
+    });
   }
 
   function focusDocSearch() {
@@ -870,6 +1058,9 @@
   }
   renderPager();
   injectHandAuthoredPageMeta();
+  mountStaticDocIcons();
+  enhanceDocChrome();
+  enhanceLandingCards();
 
   /* ---------- Per-page table of contents ---------- */
   // Module pages tag their <h2> with ids; the landing page uses <section id>.
@@ -1117,7 +1308,8 @@
       if (index > 0) {
         var sectionHead = document.createElement("div");
         sectionHead.className = "nav-section nav-search-group";
-        sectionHead.textContent = group.section;
+        sectionHead.appendChild(makeDocIcon(iconKeyForSection(group.section), "docs-icon-sm docs-icon-muted"));
+        sectionHead.appendChild(document.createTextNode(group.section));
         navRoot.appendChild(sectionHead);
       }
       group.entries.forEach(function (entry) {
@@ -1126,7 +1318,10 @@
         a.href = entry.href;
         var title = document.createElement("span");
         title.className = "nav-search-title";
-        title.textContent = entry.label || entry.href;
+        title.appendChild(makeDocIcon(iconKeyForPage(entry), "docs-icon-sm docs-icon-muted"));
+        var titleText = document.createElement("span");
+        titleText.textContent = entry.label || entry.href;
+        title.appendChild(titleText);
         a.appendChild(title);
         var meta = resultMeta(entry);
         if (meta) {
@@ -1189,7 +1384,10 @@
         kicker.textContent = resultMeta(entry) || "Documentation";
         var title = document.createElement("span");
         title.className = "ref-row-title";
-        title.textContent = entry.label || entry.href;
+        title.appendChild(makeDocIcon(iconKeyForPage(entry), "docs-icon-sm"));
+        var titleText = document.createElement("span");
+        titleText.textContent = entry.label || entry.href;
+        title.appendChild(titleText);
         var summary = document.createElement("span");
         summary.className = "ref-row-summary";
         summary.textContent = entry.summary || "";

@@ -358,7 +358,7 @@ def topbar() -> str:
     return """<header class="topbar">
     <div class="topbar-row">
       <a class="topbar-brand" href="index.html" aria-label="{home_label}" title="{home_label}" style="text-decoration:none;color:inherit">
-        <img src="caliber-icon.png" alt="{brand_short} logo"><strong>{brand_short}</strong>
+        <strong>{brand_short}</strong>
       </a>
       <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Browse documentation sections"></nav>
       <div class="topbar-actions">
@@ -489,16 +489,17 @@ COOKBOOK_CSS = CSS_MARKER + """
 .ck-step-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,21rem);gap:1.5rem;align-items:start}
 @media(max-width:1000px){.ck-step-grid{grid-template-columns:1fr}}
 .ck-step-head{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-bottom:.4rem}
-.ck-where{background:var(--text);color:var(--bg);padding:.12rem .55rem;border-radius:.4rem;font-size:.76rem;font-weight:600}
+.ck-step-grid,.ck-step-grid>*,.ck-step-head,.ck-step-head>*,.ck-mk-bar,.ck-mk-panel,.ck-fill{min-width:0}
+.ck-where{background:var(--text);color:var(--bg);padding:.12rem .55rem;border-radius:.4rem;font-size:.76rem;font-weight:600;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
 [data-theme=dark] .ck-where{background:#0d1320;color:#e2e8f0;border:1px solid var(--border)}
-.ck-made{background:var(--green-bg);color:var(--green);border:1px solid var(--green);border-radius:.4rem;padding:.05rem .45rem;font-size:.7rem;font-weight:600;font-family:var(--mono)}
-.ck-assetref{font-family:var(--mono);font-size:.72rem;color:var(--accent);border:1px solid var(--accent);border-radius:.4rem;padding:.05rem .45rem;background:var(--accent-glow)}
+.ck-made{background:var(--green-bg);color:var(--green);border:1px solid var(--green);border-radius:.4rem;padding:.05rem .45rem;font-size:.7rem;font-weight:600;font-family:var(--mono);white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.ck-assetref{font-family:var(--mono);font-size:.72rem;color:var(--accent);border:1px solid var(--accent);border-radius:.4rem;padding:.05rem .45rem;background:var(--accent-glow);white-space:normal;overflow-wrap:anywhere;word-break:break-word}
 .ck-step-do{color:var(--text)}.ck-step-do code{font-size:.85em}
 .ck-fill{margin:.6rem 0 .2rem;border:1px solid var(--border-light);border-radius:.5rem;overflow:hidden}
 .ck-fill-t{background:var(--bg-card-hover);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);font-weight:700;padding:.3rem .6rem}
 .ck-fill table{width:100%;border-collapse:collapse;font-size:.84rem}
 .ck-fill td{padding:.35rem .6rem;border-top:1px solid var(--border-light);vertical-align:top}
-.ck-fill td:first-child{font-weight:600;color:var(--accent);white-space:nowrap;width:1%;font-family:var(--mono);font-size:.82em}
+.ck-fill td:first-child{font-weight:600;color:var(--accent);white-space:normal;width:auto;font-family:var(--mono);font-size:.82em;overflow-wrap:anywhere;word-break:break-word}
 .ck-click{margin:.55rem 0 .2rem;font-size:.86rem;color:var(--text-muted)}
 .ck-btn{display:inline-block;background:var(--accent);color:#fff;font-weight:600;font-size:.78rem;padding:.16rem .65rem;border-radius:.5rem;margin:0 .1rem}
 .ck-see{margin-top:.5rem;font-size:.84rem;color:var(--text-muted);background:var(--accent-glow);border-left:3px solid var(--accent);border-radius:.3rem;padding:.4rem .65rem}
@@ -511,16 +512,16 @@ COOKBOOK_CSS = CSS_MARKER + """
 .ck-mock{margin:0;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;box-shadow:var(--shadow);background:var(--bg-card)}
 .ck-mk-chrome{background:#1f2937;padding:.4rem .6rem;display:flex;align-items:center;gap:.32rem}
 .ck-mk-dot{width:.52rem;height:.52rem;border-radius:50%;background:#475569}
-.ck-mk-url{margin-left:.45rem;background:#0b0f1a;color:#94a3b8;font-size:.65rem;padding:.16rem .6rem;border-radius:.35rem;font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.ck-mk-url{margin-left:.45rem;background:#0b0f1a;color:#94a3b8;font-size:.65rem;padding:.16rem .6rem;border-radius:.35rem;font-family:var(--mono);white-space:normal;overflow-wrap:anywhere;word-break:break-word;flex:1 1 12rem}
 .ck-mk-screen{padding:.9rem .95rem;background:var(--bg)}
 .ck-mk-bar{display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem}
-.ck-mk-page{background:var(--accent-glow);color:var(--accent);border:1px solid var(--accent);border-radius:.4rem;padding:.12rem .55rem;font-size:.65rem;font-weight:700;font-family:var(--mono);white-space:nowrap}
-.ck-mk-title{font-weight:700;font-size:.9rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ck-mk-page{background:var(--accent-glow);color:var(--accent);border:1px solid var(--accent);border-radius:.4rem;padding:.12rem .55rem;font-size:.65rem;font-weight:700;font-family:var(--mono);white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.ck-mk-title{font-weight:700;font-size:.9rem;color:var(--text);white-space:normal;overflow-wrap:anywhere;word-break:break-word}
 .ck-mk-panel{background:var(--bg-card);border:1px solid var(--border-light);border-radius:.55rem;padding:.85rem}
 .ck-mk-field{display:block;margin-bottom:.6rem}
 .ck-mk-field:last-child{margin-bottom:0}
 .ck-mk-label{display:block;font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-dim);font-weight:700;margin-bottom:.2rem}
-.ck-mk-input{display:block;background:var(--bg);border:1px solid var(--border);border-radius:.4rem;padding:.38rem .55rem;color:var(--text-muted);font-size:.76rem;min-height:1.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ck-mk-input{display:block;background:var(--bg);border:1px solid var(--border);border-radius:.4rem;padding:.38rem .55rem;color:var(--text-muted);font-size:.76rem;min-height:1.85rem;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
 .ck-mk-actions{margin-top:.8rem;display:flex;gap:.45rem;flex-wrap:wrap}
 .ck-mk-btn{background:var(--accent);color:#fff;font-weight:600;font-size:.76rem;padding:.36rem .9rem;border-radius:.45rem;box-shadow:0 1px 2px rgba(124,58,237,.25)}
 .ck-mk-btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent);box-shadow:none}
@@ -534,6 +535,8 @@ COOKBOOK_CSS = CSS_MARKER + """
 .ck-copy.ok{color:var(--green);border-color:var(--green)}
 .ck-asset pre{margin:0;border:0;border-radius:0;max-height:24rem;overflow:auto}
 .ck-asset-trunc{font-size:.76rem;color:var(--text-dim);padding:.4rem .7rem;border-top:1px solid var(--border)}
+.ck-copy,.ck-asset-name{overflow-wrap:anywhere;word-break:break-word}
+@media(max-width:640px){.ck-step-grid{gap:1rem}.ck-mk-bar{align-items:flex-start;flex-wrap:wrap}.ck-mk-url{margin-left:0;flex-basis:100%}}
 /* pager */
 .ck-pager{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin:2.2rem 0 1rem;padding-top:1.2rem;border-top:1px solid var(--border)}
 .ck-pager a{font-weight:600;font-size:.9rem}

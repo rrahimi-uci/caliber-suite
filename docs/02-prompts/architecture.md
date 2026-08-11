@@ -284,7 +284,7 @@ sequenceDiagram
     API->>DB: Insert verification item and refinement job
     API-->>UI: Return queued job metadata
     Q->>ML: Read prompt and evidence
-    Q->>DB: Process stages; on pass mark candidate_ready
+    Q->>DB: Process stages and on pass mark candidate_ready
     U->>UI: Inspect candidate and invoke Apply
     UI->>API: POST /jobs/{job_id}/apply
     API->>DB: Commit checkpoint, provenance, and release intent

@@ -328,6 +328,23 @@ def test_json_toml_and_yaml_fences_parse() -> None:
     assert not failures, f"docs contain unparsable structured examples: {failures}"
 
 
+def test_mermaid_sequence_messages_do_not_use_semicolon_statement_separators() -> None:
+    failures: list[str] = []
+    for page in _published_sources():
+        for block in _fenced_blocks(page, "mermaid"):
+            lines = [line.rstrip() for line in block.splitlines()]
+            if not any(line.lstrip().startswith("sequenceDiagram") for line in lines[:3]):
+                continue
+            for line in lines:
+                stripped = line.strip()
+                if "->" in stripped and ":" in stripped and ";" in stripped:
+                    failures.append(f"{page.name}: {stripped}")
+    assert not failures, (
+        "Mermaid 11 treats semicolons in sequence-message text as statement separators; "
+        f"rewrite those lines: {failures}"
+    )
+
+
 def test_generated_html_preserves_every_mermaid_diagram() -> None:
     failures: list[str] = []
     for source, html in _manifest_modules():

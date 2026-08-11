@@ -218,6 +218,28 @@ FIXED_SITE_FILES = frozenset(
 )
 
 
+def test_shared_docs_icon_markup_uses_real_svg_wrappers() -> None:
+    expected_svg = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"'
+    for script in (DOCS_SITE / "docs.js", PUBLIC_DOCS / "docs.js", PACKAGED_DOCS / "docs.js"):
+        text = script.read_text(encoding="utf-8")
+        assert "function iconMarkup(iconKey)" in text, f"{script} is missing the shared icon wrapper helper"
+        assert expected_svg in text, f"{script} does not wrap icon shapes in a real <svg>"
+        assert "node.innerHTML = iconMarkup(iconKey);" in text, f"{script} does not mount wrapped icons"
+
+
+def test_toolbar_brand_is_text_only_in_every_published_html_copy() -> None:
+    for directory in (DOCS_SITE, PUBLIC_DOCS, PACKAGED_DOCS):
+        for path in directory.glob("*.html"):
+            html = path.read_text(encoding="utf-8")
+            if '<header class="topbar">' not in html:
+                continue
+            assert '<a class="topbar-brand"' in html, f"{path} is missing the shared topbar brand"
+            brand_markup = html.split('<a class="topbar-brand"', 1)[1].split("</a>", 1)[0]
+            assert "<img " not in brand_markup, (
+                f"{path.name} still renders the CALIBER icon inside the top toolbar brand"
+            )
+
+
 def _served_site_files(directory: Path) -> set[str]:
     return {
         path.name

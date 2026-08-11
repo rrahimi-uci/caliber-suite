@@ -229,7 +229,7 @@ sequenceDiagram
 
     U->>UI: Create or edit skill
     UI->>API: POST or PATCH /skills
-    API->>DB: Persist CaliberSkill; snapshot versioned payload when changed
+    API->>DB: Persist CaliberSkill and snapshot versioned payload when changed
     API-->>UI: Return skill record
 
     U->>UI: Test selection or render

@@ -1560,7 +1560,6 @@ function topbar() {
   return `<header class="topbar">
     <div class="topbar-row">
       <a class="topbar-brand" href="index.html" aria-label="${escapeAttr(DOCS_HOME_LABEL)}" title="${escapeAttr(DOCS_HOME_LABEL)}" style="text-decoration:none;color:inherit">
-        <img src="caliber-icon.png" alt="${escapeAttr(BRAND_SHORT)} logo">
         <strong>${escapeHtml(BRAND_SHORT)}</strong>
       </a>
       <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Browse documentation sections"></nav>

@@ -1,11 +1,12 @@
 # CALIBER Product Completeness — Development Report
 
 > **Date:** 2026-08-01. **Updated 2026-08-06** ([§10](#10-update-2026-08-06)), **2026-08-07**
-> ([§11](#11-update-2026-08-07)), and **2026-08-08** ([§12](#12-update-2026-08-08)) — see those
-> sections for what has changed since, and which statements below are now superseded. The
-> newest update is the one to read first: it discharges the local-only evidence caveat both
-> prior updates closed on, and records that the Pages fix §10.2 calls resolved has never
-> reached the site.
+> ([§11](#11-update-2026-08-07)), **2026-08-08** ([§12](#12-update-2026-08-08)),
+> **2026-08-08 later** ([§13](#13-update-2026-08-08-later-the-same-day)), and
+> **2026-08-10** ([§14](#14-update-2026-08-10)). See those sections for what has changed
+> since, and which statements below are now superseded. Read the newest update first: it
+> closes the oldest remaining drift in this report's current-state wording, namely older
+> statements that still said CALIBER had no management API, SDK, or CLI.
 >
 > **Reviewed document:** `product-completness-review-report.md` (audit baseline `f69d945a0`).
 > That file was deleted from the tree in `6ff4b7927`; this report is the surviving record of
@@ -19,8 +20,8 @@
 > **How to read this document.** §1–§9 are the record as written at `a75f743ae` and are
 > deliberately **not** rewritten — the value of a dated report is that it says what was
 > known when. Where a later change has falsified a statement, the statement is left standing
-> with an inline superseded marker pointing at §10. Test totals here are historical; use the
-> latest `main` CI run for current release evidence.
+> with an inline superseded marker pointing at the relevant later update section. Test totals
+> here are historical; use the latest `main` CI run for current release evidence.
 
 ## 1. Executive summary
 
@@ -113,7 +114,10 @@ directions. Carrying it forward as a ticket would double-count.
 
 **F-16 — no SDK/CLI/HA/production deployment.** Every clause checks out, but it is a scope
 statement about product completeness rather than a code defect, and its own validation
-concluded no bounded fix exists. Tracked in §8 as roadmap, not as a defect.
+concluded no bounded fix exists. Tracked in §8 as roadmap, not as a defect. **Superseded in
+part by §14.1:** the current tree now has a served management OpenAPI document, REST API
+docs, an alpha Python SDK, an alpha CLI, and an experimental plugin SDK. The production
+topology, HA/DR, and enterprise-identity half remains open.
 
 **F-06 — admin project-scope semantics.** Not a bug. `db/scoping.py` returns the bare
 statement for an admin when `only is None`. Whether that is correct depends on what the
@@ -532,8 +536,11 @@ Ordered by what each would actually take.
 - **F-02b** node-level deadlines and cancellation propagation — changes failure modes rather
   than fixing a bug in place.
 
-**Unchanged from the review:** no production topology, HA/DR, management API, SDK, CLI, or
-enterprise identity. These are correctly scoped as XL and gated behind each other.
+**Unchanged from the review at that audit point:** no production topology, HA/DR, management
+API, SDK, CLI, or enterprise identity. **Superseded in part by §14.1:** the current tree
+now has a management API surface, an alpha SDK, an alpha CLI, and an experimental plugin
+SDK. The production-topology, HA/DR, and enterprise-identity half remains correctly scoped
+as XL and gated behind each other.
 
 ## 8. Recommended next priorities
 
@@ -743,8 +750,10 @@ What is genuinely still open, after reconciliation:
 - **F-04 trace half**, **F-10 broker replay**, **F-12 lexical fusion**, **F-02b cancellation
   propagation** — each an explicitly scoped remainder, not an oversight.
 - **F-06** admin project-scope semantics — still awaiting the product sign-off §2 named.
-- **F-16 / C-5 / C-2B / H-1** — no production topology, HA/DR, management API, SDK, CLI, or
-  enterprise identity. Unchanged and correctly XL.
+- **F-16 / C-5 / C-2B / H-1** — at the 2026-08-06 state there was still no production
+  topology, HA/DR, management API, SDK, CLI, or enterprise identity. **Superseded in part
+  by §14.1:** management API, SDK, and CLI now exist in alpha form; the
+  production-topology, HA/DR, and enterprise-identity half is still open and correctly XL.
 
 §9's central verdict is unaffected: **feature-rich Alpha, credible for a controlled technical
 pilot, not ready for supported production or untrusted authoring.** The one item that would
@@ -1430,7 +1439,9 @@ lifespan loops, which is gated on F-10's broker replay.** Building HA first prod
 second process that loses jobs faster. That is why F-10's deferred half is on the critical
 path rather than filed as a nice-to-have, and it is not visible from the finding list.
 
-The section states explicitly that none of P0–P5 has been started.
+The section states explicitly that none of P0–P5 has been started. **Superseded in part by
+§14.6:** the current roadmap now records that **P4 has started in alpha form** (served API +
+SDK + CLI + docs), while P0–P3 and P5 remain largely ahead.
 
 ### 13.7 Effect on the assessment, stated honestly
 
@@ -1523,3 +1534,256 @@ caveat that applies to the ledger applies here.
 12. Both are **6,008 collected** — the same three environment-dependent tests §12.2
 identified (two tesseract, one unbuilt UI bundle), behaving exactly as the skip reasons
 predict. Against §12.1's 5,988 the suite has grown by 20.
+
+## 14. Update, 2026-08-10
+
+**Baseline:** `8bd2d73047` on `main`. CI run
+[`31433773929`/`31433773927`](https://github.com/rrahimi-uci/caliber-suite/actions/runs/31433773927)
+— **16/16 jobs green**, 6,156 backend passed / 12 skipped at **93.20%** coverage.
+
+This update covers 32 commits since §13.8's `c5099c50f`. The bulk of it is one body of work:
+CALIBER now has a supported programmatic surface — a served API contract, a typed Python
+client, an extension contract, and a CLI — delivered as 21 planned pull requests across five
+milestones.
+
+It also corrects the last stale current-state claims in this report: older statements that
+said CALIBER had **no** management API, SDK, or CLI are no longer true. The current
+question is not existence; it is contract hardening and production-readiness. And it has to
+record that §13.7's closing claim was wrong within a day.
+
+### 14.1 What landed
+
+This section is the concrete reason older "no management surface" wording is now wrong.
+CALIBER no longer lacks a programmatic surface; it has one, and it is large enough to need
+its own gates and support boundaries.
+
+Three new distributions, each its own CI job with its own lint, type, and packaging gates:
+
+| Package | What it is | Tests | Runtime dependencies |
+| --- | --- | --- | --- |
+| `sdk/caliber-sdk` | Typed Python client, sync + async | **181** | `httpx`, `typing-extensions` |
+| `sdk/caliber-plugin-sdk` | Experimental optimizer-plugin contract | **37** | **none** |
+| `sdk/caliber-cli` | `caliberctl` operator commands | **37** | `caliber-sdk` |
+
+And in the server:
+
+- **A served OpenAPI document** built from the live route table rather than hand-maintained
+  — 290 paths, 359 operations. A hand-written contract is a second definition that drifts;
+  this one cannot describe a route that does not exist.
+- **Stability tiers** on 50 URL tags — 23 `ga`, 18 `beta`, 9 `internal` — keyed by tag
+  rather than Python module, and `stability_for()` fails closed to `internal`. An SDK can
+  feature-detect from `/capabilities` without parsing a 189 KB specification.
+- **Personal access tokens** for automation, so a CI job needs no password login.
+- **~30 formalized GA response schemas**, with a coverage ratchet that moved the count of
+  unformalized GA responses from 52 to 8.
+- **Registry-based optimizer dispatch** (`caliber/src/caliber/extensibility/`), replacing a
+  chain of string comparisons whose supported-name set lived in three places and had drifted.
+
+Two roadmap quarters are affected. `docs/roadmap.md` scheduled the management-API subset,
+stability policy, and SDK/CLI hardening as **Q2**, and de-hardcoding optimizer dispatch plus
+an experimental Plugin SDK as **Q3**. Both are now built. That is a schedule fact, not a
+readiness claim: it means the roadmap needed correction, not that production readiness moved
+with it.
+
+### 14.2 The new surfaces are gated fail-closed
+
+Three surfaces did not exist at §13.8 and now do. Each one is an authority boundary, and the
+report's standard is that a new boundary counts against the assessment until it is closed
+deliberately rather than by default.
+
+**Personal access tokens.** A token's scopes are a **ceiling**, intersected at every request
+with the owner's *current* scopes. Revoking a user's permission therefore shrinks their
+tokens' authority immediately, without enumerating and revoking the tokens. The inverse
+design — scopes copied at issuance — would leave a revoked administrator holding a
+still-administrative token, and that failure is invisible from the token list.
+
+**Optimizer plugins.** An optimizer writes the artifact CALIBER promotes to production, so
+entry-point discovery is deliberately *not* enablement. Any installed distribution can
+advertise into the `caliber.optimizers` group — including one pulled in transitively for an
+unrelated reason — and a plain discovery loop would hand that dependency authority over
+production prompts with no review step and nothing looking wrong from outside: the
+refinement loop would keep working. Plugins load only when the deployment names their
+**distribution** in `CALIBER_PLUGIN_ALLOWLIST`. An unlisted plugin is reported as installed
+and inert, because a wheel that silently did nothing is otherwise undiagnosable.
+
+A plugin also may not claim a name CALIBER ships. That reads as a naming convention and is
+not one: if a plugin could register `GEPA`, installing a wheel would change what `GEPA` does
+for every agent already configured for it — same name in every config, same name in every
+audit record, a different author's code producing the candidates, and nothing in any diff.
+
+**A published route inventory.** Documenting 290 paths raises discoverability of routes that
+were previously only reachable by reading source. The mitigation is the tier metadata above,
+and the fail-closed default is what makes it a mitigation rather than a label.
+
+### 14.3 §13.7's claim about the defect class was falsified within a day
+
+§13.7 closed on this:
+
+> The open items that remain are no longer descriptions outrunning implementations. They are
+> implementations that have not been attempted, which is a better problem to have and an
+> honest one to state.
+
+That was true of the items the report was tracking. It was not true of the work in flight,
+and the very next body of work produced six fresh instances of exactly the class §13.7
+declared closed — all in the generated SDK API reference, all of which rendered perfectly:
+
+| Defect | Count | Why it survived review |
+| --- | --- | --- |
+| Cross-links published as literal `[CaliberClient](#caliberclient)` text | 82 | Markdown does not process links inside a code span. The generator wrapped the linkifier's output in backticks, so every return type printed its own link syntax. |
+| Signatures advertising `_List`, an internal alias for `list` | 48 | It is a real workaround for a class whose own `list()` method shadows the builtin — and no business of a caller, who would look it up and find nothing. |
+| Request methods documenting no exceptions | 19 | The typed error propagates from the transport rather than appearing as a `raise`, so a body scan reported that `CaliberClient.whoami()` cannot fail. |
+| Anchors pointing nowhere | 3 | The Raises renderer linked every name, documented or not — including `error_for_response`, a factory that *returns* an exception rather than being one. |
+| Classes never published at all | 3 | `Extensibility`, `RegisteredOptimizer`, and `OptimizerPlugin` were omitted from `models/core.py`'s `__all__`. They worked at runtime via the package `__init__`; the generator reads `__all__`. |
+| A documented error envelope the server has never sent | 1 | The guide showed `error_code` / `message` / `fields`. `caliber.routes._errors` sends `detail` / `status_code` / `errors: [{loc, msg, type}]`. |
+
+The last two are the ones worth dwelling on. The `__all__` omission is a **description
+outrunning an implementation in the opposite direction** — the implementation was fine and
+the declaration was incomplete, so three classes silently vanished from the published
+contract while every runtime import kept working. And the false error envelope is worse than
+no documentation: a reader writing `error.payload["fields"]` would have done exactly what the
+reference told them and got a `KeyError` against a live deployment.
+
+The corrected claim: **this defect class is not closed and probably cannot be, because it is
+produced by generators and declarations rather than by code that runs.** What can be closed
+is its invisibility. Seven tests now assert the properties instead of the output: no link
+inside a code span, no `_`-prefixed type name, no private attribute as public API, every
+request method documents its exceptions, no page links to an anchor it lacks (swept across
+all 75 published pages), every documented class is reachable from the symbol index, and
+documented error envelopes carry only keys the server sends.
+
+### 14.4 What driving the client against the real server found
+
+Every mocked SDK test proves the client is self-consistent and nothing more.
+`caliber/tests/test_sdk_against_server.py` drives the real package against the real
+application over an in-process ASGI transport, and it is the only place these were findable:
+
+| Found | Reality |
+| --- | --- |
+| `GET /workflow-runs` → **405** | The route is POST-only (submission). Real listing is `/workflows/{id}/runs`. |
+| `GET /services` → **404** | Service management is scoped: `/workflows/{id}/service`. |
+| `ReleasesAPI.list` → no such route | It is `/releases/candidates`. |
+| `ProjectFileSchema` dropped `project_id` | Pydantic drops undeclared keys on serialization — the central hazard of formalizing 30 schemas over existing dict responses. |
+| `PersonalAccessTokenSchema` **invented** `"token": null` | A single schema reused for issuance and listing published a null secret field on every list row. |
+| The plugin loader required its own `OptimizerSpec` | So a plugin written against the plugin SDK's *documented* API was rejected outright. Caught by a cross-package test written for exactly that seam. |
+| A skill job routed to `MetaPrompt` **ran** | With the prompt formatter, ignoring `allowed_tools` entirely — so a skill could return with its tool restrictions dropped and nothing in the candidate saying so. Now a refused configuration error. |
+
+Two of those — the null secret and the dropped `project_id` — are the same failure §5 keeps
+recording, arriving through a new door: a change that passes the tests of the file it touches
+and breaks a contract nothing in that file mentions.
+
+**A gate that was being counted and was not running.** `test_sdk_against_server.py` and
+`test_plugin_contract.py` both `importorskip` their package, and CI's `test` job installed
+neither — so the two suites that exercise the client and the plugin contract against the real
+application were **skipping in CI** while being cited as coverage. The job now installs both.
+This is §13.2's lesson in a second form: a gate that reads the wrong thing, and a gate that
+silently does not run, are the same defect.
+
+### 14.5 Two environment skews that made a local green meaningless
+
+Both cost a red CI run on work that was locally clean, and neither was in the changed code.
+
+**ruff 0.16.1 locally, 0.15.20 pinned in CI.** The formatters disagree between releases —
+the workflow's own comment says so — so a local `ruff format` reformatted three files nobody
+had edited and CI rejected the result, with the diff pointing at unrelated files. The dev
+extra now pins the exact CI version, and a test asserts the two pins match, so bumping one
+alone fails a test instead of failing CI confusingly later.
+
+**`tomllib` on the declared Python floor.** `caliber-sdk` declares `requires-python =
+">=3.10"`, and the assertion *about* that floor lives in `test_packaging.py` — which imported
+`tomllib`, stdlib only from 3.11. On 3.10 the module fails to import outright; mypy,
+configured for 3.10, reported `import-not-found`. The development venv is 3.14, where it
+resolves, so neither symptom appeared locally. **The package asserted a floor its own test
+suite could not run on.**
+
+The generalisation, which is the expensive part: three of the four package venvs were built
+from whatever `python3` resolved to while CI runs 3.11, so a local pass was not evidence
+about CI at all. `scripts/ci-local.sh` now targets CI's interpreter with a
+warning-and-fallback, and a parity test asserts the version it targets is one a CI job
+actually uses.
+
+A third instance, recorded because it is the same shape as §10.4: a parallel backend run
+reported 6 failures that all passed in isolation, and the serial run was clean. Load flakes,
+confirmed by isolation rather than by re-running until green.
+
+### 14.6 §7 and §8, restated
+
+§10.5 noted that §7 and §8 were never updated after wave 2. Rather than edit them in place,
+here is the current state.
+
+**Closed since §13.8:** the programmatic-surface gap (no client, no served contract, no
+automation credential); hardcoded optimizer dispatch; the absence of an extension contract.
+
+**Still open, unchanged:**
+
+| Item | Status |
+| --- | --- |
+| P0 single-instance refusal guard | **Not started.** Verified: nothing in `caliber/src/` implements it; it exists only in `docs/roadmap.md`. |
+| P1 externalise loop ownership / F-10 broker replay | Not started. Still the gate on real HA. |
+| F-06 | Open **product** decision, not an implementation gap. |
+| F-04 trace half | Deferred. |
+| F-12 lexical fusion, F-02b cancellation propagation | Deferred. |
+
+The roadmap now records this explicitly: **P4 has started in alpha form** (served API + SDK
++ CLI + docs), while **P0–P3 and P5 remain ahead**. That is the corrected version of
+§13.6's broader "none of P0–P5 has been started" claim.
+
+**New and open:** the TypeScript SDK is deliberately deferred with a written decision record
+(`docs/reports/sdk-typescript-decision.md`) rather than half-built — the plan gates it on the
+Python SDK being stable, and it is `0.1.0.dev0` with 18 beta surfaces a week old. The record
+names the shape it should take (extract the SPA client core; *generate* the endpoint layer
+from the served document) and three conditions to re-check, the third being whether a caller
+exists outside the SPA. That is the condition most likely to be skipped and the one that
+decides whether it is an SDK or a liability.
+
+### 14.7 Effect on the assessment
+
+| Dimension | §13.7 | Now | Why |
+| --- | --- | --- | --- |
+| Release / publication ops | 4.5 | **4.5** | Unchanged. Three package jobs with wheel-metadata assertions were added, and the `test` job now runs two suites that were silently skipping — but the publication gate itself has still never *failed* a real run, which is the caveat §13.8 attached and it still applies. |
+| Security posture | 4.5 | **4.5** | Three new authority boundaries (tokens, plugins, a published route inventory), each closed fail-closed with tests. Net neutral by design: the surfaces are new, so closing them earns back what opening them cost. Not 5 for the same two reasons as §13.7 — F-06 and F-04's trace half. |
+| Production readiness | 1.5 | **1.5** | Unchanged, deliberately. **P4 moved into alpha form; P0–P3 and P5 did not.** A client for a single-instance system is still a single-instance system. |
+| **Programmatic surface** | *(new)* | **4** | 290 documented operations, tiered stability, three tested packages, 6,156 + 255 tests. Not 5: everything is `0.1.0.dev0`, 18 surfaces are `beta` and may still move shape, and no caller outside this repository has used any of it. |
+
+**§9's verdict is unaltered: feature-rich Alpha, credible for a controlled technical pilot,
+not ready for supported production or untrusted authoring.**
+
+What changed is the *kind* of thing the product is. At §13.8 CALIBER was a governed platform
+you operated through its UI. It is now one you can automate against a published contract —
+which is a genuine capability increase and also three new ways to be wrong, which is why
+§14.2 spends more words on the gates than on the features.
+
+### 14.8 Verification
+
+Local **and remote**, and this section does not close on a caveat.
+
+| Suite | Result | Source |
+| --- | --- | --- |
+| Backend | **6,156 passed, 12 skipped**, 93.20% coverage (925 s) | CI on `main`, run `31433773927` |
+| `caliber-sdk` | **181 passed**, mypy strict clean (71 files) | CI |
+| `caliber-plugin-sdk` | **37 passed**, mypy strict clean (8 files) | CI |
+| `caliber-cli` | **37 passed**, mypy strict clean (7 files), console-script smoke | CI |
+| Frontend | **116 files / 1,583 tests** | CI |
+| Lint / format | clean | CI (`ruff==0.15.20`, pinned both sides) |
+| Published pages | 75 module pages, **0 dangling in-page anchors** | `test_docs_generation_contract.py` |
+| **CI, on the remote** | **16/16 jobs green** | GitHub Actions on `main` |
+
+Against §13.8's 6,008 collected, the backend suite is now **6,168 collected** — 160 more,
+from the OpenAPI and stability contracts, PAT lifecycle and scope-ceiling tests, schema
+field-preservation tests, the contract smoke suite, the SDK-against-server and
+plugin-contract suites, the extensibility registry and end-to-end plugin tests, and the
+docs-quality tests in §14.3. The three package suites add a further **255** outside that
+count.
+
+**Backend CI jobs went 13 → 16**: `sdk`, `plugin-sdk`, and `cli`. Each builds a wheel and
+asserts its metadata — `caliber-sdk` must not depend on the server runtime, and
+`caliber-plugin-sdk` must have no runtime dependencies at all. Those two assertions are the
+reason the packages are separate distributions, so they are checked rather than reviewed.
+
+**A methodology note, and it is the same one as §13.8.** The docs defects in §14.3 were found
+by *measuring the published artifact* — counting broken links, phantom type names, and
+dangling anchors in the rendered HTML — not by reading the generator. Reading the generator
+is what produced them: every one of those six defects is correct-looking source that emits
+wrong output. Where §13.8's lesson was "a per-file run is a weaker question than the full
+run", this one is narrower and sharper: **for generated artifacts, the source is not the
+subject.** The seven tests added in §14.3 all assert against generator *output* for that
+reason.
