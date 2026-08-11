@@ -48,6 +48,8 @@ class ToolRegistryEntry:
     version: str
     module_path: str
     callable_name: str
+    execution_backend: str = "python_callable"  # python_callable | openapi_http
+    backend_config: dict[str, Any] | None = None
     side_effect_level: str = "read"  # read | write | external_action
     requires_approval: bool = False
     allow_in_preview: bool = False

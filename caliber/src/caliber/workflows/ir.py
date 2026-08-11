@@ -102,6 +102,8 @@ class IRToolBinding:
     allow_in_preview: bool
     module_path: str
     callable_name: str
+    execution_backend: str = "python_callable"
+    backend_config: dict[str, Any] | None = None
     binding_type: str = "registered_function"  # registered_function | mcp_tool
     mcp_server_id: str | None = None
     mcp_tool_name: str | None = None

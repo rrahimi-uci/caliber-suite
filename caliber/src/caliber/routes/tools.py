@@ -73,8 +73,9 @@ from caliber.schemas import (
 )
 from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.ir import IRToolBinding
+from caliber.workflows.runtime import _resolve_bound_tool_callable
 from caliber.workflows.sandbox import make_preview_callable, should_mock_in_preview
-from caliber.workflows.tools import family_name, registered_tool_module_allowed
+from caliber.workflows.tools import InMemoryToolResolver, family_name, registered_tool_module_allowed
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/tools"
 # Durable tool-test-run history. Registered BEFORE ``DETAIL_PATH`` so the
@@ -379,6 +380,23 @@ async def get_tool_source(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         row = _visible_tool_or_404(session, request, tool_id)
+        if row.execution_backend != "python_callable":
+            return JSONResponse(
+                {
+                    "data": {
+                        "module_path": row.module_path,
+                        "callable_name": row.callable_name,
+                        "available": False,
+                        "signature": row.name,
+                        "doc": "",
+                        "source": "",
+                        "error": (
+                            f"tool {row.tool_id!r} uses execution_backend "
+                            f"{row.execution_backend!r}; no Python source exists"
+                        ),
+                    }
+                }
+            )
         module_path = row.module_path
         callable_name = row.callable_name
     source = await run_in_threadpool(
@@ -419,6 +437,8 @@ async def register_tool(request: Request) -> JSONResponse:
             description=payload.description,
             module_path=payload.module_path,
             callable_name=payload.callable_name,
+            execution_backend=payload.execution_backend,
+            backend_config=payload.backend_config,
             input_schema=payload.input_schema,
             output_schema=payload.output_schema,
             side_effect_level=payload.side_effect_level,
@@ -579,7 +599,10 @@ def _invoke_tool_under_preview_policy(
         allow_in_preview=tool_data.allow_in_preview,
         module_path=tool_data.module_path,
         callable_name=tool_data.callable_name,
+        execution_backend=tool_data.execution_backend,
+        backend_config=tool_data.backend_config if isinstance(tool_data.backend_config, dict) else None,
         secret_refs=tuple(tool_data.secret_refs),
+        input_schema=tool_data.input_schema if isinstance(tool_data.input_schema, dict) else None,
         output_schema=tool_data.output_schema
         if isinstance(tool_data.output_schema, dict)
         else None,
@@ -605,27 +628,41 @@ def _invoke_tool_under_preview_policy(
             output = make_preview_callable(binding, None)(**tool_input)
             isolation = "mocked"
         else:
-            from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
-            from caliber.tool_sandbox.service import (  # noqa: PLC0415
-                sandbox_from_optional_config,
-            )
-
-            isolation = "subprocess"
-            sandbox = sandbox_from_optional_config(config)
-            result = sandbox.run_tool(
-                ToolSandboxRunRequest(
-                    module_path=binding.module_path,
-                    callable_name=binding.callable_name,
-                    input=tool_input,
-                    timeout_seconds=float(
-                        getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)
-                    ),
-                )
-            )
-            if result.status == "completed":
-                output = result.output
+            if binding.execution_backend == "openapi_http":
+                isolation = "inline_http"
+                try:
+                    fn = _resolve_bound_tool_callable(
+                        binding,
+                        InMemoryToolResolver([]),
+                        preview=False,
+                        required=True,
+                    )
+                    assert fn is not None
+                    output = fn(**tool_input)
+                except Exception as exc:
+                    error = str(exc)
             else:
-                error = result.error or result.status
+                from caliber.tool_sandbox.models import ToolSandboxRunRequest  # noqa: PLC0415
+                from caliber.tool_sandbox.service import (  # noqa: PLC0415
+                    sandbox_from_optional_config,
+                )
+
+                isolation = "subprocess"
+                sandbox = sandbox_from_optional_config(config)
+                result = sandbox.run_tool(
+                    ToolSandboxRunRequest(
+                        module_path=binding.module_path,
+                        callable_name=binding.callable_name,
+                        input=tool_input,
+                        timeout_seconds=float(
+                            getattr(config, "registered_tool_sandbox_timeout_seconds", 30.0)
+                        ),
+                    )
+                )
+                if result.status == "completed":
+                    output = result.output
+                else:
+                    error = result.error or result.status
 
     duration_ms = round((time.monotonic() - start_time) * 1000, 1)
     return {

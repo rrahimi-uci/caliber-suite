@@ -99,6 +99,7 @@ _STABILITY: dict[str, str] = {
     "judges": STABILITY_GA,
     # --- Beta: real, supported, still moving ------------------------------
     "mcp-servers": STABILITY_BETA,
+    "openapi-integrations": STABILITY_BETA,
     "gateway": STABILITY_BETA,
     "knowledge-bases": STABILITY_BETA,
     "knowledge-base-versions": STABILITY_BETA,

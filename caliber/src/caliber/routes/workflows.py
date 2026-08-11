@@ -696,6 +696,8 @@ def _scoped_tool_resolver(session: Any, identity: Any) -> InMemoryToolResolver:
                 version=row.version,
                 module_path=row.module_path,
                 callable_name=row.callable_name,
+                execution_backend=row.execution_backend,
+                backend_config=row.backend_config,
                 side_effect_level=row.side_effect_level,
                 requires_approval=row.requires_approval,
                 allow_in_preview=row.allow_in_preview,

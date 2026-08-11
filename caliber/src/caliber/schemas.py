@@ -995,6 +995,8 @@ class PromptBindRequest(BaseModel):
 
 TOOL_SIDE_EFFECT_PATTERN = "^(read|write|external_action)$"
 TOOL_STATUS_PATTERN = "^(active|deprecated|archived)$"
+TOOL_EXECUTION_BACKEND_PATTERN = "^(python_callable|openapi_http)$"
+OPENAPI_TOOL_DRAFT_STATUS_PATTERN = "^(draft|ready|published|archived)$"
 
 
 class ToolSchema(BaseModel):
@@ -1008,6 +1010,8 @@ class ToolSchema(BaseModel):
     description: str
     module_path: str
     callable_name: str
+    execution_backend: str = "python_callable"
+    backend_config: dict[str, Any] | None = None
     input_schema: dict[str, object] | None
     output_schema: dict[str, object] | None
     side_effect_level: str
@@ -1034,6 +1038,10 @@ class ToolRegisterRequest(BaseModel):
     description: str = Field(default="", max_length=2048)
     module_path: str = Field(min_length=1, max_length=512)
     callable_name: str = Field(min_length=1, max_length=128)
+    execution_backend: str = Field(
+        default="python_callable", pattern=TOOL_EXECUTION_BACKEND_PATTERN
+    )
+    backend_config: dict[str, object] | None = None
     input_schema: dict[str, object] | None = None
     output_schema: dict[str, object] | None = None
     side_effect_level: str = Field(default="read", pattern=TOOL_SIDE_EFFECT_PATTERN)
@@ -2244,6 +2252,16 @@ class ExtensibilityCapabilitySchema(BaseModel):
     allowlist_env_var: str = "CALIBER_PLUGIN_ALLOWLIST"
 
 
+class OpenApiIntegrationsCapabilitySchema(BaseModel):
+    """Feature-discovery block for the governed OpenAPI import surface."""
+
+    enabled: bool = True
+    stability: str = "beta"
+    import_sources: list[str] = Field(default_factory=lambda: ["inline_text"])
+    publication_backend: str = "tool_registry_openapi_http"
+    runtime_backend: str = "python_callable_and_openapi_http"
+
+
 class PlatformCapabilitiesSchema(BaseModel):
     """Response payload for ``GET /caliber/capabilities``."""
 
@@ -2257,6 +2275,217 @@ class PlatformCapabilitiesSchema(BaseModel):
     extensibility: ExtensibilityCapabilitySchema = Field(
         default_factory=ExtensibilityCapabilitySchema
     )
+    openapi_integrations: OpenApiIntegrationsCapabilitySchema = Field(
+        default_factory=OpenApiIntegrationsCapabilitySchema
+    )
+
+
+class OpenApiIntegrationSchema(BaseModel):
+    """Serialized form of :class:`caliber.db.models.CaliberOpenApiIntegration`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    integration_id: str
+    name: str
+    description: str
+    owner: str
+    status: str
+    project_id: str | None = None
+    visibility: str
+    last_imported_version_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OpenApiIntegrationVersionSchema(BaseModel):
+    """One pinned imported OpenAPI version for a governed integration."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    version_id: str
+    integration_id: str
+    source_kind: str
+    source_ref: str
+    spec_sha256: str
+    openapi_version: str
+    title: str
+    spec_version: str
+    spec_description: str
+    server_urls: list[str] = Field(default_factory=list)
+    auth_schemes: list[str] = Field(default_factory=list)
+    import_warnings: list[str] = Field(default_factory=list)
+    operation_count: int = 0
+    normalized_summary: dict[str, Any] = Field(default_factory=dict)
+    created_by: str
+    created_at: datetime
+
+
+class OpenApiOperationSchema(BaseModel):
+    """One normalized operation extracted from an imported OpenAPI document."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    operation_id: str
+    integration_version_id: str
+    operation_key: str
+    method: str
+    path: str
+    spec_operation_id: str | None = None
+    summary: str
+    description: str
+    tags: list[str] = Field(default_factory=list)
+    deprecated: bool = False
+    side_effect_level: str
+    auth_schemes: list[str] = Field(default_factory=list)
+    request_body_required: bool = False
+    request_content_types: list[str] = Field(default_factory=list)
+    response_statuses: list[str] = Field(default_factory=list)
+    normalized_operation: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class OpenApiIntegrationCreateRequest(BaseModel):
+    """Body of ``POST /caliber/openapi-integrations``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    description: str = ""
+
+
+class OpenApiIntegrationUpdateRequest(BaseModel):
+    """Body of ``PATCH /caliber/openapi-integrations/{integration_id}``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = None
+    status: Literal["draft", "review", "ready", "published"] | None = None
+
+
+class OpenApiImportRequest(BaseModel):
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/import``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_kind: Literal["inline_text"] = "inline_text"
+    source_ref: str | None = Field(default=None, max_length=1024)
+    spec_text: str = Field(min_length=1)
+
+
+class OpenApiAuthBindingSchema(BaseModel):
+    """A non-secret credential binding for an OpenAPI-derived tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["none", "bearer", "api_key", "basic", "header"] = "none"
+    secret_ref: str | None = Field(default=None, max_length=512)
+    password_secret_ref: str | None = Field(default=None, max_length=512)
+    username: str | None = Field(default=None, max_length=256)
+    header_name: str | None = Field(default=None, max_length=256)
+    query_param_name: str | None = Field(default=None, max_length=256)
+    prefix: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def _validate_binding(self) -> OpenApiAuthBindingSchema:
+        if self.kind == "none":
+            return self
+        if self.kind == "bearer" and not self.secret_ref:
+            raise ValueError("bearer auth requires secret_ref")
+        if self.kind == "api_key":
+            if not self.secret_ref:
+                raise ValueError("api_key auth requires secret_ref")
+            if not self.header_name and not self.query_param_name:
+                raise ValueError(
+                    "api_key auth requires header_name or query_param_name"
+                )
+        if self.kind == "basic":
+            if not self.username or not self.password_secret_ref:
+                raise ValueError("basic auth requires username and password_secret_ref")
+        if self.kind == "header":
+            if not self.secret_ref or not self.header_name:
+                raise ValueError("header auth requires secret_ref and header_name")
+        return self
+
+
+class OpenApiToolDraftSchema(BaseModel):
+    """Serialized form of an OpenAPI-derived tool draft."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    draft_id: str
+    integration_id: str
+    integration_version_id: str
+    operation_id: str
+    name: str
+    description: str
+    owner: str
+    status: str
+    server_url: str
+    auth_binding: dict[str, Any] | None = None
+    input_schema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None
+    execution_config: dict[str, Any] | None = None
+    side_effect_level: str
+    requires_approval: bool
+    allow_in_preview: bool
+    secret_refs: list[str] = Field(default_factory=list)
+    published_tool_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OpenApiGenerateToolDraftsRequest(BaseModel):
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/tool-drafts/generate``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_ids: list[str] = Field(min_length=1)
+    version_id: str | None = Field(default=None, max_length=64)
+    server_url: str | None = Field(default=None, max_length=1024)
+    auth_binding: OpenApiAuthBindingSchema | None = None
+    requires_approval: bool = False
+    allow_in_preview: bool = False
+
+
+class OpenApiToolDraftUpdateRequest(BaseModel):
+    """Body of ``PATCH /caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=2048)
+    status: str | None = Field(default=None, pattern=OPENAPI_TOOL_DRAFT_STATUS_PATTERN)
+    server_url: str | None = Field(default=None, max_length=1024)
+    auth_binding: OpenApiAuthBindingSchema | None = None
+    requires_approval: bool | None = None
+    allow_in_preview: bool | None = None
+
+
+class OpenApiToolDraftPreviewRequest(BaseModel):
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/preview``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpenApiPublishToolDraftRequest(BaseModel):
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/publish``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=2048)
+    version: str = Field(default="1.0", min_length=1, max_length=32)
+
+
+class OpenApiValidateCredentialBindingRequest(BaseModel):
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/validate-credential-binding``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    auth_binding: OpenApiAuthBindingSchema
 
 
 class WorkflowComponentFieldSchema(BaseModel):

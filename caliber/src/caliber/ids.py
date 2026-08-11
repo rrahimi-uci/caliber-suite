@@ -53,6 +53,10 @@ WORKFLOW_PATCH_PREFIX = "WP-"
 WORKFLOW_PROMOTION_PREFIX = "WPR-"
 WORKFLOW_BENCHMARK_REPORT_PREFIX = "WFB-"
 MCP_SERVER_PREFIX = "MCP-"
+OPENAPI_INTEGRATION_PREFIX = "OAI-"
+OPENAPI_INTEGRATION_VERSION_PREFIX = "OAIV-"
+OPENAPI_OPERATION_PREFIX = "OAIO-"
+OPENAPI_TOOL_DRAFT_PREFIX = "OATD-"
 WORKFLOW_SERVICE_PREFIX = "wfs"
 SERVICE_TOKEN_PREFIX = "svt"  # noqa: S105 — ID prefix, not a credential
 KNOWLEDGE_BASE_PREFIX = "KB-"
@@ -246,6 +250,26 @@ def new_workflow_benchmark_report_id() -> str:
 def new_mcp_server_id() -> str:
     """Return a fresh MCP server ID, e.g. ``MCP-3a8f2c7e``."""
     return f"{MCP_SERVER_PREFIX}{_suffix()}"
+
+
+def new_openapi_integration_id() -> str:
+    """Return a fresh OpenAPI integration ID, e.g. ``OAI-3a8f2c7e``."""
+    return f"{OPENAPI_INTEGRATION_PREFIX}{_suffix()}"
+
+
+def new_openapi_integration_version_id() -> str:
+    """Return a fresh OpenAPI integration-version ID, e.g. ``OAIV-9b1d4e0a``."""
+    return f"{OPENAPI_INTEGRATION_VERSION_PREFIX}{_suffix()}"
+
+
+def new_openapi_operation_id() -> str:
+    """Return a fresh OpenAPI operation ID, e.g. ``OAIO-c2f55681``."""
+    return f"{OPENAPI_OPERATION_PREFIX}{_suffix()}"
+
+
+def new_openapi_tool_draft_id() -> str:
+    """Return a fresh OpenAPI tool-draft ID, e.g. ``OATD-c2f55681``."""
+    return f"{OPENAPI_TOOL_DRAFT_PREFIX}{_suffix()}"
 
 
 def new_service_id() -> str:

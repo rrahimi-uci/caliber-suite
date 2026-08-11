@@ -23,6 +23,7 @@ from caliber.routes._deps import envelope_response
 from caliber.routes.openapi import stability_summary
 from caliber.schemas import (
     ExtensibilityCapabilitySchema,
+    OpenApiIntegrationsCapabilitySchema,
     OptimizerPluginSchema,
     PlatformCapabilitiesSchema,
     RegisteredOptimizerSchema,
@@ -133,6 +134,13 @@ async def get_capabilities(request: Request) -> JSONResponse:
         # a 189 KB specification. A test asserts the two never disagree.
         sdk_stability=stability_summary(),
         extensibility=await run_in_threadpool(_extensibility),
+        openapi_integrations=OpenApiIntegrationsCapabilitySchema(
+            enabled=True,
+            stability="beta",
+            import_sources=["inline_text"],
+            publication_backend="tool_registry_openapi_http",
+            runtime_backend="python_callable_and_openapi_http",
+        ),
     )
     return envelope_response(payload)
 

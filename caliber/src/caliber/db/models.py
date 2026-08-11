@@ -1465,7 +1465,7 @@ class CaliberWorkerHeartbeat(Base):
 
 
 class CaliberToolRegistry(Base):
-    """Registered Python callable exposed to Workflow Studio."""
+    """Registered executable exposed to Workflow Studio."""
 
     __tablename__ = "caliber_tool_registry"
 
@@ -1485,6 +1485,10 @@ class CaliberToolRegistry(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     module_path: Mapped[str] = mapped_column(String(512))
     callable_name: Mapped[str] = mapped_column(String(128))
+    execution_backend: Mapped[str] = mapped_column(
+        String(32), default="python_callable", server_default="python_callable"
+    )
+    backend_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     output_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     side_effect_level: Mapped[str] = mapped_column(String(16), default="read")
@@ -1511,6 +1515,150 @@ class CaliberToolRegistry(Base):
     status: Mapped[str] = mapped_column(String(16), default="active")
     deprecated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     successor_tool_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class CaliberOpenApiIntegration(Base):
+    """A governed external OpenAPI surface CALIBER imported for curation.
+
+    This is a control-plane asset, not a runtime tool. The row tracks the
+    stable identity of the external system while imported contract snapshots
+    live on :class:`CaliberOpenApiIntegrationVersion`.
+    """
+
+    __tablename__ = "caliber_openapi_integrations"
+    __table_args__ = (
+        Index("ix_openapi_integrations_status", "status"),
+        Index("ix_openapi_integrations_name", "name"),
+    )
+
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="project", server_default="project"
+    )
+
+    integration_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    owner: Mapped[str] = mapped_column(String(256), default="")
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    last_imported_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class CaliberOpenApiIntegrationVersion(Base):
+    """One pinned imported OpenAPI document for an integration."""
+
+    __tablename__ = "caliber_openapi_integration_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "integration_id",
+            "spec_sha256",
+            name="uq_openapi_integration_version_spec_sha256",
+        ),
+        Index("ix_openapi_integration_versions_integration", "integration_id", "created_at"),
+    )
+
+    version_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_integrations.integration_id")
+    )
+    source_kind: Mapped[str] = mapped_column(String(32), default="inline_text")
+    source_ref: Mapped[str] = mapped_column(String(1024), default="")
+    spec_sha256: Mapped[str] = mapped_column(String(64))
+    openapi_version: Mapped[str] = mapped_column(String(16), default="")
+    title: Mapped[str] = mapped_column(String(256), default="")
+    spec_version: Mapped[str] = mapped_column(String(64), default="")
+    spec_description: Mapped[str] = mapped_column(Text, default="")
+    server_urls: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    auth_schemes: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    import_warnings: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    operation_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    raw_document: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    normalized_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberOpenApiOperation(Base):
+    """One normalized operation extracted from an imported OpenAPI snapshot."""
+
+    __tablename__ = "caliber_openapi_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "integration_version_id",
+            "method",
+            "path",
+            name="uq_openapi_operation_version_method_path",
+        ),
+        Index("ix_openapi_operations_version", "integration_version_id"),
+        Index("ix_openapi_operations_operation_key", "operation_key"),
+    )
+
+    operation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    integration_version_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_integration_versions.version_id")
+    )
+    operation_key: Mapped[str] = mapped_column(String(1024))
+    method: Mapped[str] = mapped_column(String(16))
+    path: Mapped[str] = mapped_column(String(1024))
+    spec_operation_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    deprecated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    side_effect_level: Mapped[str] = mapped_column(String(16), default="read")
+    auth_schemes: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    request_body_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    request_content_types: Mapped[list[str]] = mapped_column(
+        JSON, default=list, server_default="[]"
+    )
+    response_statuses: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    normalized_operation: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberOpenApiToolDraft(Base):
+    """A curated OpenAPI-derived tool before publication to the tool registry."""
+
+    __tablename__ = "caliber_openapi_tool_drafts"
+    __table_args__ = (
+        Index("ix_openapi_tool_drafts_integration", "integration_id", "created_at"),
+        Index("ix_openapi_tool_drafts_status", "status"),
+    )
+
+    draft_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_integrations.integration_id")
+    )
+    integration_version_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_integration_versions.version_id")
+    )
+    operation_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_openapi_operations.operation_id"))
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    owner: Mapped[str] = mapped_column(String(256), default="")
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    server_url: Mapped[str] = mapped_column(String(1024), default="")
+    auth_binding: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    output_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    execution_config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    side_effect_level: Mapped[str] = mapped_column(String(16), default="read")
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    allow_in_preview: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    secret_refs: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    published_tool_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

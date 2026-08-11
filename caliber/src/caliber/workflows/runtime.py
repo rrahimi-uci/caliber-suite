@@ -51,6 +51,7 @@ from caliber.tool_sandbox.models import ToolSandboxRunRequest
 from caliber.tool_sandbox.service import (
     sandbox_from_optional_config,
 )
+from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,
@@ -2461,6 +2462,8 @@ def bind_sandbox_config(config: Any | None) -> None:
 def _bind(binding: IRToolBinding, resolver: ToolResolver) -> Callable[..., Any] | None:
     if binding.binding_type == "mcp_tool":
         return _bind_mcp_tool(binding)
+    if binding.execution_backend == "openapi_http":
+        return bind_openapi_http_tool(binding)
     override: Callable[..., Any] | None = None
     getter = getattr(resolver, "get_callable", None)
     if callable(getter):
@@ -2577,6 +2580,21 @@ def bind_exported_tool(entry: Any, *, config: Any | None = None) -> Callable[...
     )
 
     config = config if config is not None else _standalone_config()
+    if str(getattr(entry, "execution_backend", "") or "python_callable") == "openapi_http":
+        binding = IRToolBinding(
+            local_name=getattr(entry, "name", "") or "tool",
+            registry_ref=getattr(entry, "registry_ref", "") or "",
+            version_constraint="",
+            requires_approval=False,
+            side_effect_level=getattr(entry, "side_effect_level", "read"),
+            allow_in_preview=bool(getattr(entry, "allow_in_preview", True)),
+            module_path=getattr(entry, "module_path", "") or "<openapi_http>",
+            callable_name=getattr(entry, "callable_name", "") or "invoke",
+            execution_backend="openapi_http",
+            backend_config=getattr(entry, "backend_config", None),
+            input_schema=getattr(entry, "input_schema", None),
+        )
+        return bind_openapi_http_tool(binding)
     module_path = getattr(entry, "module_path", "") or ""
     if module_path == "<in-memory>":
         # No module to load in either mode. Delegated so the existing, specific

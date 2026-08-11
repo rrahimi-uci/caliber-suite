@@ -39,6 +39,13 @@ def test_capabilities_default_contract(client) -> None:
     }
     assert data["artifact_families"]["prompt"]["rollbackable"] is True
     assert data["artifact_families"]["tool"]["rollbackable"] is False
+    assert data["openapi_integrations"] == {
+        "enabled": True,
+        "stability": "beta",
+        "import_sources": ["inline_text"],
+        "publication_backend": "tool_registry_openapi_http",
+        "runtime_backend": "python_callable_and_openapi_http",
+    }
 
 
 def test_each_artifact_family_declares_the_complete_contract(client) -> None:
