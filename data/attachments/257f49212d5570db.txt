@@ -1,0 +1,12 @@
+{"t":"2026-08-11T02:01:18.533Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-11T02:01:18.551Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-11T02:01:18.553Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-11T02:01:18.555Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-11T02:01:18.580Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/jobs \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-11T02:01:18.586Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/review-queues \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-11T02:01:18.593Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/mcp-servers \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-11T02:01:18.600Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-11T02:01:18.605Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-11T02:01:18.613Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/releases/candidates \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-11T02:01:18.619Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/audit-log \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-11T02:01:18.634Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/cookbooks \"HTTP/1.1 200 OK\""}
