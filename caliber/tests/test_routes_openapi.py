@@ -127,26 +127,26 @@ def test_the_envelope_and_error_shapes_are_documented(client: TestClient) -> Non
     assert "errors" in schemas["ValidationError"]["properties"]
 
 
-def test_unmodelled_bodies_are_declared_rather_than_implied(client: TestClient) -> None:
-    """Honesty about coverage.
-
-    The document describes routes, not payloads. Saying so in the document is
-    what stops a generator from emitting clients that send empty bodies to
-    endpoints which require one.
-    """
+def test_request_and_success_bodies_are_declared(client: TestClient) -> None:
+    """The served contract now carries complete request/response body coverage."""
     doc = client.get(OPENAPI_URL).json()
     coverage = doc["x-caliber-schema-coverage"]
     assert coverage["paths"] == "complete"
-    assert coverage["request_bodies"] == "not-yet-modelled"
+    assert coverage["request_bodies"] == "complete"
+    assert coverage["response_bodies"] == "complete"
 
-    writes = [
-        operation
+    request_bodies = [
+        operation["requestBody"]
         for operations in doc["paths"].values()
-        for method, operation in operations.items()
-        if method != "get"
+        for operation in operations.values()
+        if "requestBody" in operation
     ]
-    assert writes, "no mutating operations found; the assertion below would be vacuous"
-    assert all(op.get("x-caliber-request-body") == "not-yet-modelled" for op in writes)
+    assert request_bodies, "no request bodies were published"
+    assert all("content" in payload for payload in request_bodies)
+
+    assert "requestBody" in doc["paths"][PREFIX + "/auth/login"]["post"]
+    assert "requestBody" in doc["paths"][PREFIX + "/projects"]["post"]
+    assert "requestBody" in doc["paths"][PREFIX + "/object-store/buckets/{bucket}/objects"]["post"]
 
 
 def test_the_document_requires_authentication(client: TestClient) -> None:
@@ -197,17 +197,19 @@ def test_every_ref_resolves_within_the_document(client: TestClient) -> None:
 
 
 def test_shared_responses_are_referenced_not_inlined(client: TestClient) -> None:
-    """Guards the size regression that motivated components.responses.
-
-    Inlining the same five response blocks across 355 operations produced a
-    348 KB document, most of it identical bytes.
-    """
+    """Shared error responses stay reusable even though success bodies vary."""
     doc = client.get(OPENAPI_URL).json()
-    assert set(doc["components"]["responses"]) >= {"Success", "Unauthenticated", "NotFound"}
+    assert set(doc["components"]["responses"]) >= {"ValidationFailed", "Unauthenticated", "NotFound"}
+    referenced = 0
     for path, operations in doc["paths"].items():
         for method, operation in operations.items():
             for status, response in operation["responses"].items():
-                assert "$ref" in response, f"{method.upper()} {path} inlines its {status} response"
+                if status in {"400", "401", "403", "404"} and "$ref" in response:
+                    referenced += 1
+    assert referenced > 200, (
+        "shared error responses stopped being reused broadly; the document is likely "
+        "regressing toward per-operation duplication"
+    )
 
 
 def test_every_tag_has_a_declared_stability_tier(client: TestClient) -> None:

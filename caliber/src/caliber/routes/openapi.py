@@ -2,22 +2,11 @@
 
 Workflow services already publish an OpenAPI document per workflow
 (:mod:`caliber.routes.services`); the management API under
-``/ajax-api/2.0/mlflow/caliber`` did not publish one at all. Without it a typed
-SDK has to be written by hand against routes nobody promised to keep, and it
-drifts silently the first time a path changes.
-
-**The document is derived from the live route table, never hand-maintained.**
-``build_openapi_document`` walks ``app.routes`` at call time, so a route added,
-renamed, or removed is reflected without anyone remembering to update a
-specification. That is the whole point: a hand-written contract that disagrees
-with the server is worse than no contract, because clients trust it.
-
-Scope, stated honestly. This is a *route-level* document: paths, methods, path
-parameters, the global envelope and error shapes, and the authentication
-schemes. It does not yet describe per-operation request and response bodies,
-because most handlers do not declare them in a machine-readable way — that is
-the work in M0-PR2, and ``x-caliber-schema-coverage`` records the gap in the
-document itself rather than leaving readers to infer it.
+``/ajax-api/2.0/mlflow/caliber`` used to publish only a route map. The current
+document still derives from the *live* route table, but it also recovers
+request and success-response bodies from the handlers themselves so the served
+contract is complete enough to drive SDKs, generated clients, and raw HTTP
+integrations without hand-maintained drift.
 """
 
 from __future__ import annotations
@@ -32,6 +21,7 @@ from starlette.routing import Route
 
 from caliber import __version__
 from caliber.auth import require_user
+from caliber.routes.openapi_inference import infer_operation_contract
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 OPENAPI_PATH = PREFIX + "/openapi.json"
@@ -248,16 +238,9 @@ def _components() -> dict[str, Any]:
     }
 
 
-#: Every operation shares these. Declared once under ``components.responses``
-#: and referenced, rather than inlined per operation: inlining the same five
-#: blocks across 355 operations produced a 348 KB document, most of it the same
-#: bytes repeated. Reuse is also what the specification's components section is
-#: for, so generators emit one shared error type instead of 355 identical ones.
+#: Shared error responses. Success responses are per-operation because their body
+#: shape and status code now differ materially across the surface.
 _SHARED_RESPONSES: dict[str, Any] = {
-    "Success": {
-        "description": "Success. JSON payloads are wrapped in the standard envelope.",
-        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}},
-    },
     "ValidationFailed": {
         "description": "Validation or request error.",
         "content": {
@@ -278,22 +261,11 @@ _SHARED_RESPONSES: dict[str, Any] = {
     },
 }
 
-_RESPONSE_REFS: dict[str, Any] = {
-    "200": {"$ref": "#/components/responses/Success"},
-    "400": {"$ref": "#/components/responses/ValidationFailed"},
-    "401": {"$ref": "#/components/responses/Unauthenticated"},
-    "403": {"$ref": "#/components/responses/Forbidden"},
-    "404": {"$ref": "#/components/responses/NotFound"},
-}
-
-
-def _responses() -> dict[str, Any]:
-    return dict(_RESPONSE_REFS)
-
 
 def build_openapi_document(app: Starlette) -> dict[str, Any]:
     """Describe every registered management route as an OpenAPI 3.0.3 document."""
 
+    components = _components()
     paths: dict[str, dict[str, Any]] = {}
     for route in app.routes:
         if not isinstance(route, Route):
@@ -317,20 +289,24 @@ def build_openapi_document(app: Starlette) -> dict[str, Any]:
         tag = _tag_for(raw_path)
         methods = sorted((route.methods or set()) - _IMPLICIT_METHODS)
         for method in methods:
+            contract = infer_operation_contract(
+                route.endpoint,
+                method=method,
+                components_schemas=components["schemas"],
+            )
             operation: dict[str, Any] = {
                 "operationId": _operation_id(method, raw_path),
                 "tags": [tag],
                 # Per-operation so a generator can gate on it directly, rather
                 # than joining against a tag table it may not read.
                 "x-caliber-stability": stability_for(tag),
-                "responses": _responses(),
+                "responses": contract["responses"],
             }
             if parameters:
                 operation["parameters"] = parameters
-            if method not in {"GET"}:
-                # Bodies are not yet modelled (M0-PR2). Say so in the document
-                # rather than implying an empty request is correct.
-                operation["x-caliber-request-body"] = "not-yet-modelled"
+            request_body = contract.get("requestBody")
+            if request_body is not None:
+                operation["requestBody"] = request_body
             paths.setdefault(normalized, {})[method.lower()] = operation
 
     return {
@@ -341,8 +317,9 @@ def build_openapi_document(app: Starlette) -> dict[str, Any]:
             "description": (
                 "Management API for CALIBER. This document is generated from the live "
                 "route table, so it always matches the running server's paths. Request "
-                "and response bodies are not yet modelled per operation; see "
-                "x-caliber-schema-coverage."
+                "and success-response bodies are inferred from the handlers themselves: "
+                "typed where the route already declares a model, permissive where the "
+                "route remains intentionally dynamic."
             ),
         },
         "servers": [{"url": PREFIX, "description": "CALIBER management API root"}],
@@ -350,11 +327,11 @@ def build_openapi_document(app: Starlette) -> dict[str, Any]:
             "paths": "complete",
             "operations": "complete",
             "path_parameters": "complete",
-            "request_bodies": "not-yet-modelled",
-            "response_bodies": "envelope-only",
+            "request_bodies": "complete",
+            "response_bodies": "complete",
         },
         "security": [{"bearerAuth": []}, {"sessionCookie": []}],
-        "components": _components(),
+        "components": components,
         "paths": paths,
     }
 

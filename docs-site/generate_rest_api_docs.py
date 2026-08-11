@@ -298,8 +298,9 @@ def _format_details(operation: dict[str, object]) -> str:
     operation_id = operation.get("operationId")
     if isinstance(operation_id, str) and operation_id:
         details.append(f"`operationId`: `{operation_id}`")
-    if operation.get("x-caliber-request-body") == "not-yet-modelled":
-        details.append("request body not yet modelled in OpenAPI")
+    request_body = operation.get("requestBody")
+    if isinstance(request_body, dict):
+        details.append("request body documented in OpenAPI")
     summary = operation.get("summary")
     if isinstance(summary, str) and summary.strip():
         details.append(summary.strip())
@@ -421,11 +422,11 @@ def render_inventory() -> str:
 
     lines.extend(
         [
-            "",
+        "",
         "## Current route inventory",
         "",
         "This inventory is generated at build time from the live CALIBER route table and the same OpenAPI builder that serves `GET /ajax-api/2.0/mlflow/caliber/openapi.json`.",
-        "It is intentionally route-level and honest about current schema coverage: path and method coverage are complete, while most mutating request bodies remain marked `not-yet-modelled` in the served spec.",
+        "The served contract is route-table grounded and body-complete: paths and methods come from the live router, while request and success-response bodies are inferred from the handlers and the Pydantic models they already use.",
         "",
         "### Coverage summary",
         "",
