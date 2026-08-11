@@ -56,7 +56,7 @@ HERE = Path(__file__).resolve().parent
 PAPER = HERE.parent
 OUT = HERE / "caliber-layered-control-plane.pptx"
 
-FOOTER = "CALIBER  ·  A Layered Control Plane for AI Agent Governance, Workflow Orchestration, and Progressive Autonomy"
+FOOTER = "CALIBER  ·  A Layered Control Plane for Governed Releases of AI-Agent Resources"
 
 
 # --------------------------------------------------------------------------- #
@@ -221,7 +221,7 @@ def title_slide(deck: Deck) -> None:
     s.text(ML, 130, 700, 92, "CALIBER", size=66, bold=True, color=WHITE,
            spacing=1.0)
     s.text(ML, 228, 660, 62,
-           "A Layered Control Plane for AI Agent Governance,\nWorkflow Orchestration, and Progressive Autonomy",
+           "A Layered Control Plane for\nGoverned Releases of AI-Agent Resources",
            size=22, bold=True, color=WHITE, spacing=1.22, check="subtitle")
     s.text(ML, 300, 620, 48,
            "The governed asset is a typed record with version history, an authority "

@@ -15,6 +15,7 @@
 % ------------------------------------------------------ system + components ---
 \newcommand{\sys}{\textsc{Caliber}\xspace}
 \newcommand{\sysbare}{\textsc{Caliber}}
+\newcommand{\sysacronymtext}{Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement}
 \newcommand{\mlflow}{MLflow\xspace}
 \newcommand{\aria}{Aria\xspace}
 
@@ -73,8 +74,8 @@
 
 % Text-mode separators for figure labels. Using these instead of $\cdot$ and
 % $\to$ keeps every glyph in the Times family, so a \tiny figure label does not
-% mix a Computer Modern math symbol into a line of Times (see usenix-layout.sty
-% on why mathptmx is not loaded).
+% mix a Computer Modern math symbol into a line of Times. mathptmx is not loaded
+% because its virtual math fonts pull in absent dependencies on a basic install.
 % \dt is drawn rather than set. A centred dot lives only in TS1, whose coverage
 % varies by family, and any miss falls back to a Metafont bitmap that embeds as a
 % Type 3 font -- a routine camera-ready rejection. A rule is vector everywhere,

@@ -24,10 +24,11 @@ Run it with `make diagrams` from `paper/`.
 Drawing these by hand in Excalidraw would have cost four things the paper relies
 on. Generating the scenes keeps all four:
 
-1. **Numbers stay single-sourced.** `454 routes`, `71 tables`, `9 families` come
-   from `generated/stats.tex`, which `gen_stats.py` derives from the CALIBER tree.
-   A scene generated in Python reads the same values. Hand-drawn text in a JSON
-   blob would have to be retyped every time the code changes.
+1. **Numbers stay single-sourced.** Route declarations, generated table counts,
+   family counts, and the rest come from `generated/stats.tex`, which
+   `gen_stats.py` derives from the CALIBER tree. A scene generated in Python reads
+   the same values. Hand-drawn text in a JSON blob would have to be retyped every
+   time the code changes.
 2. **One palette, enforced.** `palette.py` mirrors `tex/preamble.tex`, so an
    Excalidraw box and a TikZ box for the same role are the same colour by
    construction rather than by eye.

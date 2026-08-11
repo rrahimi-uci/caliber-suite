@@ -803,8 +803,8 @@ def infographic():
         b.append(rect(M, 44 + i * 12, 60 - i * 6, 5.5, TEAL, r=2.8, opacity=1 - i * 0.2))
     b.append(txt(M - 3, 152, "CALIBER", size=54, fill="#FFFFFF", weight="700", ls=-1.2))
     b.append(rect(M, 172, 56, 4, TEAL, r=2))
-    b.append(txt(M, 214, "A Layered Control Plane for AI Agent Governance,", size=21, fill="#BFD4E6"))
-    b.append(txt(M, 242, "Workflow Orchestration, and Progressive Autonomy", size=21, fill="#BFD4E6"))
+    b.append(txt(M, 214, "A Layered Control Plane for Governed Releases", size=21, fill="#BFD4E6"))
+    b.append(txt(M, 242, "of AI-Agent Resources", size=21, fill="#BFD4E6"))
     b.append(txt(M, 288, "Reza Rahimi", size=19, fill="#FFFFFF", weight="700"))
     b.append(txt(M, 312, "Jazzx AI, Los Altos, CA  ·  reza.rahimi@jazzx.ai", size=15, fill="#7E9AB4"))
 

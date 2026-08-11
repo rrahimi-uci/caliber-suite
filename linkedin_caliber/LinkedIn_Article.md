@@ -3,7 +3,7 @@ How we built a control plane for everything an AI agent depends on
 
 ![Hero banner](images/hero_banner.png)
 
-**Executive summary:** Production LLM-agent systems are thoroughly observable and barely governable. Tracing tells an operator that a prompt regressed; nothing in the toolchain says what to change, whether the change is better, who approved it, or how to undo it. Prompt registries closed part of that gap — for prompts. In our paper, *CALIBER: A Layered Control Plane for AI Agent Governance, Workflow Orchestration, and Progressive Autonomy*, we close it across nine resource families at once, around a single abstraction called the **governed asset**. The most interesting result is not that layering makes governance uniform. It is that it does not, and why saying so precisely is worth more than papering over it.
+**Executive summary:** Production LLM-agent systems are thoroughly observable and barely governable. Tracing tells an operator that a prompt regressed; nothing in the toolchain says what to change, whether the change is better, who approved it, or how to undo it. Prompt registries closed part of that gap — for prompts. In our technical report, *CALIBER: A Layered Control Plane for Governed Releases of AI-Agent Resources*, we close it across nine resource families at once, around a single abstraction called the **governed asset**. The most interesting result is not that layering makes governance uniform. It is that it does not, and why saying so precisely is worth more than papering over it.
 
 ---
 
@@ -122,4 +122,4 @@ The same instinct explains the empty results table. A control plane earns trust 
 
 ## Source
 
-This article is based on the paper *CALIBER: A Layered Control Plane for AI Agent Governance, Workflow Orchestration, and Progressive Autonomy* by Reza Rahimi. The paper presents the governed-asset abstraction, the six-layer architecture, the seven-term governance chain, the per-family guarantee matrix, ten design decisions with their costs, and a measurement protocol offered as an artifact rather than as a result.
+This article is based on the technical report *CALIBER: A Layered Control Plane for Governed Releases of AI-Agent Resources* by Reza Rahimi. The report presents the governed-asset abstraction, the six-layer architecture, the seven-term governance chain, the per-family guarantee matrix, ten design decisions with their costs, and a measurement protocol offered as an artifact rather than as a result.

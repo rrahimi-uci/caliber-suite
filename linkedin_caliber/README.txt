@@ -9,7 +9,7 @@ This package includes:
 - head.tex                       : LaTeX preamble used by the PDF build below
 
 The article is based on the paper *CALIBER: A Layered Control Plane for AI Agent
-Governance, Workflow Orchestration, and Progressive Autonomy* (see ../paper) and is
+for Governed Releases of AI-Agent Resources* (see ../paper) and is
 written for a broad LinkedIn audience: engineers, platform leads, architects, and
 researchers working on production agent systems.
 

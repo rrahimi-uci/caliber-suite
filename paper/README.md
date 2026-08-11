@@ -1,17 +1,9 @@
-# CALIBER technical paper
+# CALIBER technical report
 
-LaTeX source for *CALIBER: A Layered Control Plane for AI Agent Governance,
-Workflow Orchestration, and Progressive Autonomy*, in the authoritative
+LaTeX source for *CALIBER: A Layered Control Plane for Governed Releases of
+AI-Agent Resources*, in the authoritative
 single-column KOMA-Script `scrreprt`
 format.
-
-## Publication variants
-
-- [`arxiv/`](arxiv/) — self-contained arXiv-ready source package for the
-  comprehensive technical manuscript.
-- [`mlsys/`](mlsys/) — official MLSys Industry Track adaptation in the conference
-  two-column style, focused on the industrial problem, architecture, deployment,
-  and lessons learned.
 
 ## Build
 
@@ -38,7 +30,6 @@ silently.
 | --- | --- |
 | `tex/main.tex` | Root document. Nothing but `\input` and the title block. |
 | `tex/article-layout.sty` | Single-column editorial styling used by `scrreprt`. |
-| `tex/usenix-layout.sty` | Legacy conference-layout scaffolding; not authoritative. |
 | `tex/pseudocode.sty` | The algorithm float and pseudocode environment. |
 | `tex/preamble.tex` | Packages, figure palette, TikZ styles, figure type scale. |
 | `tex/macros.tex` | Controlled vocabulary and every number the paper states. |
@@ -63,8 +54,8 @@ The authoritative manuscript build uses KOMA-Script's report class:
 ```
 
 It includes a table of contents and starts every top-level section, Availability,
-References, and appendix on a new page. `usenix-layout.sty` remains in `tex/` as
-historical scaffolding; it is not an alternative authoritative PDF build.
+References, and appendix on a new page. This is the only authoritative PDF build
+under `paper/`.
 
 ### How one set of figures serves both measures
 
@@ -75,8 +66,8 @@ size. The resolution is that **nothing is ever scaled down**:
 
 | Wrapper | Used by | What it does |
 | --- | --- | --- |
-| `cbwide` | the 6 conference-full-width figures, 3 wide tables | Centres the content at its authored size in a `\textwidth` box, letting it overhang the 3.3 cm margins by ~1.5 cm each side. Type size is untouched, so the 7 pt floor carries over exactly. |
-| `cbscaled[f]` | the 5 conference-column-width figures | Scales content **up** to `f`×`\textwidth`. Scaling up moves type further above the floor, never below it. |
+| `cbwide` | the 6 widest figures, 3 wide tables | Centres the content at its authored size in a `\textwidth` box, letting it overhang the 3.3 cm margins by ~1.5 cm each side. Type size is untouched, so the 7 pt floor carries over exactly. |
+| `cbscaled[f]` | the 5 narrower figures | Scales content **up** to `f`×`\textwidth`. Scaling up moves type further above the floor, never below it. |
 
 `cbscaled`'s factor is per-figure, not global, because these figures differ in
 aspect ratio by more than 3× (`fig-asset` is 8.7 × 5.3 cm; `fig-execution` is
@@ -104,7 +95,7 @@ is the same box-overflow discipline the figures are held to. `slides/preview.py`
 renders the shipped `.pptx` to PNG proof sheets. Details in
 [`slides/README.md`](slides/README.md).
 
-The deck carries the paper's standing as well as its content: slide 19 leads with
+The deck carries the technical report's standing as well as its content: slide 19 leads with
 the unrun quantitative evaluation and slide 23 gives the claims register with an
 `established` / `argued` / `unmet` verdict per row. If §10 or §12 changes, those two
 slides change with it.
@@ -269,14 +260,13 @@ Three font decisions are deliberate and load-bearing on a basic install:
 
 ## Two known issues
 
-**Target venue is undecided, and that is the decision blocking the layout
-question.** Two layouts are maintained (`article-layout.sty`, authoritative;
-`usenix-layout.sty`, retained), which is only worth the cost while the venue is
-open. Reviewer guidance on this was direct and correct: fix the venue and its page
-policy *first*, then keep exactly one layout and cut to that limit. Until then the
-`scrreprt` build is the technical-report edition and no page budget applies to it.
+**Target venue is undecided, so `paper/` stays intentionally report-first.**
+The single authoritative build in this directory is the `scrreprt` technical
+report. If a venue-specific submission is needed later, it should be created as a
+separate edition with its own page policy rather than by reintroducing parallel
+layouts into this pipeline.
 
-**Length.** The authoritative `scrreprt` build is 73 pages after adding the
+**Length.** The authoritative `scrreprt` build is 77 pages after adding the
 four-page contents section, new-page section boundaries, and the review-driven
 additions (`tab-platforms`, `tab-threat`, `tab-loops`, and the E6/E7 protocol
 groups). It is a technical

@@ -1,8 +1,8 @@
 # CALIBER seminar deck
 
 `caliber-layered-control-plane.pptx` — a 25-slide technical seminar deck for
-*CALIBER: A Layered Control Plane for AI Agent Governance, Workflow
-Orchestration, and Progressive Autonomy*. It is **generated**, not drawn, from
+*CALIBER: A Layered Control Plane for Governed Releases of AI-Agent
+Resources*. It is **generated**, not drawn, from
 two files in this directory:
 
 | File | What it holds |
@@ -63,7 +63,7 @@ reads on slide 20:
 | limit / refusal / cost | warm red `#A93B2B` | an unmet obligation, a price paid, a facet a family does not implement |
 | neutral | slate tints | structure and supporting copy |
 
-That mapping is deliberately the paper's own chip vocabulary from `tab-families`,
+That mapping is deliberately the technical report's own chip vocabulary from `tab-families`,
 which is why the guarantee-surface slide can be read without a legend lookup — the
 legend under it restates the chips anyway, because an adopter reading a
 screenshot has no table caption.

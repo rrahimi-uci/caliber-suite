@@ -1,6 +1,6 @@
-# CALIBER technical paper -- build orchestration.
+# CALIBER technical report -- build orchestration.
 #
-#   make          build the paper into build/caliber-paper.pdf
+#   make          build the technical report into build/caliber-paper.pdf
 #   make stats    regenerate the implementation figures from the source tree
 #   make diagrams rebuild the Excalidraw architecture figures (needs node)
 #   make watch    rebuild on change (needs fswatch or inotifywait)
@@ -9,8 +9,8 @@
 #   make distclean also remove generated/
 #
 # latexmk is not assumed: the toolchain here is plain pdflatex + bibtex, which
-# is what a TeX Live "basic" install ships. Four passes settle the two-column
-# float placement, the bibliography, and the cross-references.
+# is what a TeX Live "basic" install ships. Four passes settle the float
+# placement, the bibliography, and the cross-references.
 
 SHELL      := /bin/bash
 .SHELLFLAGS:= -eu -o pipefail -c

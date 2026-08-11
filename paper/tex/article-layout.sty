@@ -1,9 +1,4 @@
-%% article-layout.sty -- single-column article layout.
-%%
-%% The alternative to usenix-layout.sty, which is still in this directory: switch
-%% the \usepackage line in main.tex to move between the two. Everything else in
-%% the document is shared, including all eleven figures, five tables, and four
-%% algorithms.
+%% article-layout.sty -- single-column technical-report layout.
 %%
 %% The design problem this file solves is that a single-column measure and a
 %% figure-dense systems paper pull in opposite directions. A measure wide enough
@@ -13,10 +8,10 @@
 %%
 %%   * Body text is set to a ~78-character measure (15cm at 11pt), which is the
 %%     readable range for continuous prose.
-%%   * Figures authored at full conference width are centred in a box that is
+%%   * Figures authored at full design width are centred in a box that is
 %%     allowed to overhang the margins symmetrically (\begin{cbwide}). They keep
 %%     their authored size, so the 7pt type floor is preserved exactly.
-%%   * Figures authored at conference *column* width are scaled UP to sit
+%%   * Figures authored narrower than the text measure are scaled UP to sit
 %%     comfortably in the measure (\begin{cbscaled}). Scaling up is safe: it moves
 %%     type further above the floor, never below it.
 %%
@@ -92,7 +87,7 @@
 \setlength{\parindent}{1.4em}
 
 % ---------------------------------------------------------------- floating ----
-% This paper carries twenty floats. Without loosening LaTeX's defaults they queue
+% This technical report carries twenty floats. Without loosening LaTeX's defaults they queue
 % up and strand text.
 \renewcommand{\topfraction}{0.88}
 \renewcommand{\bottomfraction}{0.7}
@@ -115,7 +110,7 @@
 \titlespacing*{\subsubsection}{0pt}{1.6ex plus .5ex minus .2ex}{0.6ex plus .2ex}
 \setcounter{secnumdepth}{3}
 
-% Run-in paragraph heading, the workhorse of a dense systems paper.
+% Run-in paragraph heading, the workhorse of a dense technical report.
 \newcommand{\para}[1]{\vspace{0.5ex}\noindent\textbf{#1}\hspace{0.7em}\ignorespaces}
 
 % ------------------------------------------------------------------ title -----
@@ -156,10 +151,10 @@
 }
 
 % ------------------------------------------- content wider than the measure ----
-% Figures and tables authored at full conference width (about 17.4cm) are centred
+% Figures and tables authored at full design width (about 17.4cm) are centred
 % in a \textwidth-wide box and allowed to overhang the 3.3cm margins by roughly
 % 1.2cm on each side. They keep their authored size, so the 7pt figure type floor
-% carries over from the two-column layout untouched.
+% reaches the page unchanged.
 \newsavebox{\cb@widebox}
 \newenvironment{cbwide}%
   {\begin{lrbox}{\cb@widebox}}%
@@ -167,7 +162,7 @@
    \par\noindent\makebox[\textwidth][c]{\usebox{\cb@widebox}}\par}
 
 % ------------------------------------------ content narrower than the measure ---
-% Figures authored at conference column width (about 9cm) would sit in a third of
+% Figures authored around 9cm wide would otherwise sit in a third of
 % this measure. They are scaled UP, which moves their type further above the
 % legibility floor rather than below it.
 %
@@ -190,7 +185,7 @@
 \setlength{\bibsep}{0.9ex plus 0.3ex}
 \renewcommand{\bibfont}{\small}
 
-% \balance is a two-column tool. Absorb it so section files stay layout-agnostic.
+% \balance is not used by this layout. Absorb it so section files stay layout-agnostic.
 \providecommand{\balance}{\relax}
 
 \endinput
