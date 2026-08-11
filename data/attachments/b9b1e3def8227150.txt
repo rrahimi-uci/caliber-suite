@@ -1,0 +1,1 @@
+INFO     caliber.extensibility.entrypoints:entrypoints.py:116 optimizer plugin 'acme' from acme-caliber-optimizers is installed but not allowlisted; add it to CALIBER_PLUGIN_ALLOWLIST to enable

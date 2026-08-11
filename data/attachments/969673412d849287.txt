@@ -1,5 +1,0 @@
-ERROR    caliber.assistant.service:service.py:5302 assistant reviewer failed for draft ADRF-d025210c
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/service.py", line 5266, in _review_draft
-    raise RuntimeError(config_error)
-RuntimeError: Release identity must be distinct from author and reviewer.

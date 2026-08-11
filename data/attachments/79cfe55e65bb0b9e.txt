@@ -1,0 +1,8 @@
+ERROR    caliber.llm.openai_agents:openai_agents.py:707 diagnosis agent failed for id=FB-1
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/llm/openai_agents.py", line 705, in _run_agent_sync
+    return Runner.run_sync(agent, prompt)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_openai_agents_provider.py", line 74, in run_sync
+    raise error
+RuntimeError: rate limited

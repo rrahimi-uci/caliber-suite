@@ -1,0 +1,1 @@
+{"t":"2026-08-11T04:03:26.874Z","severity":"WARNING","logger":"caliber.events.bus","message":"event bus subscriber queue full; dropping event of type='new_event'"}
