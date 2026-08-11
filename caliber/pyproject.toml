@@ -46,7 +46,23 @@ dependencies = [
     # services — switching later costs almost nothing.
     "prometheus-client>=0.20,<1",
     # MCP gateway transport client (stdio/SSE/streamable-http).
-    "mcp>=1.27,<3",
+    #
+    # Capped below 2.0 because this code is written against the 1.x API and 2.0
+    # is a breaking rename, not a drop-in. The previous `<3` admitted it, so a
+    # clean CI install resolved 2.0.0 while developer venvs kept 1.29.0 — green
+    # locally, five type errors on the remote:
+    #
+    #   CallToolResult.isError            -> is_error
+    #   ClientSession(read_timeout_seconds=timedelta) -> float | None
+    #   streamable_http_client(http_client=httpx.AsyncClient) -> httpx2.AsyncClient
+    #   a 2-tuple return grew to 3 values
+    #   mcp.server.fastmcp moved
+    #
+    # Migrating is real work with runtime consequences — 2.0 changes the HTTP
+    # client stack, so it needs testing against live MCP servers rather than
+    # riding along in an unrelated change. Raise this cap deliberately, with
+    # that testing, not by widening the range.
+    "mcp>=1.27,<2",
     "httpx>=0.27,<1",
     # Standards-compliant validation for the no-code Data Transform node.
     "jsonschema>=4.22,<5",
