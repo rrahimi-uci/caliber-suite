@@ -56,7 +56,7 @@ HERE = Path(__file__).resolve().parent
 PAPER = HERE.parent
 OUT = HERE / "caliber-layered-control-plane.pptx"
 
-FOOTER = "CALIBER  ·  A Layered Control Plane for Per-Family Governance of AI-Agent Resources"
+FOOTER = "CALIBER  ·  A Layered Control Plane for AI Agent Governance, Workflow Orchestration, and Progressive Autonomy"
 
 
 # --------------------------------------------------------------------------- #
@@ -221,7 +221,7 @@ def title_slide(deck: Deck) -> None:
     s.text(ML, 130, 700, 92, "CALIBER", size=66, bold=True, color=WHITE,
            spacing=1.0)
     s.text(ML, 228, 660, 62,
-           "A Layered Control Plane for Per-Family\nGovernance of AI-Agent Resources",
+           "A Layered Control Plane for AI Agent Governance,\nWorkflow Orchestration, and Progressive Autonomy",
            size=22, bold=True, color=WHITE, spacing=1.22, check="subtitle")
     s.text(ML, 300, 620, 48,
            "The governed asset is a typed record with version history, an authority "
@@ -631,9 +631,10 @@ def s_layers(deck: Deck) -> None:
         lede_h=22,
     )
     bands = [
-        ("L6", "Surfaces", f"the React SPA, an HTTP API of {S['statRouteDecls']} route "
-                           f"declarations across {S['statRouteModules']} modules, and the "
-                           "Aria copilot's permissioned agentic tool loop", "teal"),
+        ("L6", "Surfaces", f"the React SPA, a served management API of {S['statRouteDecls']} "
+                           f"route declarations across {S['statRouteModules']} modules, a "
+                           "thin Python SDK and CLI over that contract, and the Aria "
+                           "copilot's permissioned agentic tool loop", "teal"),
         ("L5", "Lifecycle modes", "Author, Test, Evaluate, Calibrate, Release, Observe "
                                   "— the verbs", "teal"),
         ("L4", "Asset families", f"{S['statFamiliesW']} governed families — the nouns. Six "

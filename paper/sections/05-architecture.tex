@@ -176,12 +176,13 @@ this architecture, after reading the chain's seven terms as seven stages.
 \subsection{\Lnum{5} lifecycle modes and \Lnum{6} surfaces}
 
 The modes are described in \secref{sec:overview}. The surfaces are the React SPA
-at a same-origin path, an HTTP API of \statRouteDecls{} route declarations across
-\statRouteModules{} modules, the \aria{} copilot's permissioned agentic tool loop,
-and headless access by service token with server-sent events and webhooks. The
-architectural property of this layer is that both deployment topologies expose an
-identical surface (\figref{fig:topologies}), so the topology choice is an
-operations decision rather than a feature one.
+at a same-origin path, a served management API of \statRouteDecls{} route
+declarations across \statRouteModules{} modules, a thin Python SDK and CLI over
+that contract, the \aria{} copilot's permissioned agentic tool loop, and headless
+access by service token with server-sent events and webhooks. The architectural
+property of this layer is that both deployment topologies expose an identical
+surface (\figref{fig:topologies}), so the topology choice is an operations
+decision rather than a feature one.
 
 \subsection{Control flow, data flow, and the execution lifecycle}
 \label{sec:exec}

@@ -40,6 +40,14 @@ rollback, evidence, gate, and calibration facets for all nine families. A contra
 test requires every row and field. This is stronger than a UI convention but weaker
 than a type system that proves every route implements the declaration.
 
+That machine-readable surface is now published in two forms. The management API
+serves its own OpenAPI document, and the repository ships a thin Python SDK and
+CLI over the same contract. The important property for this paper is alignment
+rather than packaging: browser, SDK, CLI, and external automation all consume the
+same governed-asset surface instead of a private side channel. The caveat is the
+same as above: typed access is a stronger discovery surface than a UI convention,
+not a proof that every route family has an equally mature wrapper.
+
 \subsection{What a promote must record}
 
 The prompt-alias service records the following fields before its external effect

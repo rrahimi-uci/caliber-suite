@@ -1,5 +1,8 @@
 {
   "figures": [
-    "fig-layers"
+    "fig-layers",
+    "fig-system",
+    "fig-dataflow",
+    "fig-topologies"
   ]
 }
