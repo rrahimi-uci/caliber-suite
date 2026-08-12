@@ -44,6 +44,7 @@ from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from caliber.config import provider_request_timeout
+from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.llm.models import is_reasoning_model
 from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
@@ -51,7 +52,6 @@ from caliber.tool_sandbox.models import ToolSandboxRunRequest
 from caliber.tool_sandbox.service import (
     sandbox_from_optional_config,
 )
-from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.workflows.guardrails import (
     GuardrailBlockedError,
     GuardrailContext,

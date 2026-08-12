@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
@@ -32,8 +32,15 @@ from caliber.auth import (
     require_user,
     resolve_identity,
 )
-from caliber.db.models import CaliberProject, CaliberWorkflowFile
-from caliber.ids import new_project_id
+from caliber.db.models import CaliberProject, CaliberProjectMember, CaliberWorkflowFile
+from caliber.ids import new_project_id, new_project_member_id
+from caliber.resource_access import (
+    PROJECT_ROLES,
+    ROLE_OWNER,
+    member_payload,
+    permissions_for_role,
+    require_project_access,
+)
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -46,6 +53,10 @@ from caliber.schemas import (
     ProjectFileListSchema,
     ProjectFileSchema,
     ProjectFolderSchema,
+    ProjectMemberCreateRequest,
+    ProjectMemberListSchema,
+    ProjectMemberSchema,
+    ProjectMemberUpdateRequest,
     ProjectSchema,
     ProjectStorageSchema,
 )
@@ -149,6 +160,8 @@ def _project_to_schema(
     *,
     file_count: int | None = None,
     storage_backend: str | None = None,
+    access_role: str | None = None,
+    permissions: frozenset[str] | set[str] | None = None,
 ) -> ProjectSchema:
     """The declared shape of a project response.
 
@@ -166,6 +179,8 @@ def _project_to_schema(
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         file_count=file_count,
+        access_role=access_role,
+        permissions=sorted(permissions or ()),
     )
 
 
@@ -295,19 +310,25 @@ def _require_project(
     files, create folder, and upload all funnelled through -- so a known project id read
     and mutated another owner's project even though listing hid it.
 
-    Projects have no visibility tiers, only an owner, so the predicate is owner equality
-    with an admin bypass -- copied deliberately from ``list_projects`` rather than
-    reinvented, because a detail rule that disagrees with its list rule is how this
-    class of defect appears in the first place.
+    Projects are visible to their owner, active members, and admins. The same helper
+    is used by list, detail, file, and membership routes so a detail rule cannot drift
+    from its list rule.
 
     A project owned by someone else 404s rather than 403s: "exists but forbidden"
     confirms the id is real.
     """
-    project = session.get(CaliberProject, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
-    if not identity.has_scope(SCOPE_ADMIN) and project.owner != identity.user_id:
-        raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+    project, _decision = require_project_access(session, identity, project_id, "read")
+    return project
+
+
+def _require_project_action(
+    session: Session,
+    project_id: str,
+    *,
+    identity: CaliberIdentity,
+    action: str,
+) -> CaliberProject:
+    project, _decision = require_project_access(session, identity, project_id, action)
     return project
 
 
@@ -335,14 +356,40 @@ async def list_projects(request: Request) -> JSONResponse:
             stmt = stmt.where(CaliberProject.status == status)
         elif not status:
             stmt = stmt.where(CaliberProject.status == "active")
-        # Projects are owner-scoped (no visibility tiers); admins see all.
+        # Owners and active members can see a project; admins see all.
         if not identity.has_scope(SCOPE_ADMIN):
-            stmt = stmt.where(CaliberProject.owner == identity.user_id)
+            stmt = (
+                stmt.outerjoin(
+                    CaliberProjectMember,
+                    and_(
+                        CaliberProjectMember.project_id == CaliberProject.project_id,
+                        CaliberProjectMember.user_id == identity.user_id,
+                        CaliberProjectMember.status == "active",
+                    ),
+                )
+                .where(
+                    or_(
+                        CaliberProject.owner == identity.user_id,
+                        CaliberProjectMember.member_id.is_not(None),
+                    )
+                )
+                .distinct()
+            )
         rows = session.execute(stmt.order_by(CaliberProject.created_at.desc())).scalars().all()
         # file counts per project (visible files only) — a single grouped query
         # rather than one per project (avoids an N+1 as the project list grows).
         counts = _project_file_counts(session, [row.project_id for row in rows])
-        items = [_project_to_schema(row, file_count=counts.get(row.project_id, 0)) for row in rows]
+        items = []
+        for row in rows:
+            _project, decision = require_project_access(session, identity, row.project_id)
+            items.append(
+                _project_to_schema(
+                    row,
+                    file_count=counts.get(row.project_id, 0),
+                    access_role=decision.role,
+                    permissions=decision.permissions,
+                )
+            )
     return envelope_response(items)
 
 
@@ -386,6 +433,16 @@ async def create_project(request: Request) -> JSONResponse:
             storage_backend=storage_backend,
         )
         session.add(project)
+        session.add(
+            CaliberProjectMember(
+                member_id=new_project_member_id(),
+                project_id=project.project_id,
+                user_id=actor,
+                role=ROLE_OWNER,
+                status="active",
+                created_by=actor,
+            )
+        )
         try:
             session.flush()
         except IntegrityError as exc:
@@ -401,7 +458,12 @@ async def create_project(request: Request) -> JSONResponse:
             details={"name": project.name, "storage_backend": storage_backend},
         )
         session.commit()
-        payload = _project_to_schema(project, file_count=0)
+        payload = _project_to_schema(
+            project,
+            file_count=0,
+            access_role=ROLE_OWNER,
+            permissions=permissions_for_role(ROLE_OWNER),
+        )
     return envelope_response(payload, status_code=201)
 
 
@@ -410,22 +472,177 @@ async def get_project(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        project = _require_project(session, project_id, identity=resolve_identity(request))
+        project, decision = require_project_access(
+            session, resolve_identity(request), project_id, "read"
+        )
         count = _project_file_count(session, project_id)
         payload = _project_to_schema(
             project,
             file_count=count,
+            access_role=decision.role,
+            permissions=decision.permissions,
         )
     return envelope_response(payload)
+
+
+async def list_project_members(request: Request) -> JSONResponse:
+    """List active project members and their effective roles."""
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        require_project_access(session, identity, project_id, "read")
+        rows = (
+            session.execute(
+                select(CaliberProjectMember)
+                .where(
+                    CaliberProjectMember.project_id == project_id,
+                    CaliberProjectMember.status == "active",
+                )
+                .order_by(CaliberProjectMember.created_at.asc(), CaliberProjectMember.user_id.asc())
+            )
+            .scalars()
+            .all()
+        )
+        payload = ProjectMemberListSchema(
+            members=[ProjectMemberSchema.model_validate(member_payload(row)) for row in rows]
+        )
+    return envelope_response(payload)
+
+
+async def add_project_member(request: Request) -> JSONResponse:
+    body = await parse_json_object(request)
+    payload = ProjectMemberCreateRequest.model_validate(body)
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    user_id = payload.user_id.strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="'user_id' is required")
+    if payload.role not in PROJECT_ROLES - {ROLE_OWNER}:
+        raise HTTPException(status_code=400, detail="role must be editor, reviewer, or viewer")
+    factory = get_session_factory(request)
+    with factory() as session:
+        require_project_access(session, identity, project_id, "project.manage_members")
+        project = session.get(CaliberProject, project_id)
+        if project is None:  # defensive; the access helper already checked it
+            raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+        existing = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == project_id,
+                CaliberProjectMember.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            if existing.status != "active":
+                existing.status = "active"
+                existing.role = payload.role
+                existing.created_by = identity.user_id
+                member = existing
+            else:
+                raise HTTPException(status_code=409, detail="user is already a project member")
+        else:
+            member = CaliberProjectMember(
+                member_id=new_project_member_id(),
+                project_id=project_id,
+                user_id=user_id,
+                role=payload.role,
+                status="active",
+                created_by=identity.user_id,
+            )
+            session.add(member)
+        audit_record(
+            session,
+            actor=identity.user_id,
+            action="add_project_member",
+            entity_type="project",
+            entity_id=project_id,
+            details={"user_id": user_id, "role": payload.role},
+        )
+        session.commit()
+        data = ProjectMemberSchema.model_validate(member_payload(member))
+    return envelope_response(data, status_code=201)
+
+
+async def update_project_member(request: Request) -> JSONResponse:
+    body = await parse_json_object(request)
+    payload = ProjectMemberUpdateRequest.model_validate(body)
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    user_id = request.path_params["user_id"]
+    if payload.role is not None and payload.role not in PROJECT_ROLES - {ROLE_OWNER}:
+        raise HTTPException(status_code=400, detail="role must be editor, reviewer, or viewer")
+    if payload.status is not None and payload.status not in {"active", "inactive"}:
+        raise HTTPException(status_code=400, detail="status must be active or inactive")
+    factory = get_session_factory(request)
+    with factory() as session:
+        require_project_access(session, identity, project_id, "project.manage_members")
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == project_id,
+                CaliberProjectMember.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(status_code=404, detail="project member not found")
+        if member.role == ROLE_OWNER:
+            raise HTTPException(status_code=409, detail="the project owner cannot be changed here")
+        if payload.role is not None:
+            member.role = payload.role
+        if payload.status is not None:
+            member.status = payload.status
+        audit_record(
+            session,
+            actor=identity.user_id,
+            action="update_project_member",
+            entity_type="project",
+            entity_id=project_id,
+            details={"user_id": user_id, "role": member.role, "status": member.status},
+        )
+        session.commit()
+        data = ProjectMemberSchema.model_validate(member_payload(member))
+    return envelope_response(data)
+
+
+async def remove_project_member(request: Request) -> JSONResponse:
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    user_id = request.path_params["user_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        require_project_access(session, identity, project_id, "project.manage_members")
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == project_id,
+                CaliberProjectMember.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if member is None:
+            raise HTTPException(status_code=404, detail="project member not found")
+        if member.role == ROLE_OWNER:
+            raise HTTPException(status_code=409, detail="the project owner cannot be removed")
+        member.status = "inactive"
+        audit_record(
+            session,
+            actor=identity.user_id,
+            action="remove_project_member",
+            entity_type="project",
+            entity_id=project_id,
+            details={"user_id": user_id},
+        )
+        session.commit()
+    return JSONResponse({"data": {"project_id": project_id, "user_id": user_id, "removed": True}})
 
 
 async def update_project(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     body = await parse_json_object(request)
-    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
-        project = _require_project(session, project_id, identity=resolve_identity(request))
+        project = _require_project_action(
+            session, project_id, identity=identity, action="project.update"
+        )
+        actor = identity.user_id
         if isinstance(body.get("name"), str) and body["name"].strip():
             project.name = body["name"].strip()
         if isinstance(body.get("description"), str):
@@ -476,14 +693,18 @@ async def list_project_files(request: Request) -> JSONResponse:
 async def create_project_folder(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     body = await parse_json_object(request)
-    actor = require_scopes(request, [SCOPE_OPERATOR])
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    actor = identity.user_id
     raw_path = body.get("path")
     if not isinstance(raw_path, str) or not raw_path.strip():
         raise HTTPException(status_code=400, detail="'path' is required")
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            project = _require_project(session, project_id, identity=resolve_identity(request))
+            project = _require_project_action(
+                session, project_id, identity=identity, action="resource.write"
+            )
             service = _project_storage_service(request, project)
             rec = service.create_project_folder(
                 session,
@@ -510,12 +731,16 @@ async def create_project_folder(request: Request) -> JSONResponse:
 
 async def upload_project_file(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
-    actor = require_scopes(request, [SCOPE_OPERATOR])
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    actor = identity.user_id
     data, filename, kind, media_type, _metadata = await _read_upload(request)
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            project = _require_project(session, project_id, identity=resolve_identity(request))
+            project = _require_project_action(
+                session, project_id, identity=identity, action="resource.write"
+            )
             service = _project_storage_service(request, project)
             rec = service.register_project_file(
                 session,
@@ -546,11 +771,13 @@ async def upload_project_file(request: Request) -> JSONResponse:
 async def download_project_file(request: Request) -> Response:
     project_id = request.path_params["project_id"]
     file_id = request.path_params["file_id"]
-    actor = require_user(request)
+    identity = resolve_identity(request)
+    actor = identity.user_id
     service = get_working_dir_service(request)
     factory = get_session_factory(request)
     try:
         with factory() as session:
+            _require_project_action(session, project_id, identity=identity, action="read")
             row = _file_for_project_or_404(session, project_id, file_id)
             content = service.read_bytes(row)
             service.record_event(
@@ -578,10 +805,13 @@ async def download_project_file(request: Request) -> Response:
 async def delete_project_file(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     file_id = request.path_params["file_id"]
-    actor = require_scopes(request, [SCOPE_OPERATOR])
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    actor = identity.user_id
     service = get_working_dir_service(request)
     factory = get_session_factory(request)
     with factory() as session:
+        _require_project_action(session, project_id, identity=identity, action="resource.write")
         row = _file_for_project_or_404(session, project_id, file_id)
         # Soft-delete in metadata (storage doc §2.6); the retention janitor
         # reclaims the physical object later.
@@ -608,5 +838,13 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(FILES_PATH, list_project_files, methods=["GET"]))
     app.routes.append(Route(FILE_CONTENT_PATH, download_project_file, methods=["GET"]))
     app.routes.append(Route(FILE_PATH, delete_project_file, methods=["DELETE"]))
+    app.routes.append(Route(DETAIL_PATH + "/members", list_project_members, methods=["GET"]))
+    app.routes.append(Route(DETAIL_PATH + "/members", add_project_member, methods=["POST"]))
+    app.routes.append(
+        Route(DETAIL_PATH + "/members/{user_id}", update_project_member, methods=["PATCH"])
+    )
+    app.routes.append(
+        Route(DETAIL_PATH + "/members/{user_id}", remove_project_member, methods=["DELETE"])
+    )
     app.routes.append(Route(DETAIL_PATH, get_project, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, update_project, methods=["PATCH"]))

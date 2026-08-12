@@ -59,6 +59,13 @@ tools, and publish them safely.
    hand-registered tool: it shows up in the tool registry, can be bound into
    a workflow, and is reachable through `client.tools`.
 
+Publishing is project-aware. The caller must have `resource.publish` in the
+selected project's effective permissions, which is granted to the project
+`owner` and `editor` roles. An organization-wide publish still requires the
+global admin scope. A successful publish returns the published tool alongside
+the updated draft, so the UI/SDK can show what happened immediately rather than
+leaving the draft in an ambiguous state.
+
 ## 2. Common tasks
 
 | You want to... | Read this next |
@@ -76,6 +83,7 @@ tools, and publish them safely.
 | --- | --- |
 | Import from a URL fails immediately | the host is blocked by egress policy (loopback, link-local, private range) — allowlist it if intentional |
 | A draft won't publish | its server URL is unset, or the operation requires auth and no binding is set, or a bound secret reference does not resolve |
+| A draft is ready but publish is refused | check the selected project's `access_role`/`permissions`; `owner` or `editor` is required for project publication |
 | `preview` returns 409 | the draft's `allow_in_preview` flag is off — set it explicitly, since preview performs a real upstream call |
 | A dependency never shows up as canonical | it was a low-confidence, same-tag-only signal — advisory hints require operator confirmation, they never auto-wire |
 | A tool works from a workflow but not from Aria | check whether it is approval-gated or whether the current Aria mode hides its side-effect tier; `read` tools are always projected, while `write` / `external_action` tools require a mutating build mode |

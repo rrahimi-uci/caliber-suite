@@ -13,7 +13,7 @@ BASE = "https://caliber.test"
 
 def client_with(handler: object) -> CaliberClient:
     http = httpx.Client(transport=httpx.MockTransport(handler))  # type: ignore[arg-type]
-    return CaliberClient(BASE, token="calpat_x", http_client=http)  # type: ignore[arg-type]
+    return CaliberClient(BASE, token="calpat_x", http_client=http)
 
 
 def test_create_posts_name_and_decodes_the_integration() -> None:
@@ -103,7 +103,9 @@ def test_generate_tool_drafts_sends_selection_filters_not_just_ids() -> None:
 def test_preview_tool_draft_sends_input_and_returns_the_raw_result() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert json.loads(request.content) == {"input": {"path_params": {"ticket_id": "T-1"}}}
-        return httpx.Response(200, json={"data": {"draft_id": "OATD-1", "result": {"status_code": 200}}})
+        return httpx.Response(
+            200, json={"data": {"draft_id": "OATD-1", "result": {"status_code": 200}}}
+        )
 
     with client_with(handler) as caliber:
         result = caliber.openapi_integrations.preview_tool_draft(

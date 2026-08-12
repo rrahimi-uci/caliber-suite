@@ -218,7 +218,9 @@ class OpenApiIntegrationsAPI(Resource):
             params["status"] = status
         return decode_list(
             OpenApiOperationDependency,
-            self._get(f"/openapi-integrations/{integration_id}/dependencies", params=params or None),
+            self._get(
+                f"/openapi-integrations/{integration_id}/dependencies", params=params or None
+            ),
         )
 
     def review_dependency(
@@ -304,7 +306,9 @@ class OpenApiIntegrationsAPI(Resource):
             self._get(f"/openapi-integrations/{integration_id}/tool-drafts/{draft_id}"),
         )
 
-    def update_tool_draft(self, integration_id: str, draft_id: str, **changes: Any) -> OpenApiToolDraft:
+    def update_tool_draft(
+        self, integration_id: str, draft_id: str, **changes: Any
+    ) -> OpenApiToolDraft:
         return decode(
             OpenApiToolDraft,
             self._patch(
@@ -349,7 +353,9 @@ class OpenApiIntegrationsAPI(Resource):
             f"/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/publish", json=body
         )
 
-    def validate_credential_binding(self, integration_id: str, *, auth_binding: dict[str, Any]) -> Any:
+    def validate_credential_binding(
+        self, integration_id: str, *, auth_binding: dict[str, Any]
+    ) -> Any:
         """Check whether an auth binding's secret references resolve, without publishing."""
         return self._post(
             f"/openapi-integrations/{integration_id}/validate-credential-binding",

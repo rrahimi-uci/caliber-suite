@@ -64,7 +64,9 @@ def import_and_publish_readonly_tool(caliber: CaliberClient) -> dict[str, Any]:
     operations = caliber.openapi_integrations.list_operations(
         integration.integration_id, version_id=version.version_id
     )
-    get_incident = next(op for op in operations if op.operation_key == "GET /incidents/{incident_id}")
+    get_incident = next(
+        op for op in operations if op.operation_key == "GET /incidents/{incident_id}"
+    )
     assert get_incident.side_effect_level == "read"  # classified from the HTTP method, not asserted
 
     drafts = caliber.openapi_integrations.generate_tool_drafts(

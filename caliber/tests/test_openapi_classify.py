@@ -50,7 +50,9 @@ def test_ordinary_write_stays_write() -> None:
 
 
 def test_send_notification_verb_escalates_to_external_action() -> None:
-    op = _operation(method="POST", path="/tickets/{id}/notify", spec_operation_id="sendTicketNotification")
+    op = _operation(
+        method="POST", path="/tickets/{id}/notify", spec_operation_id="sendTicketNotification"
+    )
     result = classify_operation(op)
     assert result["side_effect_level"] == "external_action"
 
@@ -104,7 +106,9 @@ def test_offset_pagination_is_detected_when_no_cursor_or_page_param_exists() -> 
 
 
 def test_post_is_never_classified_as_paginated() -> None:
-    op = _operation(method="POST", path="/tickets/search", parameters=[{"in": "query", "name": "cursor"}])
+    op = _operation(
+        method="POST", path="/tickets/search", parameters=[{"in": "query", "name": "cursor"}]
+    )
     result = classify_operation(op)
     assert result["pagination"]["style"] == "none"
     assert result["is_paginated"] is False
@@ -137,7 +141,9 @@ def test_job_handle_field_in_response_body_marks_the_operation_async() -> None:
 
 
 def test_status_poll_path_is_flagged() -> None:
-    op = _operation(method="GET", path="/exports/{export_id}/status", spec_operation_id="getExportStatus")
+    op = _operation(
+        method="GET", path="/exports/{export_id}/status", spec_operation_id="getExportStatus"
+    )
     result = classify_operation(op)
     assert result["is_status_poll"] is True
 

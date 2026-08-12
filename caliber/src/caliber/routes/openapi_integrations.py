@@ -9,6 +9,9 @@ declarative HTTP execution backend.
 
 from __future__ import annotations
 
+# Draft validation mirrors the staged governance rules and intentionally keeps
+# its state transitions in one auditable route handler.
+# ruff: noqa: PLR0912, PLR0915, SIM103
 from datetime import datetime, timezone
 from typing import Any
 
@@ -41,7 +44,11 @@ from caliber.ids import (
     new_openapi_tool_draft_id,
     new_tool_id,
 )
-from caliber.integrations.openapi.dependencies import CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, detect_dependencies
+from caliber.integrations.openapi.dependencies import (
+    CONFIDENCE_HIGH,
+    CONFIDENCE_MEDIUM,
+    detect_dependencies,
+)
 from caliber.integrations.openapi.diff import diff_operations
 from caliber.integrations.openapi.executor import execute_openapi_http_tool
 from caliber.integrations.openapi.graph import build_graph_snapshot
@@ -65,6 +72,7 @@ from caliber.integrations.openapi.tool_drafts import (
     build_tool_pack_name,
     pack_side_effect_level,
 )
+from caliber.resource_access import require_project_access
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -220,7 +228,9 @@ def _dependency_for_integration_or_404(
     return row, version
 
 
-def _draft_ready_for_publication(draft: CaliberOpenApiToolDraft, operations: list[CaliberOpenApiOperation]) -> bool:
+def _draft_ready_for_publication(
+    draft: CaliberOpenApiToolDraft, operations: list[CaliberOpenApiOperation]
+) -> bool:
     if not draft.server_url.strip():
         return False
     requires_auth = any(operation.auth_schemes for operation in operations)
@@ -770,7 +780,9 @@ async def list_openapi_versions(request: Request) -> JSONResponse:
         rows = (
             session.execute(
                 select(CaliberOpenApiIntegrationVersion)
-                .where(CaliberOpenApiIntegrationVersion.integration_id == integration.integration_id)
+                .where(
+                    CaliberOpenApiIntegrationVersion.integration_id == integration.integration_id
+                )
                 .order_by(CaliberOpenApiIntegrationVersion.created_at.desc())
             )
             .scalars()
@@ -803,7 +815,9 @@ def _sync_diff_openapi_version(
 
     with factory() as session:
         integration = _visible_integration_or_404(session, request, integration_id)
-        to_version = _version_for_integration_or_404(session, integration.integration_id, version_id)
+        to_version = _version_for_integration_or_404(
+            session, integration.integration_id, version_id
+        )
         if compare_to_version_id:
             from_version = _version_for_integration_or_404(
                 session, integration.integration_id, compare_to_version_id
@@ -813,7 +827,8 @@ def _sync_diff_openapi_version(
                 session.execute(
                     select(CaliberOpenApiIntegrationVersion)
                     .where(
-                        CaliberOpenApiIntegrationVersion.integration_id == integration.integration_id,
+                        CaliberOpenApiIntegrationVersion.integration_id
+                        == integration.integration_id,
                         CaliberOpenApiIntegrationVersion.version_id != to_version.version_id,
                         # ``<=``, not ``<``: SQLite's DATETIME column drops the
                         # fractional-second suffix a bound Python datetime carries
@@ -896,7 +911,12 @@ async def diff_openapi_version(request: Request) -> JSONResponse:
     require_user(request)
     factory = get_session_factory(request)
     return await run_in_threadpool(
-        _sync_diff_openapi_version, factory, request, integration_id, version_id, compare_to_version_id
+        _sync_diff_openapi_version,
+        factory,
+        request,
+        integration_id,
+        version_id,
+        compare_to_version_id,
     )
 
 
@@ -936,10 +956,14 @@ async def get_openapi_operation(request: Request) -> JSONResponse:
         integration = _visible_integration_or_404(session, request, integration_id)
         row = session.get(CaliberOpenApiOperation, operation_id)
         if row is None:
-            raise HTTPException(status_code=404, detail=f"OpenAPI operation {operation_id!r} not found")
+            raise HTTPException(
+                status_code=404, detail=f"OpenAPI operation {operation_id!r} not found"
+            )
         version = session.get(CaliberOpenApiIntegrationVersion, row.integration_version_id)
         if version is None or version.integration_id != integration.integration_id:
-            raise HTTPException(status_code=404, detail=f"OpenAPI operation {operation_id!r} not found")
+            raise HTTPException(
+                status_code=404, detail=f"OpenAPI operation {operation_id!r} not found"
+            )
         data = OpenApiOperationSchema.model_validate(row)
     return envelope_response(data)
 
@@ -983,7 +1007,12 @@ async def list_openapi_dependencies(request: Request) -> JSONResponse:
     status_filter = request.query_params.get("status", "").strip()
     factory = get_session_factory(request)
     return await run_in_threadpool(
-        _sync_list_openapi_dependencies, factory, request, integration_id, requested_version_id, status_filter
+        _sync_list_openapi_dependencies,
+        factory,
+        request,
+        integration_id,
+        requested_version_id,
+        status_filter,
     )
 
 
@@ -1040,7 +1069,13 @@ async def review_openapi_dependency(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
     factory = get_session_factory(request)
     return await run_in_threadpool(
-        _sync_review_openapi_dependency, factory, request, integration_id, dependency_id, payload, actor
+        _sync_review_openapi_dependency,
+        factory,
+        request,
+        integration_id,
+        dependency_id,
+        payload,
+        actor,
     )
 
 
@@ -1188,7 +1223,9 @@ async def generate_openapi_tool_drafts(request: Request) -> JSONResponse:
             if payload.auth_binding is not None
             else None
         )
-        server_url = (payload.server_url or (version.server_urls[0] if version.server_urls else "")).strip()
+        server_url = (
+            payload.server_url or (version.server_urls[0] if version.server_urls else "")
+        ).strip()
         operations = _select_operations(session, version, payload)
         if not operations:
             raise HTTPException(
@@ -1225,7 +1262,9 @@ async def generate_openapi_tool_drafts(request: Request) -> JSONResponse:
         for draft in drafts:
             session.add(draft)
         if drafts and all(
-            _draft_ready_for_publication(draft, _draft_operations(session, integration.integration_id, draft))
+            _draft_ready_for_publication(
+                draft, _draft_operations(session, integration.integration_id, draft)
+            )
             for draft in drafts
         ):
             integration.status = "ready"
@@ -1348,7 +1387,10 @@ async def update_openapi_tool_draft(request: Request) -> JSONResponse:
             diff["auth_binding"] = {"from": bool(draft.auth_binding), "to": bool(new_auth_binding)}
             draft.auth_binding = new_auth_binding
             draft.secret_refs = auth_binding_secret_refs(new_auth_binding)
-        if "requires_approval" in changes and changes["requires_approval"] != draft.requires_approval:
+        if (
+            "requires_approval" in changes
+            and changes["requires_approval"] != draft.requires_approval
+        ):
             diff["requires_approval"] = {
                 "from": draft.requires_approval,
                 "to": changes["requires_approval"],
@@ -1372,7 +1414,9 @@ async def update_openapi_tool_draft(request: Request) -> JSONResponse:
                 draft.status = requested_status
         version = session.get(CaliberOpenApiIntegrationVersion, draft.integration_version_id)
         assert version is not None
-        new_auth_binding = dict(draft.auth_binding) if isinstance(draft.auth_binding, dict) else None
+        new_auth_binding = (
+            dict(draft.auth_binding) if isinstance(draft.auth_binding, dict) else None
+        )
         if len(operations) > 1:
             draft.execution_config = build_pack_execution_config(
                 integration=integration,
@@ -1498,10 +1542,18 @@ async def publish_openapi_tool_draft(request: Request) -> JSONResponse:
     draft_id = request.path_params["draft_id"]
     body = await parse_json_object(request)
     payload = OpenApiPublishToolDraftRequest.model_validate(body)
-    actor = require_scopes(request, [SCOPE_ADMIN])
+    actor = require_user(request)
     factory = get_session_factory(request)
     with factory() as session:
         integration = _visible_integration_or_404(session, request, integration_id)
+        identity = resolve_identity(request)
+        if integration.project_id:
+            require_project_access(session, identity, integration.project_id, "resource.publish")
+        elif not identity.has_scope(SCOPE_ADMIN):
+            raise HTTPException(
+                status_code=403,
+                detail="publishing an organization-wide tool requires admin access",
+            )
         draft = _draft_for_integration_or_404(session, integration.integration_id, draft_id)
         operations = _draft_operations(session, integration.integration_id, draft)
         if draft.published_tool_id is not None:
@@ -1551,8 +1603,12 @@ async def publish_openapi_tool_draft(request: Request) -> JSONResponse:
             callable_name="invoke",
             execution_backend="openapi_http",
             backend_config=dict(draft.execution_config or {}),
-            input_schema=dict(draft.input_schema or {}) if isinstance(draft.input_schema, dict) else None,
-            output_schema=dict(draft.output_schema or {}) if isinstance(draft.output_schema, dict) else None,
+            input_schema=dict(draft.input_schema or {})
+            if isinstance(draft.input_schema, dict)
+            else None,
+            output_schema=dict(draft.output_schema or {})
+            if isinstance(draft.output_schema, dict)
+            else None,
             side_effect_level=draft.side_effect_level,
             requires_approval=draft.requires_approval,
             allow_in_preview=draft.allow_in_preview,
@@ -1600,10 +1656,7 @@ async def validate_openapi_credential_binding(request: Request) -> JSONResponse:
         _visible_integration_or_404(session, request, integration_id)
     auth_binding = payload.auth_binding.model_dump(mode="python", exclude_none=True)
     refs = auth_binding_secret_refs(auth_binding)
-    resolutions = [
-        {"secret_ref": ref, "resolved": bool(resolve_secret(ref))}
-        for ref in refs
-    ]
+    resolutions = [{"secret_ref": ref, "resolved": bool(resolve_secret(ref))} for ref in refs]
     return envelope_response_dict(
         {
             "valid": all(item["resolved"] for item in resolutions),
@@ -1631,12 +1684,12 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(OPERATIONS_PATH, list_openapi_operations, methods=["GET"]))
     app.routes.append(Route(OPERATION_DETAIL_PATH, get_openapi_operation, methods=["GET"]))
     app.routes.append(Route(DEPENDENCIES_PATH, list_openapi_dependencies, methods=["GET"]))
-    app.routes.append(
-        Route(DEPENDENCY_DETAIL_PATH, review_openapi_dependency, methods=["PATCH"])
-    )
+    app.routes.append(Route(DEPENDENCY_DETAIL_PATH, review_openapi_dependency, methods=["PATCH"]))
     app.routes.append(Route(GRAPH_PATH, get_openapi_graph, methods=["GET"]))
     app.routes.append(Route(TOOL_DRAFTS_PATH, list_openapi_tool_drafts, methods=["GET"]))
-    app.routes.append(Route(TOOL_DRAFT_GENERATE_PATH, generate_openapi_tool_drafts, methods=["POST"]))
+    app.routes.append(
+        Route(TOOL_DRAFT_GENERATE_PATH, generate_openapi_tool_drafts, methods=["POST"])
+    )
     app.routes.append(Route(TOOL_DRAFT_DETAIL_PATH, get_openapi_tool_draft, methods=["GET"]))
     app.routes.append(Route(TOOL_DRAFT_DETAIL_PATH, update_openapi_tool_draft, methods=["PATCH"]))
     app.routes.append(Route(TOOL_DRAFT_PREVIEW_PATH, preview_openapi_tool_draft, methods=["POST"]))

@@ -99,6 +99,87 @@ function baseDraft() {
   };
 }
 
+function baseDependency() {
+  return {
+    dependency_id: "OAID-1",
+    integration_version_id: "OAIV-1",
+    from_operation_id: "OAIO-1",
+    to_operation_id: "OAIO-2",
+    dependency_type: "produces_identifier_for" as const,
+    confidence: "medium" as const,
+    source: "path_parameter_match",
+    required: true,
+    binding_field_map: { ticket_id: "id" },
+    notes: "Create returns the id later consumed by get.",
+    status: "suggested" as const,
+    confirmed_by: null,
+    confirmed_at: null,
+    created_at: NOW,
+  };
+}
+
+function baseGraphSnapshot() {
+  return {
+    integration_id: "OAI-1",
+    integration_version_id: "OAIV-1",
+    nodes: [
+      {
+        id: "operation:OAIO-1",
+        type: "operation",
+        label: "POST /tickets",
+        data: {
+          method: "POST",
+          path: "/tickets",
+          side_effect_level: "write",
+        },
+      },
+      {
+        id: "operation:OAIO-2",
+        type: "operation",
+        label: "GET /tickets/{ticket_id}",
+        data: {
+          method: "GET",
+          path: "/tickets/{ticket_id}",
+          side_effect_level: "read",
+        },
+      },
+      {
+        id: "dependency:OAID-1",
+        type: "dependency",
+        label: "produces_identifier_for",
+        data: {
+          dependency_type: "produces_identifier_for",
+          confidence: "high",
+          status: "auto_wired",
+          source: "openapi_link",
+        },
+      },
+    ],
+    edges: [
+      {
+        id: "operation:OAIO-1->dependency:OAID-1",
+        type: "returns_identifier_for",
+        from: "operation:OAIO-1",
+        to: "dependency:OAID-1",
+        data: {},
+      },
+      {
+        id: "dependency:OAID-1->operation:OAIO-2",
+        type: "returns_identifier_for",
+        from: "dependency:OAID-1",
+        to: "operation:OAIO-2",
+        data: {},
+      },
+    ],
+    summary: {
+      node_count: 3,
+      edge_count: 2,
+      operation_count: 2,
+      dependency_count: 1,
+    },
+  };
+}
+
 function renderPage(): void {
   render(
     <MemoryRouter
@@ -227,6 +308,53 @@ describe("OpenApiIntegrations", () => {
     expect(await screen.findByText(/Imported OAIV-1/)).toBeInTheDocument();
   });
 
+  it("imports an uploaded spec file without overflowing the browser call stack", async () => {
+    let importBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(
+          envelope([{ ...baseIntegration(), last_imported_version_id: null }]),
+        ),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope({ ...baseIntegration(), last_imported_version_id: null })),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.post(`${API_BASE}/openapi-integrations/OAI-1/import`, async ({ request }) => {
+        importBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(envelope(baseVersion()), { status: 201 });
+      }),
+    );
+
+    const bytes = new Uint8Array(300_000);
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = index % 251;
+    }
+    const expectedBase64 = Buffer.from(bytes).toString("base64");
+    const file = new File([bytes], "ticket-api.yaml", { type: "application/yaml" });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByRole("heading", { name: "OpenAPI Integrations" });
+    await user.click(await screen.findByText("Ticketing"));
+    await screen.findByRole("heading", { name: /Ticketing/ });
+
+    await user.click(screen.getByRole("button", { name: "Upload" }));
+    await user.upload(screen.getByLabelText("OpenAPI spec file"), file);
+    await user.click(screen.getByTestId("import-submit"));
+
+    await waitFor(() => expect(importBody).not.toBeNull());
+    expect(importBody).toMatchObject({
+      source_kind: "upload",
+      source_ref: "ticket-api.yaml",
+      spec_base64: expectedBase64,
+    });
+    expect(await screen.findByText(/Imported OAIV-1/)).toBeInTheDocument();
+  });
+
   it("selects operations and generates a tool draft", async () => {
     let generateBody: Record<string, unknown> | null = null;
     server.use(
@@ -270,6 +398,62 @@ describe("OpenApiIntegrations", () => {
     expect(await screen.findByText(/Generated 1 tool draft/)).toBeInTheDocument();
   });
 
+  it("renders dependencies as operation relationships instead of opaque ids", async () => {
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([baseIntegration()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope(baseIntegration())),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([baseVersion()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/dependencies`, () =>
+        HttpResponse.json(envelope([baseDependency()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/operations`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              ...baseOperation(),
+              operation_id: "OAIO-1",
+              operation_key: "POST /tickets",
+              method: "POST",
+              path: "/tickets",
+              summary: "Create a ticket",
+              side_effect_level: "write",
+            },
+            {
+              ...baseOperation(),
+              operation_id: "OAIO-2",
+              operation_key: "GET /tickets/{ticket_id}",
+              method: "GET",
+              path: "/tickets/{ticket_id}",
+              summary: "Get a ticket",
+              side_effect_level: "read",
+            },
+          ]),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "OpenAPI Integrations" });
+    await user.click(await screen.findByText("Ticketing"));
+    await screen.findByRole("heading", { name: /Ticketing/ });
+
+    await user.click(screen.getByRole("button", { name: "Dependencies" }));
+
+    expect(await screen.findByText("Awaiting Review")).toBeInTheDocument();
+    expect(await screen.findByText("Produces identifier for")).toBeInTheDocument();
+    expect((await screen.findAllByText("POST /tickets")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("GET /tickets/{ticket_id}")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("ticket_id ← id")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  });
+
   it("publishes a ready tool draft from the Tool Drafts tab", async () => {
     let publishBody: Record<string, unknown> | null = null;
     server.use(
@@ -311,7 +495,67 @@ describe("OpenApiIntegrations", () => {
     await user.click(screen.getByRole("button", { name: "Publish" }));
 
     await waitFor(() => expect(publishBody).not.toBeNull());
-    expect(await screen.findByText(/Published as tool TL-1/)).toBeInTheDocument();
+    expect(await screen.findByTestId("openapi-publication-success")).toHaveTextContent(
+      "Tool published successfully",
+    );
+    expect(screen.getByTestId("openapi-publication-success")).toHaveTextContent("TL-1");
+    expect(screen.getByTestId("openapi-publication-success")).toHaveTextContent("openapi_http");
+    expect(screen.getByRole("link", { name: "Open in Tool Registry" })).toHaveAttribute(
+      "href",
+      "/tools/TL-1",
+    );
+  });
+
+  it("shows readable input and output signatures for a tool draft", async () => {
+    const draft = {
+      ...baseDraft(),
+      input_schema: {
+        type: "object",
+        required: ["ticket_id"],
+        properties: {
+          ticket_id: { type: "string" },
+          include_comments: { type: "boolean" },
+        },
+      },
+      output_schema: {
+        type: "object",
+        properties: {
+          ticket: { type: "object" },
+          status: { type: "string" },
+        },
+      },
+    };
+
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([baseIntegration()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope(baseIntegration())),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([baseVersion()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/tool-drafts`, () =>
+        HttpResponse.json(envelope([draft])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "OpenAPI Integrations" });
+    await user.click(await screen.findByText("Ticketing"));
+    await screen.findByRole("heading", { name: /Ticketing/ });
+
+    await user.click(screen.getByRole("button", { name: "Tool Drafts" }));
+    await user.click(await screen.findByText("get_ticket"));
+
+    expect(await screen.findByText("Callable Signature")).toBeInTheDocument();
+    expect(await screen.findByText(/get_ticket\(input:/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/ticket_id/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/include_comments/)).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Input Signature")).toBeInTheDocument();
+    expect(await screen.findByText("Output Signature")).toBeInTheDocument();
   });
 
   it("saves an OAuth client-credentials auth binding for a draft", async () => {
@@ -398,5 +642,64 @@ describe("OpenApiIntegrations", () => {
       },
     });
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
+  });
+
+  it("renders the API dependency graph and knowledge graph JSON", async () => {
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([baseIntegration()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope(baseIntegration())),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([baseVersion()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/graph`, () =>
+        HttpResponse.json(envelope(baseGraphSnapshot())),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "OpenAPI Integrations" });
+    await user.click(await screen.findByText("Ticketing"));
+    await screen.findByRole("heading", { name: /Ticketing/ });
+
+    await user.click(screen.getByRole("button", { name: "Graph" }));
+
+    expect(await screen.findByText("API Dependency Graph")).toBeInTheDocument();
+    expect(await screen.findByTestId("openapi-graph-canvas")).toBeInTheDocument();
+    expect(await screen.findByText("API Knowledge Graph JSON")).toBeInTheDocument();
+    expect(await screen.findByText("Dependency Edges")).toBeInTheDocument();
+    const jsonPanel = await screen.findByLabelText("API knowledge graph JSON");
+    expect(jsonPanel.textContent).toContain('"operations"');
+    expect(jsonPanel.textContent).toContain('"dependencies"');
+    expect(jsonPanel.textContent).toContain("POST /tickets");
+    expect(jsonPanel.textContent).toContain("GET /tickets/{ticket_id}");
+
+    await user.click(screen.getByRole("button", { name: "Inspect POST /tickets" }));
+    expect(await screen.findByTestId("openapi-graph-inspector")).toHaveTextContent(
+      "Supplies context to",
+    );
+    expect(screen.getByTestId("openapi-graph-inspector")).toHaveTextContent("GET /tickets/{ticket_id}");
+
+    await user.type(screen.getByLabelText("Search operations"), "ticket_id");
+    expect(screen.getByTestId("openapi-graph-canvas")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Inspect POST /tickets" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inspect GET /tickets/{ticket_id}" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    await user.selectOptions(screen.getByLabelText("Filter dependencies by status"), "confirmed");
+    expect(screen.getByText("0 of 1 relationship")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Filter dependencies by status"), "all");
+    await user.click(screen.getByRole("button", { name: "tree" }));
+    expect(await screen.findByTestId("openapi-tree-view")).toHaveTextContent("POST /tickets");
+    expect(screen.getByTestId("openapi-tree-view")).toHaveTextContent("GET /tickets/{ticket_id}");
+
+    await user.click(screen.getByRole("button", { name: "flow" }));
+    expect(await screen.findByTestId("openapi-flow-view")).toHaveTextContent("POST /tickets");
+    expect(screen.getByTestId("openapi-flow-view")).toHaveTextContent("GET /tickets/{ticket_id}");
   });
 });

@@ -10,8 +10,10 @@ from __future__ import annotations
 from typing import Any, BinaryIO
 
 from ..models._decode import decode, decode_list
-from ..models.core import Project, ProjectFile, ProjectFolder
+from ..models.core import Project, ProjectFile, ProjectFolder, ProjectMember
 from ._base import Resource
+
+_List = list
 
 
 class ProjectFilesAPI(Resource):
@@ -67,7 +69,7 @@ class ProjectFilesAPI(Resource):
 
 
 class ProjectsAPI(Resource):
-    """Projects, plus their file sub-resource."""
+    """Projects, project access, and the file sub-resource."""
 
     def __init__(self, transport: Any) -> None:
         super().__init__(transport)
@@ -100,6 +102,49 @@ class ProjectsAPI(Resource):
             if value is not None:
                 body[key] = value
         return decode(Project, self._patch(f"/projects/{project_id}", json=body))
+
+    def list_members(self, project_id: str) -> _List[ProjectMember]:
+        """List active members and their effective project roles."""
+        payload = self._get(f"/projects/{project_id}/members")
+        if not isinstance(payload, dict):
+            return []
+        return decode_list(ProjectMember, payload.get("members"))
+
+    def add_member(
+        self, project_id: str, user_id: str, *, role: str = "viewer"
+    ) -> ProjectMember:
+        """Grant ``user_id`` a project role; only owners may manage members."""
+        return decode(
+            ProjectMember,
+            self._post(
+                f"/projects/{project_id}/members",
+                json={"user_id": user_id, "role": role},
+            ),
+        )
+
+    def update_member(
+        self,
+        project_id: str,
+        user_id: str,
+        *,
+        role: str | None = None,
+        status: str | None = None,
+    ) -> ProjectMember:
+        """Change a member's role or active status."""
+        body: dict[str, Any] = {}
+        if role is not None:
+            body["role"] = role
+        if status is not None:
+            body["status"] = status
+        return decode(
+            ProjectMember,
+            self._patch(f"/projects/{project_id}/members/{user_id}", json=body),
+        )
+
+    def remove_member(self, project_id: str, user_id: str) -> bool:
+        """Deactivate a member; the project owner cannot be removed."""
+        payload = self._delete(f"/projects/{project_id}/members/{user_id}")
+        return isinstance(payload, dict) and payload.get("removed") is True
 
     def storage(self) -> Any:
         """Where project files live, and what else the deployment supports."""

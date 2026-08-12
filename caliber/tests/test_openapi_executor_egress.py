@@ -46,17 +46,15 @@ class _Handler(BaseHTTPRequestHandler):
     received: list[dict[str, Any]] = []
     responder: Any = None
 
-    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's contract
+    def do_GET(self) -> None:
         self._respond()
 
-    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's contract
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         self._respond(body=self.rfile.read(length).decode("utf-8") if length else "")
 
     def _respond(self, body: str = "") -> None:
-        type(self).received.append(
-            {"path": self.path, "headers": dict(self.headers), "body": body}
-        )
+        type(self).received.append({"path": self.path, "headers": dict(self.headers), "body": body})
         responder = type(self).responder
         if callable(responder):
             status, payload, headers = responder(self.path, body, dict(self.headers))
@@ -305,13 +303,17 @@ def test_oauth_client_credentials_fetches_a_token_and_caches_it(local_server) ->
     server, handler = local_server
     host, port = server.server_address[0], server.server_address[1]
 
-    def responder(path: str, body: str, headers: dict[str, str]) -> tuple[int, dict[str, Any], dict[str, str]]:
+    def responder(
+        path: str, body: str, headers: dict[str, str]
+    ) -> tuple[int, dict[str, Any], dict[str, str]]:
         if path == "/oauth/token":
             assert headers["Authorization"].startswith("Basic ")
             assert "grant_type=client_credentials" in body
-            return 200, {"access_token": "oauth-token", "token_type": "Bearer", "expires_in": 3600}, {
-                "Content-Type": "application/json"
-            }
+            return (
+                200,
+                {"access_token": "oauth-token", "token_type": "Bearer", "expires_in": 3600},
+                {"Content-Type": "application/json"},
+            )
         return 200, {"ticket_id": "T-1", "status": "open"}, {"Content-Type": "application/json"}
 
     handler.responder = responder
@@ -352,14 +354,18 @@ def test_oauth_refresh_token_uses_refresh_grant(local_server) -> None:
     server, handler = local_server
     host, port = server.server_address[0], server.server_address[1]
 
-    def responder(path: str, body: str, _headers: dict[str, str]) -> tuple[int, dict[str, Any], dict[str, str]]:
+    def responder(
+        path: str, body: str, _headers: dict[str, str]
+    ) -> tuple[int, dict[str, Any], dict[str, str]]:
         if path == "/oauth/token":
             assert "grant_type=refresh_token" in body
             assert "refresh_token=refresh-me" in body
             assert "client_id=refresh-client" in body
-            return 200, {"access_token": "refreshed-token", "token_type": "Bearer"}, {
-                "Content-Type": "application/json"
-            }
+            return (
+                200,
+                {"access_token": "refreshed-token", "token_type": "Bearer"},
+                {"Content-Type": "application/json"},
+            )
         return 200, {"ticket_id": "T-1", "status": "resolved"}, {"Content-Type": "application/json"}
 
     handler.responder = responder

@@ -46,6 +46,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
 | Observability | `GET /observability/traces`, `GET /metrics`, `GET /events/stream` | Runtime evidence and live telemetry |
+| Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only |
 
 ## Workflow-service OpenAPI
 
@@ -100,7 +101,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_api.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
-| Projects (`projects`) | `ga` | `10` | Typed SDK | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
+| Projects (`projects`) | `ga` | `14` | Typed SDK | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
@@ -155,8 +156,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `310` |
-| Operations | `382` |
+| Route paths | `312` |
+| Operations | `386` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -184,7 +185,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Me (`me`)](#me-me) | `1` | `1` |
 | [Capabilities (`capabilities`)](#capabilities-capabilities) | `1` | `1` |
 | [Settings (`settings`)](#settings-settings) | `3` | `2` |
-| [Projects (`projects`)](#projects-projects) | `10` | `7` |
+| [Projects (`projects`)](#projects-projects) | `14` | `9` |
 | [Prompts (`prompts`)](#prompts-prompts) | `22` | `18` |
 | [Skills (`skills`)](#skills-skills) | `19` | `16` |
 | [Tools (`tools`)](#tools-tools) | `20` | `16` |
@@ -306,7 +307,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Projects (`projects`)
 
-10 operation(s) across 7 route path(s).
+14 operation(s) across 9 route path(s).
 
 | Method | Path | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- |
@@ -320,6 +321,10 @@ Supported management routes that belong to the stable public automation surface.
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}` | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_files_file_id` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}/content` | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files_file_id_content` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/folders` | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_folders`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_members` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_members`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_members_user_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id_members_user_id`; request body documented in OpenAPI |
 
 #### Prompts (`prompts`)
 
@@ -997,5 +1002,7 @@ Published for route-table completeness, but not part of the supported SDK contra
 2. Fetch `GET /openapi.json` if you are generating or inspecting the raw HTTP
    contract.
 3. Use Bearer auth plus `X-CALIBER-Project` when you need scoped automation.
-4. Switch to the [SDK guide](m-20-sdk-guide.md) if you want typed models,
+4. For project membership, use the `/projects/{id}/members` routes and check
+   the returned role/permissions before enabling writes or publication.
+5. Switch to the [SDK guide](m-20-sdk-guide.md) if you want typed models,
    retries, error classes, waiters, and CSRF handling instead of raw HTTP.

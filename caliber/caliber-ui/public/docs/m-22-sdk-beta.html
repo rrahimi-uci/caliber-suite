@@ -163,6 +163,110 @@
 <p><strong><code>invoke_tool</code> goes through CALIBER, not around it.</strong> Calling the MCP server directly would work and would also bypass policy checks, budget accounting, and the audit record. The governed path is the point of the method existing.</p>
 <p><strong><code>object_store</code> is not <code>projects.files</code>.</strong> Object store is raw bucket storage addressed by key. Project files are registry entries with lineage, checksums, and workflow attribution. <code>object_store.import_object()</code> is the bridge: it promotes a stored object into the managed registry.</p>
 <p><strong><code>openapi_integrations</code> does not turn an import into a runtime tool.</strong> <code>import_spec()</code> only pins a normalized spec version — nothing is callable yet. Curation is explicit: select operations (or filter by <code>tags</code>/<code>methods</code>), call <code>generate_tool_drafts()</code>, then <code>publish_tool_draft()</code>. Only the last step creates a <code>Tool</code> your workflows and Aria can invoke, and <code>preview_tool_draft()</code> performs a real upstream call — it is refused unless the draft has <code>allow_in_preview</code> set, the same gate that keeps an approval-required write from firing before anyone approved it.</p>
+<p>The complete read-only flow is executable in the SDK test suite:</p>
+<figure class="code-example" data-example-src="sdk/caliber-sdk/examples/openapi_integration_readonly.py#import_and_publish_readonly_tool"><pre class="language-python"><code class="language-python"><span class="tok-keyword">def</span> <span class="tok-function">import_and_publish_readonly_tool</span><span class="tok-punctuation">(</span>caliber<span class="tok-punctuation">:</span> CaliberClient<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
+    <span class="tok-string">"""Import the spec, generate a tool draft for the read operation, and publish it.
+
+    Returns the published tool's id and the operation it wraps, so a caller can
+    bind it into a workflow or hand its id to Aria's ``openapi_tool.invoke``
+    capability immediately.
+    """</span>
+    integration <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span>
+        <span class="tok-string">"Status Page"</span><span class="tok-punctuation">,</span> description<span class="tok-operator">=</span><span class="tok-string">"Read-only incident status lookups"</span>
+    <span class="tok-punctuation">)</span>
+
+    <span class="tok-comment"># Importing pins a version; nothing is callable yet. That distinction is</span>
+    <span class="tok-comment"># the whole point of the staged pipeline — a spec import is not a publish.</span>
+    version <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">import_spec</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> spec_text<span class="tok-operator">=</span>STATUS_PAGE_SPEC
+    <span class="tok-punctuation">)</span>
+
+    operations <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">list_operations</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> version_id<span class="tok-operator">=</span>version<span class="tok-punctuation">.</span>version_id
+    <span class="tok-punctuation">)</span>
+    get_incident <span class="tok-operator">=</span> <span class="tok-function">next</span><span class="tok-punctuation">(</span>
+        op <span class="tok-keyword">for</span> op <span class="tok-keyword">in</span> operations <span class="tok-keyword">if</span> op<span class="tok-punctuation">.</span>operation_key <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"GET /incidents/{incident_id}"</span>
+    <span class="tok-punctuation">)</span>
+    <span class="tok-keyword">assert</span> get_incident<span class="tok-punctuation">.</span>side_effect_level <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"read"</span>  <span class="tok-comment"># classified from the HTTP method, not asserted</span>
+
+    drafts <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">generate_tool_drafts</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span>
+        operation_ids<span class="tok-operator">=</span><span class="tok-punctuation">[</span>get_incident<span class="tok-punctuation">.</span>operation_id<span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+        auth_binding<span class="tok-operator">=</span><span class="tok-punctuation">{</span><span class="tok-string">"kind"</span><span class="tok-punctuation">:</span> <span class="tok-string">"bearer"</span><span class="tok-punctuation">,</span> <span class="tok-string">"secret_ref"</span><span class="tok-punctuation">:</span> <span class="tok-string">"env://STATUS_PAGE_TOKEN"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+        <span class="tok-comment"># Safe to preview: nothing this operation does has a side effect.</span>
+        allow_in_preview<span class="tok-operator">=</span><span class="tok-boolean">True</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">)</span>
+    draft <span class="tok-operator">=</span> drafts<span class="tok-punctuation">[</span><span class="tok-number">0</span><span class="tok-punctuation">]</span>
+
+    preview <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">preview_tool_draft</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span>
+        draft<span class="tok-punctuation">.</span>draft_id<span class="tok-punctuation">,</span>
+        input<span class="tok-operator">=</span><span class="tok-punctuation">{</span><span class="tok-string">"path_params"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-string">"incident_id"</span><span class="tok-punctuation">:</span> <span class="tok-string">"INC-1"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">)</span>
+
+    published <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">publish_tool_draft</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> draft<span class="tok-punctuation">.</span>draft_id<span class="tok-punctuation">,</span> version<span class="tok-operator">=</span><span class="tok-string">"1.0"</span>
+    <span class="tok-punctuation">)</span>
+
+    <span class="tok-keyword">return</span> <span class="tok-punctuation">{</span>
+        <span class="tok-string">"integration_id"</span><span class="tok-punctuation">:</span> integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span>
+        <span class="tok-string">"tool_id"</span><span class="tok-punctuation">:</span> published<span class="tok-punctuation">[</span><span class="tok-string">"tool"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"tool_id"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"tool_name"</span><span class="tok-punctuation">:</span> published<span class="tok-punctuation">[</span><span class="tok-string">"tool"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"name"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operation_key"</span><span class="tok-punctuation">:</span> get_incident<span class="tok-punctuation">.</span>operation_key<span class="tok-punctuation">,</span>
+        <span class="tok-string">"preview_status_code"</span><span class="tok-punctuation">:</span> preview<span class="tok-punctuation">[</span><span class="tok-string">"result"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"status_code"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span></code></pre><figcaption>From <code>sdk/caliber-sdk/examples/openapi_integration_readonly.py</code> — executed by the SDK test suite.</figcaption></figure>
+<p>For a write-capable operation, the corresponding example keeps preview refused until explicitly enabled and publishes a tool that remains approval-gated:</p>
+<figure class="code-example" data-example-src="sdk/caliber-sdk/examples/openapi_integration_governed_write.py#import_and_publish_governed_write_tool"><pre class="language-python"><code class="language-python"><span class="tok-keyword">def</span> <span class="tok-function">import_and_publish_governed_write_tool</span><span class="tok-punctuation">(</span>caliber<span class="tok-punctuation">:</span> CaliberClient<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
+    <span class="tok-string">"""Curate the write operation, confirm the preview gate holds, then publish.
+
+    Returns the published tool's id and its ``requires_approval`` flag so a
+    caller can see the property the whole example exists to demonstrate:
+    curation does not weaken the platform's write-approval guarantees.
+    """</span>
+    integration <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span>
+        <span class="tok-string">"Ticketing"</span><span class="tok-punctuation">,</span> description<span class="tok-operator">=</span><span class="tok-string">"Support ticket creation"</span>
+    <span class="tok-punctuation">)</span>
+    version <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">import_spec</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> spec_text<span class="tok-operator">=</span>TICKETING_SPEC
+    <span class="tok-punctuation">)</span>
+
+    operations <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">list_operations</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> version_id<span class="tok-operator">=</span>version<span class="tok-punctuation">.</span>version_id
+    <span class="tok-punctuation">)</span>
+    create_ticket <span class="tok-operator">=</span> <span class="tok-function">next</span><span class="tok-punctuation">(</span>op <span class="tok-keyword">for</span> op <span class="tok-keyword">in</span> operations <span class="tok-keyword">if</span> op<span class="tok-punctuation">.</span>operation_key <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"POST /tickets"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">assert</span> create_ticket<span class="tok-punctuation">.</span>side_effect_level <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"write"</span>
+
+    drafts <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">generate_tool_drafts</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span>
+        operation_ids<span class="tok-operator">=</span><span class="tok-punctuation">[</span>create_ticket<span class="tok-punctuation">.</span>operation_id<span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+        auth_binding<span class="tok-operator">=</span><span class="tok-punctuation">{</span><span class="tok-string">"kind"</span><span class="tok-punctuation">:</span> <span class="tok-string">"bearer"</span><span class="tok-punctuation">,</span> <span class="tok-string">"secret_ref"</span><span class="tok-punctuation">:</span> <span class="tok-string">"env://TICKETING_TOKEN"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+        <span class="tok-comment"># Deliberately omitted: allow_in_preview. A write draft defaults to</span>
+        <span class="tok-comment"># requires_approval=True and stays un-previewable until an operator</span>
+        <span class="tok-comment"># opts in — see the refusal this provokes below.</span>
+    <span class="tok-punctuation">)</span>
+    draft <span class="tok-operator">=</span> drafts<span class="tok-punctuation">[</span><span class="tok-number">0</span><span class="tok-punctuation">]</span>
+    <span class="tok-keyword">assert</span> draft<span class="tok-punctuation">.</span>requires_approval <span class="tok-keyword">is</span> <span class="tok-boolean">True</span>
+
+    <span class="tok-keyword">try</span><span class="tok-punctuation">:</span>
+        caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">preview_tool_draft</span><span class="tok-punctuation">(</span>
+            integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> draft<span class="tok-punctuation">.</span>draft_id<span class="tok-punctuation">,</span> input<span class="tok-operator">=</span><span class="tok-punctuation">{</span><span class="tok-string">"body"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span><span class="tok-string">"title"</span><span class="tok-punctuation">:</span> <span class="tok-string">"test"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">}</span>
+        <span class="tok-punctuation">)</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">AssertionError</span><span class="tok-punctuation">(</span><span class="tok-string">"preview should have been refused for a non-previewable draft"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">except</span> CaliberConflictError <span class="tok-keyword">as</span> refused<span class="tok-punctuation">:</span>
+        <span class="tok-comment"># 409: "set 'allow_in_preview' before running a live upstream call."</span>
+        <span class="tok-keyword">assert</span> refused<span class="tok-punctuation">.</span>status_code <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-number">409</span>
+
+    published <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">publish_tool_draft</span><span class="tok-punctuation">(</span>
+        integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> draft<span class="tok-punctuation">.</span>draft_id<span class="tok-punctuation">,</span> version<span class="tok-operator">=</span><span class="tok-string">"1.0"</span>
+    <span class="tok-punctuation">)</span>
+
+    <span class="tok-keyword">return</span> <span class="tok-punctuation">{</span>
+        <span class="tok-string">"integration_id"</span><span class="tok-punctuation">:</span> integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span>
+        <span class="tok-string">"tool_id"</span><span class="tok-punctuation">:</span> published<span class="tok-punctuation">[</span><span class="tok-string">"tool"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"tool_id"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"tool_name"</span><span class="tok-punctuation">:</span> published<span class="tok-punctuation">[</span><span class="tok-string">"tool"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"name"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"side_effect_level"</span><span class="tok-punctuation">:</span> published<span class="tok-punctuation">[</span><span class="tok-string">"tool"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"side_effect_level"</span><span class="tok-punctuation">,</span> <span class="tok-string">"write"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"requires_approval"</span><span class="tok-punctuation">:</span> published<span class="tok-punctuation">[</span><span class="tok-string">"draft"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"requires_approval"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span></code></pre><figcaption>From <code>sdk/caliber-sdk/examples/openapi_integration_governed_write.py</code> — executed by the SDK test suite.</figcaption></figure>
 <pre class="language-python"><code class="language-python">integration <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span><span class="tok-string">"Ticketing"</span><span class="tok-punctuation">)</span>
 caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">import_spec</span><span class="tok-punctuation">(</span>integration<span class="tok-punctuation">.</span>integration_id<span class="tok-punctuation">,</span> spec_url<span class="tok-operator">=</span>SPEC_URL<span class="tok-punctuation">)</span>
 drafts <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>openapi_integrations<span class="tok-punctuation">.</span><span class="tok-function">generate_tool_drafts</span><span class="tok-punctuation">(</span>

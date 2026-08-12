@@ -42,7 +42,7 @@ class _Handler(BaseHTTPRequestHandler):
     content_type = "application/yaml"
     redirect_to: str | None = None
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         if type(self).redirect_to:
             self.send_response(302)
             self.send_header("Location", type(self).redirect_to)
@@ -55,7 +55,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_HEAD(self) -> None:  # noqa: N802
+    def do_HEAD(self) -> None:
         self.send_response(type(self).status)
         self.send_header("Content-Type", type(self).content_type)
         self.end_headers()

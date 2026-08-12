@@ -82,7 +82,9 @@ def normalize_openapi_document(
             if raw_operation is None:
                 continue
             if not isinstance(raw_operation, dict):
-                warnings.append(f"ignored {method.upper()} {path} because the operation is not an object")
+                warnings.append(
+                    f"ignored {method.upper()} {path} because the operation is not an object"
+                )
                 continue
             operations.append(
                 _normalize_operation(
@@ -205,7 +207,11 @@ def _merged_parameters(path_level: object, operation_level: object) -> list[dict
                 continue
             key = (location, name)
             if key in seen:
-                merged = [row for row in merged if (str(row.get("in") or ""), str(row.get("name") or "")) != key]
+                merged = [
+                    row
+                    for row in merged
+                    if (str(row.get("in") or ""), str(row.get("name") or "")) != key
+                ]
             merged.append(dict(item))
             seen.add(key)
     return merged

@@ -263,6 +263,23 @@ class Project:
     created_at: str | None = None
     updated_at: str | None = None
     file_count: int | None = None
+    access_role: str | None = None
+    permissions: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ProjectMember:
+    """A user's active or inactive membership in a project."""
+
+    member_id: str = ""
+    project_id: str = ""
+    user_id: str = ""
+    role: str = "viewer"
+    status: str = "active"
+    created_by: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -315,6 +332,7 @@ __all__ = [
     "Project",
     "ProjectFile",
     "ProjectFolder",
+    "ProjectMember",
     "RegisteredOptimizer",
     "RuntimeSettings",
     "RuntimeSettingsSummary",

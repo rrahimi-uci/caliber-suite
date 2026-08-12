@@ -129,17 +129,29 @@ def _openapi_tool(
                     "path": "/tickets/{ticket_id}" if side_effect_level == "read" else "/tickets",
                     "server_url": "https://tickets.example.com",
                     "auth_binding": None,
-                    "request_content_types": ["application/json"] if side_effect_level != "read" else [],
+                    "request_content_types": ["application/json"]
+                    if side_effect_level != "read"
+                    else [],
                 },
                 input_schema={
                     "type": "object",
                     "properties": (
-                        {"path_params": {"type": "object", "properties": {"ticket_id": {"type": "string"}}}}
+                        {
+                            "path_params": {
+                                "type": "object",
+                                "properties": {"ticket_id": {"type": "string"}},
+                            }
+                        }
                         if side_effect_level == "read"
-                        else {"body": {"type": "object", "properties": {"title": {"type": "string"}}}}
+                        else {
+                            "body": {"type": "object", "properties": {"title": {"type": "string"}}}
+                        }
                     ),
                 },
-                output_schema={"type": "object", "properties": {"status_code": {"type": "integer"}}},
+                output_schema={
+                    "type": "object",
+                    "properties": {"status_code": {"type": "integer"}},
+                },
                 side_effect_level=side_effect_level,
                 requires_approval=requires_approval,
                 allow_in_preview=True,
@@ -154,7 +166,7 @@ def _openapi_tool(
 
 
 def _mock_openapi(monkeypatch, handler) -> None:
-    def _build_client(*, policy, timeout):  # noqa: ANN001
+    def _build_client(*, policy, timeout):
         transport = httpx.MockTransport(handler)
         return httpx.Client(transport=transport, timeout=timeout)
 
@@ -228,16 +240,18 @@ class TestGating:
         )
         assert not any(
             name.startswith("openapi_tool_create_ticket")
-            for name in _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_safe"))
+            for name in _names(
+                _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
+            )
         )
         assert any(
             name.startswith("openapi_tool_create_ticket")
-            for name in _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_all"))
+            for name in _names(
+                _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+            )
         )
 
-    def test_dynamic_openapi_approval_gated_tool_is_not_exposed(
-        self, svc, session_factory
-    ) -> None:
+    def test_dynamic_openapi_approval_gated_tool_is_not_exposed(self, svc, session_factory) -> None:
         _openapi_tool(
             session_factory,
             tool_id="TL-openapi-gated",
@@ -248,7 +262,9 @@ class TestGating:
         sid = _session(svc, session_factory)
         assert not any(
             name.startswith("openapi_tool_delete_ticket")
-            for name in _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_all"))
+            for name in _names(
+                _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+            )
         )
 
 
@@ -311,9 +327,7 @@ class TestReadHandlers:
 
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
-        tool_name = next(
-            name for name in _names(ts) if name.startswith("openapi_tool_get_ticket")
-        )
+        tool_name = next(name for name in _names(ts) if name.startswith("openapi_tool_get_ticket"))
         out = json.loads(ts.dispatch(tool_name, {"path_params": {"ticket_id": "T-1"}}))
         assert out["ok"] is True
         assert out["data"]["status_code"] == 200

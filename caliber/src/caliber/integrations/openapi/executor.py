@@ -9,6 +9,9 @@ after the check cannot be reached.
 
 from __future__ import annotations
 
+# This guarded executor is deliberately explicit: each auth and retry branch is
+# fail-closed and kept visible for security review.
+# ruff: noqa: PLR0912, PLR0915, PLR2004
 import base64
 import json
 import re
@@ -252,7 +255,7 @@ def _max_attempts(config: dict[str, Any], *, method: str, has_idempotency_key: b
 def _backoff_seconds(attempt: int) -> float:
     """Bounded exponential backoff: 0.25s, 0.5s, 1s, 2s."""
 
-    return min(2.0, 0.25 * (2 ** (attempt - 1)))
+    return float(min(2.0, 0.25 * (2 ** (attempt - 1))))
 
 
 def _safe_response_headers(headers: Any) -> dict[str, str]:
@@ -329,7 +332,7 @@ def validate_auth_binding(
         if not username:
             raise OpenApiExecutionError("basic auth requires username")
         password = _required_secret(binding.get("password_secret_ref"), "password_secret_ref")
-        token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+        token = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
         return {"headers": headers, "query": query}
     if kind == "header":
@@ -368,7 +371,9 @@ def _oauth_access_token(binding: dict[str, Any], policy: EgressPolicy) -> tuple[
     auth_method = str(binding.get("client_auth_method") or "").strip().lower() or "basic"
     client_id = str(binding.get("client_id") or "").strip()
     client_secret_ref = str(binding.get("client_secret_ref") or "").strip()
-    client_secret = _required_secret(client_secret_ref, "client_secret_ref") if client_secret_ref else ""
+    client_secret = (
+        _required_secret(client_secret_ref, "client_secret_ref") if client_secret_ref else ""
+    )
     form: dict[str, str] = {}
     if kind == "oauth_client_credentials":
         form["grant_type"] = "client_credentials"
@@ -408,12 +413,10 @@ def _oauth_access_token(binding: dict[str, Any], policy: EgressPolicy) -> tuple[
             raise OpenApiExecutionError(
                 "oauth basic client auth requires client_id and client_secret_ref"
             )
-        token = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+        token = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode("ascii")
         headers["Authorization"] = f"Basic {token}"
     elif auth_method != "body":
-        raise OpenApiExecutionError(
-            "oauth client_auth_method must be 'basic' or 'body'"
-        )
+        raise OpenApiExecutionError("oauth client_auth_method must be 'basic' or 'body'")
     if auth_method == "body" and client_id and "client_id" not in form:
         form["client_id"] = client_id
 
@@ -426,9 +429,7 @@ def _oauth_access_token(binding: dict[str, Any], policy: EgressPolicy) -> tuple[
         raise OpenApiExecutionError(f"oauth token request failed: {exc}") from exc
 
     if response.status_code >= 400:
-        raise OpenApiExecutionError(
-            f"oauth token request returned HTTP {response.status_code}"
-        )
+        raise OpenApiExecutionError(f"oauth token request returned HTTP {response.status_code}")
     try:
         payload = response.json()
     except Exception as exc:
@@ -438,7 +439,9 @@ def _oauth_access_token(binding: dict[str, Any], policy: EgressPolicy) -> tuple[
     access_token = payload.get("access_token")
     if not isinstance(access_token, str) or not access_token.strip():
         raise OpenApiExecutionError("oauth token response did not include access_token")
-    token_type = str(payload.get("token_type") or binding.get("prefix") or "Bearer").strip() or "Bearer"
+    token_type = (
+        str(payload.get("token_type") or binding.get("prefix") or "Bearer").strip() or "Bearer"
+    )
     expires_in = _oauth_expires_at(payload.get("expires_in"))
     resolved = (token_type, access_token.strip())
     _oauth_cache_put(cache_key, resolved, expires_in)
@@ -455,13 +458,15 @@ def _oauth_scope(raw: object) -> str:
 
 
 def _oauth_expires_at(raw: object) -> float | None:
+    if not isinstance(raw, (int, float, str)):
+        return None
     try:
         seconds = int(raw)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
     if seconds <= 0:
         return None
-    return time.monotonic() + max(1, seconds - 30)
+    return float(time.monotonic() + max(1, seconds - 30))
 
 
 def _oauth_cache_key(binding: dict[str, Any]) -> str:

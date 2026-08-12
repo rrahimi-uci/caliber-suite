@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-08-10
+reviewed_on: 2026-08-11
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -45,7 +45,7 @@ does this capability live?" before you drop into per-route details.
 
 | Route family | Purpose |
 | --- | --- |
-| `/projects` and project file routes | Workspace/project inventory and managed file registry |
+| `/projects` and project file routes | Workspace/project inventory, effective access metadata, membership management, and managed file registry |
 | `/object-store/*` | Raw bucket/object storage operations |
 | `/knowledge-bases`, `/knowledge-base-versions`, `/knowledge/query` | RAG corpora, versions, graph state, and retrieval |
 | `/eval-datasets` | Datasets, examples, trace import, sync, and restore |
@@ -80,3 +80,20 @@ The [SDK guide](../sdk/guide.md) and [SDK API reference](../sdk/reference.md)
 wrap the same route families above with typed models, error translation,
 automatic CSRF handling, and polling helpers. The SDK docs should explain the
 Python abstraction; this page is the raw route inventory.
+
+## Project access routes
+
+Project responses include the caller's effective `access_role` and a sorted
+`permissions` list. The membership endpoints return `members` objects with the
+member id, user id, role, active status, and audit timestamps:
+
+| Route | Purpose | Required project role |
+| --- | --- | --- |
+| `GET /projects/{project_id}/members` | List active members | any visible member |
+| `POST /projects/{project_id}/members` | Add or reactivate a member | `owner` |
+| `PATCH /projects/{project_id}/members/{user_id}` | Change role or status | `owner` |
+| `DELETE /projects/{project_id}/members/{user_id}` | Deactivate a member | `owner` |
+
+Project roles are `owner`, `editor`, `reviewer`, and `viewer`. These roles are
+project-level decisions; the caller's bearer-token scope remains a separate
+global ceiling.

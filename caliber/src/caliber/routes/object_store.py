@@ -27,7 +27,7 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
-from caliber.db.models import CaliberProject
+from caliber.resource_access import require_project_access
 from caliber.routes._deps import get_session_factory, get_working_dir_service, parse_json_object
 from caliber.routes.files import _storage_http
 from caliber.secrets import resolve_secret
@@ -688,7 +688,7 @@ async def delete_object(request: Request) -> Response:
     return Response(status_code=204)
 
 
-async def import_object_to_project(  # noqa: PLR0912, PLR0915 - guarded copy transaction
+async def import_object_to_project(  # noqa: PLR0915 - guarded copy transaction
     request: Request,
 ) -> JSONResponse:
     """Copy a live object into the caller's managed project file namespace.
@@ -719,11 +719,7 @@ async def import_object_to_project(  # noqa: PLR0912, PLR0915 - guarded copy tra
 
     factory = get_session_factory(request)
     with factory() as session:
-        project = session.get(CaliberProject, project_id)
-        if project is None or (
-            not identity.has_scope(SCOPE_ADMIN) and project.owner != identity.user_id
-        ):
-            raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+        project, _decision = require_project_access(session, identity, project_id, "resource.write")
         if project.status != "active":
             raise HTTPException(status_code=409, detail="archived projects cannot receive files")
 

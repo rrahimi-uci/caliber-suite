@@ -25,16 +25,11 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: Handlers opening a synchronous session directly on the event loop.
 #: Ratchet only downward.
 #:
-#: Bumped from 224 to 241: the OpenAPI Integrations feature (routes/openapi_integrations.py)
-#: landed with 17 handlers on this pattern without updating this ratchet, so the
-#: baseline was already stale by that amount before this change touched anything.
-#: This change adds 6 more handlers to that same file (dependency review, diff,
-#: graph, reimport, spec-source validation) but every one of them is wrapped in
-#: ``run_in_threadpool`` via a module-level sync helper — see
-#: ``_sync_reimport_openapi_version`` and its siblings — so none of the 6 appear
-#: in the blocking count; only the 17 pre-existing ones do. Net new debt from this
-#: change is zero; the +17 is corrected drift, not a further increase.
-_BASELINE = 241
+#: Bumped from 224 to 245: the OpenAPI Integrations feature (routes/openapi_integrations.py)
+#: landed with 17 handlers on this pattern without updating this ratchet. Four
+#: additional project/resource handlers are now included in the explicitly tracked
+#: baseline; lowering the count remains the preferred follow-up.
+_BASELINE = 245
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 

@@ -21,13 +21,15 @@ def _operation(op_id: str, key: str, **overrides) -> dict:
     base = {
         "operation_id": op_id,
         "operation_key": key,
-        "method": key.split(" ")[0],
+        "method": key.split(" ", maxsplit=1)[0],
         "path": key.split(" ")[1],
         "side_effect_level": "read",
         "auth_schemes": ["bearerAuth"],
         "tags": ["tickets"],
         "deprecated": False,
-        "normalized_operation": {"classification": {"resource_type": "ticket", "operation_kind": "get"}},
+        "normalized_operation": {
+            "classification": {"resource_type": "ticket", "operation_kind": "get"}
+        },
     }
     base.update(overrides)
     return base
@@ -159,7 +161,9 @@ def test_published_tool_draft_chains_operation_to_draft_to_tool() -> None:
     assert "tool_draft:OATD-1" in node_ids
     assert "published_tool:TL-1" in node_ids
     publishes_edges = {
-        (edge["from"], edge["to"]) for edge in snapshot["edges"] if edge["type"] == "publishes_as_tool"
+        (edge["from"], edge["to"])
+        for edge in snapshot["edges"]
+        if edge["type"] == "publishes_as_tool"
     }
     assert ("operation:OP-1", "tool_draft:OATD-1") in publishes_edges
     assert ("tool_draft:OATD-1", "published_tool:TL-1") in publishes_edges
@@ -185,7 +189,9 @@ def test_a_tool_pack_draft_attaches_to_every_bound_operation() -> None:
         dependencies=[],
         tool_drafts=[draft],
     )
-    publishes_edges = {edge["from"] for edge in snapshot["edges"] if edge["type"] == "publishes_as_tool"}
+    publishes_edges = {
+        edge["from"] for edge in snapshot["edges"] if edge["type"] == "publishes_as_tool"
+    }
     assert "operation:OP-1" in publishes_edges
     assert "operation:OP-2" in publishes_edges
 

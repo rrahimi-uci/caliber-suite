@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_VIEWER, CaliberIdentity
-from caliber.db.models import CaliberEvalRun, CaliberSkill
+from caliber.db.models import CaliberEvalRun, CaliberProjectMember, CaliberSkill
 from caliber.db.scoping import apply_visibility_filter, owner_column
 
 
@@ -98,6 +98,27 @@ def test_admin_with_only_filter_returns_tier_across_all_owners(db_session: Sessi
     assert _names(db_session, _ident("@root", project="P1", admin=True), "P1", only="project") == {
         "a_p1",
         "b_p1",
+    }
+
+
+def test_active_project_member_sees_project_resources(db_session: Session) -> None:
+    _seed(db_session)
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-bob",
+            project_id="P1",
+            user_id="@alice",
+            role="viewer",
+            status="active",
+            created_by="@bob",
+        )
+    )
+    db_session.commit()
+    assert _names(db_session, _ident("@alice", project="P1"), "P1") == {
+        "a_p1",
+        "a_user",
+        "b_p1",
+        "pub",
     }
 
 

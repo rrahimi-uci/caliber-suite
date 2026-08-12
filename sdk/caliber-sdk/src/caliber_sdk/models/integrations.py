@@ -215,7 +215,6 @@ class OpenApiOperationDependency:
     confirmed_at: str | None = None
     created_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
-    extra: dict[str, Any] = field(default_factory=dict)
 
 
 __all__ = ["Bucket", "KnowledgeBase", "McpServer", "StoredObject"]

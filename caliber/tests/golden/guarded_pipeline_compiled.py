@@ -18,9 +18,9 @@ from caliber.workflows.tools import ToolRegistryEntry
 
 def _build_agent_graph(*, config: Any | None = None):
     # Tool bindings (resolved from the CALIBER tool registry).
-    escalate = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "escalate", "output_schema": None, "requires_approval": True, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
-    get_order = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
-    lookup_policy = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "callable_name": "<lambda>", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    escalate = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "backend_config": None, "callable_name": "<lambda>", "execution_backend": "python_callable", "input_schema": None, "module_path": "<in-memory>", "name": "escalate", "output_schema": None, "requires_approval": True, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    get_order = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "backend_config": None, "callable_name": "<lambda>", "execution_backend": "python_callable", "input_schema": None, "module_path": "<in-memory>", "name": "get_order", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
+    lookup_policy = bind_exported_tool(ToolRegistryEntry(**{"allow_in_preview": False, "backend_config": None, "callable_name": "<lambda>", "execution_backend": "python_callable", "input_schema": None, "module_path": "<in-memory>", "name": "lookup_policy", "output_schema": None, "requires_approval": False, "secret_refs": (), "side_effect_level": "read", "version": "1.0"}), config=config)
     # node: support_agent
     support_agent = Agent(
         name="support-agent",

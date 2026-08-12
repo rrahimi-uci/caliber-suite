@@ -26,6 +26,7 @@ vi.mock("@/api/caliberApi", () => ({
     getToolTestRun: vi.fn(),
     setToolBaseline: vi.fn(),
     getMe: vi.fn(),
+    getProject: vi.fn(),
   },
 }));
 
@@ -173,10 +174,21 @@ beforeEach(() => {
   mockApi.getToolTestRun.mockResolvedValue(detail());
   mockApi.setToolBaseline.mockResolvedValue({ baseline_run_id: "TTR-1" });
   mockApi.getMe.mockResolvedValue({ is_admin: true } as never);
+  mockApi.getProject.mockResolvedValue({
+    project_id: "PRJ-1",
+    name: "Support",
+    description: "",
+    owner: "@test",
+    status: "active",
+    permissions: ["read", "resource.publish"],
+    access_role: "editor",
+  } as never);
+  localStorage.removeItem("caliber.active_project_id");
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  localStorage.removeItem("caliber.active_project_id");
 });
 
 describe("ToolWorkspace", () => {
@@ -290,5 +302,9 @@ describe("ToolWorkspace", () => {
     expect(await screen.findByTestId("tool-publish-deprecate")).toBeInTheDocument();
     expect(screen.getByTestId("tool-publish-archive")).toBeInTheDocument();
     expect(screen.getByTestId("tool-publish-usage-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-publish-access")).toHaveTextContent(
+      "Project access:organization",
+    );
   });
+
 });

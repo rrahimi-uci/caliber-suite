@@ -532,7 +532,7 @@ def invoke_openapi_published_tool(
                 input_data=tool_input,
                 egress_policy=policy,
             )
-        except Exception as exc:  # noqa: BLE001 - surfaced to audit then re-raised
+        except Exception as exc:
             error = str(exc)
         audit_record(
             session,

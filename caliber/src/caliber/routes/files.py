@@ -33,7 +33,6 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import (
-    SCOPE_ADMIN,
     SCOPE_OPERATOR,
     require_scopes,
     require_user,
@@ -45,6 +44,7 @@ from caliber.db.models import (
     CaliberWorkflowFile,
     CaliberWorkflowRun,
 )
+from caliber.resource_access import require_project_access
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -182,14 +182,9 @@ async def staging_upload(request: Request) -> JSONResponse:
             tenant_id = "local"
             scoped_service = service
             if identity.active_project_id:
-                project = session.get(CaliberProject, identity.active_project_id)
-                if project is None or (
-                    not identity.has_scope(SCOPE_ADMIN) and project.owner != identity.user_id
-                ):
-                    raise HTTPException(
-                        status_code=404,
-                        detail=f"project {identity.active_project_id!r} not found",
-                    )
+                project, _decision = require_project_access(
+                    session, identity, identity.active_project_id, "resource.write"
+                )
                 if project.status != "active":
                     raise HTTPException(
                         status_code=409, detail="archived projects cannot receive files"

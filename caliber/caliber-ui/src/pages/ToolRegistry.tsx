@@ -38,6 +38,7 @@ import { FilterSelect } from "@/components/FilterSelect";
 import { ViewToggle } from "@/components/ViewToggle";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
 import { useViewMode } from "@/hooks/useViewMode";
+import { getActiveProjectId } from "@/workspace/activeWorkspace";
 import { ToolWizard } from "./ToolWizard";
 
 /** Lifecycle pill tones, keyed by the workspace ``lifecycle`` string. */
@@ -2227,6 +2228,14 @@ function ToolPublishStage({
   );
   const meQuery = useApiQuery(["me"], (s) => caliberApi.getMe(s));
   const isAdmin = meQuery.data?.is_admin ?? false;
+  const activeProjectId = getActiveProjectId();
+  const projectQuery = useApiQuery(
+    ["project-access", activeProjectId],
+    (s) => caliberApi.getProject(activeProjectId!, s),
+    { enabled: Boolean(activeProjectId) },
+  );
+  const accessRole = projectQuery.data?.access_role ?? "member";
+  const projectPermissions = projectQuery.data?.permissions ?? [];
 
   const deprecateMut = useApiMutation(
     () => caliberApi.updateTool(toolId, { status: "deprecated" } as ToolUpdatePayload),
@@ -2302,6 +2311,22 @@ function ToolPublishStage({
             Deprecate / archive actions require admin access.
           </p>
         )}
+        <div
+          data-testid="tool-publish-access"
+          className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"
+        >
+          <span className="font-semibold text-slate-700">Project access:</span>
+          <span className="rounded-full bg-white px-2 py-0.5 font-medium ring-1 ring-slate-200">
+            {activeProjectId ? accessRole : "organization"}
+          </span>
+          {activeProjectId && projectPermissions.includes("resource.publish") ? (
+            <span className="text-emerald-700">You can publish project resources.</span>
+          ) : activeProjectId ? (
+            <span>Ask the project owner for publish permission.</span>
+          ) : (
+            <span>Select a project to see resource permissions.</span>
+          )}
+        </div>
       </section>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-4">

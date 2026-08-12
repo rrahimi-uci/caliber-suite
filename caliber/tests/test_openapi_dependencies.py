@@ -75,7 +75,9 @@ def _operations(spec_text: str) -> list[dict]:
     return operations
 
 
-def _find(deps: list[dict], from_key: str, to_key: str, dependency_type: str, by_key: dict) -> dict | None:
+def _find(
+    deps: list[dict], from_key: str, to_key: str, dependency_type: str, by_key: dict
+) -> dict | None:
     from_id = by_key[from_key]
     to_id = by_key[to_key]
     for dep in deps:
@@ -115,7 +117,9 @@ def test_identifier_flow_matches_response_id_field_to_path_parameter() -> None:
     by_key = {op["operation_key"]: op["operation_id"] for op in operations}
     deps = detect_dependencies(operations)
 
-    row = _find(deps, "POST /tickets", "GET /tickets/{ticket_id}", "consumes_identifier_from", by_key)
+    row = _find(
+        deps, "POST /tickets", "GET /tickets/{ticket_id}", "consumes_identifier_from", by_key
+    )
     assert row is not None
     assert row["confidence"] == CONFIDENCE_MEDIUM
     assert row["source"] == "schema_match"

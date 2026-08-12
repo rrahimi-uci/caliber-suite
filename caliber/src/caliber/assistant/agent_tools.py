@@ -24,6 +24,8 @@ never imports :class:`AssistantService`.
 
 from __future__ import annotations
 
+# The dispatcher intentionally has one branch per governed tool family.
+# ruff: noqa: PLR0911
 import json
 import logging
 import re
@@ -526,7 +528,8 @@ class AssistantAgentToolset:
                 name = self._published_openapi_tool_name(tool)
                 parameters = (
                     tool.input_schema
-                    if isinstance(tool.input_schema, dict) and tool.input_schema.get("type") == "object"
+                    if isinstance(tool.input_schema, dict)
+                    and tool.input_schema.get("type") == "object"
                     else {"type": "object", "properties": {}}
                 )
                 description = (
@@ -565,7 +568,9 @@ class AssistantAgentToolset:
         suffix = _NON_ALNUM.sub("_", str(getattr(tool, "tool_id", "")).lower()).strip("_") or "id"
         return f"{_OPENAPI_TOOL_PREFIX}{seed}_{suffix}"[:64]
 
-    def _dispatch_published_openapi_tool(self, tool: dict[str, Any], arguments: dict[str, Any]) -> str:
+    def _dispatch_published_openapi_tool(
+        self, tool: dict[str, Any], arguments: dict[str, Any]
+    ) -> str:
         from caliber.assistant.capabilities import (  # noqa: PLC0415
             invoke_openapi_published_tool,
         )

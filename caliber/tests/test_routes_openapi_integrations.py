@@ -17,9 +17,9 @@ from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberOpenApiIntegration,
-    CaliberOpenApiToolDraft,
     CaliberOpenApiIntegrationVersion,
     CaliberOpenApiOperation,
+    CaliberOpenApiToolDraft,
     CaliberToolRegistry,
 )
 from caliber.integrations.openapi import executor as executor_module
@@ -149,7 +149,7 @@ def _mock_http(monkeypatch, handler) -> None:
 class _SpecHandler(BaseHTTPRequestHandler):
     """Serves whatever ``server.set_body(...)`` last set, over real loopback HTTP."""
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         payload = self.server.body.encode("utf-8")  # type: ignore[attr-defined]
         self.send_response(200)
         self.send_header("Content-Type", "application/yaml")
@@ -157,7 +157,7 @@ class _SpecHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_HEAD(self) -> None:  # noqa: N802
+    def do_HEAD(self) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "application/yaml")
         self.end_headers()
@@ -326,7 +326,9 @@ def test_generate_preview_and_publish_openapi_tool_draft(
     integration = _create_integration(client)
     _import_version(client, str(integration["integration_id"]))
     operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
-    target = next(item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}")
+    target = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
 
     monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
 
@@ -485,7 +487,9 @@ def test_published_openapi_tool_calibrates_through_the_standard_tool_route(
 
     saved = client.put(
         f"{PREFIX}/tools/{tool['tool_id']}/test-cases",
-        json={"test_cases": [{"name": "fetch-ticket", "input": {"path_params": {"ticket_id": "T-1"}}}]},
+        json={
+            "test_cases": [{"name": "fetch-ticket", "input": {"path_params": {"ticket_id": "T-1"}}}]
+        },
     )
     assert saved.status_code == 200, saved.text
 
@@ -557,7 +561,9 @@ def test_preview_is_audited_without_recording_payloads_or_secrets(
     integration = _create_integration(client)
     _import_version(client, str(integration["integration_id"]))
     operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
-    target = next(item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}")
+    target = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
     monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -600,11 +606,15 @@ def test_preview_is_audited_without_recording_payloads_or_secrets(
     assert "do-not-log" not in serialized
 
 
-def test_failed_preview_is_still_audited(client: TestClient, db_session: Session, monkeypatch) -> None:
+def test_failed_preview_is_still_audited(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
     integration = _create_integration(client)
     _import_version(client, str(integration["integration_id"]))
     operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
-    target = next(item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}")
+    target = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
 
     draft = client.post(
         f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
@@ -741,7 +751,9 @@ def test_graph_reflects_a_published_tool(client: TestClient, monkeypatch) -> Non
     integration = _create_integration(client)
     _import_version(client, str(integration["integration_id"]))
     operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
-    target = next(item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}")
+    target = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
     monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
     draft = client.post(
         f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
@@ -782,7 +794,7 @@ def test_diff_route_reports_added_and_breaking_changes_between_versions(client: 
         "      summary: Get one ticket\n      deprecated: true\n",
     ).replace(
         "  /tickets/{ticket_id}:\n",
-        "  /tickets/{ticket_id}/archive:\n    post:\n      operationId: archiveTicket\n      responses:\n        \"200\":\n          description: ok\n  /tickets/{ticket_id}:\n",
+        '  /tickets/{ticket_id}/archive:\n    post:\n      operationId: archiveTicket\n      responses:\n        "200":\n          description: ok\n  /tickets/{ticket_id}:\n',
     )
     second = _import_version(
         client, str(integration["integration_id"]), spec_text=changed_spec, source_ref="inline://v2"
@@ -879,7 +891,7 @@ def test_reimport_refetches_and_diffs_against_the_previous_url_version(
         "    post:\n"
         "      operationId: archiveTicket\n"
         "      responses:\n"
-        "        \"200\":\n"
+        '        "200":\n'
         "          description: ok\n"
     )
     server.set_body(changed_spec)
@@ -921,7 +933,9 @@ def test_generate_tool_pack_binds_multiple_operations_to_one_draft(
     _import_version(client, str(integration["integration_id"]))
     operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
     list_op = next(item for item in operations if item["operation_key"] == "GET /tickets")
-    get_op = next(item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}")
+    get_op = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
     monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
 
     response = client.post(
@@ -951,7 +965,9 @@ def test_tool_pack_executes_the_selected_bound_operation(client: TestClient, mon
     _import_version(client, str(integration["integration_id"]))
     operations = client.get(f"{BASE}/{integration['integration_id']}/operations").json()["data"]
     list_op = next(item for item in operations if item["operation_key"] == "GET /tickets")
-    get_op = next(item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}")
+    get_op = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
     monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -973,7 +989,9 @@ def test_tool_pack_executes_the_selected_bound_operation(client: TestClient, mon
 
     get_call = client.post(
         f"{BASE}/{integration['integration_id']}/tool-drafts/{pack['draft_id']}/preview",
-        json={"input": {"operation": "GET /tickets/{ticket_id}", "path_params": {"ticket_id": "T-1"}}},
+        json={
+            "input": {"operation": "GET /tickets/{ticket_id}", "path_params": {"ticket_id": "T-1"}}
+        },
     )
     assert get_call.status_code == 200, get_call.text
     assert get_call.json()["data"]["result"]["json"]["ticket_id"] == "T-1"
@@ -1020,7 +1038,12 @@ def test_openapi_link_produces_an_auto_wired_dependency_that_cannot_be_reviewed(
     client: TestClient,
 ) -> None:
     integration = _create_integration(client)
-    _import_version(client, str(integration["integration_id"]), spec_text=_LINKED_SPEC, source_ref="inline://orders")
+    _import_version(
+        client,
+        str(integration["integration_id"]),
+        spec_text=_LINKED_SPEC,
+        source_ref="inline://orders",
+    )
 
     auto_wired = client.get(
         f"{BASE}/{integration['integration_id']}/dependencies", params={"status": "auto_wired"}

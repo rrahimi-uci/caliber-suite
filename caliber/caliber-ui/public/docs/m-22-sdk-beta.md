@@ -121,6 +121,19 @@ performs a real upstream call — it is refused unless the draft has
 `allow_in_preview` set, the same gate that keeps an approval-required write from
 firing before anyone approved it.
 
+The complete read-only flow is executable in the SDK test suite:
+
+```python-example
+sdk/caliber-sdk/examples/openapi_integration_readonly.py#import_and_publish_readonly_tool
+```
+
+For a write-capable operation, the corresponding example keeps preview refused
+until explicitly enabled and publishes a tool that remains approval-gated:
+
+```python-example
+sdk/caliber-sdk/examples/openapi_integration_governed_write.py#import_and_publish_governed_write_tool
+```
+
 ```python
 integration = caliber.openapi_integrations.create("Ticketing")
 caliber.openapi_integrations.import_spec(integration.integration_id, spec_url=SPEC_URL)

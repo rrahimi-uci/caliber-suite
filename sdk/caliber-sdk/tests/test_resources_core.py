@@ -164,6 +164,47 @@ def test_projects_list_and_get_decode() -> None:
     assert detail.file_count is None
 
 
+def test_project_access_members_decode_and_mutate() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        path = request.url.path.rsplit("/caliber", 1)[-1]
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.method, path, body))
+        member = {
+            "member_id": "PM-1",
+            "project_id": "PRJ-1",
+            "user_id": "@bob",
+            "role": "editor",
+            "status": "active",
+            "created_by": "@alice",
+        }
+        if request.method == "GET":
+            return envelope({"members": [member]})
+        if request.method == "DELETE":
+            return envelope({"project_id": "PRJ-1", "user_id": "@bob", "removed": True})
+        return httpx.Response(201 if request.method == "POST" else 200, json={"data": member})
+
+    with client_with(handler) as caliber:
+        members = caliber.projects.list_members("PRJ-1")
+        added = caliber.projects.add_member("PRJ-1", "@bob", role="editor")
+        updated = caliber.projects.update_member("PRJ-1", "@bob", status="inactive")
+        removed = caliber.projects.remove_member("PRJ-1", "@bob")
+
+    assert members[0].user_id == "@bob"
+    assert added.role == "editor"
+    assert updated.status == "active"
+    assert removed is True
+    assert seen == [
+        ("GET", "/projects/PRJ-1/members", None),
+        ("POST", "/projects/PRJ-1/members", {"user_id": "@bob", "role": "editor"}),
+        ("PATCH", "/projects/PRJ-1/members/@bob", {"status": "inactive"}),
+        ("DELETE", "/projects/PRJ-1/members/@bob", None),
+    ]
+
+
 def test_project_files_are_returned_separately_from_directories() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return envelope(

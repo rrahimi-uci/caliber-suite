@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-08-10
+reviewed_on: 2026-08-11
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -60,6 +60,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
 | Observability | `GET /observability/traces`, `GET /metrics`, `GET /events/stream` | Runtime evidence and live telemetry |
+| Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only |
 
 ## Workflow-service OpenAPI
 
@@ -80,5 +81,7 @@ the CALIBER management API itself.
 2. Fetch `GET /openapi.json` if you are generating or inspecting the raw HTTP
    contract.
 3. Use Bearer auth plus `X-CALIBER-Project` when you need scoped automation.
-4. Switch to the [SDK guide](../sdk/guide.md) if you want typed models,
+4. For project membership, use the `/projects/{id}/members` routes and check
+   the returned role/permissions before enabling writes or publication.
+5. Switch to the [SDK guide](../sdk/guide.md) if you want typed models,
    retries, error classes, waiters, and CSRF handling instead of raw HTTP.

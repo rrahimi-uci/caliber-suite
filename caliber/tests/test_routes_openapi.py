@@ -199,7 +199,11 @@ def test_every_ref_resolves_within_the_document(client: TestClient) -> None:
 def test_shared_responses_are_referenced_not_inlined(client: TestClient) -> None:
     """Shared error responses stay reusable even though success bodies vary."""
     doc = client.get(OPENAPI_URL).json()
-    assert set(doc["components"]["responses"]) >= {"ValidationFailed", "Unauthenticated", "NotFound"}
+    assert set(doc["components"]["responses"]) >= {
+        "ValidationFailed",
+        "Unauthenticated",
+        "NotFound",
+    }
     referenced = 0
     for path, operations in doc["paths"].items():
         for method, operation in operations.items():

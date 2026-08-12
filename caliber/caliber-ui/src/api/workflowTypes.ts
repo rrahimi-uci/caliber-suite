@@ -1645,6 +1645,25 @@ export interface Project {
   created_at: string | null;
   updated_at: string | null;
   file_count?: number;
+  access_role?: ProjectRole | null;
+  permissions?: string[];
+}
+
+export type ProjectRole = "owner" | "editor" | "reviewer" | "viewer";
+
+export interface ProjectMember {
+  member_id: string;
+  project_id: string;
+  user_id: string;
+  role: ProjectRole;
+  status: "active" | "inactive";
+  created_by: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ProjectMemberList {
+  members: ProjectMember[];
 }
 
 export interface ProjectStorageBackendOption {

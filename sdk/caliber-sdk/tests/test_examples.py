@@ -20,6 +20,8 @@ import pytest
 from caliber_sdk import CaliberClient
 from examples.agentic import install_ready_cookbook, plan_from_intent
 from examples.evaluation import build_and_score
+from examples.openapi_integration_governed_write import import_and_publish_governed_write_tool
+from examples.openapi_integration_readonly import import_and_publish_readonly_tool
 from examples.prompt_lifecycle import prompt_lifecycle
 from examples.quickstart import quickstart
 from examples.tokens import issue_scoped_token
@@ -38,6 +40,8 @@ def stub_server(routes: dict[str, Any]) -> CaliberClient:
             raise AssertionError(f"example called an unstubbed route: {key}")
         body = routes[key]
         payload = body(request) if callable(body) else body
+        if isinstance(payload, httpx.Response):
+            return payload
         return httpx.Response(200, json={"data": payload})
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
@@ -261,3 +265,71 @@ def test_cookbook_example_installs_a_ready_recipe_paused() -> None:
         result = install_ready_cookbook(caliber)
 
     assert result == {"installed": "02", "workflow_status": "paused"}
+
+
+# --- OpenAPI integration examples -----------------------------------------
+
+
+def test_readonly_openapi_example_publishes_the_selected_operation() -> None:
+    caliber = stub_server(
+        {
+            "POST /openapi-integrations": {"integration_id": "OAI-1"},
+            "POST /openapi-integrations/OAI-1/import": {"version_id": "OAIV-1"},
+            "GET /openapi-integrations/OAI-1/operations": [
+                {
+                    "operation_id": "OAOP-1",
+                    "operation_key": "GET /incidents/{incident_id}",
+                    "side_effect_level": "read",
+                }
+            ],
+            "POST /openapi-integrations/OAI-1/tool-drafts/generate": [
+                {"draft_id": "OATD-1"}
+            ],
+            "POST /openapi-integrations/OAI-1/tool-drafts/OATD-1/preview": {
+                "result": {"status_code": 200}
+            },
+            "POST /openapi-integrations/OAI-1/tool-drafts/OATD-1/publish": {
+                "tool": {"tool_id": "TL-1", "name": "status"}
+            },
+        }
+    )
+    with caliber:
+        result = import_and_publish_readonly_tool(caliber)
+
+    assert result["tool_id"] == "TL-1"
+    assert result["preview_status_code"] == 200
+
+
+def test_governed_write_openapi_example_preserves_preview_gate() -> None:
+    caliber = stub_server(
+        {
+            "POST /openapi-integrations": {"integration_id": "OAI-2"},
+            "POST /openapi-integrations/OAI-2/import": {"version_id": "OAIV-2"},
+            "GET /openapi-integrations/OAI-2/operations": [
+                {
+                    "operation_id": "OAOP-2",
+                    "operation_key": "POST /tickets",
+                    "side_effect_level": "write",
+                }
+            ],
+            "POST /openapi-integrations/OAI-2/tool-drafts/generate": [
+                {"draft_id": "OATD-2", "requires_approval": True}
+            ],
+            "POST /openapi-integrations/OAI-2/tool-drafts/OATD-2/preview": httpx.Response(
+                409, json={"detail": "preview is not allowed"}
+            ),
+            "POST /openapi-integrations/OAI-2/tool-drafts/OATD-2/publish": {
+                "draft": {"requires_approval": True},
+                "tool": {
+                    "tool_id": "TL-2",
+                    "name": "create_ticket",
+                    "side_effect_level": "write",
+                },
+            },
+        }
+    )
+    with caliber:
+        result = import_and_publish_governed_write_tool(caliber)
+
+    assert result["tool_id"] == "TL-2"
+    assert result["requires_approval"] is True

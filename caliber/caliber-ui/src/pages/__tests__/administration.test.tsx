@@ -63,10 +63,12 @@ function stubStores(
     accounts?: unknown[];
     secrets?: unknown[];
     secretsEnabled?: boolean;
+    projects?: unknown[];
   } = {},
 ): void {
   const accounts = options.accounts ?? [];
   const secrets = options.secrets ?? [];
+  const projects = options.projects ?? [];
   server.use(
     http.get(`${API_BASE}/auth/accounts`, () =>
       HttpResponse.json(envelope({ accounts, total: accounts.length })),
@@ -81,6 +83,12 @@ function stubStores(
         }),
       ),
     ),
+    http.get(`${API_BASE}/projects`, () =>
+      HttpResponse.json(envelope(projects)),
+    ),
+    http.get(`${API_BASE}/projects/:projectId/members`, () =>
+      HttpResponse.json(envelope({ members: [] })),
+    ),
   );
 }
 
@@ -92,6 +100,48 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe("Administration", () => {
+  it("shows project roles and member management in the administration surface", async () => {
+    stubStores({
+      projects: [
+        {
+          project_id: "PRJ-1",
+          name: "Support",
+          description: "",
+          owner: "@admin",
+          status: "active",
+          permissions: ["read", "project.manage_members"],
+          access_role: "owner",
+        },
+      ],
+    });
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json(
+          envelope({
+            members: [
+              {
+                member_id: "PRJM-1",
+                project_id: "PRJ-1",
+                user_id: "@admin",
+                role: "owner",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("Project access")).toBeInTheDocument();
+    expect(await screen.findByText("@admin")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add member" })).toBeInTheDocument();
+    expect(screen.getByText("Manage who can read, edit, review, and publish resources in each project.")).toBeInTheDocument();
+  });
+
   it("lists accounts with their status and last login", async () => {
     stubStores({
       accounts: [
@@ -332,6 +382,9 @@ describe("Administration", () => {
             reference_scheme: "secret://",
           }),
         ),
+      ),
+      http.get(`${API_BASE}/projects/:projectId/members`, () =>
+        HttpResponse.json(envelope({ members: [] })),
       ),
     );
     renderPage();

@@ -103,7 +103,10 @@ def build_tool_pack_input_schema(operations: list[CaliberOpenApiOperation]) -> d
     branches: list[dict[str, Any]] = []
     for operation in operations:
         branch = build_tool_input_schema(operation)
-        branch["properties"] = {"operation": {"const": operation.operation_key}, **branch["properties"]}
+        branch["properties"] = {
+            "operation": {"const": operation.operation_key},
+            **branch["properties"],
+        }
         branch.setdefault("required", [])
         branch["required"] = ["operation", *branch["required"]]
         branches.append(branch)
@@ -229,7 +232,10 @@ def _parameter_group_schema(parameters: object, location: str) -> dict[str, Any]
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        schema = item.get("schema") if isinstance(item.get("schema"), dict) else {"type": "string"}
+        schema_value = item.get("schema")
+        schema: dict[str, Any] = (
+            dict(schema_value) if isinstance(schema_value, dict) else {"type": "string"}
+        )
         prop = dict(schema)
         description = str(item.get("description") or "").strip()
         if description:

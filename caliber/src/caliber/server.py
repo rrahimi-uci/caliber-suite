@@ -35,11 +35,15 @@ from caliber.audit import configure_redactor
 from caliber.config import CaliberConfig
 from caliber.csrf import CSRFMiddleware, build_token_manager
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
+from caliber.egress import EgressPolicy
 from caliber.eval.provider import EvalProvider
 from caliber.eval.provider import build_provider as build_eval_provider
 from caliber.events.bus import EventBus
 from caliber.events.nats_bus import build_event_bus
 from caliber.events.webhooks import WebhookDispatcher, build_dispatcher
+from caliber.integrations.openapi.executor import (
+    bind_egress_policy as bind_openapi_egress_policy,
+)
 from caliber.knowledge.worker import KnowledgeBaseWorker
 from caliber.llm.provider import LLMProvider, build_provider
 from caliber.observability.logging import configure_logging
@@ -64,10 +68,6 @@ from caliber.runtime_advisories import (
     SUPPORTED_PYTHON_MIN,
     SUPPORTED_PYTHON_RANGE_LABEL,
     get_runtime_dependency_advisories,
-)
-from caliber.egress import EgressPolicy
-from caliber.integrations.openapi.executor import (
-    bind_egress_policy as bind_openapi_egress_policy,
 )
 from caliber.trace_client import MLflowTraceClient
 from caliber.workflows.runtime import bind_sandbox_config

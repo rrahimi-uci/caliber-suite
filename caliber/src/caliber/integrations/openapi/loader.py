@@ -12,6 +12,8 @@ link is asking CALIBER to make an outbound request on their behalf, and
 
 from __future__ import annotations
 
+# HTTP status thresholds are intentionally visible at the guarded egress edge.
+# ruff: noqa: PLR2004
 import base64
 import binascii
 from dataclasses import dataclass
@@ -117,9 +119,7 @@ def load_spec_from_url(
     if not target:
         raise OpenApiLoadError("spec_url is required")
     if not target.lower().startswith(("http://", "https://")):
-        raise OpenApiLoadError(
-            f"spec_url must be an http(s) URL: {target!r}"
-        )
+        raise OpenApiLoadError(f"spec_url must be an http(s) URL: {target!r}")
     policy = egress_policy if egress_policy is not None else EgressPolicy()
     try:
         check_url(target, policy)
@@ -143,9 +143,7 @@ def load_spec_from_url(
             "import the final URL directly"
         )
     if response.status_code >= 400:
-        raise OpenApiLoadError(
-            f"spec_url returned HTTP {response.status_code} for {target!r}"
-        )
+        raise OpenApiLoadError(f"spec_url returned HTTP {response.status_code} for {target!r}")
     content = response.content
     if len(content) > MAX_SPEC_BYTES:
         raise OpenApiLoadError(
@@ -154,9 +152,7 @@ def load_spec_from_url(
     try:
         text = content.decode(response.encoding or "utf-8", errors="strict")
     except (UnicodeDecodeError, LookupError) as exc:
-        raise OpenApiLoadError(
-            f"fetched spec from {target!r} is not decodable text"
-        ) from exc
+        raise OpenApiLoadError(f"fetched spec from {target!r} is not decodable text") from exc
     if not text.strip():
         raise OpenApiLoadError(f"fetched spec from {target!r} is empty")
     return LoadedSpec(

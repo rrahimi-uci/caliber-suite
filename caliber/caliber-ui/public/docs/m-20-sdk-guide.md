@@ -30,6 +30,7 @@ use the [REST API overview](m-26-rest-api-overview.md), the
 | **Retries** | Idempotent methods only, capped exponential backoff, honouring `Retry-After`. |
 | **Long-running work** | Waiters that poll with backoff and never sleep past your deadline. |
 | **Coverage** | Every GA surface, plus `client.raw` for anything not yet modelled. |
+| **Project access** | Typed `client.projects.list_members()`, `add_member()`, `update_member()`, and `remove_member()` methods. |
 
 ## Install
 
@@ -93,6 +94,27 @@ jobs:
 
 That example stays deliberately small: the point is that the SDK can be dropped
 into a normal build job without a server-side Python environment.
+
+## Project access
+
+Projects now report the caller's effective role and permissions, and the sync
+client includes typed membership management. Use the project response as the
+authorization-aware feature check before showing a write or publish action:
+
+```python
+project = client.projects.get("PRJ-1")
+if "resource.write" not in project.permissions:
+    raise RuntimeError(f"project role {project.access_role!r} cannot write")
+
+members = client.projects.list_members(project.project_id)
+client.projects.update_member(project.project_id, "@bob", role="reviewer")
+```
+
+The four project roles are `owner`, `editor`, `reviewer`, and `viewer`. Only an
+owner can add, update, or remove members. `remove_member()` deactivates the
+membership and returns `True` when the server confirms the removal. The async
+client intentionally keeps a narrower typed surface; use its raw transport for
+these membership routes until an async project resource is added.
 
 ## Authentication
 

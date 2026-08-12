@@ -75,6 +75,7 @@ WORKFLOW_FILE_PREFIX = "FILE-"
 
 # Project / workspace prefix.
 PROJECT_PREFIX = "PRJ-"
+PROJECT_MEMBER_PREFIX = "PRJM-"
 
 # Ad-hoc prompt-test run prefix.
 PROMPT_TEST_RUN_PREFIX = "PTR-"
@@ -399,6 +400,11 @@ def new_workflow_file_id() -> str:
 def new_project_id() -> str:
     """Return a fresh project ID, e.g. ``PRJ-3a8f2c7e``."""
     return f"{PROJECT_PREFIX}{_suffix()}"
+
+
+def new_project_member_id() -> str:
+    """Return a fresh project-membership ID, e.g. ``PRJM-3a8f2c7e``."""
+    return f"{PROJECT_MEMBER_PREFIX}{_suffix()}"
 
 
 def new_prompt_test_run_id() -> str:

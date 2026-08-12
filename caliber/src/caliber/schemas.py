@@ -15,6 +15,8 @@ matching the convention documented.
 
 from __future__ import annotations
 
+# Auth-binding validation is a finite, mutually exclusive schema matrix.
+# ruff: noqa: PLR0912, SIM102
 from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
 
@@ -2101,6 +2103,33 @@ class ProjectSchema(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     file_count: int | None = None
+    access_role: str | None = None
+    permissions: list[str] = Field(default_factory=list)
+
+
+class ProjectMemberSchema(BaseModel):
+    member_id: str
+    project_id: str
+    user_id: str
+    role: str
+    status: str
+    created_by: str
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class ProjectMemberListSchema(BaseModel):
+    members: list[ProjectMemberSchema] = Field(default_factory=list)
+
+
+class ProjectMemberCreateRequest(BaseModel):
+    user_id: str
+    role: str = "viewer"
+
+
+class ProjectMemberUpdateRequest(BaseModel):
+    role: str | None = None
+    status: str | None = None
 
 
 class ProjectStorageSchema(BaseModel):
@@ -2447,9 +2476,7 @@ class OpenApiAuthBindingSchema(BaseModel):
             if not self.secret_ref:
                 raise ValueError("api_key auth requires secret_ref")
             if not self.header_name and not self.query_param_name:
-                raise ValueError(
-                    "api_key auth requires header_name or query_param_name"
-                )
+                raise ValueError("api_key auth requires header_name or query_param_name")
         if self.kind == "basic":
             if not self.username or not self.password_secret_ref:
                 raise ValueError("basic auth requires username and password_secret_ref")

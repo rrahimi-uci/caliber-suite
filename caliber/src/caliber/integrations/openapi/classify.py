@@ -15,6 +15,8 @@ in ``classification`` rather than being crushed into that one field.
 
 from __future__ import annotations
 
+# Rule-based classification keeps the parameter names explicit for auditability.
+# ruff: noqa: PLR2004, PLC0206
 import re
 from typing import Any
 
@@ -74,13 +76,51 @@ _EXTERNAL_ACTION_TOKENS = (
 
 #: Query parameter names that indicate a paged collection, grouped by style so the
 #: executor and the graph can tell a cursor API from an offset API.
-_CURSOR_PARAMS = frozenset({"cursor", "next", "next_token", "nexttoken", "page_token", "pagetoken", "after", "start_after", "continuation_token"})
+_CURSOR_PARAMS = frozenset(
+    {
+        "cursor",
+        "next",
+        "next_token",
+        "nexttoken",
+        "page_token",
+        "pagetoken",
+        "after",
+        "start_after",
+        "continuation_token",
+    }
+)
 _PAGE_PARAMS = frozenset({"page", "page_number", "pagenumber", "page_index"})
 _OFFSET_PARAMS = frozenset({"offset", "skip", "start", "start_index", "from"})
-_LIMIT_PARAMS = frozenset({"limit", "per_page", "perpage", "page_size", "pagesize", "count", "max_results", "maxresults", "top", "size"})
+_LIMIT_PARAMS = frozenset(
+    {
+        "limit",
+        "per_page",
+        "perpage",
+        "page_size",
+        "pagesize",
+        "count",
+        "max_results",
+        "maxresults",
+        "top",
+        "size",
+    }
+)
 
 #: Response fields that mark an async job handle rather than the finished result.
-_JOB_FIELDS = frozenset({"job_id", "jobid", "task_id", "taskid", "operation_id", "operationid", "execution_id", "executionid", "request_id", "requestid"})
+_JOB_FIELDS = frozenset(
+    {
+        "job_id",
+        "jobid",
+        "task_id",
+        "taskid",
+        "operation_id",
+        "operationid",
+        "execution_id",
+        "executionid",
+        "request_id",
+        "requestid",
+    }
+)
 
 #: Path/operation fragments for the "check on the job I started" half of an async pair.
 _POLL_TOKENS = ("status", "state", "progress", "result", "poll", "wait")
@@ -116,9 +156,7 @@ def classify_operation(operation: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "operation_kind": _operation_kind(method, is_collection),
-        "side_effect_level": _side_effect_level(
-            method, is_admin=is_admin, is_external=is_external
-        ),
+        "side_effect_level": _side_effect_level(method, is_admin=is_admin, is_external=is_external),
         "is_admin": is_admin,
         "is_destructive": method in _DESTRUCTIVE_METHODS,
         "is_collection": is_collection,

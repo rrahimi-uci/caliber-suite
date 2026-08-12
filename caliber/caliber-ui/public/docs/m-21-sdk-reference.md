@@ -182,6 +182,7 @@ Every documented class and module-level function, with the module that defines i
 | [`ProjectFile`](#projectfile) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectFilesAPI`](#projectfilesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectFolder`](#projectfolder) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectMember`](#projectmember) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectsAPI`](#projectsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`Prompt`](#prompt) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
 | [`PromptsAPI`](#promptsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
@@ -1736,7 +1737,7 @@ Raw bytes. Not JSON, so it bypasses the envelope entirely.
 
 `class ProjectsAPI(transport)`
 
-Projects, plus their file sub-resource.
+Projects, project access, and the file sub-resource.
 
 **Related APIs:** [`ProjectFilesAPI`](#projectfilesapi)
 
@@ -1818,6 +1819,72 @@ Patch an existing record on the projects surface and return the updated result. 
 | `status` | keyword-only | `str | None` | `None` |
 
 **Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_members(project_id: str) -> list[ProjectMember]`
+
+List active members and their effective project roles.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `list[ProjectMember]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `add_member(project_id: str, user_id: str, *, role: str = 'viewer') -> ProjectMember`
+
+Grant ``user_id`` a project role; only owners may manage members.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `role` | keyword-only | `str` | `'viewer'` |
+
+**Returns:** `ProjectMember`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_member(project_id: str, user_id: str, *, role: str | None = None, status: str | None = None) -> ProjectMember`
+
+Change a member's role or active status.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `role` | keyword-only | `str | None` | `None` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `ProjectMember`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `remove_member(project_id: str, user_id: str) -> bool`
+
+Deactivate a member; the project owner cannot be removed.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
 
 **Raises:**
 
@@ -5388,7 +5455,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -5501,7 +5568,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`Account`, `Capabilities`, `Extensibility`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `OptimizerPlugin`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `RegisteredOptimizer`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`
+`Account`, `Capabilities`, `Extensibility`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `OptimizerPlugin`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `RegisteredOptimizer`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`
 
 #### Classes
 
@@ -5872,6 +5939,28 @@ means "not reported here", which is why it is not defaulted to 0.
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
 | `file_count` | `int | None` | `None` |
+| `access_role` | `str | None` | `None` |
+| `permissions` | `list[str]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `ProjectMember`
+
+`class ProjectMember()`
+
+A user's active or inactive membership in a project.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `member_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `user_id` | `str` | `''` |
+| `role` | `str` | `'viewer'` |
+| `status` | `str` | `'active'` |
+| `created_by` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `ProjectFile`

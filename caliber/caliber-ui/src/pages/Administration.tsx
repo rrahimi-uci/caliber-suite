@@ -21,13 +21,15 @@
  */
 
 import { useCallback, useState } from "react";
-import { KeyRound, ShieldCheck, UserPlus } from "lucide-react";
+import { KeyRound, ShieldCheck, UserPlus, Users } from "lucide-react";
 
 import { caliberApi } from "@/api/caliberApi";
 import type { AuthAccountList, SecretList } from "@/api/types";
+import type { Project, ProjectMember, ProjectRole } from "@/api/workflowTypes";
 import { clearLocalAuthSession, getStoredAuthSession } from "@/auth/localAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { getActiveProjectId } from "@/workspace/activeWorkspace";
 
 /** Minimum enforced server-side; mirrored here so the error arrives before the round trip. */
 const MIN_PASSWORD_LENGTH = 12;
@@ -45,6 +47,9 @@ export function Administration(): JSX.Element {
   );
   const secrets = useApiQuery<SecretList>(["secrets"], (signal) =>
     caliberApi.listSecrets(signal),
+  );
+  const projects = useApiQuery<Project[]>(["projects", "access"], (signal) =>
+    caliberApi.listProjects("active", signal),
   );
 
   const [newUser, setNewUser] = useState("");
@@ -341,6 +346,8 @@ export function Administration(): JSX.Element {
         ) : null}
       </section>
 
+      <ProjectAccessSection projects={projects.data ?? []} />
+
       {/* ----------------------------------------------------------------- Secrets */}
       <section aria-labelledby="secrets-heading" className="space-y-3">
         <h2
@@ -454,5 +461,185 @@ export function Administration(): JSX.Element {
         ) : null}
       </section>
     </div>
+  );
+}
+
+function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Element {
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(
+    () => getActiveProjectId() ?? projects[0]?.project_id ?? "",
+  );
+  const [newUser, setNewUser] = useState("");
+  const [newRole, setNewRole] = useState<ProjectRole>("viewer");
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const projectId = selectedProjectId || projects[0]?.project_id || "";
+  const project = projects.find((item) => item.project_id === projectId) ?? null;
+  const members = useApiQuery(
+    ["project-members", projectId],
+    (signal) => caliberApi.listProjectMembers(projectId, signal),
+    { enabled: Boolean(projectId) },
+  );
+  const canManage = project?.permissions?.includes("project.manage_members") ?? false;
+
+  const addMember = async (): Promise<void> => {
+    setError(null);
+    setNotice(null);
+    try {
+      await caliberApi.addProjectMember(projectId, {
+        user_id: newUser.trim(),
+        role: newRole,
+      });
+      setNewUser("");
+      setNotice(`Added ${newUser.trim()} to ${project?.name ?? "the project"}.`);
+      await members.refetch();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "Could not add project member.");
+    }
+  };
+
+  const changeRole = async (member: ProjectMember, role: ProjectRole): Promise<void> => {
+    setError(null);
+    try {
+      await caliberApi.updateProjectMember(projectId, member.user_id, { role });
+      await members.refetch();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "Could not update project member.");
+    }
+  };
+
+  const removeMember = async (member: ProjectMember): Promise<void> => {
+    setError(null);
+    try {
+      await caliberApi.removeProjectMember(projectId, member.user_id);
+      setNotice(`Removed ${member.user_id} from the project.`);
+      await members.refetch();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "Could not remove project member.");
+    }
+  };
+
+  return (
+    <section aria-labelledby="project-access-heading" className="space-y-3">
+      <h2 id="project-access-heading" className="flex items-center gap-2 text-lg font-semibold">
+        <Users className="h-5 w-5" aria-hidden="true" />
+        Project access
+      </h2>
+      <p className="text-sm text-slate-400">
+        Manage who can read, edit, review, and publish resources in each project.
+      </p>
+      {projects.length === 0 ? (
+        <p className="text-sm text-slate-400">No active projects are available.</p>
+      ) : (
+        <>
+          <label className="flex max-w-md flex-col text-sm">
+            <span className="mb-1">Project</span>
+            <select
+              aria-label="Project for access management"
+              className="rounded border border-slate-700 bg-slate-900 px-2 py-1.5"
+              value={projectId}
+              onChange={(event) => setSelectedProjectId(event.target.value)}
+            >
+              {projects.map((item) => (
+                <option key={item.project_id} value={item.project_id}>
+                  {item.name} ({item.access_role ?? "member"})
+                </option>
+              ))}
+            </select>
+          </label>
+          {error ? <p role="alert" className="text-sm text-red-400">{error}</p> : null}
+          {notice ? <p role="status" className="text-sm text-emerald-400">{notice}</p> : null}
+          {members.isError ? (
+            <p role="alert" className="text-sm text-red-400">
+              {members.error?.message ?? "Could not load project members."}
+            </p>
+          ) : null}
+          {canManage ? (
+            <form
+              className="flex flex-wrap items-end gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void addMember();
+              }}
+            >
+              <label className="flex flex-col text-sm">
+                <span className="mb-1">User ID</span>
+                <input
+                  className="rounded border border-slate-700 bg-slate-900 px-2 py-1"
+                  value={newUser}
+                  onChange={(event) => setNewUser(event.target.value)}
+                  placeholder="@developer"
+                  required
+                />
+              </label>
+              <label className="flex flex-col text-sm">
+                <span className="mb-1">Role</span>
+                <select
+                  className="rounded border border-slate-700 bg-slate-900 px-2 py-1"
+                  value={newRole}
+                  onChange={(event) => setNewRole(event.target.value as ProjectRole)}
+                >
+                  <option value="viewer">Viewer</option>
+                  <option value="editor">Editor</option>
+                  <option value="reviewer">Reviewer</option>
+                </select>
+              </label>
+              <button type="submit" className="rounded bg-cyan-700 px-3 py-1.5 text-sm">
+                Add member
+              </button>
+            </form>
+          ) : (
+            <p className="text-sm text-slate-400">Only the project owner can manage members.</p>
+          )}
+          <div className="overflow-x-auto rounded border border-slate-800">
+            <table className="w-full text-left text-sm">
+              <caption className="sr-only">Project members</caption>
+              <thead>
+                <tr className="text-slate-400">
+                  <th scope="col" className="px-3 py-2">User</th>
+                  <th scope="col" className="px-3 py-2">Role</th>
+                  {canManage ? <th scope="col" className="px-3 py-2">Actions</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {(members.data?.members ?? []).map((member) => (
+                  <tr key={member.member_id} className="border-t border-slate-800">
+                    <td className="px-3 py-2 font-mono">{member.user_id}</td>
+                    <td className="px-3 py-2">
+                      {canManage && member.role !== "owner" ? (
+                        <select
+                          aria-label={`Role for ${member.user_id}`}
+                          className="rounded border border-slate-700 bg-slate-900 px-2 py-1"
+                          value={member.role}
+                          onChange={(event) => void changeRole(member, event.target.value as ProjectRole)}
+                        >
+                          <option value="viewer">Viewer</option>
+                          <option value="editor">Editor</option>
+                          <option value="reviewer">Reviewer</option>
+                        </select>
+                      ) : (
+                        member.role
+                      )}
+                    </td>
+                    {canManage ? (
+                      <td className="px-3 py-2">
+                        {member.role !== "owner" ? (
+                          <button
+                            type="button"
+                            className="rounded border border-slate-600 px-2 py-0.5"
+                            onClick={() => void removeMember(member)}
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

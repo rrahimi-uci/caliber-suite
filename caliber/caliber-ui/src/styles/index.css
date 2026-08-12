@@ -123,6 +123,35 @@
   }
 }
 
+/* OpenAPI integrations is a dense, developer-facing surface. Keep its light
+   theme readable even where the page intentionally uses secondary metadata
+   and compact graph labels. This is scoped so legacy screens retain their
+   existing visual language. */
+.openapi-integrations-page .text-gray-500 {
+  color: #475569;
+}
+
+.openapi-integrations-page .text-gray-400 {
+  color: #64748b;
+}
+
+.openapi-integrations-page input,
+.openapi-integrations-page textarea,
+.openapi-integrations-page select {
+  color: #0f172a;
+  background-color: #ffffff;
+}
+
+.openapi-integrations-page input::placeholder,
+.openapi-integrations-page textarea::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+
+.openapi-integrations-page .openapi-graph-canvas {
+  color: #0f172a;
+}
+
 /* Assistant panel slide-in */
 @keyframes slide-in-right {
   from {

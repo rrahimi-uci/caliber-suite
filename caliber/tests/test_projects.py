@@ -116,6 +116,42 @@ def test_update_project_rename_and_archive(proj_client: TestClient) -> None:
     assert any(p["project_id"] == pid for p in all_listing)
 
 
+def test_project_membership_roles_and_permissions(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Access controlled project")
+
+    detail = proj_client.get(f"{PREFIX}/projects/{pid}").json()["data"]
+    assert detail["access_role"] == "owner"
+    assert "project.manage_members" in detail["permissions"]
+
+    added = proj_client.post(
+        f"{PREFIX}/projects/{pid}/members",
+        json={"user_id": "@reader", "role": "viewer"},
+    )
+    assert added.status_code == 201, added.text
+    assert added.json()["data"]["role"] == "viewer"
+
+    reader_headers = {"X-CALIBER-User": "@reader"}
+    reader_detail = proj_client.get(f"{PREFIX}/projects/{pid}", headers=reader_headers)
+    assert reader_detail.status_code == 200
+    assert reader_detail.json()["data"]["access_role"] == "viewer"
+    assert (
+        proj_client.patch(
+            f"{PREFIX}/projects/{pid}",
+            json={"name": "should not change"},
+            headers=reader_headers,
+        ).status_code
+        == 403
+    )
+
+    members = proj_client.get(f"{PREFIX}/projects/{pid}/members", headers=reader_headers)
+    assert members.status_code == 200
+    assert {row["user_id"] for row in members.json()["data"]["members"]} == {"@test", "@reader"}
+
+    removed = proj_client.delete(f"{PREFIX}/projects/{pid}/members/@reader")
+    assert removed.status_code == 200
+    assert proj_client.get(f"{PREFIX}/projects/{pid}", headers=reader_headers).status_code == 404
+
+
 def test_upload_list_download_project_file(proj_client: TestClient) -> None:
     pid = _create(proj_client)
     resp = proj_client.post(

@@ -8,7 +8,7 @@ product_area: storage
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-08-11
 version_applicability: current main branch docs contract
 tags:
   - storage
@@ -250,6 +250,10 @@ Project workspace routes manage projects and their browsable file trees:
 - `GET /projects/storage`
 - `GET /projects/{project_id}`
 - `PATCH /projects/{project_id}`
+- `GET /projects/{project_id}/members`
+- `POST /projects/{project_id}/members`
+- `PATCH /projects/{project_id}/members/{user_id}`
+- `DELETE /projects/{project_id}/members/{user_id}`
 - `POST /projects/{project_id}/folders`
 - `GET /projects/{project_id}/files`
 - `POST /projects/{project_id}/files`
@@ -319,7 +323,8 @@ held to a higher bar than scoped file writes. The access rules are:
 - Object-store mutations require `SCOPE_ADMIN`.
 - Workflow and project file reads require an authenticated user *and* visibility
   of the resource the files hang off.
-- Workflow and project file writes require `SCOPE_OPERATOR`.
+- Workflow and project file writes require `SCOPE_OPERATOR` plus project
+  `resource.write` access (`owner` or `editor`) for the selected project.
 
 On top of authorization, the module enforces a set of core protections at the
 boundary between CALIBER and untrusted storage:

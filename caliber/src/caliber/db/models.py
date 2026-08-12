@@ -1651,7 +1651,9 @@ class CaliberOpenApiToolDraft(Base):
     integration_version_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_openapi_integration_versions.version_id")
     )
-    operation_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_openapi_operations.operation_id"))
+    operation_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_operations.operation_id")
+    )
     name: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text, default="")
     owner: Mapped[str] = mapped_column(String(256), default="")
@@ -1671,7 +1673,9 @@ class CaliberOpenApiToolDraft(Base):
     #: populated when curation groups several related operations (e.g. list +
     #: get + create for one resource) behind a single callable — see §6's "tool
     #: explosion" mitigation ("allow grouping into tool packs").
-    additional_operation_ids: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    additional_operation_ids: Mapped[list[str]] = mapped_column(
+        JSON, default=list, server_default="[]"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -2048,6 +2052,30 @@ class CaliberKnowledgeBase(Base):
         DateTime,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class CaliberProjectMember(Base):
+    """A user membership and role inside a CALIBER project."""
+
+    __tablename__ = "caliber_project_members"
+    __table_args__ = (
+        UniqueConstraint("project_id", "user_id", name="uq_project_member_user"),
+        Index("ix_project_members_project_status", "project_id", "status"),
+        Index("ix_project_members_user_status", "user_id", "status"),
+    )
+
+    member_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="viewer")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
     )
 
 

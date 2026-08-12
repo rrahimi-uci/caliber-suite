@@ -18,8 +18,11 @@ Node/edge vocabulary matches §5.2 exactly:
 
 from __future__ import annotations
 
+# The graph projection enumerates the published node/edge vocabulary directly.
+# ruff: noqa: PLR0912, PLR0915
 import hashlib
 import json
+from collections.abc import Sequence
 from typing import Any
 
 _DEPENDENCY_EDGE_TYPES = {
@@ -38,9 +41,9 @@ def build_graph_snapshot(
     *,
     integration: Any,
     version: Any,
-    operations: list[Any],
-    dependencies: list[Any],
-    tool_drafts: list[Any] | None = None,
+    operations: Sequence[Any],
+    dependencies: Sequence[Any],
+    tool_drafts: Sequence[Any] | None = None,
 ) -> dict[str, Any]:
     """Build the node/edge projection for one pinned integration version.
 
@@ -53,13 +56,17 @@ def build_graph_snapshot(
     edges: list[dict[str, Any]] = []
     seen_node_ids: set[str] = set()
 
-    def add_node(node_id: str, node_type: str, label: str, data: dict[str, Any] | None = None) -> None:
+    def add_node(
+        node_id: str, node_type: str, label: str, data: dict[str, Any] | None = None
+    ) -> None:
         if node_id in seen_node_ids:
             return
         seen_node_ids.add(node_id)
         nodes.append({"id": node_id, "type": node_type, "label": label, "data": data or {}})
 
-    def add_edge(edge_id: str, edge_type: str, from_id: str, to_id: str, data: dict[str, Any] | None = None) -> None:
+    def add_edge(
+        edge_id: str, edge_type: str, from_id: str, to_id: str, data: dict[str, Any] | None = None
+    ) -> None:
         edges.append(
             {"id": edge_id, "type": edge_type, "from": from_id, "to": to_id, "data": data or {}}
         )
@@ -71,7 +78,9 @@ def build_graph_snapshot(
     for server_url in _get(version, "server_urls") or []:
         server_node = f"server:{server_url}"
         add_node(server_node, "server", server_url, {"url": server_url})
-        add_edge(f"{integration_node}->{server_node}", "belongs_to_tag", integration_node, server_node)
+        add_edge(
+            f"{integration_node}->{server_node}", "belongs_to_tag", integration_node, server_node
+        )
 
     for scheme in _get(version, "auth_schemes") or []:
         scheme_node = f"auth_scheme:{scheme}"

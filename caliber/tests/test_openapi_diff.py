@@ -61,7 +61,9 @@ def test_newly_deprecated_operation_is_flagged_breaking() -> None:
         [_op("GET /tickets", deprecated=True)],
     )
     assert result["changed"][0]["changes"]["deprecated"] == {"from": False, "to": True}
-    assert result["breaking"] == [{"operation_key": "GET /tickets", "reason": "operation was deprecated"}]
+    assert result["breaking"] == [
+        {"operation_key": "GET /tickets", "reason": "operation was deprecated"}
+    ]
 
 
 def test_auth_requirement_change_is_flagged_breaking() -> None:

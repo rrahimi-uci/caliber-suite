@@ -7,7 +7,7 @@ stability: ga
 prerequisites:
   - A running CALIBER deployment
   - A project to access
-reviewed_on: 2026-08-10
+reviewed_on: 2026-08-11
 version_applicability: current main branch docs contract
 tags:
   - auth
@@ -28,6 +28,7 @@ must make before calling CALIBER programmatically.
 | Base management prefix | `/ajax-api/2.0/mlflow/caliber` |
 | Automation auth | `Authorization: Bearer <token>` |
 | Project scoping | `X-CALIBER-Project: <project_id>` |
+| Project access | Owner, editor, reviewer, or viewer membership; project responses report `access_role` and `permissions` |
 | Browser-style writes | `X-CALIBER-CSRF: <token>` when the deployment uses session/CSRF flows |
 | Best Python entry point | [`caliber-sdk`](../sdk/guide.md) |
 | Best HTTP entry point | [REST API overview](../api/overview.md) |
@@ -53,7 +54,41 @@ scope that sends that header consistently.
 If a workflow works in one project but not another, project scoping is one of
 the first things to verify.
 
-## 3. SDK path
+## 3. Understand project access
+
+Project visibility and project authority are separate from the token's global
+scope. A token must first authenticate with a sufficient global scope, and the
+caller must also have an active membership in the selected project (or be the
+project owner/admin). The effective project permissions are returned on project
+responses as `access_role` and `permissions`.
+
+| Role | Effective project permissions |
+| --- | --- |
+| `owner` | read, update the project, manage members, write, publish, approve, execute |
+| `editor` | read, update the project, write, publish, execute |
+| `reviewer` | read, approve, execute |
+| `viewer` | read |
+
+Owners can manage membership with `GET/POST /projects/{project_id}/members`,
+`PATCH /projects/{project_id}/members/{user_id}`, and
+`DELETE /projects/{project_id}/members/{user_id}`. The owner is created as the
+initial member and cannot be removed through the member route. Removing another
+member makes that membership inactive.
+
+The typed SDK exposes the same operations:
+
+```python
+project = client.projects.get("PRJ-1")
+if "resource.publish" in project.permissions:
+    members = client.projects.list_members(project.project_id)
+    client.projects.add_member(project.project_id, "@bob", role="reviewer")
+```
+
+The member-management calls require the project `owner` role. A valid bearer
+token without the required project role receives a permission error; a caller
+with no visibility of the project receives a not-found response.
+
+## 4. SDK path
 
 If you are writing Python, use the SDK unless you specifically need the raw
 wire layer.
@@ -64,7 +99,7 @@ Recommended path:
 2. [SDK API reference](../sdk/reference.md)
 3. [CLI and async client](../sdk/cli.md) for operator-style automation
 
-## 4. Raw HTTP path
+## 5. Raw HTTP path
 
 Use the REST API directly when:
 
@@ -79,16 +114,19 @@ Start from:
 3. [Resource catalog](../api/resources.md)
 4. [HTTP reference](../api/reference.md)
 
-## 5. Common failure modes
+## 6. Common failure modes
 
 | Symptom | First thing to check |
 | --- | --- |
 | Request is authenticated but sees the wrong objects | `X-CALIBER-Project` or SDK project scope |
+| Project is visible but a write/publish is refused | `access_role`, `permissions`, and the token's global scope |
+| Member routes return 403 | only the project owner can manage membership |
+| Project route returns 404 unexpectedly | the caller is not an active member, owner, or admin |
 | Write request fails in a browser-like flow | missing or stale CSRF token |
 | HTTP integration works but Python code does not | SDK client config, auth setup, or server compatibility |
 | Python code works but raw HTTP does not | missing auth header, wrong base path, or missing project header |
 
-## 6. Related docs
+## 7. Related docs
 
 - [SDK guide](../sdk/guide.md)
 - [REST API overview](../api/overview.md)

@@ -20,6 +20,8 @@ Detection runs in three tiers, matching §5.3:
 
 from __future__ import annotations
 
+# The detector's bounded thresholds are part of the deterministic contract.
+# ruff: noqa: PLR2004
 import re
 from typing import Any
 
@@ -62,7 +64,7 @@ def detect_dependencies(operations: list[dict[str, Any]]) -> list[dict[str, Any]
     match is reported once, at the higher tier.
     """
 
-    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
 
     for row in _explicit_links(operations):
         by_key[_pair_key(row)] = row
@@ -313,9 +315,7 @@ def _response_identifier_fields(op: dict[str, Any]) -> list[str]:
                 continue
             properties = schema.get("properties")
             if isinstance(properties, dict):
-                fields.extend(
-                    key for key in properties if _ID_FIELD.match(str(key).lower())
-                )
+                fields.extend(key for key in properties if _ID_FIELD.match(str(key).lower()))
     return fields
 
 

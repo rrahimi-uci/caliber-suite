@@ -19,10 +19,11 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from sqlalchemy import and_, false, or_, select
+from sqlalchemy import and_, exists, false, or_, select
 from sqlalchemy.sql import Select
 
 from caliber.auth import SCOPE_ADMIN, CaliberIdentity
+from caliber.db.models import CaliberProjectMember
 
 VisibilityTier = Literal["project", "user", "public"]
 
@@ -125,7 +126,16 @@ def apply_visibility_filter(  # noqa: PLR0911 (one return per visibility tier re
             and_(
                 model.visibility == "project",
                 model.project_id == project_id,
-                owner_column(model) == identity.user_id,
+                or_(
+                    owner_column(model) == identity.user_id,
+                    exists(
+                        select(CaliberProjectMember.member_id).where(
+                            CaliberProjectMember.project_id == model.project_id,
+                            CaliberProjectMember.user_id == identity.user_id,
+                            CaliberProjectMember.status == "active",
+                        )
+                    ),
+                ),
             )
         )
 

@@ -211,6 +211,9 @@ import type {
   WorkflowServiceTokenCreatePayload,
   WorkflowTemplateCatalog,
   Project,
+  ProjectMember,
+  ProjectMemberList,
+  ProjectRole,
   ProjectDirectory,
   ProjectStorageConfig,
   WorkflowFile,
@@ -4894,6 +4897,45 @@ export const caliberApi = {
       method: "PATCH",
       body: payload,
     });
+  },
+
+  /** GET /projects/{id}/members */
+  listProjectMembers(projectId: string, signal?: AbortSignal): Promise<ProjectMemberList> {
+    return request<ProjectMemberList>(
+      `/projects/${encodeURIComponent(projectId)}/members`,
+      { signal },
+    );
+  },
+
+  /** POST /projects/{id}/members */
+  addProjectMember(
+    projectId: string,
+    payload: { user_id: string; role: ProjectRole },
+  ): Promise<ProjectMember> {
+    return request<ProjectMember>(
+      `/projects/${encodeURIComponent(projectId)}/members`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** PATCH /projects/{id}/members/{userId} */
+  updateProjectMember(
+    projectId: string,
+    userId: string,
+    payload: { role?: ProjectRole; status?: "active" | "inactive" },
+  ): Promise<ProjectMember> {
+    return request<ProjectMember>(
+      `/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+      { method: "PATCH", body: payload },
+    );
+  },
+
+  /** DELETE /projects/{id}/members/{userId} */
+  removeProjectMember(projectId: string, userId: string): Promise<void> {
+    return request<void>(
+      `/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    );
   },
 
   /** GET /projects/{id}/files */

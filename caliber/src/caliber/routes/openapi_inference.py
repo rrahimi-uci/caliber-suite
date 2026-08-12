@@ -17,6 +17,9 @@ schema instead of pretending the route has no body at all.
 
 from __future__ import annotations
 
+# This route-table inference is a bounded AST interpreter; its branches map
+# directly to supported Starlette/Pydantic response patterns.
+# ruff: noqa: PLR0911, PLR0912, PLR0915, PLR2004, SIM102, RET504, ARG001
 import ast
 import inspect
 import json
@@ -41,7 +44,9 @@ def infer_operation_contract(
 
     target = _unwrap_endpoint(endpoint)
     analysis = _analyze(target, components_schemas=components_schemas)
-    request_body = _request_body(analysis=analysis, method=method, components_schemas=components_schemas)
+    request_body = _request_body(
+        analysis=analysis, method=method, components_schemas=components_schemas
+    )
     responses = _responses(analysis=analysis, components_schemas=components_schemas)
     if not responses:
         responses = {"200": _json_response(_generic_object_schema())}
@@ -78,7 +83,9 @@ def _unwrap_endpoint(endpoint: Any) -> Any:
             value = cell.cell_contents
         except ValueError:
             continue
-        if callable(value) and getattr(value, "__name__", None) == getattr(target, "__name__", None):
+        if callable(value) and getattr(value, "__name__", None) == getattr(
+            target, "__name__", None
+        ):
             return inspect.unwrap(value)
     return target
 
@@ -87,11 +94,7 @@ def _analyze(endpoint: Any, *, components_schemas: dict[str, Any]) -> _EndpointA
     source = textwrap.dedent(inspect.getsource(endpoint))
     tree = ast.parse(source)
     fn = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
-        ),
+        (node for node in tree.body if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))),
         None,
     )
     if fn is None:
@@ -233,7 +236,9 @@ def _walk_statements(
     if analysis.request_model is None and analysis.request_media_type is None:
         request = _infer_manual_request_schema(statements)
         if request is not None:
-            analysis.request_media_type, analysis.request_schema, analysis.request_required = request
+            analysis.request_media_type, analysis.request_schema, analysis.request_required = (
+                request
+            )
 
 
 def _assigned_names(target: ast.expr) -> list[str]:
@@ -266,9 +271,7 @@ def _maybe_capture_request_model(
 
 
 def _looks_like_json_body_model(call: ast.Call) -> bool:
-    if not call.args and not call.keywords:
-        return False
-    return True
+    return not (not call.args and not call.keywords)
 
 
 def _call_has_allow_empty(call: ast.Call) -> bool:
@@ -306,7 +309,9 @@ def _maybe_capture_form_request(call: ast.AST, *, analysis: _EndpointAnalysis) -
     }
 
 
-def _infer_manual_request_schema(statements: list[ast.stmt]) -> tuple[str, dict[str, Any], bool] | None:
+def _infer_manual_request_schema(
+    statements: list[ast.stmt],
+) -> tuple[str, dict[str, Any], bool] | None:
     body_names: dict[str, bool] = {}
     form_names: set[str] = set()
 
@@ -327,7 +332,10 @@ def _infer_manual_request_schema(statements: list[ast.stmt]) -> tuple[str, dict[
                         for name in _assigned_names(target):
                             form_names.add(name)
         elif isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Call):
-            if isinstance(statement.value.func, ast.Attribute) and statement.value.func.attr == "form":
+            if (
+                isinstance(statement.value.func, ast.Attribute)
+                and statement.value.func.attr == "form"
+            ):
                 for target in statement.targets:
                     for name in _assigned_names(target):
                         form_names.add(name)
@@ -353,7 +361,11 @@ def _infer_manual_request_schema(statements: list[ast.stmt]) -> tuple[str, dict[
             if key is not None:
                 properties.setdefault(key, {})
                 required.add(key)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "isinstance":
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "isinstance"
+            ):
                 inferred = _schema_from_isinstance(node)
                 key = _key_from_alias_check(node.args[0], aliases)
                 if key is not None and inferred is not None:
@@ -375,21 +387,21 @@ def _infer_manual_request_schema(statements: list[ast.stmt]) -> tuple[str, dict[
         )
 
     if form_names:
-        properties: dict[str, Any] = {}
-        required: set[str] = set()
+        form_properties: dict[str, Any] = {}
+        form_required: set[str] = set()
         for node in ast.walk(ast.Module(body=statements, type_ignores=[])):
             key = _form_key_access(node, form_names)
             if key is not None:
-                properties.setdefault(key, {"type": "string"})
+                form_properties.setdefault(key, {"type": "string"})
                 if key == "file":
-                    properties[key] = {"type": "string", "format": "binary"}
-                    required.add("file")
+                    form_properties[key] = {"type": "string", "format": "binary"}
+                    form_required.add("file")
         return (
             "multipart/form-data",
             {
                 "type": "object",
-                "properties": properties or {"file": {"type": "string", "format": "binary"}},
-                "required": sorted(required),
+                "properties": form_properties or {"file": {"type": "string", "format": "binary"}},
+                "required": sorted(form_required),
             },
             True,
         )
@@ -403,7 +415,11 @@ def _body_key_access(node: ast.AST, body_names: dict[str, bool]) -> str | None:
         return None
     if not isinstance(node.func.value, ast.Name) or node.func.value.id not in body_names:
         return None
-    if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+    if (
+        not node.args
+        or not isinstance(node.args[0], ast.Constant)
+        or not isinstance(node.args[0].value, str)
+    ):
         return None
     return node.args[0].value
 
@@ -424,7 +440,11 @@ def _form_key_access(node: ast.AST, form_names: set[str]) -> str | None:
         return None
     if not isinstance(node.func.value, ast.Name) or node.func.value.id not in form_names:
         return None
-    if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
+    if (
+        not node.args
+        or not isinstance(node.args[0], ast.Constant)
+        or not isinstance(node.args[0].value, str)
+    ):
         return None
     return node.args[0].value
 
@@ -526,7 +546,11 @@ def _responses(
     for status_code, variants in grouped.items():
         first = variants[0]
         if first.schema is None:
-            responses[status_code] = {"description": HTTPStatus(int(status_code)).phrase if status_code.isdigit() else "Success."}
+            responses[status_code] = {
+                "description": HTTPStatus(int(status_code)).phrase
+                if status_code.isdigit()
+                else "Success."
+            }
             continue
         if len(variants) == 1:
             responses[status_code] = _response_for_variant(first)
@@ -534,10 +558,14 @@ def _responses(
         media_types = {variant.media_type for variant in variants}
         if len(media_types) == 1:
             responses[status_code] = {
-                "description": HTTPStatus(int(status_code)).phrase if status_code.isdigit() else "Success.",
+                "description": HTTPStatus(int(status_code)).phrase
+                if status_code.isdigit()
+                else "Success.",
                 "content": {
                     first.media_type: {
-                        "schema": _one_of([variant.schema for variant in variants if variant.schema is not None])
+                        "schema": _one_of(
+                            [variant.schema for variant in variants if variant.schema is not None]
+                        )
                     }
                 },
             }
@@ -548,19 +576,25 @@ def _responses(
                     continue
                 content[variant.media_type] = {"schema": variant.schema}
             responses[status_code] = {
-                "description": HTTPStatus(int(status_code)).phrase if status_code.isdigit() else "Success.",
+                "description": HTTPStatus(int(status_code)).phrase
+                if status_code.isdigit()
+                else "Success.",
                 "content": content,
             }
     for code in ("400", "401", "403", "404"):
         responses.setdefault(code, _error_ref(code))
-    return dict(sorted(responses.items(), key=lambda item: int(item[0]) if item[0].isdigit() else 999))
+    return dict(
+        sorted(responses.items(), key=lambda item: int(item[0]) if item[0].isdigit() else 999)
+    )
 
 
 def _response_for_variant(variant: _ResponseVariant) -> dict[str, Any]:
     if variant.schema is None:
         return {"description": HTTPStatus(int(variant.status_code)).phrase}
     return {
-        "description": HTTPStatus(int(variant.status_code)).phrase if variant.status_code.isdigit() else "Success.",
+        "description": HTTPStatus(int(variant.status_code)).phrase
+        if variant.status_code.isdigit()
+        else "Success.",
         "content": {variant.media_type: {"schema": variant.schema}},
     }
 
@@ -579,48 +613,69 @@ def _infer_response_variant(
         return None
     name = _call_name(node.func)
     if name == "envelope_response":
-        payload = _infer_schema(
-            node.args[0] if node.args else None,
-            globals_ns=globals_ns,
-            var_types=var_types,
-            var_schemas=var_schemas,
-            components_schemas=components_schemas,
-        ) or _generic_object_schema()
+        payload = (
+            _infer_schema(
+                node.args[0] if node.args else None,
+                globals_ns=globals_ns,
+                var_types=var_types,
+                var_schemas=var_schemas,
+                components_schemas=components_schemas,
+            )
+            or _generic_object_schema()
+        )
         return _ResponseVariant(
             status_code=_status_code(node, default="200"),
             media_type="application/json",
             schema=_envelope_schema(payload),
         )
     if name == "envelope_response_dict":
-        payload = _infer_schema(
-            node.args[0] if node.args else None,
-            globals_ns=globals_ns,
-            var_types=var_types,
-            var_schemas=var_schemas,
-            components_schemas=components_schemas,
-        ) or _generic_object_schema()
+        payload = (
+            _infer_schema(
+                node.args[0] if node.args else None,
+                globals_ns=globals_ns,
+                var_types=var_types,
+                var_schemas=var_schemas,
+                components_schemas=components_schemas,
+            )
+            or _generic_object_schema()
+        )
         return _ResponseVariant(
             status_code=_status_code(node, default="200"),
             media_type="application/json",
             schema=_envelope_schema(payload),
         )
     if name == "JSONResponse":
-        payload = _jsonresponse_payload(node)
-        schema = _infer_schema(
-            payload,
-            globals_ns=globals_ns,
-            var_types=var_types,
-            var_schemas=var_schemas,
-            components_schemas=components_schemas,
-        ) or _generic_object_schema()
+        json_payload = _jsonresponse_payload(node)
+        schema = (
+            _infer_schema(
+                json_payload,
+                globals_ns=globals_ns,
+                var_types=var_types,
+                var_schemas=var_schemas,
+                components_schemas=components_schemas,
+            )
+            or _generic_object_schema()
+        )
         status_code = _status_code(node, default="200")
         if status_code == "204":
-            return _ResponseVariant(status_code=status_code, media_type="application/json", schema=None)
-        return _ResponseVariant(status_code=status_code, media_type="application/json", schema=schema)
-    if name in {"Response", "PlainTextResponse", "HTMLResponse", "StreamingResponse", "FileResponse"}:
+            return _ResponseVariant(
+                status_code=status_code, media_type="application/json", schema=None
+            )
+        return _ResponseVariant(
+            status_code=status_code, media_type="application/json", schema=schema
+        )
+    if name in {
+        "Response",
+        "PlainTextResponse",
+        "HTMLResponse",
+        "StreamingResponse",
+        "FileResponse",
+    }:
         status_code = _status_code(node, default="200")
         if status_code == "204" or (name == "Response" and _response_has_no_content(node)):
-            return _ResponseVariant(status_code=status_code, media_type="application/json", schema=None)
+            return _ResponseVariant(
+                status_code=status_code, media_type="application/json", schema=None
+            )
         media_type = _response_media_type(name, node)
         schema = _response_payload_schema(
             name=name,
@@ -647,7 +702,11 @@ def _response_has_no_content(node: ast.Call) -> bool:
     for keyword in node.keywords:
         if keyword.arg == "status_code" and _literal_status(keyword.value) == "204":
             return True
-        if keyword.arg == "content" and isinstance(keyword.value, ast.Constant) and keyword.value.value is None:
+        if (
+            keyword.arg == "content"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is None
+        ):
             return True
     return False
 
@@ -760,13 +819,16 @@ def _infer_schema(
         items = _one_of([item for item in item_schemas if item is not None]) if item_schemas else {}
         return {"type": "array", "items": items}
     if isinstance(node, ast.ListComp):
-        item = _infer_schema(
-            node.elt,
-            globals_ns=globals_ns,
-            var_types=var_types,
-            var_schemas=var_schemas,
-            components_schemas=components_schemas,
-        ) or _generic_object_schema()
+        item = (
+            _infer_schema(
+                node.elt,
+                globals_ns=globals_ns,
+                var_types=var_types,
+                var_schemas=var_schemas,
+                components_schemas=components_schemas,
+            )
+            or _generic_object_schema()
+        )
         return {"type": "array", "items": item}
     if isinstance(node, ast.Dict):
         properties: dict[str, Any] = {}
@@ -787,20 +849,26 @@ def _infer_schema(
             if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
                 continue
             key = key_node.value
-            properties[key] = _infer_schema(
-                value_node,
-                globals_ns=globals_ns,
-                var_types=var_types,
-                var_schemas=var_schemas,
-                components_schemas=components_schemas,
-            ) or {}
+            properties[key] = (
+                _infer_schema(
+                    value_node,
+                    globals_ns=globals_ns,
+                    var_types=var_types,
+                    var_schemas=var_schemas,
+                    components_schemas=components_schemas,
+                )
+                or {}
+            )
             required.append(key)
         return {"type": "object", "properties": properties, "required": sorted(set(required))}
     if isinstance(node, ast.Call):
         model = _model_from_call(node, globals_ns=globals_ns, var_types=var_types)
         if model is not None:
             return _schema_for_type(model, components_schemas=components_schemas)
-        if isinstance(node.func, ast.Attribute) and node.func.attr in {"model_dump", "model_dump_json"}:
+        if isinstance(node.func, ast.Attribute) and node.func.attr in {
+            "model_dump",
+            "model_dump_json",
+        }:
             return _infer_schema(
                 node.func.value,
                 globals_ns=globals_ns,
@@ -856,7 +924,11 @@ def _infer_python_type(
         if inspect.isclass(callable_obj):
             return callable_obj
         try:
-            hints = get_type_hints(callable_obj, globalns=getattr(callable_obj, "__globals__", globals_ns), include_extras=True)
+            hints = get_type_hints(
+                callable_obj,
+                globalns=getattr(callable_obj, "__globals__", globals_ns),
+                include_extras=True,
+            )
         except Exception:
             return None
         return hints.get("return")
@@ -876,7 +948,9 @@ def _model_from_call(
     return _as_model(target)
 
 
-def _resolve_callable(node: ast.AST, *, globals_ns: dict[str, Any], var_types: dict[str, list[Any]]) -> Any | None:
+def _resolve_callable(
+    node: ast.AST, *, globals_ns: dict[str, Any], var_types: dict[str, list[Any]]
+) -> Any | None:
     if isinstance(node, ast.Name):
         return globals_ns.get(node.id)
     if isinstance(node, ast.Attribute):
@@ -887,7 +961,9 @@ def _resolve_callable(node: ast.AST, *, globals_ns: dict[str, Any], var_types: d
     return None
 
 
-def _resolve_object(node: ast.AST, *, globals_ns: dict[str, Any], var_types: dict[str, list[Any]]) -> Any | None:
+def _resolve_object(
+    node: ast.AST, *, globals_ns: dict[str, Any], var_types: dict[str, list[Any]]
+) -> Any | None:
     if isinstance(node, ast.Name):
         types = var_types.get(node.id)
         if types:
@@ -966,7 +1042,8 @@ def _hoist_defs(schema: dict[str, Any], *, components_schemas: dict[str, Any]) -
     if isinstance(defs, dict):
         for name, value in defs.items():
             components_schemas.setdefault(name, _rewrite_refs(value))
-    return _rewrite_refs(payload)
+    rewritten = _rewrite_refs(payload)
+    return rewritten if isinstance(rewritten, dict) else {}
 
 
 def _rewrite_refs(node: Any) -> Any:
