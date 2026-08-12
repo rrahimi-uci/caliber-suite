@@ -1,1 +1,0 @@
-ERROR    caliber.assistant.anthropic_engine:anthropic_engine.py:114 Anthropic API error: provider unavailable

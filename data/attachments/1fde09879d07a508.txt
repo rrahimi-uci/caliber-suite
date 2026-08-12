@@ -1,6 +1,0 @@
-{"t":"2026-08-12T08:54:14.524Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-08-12T08:54:14.546Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-08-12T08:54:14.548Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-08-12T08:54:14.550Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-08-12T08:54:14.572Z","severity":"WARNING","logger":"caliber.routes.gateway","message":"gateway-guardrail API unavailable: RuntimeError: gateway not enabled","trace_id":"d8113181deb3aed6"}
-{"t":"2026-08-12T08:54:14.574Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/gateway/guardrails \"HTTP/1.1 200 OK\""}

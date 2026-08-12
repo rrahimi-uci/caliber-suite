@@ -1,2 +1,0 @@
-INFO     botocore.credentials:credentials.py:1252 Found credentials in environment variables.
-WARNING  caliber.knowledge.service:service.py:2810 knowledge-base build failed (version=KBV-F): No source objects were found in the selected files or folders.

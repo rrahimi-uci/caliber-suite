@@ -1,5 +1,0 @@
-
-ERROR: this run would have reported success while 1 required gate(s) produced no evidence about this commit:
-  Lint & format
-
-A gate that never runs is indistinguishable from a gate that passes. Either fix what is preventing it from running, or remove it from REQUIRED_GATES in .github/scripts/gate_ledger.py so the claim matches what is actually checked.

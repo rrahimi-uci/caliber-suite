@@ -1,3 +1,0 @@
-{"t":"2026-08-12T08:52:54.901Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:43157/oauth/token \"HTTP/1.0 200 OK\""}
-{"t":"2026-08-12T08:52:54.921Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:43157/tickets/T-1 \"HTTP/1.0 200 OK\""}
-{"t":"2026-08-12T08:52:54.940Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:43157/tickets/T-1 \"HTTP/1.0 200 OK\""}
