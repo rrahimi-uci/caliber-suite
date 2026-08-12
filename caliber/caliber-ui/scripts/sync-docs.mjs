@@ -102,9 +102,9 @@ function rewriteHtml(html) {
 
 const DESTINATIONS = [
   { label: "public/docs", dir: SERVED_DEST_DIR },
-  ...(existsSync(PACKAGED_UI_DIR)
-    ? [{ label: "src/caliber/ui/docs", dir: PACKAGED_DEST_DIR }]
-    : []),
+  // The packaged SPA directory is ignored and is absent in a clean checkout.
+  // Create its docs copy here so package/docs validation remains deterministic.
+  { label: "src/caliber/ui/docs", dir: PACKAGED_DEST_DIR },
 ];
 
 let written = 0;
