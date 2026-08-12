@@ -440,4 +440,183 @@ def _register_builtins() -> None:
     )
 
 
+def _openapi_tool_list(ctx: CapabilityContext, _args: dict[str, Any]) -> Any:
+    """List published OpenAPI-derived tools Aria may discover.
+
+    This is the "explicit follow-on adapter" the OpenAPI Integrations proposal
+    calls for in §4.4 and §10 — Aria's callable surface is not "all published
+    tools," so an OpenAPI-backed tool is reachable here only because this
+    capability exists, not automatically. Every published tool is listed
+    (including write/``external_action`` ones) so Aria can discover what exists
+    even though :func:`_openapi_tool_invoke` refuses to call anything but a read.
+    """
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
+    from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+    identity = ctx.identity()
+    with ctx.session_factory() as session:
+        stmt = apply_visibility_filter(
+            select(CaliberToolRegistry).where(
+                CaliberToolRegistry.execution_backend == "openapi_http",
+                CaliberToolRegistry.status == "active",
+            ),
+            CaliberToolRegistry,
+            identity,
+            identity.active_project_id,
+        ).order_by(CaliberToolRegistry.name)
+        rows = session.execute(stmt).scalars().all()
+        return [
+            {
+                "tool_id": row.tool_id,
+                "name": row.name,
+                "version": row.version,
+                "description": row.description,
+                "side_effect_level": row.side_effect_level,
+                "requires_approval": row.requires_approval,
+                "input_schema": row.input_schema,
+            }
+            for row in rows
+        ]
+
+
+def invoke_openapi_published_tool(
+    ctx: CapabilityContext,
+    *,
+    tool_id: str,
+    tool_input: dict[str, Any],
+    allowed_side_effect_levels: set[str] | None = None,
+) -> dict[str, Any]:
+    """Run one published OpenAPI-backed tool through Aria's governed surface."""
+
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from caliber.audit import record as audit_record  # noqa: PLC0415
+    from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
+    from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+    from caliber.egress import EgressPolicy  # noqa: PLC0415
+    from caliber.integrations.openapi.executor import execute_openapi_http_tool  # noqa: PLC0415
+
+    identity = ctx.identity()
+    policy = EgressPolicy.from_config(ctx.config)
+    allowed = allowed_side_effect_levels or {"read"}
+    with ctx.session_factory() as session:
+        stmt = apply_visibility_filter(
+            select(CaliberToolRegistry).where(CaliberToolRegistry.tool_id == tool_id),
+            CaliberToolRegistry,
+            identity,
+            identity.active_project_id,
+        )
+        tool = session.execute(stmt).scalars().first()
+        if tool is None or tool.execution_backend != "openapi_http":
+            raise ValueError(f"published OpenAPI tool {tool_id!r} not found")
+        if tool.requires_approval:
+            raise ValueError(
+                f"tool {tool.name!r} requires approval and cannot be invoked through Aria"
+            )
+        if tool.side_effect_level not in allowed:
+            raise ValueError(
+                f"tool {tool.name!r} is {tool.side_effect_level!r} and cannot be invoked "
+                "through this Aria surface"
+            )
+        error: str | None = None
+        result: dict[str, Any] | None = None
+        try:
+            result = execute_openapi_http_tool(
+                execution_config=dict(tool.backend_config or {}),
+                input_schema=dict(tool.input_schema or {})
+                if isinstance(tool.input_schema, dict)
+                else None,
+                input_data=tool_input,
+                egress_policy=policy,
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced to audit then re-raised
+            error = str(exc)
+        audit_record(
+            session,
+            actor=ctx.actor,
+            action="invoke_openapi_tool_via_aria",
+            entity_type="tool",
+            entity_id=tool.tool_id,
+            details={
+                "tool_name": tool.name,
+                "side_effect_level": tool.side_effect_level,
+                "status_code": result.get("status_code") if result else None,
+                "error": error,
+            },
+        )
+        session.commit()
+    if error is not None:
+        raise ValueError(error)
+    assert result is not None
+    return result
+
+
+def _openapi_tool_invoke(ctx: CapabilityContext, args: dict[str, Any]) -> Any:
+    """Invoke one published, read-only OpenAPI-derived tool.
+
+    Deliberately conservative, matching §10's "defer... full dynamic Aria parity
+    for every published OpenAPI tool": this refuses anything whose
+    ``side_effect_level`` is not ``read`` or that ``requires_approval``, rather
+    than inventing autonomous-write semantics for an arbitrary external HTTP call
+    the proposal never asked for. A write/external-action tool remains reachable
+    through the tool registry, workflow runtime, and SDK/API — just not from here.
+
+    Execution goes through the same guarded executor and egress policy as every
+    other OpenAPI-backed invocation, and is audited the same way the preview
+    route is: shape of the call, never the request/response payload or a
+    resolved credential.
+    """
+
+    tool_id = str(args.get("tool_id") or "").strip()
+    if not tool_id:
+        raise ValueError("tool_id is required")
+    tool_input = args.get("input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    return invoke_openapi_published_tool(
+        ctx,
+        tool_id=tool_id,
+        tool_input=tool_input,
+        allowed_side_effect_levels={"read"},
+    )
+
+
 _register_builtins()
+
+register(
+    Capability(
+        key="openapi_tool.list",
+        title="List OpenAPI tools",
+        description=(
+            "List published OpenAPI-derived tools (tool_id, name, side_effect_level, "
+            "whether they require approval). Includes write-capable tools for "
+            "discovery even though only read tools can be invoked here."
+        ),
+        tier=TIER_READ,
+        handler=_openapi_tool_list,
+        required_scopes=("viewer",),
+        result_properties=("tools",),
+    )
+)
+register(
+    Capability(
+        key="openapi_tool.invoke",
+        title="Invoke a read-only OpenAPI tool",
+        description=(
+            "Invoke one published, read-only OpenAPI-derived tool by tool_id with "
+            "structured input. Refuses write or approval-gated tools — use a "
+            "workflow or the SDK for those."
+        ),
+        tier=TIER_READ,
+        handler=_openapi_tool_invoke,
+        required_scopes=("viewer",),
+        properties={
+            "tool_id": {"type": "string"},
+            "input": {"type": "object"},
+        },
+        required=("tool_id",),
+        result_properties=("status_code", "json", "text"),
+    )
+)

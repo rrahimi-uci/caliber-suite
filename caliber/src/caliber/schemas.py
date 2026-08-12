@@ -997,6 +997,13 @@ TOOL_SIDE_EFFECT_PATTERN = "^(read|write|external_action)$"
 TOOL_STATUS_PATTERN = "^(active|deprecated|archived)$"
 TOOL_EXECUTION_BACKEND_PATTERN = "^(python_callable|openapi_http)$"
 OPENAPI_TOOL_DRAFT_STATUS_PATTERN = "^(draft|ready|published|archived)$"
+OPENAPI_SOURCE_KIND_PATTERN = "^(inline_text|upload|url)$"
+OPENAPI_DEPENDENCY_TYPE_PATTERN = (
+    "^(produces_identifier_for|consumes_identifier_from|requires_auth|polls|"
+    "paginates_to|compensates|precondition_for|grouped_with)$"
+)
+OPENAPI_DEPENDENCY_CONFIDENCE_PATTERN = "^(high|medium|low)$"
+OPENAPI_DEPENDENCY_STATUS_PATTERN = "^(auto_wired|suggested|advisory|confirmed|rejected)$"
 
 
 class ToolSchema(BaseModel):
@@ -2316,6 +2323,7 @@ class OpenApiIntegrationVersionSchema(BaseModel):
     import_warnings: list[str] = Field(default_factory=list)
     operation_count: int = 0
     normalized_summary: dict[str, Any] = Field(default_factory=dict)
+    dependency_detected_at: datetime | None = None
     created_by: str
     created_at: datetime
 
@@ -2364,13 +2372,40 @@ class OpenApiIntegrationUpdateRequest(BaseModel):
 
 
 class OpenApiImportRequest(BaseModel):
-    """Body of ``POST /caliber/openapi-integrations/{integration_id}/import``."""
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/import``.
+
+    Exactly one of ``spec_text``/``spec_base64``/``spec_url`` must be supplied,
+    matching ``source_kind`` — see §2's "Import OpenAPI 3.x specs from URL,
+    uploaded file, or pasted JSON/YAML".
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    source_kind: Literal["inline_text"] = "inline_text"
+    source_kind: Literal["inline_text", "upload", "url"] = "inline_text"
     source_ref: str | None = Field(default=None, max_length=1024)
-    spec_text: str = Field(min_length=1)
+    spec_text: str | None = Field(default=None, min_length=1)
+    spec_base64: str | None = Field(default=None, min_length=1)
+    spec_url: str | None = Field(default=None, min_length=1, max_length=2048)
+
+    @model_validator(mode="after")
+    def _validate_source(self) -> OpenApiImportRequest:
+        required_field = {
+            "inline_text": "spec_text",
+            "upload": "spec_base64",
+            "url": "spec_url",
+        }[self.source_kind]
+        if not getattr(self, required_field):
+            raise ValueError(f"source_kind={self.source_kind!r} requires {required_field!r}")
+        return self
+
+
+class OpenApiValidateSpecSourceRequest(BaseModel):
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/validate-spec-source``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_kind: Literal["inline_text", "upload", "url"] = "url"
+    spec_url: str | None = Field(default=None, min_length=1, max_length=2048)
 
 
 class OpenApiAuthBindingSchema(BaseModel):
@@ -2378,13 +2413,29 @@ class OpenApiAuthBindingSchema(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["none", "bearer", "api_key", "basic", "header"] = "none"
+    kind: Literal[
+        "none",
+        "bearer",
+        "api_key",
+        "basic",
+        "header",
+        "oauth_client_credentials",
+        "oauth_refresh_token",
+    ] = "none"
     secret_ref: str | None = Field(default=None, max_length=512)
     password_secret_ref: str | None = Field(default=None, max_length=512)
     username: str | None = Field(default=None, max_length=256)
     header_name: str | None = Field(default=None, max_length=256)
     query_param_name: str | None = Field(default=None, max_length=256)
     prefix: str | None = Field(default=None, max_length=64)
+    token_url: str | None = Field(default=None, max_length=2048)
+    client_id: str | None = Field(default=None, max_length=512)
+    client_secret_ref: str | None = Field(default=None, max_length=512)
+    refresh_token_secret_ref: str | None = Field(default=None, max_length=512)
+    scopes: list[str] = Field(default_factory=list)
+    audience: str | None = Field(default=None, max_length=512)
+    resource: str | None = Field(default=None, max_length=512)
+    client_auth_method: Literal["basic", "body"] | None = "basic"
 
     @model_validator(mode="after")
     def _validate_binding(self) -> OpenApiAuthBindingSchema:
@@ -2405,6 +2456,20 @@ class OpenApiAuthBindingSchema(BaseModel):
         if self.kind == "header":
             if not self.secret_ref or not self.header_name:
                 raise ValueError("header auth requires secret_ref and header_name")
+        if self.kind == "oauth_client_credentials":
+            if not self.token_url or not self.client_id or not self.client_secret_ref:
+                raise ValueError(
+                    "oauth_client_credentials requires token_url, client_id, and client_secret_ref"
+                )
+        if self.kind == "oauth_refresh_token":
+            if not self.token_url or not self.refresh_token_secret_ref:
+                raise ValueError(
+                    "oauth_refresh_token requires token_url and refresh_token_secret_ref"
+                )
+            if self.client_secret_ref and not self.client_id:
+                raise ValueError(
+                    "oauth_refresh_token with client_secret_ref also requires client_id"
+                )
         return self
 
 
@@ -2417,6 +2482,7 @@ class OpenApiToolDraftSchema(BaseModel):
     integration_id: str
     integration_version_id: str
     operation_id: str
+    additional_operation_ids: list[str] = Field(default_factory=list)
     name: str
     description: str
     owner: str
@@ -2436,16 +2502,44 @@ class OpenApiToolDraftSchema(BaseModel):
 
 
 class OpenApiGenerateToolDraftsRequest(BaseModel):
-    """Body of ``POST /caliber/openapi-integrations/{integration_id}/tool-drafts/generate``."""
+    """Body of ``POST /caliber/openapi-integrations/{integration_id}/tool-drafts/generate``.
+
+    Two mutually exclusive shapes, matching §6's "tool explosion" mitigation
+    ("support selection by tag/path/method; allow grouping into tool packs"):
+
+    * ``operation_ids`` with ``group_as_pack=False`` (the default) — one draft
+      per listed operation, CALIBER's original one-operation-per-tool shape.
+    * ``operation_ids`` with ``group_as_pack=True`` — the listed operations
+      become **one** draft with several bound operations (a tool pack), so an
+      agent gets one callable for e.g. list+get+create on a resource instead of
+      three near-identical tools.
+
+    ``tags``/``methods``/``path_prefix`` are selection filters applied against
+    the version's operations *in addition to* ``operation_ids``, so an operator
+    can request "everything tagged 'tickets' that is a GET" without listing
+    every operation id by hand.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    operation_ids: list[str] = Field(min_length=1)
+    operation_ids: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    methods: list[str] = Field(default_factory=list)
+    path_prefix: str | None = Field(default=None, max_length=1024)
+    group_as_pack: bool = False
     version_id: str | None = Field(default=None, max_length=64)
     server_url: str | None = Field(default=None, max_length=1024)
     auth_binding: OpenApiAuthBindingSchema | None = None
     requires_approval: bool = False
     allow_in_preview: bool = False
+
+    @model_validator(mode="after")
+    def _validate_selection(self) -> OpenApiGenerateToolDraftsRequest:
+        if not self.operation_ids and not self.tags and not self.methods and not self.path_prefix:
+            raise ValueError(
+                "at least one of operation_ids, tags, methods, or path_prefix is required"
+            )
+        return self
 
 
 class OpenApiToolDraftUpdateRequest(BaseModel):
@@ -2486,6 +2580,86 @@ class OpenApiValidateCredentialBindingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     auth_binding: OpenApiAuthBindingSchema
+
+
+class OpenApiOperationDependencySchema(BaseModel):
+    """Serialized form of :class:`caliber.db.models.CaliberOpenApiOperationDependency`.
+
+    The authoritative dependency object from §5: typed, diffable rows that the
+    API graph is a derived projection of, not the other way around.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    dependency_id: str
+    integration_version_id: str
+    from_operation_id: str
+    to_operation_id: str
+    dependency_type: str
+    confidence: str
+    source: str
+    required: bool
+    binding_field_map: dict[str, str] = Field(default_factory=dict)
+    notes: str = ""
+    status: str
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    created_at: datetime
+
+
+class OpenApiDependencyReviewRequest(BaseModel):
+    """Body of ``PATCH .../dependencies/{dependency_id}``.
+
+    Implements §5.4's "publish step: operator confirms ambiguous dependencies" —
+    a medium/low-confidence suggestion becomes canonical only once an operator
+    calls this, and a wrong one is dismissed the same way rather than silently
+    kept around.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["confirmed", "rejected"]
+    notes: str | None = Field(default=None, max_length=2048)
+
+
+class OpenApiGraphNodeSchema(BaseModel):
+    """One node in the derived API dependency graph."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    type: str
+    label: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpenApiGraphEdgeSchema(BaseModel):
+    """One edge in the derived API dependency graph."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str
+    type: str
+    from_: str = Field(alias="from")
+    to: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class OpenApiGraphSnapshotSchema(BaseModel):
+    """Response body of ``GET .../graph``.
+
+    Per §5.2's v1 storage recommendation, this is served from the JSON snapshot
+    cached on the integration version rather than recomputed per request; it is
+    rebuilt whenever the dependency set for that version changes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    integration_id: str
+    integration_version_id: str
+    nodes: list[OpenApiGraphNodeSchema] = Field(default_factory=list)
+    edges: list[OpenApiGraphEdgeSchema] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
 
 
 class WorkflowComponentFieldSchema(BaseModel):

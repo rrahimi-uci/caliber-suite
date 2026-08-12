@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -42,6 +43,8 @@ from caliber.assistant.capabilities import (
 from caliber.assistant.tools import _fn
 
 logger = logging.getLogger(__name__)
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_OPENAPI_TOOL_PREFIX = "openapi_tool_"
 
 _MAX_ROWS = 25
 _MAX_TRACE_SPANS = 40
@@ -402,6 +405,8 @@ class AssistantAgentToolset:
         self._mode = mode
         self._approval_mode = approval_mode
         self._project_id = project_id
+        self._dynamic_openapi_specs: list[dict[str, Any]] | None = None
+        self._dynamic_openapi_dispatch: dict[str, dict[str, Any]] | None = None
 
     # -- permission gate -------------------------------------------------
 
@@ -440,6 +445,7 @@ class AssistantAgentToolset:
         out.extend(
             cap.to_spec() for cap in registered_capabilities() if self._tier_allowed(cap.tier)
         )
+        out.extend(self._published_openapi_specs())
         return out
 
     def _dispatch_capability(self, cap: Any, arguments: dict[str, Any]) -> str:
@@ -455,6 +461,9 @@ class AssistantAgentToolset:
             return _err(f"{type(exc).__name__}: {exc}")
 
     def dispatch(self, name: str, arguments: dict[str, Any]) -> str:
+        dynamic = self._published_openapi_dispatch()
+        if name in dynamic:
+            return self._dispatch_published_openapi_tool(dynamic[name], arguments)
         # Capability-registry projection first (its tool names don't collide with
         # the hand-written ones).
         cap = capability_by_tool_name(name)
@@ -476,6 +485,102 @@ class AssistantAgentToolset:
             return handler(arguments)
         except Exception as exc:  # never let a tool error break the loop
             logger.exception("agent tool %s failed", name)
+            return _err(f"{type(exc).__name__}: {exc}")
+
+    def _published_openapi_specs(self) -> list[dict[str, Any]]:
+        if self._dynamic_openapi_specs is None:
+            self._load_published_openapi_tools()
+        return list(self._dynamic_openapi_specs or [])
+
+    def _published_openapi_dispatch(self) -> dict[str, dict[str, Any]]:
+        if self._dynamic_openapi_dispatch is None:
+            self._load_published_openapi_tools()
+        return dict(self._dynamic_openapi_dispatch or {})
+
+    def _load_published_openapi_tools(self) -> None:
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+        from caliber.schemas import ToolSchema  # noqa: PLC0415
+
+        identity = self._capability_context().identity()
+        specs: list[dict[str, Any]] = []
+        dispatch: dict[str, dict[str, Any]] = {}
+        with self._deps.session_factory() as session:
+            stmt = apply_visibility_filter(
+                select(CaliberToolRegistry).where(
+                    CaliberToolRegistry.execution_backend == "openapi_http",
+                    CaliberToolRegistry.status == "active",
+                ),
+                CaliberToolRegistry,
+                identity,
+                identity.active_project_id,
+            ).order_by(CaliberToolRegistry.name, CaliberToolRegistry.tool_id)
+            rows = session.execute(stmt).scalars().all()
+            for row in rows:
+                tool = ToolSchema.model_validate(row)
+                tier = self._published_openapi_tier(tool)
+                if not self._tier_allowed(tier):
+                    continue
+                name = self._published_openapi_tool_name(tool)
+                parameters = (
+                    tool.input_schema
+                    if isinstance(tool.input_schema, dict) and tool.input_schema.get("type") == "object"
+                    else {"type": "object", "properties": {}}
+                )
+                description = (
+                    f"{tool.description} Published OpenAPI tool "
+                    f"(side_effect_level={tool.side_effect_level}, tool_id={tool.tool_id})."
+                ).strip()
+                specs.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "description": description[:1024],
+                            "parameters": parameters,
+                        },
+                    }
+                )
+                dispatch[name] = {
+                    "tool_id": tool.tool_id,
+                    "side_effect_level": tool.side_effect_level,
+                }
+        self._dynamic_openapi_specs = specs
+        self._dynamic_openapi_dispatch = dispatch
+
+    def _published_openapi_tier(self, tool: Any) -> str:
+        if getattr(tool, "requires_approval", False):
+            return TIER_GATED
+        level = str(getattr(tool, "side_effect_level", "read") or "read")
+        if level == "read":
+            return TIER_READ
+        if level in {"write", "external_action"}:
+            return TIER_MUTATE
+        return TIER_GATED
+
+    def _published_openapi_tool_name(self, tool: Any) -> str:
+        seed = _NON_ALNUM.sub("_", str(getattr(tool, "name", "")).lower()).strip("_") or "tool"
+        suffix = _NON_ALNUM.sub("_", str(getattr(tool, "tool_id", "")).lower()).strip("_") or "id"
+        return f"{_OPENAPI_TOOL_PREFIX}{seed}_{suffix}"[:64]
+
+    def _dispatch_published_openapi_tool(self, tool: dict[str, Any], arguments: dict[str, Any]) -> str:
+        from caliber.assistant.capabilities import (  # noqa: PLC0415
+            invoke_openapi_published_tool,
+        )
+
+        levels = {str(tool.get("side_effect_level") or "read")}
+        try:
+            result = invoke_openapi_published_tool(
+                self._capability_context(),
+                tool_id=str(tool["tool_id"]),
+                tool_input=dict(arguments),
+                allowed_side_effect_levels=levels,
+            )
+            return _ok(result)
+        except Exception as exc:
+            logger.exception("published OpenAPI tool %s failed", tool.get("tool_id"))
             return _err(f"{type(exc).__name__}: {exc}")
 
     # -- read handlers ---------------------------------------------------

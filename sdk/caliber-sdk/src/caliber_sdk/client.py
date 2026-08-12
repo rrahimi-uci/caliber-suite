@@ -36,6 +36,7 @@ from .resources import (
     MeAPI,
     ObjectStoreAPI,
     ObservabilityAPI,
+    OpenApiIntegrationsAPI,
     ProjectsAPI,
     PromptsAPI,
     RawAPI,
@@ -106,6 +107,7 @@ class CaliberClient:
         #: Beta surfaces. Real and supported, but their shapes are still
         #: moving -- check ``client.stability`` before depending on one.
         self.mcp_servers = McpServersAPI(self._transport)
+        self.openapi_integrations = OpenApiIntegrationsAPI(self._transport)
         self.gateway = GatewayAPI(self._transport)
         self.knowledge_bases = KnowledgeBasesAPI(self._transport)
         self.object_store = ObjectStoreAPI(self._transport)

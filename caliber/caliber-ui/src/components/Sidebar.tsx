@@ -36,6 +36,7 @@ import {
   FlaskConical,
   Gauge,
   ClipboardCheck,
+  Globe,
   LayoutDashboard,
   Library,
   ListChecks,
@@ -226,6 +227,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: "Integrations",
     items: [
       { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers" },
+      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations" },
       { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
     ],
   },

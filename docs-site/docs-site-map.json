@@ -137,6 +137,12 @@
       "nav_order": 40
     },
     {
+      "href": "m-58-use-openapi-integrations.html",
+      "label": "OpenAPI Integrations",
+      "section": "use",
+      "nav_order": 45
+    },
+    {
       "href": "m-42-use-workflows.html",
       "label": "Workflows",
       "section": "use",
@@ -456,6 +462,12 @@
       "label": "Assistant architecture",
       "section": "architecture",
       "nav_order": 120
+    },
+    {
+      "href": "m-57-openapi-integrations.html",
+      "label": "OpenAPI Integrations architecture",
+      "section": "architecture",
+      "nav_order": 130
     },
     {
       "href": "m-17-competitive-analysis.html",

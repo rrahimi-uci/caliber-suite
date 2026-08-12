@@ -1586,6 +1586,13 @@ class CaliberOpenApiIntegrationVersion(Base):
     operation_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     raw_document: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     normalized_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    #: Cached projection of ``CaliberOpenApiOperationDependency`` rows for this
+    #: version, per §5.2's v1 storage recommendation: a normalized graph snapshot
+    #: persisted as JSON on the version, derived from the canonical dependency
+    #: rows rather than replacing them. Rebuilt whenever dependencies change;
+    #: ``None`` until the first build.
+    graph_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    dependency_detected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_by: Mapped[str] = mapped_column(String(256), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
@@ -1659,12 +1666,71 @@ class CaliberOpenApiToolDraft(Base):
     allow_in_preview: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     secret_refs: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     published_tool_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Additional operations folded into this draft as one tool pack, beyond the
+    #: primary ``operation_id``. Empty for the common one-operation-per-tool draft;
+    #: populated when curation groups several related operations (e.g. list +
+    #: get + create for one resource) behind a single callable — see §6's "tool
+    #: explosion" mitigation ("allow grouping into tool packs").
+    additional_operation_ids: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class CaliberOpenApiOperationDependency(Base):
+    """A canonical, typed dependency record between two imported operations.
+
+    This is the authoritative dependency object described in §5 of the OpenAPI
+    integration proposal: dependency truth lives here as diffable, auditable
+    rows, and the API graph (``graph_snapshot`` on the version) is a derived
+    projection of these rows, never the other way around.
+    """
+
+    __tablename__ = "caliber_openapi_operation_dependencies"
+    __table_args__ = (
+        UniqueConstraint(
+            "integration_version_id",
+            "from_operation_id",
+            "to_operation_id",
+            "dependency_type",
+            name="uq_openapi_dependency_edge",
+        ),
+        Index("ix_openapi_dependencies_version", "integration_version_id"),
+        Index("ix_openapi_dependencies_from", "from_operation_id"),
+        Index("ix_openapi_dependencies_to", "to_operation_id"),
+    )
+
+    dependency_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    integration_version_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_integration_versions.version_id")
+    )
+    from_operation_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_operations.operation_id")
+    )
+    to_operation_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_openapi_operations.operation_id")
+    )
+    dependency_type: Mapped[str] = mapped_column(String(32))
+    #: high | medium | low — see §5.4's deterministic-vs-agent-assisted policy.
+    confidence: Mapped[str] = mapped_column(String(16), default="medium")
+    #: openapi_link | schema_match | path_structure | rule_inference |
+    #: agent_suggestion | operator_confirmed.
+    source: Mapped[str] = mapped_column(String(32), default="rule_inference")
+    required: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    binding_field_map: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    #: auto_wired (high confidence, wired without review) | suggested (medium,
+    #: awaiting operator review) | advisory (low, informational only) |
+    #: confirmed (operator-reviewed and accepted) | rejected (operator-reviewed
+    #: and dismissed). Implements §5.4's policy as row state rather than as a
+    #: side table, so a diff between imports is one query.
+    status: Mapped[str] = mapped_column(String(16), default="suggested")
+    confirmed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class CaliberWorkflowRun(Base):

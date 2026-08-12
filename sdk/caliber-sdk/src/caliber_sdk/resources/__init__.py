@@ -3,7 +3,13 @@
 from ._base import Resource
 from .assets import PromptsAPI, SkillsAPI, ToolsAPI
 from .auth import AccountsAPI, AuthAPI, TokensAPI
-from .integrations import GatewayAPI, KnowledgeBasesAPI, McpServersAPI, ObjectStoreAPI
+from .integrations import (
+    GatewayAPI,
+    KnowledgeBasesAPI,
+    McpServersAPI,
+    ObjectStoreAPI,
+    OpenApiIntegrationsAPI,
+)
 from .operations import (
     AriaAPI,
     AuditAPI,
@@ -45,6 +51,7 @@ __all__ = [
     "MeAPI",
     "ObjectStoreAPI",
     "ObservabilityAPI",
+    "OpenApiIntegrationsAPI",
     "ProjectFilesAPI",
     "ProjectsAPI",
     "PromptsAPI",

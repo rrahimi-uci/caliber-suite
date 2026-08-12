@@ -100,6 +100,10 @@ SDK_SURFACE_MAP = {
         "entry": "`client.mcp_servers`",
         "notes": "Managed MCP server definitions, discovery, governance, and invocation.",
     },
+    "openapi-integrations": {
+        "entry": "`client.openapi_integrations`",
+        "notes": "Governed OpenAPI import, curation, dependency review, and tool-draft publication.",
+    },
     "gateway": {
         "entry": "`client.gateway`",
         "notes": "Gateway endpoint discovery, guardrails, and trace-derived usage.",
@@ -186,6 +190,7 @@ PREFERRED_TAG_ORDER = {
     "knowledge-bases": 21,
     "knowledge": 22,
     "mcp-servers": 23,
+    "openapi-integrations": 23.5,
     "releases": 24,
     "review-queues": 25,
     "jobs": 26,

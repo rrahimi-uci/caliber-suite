@@ -120,6 +120,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Knowledge Bases (`knowledge-bases`) | `beta` | `14` | Typed SDK | `client.knowledge_bases` | Knowledge-base lifecycle, versions, runs, retrieval, baseline, and rollback. |
 | Knowledge (`knowledge`) | `beta` | `2` | Typed SDK | `client.knowledge_bases.query(...)`, `client.knowledge_bases.test_run(...)` | Retrieval/query and knowledge test-run reads. |
 | MCP Servers (`mcp-servers`) | `beta` | `13` | Typed SDK | `client.mcp_servers` | Managed MCP server definitions, discovery, governance, and invocation. |
+| OpenAPI Integrations (`openapi-integrations`) | `beta` | `23` | Typed SDK | `client.openapi_integrations` | Governed OpenAPI import, curation, dependency review, and tool-draft publication. |
 | Releases (`releases`) | `beta` | `13` | Typed SDK | `client.releases` | Release candidates, evaluation, waivers, reports, and signoff. |
 | Review Queues (`review-queues`) | `beta` | `7` | Typed SDK | `client.review_queues` | Queue creation, enqueue/submit flows, and alignment examples. |
 | Jobs (`jobs`) | `beta` | `4` | Typed SDK | `client.jobs` | Durable background jobs, targets, apply, and wait semantics. |
@@ -132,7 +133,6 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Knowledge Base Versions (`knowledge-base-versions`) | `beta` | `7` | Typed SDK | `client.knowledge_bases` | Version-specific reads are exposed through the knowledge-bases resource methods. |
 | Knowledge Runs (`knowledge-runs`) | `beta` | `1` | Typed SDK | `client.knowledge_bases.run_events(...)` | Knowledge-base build run event inspection. |
 | Object Store (`object-store`) | `beta` | `13` | Typed SDK | `client.object_store` | Bucket/object console operations, distinct from project file management. |
-| OpenAPI Integrations (`openapi-integrations`) | `beta` | `17` | Raw only | `client.raw` | No typed wrapper on the current SDK surface. Use raw HTTP or generate a client against the served OpenAPI if you need this family today. |
 | Playground Runs (`playground-runs`) | `beta` | `3` | Raw only | `client.raw` | No typed wrapper on the current SDK surface. Use raw HTTP or generate a client against the served OpenAPI if you need this family today. |
 | Secrets (`secrets`) | `beta` | `4` | Typed SDK | `client.secrets` | Secret inventory and mutation surfaces. |
 | Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Raw only | `client.raw` | No typed wrapper on the current SDK surface. Use raw HTTP or generate a client against the served OpenAPI if you need this family today. |
@@ -155,8 +155,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `304` |
-| Operations | `376` |
+| Route paths | `310` |
+| Operations | `382` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -209,6 +209,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Knowledge Bases (`knowledge-bases`)](#knowledge-bases-knowledge-bases) | `14` | `10` |
 | [Knowledge (`knowledge`)](#knowledge-knowledge) | `2` | `2` |
 | [MCP Servers (`mcp-servers`)](#mcp-servers-mcp-servers) | `13` | `10` |
+| [OpenAPI Integrations (`openapi-integrations`)](#openapi-integrations-openapi-integrations) | `23` | `20` |
 | [Releases (`releases`)](#releases-releases) | `13` | `12` |
 | [Review Queues (`review-queues`)](#review-queues-review-queues) | `7` | `5` |
 | [Jobs (`jobs`)](#jobs-jobs) | `4` | `4` |
@@ -221,7 +222,6 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Knowledge Base Versions (`knowledge-base-versions`)](#knowledge-base-versions-knowledge-base-versions) | `7` | `7` |
 | [Knowledge Runs (`knowledge-runs`)](#knowledge-runs-knowledge-runs) | `1` | `1` |
 | [Object Store (`object-store`)](#object-store-object-store) | `13` | `10` |
-| [OpenAPI Integrations (`openapi-integrations`)](#openapi-integrations-openapi-integrations) | `17` | `14` |
 | [Playground Runs (`playground-runs`)](#playground-runs-playground-runs) | `3` | `2` |
 | [Secrets (`secrets`)](#secrets-secrets) | `4` | `3` |
 | [Workflow Benchmark Reports (`workflow-benchmark-reports`)](#workflow-benchmark-reports-workflow-benchmark-reports) | `4` | `2` |
@@ -648,6 +648,36 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/policy` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id_tools_tool_name_policy`; request body documented in OpenAPI |
 | `PUT` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/test-cases` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_mcp_servers_server_id_tools_tool_name_test_cases`; request body documented in OpenAPI |
 
+#### OpenAPI Integrations (`openapi-integrations`)
+
+23 operation(s) across 20 route path(s).
+
+| Method | Path | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/archive` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_archive`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_dependencies` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies/{dependency_id}` | `dependency_id`, `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_dependencies_dependency_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/graph` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_graph` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/import` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_import`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations/{operation_id}` | `integration_id`, `operation_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations_operation_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/reimport` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_reimport` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/generate` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_generate`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts_draft_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_tool_drafts_draft_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/preview` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_preview`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/publish` | `draft_id`, `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_publish`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/validate-credential-binding` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_validate_credential_binding`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/validate-spec-source` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_validate_spec_source`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions/{version_id}` | `integration_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions_version_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions/{version_id}/diff` | `integration_id`, `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_versions_version_id_diff`; request body documented in OpenAPI |
+
 #### Releases (`releases`)
 
 13 operation(s) across 12 route path(s).
@@ -807,30 +837,6 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects` | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_objects`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects/delete` | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_objects_delete`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/status` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_status` |
-
-#### OpenAPI Integrations (`openapi-integrations`)
-
-17 operation(s) across 14 route path(s).
-
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/archive` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_archive`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/import` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_import`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations/{operation_id}` | `integration_id`, `operation_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations_operation_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/generate` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_generate`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts_draft_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_tool_drafts_draft_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/preview` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_preview`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/publish` | `draft_id`, `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_publish`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/validate-credential-binding` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_validate_credential_binding`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions/{version_id}` | `integration_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions_version_id` |
 
 #### Playground Runs (`playground-runs`)
 

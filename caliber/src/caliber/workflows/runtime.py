@@ -2413,6 +2413,7 @@ def _resolve_tool_callables(
     resolver: ToolResolver,
     *,
     preview: bool,
+    egress_policy: Any | None = None,
 ) -> dict[str, Callable[..., Any]]:
     callables: dict[str, Callable[..., Any]] = {}
     for binding in agent.tools:
@@ -2421,6 +2422,7 @@ def _resolve_tool_callables(
             resolver,
             preview=preview,
             required=False,
+            egress_policy=egress_policy,
         )
         if chosen is not None:
             callables[binding.local_name] = chosen
@@ -2433,8 +2435,9 @@ def _resolve_bound_tool_callable(
     *,
     preview: bool,
     required: bool,
+    egress_policy: Any | None = None,
 ) -> Callable[..., Any] | None:
-    real = _bind(binding, resolver)
+    real = _bind(binding, resolver, egress_policy=egress_policy)
     chosen = make_preview_callable(binding, real) if preview else real
     if chosen is None:
         if required:
@@ -2459,11 +2462,18 @@ def bind_sandbox_config(config: Any | None) -> None:
     _ACTIVE_SANDBOX_CONFIG = config
 
 
-def _bind(binding: IRToolBinding, resolver: ToolResolver) -> Callable[..., Any] | None:
+def _bind(
+    binding: IRToolBinding,
+    resolver: ToolResolver,
+    *,
+    egress_policy: Any | None = None,
+) -> Callable[..., Any] | None:
     if binding.binding_type == "mcp_tool":
         return _bind_mcp_tool(binding)
     if binding.execution_backend == "openapi_http":
-        return bind_openapi_http_tool(binding)
+        # ``egress_policy=None`` is not "unrestricted": the executor falls back to the
+        # process-wide policy bound at startup, and to a safe default before that.
+        return bind_openapi_http_tool(binding, egress_policy=egress_policy)
     override: Callable[..., Any] | None = None
     getter = getattr(resolver, "get_callable", None)
     if callable(getter):
@@ -4083,7 +4093,9 @@ def _collect_agent_handoff_specs(
     def _callables_for(agent_def: IRAgent) -> dict[str, Callable[..., Any]]:
         if agent_def.node_id == agent.node_id:
             return dict(root_tool_callables)
-        callables = _resolve_tool_callables(agent_def, plan.resolver, preview=preview)
+        callables = _resolve_tool_callables(
+            agent_def, plan.resolver, preview=preview, egress_policy=plan.egress_policy
+        )
         if extra_tools:
             callables = {**callables, **extra_tools}
         return callables
@@ -5759,6 +5771,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 plan.resolver,
                 preview=preview,
                 required=True,
+                egress_policy=plan.egress_policy,
             )
         )
         assert fn is not None
@@ -6427,7 +6440,9 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
     if isinstance(node, IRAgent):
         agent_input = _select_input(inputs, run_input)
         explicit_history = _normalize_message_history(inputs.get("history"))
-        callables = _resolve_tool_callables(node, plan.resolver, preview=preview)
+        callables = _resolve_tool_callables(
+            node, plan.resolver, preview=preview, egress_policy=plan.egress_policy
+        )
         if extra_tools:
             callables = {**callables, **extra_tools}
         handoff_agents = _collect_agent_handoff_specs(
@@ -6500,7 +6515,9 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             if current_handoff_agents and target.node_id in current_handoff_agents:
                 t_callables = dict(current_handoff_agents[target.node_id][1])
             else:
-                t_callables = _resolve_tool_callables(target, plan.resolver, preview=preview)
+                t_callables = _resolve_tool_callables(
+                    target, plan.resolver, preview=preview, egress_policy=plan.egress_policy
+                )
                 if extra_tools:
                     t_callables = {**t_callables, **extra_tools}
             t_handoff_agents = _collect_agent_handoff_specs(

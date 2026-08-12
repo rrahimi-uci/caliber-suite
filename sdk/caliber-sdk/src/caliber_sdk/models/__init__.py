@@ -30,7 +30,17 @@ from .core import (
     WorkflowRunCapabilities,
 )
 from .errors import ErrorBody, FieldError
-from .integrations import Bucket, KnowledgeBase, McpServer, StoredObject
+from .integrations import (
+    Bucket,
+    KnowledgeBase,
+    McpServer,
+    OpenApiIntegration,
+    OpenApiIntegrationVersion,
+    OpenApiOperation,
+    OpenApiOperationDependency,
+    OpenApiToolDraft,
+    StoredObject,
+)
 from .operations import (
     AriaInteraction,
     AriaPlan,
@@ -83,6 +93,11 @@ __all__ = [
     "KnowledgeBase",
     "LlmSetupStatus",
     "McpServer",
+    "OpenApiIntegration",
+    "OpenApiIntegrationVersion",
+    "OpenApiOperation",
+    "OpenApiOperationDependency",
+    "OpenApiToolDraft",
     "OptimizerPlugin",
     "Page",
     "PersonalAccessToken",

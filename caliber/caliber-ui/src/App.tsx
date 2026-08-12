@@ -88,6 +88,11 @@ const Gateway = lazy(() =>
 const McpServers = lazy(() =>
   import("@/pages/McpServers").then((m) => ({ default: m.McpServers })),
 );
+const OpenApiIntegrations = lazy(() =>
+  import("@/pages/OpenApiIntegrations").then((m) => ({
+    default: m.OpenApiIntegrations,
+  })),
+);
 const KnowledgeBases = lazy(() =>
   import("@/pages/KnowledgeBases").then((m) => ({ default: m.KnowledgeBases })),
 );
@@ -329,6 +334,10 @@ function AuthenticatedApp({
               <Route path="/tools" element={<ToolRegistry />} />
               <Route path="/tools/:toolId" element={<ToolDetail />} />
               <Route path="/mcp-servers" element={<McpServers />} />
+              <Route
+                path="/openapi-integrations"
+                element={<OpenApiIntegrations />}
+              />
               <Route path="/object-store" element={<ObjectStore />} />
               <Route path="/observability" element={<Observability />} />
               <Route path="/knowledge-bases" element={<KnowledgeBases />} />

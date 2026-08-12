@@ -9,7 +9,17 @@ from __future__ import annotations
 from typing import Any
 
 from ..models._decode import decode, decode_list
-from ..models.integrations import Bucket, KnowledgeBase, McpServer, StoredObject
+from ..models.integrations import (
+    Bucket,
+    KnowledgeBase,
+    McpServer,
+    OpenApiIntegration,
+    OpenApiIntegrationVersion,
+    OpenApiOperation,
+    OpenApiOperationDependency,
+    OpenApiToolDraft,
+    StoredObject,
+)
 from ._base import Resource
 
 _List = list
@@ -71,6 +81,279 @@ class McpServersAPI(Resource):
         return self._post(
             f"/mcp-servers/{server_id}/invoke-tool",
             json={"tool_name": tool_name, "arguments": arguments or {}},
+        )
+
+
+class OpenApiIntegrationsAPI(Resource):
+    """Governed OpenAPI import, curation, and publication.
+
+    The control-plane pipeline is: create an integration shell, import a pinned
+    spec version into it, review the normalized operations and detected
+    dependencies, generate tool drafts from selected operations, then publish
+    an approved draft into CALIBER's tool registry. Importing a spec never
+    creates a runtime tool by itself — ``generate_tool_drafts`` and
+    ``publish_tool_draft`` are the two explicit steps that do.
+    """
+
+    def list(self, *, status: str | None = None) -> _List[OpenApiIntegration]:
+        params = {"status": status} if status else None
+        return decode_list(
+            OpenApiIntegration, self._get("/openapi-integrations", params=params)
+        )
+
+    def get(self, integration_id: str) -> OpenApiIntegration:
+        return decode(OpenApiIntegration, self._get(f"/openapi-integrations/{integration_id}"))
+
+    def create(self, name: str, **options: Any) -> OpenApiIntegration:
+        return decode(
+            OpenApiIntegration,
+            self._post("/openapi-integrations", json={"name": name, **options}),
+        )
+
+    def update(self, integration_id: str, **changes: Any) -> OpenApiIntegration:
+        return decode(
+            OpenApiIntegration,
+            self._patch(f"/openapi-integrations/{integration_id}", json=changes),
+        )
+
+    def archive(self, integration_id: str) -> OpenApiIntegration:
+        return decode(
+            OpenApiIntegration, self._post(f"/openapi-integrations/{integration_id}/archive")
+        )
+
+    def import_spec(
+        self,
+        integration_id: str,
+        *,
+        spec_text: str | None = None,
+        spec_base64: str | None = None,
+        spec_url: str | None = None,
+        source_ref: str | None = None,
+    ) -> OpenApiIntegrationVersion:
+        """Import one OpenAPI 3.x document, pinning it as a new version.
+
+        Exactly one of ``spec_text`` (pasted JSON/YAML), ``spec_base64`` (an
+        uploaded file), or ``spec_url`` (fetched over CALIBER's guarded egress
+        path) must be given.
+        """
+
+        if spec_url is not None:
+            body: dict[str, Any] = {"source_kind": "url", "spec_url": spec_url}
+        elif spec_base64 is not None:
+            body = {"source_kind": "upload", "spec_base64": spec_base64}
+        else:
+            body = {"source_kind": "inline_text", "spec_text": spec_text}
+        if source_ref is not None:
+            body["source_ref"] = source_ref
+        return decode(
+            OpenApiIntegrationVersion,
+            self._post(f"/openapi-integrations/{integration_id}/import", json=body),
+        )
+
+    def reimport(self, integration_id: str) -> Any:
+        """Re-fetch the last imported version's ``url`` source and diff it.
+
+        Only meaningful when the last imported version came from ``spec_url``;
+        an inline or uploaded spec has nothing live to re-fetch.
+        """
+        return self._post(f"/openapi-integrations/{integration_id}/reimport")
+
+    def validate_spec_source(
+        self, integration_id: str, *, spec_url: str, source_kind: str = "url"
+    ) -> Any:
+        """Check whether a spec source is reachable and permitted, without importing it."""
+        return self._post(
+            f"/openapi-integrations/{integration_id}/validate-spec-source",
+            json={"source_kind": source_kind, "spec_url": spec_url},
+        )
+
+    def versions(self, integration_id: str) -> _List[OpenApiIntegrationVersion]:
+        return decode_list(
+            OpenApiIntegrationVersion,
+            self._get(f"/openapi-integrations/{integration_id}/versions"),
+        )
+
+    def version(self, integration_id: str, version_id: str) -> OpenApiIntegrationVersion:
+        return decode(
+            OpenApiIntegrationVersion,
+            self._get(f"/openapi-integrations/{integration_id}/versions/{version_id}"),
+        )
+
+    def diff_version(
+        self, integration_id: str, version_id: str, *, compare_to_version_id: str | None = None
+    ) -> Any:
+        """Diff one pinned version against another, defaulting to its predecessor."""
+        body = {"compare_to_version_id": compare_to_version_id} if compare_to_version_id else {}
+        return self._post(
+            f"/openapi-integrations/{integration_id}/versions/{version_id}/diff", json=body
+        )
+
+    def list_operations(
+        self, integration_id: str, *, version_id: str | None = None
+    ) -> _List[OpenApiOperation]:
+        params = {"version_id": version_id} if version_id else None
+        return decode_list(
+            OpenApiOperation,
+            self._get(f"/openapi-integrations/{integration_id}/operations", params=params),
+        )
+
+    def get_operation(self, integration_id: str, operation_id: str) -> OpenApiOperation:
+        return decode(
+            OpenApiOperation,
+            self._get(f"/openapi-integrations/{integration_id}/operations/{operation_id}"),
+        )
+
+    def list_dependencies(
+        self,
+        integration_id: str,
+        *,
+        version_id: str | None = None,
+        status: str | None = None,
+    ) -> _List[OpenApiOperationDependency]:
+        """Canonical dependency rows — the source of truth the API graph derives from."""
+        params: dict[str, Any] = {}
+        if version_id is not None:
+            params["version_id"] = version_id
+        if status is not None:
+            params["status"] = status
+        return decode_list(
+            OpenApiOperationDependency,
+            self._get(f"/openapi-integrations/{integration_id}/dependencies", params=params or None),
+        )
+
+    def review_dependency(
+        self,
+        integration_id: str,
+        dependency_id: str,
+        *,
+        status: str,
+        notes: str | None = None,
+    ) -> OpenApiOperationDependency:
+        """Confirm or reject one suggested/advisory dependency (``status`` is
+        ``"confirmed"`` or ``"rejected"``). A high-confidence, already
+        auto-wired row cannot be reviewed."""
+        body: dict[str, Any] = {"status": status}
+        if notes is not None:
+            body["notes"] = notes
+        return decode(
+            OpenApiOperationDependency,
+            self._patch(
+                f"/openapi-integrations/{integration_id}/dependencies/{dependency_id}", json=body
+            ),
+        )
+
+    def graph(self, integration_id: str, *, version_id: str | None = None) -> Any:
+        """The derived API dependency graph (nodes/edges) for planning and display."""
+        params = {"version_id": version_id} if version_id else None
+        return self._get(f"/openapi-integrations/{integration_id}/graph", params=params)
+
+    def generate_tool_drafts(
+        self,
+        integration_id: str,
+        *,
+        operation_ids: _List[str] | None = None,
+        tags: _List[str] | None = None,
+        methods: _List[str] | None = None,
+        path_prefix: str | None = None,
+        group_as_pack: bool = False,
+        version_id: str | None = None,
+        server_url: str | None = None,
+        auth_binding: dict[str, Any] | None = None,
+        requires_approval: bool = False,
+        allow_in_preview: bool = False,
+    ) -> _List[OpenApiToolDraft]:
+        """Generate one or more curated tool drafts from selected operations.
+
+        Select operations by id, or by filter (``tags``/``methods``/``path_prefix``)
+        — useful for a large spec without enumerating every id by hand. With
+        ``group_as_pack=True`` and more than one selected operation, all of them
+        are bound into a single tool-pack draft instead of one draft each.
+        """
+        body: dict[str, Any] = {
+            "group_as_pack": group_as_pack,
+            "requires_approval": requires_approval,
+            "allow_in_preview": allow_in_preview,
+        }
+        if operation_ids is not None:
+            body["operation_ids"] = operation_ids
+        if tags is not None:
+            body["tags"] = tags
+        if methods is not None:
+            body["methods"] = methods
+        if path_prefix is not None:
+            body["path_prefix"] = path_prefix
+        if version_id is not None:
+            body["version_id"] = version_id
+        if server_url is not None:
+            body["server_url"] = server_url
+        if auth_binding is not None:
+            body["auth_binding"] = auth_binding
+        return decode_list(
+            OpenApiToolDraft,
+            self._post(f"/openapi-integrations/{integration_id}/tool-drafts/generate", json=body),
+        )
+
+    def list_tool_drafts(self, integration_id: str) -> _List[OpenApiToolDraft]:
+        return decode_list(
+            OpenApiToolDraft, self._get(f"/openapi-integrations/{integration_id}/tool-drafts")
+        )
+
+    def get_tool_draft(self, integration_id: str, draft_id: str) -> OpenApiToolDraft:
+        return decode(
+            OpenApiToolDraft,
+            self._get(f"/openapi-integrations/{integration_id}/tool-drafts/{draft_id}"),
+        )
+
+    def update_tool_draft(self, integration_id: str, draft_id: str, **changes: Any) -> OpenApiToolDraft:
+        return decode(
+            OpenApiToolDraft,
+            self._patch(
+                f"/openapi-integrations/{integration_id}/tool-drafts/{draft_id}", json=changes
+            ),
+        )
+
+    def preview_tool_draft(
+        self, integration_id: str, draft_id: str, *, input: dict[str, Any] | None = None
+    ) -> Any:
+        """Run one real upstream call for an unpublished draft.
+
+        This is a live effect, not a simulation — refused unless the draft has
+        ``allow_in_preview`` set, so an approval-gated write cannot be fired
+        through preview before anyone approves it.
+        """
+        return self._post(
+            f"/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/preview",
+            json={"input": input or {}},
+        )
+
+    def publish_tool_draft(
+        self,
+        integration_id: str,
+        draft_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        version: str = "1.0",
+    ) -> Any:
+        """Publish an approved draft into CALIBER's governed tool registry.
+
+        Returns ``{"draft": ..., "tool": ...}`` — the tool is now reachable
+        through the standard tool, workflow, and SDK ``tools`` surfaces.
+        """
+        body: dict[str, Any] = {"version": version}
+        if name is not None:
+            body["name"] = name
+        if description is not None:
+            body["description"] = description
+        return self._post(
+            f"/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/publish", json=body
+        )
+
+    def validate_credential_binding(self, integration_id: str, *, auth_binding: dict[str, Any]) -> Any:
+        """Check whether an auth binding's secret references resolve, without publishing."""
+        return self._post(
+            f"/openapi-integrations/{integration_id}/validate-credential-binding",
+            json={"auth_binding": auth_binding},
         )
 
 
@@ -320,4 +603,10 @@ class ObjectStoreAPI(Resource):
         return self._delete(f"/object-store/buckets/{bucket}/object", params={"key": key})
 
 
-__all__ = ["GatewayAPI", "KnowledgeBasesAPI", "McpServersAPI", "ObjectStoreAPI"]
+__all__ = [
+    "GatewayAPI",
+    "KnowledgeBasesAPI",
+    "McpServersAPI",
+    "ObjectStoreAPI",
+    "OpenApiIntegrationsAPI",
+]

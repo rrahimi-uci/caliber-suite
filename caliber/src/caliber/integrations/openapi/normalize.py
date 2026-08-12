@@ -14,8 +14,9 @@ from typing import Any
 
 import yaml
 
+from caliber.integrations.openapi.classify import classify_operation
+
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete", "options", "head")
-_READ_METHODS = frozenset({"get", "head", "options"})
 
 
 class OpenApiImportError(ValueError):
@@ -134,7 +135,14 @@ def _normalize_operation(
     security = _security_names(operation.get("security")) or top_level_security
     tags = [str(tag) for tag in _iter_strings(operation.get("tags"))]
     parameters = _merged_parameters(path_item.get("parameters"), operation.get("parameters"))
-    return {
+    normalized_operation = {
+        "parameters": parameters,
+        "requestBody": request_body if isinstance(request_body, dict) else None,
+        "responses": responses if isinstance(responses, dict) else {},
+        "security": operation.get("security"),
+        "tags": tags,
+    }
+    draft = {
         "method": method.upper(),
         "path": path,
         "operation_key": f"{method.upper()} {path}",
@@ -143,19 +151,20 @@ def _normalize_operation(
         "description": str(operation.get("description") or ""),
         "tags": tags,
         "deprecated": bool(operation.get("deprecated", False)),
-        "side_effect_level": "read" if method in _READ_METHODS else "write",
         "auth_schemes": security,
         "request_body_required": request_body_required,
         "request_content_types": request_content_types,
         "response_statuses": response_statuses,
-        "normalized_operation": {
-            "parameters": parameters,
-            "requestBody": request_body if isinstance(request_body, dict) else None,
-            "responses": responses if isinstance(responses, dict) else {},
-            "security": operation.get("security"),
-            "tags": tags,
-        },
+        "normalized_operation": normalized_operation,
     }
+    # ``classify_operation`` reads several of the fields above, so it runs against
+    # the draft rather than the raw spec dict. Its ``side_effect_level`` supersedes
+    # the crude method-only split: it is the same three-tier vocabulary, just aware
+    # of admin surfaces and third-party-effect verbs the HTTP method alone can't see.
+    classification = classify_operation(draft)
+    draft["side_effect_level"] = classification["side_effect_level"]
+    normalized_operation["classification"] = classification
+    return draft
 
 
 def _server_urls(value: object) -> list[str]:

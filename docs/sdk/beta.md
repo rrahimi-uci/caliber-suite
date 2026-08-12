@@ -101,6 +101,7 @@ should see those before anything executes.
 | Resource | What it is |
 | --- | --- |
 | `caliber.mcp_servers` | Registered MCP servers; discover and invoke their tools |
+| `caliber.openapi_integrations` | Governed import of third-party OpenAPI specs into curated, publishable tools |
 | `caliber.gateway` | The governed egress path — policy, budgets, and audit |
 | `caliber.knowledge_bases` | Retrieval corpora with versioned activation |
 | `caliber.object_store` | Buckets and objects for large artifacts |
@@ -124,6 +125,25 @@ the audit record. The governed path is the point of the method existing.
 addressed by key. Project files are registry entries with lineage, checksums,
 and workflow attribution. `object_store.import_object()` is the bridge: it
 promotes a stored object into the managed registry.
+
+**`openapi_integrations` does not turn an import into a runtime tool.**
+`import_spec()` only pins a normalized spec version — nothing is callable yet.
+Curation is explicit: select operations (or filter by `tags`/`methods`), call
+`generate_tool_drafts()`, then `publish_tool_draft()`. Only the last step
+creates a `Tool` your workflows and Aria can invoke, and `preview_tool_draft()`
+performs a real upstream call — it is refused unless the draft has
+`allow_in_preview` set, the same gate that keeps an approval-required write from
+firing before anyone approved it.
+
+```python
+integration = caliber.openapi_integrations.create("Ticketing")
+caliber.openapi_integrations.import_spec(integration.integration_id, spec_url=SPEC_URL)
+drafts = caliber.openapi_integrations.generate_tool_drafts(
+    integration.integration_id, tags=["tickets"], methods=["GET"]
+)
+for draft in drafts:
+    caliber.openapi_integrations.publish_tool_draft(integration.integration_id, draft.draft_id)
+```
 
 ## Operations
 

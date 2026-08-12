@@ -91,6 +91,130 @@ class StoredObject:
     etag: str | None = None
     content_type: str | None = None
     is_directory: bool = False
+
+
+@dataclass
+class OpenApiIntegration:
+    """A governed external OpenAPI surface CALIBER has imported for curation.
+
+    This is the control-plane identity — see :class:`OpenApiIntegrationVersion`
+    for one pinned imported contract snapshot, and :class:`OpenApiToolDraft` for
+    a curated callable derived from it.
+    """
+
+    integration_id: str = ""
+    name: str = ""
+    description: str = ""
+    owner: str = ""
+    status: str = ""
+    project_id: str | None = None
+    visibility: str = ""
+    last_imported_version_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OpenApiIntegrationVersion:
+    """One pinned imported OpenAPI document."""
+
+    version_id: str = ""
+    integration_id: str = ""
+    source_kind: str = ""
+    source_ref: str = ""
+    spec_sha256: str = ""
+    openapi_version: str = ""
+    title: str = ""
+    spec_version: str = ""
+    spec_description: str = ""
+    server_urls: list[str] = field(default_factory=list)
+    auth_schemes: list[str] = field(default_factory=list)
+    import_warnings: list[str] = field(default_factory=list)
+    operation_count: int = 0
+    normalized_summary: dict[str, Any] = field(default_factory=dict)
+    dependency_detected_at: str | None = None
+    created_by: str = ""
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OpenApiOperation:
+    """One normalized operation extracted from an imported OpenAPI snapshot."""
+
+    operation_id: str = ""
+    integration_version_id: str = ""
+    operation_key: str = ""
+    method: str = ""
+    path: str = ""
+    spec_operation_id: str | None = None
+    summary: str = ""
+    description: str = ""
+    tags: list[str] = field(default_factory=list)
+    deprecated: bool = False
+    side_effect_level: str = ""
+    auth_schemes: list[str] = field(default_factory=list)
+    request_body_required: bool = False
+    request_content_types: list[str] = field(default_factory=list)
+    response_statuses: list[str] = field(default_factory=list)
+    normalized_operation: dict[str, Any] = field(default_factory=dict)
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OpenApiToolDraft:
+    """A curated OpenAPI-derived tool before publication to the tool registry."""
+
+    draft_id: str = ""
+    integration_id: str = ""
+    integration_version_id: str = ""
+    operation_id: str = ""
+    additional_operation_ids: list[str] = field(default_factory=list)
+    name: str = ""
+    description: str = ""
+    owner: str = ""
+    status: str = ""
+    server_url: str = ""
+    auth_binding: dict[str, Any] | None = None
+    input_schema: dict[str, Any] | None = None
+    output_schema: dict[str, Any] | None = None
+    execution_config: dict[str, Any] | None = None
+    side_effect_level: str = ""
+    requires_approval: bool = False
+    allow_in_preview: bool = False
+    secret_refs: list[str] = field(default_factory=list)
+    published_tool_id: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class OpenApiOperationDependency:
+    """One canonical, typed dependency record between two imported operations.
+
+    The authoritative dependency object: the API graph a deployment can also
+    fetch is a derived projection of rows like this one, not the other way
+    around.
+    """
+
+    dependency_id: str = ""
+    integration_version_id: str = ""
+    from_operation_id: str = ""
+    to_operation_id: str = ""
+    dependency_type: str = ""
+    confidence: str = ""
+    source: str = ""
+    required: bool = False
+    binding_field_map: dict[str, str] = field(default_factory=dict)
+    notes: str = ""
+    status: str = ""
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
 

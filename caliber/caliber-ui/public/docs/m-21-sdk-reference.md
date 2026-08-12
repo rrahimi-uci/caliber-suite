@@ -169,6 +169,7 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`ObjectStoreAPI`](#objectstoreapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
 | [`ObservabilityAPI`](#observabilityapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`OpenApiIntegrationsAPI`](#openapiintegrationsapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
 | [`OptimizerPlugin`](#optimizerplugin) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 
 **P**
@@ -348,6 +349,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `judges` | `JudgesAPI` | Model-backed graders and alignment scoring. |
 | `evaluations` | `EvaluationsAPI` | Scored dataset runs. |
 | `mcp_servers` | `McpServersAPI` | Managed MCP server registry and governed tool invocation. |
+| `openapi_integrations` | `OpenApiIntegrationsAPI` | Governed OpenAPI import, curation, dependency review, and tool-draft publication. |
 | `gateway` | `GatewayAPI` | Gateway discovery, usage, and guardrails. |
 | `knowledge_bases` | `KnowledgeBasesAPI` | RAG corpora, versions, retrieval, and calibration. |
 | `object_store` | `ObjectStoreAPI` | Buckets and objects under the storage substrate. |
@@ -1298,7 +1300,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AriaAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AriaAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -3063,7 +3065,7 @@ sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook
 
 **Public exports**
 
-`GatewayAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `ObjectStoreAPI`
+`GatewayAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `ObjectStoreAPI`, `OpenApiIntegrationsAPI`
 
 #### Classes
 
@@ -3274,6 +3276,428 @@ makes tool policy, secret resolution, and audit apply at all.
 | `server_id` | positional-or-keyword | `str` | `—` |
 | `tool_name` | positional-or-keyword | `str` | `—` |
 | `arguments` | positional-or-keyword | `Any` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `OpenApiIntegrationsAPI`
+
+`class OpenApiIntegrationsAPI()`
+
+Governed OpenAPI import, curation, and publication.
+
+The control-plane pipeline is: create an integration shell, import a pinned
+spec version into it, review the normalized operations and detected
+dependencies, generate tool drafts from selected operations, then publish
+an approved draft into CALIBER's tool registry. Importing a spec never
+creates a runtime tool by itself — ``generate_tool_drafts`` and
+``publish_tool_draft`` are the two explicit steps that do.
+
+**Related APIs:** [`ToolsAPI`](#toolsapi), [`McpServersAPI`](#mcpserversapi)
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> list[OpenApiIntegration]`
+
+Return the current collection of OpenAPI integrations, tool drafts, and dependency graph, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[OpenApiIntegration]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(integration_id: str) -> OpenApiIntegration`
+
+Fetch one record from the OpenAPI integrations, tool drafts, and dependency graph surface identified by `integration_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `OpenApiIntegration`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, **options) -> OpenApiIntegration`
+
+Create a new record on the OpenAPI integrations, tool drafts, and dependency graph surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `OpenApiIntegration`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(integration_id: str, **changes) -> OpenApiIntegration`
+
+Patch an existing record on the OpenAPI integrations, tool drafts, and dependency graph surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `OpenApiIntegration`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `archive(integration_id: str) -> OpenApiIntegration`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `OpenApiIntegration`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `import_spec(integration_id: str, *, spec_text: str | None = None, spec_base64: str | None = None, spec_url: str | None = None, source_ref: str | None = None) -> OpenApiIntegrationVersion`
+
+Import one OpenAPI 3.x document, pinning it as a new version.
+
+Exactly one of ``spec_text`` (pasted JSON/YAML), ``spec_base64`` (an
+uploaded file), or ``spec_url`` (fetched over CALIBER's guarded egress
+path) must be given.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `spec_text` | keyword-only | `str | None` | `None` |
+| `spec_base64` | keyword-only | `str | None` | `None` |
+| `spec_url` | keyword-only | `str | None` | `None` |
+| `source_ref` | keyword-only | `str | None` | `None` |
+
+**Returns:** `OpenApiIntegrationVersion`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reimport(integration_id: str) -> Any`
+
+Re-fetch the last imported version's ``url`` source and diff it.
+
+Only meaningful when the last imported version came from ``spec_url``;
+an inline or uploaded spec has nothing live to re-fetch.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `validate_spec_source(integration_id: str, *, spec_url: str, source_kind: str = 'url') -> Any`
+
+Check whether a spec source is reachable and permitted, without importing it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `spec_url` | keyword-only | `str` | `—` |
+| `source_kind` | keyword-only | `str` | `'url'` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `versions(integration_id: str) -> list[OpenApiIntegrationVersion]`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `list[OpenApiIntegrationVersion]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `version(integration_id: str, version_id: str) -> OpenApiIntegrationVersion`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `OpenApiIntegrationVersion`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `diff_version(integration_id: str, version_id: str, *, compare_to_version_id: str | None = None) -> Any`
+
+Diff one pinned version against another, defaulting to its predecessor.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `compare_to_version_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_operations(integration_id: str, *, version_id: str | None = None) -> list[OpenApiOperation]`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `version_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[OpenApiOperation]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_operation(integration_id: str, operation_id: str) -> OpenApiOperation`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `OpenApiOperation`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_dependencies(integration_id: str, *, version_id: str | None = None, status: str | None = None) -> list[OpenApiOperationDependency]`
+
+Canonical dependency rows — the source of truth the API graph derives from.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `version_id` | keyword-only | `str | None` | `None` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[OpenApiOperationDependency]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `review_dependency(integration_id: str, dependency_id: str, *, status: str, notes: str | None = None) -> OpenApiOperationDependency`
+
+Confirm or reject one suggested/advisory dependency (``status`` is
+``"confirmed"`` or ``"rejected"``). A high-confidence, already
+auto-wired row cannot be reviewed.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `dependency_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str` | `—` |
+| `notes` | keyword-only | `str | None` | `None` |
+
+**Returns:** `OpenApiOperationDependency`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `graph(integration_id: str, *, version_id: str | None = None) -> Any`
+
+The derived API dependency graph (nodes/edges) for planning and display.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `version_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `generate_tool_drafts(integration_id: str, *, operation_ids: list[str] | None = None, tags: list[str] | None = None, methods: list[str] | None = None, path_prefix: str | None = None, group_as_pack: bool = False, version_id: str | None = None, server_url: str | None = None, auth_binding: dict[str, Any] | None = None, requires_approval: bool = False, allow_in_preview: bool = False) -> list[OpenApiToolDraft]`
+
+Generate one or more curated tool drafts from selected operations.
+
+Select operations by id, or by filter (``tags``/``methods``/``path_prefix``)
+— useful for a large spec without enumerating every id by hand. With
+``group_as_pack=True`` and more than one selected operation, all of them
+are bound into a single tool-pack draft instead of one draft each.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `operation_ids` | keyword-only | `list[str] | None` | `None` |
+| `tags` | keyword-only | `list[str] | None` | `None` |
+| `methods` | keyword-only | `list[str] | None` | `None` |
+| `path_prefix` | keyword-only | `str | None` | `None` |
+| `group_as_pack` | keyword-only | `bool` | `False` |
+| `version_id` | keyword-only | `str | None` | `None` |
+| `server_url` | keyword-only | `str | None` | `None` |
+| `auth_binding` | keyword-only | `dict[str, Any] | None` | `None` |
+| `requires_approval` | keyword-only | `bool` | `False` |
+| `allow_in_preview` | keyword-only | `bool` | `False` |
+
+**Returns:** `list[OpenApiToolDraft]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_tool_drafts(integration_id: str) -> list[OpenApiToolDraft]`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `list[OpenApiToolDraft]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_tool_draft(integration_id: str, draft_id: str) -> OpenApiToolDraft`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `OpenApiToolDraft`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_tool_draft(integration_id: str, draft_id: str, **changes) -> OpenApiToolDraft`
+
+Operate on the OpenAPI integrations, tool drafts, and dependency graph surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `OpenApiToolDraft`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `preview_tool_draft(integration_id: str, draft_id: str, *, input: dict[str, Any] | None = None) -> Any`
+
+Run one real upstream call for an unpublished draft.
+
+This is a live effect, not a simulation — refused unless the draft has
+``allow_in_preview`` set, so an approval-gated write cannot be fired
+through preview before anyone approves it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+| `input` | keyword-only | `dict[str, Any] | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `publish_tool_draft(integration_id: str, draft_id: str, *, name: str | None = None, description: str | None = None, version: str = '1.0') -> Any`
+
+Publish an approved draft into CALIBER's governed tool registry.
+
+Returns ``{"draft": ..., "tool": ...}`` — the tool is now reachable
+through the standard tool, workflow, and SDK ``tools`` surfaces.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+| `name` | keyword-only | `str | None` | `None` |
+| `description` | keyword-only | `str | None` | `None` |
+| `version` | keyword-only | `str` | `'1.0'` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `validate_credential_binding(integration_id: str, *, auth_binding: dict[str, Any]) -> Any`
+
+Check whether an auth binding's secret references resolve, without publishing.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `integration_id` | positional-or-keyword | `str` | `—` |
+| `auth_binding` | keyword-only | `dict[str, Any]` | `—` |
 
 **Returns:** `Any`
 
@@ -4964,7 +5388,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -5988,7 +6412,6 @@ One object inside a bucket.
 | `etag` | `str | None` | `None` |
 | `content_type` | `str | None` | `None` |
 | `is_directory` | `bool` | `False` |
-| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ### Module `caliber_sdk.models.operations`
 

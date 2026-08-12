@@ -1664,3 +1664,260 @@ export interface ProjectStorageConfig {
   prefix?: string;
   public_endpoint_url?: string | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* OpenAPI Integrations                                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface OpenApiIntegration {
+  integration_id: string;
+  name: string;
+  description: string;
+  owner: string;
+  status: "draft" | "review" | "ready" | "published" | "archived";
+  project_id: string | null;
+  visibility: string;
+  last_imported_version_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpenApiIntegrationVersion {
+  version_id: string;
+  integration_id: string;
+  source_kind: "inline_text" | "upload" | "url";
+  source_ref: string;
+  spec_sha256: string;
+  openapi_version: string;
+  title: string;
+  spec_version: string;
+  spec_description: string;
+  server_urls: string[];
+  auth_schemes: string[];
+  import_warnings: string[];
+  operation_count: number;
+  normalized_summary: Record<string, unknown>;
+  dependency_detected_at: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface OpenApiOperation {
+  operation_id: string;
+  integration_version_id: string;
+  operation_key: string;
+  method: string;
+  path: string;
+  spec_operation_id: string | null;
+  summary: string;
+  description: string;
+  tags: string[];
+  deprecated: boolean;
+  side_effect_level: "read" | "write" | "external_action";
+  auth_schemes: string[];
+  request_body_required: boolean;
+  request_content_types: string[];
+  response_statuses: string[];
+  normalized_operation: Record<string, unknown>;
+  created_at: string;
+}
+
+export type OpenApiDependencyType =
+  | "produces_identifier_for"
+  | "consumes_identifier_from"
+  | "requires_auth"
+  | "polls"
+  | "paginates_to"
+  | "compensates"
+  | "precondition_for"
+  | "grouped_with";
+
+export type OpenApiDependencyConfidence = "high" | "medium" | "low";
+
+export type OpenApiDependencyStatus =
+  | "auto_wired"
+  | "suggested"
+  | "advisory"
+  | "confirmed"
+  | "rejected";
+
+export interface OpenApiOperationDependency {
+  dependency_id: string;
+  integration_version_id: string;
+  from_operation_id: string;
+  to_operation_id: string;
+  dependency_type: OpenApiDependencyType;
+  confidence: OpenApiDependencyConfidence;
+  source: string;
+  required: boolean;
+  binding_field_map: Record<string, string>;
+  notes: string;
+  status: OpenApiDependencyStatus;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  created_at: string;
+}
+
+export interface OpenApiAuthBinding {
+  kind:
+    | "none"
+    | "bearer"
+    | "api_key"
+    | "basic"
+    | "header"
+    | "oauth_client_credentials"
+    | "oauth_refresh_token";
+  secret_ref?: string | null;
+  password_secret_ref?: string | null;
+  username?: string | null;
+  header_name?: string | null;
+  query_param_name?: string | null;
+  prefix?: string | null;
+  token_url?: string | null;
+  client_id?: string | null;
+  client_secret_ref?: string | null;
+  refresh_token_secret_ref?: string | null;
+  scopes?: string[] | null;
+  audience?: string | null;
+  resource?: string | null;
+  client_auth_method?: "basic" | "body" | null;
+}
+
+export interface OpenApiToolDraft {
+  draft_id: string;
+  integration_id: string;
+  integration_version_id: string;
+  operation_id: string;
+  additional_operation_ids: string[];
+  name: string;
+  description: string;
+  owner: string;
+  status: "draft" | "ready" | "published" | "archived";
+  server_url: string;
+  auth_binding: OpenApiAuthBinding | null;
+  input_schema: Record<string, unknown> | null;
+  output_schema: Record<string, unknown> | null;
+  execution_config: Record<string, unknown> | null;
+  side_effect_level: "read" | "write" | "external_action";
+  requires_approval: boolean;
+  allow_in_preview: boolean;
+  secret_refs: string[];
+  published_tool_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpenApiGraphNode {
+  id: string;
+  type: string;
+  label: string;
+  data: Record<string, unknown>;
+}
+
+export interface OpenApiGraphEdge {
+  id: string;
+  type: string;
+  from: string;
+  to: string;
+  data: Record<string, unknown>;
+}
+
+export interface OpenApiGraphSnapshot {
+  integration_id: string;
+  integration_version_id: string;
+  nodes: OpenApiGraphNode[];
+  edges: OpenApiGraphEdge[];
+  summary: {
+    node_count: number;
+    edge_count: number;
+    operation_count: number;
+    dependency_count: number;
+  };
+}
+
+export interface OpenApiVersionDiff {
+  from_version_id: string | null;
+  to_version_id: string;
+  added: string[];
+  removed: string[];
+  changed: { operation_key: string; changes: Record<string, { from: unknown; to: unknown }> }[];
+  unchanged: string[];
+  breaking: { operation_key: string; reason: string }[];
+  summary: {
+    added_count: number;
+    removed_count: number;
+    changed_count: number;
+    unchanged_count: number;
+    breaking_count: number;
+  };
+  detail?: string;
+}
+
+export interface OpenApiSpecSourceProbe {
+  source_kind: string;
+  url?: string;
+  reachable: boolean;
+  allowed: boolean;
+  status_code?: number;
+  content_type?: string;
+  detail: string;
+}
+
+export interface OpenApiIntegrationCreatePayload {
+  name: string;
+  description?: string;
+}
+
+export interface OpenApiImportPayload {
+  source_kind: "inline_text" | "upload" | "url";
+  source_ref?: string;
+  spec_text?: string;
+  spec_base64?: string;
+  spec_url?: string;
+}
+
+export interface OpenApiGenerateToolDraftsPayload {
+  operation_ids?: string[];
+  tags?: string[];
+  methods?: string[];
+  path_prefix?: string;
+  group_as_pack?: boolean;
+  version_id?: string;
+  server_url?: string;
+  auth_binding?: OpenApiAuthBinding;
+  requires_approval?: boolean;
+  allow_in_preview?: boolean;
+}
+
+export interface OpenApiToolDraftUpdatePayload {
+  name?: string;
+  description?: string;
+  status?: string;
+  server_url?: string;
+  auth_binding?: OpenApiAuthBinding;
+  requires_approval?: boolean;
+  allow_in_preview?: boolean;
+}
+
+export interface OpenApiToolDraftPreviewResult {
+  draft_id: string;
+  result: {
+    status_code: number;
+    text: string;
+    json: unknown;
+    headers: Record<string, string>;
+    attempts: number;
+  };
+}
+
+export interface OpenApiPublishToolDraftResult {
+  draft: OpenApiToolDraft;
+  tool: { tool_id: string; name: string; version: string; execution_backend: string };
+}
+
+export interface OpenApiCredentialValidationResult {
+  valid: boolean;
+  kind: string;
+  secret_refs: string[];
+  resolutions: { secret_ref: string; resolved: boolean }[];
+}

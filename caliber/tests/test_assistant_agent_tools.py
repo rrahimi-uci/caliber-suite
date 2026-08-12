@@ -11,6 +11,7 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -26,6 +27,7 @@ from caliber.db.models import (
     CaliberKnowledgeBase,
     CaliberKnowledgeBaseTestRun,
     CaliberSkill,
+    CaliberToolRegistry,
     CaliberWorkflow,
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
@@ -55,7 +57,11 @@ def svc() -> AssistantService:
     # defect. Latency limits are covered in tests/test_tool_sandbox_service.py.
     return AssistantService(
         engine=FakeAssistantEngine(),
-        runtime_config=CaliberConfig(tool_sandbox_timeout_seconds=60.0),
+        runtime_config=CaliberConfig(
+            tool_sandbox_timeout_seconds=60.0,
+            egress_allowed_hosts="tickets.example.com",
+            egress_allow_unresolvable_hosts=True,
+        ),
     )
 
 
@@ -97,6 +103,62 @@ def _make_draft(
         )
         db.commit()
     return did
+
+
+def _openapi_tool(
+    factory: sessionmaker[Session],
+    *,
+    tool_id: str,
+    name: str,
+    side_effect_level: str = "read",
+    requires_approval: bool = False,
+) -> str:
+    with factory() as db:
+        db.add(
+            CaliberToolRegistry(
+                tool_id=tool_id,
+                name=name,
+                version="1.0",
+                description=f"{name} via OpenAPI",
+                module_path="<openapi_http>",
+                callable_name="invoke",
+                execution_backend="openapi_http",
+                backend_config={
+                    "kind": "openapi_http",
+                    "method": "GET" if side_effect_level == "read" else "POST",
+                    "path": "/tickets/{ticket_id}" if side_effect_level == "read" else "/tickets",
+                    "server_url": "https://tickets.example.com",
+                    "auth_binding": None,
+                    "request_content_types": ["application/json"] if side_effect_level != "read" else [],
+                },
+                input_schema={
+                    "type": "object",
+                    "properties": (
+                        {"path_params": {"type": "object", "properties": {"ticket_id": {"type": "string"}}}}
+                        if side_effect_level == "read"
+                        else {"body": {"type": "object", "properties": {"title": {"type": "string"}}}}
+                    ),
+                },
+                output_schema={"type": "object", "properties": {"status_code": {"type": "integer"}}},
+                side_effect_level=side_effect_level,
+                requires_approval=requires_approval,
+                allow_in_preview=True,
+                secret_refs=[],
+                owner=USER,
+                visibility="user",
+                status="active",
+            )
+        )
+        db.commit()
+    return tool_id
+
+
+def _mock_openapi(monkeypatch, handler) -> None:
+    def _build_client(*, policy, timeout):  # noqa: ANN001
+        transport = httpx.MockTransport(handler)
+        return httpx.Client(transport=transport, timeout=timeout)
+
+    monkeypatch.setattr("caliber.integrations.openapi.executor.build_client", _build_client)
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +212,45 @@ class TestGating:
         out = json.loads(ts.dispatch("validate_draft", {"draft_id": "x"}))
         assert "error" in out and "not permitted" in out["error"]
 
+    def test_dynamic_openapi_write_tool_requires_mutating_build_policy(
+        self, svc, session_factory
+    ) -> None:
+        _openapi_tool(
+            session_factory,
+            tool_id="TL-openapi-write",
+            name="create_ticket",
+            side_effect_level="write",
+        )
+        sid = _session(svc, session_factory)
+        assert not any(
+            name.startswith("openapi_tool_create_ticket")
+            for name in _names(_toolset(svc, session_factory, sid, mode="chat", approval="manual"))
+        )
+        assert not any(
+            name.startswith("openapi_tool_create_ticket")
+            for name in _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_safe"))
+        )
+        assert any(
+            name.startswith("openapi_tool_create_ticket")
+            for name in _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_all"))
+        )
+
+    def test_dynamic_openapi_approval_gated_tool_is_not_exposed(
+        self, svc, session_factory
+    ) -> None:
+        _openapi_tool(
+            session_factory,
+            tool_id="TL-openapi-gated",
+            name="delete_ticket",
+            side_effect_level="external_action",
+            requires_approval=True,
+        )
+        sid = _session(svc, session_factory)
+        assert not any(
+            name.startswith("openapi_tool_delete_ticket")
+            for name in _names(_toolset(svc, session_factory, sid, mode="build", approval="auto_all"))
+        )
+
 
 # ---------------------------------------------------------------------------
 # Read handlers
@@ -193,6 +294,30 @@ class TestReadHandlers:
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
         out = json.loads(ts.dispatch("get_workflow_run_trace", {"run_id": "WR-1"}))
         assert out["ok"] and out["data"]["span_count"] == 0
+
+    def test_dynamic_openapi_read_tool_executes(self, svc, session_factory, monkeypatch) -> None:
+        _openapi_tool(
+            session_factory,
+            tool_id="TL-openapi-read",
+            name="get_ticket",
+            side_effect_level="read",
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url == "https://tickets.example.com/tickets/T-1"
+            return httpx.Response(200, json={"ticket_id": "T-1", "status": "open"})
+
+        _mock_openapi(monkeypatch, handler)
+
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
+        tool_name = next(
+            name for name in _names(ts) if name.startswith("openapi_tool_get_ticket")
+        )
+        out = json.loads(ts.dispatch(tool_name, {"path_params": {"ticket_id": "T-1"}}))
+        assert out["ok"] is True
+        assert out["data"]["status_code"] == 200
+        assert out["data"]["json"]["status"] == "open"
 
 
 # ---------------------------------------------------------------------------

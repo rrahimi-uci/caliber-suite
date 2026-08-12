@@ -162,6 +162,22 @@ import type {
   ObjectStoreListing,
   ObjectStorePreview,
   ObjectStoreStatus,
+  OpenApiAuthBinding,
+  OpenApiCredentialValidationResult,
+  OpenApiGenerateToolDraftsPayload,
+  OpenApiGraphSnapshot,
+  OpenApiImportPayload,
+  OpenApiIntegration,
+  OpenApiIntegrationCreatePayload,
+  OpenApiIntegrationVersion,
+  OpenApiOperation,
+  OpenApiOperationDependency,
+  OpenApiPublishToolDraftResult,
+  OpenApiSpecSourceProbe,
+  OpenApiToolDraft,
+  OpenApiToolDraftPreviewResult,
+  OpenApiToolDraftUpdatePayload,
+  OpenApiVersionDiff,
   SkillRenderResult,
   ToolCalibrationResult,
   ToolCalibrationJob,
@@ -4267,6 +4283,240 @@ export const caliberApi = {
     return request<McpToolCalibrationResult>(
       `/mcp-servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}/calibrate`,
       { method: "POST" },
+    );
+  },
+
+  // ── OpenAPI Integrations ─────────────────────────────────────────────
+
+  /** GET /openapi-integrations */
+  listOpenApiIntegrations(
+    status?: string,
+    signal?: AbortSignal,
+  ): Promise<OpenApiIntegration[]> {
+    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    return request<OpenApiIntegration[]>(`/openapi-integrations${q}`, {
+      signal,
+    });
+  },
+
+  /** GET /openapi-integrations/{id} */
+  getOpenApiIntegration(
+    integrationId: string,
+    signal?: AbortSignal,
+  ): Promise<OpenApiIntegration> {
+    return request<OpenApiIntegration>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}`,
+      { signal },
+    );
+  },
+
+  /** POST /openapi-integrations — create the integration shell */
+  createOpenApiIntegration(
+    payload: OpenApiIntegrationCreatePayload,
+  ): Promise<OpenApiIntegration> {
+    return request<OpenApiIntegration>("/openapi-integrations", {
+      method: "POST",
+      body: payload,
+    });
+  },
+
+  /** PATCH /openapi-integrations/{id} */
+  updateOpenApiIntegration(
+    integrationId: string,
+    changes: { name?: string; description?: string; status?: string },
+  ): Promise<OpenApiIntegration> {
+    return request<OpenApiIntegration>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}`,
+      { method: "PATCH", body: changes },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/archive */
+  archiveOpenApiIntegration(integrationId: string): Promise<OpenApiIntegration> {
+    return request<OpenApiIntegration>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/archive`,
+      { method: "POST" },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/import — pin one new spec version */
+  importOpenApiSpec(
+    integrationId: string,
+    payload: OpenApiImportPayload,
+  ): Promise<OpenApiIntegrationVersion> {
+    return request<OpenApiIntegrationVersion>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/import`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/reimport — re-fetch the last url source and diff it */
+  reimportOpenApiSpec(
+    integrationId: string,
+  ): Promise<{ version: OpenApiIntegrationVersion; previous_version_id: string; diff: OpenApiVersionDiff }> {
+    return request(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/reimport`,
+      { method: "POST" },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/validate-spec-source — probe before importing */
+  validateOpenApiSpecSource(
+    integrationId: string,
+    payload: { source_kind: string; spec_url?: string },
+  ): Promise<OpenApiSpecSourceProbe> {
+    return request<OpenApiSpecSourceProbe>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/validate-spec-source`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** GET /openapi-integrations/{id}/versions */
+  listOpenApiVersions(
+    integrationId: string,
+    signal?: AbortSignal,
+  ): Promise<OpenApiIntegrationVersion[]> {
+    return request<OpenApiIntegrationVersion[]>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/versions`,
+      { signal },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/versions/{versionId}/diff */
+  diffOpenApiVersion(
+    integrationId: string,
+    versionId: string,
+    compareToVersionId?: string,
+  ): Promise<OpenApiVersionDiff> {
+    return request<OpenApiVersionDiff>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/versions/${encodeURIComponent(versionId)}/diff`,
+      {
+        method: "POST",
+        body: compareToVersionId ? { compare_to_version_id: compareToVersionId } : {},
+      },
+    );
+  },
+
+  /** GET /openapi-integrations/{id}/operations */
+  listOpenApiOperations(
+    integrationId: string,
+    versionId?: string,
+    signal?: AbortSignal,
+  ): Promise<OpenApiOperation[]> {
+    const q = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
+    return request<OpenApiOperation[]>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/operations${q}`,
+      { signal },
+    );
+  },
+
+  /** GET /openapi-integrations/{id}/dependencies */
+  listOpenApiDependencies(
+    integrationId: string,
+    params?: { versionId?: string; status?: string },
+    signal?: AbortSignal,
+  ): Promise<OpenApiOperationDependency[]> {
+    const search = new URLSearchParams();
+    if (params?.versionId) search.set("version_id", params.versionId);
+    if (params?.status) search.set("status", params.status);
+    const q = search.toString() ? `?${search.toString()}` : "";
+    return request<OpenApiOperationDependency[]>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/dependencies${q}`,
+      { signal },
+    );
+  },
+
+  /** PATCH /openapi-integrations/{id}/dependencies/{depId} — confirm or reject */
+  reviewOpenApiDependency(
+    integrationId: string,
+    dependencyId: string,
+    payload: { status: "confirmed" | "rejected"; notes?: string },
+  ): Promise<OpenApiOperationDependency> {
+    return request<OpenApiOperationDependency>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/dependencies/${encodeURIComponent(dependencyId)}`,
+      { method: "PATCH", body: payload },
+    );
+  },
+
+  /** GET /openapi-integrations/{id}/graph */
+  getOpenApiGraph(
+    integrationId: string,
+    versionId?: string,
+    signal?: AbortSignal,
+  ): Promise<OpenApiGraphSnapshot> {
+    const q = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
+    return request<OpenApiGraphSnapshot>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/graph${q}`,
+      { signal },
+    );
+  },
+
+  /** GET /openapi-integrations/{id}/tool-drafts */
+  listOpenApiToolDrafts(
+    integrationId: string,
+    signal?: AbortSignal,
+  ): Promise<OpenApiToolDraft[]> {
+    return request<OpenApiToolDraft[]>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/tool-drafts`,
+      { signal },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/tool-drafts/generate */
+  generateOpenApiToolDrafts(
+    integrationId: string,
+    payload: OpenApiGenerateToolDraftsPayload,
+  ): Promise<OpenApiToolDraft[]> {
+    return request<OpenApiToolDraft[]>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/tool-drafts/generate`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** PATCH /openapi-integrations/{id}/tool-drafts/{draftId} */
+  updateOpenApiToolDraft(
+    integrationId: string,
+    draftId: string,
+    changes: OpenApiToolDraftUpdatePayload,
+  ): Promise<OpenApiToolDraft> {
+    return request<OpenApiToolDraft>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/tool-drafts/${encodeURIComponent(draftId)}`,
+      { method: "PATCH", body: changes },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/tool-drafts/{draftId}/preview — a real upstream call */
+  previewOpenApiToolDraft(
+    integrationId: string,
+    draftId: string,
+    input: Record<string, unknown>,
+  ): Promise<OpenApiToolDraftPreviewResult> {
+    return request<OpenApiToolDraftPreviewResult>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/tool-drafts/${encodeURIComponent(draftId)}/preview`,
+      { method: "POST", body: { input } },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/tool-drafts/{draftId}/publish */
+  publishOpenApiToolDraft(
+    integrationId: string,
+    draftId: string,
+    payload: { name?: string; description?: string; version?: string },
+  ): Promise<OpenApiPublishToolDraftResult> {
+    return request<OpenApiPublishToolDraftResult>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/tool-drafts/${encodeURIComponent(draftId)}/publish`,
+      { method: "POST", body: payload },
+    );
+  },
+
+  /** POST /openapi-integrations/{id}/validate-credential-binding */
+  validateOpenApiCredentialBinding(
+    integrationId: string,
+    authBinding: OpenApiAuthBinding,
+  ): Promise<OpenApiCredentialValidationResult> {
+    return request<OpenApiCredentialValidationResult>(
+      `/openapi-integrations/${encodeURIComponent(integrationId)}/validate-credential-binding`,
+      { method: "POST", body: { auth_binding: authBinding } },
     );
   },
 

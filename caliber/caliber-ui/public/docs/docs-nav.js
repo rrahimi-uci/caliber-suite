@@ -52,6 +52,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-58-use-openapi-integrations.html",
+          "label": "OpenAPI Integrations",
+          "newtab": false
+        },
+        {
           "href": "m-42-use-workflows.html",
           "label": "Workflows",
           "newtab": false
@@ -419,6 +424,11 @@ window.DOCS_DATA = {
         {
           "href": "m-12-assistant.html",
           "label": "Assistant architecture",
+          "newtab": false
+        },
+        {
+          "href": "m-57-openapi-integrations.html",
+          "label": "OpenAPI Integrations architecture",
           "newtab": false
         }
       ]
@@ -888,6 +898,35 @@ window.DOCS_DATA = {
         "governance",
         "quality",
         "review"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-57-openapi-integrations.html",
+      "label": "OpenAPI Integrations architecture",
+      "section": "Architecture",
+      "section_id": "architecture",
+      "summary": "Governed import of third-party OpenAPI specs, deterministic operation classification and dependency detection, curated tool-draft generation, and publication into the existing tool registry through a declarative HTTP executor.",
+      "audience": [
+        "architect",
+        "developer",
+        "evaluator"
+      ],
+      "doc_type": "concept",
+      "prerequisites": [
+        "Layered architecture overview",
+        "MCP architecture"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-08-11",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "openapi",
+        "integrations",
+        "tools",
+        "governance",
+        "graph"
       ],
       "newtab": false,
       "nav_hidden": false
@@ -1530,6 +1569,33 @@ window.DOCS_DATA = {
       "version_applicability": "current main branch docs contract",
       "tags": [
         "mcp",
+        "integrations",
+        "tools",
+        "governance"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-58-use-openapi-integrations.html",
+      "label": "OpenAPI Integrations",
+      "section": "Use CALIBER",
+      "section_id": "use",
+      "summary": "The practical five-step flow for importing an OpenAPI spec, curating tool drafts, and publishing governed tools from it.",
+      "audience": [
+        "system-user",
+        "developer",
+        "operator"
+      ],
+      "doc_type": "how-to",
+      "prerequisites": [
+        "A CALIBER deployment with admin or operator scope"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-08-11",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "openapi",
         "integrations",
         "tools",
         "governance"

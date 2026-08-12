@@ -57,6 +57,8 @@ OPENAPI_INTEGRATION_PREFIX = "OAI-"
 OPENAPI_INTEGRATION_VERSION_PREFIX = "OAIV-"
 OPENAPI_OPERATION_PREFIX = "OAIO-"
 OPENAPI_TOOL_DRAFT_PREFIX = "OATD-"
+OPENAPI_DEPENDENCY_PREFIX = "OADEP-"
+OPENAPI_GRAPH_SNAPSHOT_PREFIX = "OAGS-"
 WORKFLOW_SERVICE_PREFIX = "wfs"
 SERVICE_TOKEN_PREFIX = "svt"  # noqa: S105 — ID prefix, not a credential
 KNOWLEDGE_BASE_PREFIX = "KB-"
@@ -270,6 +272,16 @@ def new_openapi_operation_id() -> str:
 def new_openapi_tool_draft_id() -> str:
     """Return a fresh OpenAPI tool-draft ID, e.g. ``OATD-c2f55681``."""
     return f"{OPENAPI_TOOL_DRAFT_PREFIX}{_suffix()}"
+
+
+def new_openapi_dependency_id() -> str:
+    """Return a fresh OpenAPI dependency-record ID, e.g. ``OADEP-c2f55681``."""
+    return f"{OPENAPI_DEPENDENCY_PREFIX}{_suffix()}"
+
+
+def new_openapi_graph_snapshot_id() -> str:
+    """Return a fresh OpenAPI graph-snapshot ID, e.g. ``OAGS-c2f55681``."""
+    return f"{OPENAPI_GRAPH_SNAPSHOT_PREFIX}{_suffix()}"
 
 
 def new_service_id() -> str:

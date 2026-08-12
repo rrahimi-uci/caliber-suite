@@ -16,6 +16,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Tools](m-39-use-tools.md): The practical guide to defining, testing, governing, and using callable tools in workflows and assistant surfaces.
 - [Skills](m-40-use-skills.md): The task-oriented guide to packaging reusable instructions, testing selection behavior, and using skills with assistant and workflow flows.
 - [MCP servers](m-41-use-mcp-servers.md): The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use.
+- [OpenAPI Integrations](m-58-use-openapi-integrations.md): The practical five-step flow for importing an OpenAPI spec, curating tool drafts, and publishing governed tools from it.
 - [Workflows](m-42-use-workflows.md): The user and operator path for authoring, previewing, running, deploying, and debugging workflows in CALIBER.
 - [Knowledge bases](m-43-use-knowledge-bases.md): The practical guide for ingesting knowledge, improving retrieval quality, and connecting grounded content to assistant or workflow behavior.
 - [Evaluation and test sets](m-44-use-evaluation-and-test-sets.md): The practical trust loop: define evidence, run scorecards, inspect judges, and decide what still needs review before live change.
@@ -80,6 +81,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Gateways](m-10-gateways.md): External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility.
 - [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
 - [Assistant architecture](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
+- [OpenAPI Integrations architecture](m-57-openapi-integrations.md): Governed import of third-party OpenAPI specs, deterministic operation classification and dependency detection, curated tool-draft generation, and publication into the existing tool registry through a declarative HTTP executor.
 
 ## Strategy
 

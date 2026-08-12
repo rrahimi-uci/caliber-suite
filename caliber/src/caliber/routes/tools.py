@@ -45,6 +45,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.egress import EgressPolicy
 from caliber.ids import new_tool_id, new_tool_test_run_id
 from caliber.orchestrator import calibration_drain
 from caliber.routes._deps import (
@@ -610,7 +611,14 @@ def _invoke_tool_under_preview_policy(
 
     mocked = should_mock_in_preview(binding)
     import_error: str | None = None
-    if not registered_tool_module_allowed(binding.module_path):
+    # The allowlist governs *module imports*. A declarative HTTP tool has no module to
+    # import — its ``module_path`` is the ``<openapi_http>`` sentinel — so applying the
+    # allowlist to it would reject every published OpenAPI tool on any deployment that
+    # configures one, with an error naming a module that does not exist. Its egress is
+    # governed instead, by the policy threaded into the executor below.
+    if binding.execution_backend == "python_callable" and not registered_tool_module_allowed(
+        binding.module_path
+    ):
         import_error = (
             f"module '{binding.module_path}' is not in CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST"
         )
@@ -636,6 +644,7 @@ def _invoke_tool_under_preview_policy(
                         InMemoryToolResolver([]),
                         preview=False,
                         required=True,
+                        egress_policy=EgressPolicy.from_config(config),
                     )
                     assert fn is not None
                     output = fn(**tool_input)

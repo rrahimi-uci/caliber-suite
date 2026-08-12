@@ -65,6 +65,10 @@ from caliber.runtime_advisories import (
     SUPPORTED_PYTHON_RANGE_LABEL,
     get_runtime_dependency_advisories,
 )
+from caliber.egress import EgressPolicy
+from caliber.integrations.openapi.executor import (
+    bind_egress_policy as bind_openapi_egress_policy,
+)
 from caliber.trace_client import MLflowTraceClient
 from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
@@ -454,6 +458,11 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # which was false the moment that wiring was reverted; see
     # `_sandboxed_registered_tool` for why it was, and what closing C8 requires.
     bind_sandbox_config(resolved)
+    # Same reasoning as the allowlist above: the OpenAPI HTTP executor is reached
+    # from the preview route, the tool test-run route, the workflow runtime, and
+    # standalone exported tools. Bound once so every one of those paths egresses
+    # under the operator's policy rather than the safe-but-generic default.
+    bind_openapi_egress_policy(EgressPolicy.from_config(resolved))
     llm_provider = build_provider(resolved)
     artifact_store = build_store(
         resolved.artifact_store_provider,

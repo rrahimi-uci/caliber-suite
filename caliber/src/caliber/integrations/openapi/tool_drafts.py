@@ -70,6 +70,79 @@ def build_tool_input_schema(operation: CaliberOpenApiOperation) -> dict[str, Any
     return schema
 
 
+def build_tool_pack_name(operations: list[CaliberOpenApiOperation]) -> str:
+    """Stable snake-case name for a multi-operation tool pack.
+
+    Draws the shared resource type from the first operation's path stub rather
+    than concatenating every operation's name, since a pack of 4-5 operations
+    would otherwise produce an unreadable ``list_get_create_update_delete_ticket``.
+    """
+
+    stub = _path_stub(operations[0].path) if operations else "operations"
+    return f"{stub}_pack"[:128]
+
+
+def build_tool_pack_description(
+    integration: CaliberOpenApiIntegration, operations: list[CaliberOpenApiOperation]
+) -> str:
+    summaries = [op.summary.strip() or op.operation_key for op in operations]
+    return f"{integration.name}: tool pack covering {', '.join(summaries)}"[:2048]
+
+
+def build_tool_pack_input_schema(operations: list[CaliberOpenApiOperation]) -> dict[str, Any]:
+    """Input schema for a tool pack: pick one bound operation, then its arguments.
+
+    A pack cannot use one flat schema the way a single-operation draft does —
+    each bound operation may need a different path parameter or body — so the
+    schema is a discriminated union: ``operation`` selects which bound call runs,
+    and the corresponding branch's schema governs the rest of the payload. This
+    keeps every bound operation's input still validated, rather than falling back
+    to an unchecked catch-all once more than one operation is involved.
+    """
+
+    branches: list[dict[str, Any]] = []
+    for operation in operations:
+        branch = build_tool_input_schema(operation)
+        branch["properties"] = {"operation": {"const": operation.operation_key}, **branch["properties"]}
+        branch.setdefault("required", [])
+        branch["required"] = ["operation", *branch["required"]]
+        branches.append(branch)
+    return {
+        "type": "object",
+        "oneOf": branches,
+    }
+
+
+def build_pack_execution_config(
+    *,
+    integration: CaliberOpenApiIntegration,
+    version: CaliberOpenApiIntegrationVersion,
+    operations: list[CaliberOpenApiOperation],
+    server_url: str,
+    auth_binding: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Execution config for a tool pack: the executor dispatches on ``operation``."""
+
+    return {
+        "kind": "openapi_http_pack",
+        "integration_id": integration.integration_id,
+        "integration_version_id": version.version_id,
+        "server_url": server_url,
+        "auth_binding": auth_binding,
+        "operations": [
+            {
+                "operation_id": operation.operation_id,
+                "operation_key": operation.operation_key,
+                "method": operation.method,
+                "path": operation.path,
+                "request_content_types": list(operation.request_content_types or []),
+                "response_statuses": list(operation.response_statuses or []),
+            }
+            for operation in operations
+        ],
+    }
+
+
 def build_tool_output_schema() -> dict[str, Any]:
     """Generic result envelope for declarative HTTP tools."""
 
@@ -112,11 +185,32 @@ def build_execution_config(
     }
 
 
+_SIDE_EFFECT_RANK = {"read": 0, "write": 1, "external_action": 2}
+
+
+def pack_side_effect_level(operations: list[CaliberOpenApiOperation]) -> str:
+    """The most restrictive side-effect level among a pack's bound operations.
+
+    A pack that bundles one read and one write is a write for approval purposes
+    — an agent holding the tool can always reach the riskier branch, so the draft
+    must be gated as if every call did.
+    """
+
+    ranked = [_SIDE_EFFECT_RANK.get(op.side_effect_level, 1) for op in operations]
+    level = max(ranked) if ranked else 0
+    return next(name for name, rank in _SIDE_EFFECT_RANK.items() if rank == level)
+
+
 def auth_binding_secret_refs(auth_binding: dict[str, Any] | None) -> list[str]:
     refs: list[str] = []
     if not isinstance(auth_binding, dict):
         return refs
-    for key in ("secret_ref", "password_secret_ref"):
+    for key in (
+        "secret_ref",
+        "password_secret_ref",
+        "client_secret_ref",
+        "refresh_token_secret_ref",
+    ):
         value = auth_binding.get(key)
         if isinstance(value, str) and value.strip():
             refs.append(value.strip())
