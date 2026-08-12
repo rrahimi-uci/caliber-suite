@@ -1,0 +1,1 @@
+{"t":"2026-08-12T08:53:02.802Z","severity":"INFO","logger":"caliber.orchestrator.eval_stage","message":"eval passed: job=RFN-E status=candidate_ready overall=0.550"}

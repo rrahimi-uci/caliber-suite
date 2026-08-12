@@ -1,0 +1,15 @@
+INFO     caliber.knowledge.worker:worker.py:57 knowledge-base worker started (interval=0.0s lease=120.0s worker=knowledge-build-worker-2356-7f5634111a90)
+ERROR    caliber.knowledge.worker:worker.py:87 knowledge-base worker tick raised; continuing
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/knowledge/worker.py", line 85, in _run
+    await asyncio.to_thread(self._tick)
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/asyncio/threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/concurrent/futures/thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_knowledge_worker_coverage.py", line 521, in _boom_tick
+    raise RuntimeError("tick blew up")
+RuntimeError: tick blew up
+INFO     caliber.knowledge.worker:worker.py:79 knowledge-base worker stopped

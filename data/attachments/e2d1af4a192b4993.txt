@@ -1,0 +1,1 @@
+ERROR    caliber.assistant.ollama_engine:ollama_engine.py:71 Ollama API error: 500 provider unavailable
