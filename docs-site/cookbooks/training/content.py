@@ -242,7 +242,7 @@ COOKBOOKS = [
             },
             {
                 "where": "Skill detail › Download ZIP",
-                "do": "Export the portable package, then use <strong>Import package ZIP</strong> with the Rename strategy to create a round-trip copy without unpacking it.",
+                "do": "Export the portable package, then on the standalone Skill Detail page choose <strong>Rename import</strong>, enter <code>support-tone-citation-copy</code>, and choose <strong>Import ZIP</strong>. The UI sends multipart <code>file</code> to <code>/ajax-api/2.0/mlflow/caliber/skills/import-package.zip</code> with <code>conflict_strategy=rename</code> and <code>rename_to=support-tone-citation-copy</code>.",
                 "asset": "skill package (Download ZIP)",
             },
             {
@@ -264,7 +264,7 @@ COOKBOOKS = [
             {
                 "type": "Package",
                 "name": "skill ZIP",
-                "detail": "Direct UI export/import with reject, rename, and admin-only merge conflict strategies.",
+                "detail": "UI export plus API import with reject, rename, and admin-only merge conflict strategies.",
             },
         ],
         "gates": [

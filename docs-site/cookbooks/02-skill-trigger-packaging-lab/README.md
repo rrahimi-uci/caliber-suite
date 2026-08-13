@@ -35,7 +35,8 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). For this scenario:
    `support-tone-and-citation`. Fill **summary** (1 line — this is what the
    selector reads) with tight boundaries, e.g. *"Customer-facing support tone +
    citation hints. Use for support replies; NOT for engineering/code/API
-   questions."* Add **content** (the full policy) + tags `support`, `tone`.
+   questions."* Set category to `customer_support`. Add **content** (the full
+   policy) + tags `support`, `tone`.
    - API: `POST /skills {name, summary, content, category, tags}`.
 2. **Render Preview.** Provide the `render_contract` variables from
    [`build.yaml`](build.yaml) (`user_message`, `audience`, `policy_context`).
@@ -52,9 +53,13 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). For this scenario:
 5. **Export package.** Open skill detail → **Download ZIP**
    (`GET /skills/{id}/package.zip`). This is your portability artifact
    (`SKILL.md` + `agents/openai.yaml` + resources).
-6. **Import round-trip.** In Skill detail, choose **Import package ZIP**, select
-   **Rename**, enter `support-tone-citation-copy`, and upload the exported ZIP.
-   Re-run the same trigger queries; decisions and matched signals must agree.
+6. **Import round-trip.** On the standalone Skill Detail page, choose
+   **Rename import**, enter `support-tone-citation-copy` in **Renamed skill
+   name**, and choose **Import ZIP**. The UI sends the exported archive as
+   multipart `file` to `/ajax-api/2.0/mlflow/caliber/skills/import-package.zip`
+   with `conflict_strategy=rename` and `rename_to=support-tone-citation-copy`.
+   Re-run the same trigger queries against the imported skill; decisions and
+   matched signals must agree.
 7. **Calibrate (queued).** `Skills → Calibrate` → capture job id.
 8. **Bind.** `Skills → Bind` to an agent (or workflow node) for later use
    (`POST /skills/{id}/bind`).

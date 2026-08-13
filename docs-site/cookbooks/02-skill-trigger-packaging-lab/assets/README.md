@@ -11,8 +11,11 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
 Then exercise the full recipe in [`../README.md`](../README.md): Render Preview →
 Trigger Tests (positive + negative) → package export (**Download ZIP**;
 `GET /skills/{id}/package.zip`) → Calibrate (queued, capture job id) → Bind.
-(Re-import is **API-only** — `POST /skills/import-package` — there is no import
-action in the shipped UI, so the UI recipe ends at export.)
+(Re-import is UI-native on the standalone Skill Detail page: choose **Rename
+import**, enter `support-tone-citation-copy`, and choose **Import ZIP**. The UI
+sends multipart `POST
+/ajax-api/2.0/mlflow/caliber/skills/import-package.zip` with `file`,
+`conflict_strategy=rename`, and `rename_to=support-tone-citation-copy`.)
 
 ## No judges folder here
 

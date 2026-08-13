@@ -5,7 +5,7 @@
       "do": "Create the skill that holds your customer-support response policy (tone, citations, escalation). A <strong>skill</strong> is a reusable behavior an agent can select; the one-line <strong>summary</strong> is the trigger text the selector reads, so keep it narrow. Clicking <strong>Build Skill</strong> opens the guided wizard (Identity → Content → … → Review &amp; Create). Names must be kebab-case and must not start with <code>claude</code> or <code>anthropic</code>.",
       "fill": [
         ["Name", "<code>support-tone-and-citation</code>"],
-        ["Category", "<code>support</code> (or the closest option)"],
+        ["Category", "<code>customer_support</code>"],
         ["Tags", "<code>support, tone, citation, escalation, customer-facing</code>"],
         ["Summary", "<code>Voice and citation rules for customer-facing support replies (billing, refunds, account, how-to); NOT for engineering, code, API, infra, or schema questions.</code>"],
         ["Content", "paste the body of <a href=\"../cookbooks/02-skill-trigger-packaging-lab/assets/skills/support-tone-and-citation.md\">support-tone-and-citation.md</a> (everything below the YAML frontmatter, starting at <code>You shape how a support reply is written...</code>)"]

@@ -2,7 +2,7 @@ workflow_goal: Build a reusable skill that is deterministic in selection and por
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
   - Trigger/selection testing is deterministic (POST /skills/{id}/test-selection, no LLM) — this IS the SelectionPrecision "deterministic" check.
-  - Package export = GET /skills/{id}/package.zip; import = POST /skills/import-package (rename the SKILL.md frontmatter name to avoid a 409 on duplicate).
+  - Package export = GET /skills/{id}/package.zip; ZIP import = Skill Detail → Rename import → Import ZIP, backed by multipart POST /ajax-api/2.0/mlflow/caliber/skills/import-package.zip with conflict_strategy=rename and rename_to=support-tone-citation-copy.
   - Calibrate queues a background job. Skill names must be kebab-case and must not start with claude*/anthropic*.
   - Scenario Sets is scaffolded today; drive positive/negative cases through Trigger Tests + Runs.
 manual_flow:
