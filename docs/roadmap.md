@@ -18,7 +18,7 @@ tags:
 
 # CALIBER — Roadmap
 
-*A feasibility-grounded, quarter-by-quarter plan derived from the [competitive analysis](./competitive-analysis.md) and **verified against the actual codebase**. Built for a **two-person team — you (product/strategy lead) and me (AI pair-programmer)** — and scoped to what that team can realistically ship and, above all, *review*.*
+*A feasibility-grounded, stage- and quarter-based plan derived from the [competitive analysis](./competitive-analysis.md) and **verified against the actual codebase**. Built for a **two-person team — you (product/strategy lead) and me (AI pair-programmer)** — and scoped to what that team can realistically ship and, above all, *review*.*
 
 > **Status:** planning snapshot, not a current capability reference. The original
 > audit baseline found historical nine-optimizer claims; those claims have since
@@ -71,7 +71,7 @@ reason to skip the preceding gate.
 
 | Order | Stage / milestone | GitHub scope | Exit evidence |
 |---|---|---|---|
-| **0** | **First-mile pilot on current `main`** · `v0.1.0` | Epic [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), child tickets [#79–#99](https://github.com/rrahimi-uci/caliber-suite/issues/79) | Capability snapshot, journey results, reproducible bugs, known limitations, and pilot report. |
+| **0** | **First-mile pilot on current `main`** · `v0.1.0` | Epic [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), native sub-issues [#79–#99](https://github.com/rrahimi-uci/caliber-suite/issues/79) | Capability snapshot, journey results, reproducible bugs, known limitations, and pilot report. |
 | **1** | **v0.1.0 Platform Foundation** · `v0.1.0` | Epic [#56](https://github.com/rrahimi-uci/caliber-suite/issues/56), foundation work [#59–#65](https://github.com/rrahimi-uci/caliber-suite/issues/59), bug bash [#76](https://github.com/rrahimi-uci/caliber-suite/issues/76), release gate [#66](https://github.com/rrahimi-uci/caliber-suite/issues/66) | Pilot findings triaged; primary workflow, supported contracts, recovery semantics, diagnostics, clean deployment, and release-candidate bug bash complete. |
 | **2** | **v1.0.0 Production MVP** · `v1.0.0` | Epic [#57](https://github.com/rrahimi-uci/caliber-suite/issues/57), production gates [#67–#71](https://github.com/rrahimi-uci/caliber-suite/issues/67), production bug bash [#77](https://github.com/rrahimi-uci/caliber-suite/issues/77), release gate [#72](https://github.com/rrahimi-uci/caliber-suite/issues/72) | Security boundary, safe process ownership, measured load, rehearsed recovery, acceptance evidence, and production-like pilot complete. |
 | **3** | **Post-v1 deferred enhancements** · `post-v1.0.0` | Epic [#58](https://github.com/rrahimi-uci/caliber-suite/issues/58), issues [#73–#75](https://github.com/rrahimi-uci/caliber-suite/issues/73) | A v1 review chooses scope from production evidence and customer demand; no post-v1 item blocks v1.0.0. |
@@ -90,7 +90,7 @@ The pilot’s required implementation gate is:
 
 ```mermaid
 flowchart LR
-    B[Current main baseline<br/>#59 + #65] --> P[First-mile pilot<br/>#78 · #79–#99]
+    B[Current main baseline<br/>#59 + #65 pilot checklist] --> P[First-mile pilot<br/>#78 · #79–#99]
     P --> T[Findings and severity triage<br/>#99 → #76 for P0/P1]
     T --> F[v0.1 foundation hardening<br/>#60–#65 + #76]
     F --> R[v0.1 release gate<br/>#66]
@@ -106,7 +106,7 @@ v1 proves production operations, and post-v1 work follows evidence.
 
 | Quarter | Theme | Committed majors (2 + tax) | Answers |
 |---|---|---|---|
-| **Stage 0 / Q1** | First-mile pilot and scope freeze | Current-main capability snapshot · #79–#99 feature journeys · #99 finding register | evidence-backed priorities; no unsupported release claims |
+| **Stage 0 / Q1** | First-mile pilot and scope recommendation | Current-main capability snapshot · #79–#99 feature journeys · #99 finding register | evidence-backed priorities; no unsupported release claims |
 | **Stage 1 / Q2** | v0.1 foundation and release candidate | Primary workflow · API/SDK/CLI contract · failure/diagnostics/deployment hardening · #76/#66 | repeatable non-production foundation; v0.1 go/no-go |
 | **Stage 2 / Q3** | v1 production security and process safety | Security boundary · single-instance guard · loop ownership/broker replay | safe supported topology before load claims |
 | **Stage 2 / Q4** | v1 performance, recovery, acceptance, and release | Load targets · DR rehearsal · acceptance gates · #77/#72 | measured production boundary; v1 go/no-go |
@@ -198,7 +198,7 @@ and rebuild prompt approval only where the release contract actually requires it
 
 | # | Deliverable | Owner | Grounding (verified) | Exit criteria | Effort/Risk |
 |---|---|---|---|---|---|
-| 1.1 | **Use the first-mile evidence to freeze the v0.1 target.** Convert #99’s pilot findings into a capability matrix, prioritized P0/P1/P2 backlog, and explicit current-main limitations before selecting implementation scope. | 🤝 Pair | GitHub #78–#99; `/capabilities`; `docs/reports/product-completeness-report.md`; current CI | Every pilot finding has classification, owner/decision, evidence, and release linkage; no roadmap claim outruns the runtime contract | M / Med |
+| 1.1 | **Use the first-mile evidence to freeze the v0.1 target.** Treat #59 as the pre-pilot capability/release baseline, then convert #99’s pilot findings into the final capability matrix, prioritized P0/P1/P2 backlog, and explicit current-main limitations before selecting implementation scope. | 🤝 Pair | GitHub #59 and #78–#99; `/capabilities`; `docs/reports/product-completeness-report.md`; current CI | Every pilot finding has classification, owner/decision, evidence, and release linkage; final scope is recorded after #99; no roadmap claim outruns the runtime contract | M / Med |
 | 1.2 | **Env-mode as real config.** Add `CaliberConfig.environment_mode`; thread it through workflow promotion and prompt discovery; expose it in the UI; preserve single-env as the default with a migration and compat tests. | 🤝 Pair | `workflows/promoter.py:GATED_ALIASES`; `routes/prompts.py:_PROMPT_DISCOVERY_ALIASES`; `caliber-ui/src/lib/environment.ts`; `config.py` | Instances toggle single↔multi-env by config, single-env default preserved, compat suite green | M / **High** |
 | 1.3 | **Governed promotion for workflows + prompts.** Workflows: preserve and harden the existing deployment gate/approval contract. Prompts: rebuild a real pending→approve→reject flow only if the v0.1 capability decision requires it; current direct prompt-release verdicts remain advisory until then. | 🤝 Pair (design), 🤖 impl | workflows: `routes/workflow_deployments.py`, `workflows/promoter.py`; prompts: `apply.py`, `release_operations.py`, `routes/releases.py`, `CaliberApprovalRequest` | The selected v0.1 release contract is explicit, tested, and honest about single-environment versus future multi-environment behavior | L / **High** |
 | 1.4 | **Docs and release-contract truthfulness stay enforced.** Keep the current searchable HTML docs, cookbook examples, and sync pipeline under executable-spec tests while Q1 changes land. This is tax budget, not a new product bet. | 🤖 AI-led | `docs-site/build-docs.mjs`; `caliber/caliber-ui/scripts/sync-docs.mjs`; `caliber/tests/test_docs_generation_contract.py`; `caliber/tests/test_docs_executable_spec_contract.py` | Docs, generated HTML, and examples continue to match the live code after governance changes | S / Med |
@@ -228,11 +228,12 @@ with #76 and #66, not with a documentation page or a unit-test count.
 | 2.2 | **Define the supported management-API subset and stability policy.** Freeze which route families are GA for automation, which remain beta, and how versioning, deprecation, and backward-compat will be signaled. | 🤝 Pair | #62; `routes/openapi.py`; served `/openapi.json`; `docs/api/*.md`; `sdk_stability` on `/capabilities` | One support matrix names the operator-safe contract and the rule for changing it | M / Med |
 | 2.3 | **Harden SDK/CLI coverage for the supported operator flows.** Keep the SDK and CLI thin over the served API, close wrapper gaps on the chosen GA subset, and make waiters/errors/examples the authoritative path for automation. | 🤝 Pair | `sdk/caliber-sdk/src/caliber_sdk/resources/*`; `sdk/caliber-cli/src/caliber_cli/*`; examples and tests | A normal operator script can authenticate, scope, inspect capabilities, drive the supported workflow/release flows, and handle failures without raw SQL or undocumented HTTP | M / Med |
 | 2.4 | **Standardize failure semantics and baseline diagnostics.** Classify timeout, retry, cancellation, terminal state, request correlation, readiness, queue, and audit behavior across the supported path. | 🤝 Pair | #63 and #64; runtime/events/observability routes | Partial failures are durable and actionable; an operator can diagnose a failed journey without database spelunking | L / **High** |
-| 2.5 | **Make CI/CD, packaging, deployment, and documentation repeatable.** Keep the HTML site, REST pages, SDK reference, cookbook pages, generated examples, and clean-checkout deployment under executable gates. | 🤖 AI-led | #65; docs build/sync pipeline; CI and compose workflows | A clean checkout can build, start, smoke-test, diagnose, and roll back the documented non-production deployment | M / Med |
+| 2.5 | **Make CI/CD, packaging, deployment, and documentation repeatable.** Complete the #65 pilot-baseline checklist first, then finish the release-track packaging, tag, rollback, and published-evidence work before #66. Keep the HTML site, REST pages, SDK reference, cookbook pages, generated examples, and clean-checkout deployment under executable gates. | 🤖 AI-led | #65; docs build/sync pipeline; CI and compose workflows | A clean checkout can build, start, smoke-test, diagnose, and roll back the documented non-production deployment; release-track evidence is attached before #66 | M / Med |
 | 2.6 | *(stretch)* **Idempotency, request-id, and dry-run parity on mutating paths.** Apply one consistent policy to the supported operator routes and document it in REST + SDK docs. | 🤖 AI-led | route families under `caliber/src/caliber/routes/`; transport/error layers in SDK | Supported write paths expose repeatable automation semantics, not just happy-path CRUD | M / Med |
 
 **Committed majors:** 2.1 + 2.2. **Tax budget:** 2.3–2.5. **Stretch:** 2.6.
-**Stage 1 exit:** #60–#65 are complete or explicitly descoped, #76 has no
+**Stage 1 exit:** the #65 pilot baseline and release track are complete or
+explicitly descoped, #60–#64 are complete or explicitly descoped, #76 has no
 untriaged P0/P1 release blocker, and #66 has enough evidence to make the v0.1.0
 release decision. The API/SDK/CLI contract is part of that exit, not a separate
 roadmap detached from the primary workflow.

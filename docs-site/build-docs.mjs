@@ -125,7 +125,7 @@ const MODULES = [
   { md: "sdk/cli.md", out: "m-24-sdk-cli.html", group: "sdk", label: "CLI and async client", blurb: "caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both." },
   { md: "sdk/cookbooks.md", out: "m-25-sdk-cookbooks.html", group: "examples", label: "SDK recipes", blurb: "Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed." },
   { md: "competitive-analysis.md", out: "m-17-competitive-analysis.html", group: "strategy", label: "Competitive analysis", blurb: "How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources." },
-  { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
+  { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, stage- and quarter-based plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];
 
 function isWithin(base, target) {

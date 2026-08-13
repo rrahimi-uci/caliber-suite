@@ -2002,7 +2002,7 @@ window.DOCS_DATA = {
       "label": "Roadmap",
       "section": "Strategy",
       "section_id": "strategy",
-      "summary": "The feasibility-grounded, quarter-by-quarter plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review.",
+      "summary": "The feasibility-grounded, stage- and quarter-based plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review.",
       "audience": [
         "architect",
         "decision-maker"
@@ -2012,7 +2012,7 @@ window.DOCS_DATA = {
         "Competitive analysis context"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-08-13",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "roadmap",
