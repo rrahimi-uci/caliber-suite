@@ -7,7 +7,7 @@ product_area: strategy
 stability: ga
 prerequisites:
   - Competitive analysis context
-reviewed_on: 2026-08-10
+reviewed_on: 2026-08-13
 version_applicability: current main branch docs contract
 tags:
   - roadmap
@@ -30,7 +30,7 @@ tags:
 > (`caliber-plugin-sdk`). Roadmap deliverables remain proposed until current code
 > and release evidence prove them landed.
 
-> **Current delta (2026-08-10):** prompt authoring is now non-live, and direct
+> **Current delta (2026-08-13):** prompt authoring is now non-live, and direct
 > prompt promote/rollback uses an intent-first, idempotent release-operation row
 > with exact before/after versions, optimistic concurrency, incomplete-operation
 > locking, and operator-triggered reconciliation. The docs site now publishes the
@@ -42,7 +42,11 @@ tags:
 
 > **This roadmap was adversarially critiqued against the code before publication** (three skeptic passes: feasibility-vs-architecture, competitive-alignment, capacity). Several first-draft assumptions turned out to be wrong — most importantly that human-approval governance was merely "dormant." The corrections are recorded in **[§12 Feasibility review](#12-feasibility-review)**; the plan below is the corrected version.
 >
-> **Planning unit.** One quarter = 3 months. Q1–Q4 are committed and detailed; Q5–Q6 are directional bets re-committed at the H1 review. Quarters are relative (start = "next quarter"), not fixed calendar dates.
+> **Planning unit.** The execution order starts with a current-main first-mile
+> pilot, then the v0.1.0 foundation, then the v1.0.0 production gate, and only
+> then post-v1 work. Stage 0–Stage 2 / Q1–Q4 are committed and detailed; Stage 3
+> / Q5–Q6 is directional work re-committed at the H1 review. Quarters are relative (start = "next
+> quarter"), not fixed calendar dates.
 >
 > **Grounding rule.** Every deliverable names the architectural seam it builds on. Where a "seam" is only a docstring or a UI constant (not working code), it is marked 🌱 *green-field* and sized as new work — because pretending otherwise is exactly the "docs outrun code" failure this roadmap exists to cure.
 
@@ -54,21 +58,67 @@ CALIBER's wedge is real but narrow: an open-source, self-hosted, MLflow-integrat
 
 The corrected plan does four things, in priority order:
 
-1. **Convert the current feature-rich alpha into a customer-ready core** (Q1) — make environment mode real configuration, restore governed promotion where the architecture already has seams, and rebuild prompt approval where it does not.
-2. **Harden the programmatic and documentation surface that already exists** (Q2) — turn the served API, SDK, CLI, and searchable docs from "present" into "safe to automate against," with explicit support boundaries and contract tests.
-3. **Deepen extensibility and the optimization moat** (Q3) — de-hardcode optimizer dispatch, harden the experimental plugin contract, and let integrations grow through a real extension path rather than hand-built adapters.
-4. **Then attack operations and scale** (H2) — fix loop ownership, throughput, DR, the remaining artifact-governance gaps, and the enterprise/managed tier decisions.
+1. **Run the first-mile current-main pilot before widening implementation scope** (Stage 0) — exercise the real user journeys, capture capability-aware findings, and establish the first engineering priorities.
+2. **Convert the feature-rich alpha into a coherent v0.1.0 foundation** (Stage 1/Q1–Q2) — resolve pilot blockers, prove the primary workflow, freeze supported contracts, standardize failure semantics, and make deployment/diagnostics repeatable.
+3. **Prove the v1.0.0 production boundary** (Stage 2/Q3–Q4) — close security, multi-process, performance, recovery, and acceptance gates, then run the production-like bug bash.
+4. **Only after v1 evidence, pursue post-v1 breadth and scale** (Stage 3/Q5–Q6) — enterprise identity, broader governed lifecycle, plugin/optimizer expansion, managed hosting, and multi-region decisions.
+
+## Current execution order and GitHub mapping
+
+This is the controlling order for the current GitHub milestones and epics. A
+later stage can be explored, but it must not be treated as complete or as a
+reason to skip the preceding gate.
+
+| Order | Stage / milestone | GitHub scope | Exit evidence |
+|---|---|---|---|
+| **0** | **First-mile pilot on current `main`** · `v0.1.0` | Epic [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), child tickets [#79–#99](https://github.com/rrahimi-uci/caliber-suite/issues/79) | Capability snapshot, journey results, reproducible bugs, known limitations, and pilot report. |
+| **1** | **v0.1.0 Platform Foundation** · `v0.1.0` | Epic [#56](https://github.com/rrahimi-uci/caliber-suite/issues/56), foundation work [#59–#65](https://github.com/rrahimi-uci/caliber-suite/issues/59), bug bash [#76](https://github.com/rrahimi-uci/caliber-suite/issues/76), release gate [#66](https://github.com/rrahimi-uci/caliber-suite/issues/66) | Pilot findings triaged; primary workflow, supported contracts, recovery semantics, diagnostics, clean deployment, and release-candidate bug bash complete. |
+| **2** | **v1.0.0 Production MVP** · `v1.0.0` | Epic [#57](https://github.com/rrahimi-uci/caliber-suite/issues/57), production gates [#67–#71](https://github.com/rrahimi-uci/caliber-suite/issues/67), production bug bash [#77](https://github.com/rrahimi-uci/caliber-suite/issues/77), release gate [#72](https://github.com/rrahimi-uci/caliber-suite/issues/72) | Security boundary, safe process ownership, measured load, rehearsed recovery, acceptance evidence, and production-like pilot complete. |
+| **3** | **Post-v1 deferred enhancements** · `post-v1.0.0` | Epic [#58](https://github.com/rrahimi-uci/caliber-suite/issues/58), issues [#73–#75](https://github.com/rrahimi-uci/caliber-suite/issues/73) | A v1 review chooses scope from production evidence and customer demand; no post-v1 item blocks v1.0.0. |
+
+### Stage 0 is a gate, not a release claim
+
+The first-mile pilot tests the current `main` checkout (`0.1.0.dev0`), not a
+stable release. It must record the runtime `/capabilities` response before
+testing feature behavior. Disabled workflow queue/approval/checkpoint controls
+are configuration state; prompt direct-release verdicts are advisory; skills,
+tools, test sets, judges, MCP servers, knowledge bases, workflows, and prompts
+have different lifecycle contracts. The pilot is complete when its GitHub epic
+exit criteria are met—not when every beta surface passes.
+
+The pilot’s required implementation gate is:
+
+```mermaid
+flowchart LR
+    B[Current main baseline<br/>#59 + #65] --> P[First-mile pilot<br/>#78 · #79–#99]
+    P --> T[Findings and severity triage<br/>#99 → #76 for P0/P1]
+    T --> F[v0.1 foundation hardening<br/>#60–#65 + #76]
+    F --> R[v0.1 release gate<br/>#66]
+    R --> V[v1 production hardening<br/>#67–#71]
+    V --> PB[v1 production bug bash<br/>#77]
+    PB --> VR[v1 release gate<br/>#72]
+    VR --> PV[Post-v1 review<br/>#58 · #73–#75]
+```
+
+This order prevents the team from treating feature breadth as release
+readiness: pilot findings select the first fixes, v0.1 makes the core repeatable,
+v1 proves production operations, and post-v1 work follows evidence.
 
 | Quarter | Theme | Committed majors (2 + tax) | Answers |
 |---|---|---|---|
-| **Q1** | Customer-ready core | Env-mode as real config · Governed promotion for **workflows (re-activate) + prompts (rebuild)** | single-env v1; born-approved prompt path; release trust |
-| **Q2** | Programmatic surface hardening | Supported management-API subset + stability policy · SDK/CLI/docs hardening with executable examples | repeatable automation; operator confidence |
-| **Q3** | Extensibility & optimization moat | **De-hardcode optimizer dispatch** · harden the experimental **Plugin SDK** + one real third-party exemplar | MLflow encroachment; community leverage |
-| **Q4** | Operational readiness foundation | Single-instance refusal guard · externalize loop ownership / broker replay | safe deployment; real HA path |
-| **Q5** | Remaining-artifact governance + scale | Promotion for skills/KBs/test-sets/tools · throughput/DR/load proof · scoped optimizer growth | unified lifecycle; scale proof |
-| **Q6** | Enterprise options | OIDC/SAML/SCIM + audit export · managed-tier discovery → MVP (go/no-go) · deeper Aria | enterprise buying friction; optional SaaS |
+| **Stage 0 / Q1** | First-mile pilot and scope freeze | Current-main capability snapshot · #79–#99 feature journeys · #99 finding register | evidence-backed priorities; no unsupported release claims |
+| **Stage 1 / Q2** | v0.1 foundation and release candidate | Primary workflow · API/SDK/CLI contract · failure/diagnostics/deployment hardening · #76/#66 | repeatable non-production foundation; v0.1 go/no-go |
+| **Stage 2 / Q3** | v1 production security and process safety | Security boundary · single-instance guard · loop ownership/broker replay | safe supported topology before load claims |
+| **Stage 2 / Q4** | v1 performance, recovery, acceptance, and release | Load targets · DR rehearsal · acceptance gates · #77/#72 | measured production boundary; v1 go/no-go |
+| **Stage 3 / Q5** | Post-v1 governed lifecycle and extension ecosystem | Asset-specific lifecycle expansion · optimizer registry · plugin conformance | only after v1 evidence and demand review |
+| **Stage 3 / Q6** | Post-v1 enterprise and managed options | Identity/provisioning · audit export · managed/multi-region decision · deeper Aria | explicit post-v1 investment decision |
 
-> **Two claims this roadmap deliberately does *not* make** (corrected from the draft): governed promotion exists for **1** artifact in the roadmap's audited baseline (workflows), not 6; and "a management surface exists" does **not** mean "a production-stable operator contract exists." The SDK/CLI/API are real and useful, but they are not yet the end of that story.
+> **Three claims this roadmap deliberately does *not* make**: the first-mile
+> pilot is not production certification; governed promotion is asset-specific
+> and does not mean every family has the same lifecycle; and "a management
+> surface exists" does **not** mean "a production-stable operator contract
+> exists." The SDK/CLI/API are real and useful, but they are not yet the end of
+> that story.
 
 ---
 
@@ -104,32 +154,25 @@ Sized for **one human lead + one AI pair-programmer**. The AI implements fast, w
 
 ```mermaid
 timeline
-    title CALIBER — 18-month roadmap (corrected)
-    Q1 Customer-ready core : Env-mode as real CaliberConfig (default single-env) : Re-activate workflow gated promotion : Rebuild prompt approval (undo born-approved) : (continuous) docs and cookbook accuracy gates stay on
-    Q2 Programmatic surface hardening : Supported management-API subset + versioning rules : SDK/CLI parity for supported operator flows : Executable docs and cookbook examples as merge gates
-    Q3 Extensibility and optimizer moat : De-hardcode optimizer dispatch into a registry : Harden plugin contract and conformance suite : Publish one third-party optimizer exemplar : (stretch) scoped Langflow import
-    Q4 Operational readiness foundation : Single-instance refusal guard : Externalize loop ownership / broker replay : (stretch) first async-session conversion tranche and load slice
-    Q5 Remaining-artifact governance and scale : Promotion state machines for skills/KBs/test-sets/tools : Throughput, DR drill, and load benchmark : Scoped optimizer expansion with evidence
-    Q6 Enterprise options : OIDC or SAML + group-to-scope mapping + audit export : Managed-tier discovery to MVP (go/no-go) : Deeper Aria goal-plan autonomy
+    title CALIBER — staged roadmap (corrected)
+    Stage 0 First-mile pilot : Current-main capability snapshot : Feature journeys #79–#99 : Findings and severity report #99
+    Stage 1 v0.1 foundation : Pilot-informed scope : Primary workflow and contracts #60–#65 : Release-candidate bug bash #76 : v0.1 gate #66
+    Stage 2 v1 production : Security #67 : Multi-process safety #68 : Throughput #69 : Recovery #70 : Acceptance #71 : Production bug bash #77 : v1 gate #72
+    Stage 3 post-v1 : Broader lifecycle and plugin ecosystem #74 : Enterprise identity #73 : Managed hosting and scale #75
 ```
 
 **Dependency logic (why this order):**
 
 ```mermaid
 flowchart LR
-    Q1["Q1 · Customer-ready core<br/>env-mode + governed promotion"]:::a
-    Q2["Q2 · Programmatic hardening<br/>API + SDK + CLI + docs contracts"]:::b
-    Q3["Q3 · Extensibility and optimizer moat<br/>registry + plugin hardening"]:::c
-    Q4["Q4 · Operational readiness foundation<br/>single-instance guard → loop ownership"]:::d
-    Q5["Q5 · Remaining-artifact gov + scale"]:::e
-    Q6["Q6 · Enterprise options / managed tier"]:::e
+    S0["Stage 0 · First-mile pilot<br/>#78 · #79–#99"]:::a
+    S1["Stage 1 · v0.1 foundation<br/>#56 · #59–#66"]:::b
+    S2["Stage 2 · v1 production<br/>#57 · #67–#72"]:::c
+    S3["Stage 3 · post-v1 review<br/>#58 · #73–#75"]:::d
 
-    Q1 -->|"trusted release semantics first"| Q2
-    Q2 -->|"public contracts before ecosystem promises"| Q3
-    Q1 -->|"single-env default and gating semantics inform HA work"| Q4
-    Q3 -->|"registry and plugin contract widen the moat"| Q5
-    Q4 -->|"safe deployment before enterprise identity/SaaS"| Q6
-    Q4 --> Q5 --> Q6
+    S0 -->|"findings select the foundation work"| S1
+    S1 -->|"repeatable foundation before production claims"| S2
+    S2 -->|"production evidence before deferred breadth"| S3
     classDef a fill:#e0f2fe,stroke:#0284c7,color:#075985;
     classDef b fill:#fce7f3,stroke:#db2777,color:#831843;
     classDef c fill:#dcfce7,stroke:#16a34a,color:#14532d;
@@ -137,105 +180,124 @@ flowchart LR
     classDef e fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;
 ```
 
-Note the **Q2 → Q3 edge**: the SDK, CLI, served OpenAPI, and searchable docs
-already exist, so Q2 is about freezing a supported automation contract. Only
-after that is it reasonable to widen the ecosystem promise in Q3.
+The important edge is **Stage 0 → Stage 1**: the pilot is not a side activity.
+It produces the evidence used to choose the first fixes. The v0.1 foundation
+then makes the supported path repeatable before the v1 production gates are
+attempted. Post-v1 breadth is explicitly downstream of the v1 release decision.
 
 ---
 
-## 4. Q1 — Customer-ready core  *(verdict: highest leverage — finish the release story before adding breadth)*
+## 4. Stage 0 + Stage 1 / Q1 — first-mile pilot and v0.1 scope  *(verdict: learn from current main, then harden the core)*
 
-**Why.** The docs, API pages, SDK pages, cookbook gallery, and generated HTML now
-present a materially larger product surface than the platform supported a month
-ago. That is useful, but it also raises the bar: the next customer question is
-not "can I click through it?" but "can I trust promotion, review, and rollback
-semantics enough to put this in front of a real team?" The highest-leverage work
-is therefore the customer-ready core: multi-environment semantics as real config,
-workflow gating turned back on, and prompt approval rebuilt rather than implied.
+**Why.** The first-mile pilot now gives the team a disciplined way to test the
+current `main` surface before committing to broad implementation. Its findings
+are the input to this quarter’s engineering work, not a production-readiness
+claim. After the pilot, the highest-leverage work remains the customer-ready
+core: make environment mode real configuration, keep workflow gating truthful,
+and rebuild prompt approval only where the release contract actually requires it.
 
 | # | Deliverable | Owner | Grounding (verified) | Exit criteria | Effort/Risk |
 |---|---|---|---|---|---|
-| 1.1 | **Env-mode as real config.** Add `CaliberConfig.environment_mode`; thread it through workflow promotion and prompt discovery; expose it in the UI; preserve single-env as the default with a migration and compat tests. | 🤝 Pair | `workflows/promoter.py:GATED_ALIASES`; `routes/prompts.py:_PROMPT_DISCOVERY_ALIASES`; `caliber-ui/src/lib/environment.ts`; `config.py` | Instances toggle single↔multi-env by config, single-env default preserved, compat suite green | M / **High** |
-| 1.2 | **Governed promotion for workflows + prompts.** Workflows: re-activate the existing promotion/approval state machine. Prompts: rebuild a real pending→approve→reject flow instead of the born-approved shortcut. | 🤝 Pair (design), 🤖 impl | workflows: `routes/workflow_deployments.py`, `workflows/promoter.py`; prompts: `apply.py`, `release_operations.py`, `routes/releases.py`, `CaliberApprovalRequest` | A candidate moves dev→staging→prod with eval gate, human sign-off, and audited rollback for workflows and prompts | L / **High** |
-| 1.3 | **Docs and release-contract truthfulness stay enforced.** Keep the current searchable HTML docs, cookbook examples, and sync pipeline under executable-spec tests while Q1 changes land. This is tax budget, not a new product bet. | 🤖 AI-led | `docs-site/build-docs.mjs`; `caliber/caliber-ui/scripts/sync-docs.mjs`; `caliber/tests/test_docs_generation_contract.py`; `caliber/tests/test_docs_executable_spec_contract.py` | Docs, generated HTML, and examples continue to match the live code after governance changes | S / Med |
-| 1.4 | *(stretch)* **Prompt review UX and separation-of-duties polish.** Once 1.2 records author/requester metadata, enforce approver ≠ author and lift the releases room to the newly governed prompt path. | 🤖 AI-led | `auth.py` scopes; `routes/releases.py`; prompt release history | Approver ≠ author enforced; prompt releases readable in one operator flow | M / Med |
+| 1.1 | **Use the first-mile evidence to freeze the v0.1 target.** Convert #99’s pilot findings into a capability matrix, prioritized P0/P1/P2 backlog, and explicit current-main limitations before selecting implementation scope. | 🤝 Pair | GitHub #78–#99; `/capabilities`; `docs/reports/product-completeness-report.md`; current CI | Every pilot finding has classification, owner/decision, evidence, and release linkage; no roadmap claim outruns the runtime contract | M / Med |
+| 1.2 | **Env-mode as real config.** Add `CaliberConfig.environment_mode`; thread it through workflow promotion and prompt discovery; expose it in the UI; preserve single-env as the default with a migration and compat tests. | 🤝 Pair | `workflows/promoter.py:GATED_ALIASES`; `routes/prompts.py:_PROMPT_DISCOVERY_ALIASES`; `caliber-ui/src/lib/environment.ts`; `config.py` | Instances toggle single↔multi-env by config, single-env default preserved, compat suite green | M / **High** |
+| 1.3 | **Governed promotion for workflows + prompts.** Workflows: preserve and harden the existing deployment gate/approval contract. Prompts: rebuild a real pending→approve→reject flow only if the v0.1 capability decision requires it; current direct prompt-release verdicts remain advisory until then. | 🤝 Pair (design), 🤖 impl | workflows: `routes/workflow_deployments.py`, `workflows/promoter.py`; prompts: `apply.py`, `release_operations.py`, `routes/releases.py`, `CaliberApprovalRequest` | The selected v0.1 release contract is explicit, tested, and honest about single-environment versus future multi-environment behavior | L / **High** |
+| 1.4 | **Docs and release-contract truthfulness stay enforced.** Keep the current searchable HTML docs, cookbook examples, and sync pipeline under executable-spec tests while Q1 changes land. This is tax budget, not a new product bet. | 🤖 AI-led | `docs-site/build-docs.mjs`; `caliber/caliber-ui/scripts/sync-docs.mjs`; `caliber/tests/test_docs_generation_contract.py`; `caliber/tests/test_docs_executable_spec_contract.py` | Docs, generated HTML, and examples continue to match the live code after governance changes | S / Med |
+| 1.5 | *(stretch)* **Prompt review UX and separation-of-duties polish.** Once 1.3 records author/requester metadata, enforce approver ≠ author only for the selected release contract and lift the releases room to the newly governed prompt path. | 🤖 AI-led | `auth.py` scopes; `routes/releases.py`; prompt release history | Approver ≠ author enforced where required; prompt releases readable in one operator flow | M / Med |
 
-**Committed majors:** 1.1 + 1.2. **Hygiene (tax budget):** 1.3. **Stretch:** 1.4.
-**Q1 exit:** governed `dev→staging→prod` semantics are real for workflows and prompts, single-env remains the safe default, and the public docs continue telling the truth while the release model changes underneath them.
+**Committed majors:** 1.1 + 1.2. **Hygiene (tax budget):** 1.4. **Stretch:** 1.5.
+**Q1 exit:** the first-mile findings have selected the implementation scope, the
+v0.1 release contract is explicit, single-env remains the safe default, and the
+public docs continue telling the truth. A future `dev→staging→prod` ladder is a
+target only after the required environment and approval work is implemented and
+verified; it is not a current pilot assumption.
 
 ---
 
-## 5. Q2 — Programmatic surface hardening  *(verdict: necessary correction — the surface exists, now make it dependable)*
+## 5. Stage 1 / Q2 — v0.1.0 foundation hardening and release candidate  *(verdict: turn pilot findings into a repeatable foundation)*
 
-**Why.** The repo now serves an OpenAPI document, publishes REST pages, ships a
-typed SDK, ships a CLI, and renders cookbook examples into GitHub Pages. The
-remaining gap is not invention; it is supportability. A customer-ready
-integration surface needs explicit support boundaries, compatibility rules,
-idempotent operator flows, and examples that fail the build if they drift.
+**Why.** The pilot is only useful if its findings change the product in a
+controlled order. Stage 1 closes the v0.1 foundation issues: prove the primary
+workflow, freeze the supported API/SDK/CLI subset, standardize failure behavior,
+establish diagnostics, and make clean deployment repeatable. The programmatic
+surface is one important workstream, not the whole milestone. The stage ends
+with #76 and #66, not with a documentation page or a unit-test count.
 
 | # | Deliverable | Owner | Grounding (verified) | Exit criteria | Effort/Risk |
 |---|---|---|---|---|---|
-| 2.1 | **Define the supported management-API subset and stability policy.** Freeze which route families are GA for automation, which remain beta, and how versioning, deprecation, and backward-compat will be signaled. | 🤝 Pair | `routes/openapi.py`; served `/openapi.json`; `docs/api/*.md`; `sdk_stability` on `/capabilities` | One support matrix names the operator-safe contract and the rule for changing it | M / Med |
-| 2.2 | **Harden SDK/CLI coverage for the supported operator flows.** Keep the SDK and CLI thin over the served API, close wrapper gaps on the chosen GA subset, and make waiters/errors/examples the authoritative path for automation. | 🤝 Pair | `sdk/caliber-sdk/src/caliber_sdk/resources/*`; `sdk/caliber-cli/src/caliber_cli/*`; examples and tests | A normal operator script can authenticate, scope, inspect capabilities, drive workflow/release/cookbook flows, and handle failures without dropping to raw SQL or undocumented HTTP | M / Med |
-| 2.3 | *(stretch)* **Idempotency, request-id, and dry-run parity on mutating paths.** Apply one consistent policy to the supported operator routes and document it in REST + SDK docs. | 🤖 AI-led | route families under `caliber/src/caliber/routes/`; transport/error layers in SDK | Supported write paths expose repeatable automation semantics, not just happy-path CRUD | M / Med |
-| 2.4 | **Executable documentation stays a release gate.** The HTML site, REST pages, SDK reference, cookbook pages, and generated examples remain CI-validated while Q2 changes land. | 🤖 AI-led | docs build/sync pipeline; cookbook example tests; docs contract tests | Public docs remain safe to copy from while the contract hardens | S / Low |
+| 2.1 | **Complete and prove the primary governed workflow.** Use the pilot findings to close the highest-impact UI/runtime gaps across input, evidence, candidate, evaluation, review, apply, release, and rollback where supported. | 🤝 Pair | #60; `orchestrator/`; `workflows/`; pilot findings #79–#99 | One representative browser and programmatic journey is reproducible with durable state, visible failures, and documented asset-family limits | L / **High** |
+| 2.2 | **Define the supported management-API subset and stability policy.** Freeze which route families are GA for automation, which remain beta, and how versioning, deprecation, and backward-compat will be signaled. | 🤝 Pair | #62; `routes/openapi.py`; served `/openapi.json`; `docs/api/*.md`; `sdk_stability` on `/capabilities` | One support matrix names the operator-safe contract and the rule for changing it | M / Med |
+| 2.3 | **Harden SDK/CLI coverage for the supported operator flows.** Keep the SDK and CLI thin over the served API, close wrapper gaps on the chosen GA subset, and make waiters/errors/examples the authoritative path for automation. | 🤝 Pair | `sdk/caliber-sdk/src/caliber_sdk/resources/*`; `sdk/caliber-cli/src/caliber_cli/*`; examples and tests | A normal operator script can authenticate, scope, inspect capabilities, drive the supported workflow/release flows, and handle failures without raw SQL or undocumented HTTP | M / Med |
+| 2.4 | **Standardize failure semantics and baseline diagnostics.** Classify timeout, retry, cancellation, terminal state, request correlation, readiness, queue, and audit behavior across the supported path. | 🤝 Pair | #63 and #64; runtime/events/observability routes | Partial failures are durable and actionable; an operator can diagnose a failed journey without database spelunking | L / **High** |
+| 2.5 | **Make CI/CD, packaging, deployment, and documentation repeatable.** Keep the HTML site, REST pages, SDK reference, cookbook pages, generated examples, and clean-checkout deployment under executable gates. | 🤖 AI-led | #65; docs build/sync pipeline; CI and compose workflows | A clean checkout can build, start, smoke-test, diagnose, and roll back the documented non-production deployment | M / Med |
+| 2.6 | *(stretch)* **Idempotency, request-id, and dry-run parity on mutating paths.** Apply one consistent policy to the supported operator routes and document it in REST + SDK docs. | 🤖 AI-led | route families under `caliber/src/caliber/routes/`; transport/error layers in SDK | Supported write paths expose repeatable automation semantics, not just happy-path CRUD | M / Med |
 
-**Committed majors:** 2.1 + 2.2. **Stretch:** 2.3. **Tax budget:** 2.4.
-**Q2 exit:** the programmatic surface is not just present; it is supportable. Operators know which API/SDK/CLI paths are stable, examples stay executable, and automation no longer depends on reverse-engineering UI traffic.
+**Committed majors:** 2.1 + 2.2. **Tax budget:** 2.3–2.5. **Stretch:** 2.6.
+**Stage 1 exit:** #60–#65 are complete or explicitly descoped, #76 has no
+untriaged P0/P1 release blocker, and #66 has enough evidence to make the v0.1.0
+release decision. The API/SDK/CLI contract is part of that exit, not a separate
+roadmap detached from the primary workflow.
 
 ---
 
-## 6. Q3 — Extensibility & optimization moat  *(verdict: build on the now-hardened surface, not before it)*
+## 6. Stage 2 / Q3 — v1.0.0 production security and process safety  *(verdict: make the v0.1 foundation safe to operate)*
 
-**Why.** The repo already contains the first version of a plugin contract and the
-current docs already teach developers how to use it. What is missing is the seam
-behind it: optimizer dispatch is still hard-coded, and the experimental contract
-has not yet survived a release with a real third-party-style implementation.
-Extensibility becomes a moat only after the supported operator contract exists,
-not before.
+**Why.** v1 work starts only after #66. It is not a feature-expansion quarter:
+it closes the production blockers that the pilot and v0.1 work cannot prove,
+especially access boundaries and multi-process execution. Performance work must
+follow process-safety work so load does not amplify correctness failures.
 
 | # | Deliverable | Owner | Grounding (verified) | Exit criteria | Effort/Risk |
 |---|---|---|---|---|---|
-| 3.1 | **De-hardcode optimizer dispatch into a registry.** Preserve the current five implemented paths, keep the automatic-vs-explicit story honest, and move selection off the hard-coded tuple so plugins have a real extension seam. | 🤝 Pair | `llm/openai_agents.py`; `orchestrator/optimizer_select.py`; calibration UI | Optimizers are dispatched via a registry; all current paths remain reachable; the policy for automatic vs explicit selection is documented | M / Med |
-| 3.2 | **Harden the experimental plugin SDK.** Keep the allowlist and capability-reporting model, expand conformance tests, and publish one real third-party-style optimizer exemplar that installs without editing CALIBER. | 🤝 Pair | `sdk/caliber-plugin-sdk`; capabilities extensibility block; plugin docs/tests | A third party can add an optimizer via package + allowlist + conformance suite, and the operator can see what is installed and active | M / **High** |
-| 3.3 | *(stretch)* **Scoped Langflow import or one new optimizer path.** Only after 3.1 lands: either prove a compilable happy-path import, or add one new optimizer with measured evidence rather than taxonomy-only claims. | 🤖 AI-led | `compile_workflow`; import seams; optimizer modules | One ecosystem expansion path is real and documented, not aspirational | M / Med |
-| 3.4 | **Cookbook and exemplar adoption assets.** Keep the docs-site cookbook gallery and SDK cookbook counterparts aligned with the extension story so community examples teach the supported path. | 🧑 leads, 🤖 drafts | `docs-site/cookbooks`; `docs/sdk/cookbooks.md`; SDK examples | Extension and integration examples point at the actual contract that shipped | S / Low |
+| 3.1 | **Define and enforce the production security boundary.** Remove unsafe development assumptions, validate network-reachable configuration, and exercise authorization/scoping abuse cases. | 🤝 Pair | #67; auth/config/deployment surfaces | Production topology rejects unsafe defaults, scope boundaries are tested, and security evidence is recorded | L / **High** |
+| 3.2 | **Make multi-process execution safe.** Add the single-instance refusal guard first, then externalize loop ownership and broker replay as required for safe replicas. | 🤝 Pair | #68; lifespan loops, events, reconciler, queue | A second replica cannot silently double-run owned loops; replay/ownership behavior is tested | XL / **High** |
+| 3.3 | **Keep operational documentation aligned.** Update readiness, troubleshooting, and deployment docs as the security/process contract changes. | 🤖 AI-led | #67–#68; `docs/operate/`; docs contract tests | Operators can tell what topology is supported and why an unsafe topology is refused | S / Med |
 
-**Committed majors:** 3.1 + 3.2. **Stretch:** 3.3. **Tax budget:** 3.4.
-**Q3 exit:** the plugin story has a real underlying seam, the extension contract is still conservative but credible, and the public examples teach the supported way to extend CALIBER rather than a one-off implementation detail.
+**Committed majors:** 3.1 + 3.2. **Tax budget:** 3.3.
+**Stage 2/Q3 exit:** #67 and #68 have verified evidence and no open P0 release
+blocker; CALIBER’s supported process model is explicit before performance or DR
+claims are made.
 
 ---
 
-## 7. Q4 — Operational readiness foundation  *(verdict: this is where “good product” starts becoming “supportable system”)*
+## 7. Stage 2 / Q4 — v1.0.0 performance, recovery, acceptance, and release  *(verdict: prove production behavior, then decide)*
 
-**Why.** The production-readiness section below still calls out the same core
-blocking facts: loop ownership is process-local, HA/DR has no proved path, and
-the server still carries a large synchronous-session ceiling inside async
-handlers. Those are not cosmetic gaps. They define whether a customer can run
-the system safely, and they come before broader enterprise packaging.
+**Why.** Once security and process ownership are safe, measure the workload,
+rehearse recovery, and run the final production-like acceptance gate. This is
+where “feature-rich alpha” can become a supportable production MVP—or produce a
+defensible no-go decision with residual work.
 
 | # | Deliverable | Owner | Grounding (verified) | Exit criteria | Effort/Risk |
 |---|---|---|---|---|---|
-| 4.1 | **P0 single-instance refusal guard.** Make the single-writer assumption explicit at startup so a second replica refuses to run owned loops instead of silently double-firing them. | 🤝 Pair | lifespan loop registration; startup hooks; operations docs | Scaling to two replicas fails loudly and explainably rather than corrupting quietly | S / Low |
-| 4.2 | **P1 externalize loop ownership / broker replay.** Move the loop-ownership story out of one process so two instances can coexist without double-running schedulers and reconcilers. | 🤝 Pair | event bus; dead-letter path; loop/reconciler seams | Two instances can run without duplicate loop ownership; replay model is durable rather than best-effort | XL / **High** |
-| 4.3 | *(stretch)* **First async-session conversion tranche + load slice.** Start removing the synchronous-session ceiling from the highest-value route families and publish one bounded throughput number. | 🤖 AI-led | async handlers and SQLAlchemy session hotspots | The load conversation is based on a measured ceiling, not guesswork | L / Med |
-| 4.4 | **Runbook and readiness docs stay honest.** Update the operator-facing docs alongside the platform changes so the public site never implies HA or throughput properties that the code has not proved. | 🤖 AI-led | `docs/runbook.md`; operate docs; docs contract tests | Operational docs match the actual deployment model at each step | S / Low |
+| 4.1 | **Remove the async-handler synchronous-session ceiling and publish load targets.** Convert the highest-value paths, size dependencies, and measure bounded throughput/latency. | 🤝 Pair | #69; async handlers, session hotspots, deployment config | Load targets are measured on the supported topology and limitations are published | L / **High** |
+| 4.2 | **Rehearse backup, restore, rollback, and incident operations.** State RPO/RTO, exercise restore and rollback, and record operator outcomes. | 🤝 Pair | #70; `docs/runbook.md`; deploy/storage paths | Recovery objectives are demonstrated once with evidence; unresolved manual recoveries are explicit | M / High |
+| 4.3 | **Build production regression, evaluation, and acceptance gates.** Combine automated regression, security, recovery, performance, operator, and capability-truth checks. | 🤝 Pair | #71; CI, evaluation, browser, and operations evidence | A dated acceptance packet supports a human go/no-go decision | L / High |
+| 4.4 | **Run the production-like bug bash and release decision.** Re-test the v0.1 baseline under the target production boundary, resolve or accept P0/P1 findings, then close #72 only with the required evidence. | Human lead + AI pair | #77 → #72 | No unaccepted P0/P1 blocker remains; release notes state verified limits and residual risks | M / **High** |
 
-**Committed majors:** 4.1 + 4.2. **Stretch:** 4.3. **Tax budget:** 4.4.
-**Q4 exit:** CALIBER has a credible path from single-instance alpha to supportable deployment: replica misconfiguration is checked, loop ownership is no longer accidental, and the operator docs match the deployment truth.
+**Committed majors:** 4.1 + 4.2. **Tax/quality gate:** 4.3. **Release gate:** 4.4.
+**Stage 2/Q4 exit:** #77 is complete, #72 has a human go/no-go decision, and no
+production claim exceeds the measured security, workload, recovery, or operator
+evidence.
 
 ---
 
-## 8. H2 (Q5–Q6) — directional bets
+## 8. Stage 3 / Q5–Q6 — post-v1 deferred enhancements
 
-Re-committed at the H1 review. **Q5 is intentionally the overflow catch-basin**
-for work pushed out of Q3/Q4 (remaining-artifact governance, throughput, DR,
-scoped optimizer growth) — it will itself need scoping at H1, not treated as
-free.
+These items are intentionally assigned to the `post-v1.0.0` milestone and are
+revisited only after #72. They are not substitutes for v1 security, process
+safety, performance, recovery, or acceptance gates.
 
-- **Q5 · Remaining-artifact governance + scale.** Build promotion/rollback state machines for **skills, KBs, test-sets, tools** (four asset-specific implementations that make "6-artifact governance" real alongside prompts and workflows); continue the async-session and throughput work; run a **DR rehearsal** with stated RPO/RTO; and publish a bounded load benchmark.
-- **Q6 · Enterprise options.** Add OIDC/SAML SSO, SCIM or equivalent provisioning, group-to-scope mapping, and audit export for customers who need enterprise identity; in parallel, run the human-led **managed-tier discovery→MVP** go/no-go. Also deeper Aria goal-plan autonomy; reference case studies.
-- **Sovereign/air-gap** stays important, but its priority now follows Q1–Q4 truth: first fix governance, contracts, and loop ownership; then package the deployment shapes those changes made real.
+- **#74 · Broader governed lifecycle and extension ecosystem.** Extend
+  asset-specific governance to skills, knowledge bases, test sets, tools, and
+  MCP resources; then replace hard-coded optimizer dispatch and graduate the
+  experimental plugin SDK only with conformance evidence.
+- **#73 · Enterprise identity and provisioning.** Add OIDC/SAML, SCIM or
+  equivalent provisioning, group-to-scope mapping, and audit export based on
+  production demand and the proven v1 security boundary.
+- **#75 · Managed hosting, multi-region, and broader scale envelope.** Decide
+  managed hosting, multi-region availability, larger workload classes,
+  ecosystem imports, and deeper Aria autonomy from measured v1 demand.
+- **Sovereign/air-gap** remains a strategic direction, but packaging follows
+  the v1 operational truth rather than getting ahead of it.
 
 ---
 
@@ -244,7 +306,8 @@ free.
 These consume the reserved ~1-major/quarter capacity:
 
 - **MLflow watch (threat #1)** *and* **up-stack competitor watch (Langfuse/ClickHouse, Dify)** — with pre-committed triggers (see the contingency box in §12).
-- **Design-partner pipeline** — human-led, runs from **Q1** so a reference customer can land by Q3–Q4, not Q6.
+- **Design-partner pipeline** — human-led, starts in **Stage 0** through the
+  first-mile pilot so reference evidence exists before v1 production claims.
 - **Upstream MLflow contribution** — opportunistic (open PRs; don't gate quarters on their review).
 - **Security & dependency hygiene**; **docs=code** and **examples=code** (the current docs contract and cookbook example suites stay merge gates); **community & issue triage**.
 - **The tax:** PR-review latency, migrations/backward-compat, flaky-test triage.
@@ -261,12 +324,12 @@ We will **not**, in this horizon: become a general automation tool (n8n) or BPM 
 
 | Theme | Leading metric | Target |
 |---|---|---|
-| Customer-ready core | artifacts with governed multi-env promotion | **workflows + prompts** (Q1) |
-| Programmatic surface | supported API tags; SDK/CLI parity; executable examples | explicit GA/beta matrix; no unsupported examples on the public site |
-| Extensibility moat | optimizers *selectable*; dispatch pluggable; plugin conformance | registry shipped; ≥1 third-party-style exemplar; taxonomy growth only with evidence |
-| Operational readiness | replica safety; loop ownership; throughput ceiling | P0 checked; P1 underway/landed; one published load number |
-| Unified lifecycle | governed asset families | workflows + prompts (Q1) → all 6 (Q5) |
-| Enterprise options | identity + managed-tier decision | identity plan landed; managed-tier go/no-go made explicit |
+| First-mile adoption | completed current-main journeys; evidence quality; bug triage | #78 exit criteria met; no untriaged P0/P1 blocker in the supported primary path |
+| v0.1 foundation | primary workflow; supported API/SDK/CLI; failure/diagnostics/deployment gates | #60–#66 complete or explicitly descoped with release evidence |
+| v1 production readiness | security; process safety; throughput; recovery; acceptance | #67–#72 complete with measured limits and a human go/no-go |
+| Extensibility moat | optimizers *selectable*; dispatch pluggable; plugin conformance | post-v1 only; registry and exemplar shipped only with evidence |
+| Unified lifecycle | governed asset families | asset-specific contracts first; broader families are post-v1 #74 |
+| Enterprise options | identity + managed-tier decision | post-v1 #73/#75, based on v1 evidence and demand |
 
 ---
 
@@ -277,8 +340,8 @@ We will **not**, in this horizon: become a general automation tool (n8n) or BPM 
 **A. Baseline movement since the first draft (now incorporated):**
 
 1. **The management surface is no longer missing.** The repo now ships a served management OpenAPI document, REST docs, a typed Python SDK, and a CLI. → the roadmap changed from "build an API/CLI/SDK" to **harden and freeze the supported contract**.
-2. **The plugin story is no longer hypothetical.** `caliber-plugin-sdk` exists, but it is explicitly experimental/pre-alpha and still sits behind a hard-coded optimizer dispatch. → Q3 is now about **hardening the existing contract and the seam behind it**, not inventing the idea.
-3. **"Approval governance is dormant" was wrong for prompts.** `CaliberApprovalRequest` is a *born-approved* provenance anchor — human-feedback approval was removed. It is genuinely dormant only for **workflows**. → governed promotion moved to **Q1** as the first customer-ready-core bet.
+2. **The plugin story is no longer hypothetical.** `caliber-plugin-sdk` exists, but it is explicitly experimental/pre-alpha and still sits behind a hard-coded optimizer dispatch. → post-v1 #74 is about **hardening the existing contract and the seam behind it**, not inventing the idea before v1.
+3. **"Approval governance is dormant" was wrong for prompts.** `CaliberApprovalRequest` is a *born-approved* provenance anchor — human-feedback approval was removed. It is genuinely dormant only for **workflows**. → governed promotion remains a Stage 1 decision informed by the Stage 0 pilot, not a current-main assumption.
 4. **`SINGLE_ENVIRONMENT` is a UI constant, not config.** → environment mode remains real work across prompt and workflow paths, not a flag flip.
 5. **The public docs have outgrown the old roadmap ordering.** Searchable HTML docs, cookbook pages, SDK reference pages, and REST API pages are already published. → docs are now an always-on contract gate, not the headline deliverable.
 6. **Operational blockers still dominate production readiness.** Single-instance loop ownership, HA/DR, and synchronous DB-session ceilings remain structurally more important than adding more surface area. → operational readiness moved ahead of enterprise packaging.
@@ -289,12 +352,12 @@ We will **not**, in this horizon: become a general automation tool (n8n) or BPM 
 
 **D. MLflow contingency (pre-committed pivots for the #1 threat):**
 
-> - **If MLflow ships gated promotion** (our Q1 arc): our differentiation becomes UX + breadth + sovereignty. Pivot the next governance quarter toward **unified multi-artifact** promotion (MLflow governs prompts/models, not skills/KBs/test-sets/tools/workflows) and **air-gapped governance** for shops that can't use hosted MLflow. The single→multi-env work stays valuable; the "we invented governed promotion" framing dies quietly.
-> - **If MLflow ships diagnosis-driven selection** (our Q3 arc): pivot to selection **quality**, to **multi-agent / skill** optimization (MultiAgentCoord, SkillMetaPrompt — MLflow has no "skill" artifact), and accelerate **graph-RAG**, which MLflow has no answer for.
+> - **If MLflow ships gated promotion** (our Stage 1 arc): our differentiation becomes UX + breadth + sovereignty. Pivot the next governance quarter toward **unified multi-artifact** promotion (MLflow governs prompts/models, not skills/KBs/test-sets/tools/workflows) and **air-gapped governance** for shops that can't use hosted MLflow. The single→multi-env work stays valuable; the "we invented governed promotion" framing dies quietly.
+> - **If MLflow ships diagnosis-driven selection** (our post-v1 #74 arc): pivot to selection **quality**, to **multi-agent / skill** optimization (MultiAgentCoord, SkillMetaPrompt — MLflow has no "skill" artifact), and accelerate **graph-RAG**, which MLflow has no answer for.
 > - **In both cases:** accelerate the two arcs with *no* MLflow answer — **graph-RAG and sovereign/air-gap**.
 
 **E. Residual risks we accept:**
-- **Three consecutive higher-risk quarters (Q1–Q3).** Mitigation: Q1 and Q2 may be run as a combined block if the prompt-governance rebuild or contract-freeze work overruns; quarter boundaries are planning aids, not contracts.
+- **Three consecutive higher-risk stages (Stage 0–Stage 2).** Mitigation: Stage 0 and Stage 1 may be run as a combined block if pilot triage or contract-freeze work overruns; stage boundaries are planning aids, not contracts.
 - **Extensibility before stability pressure.** The product now visibly has an SDK, CLI, and plugin SDK, so there will be pressure to widen them faster than they can be supported. The roadmap explicitly resists that.
 - **Q5 overflow:** acknowledged; re-scoped at H1 rather than assumed free.
 - **Import treadmill:** mitigated by letting the Plugin SDK carry community-built importers instead of hand-maintaining adapters.
@@ -305,15 +368,15 @@ We will **not**, in this horizon: become a general automation tool (n8n) or BPM 
 
 | Competitive-analysis finding | Roadmap response |
 |---|---|
-| Weakness: "docs outrun the code" | Q1–Q2 keep docs, generated HTML, SDK examples, and cookbook examples under executable-spec tests while the contract changes |
-| Weakness: unproven production posture | Q4 P0/P1 work, then Q5 throughput/DR proof |
-| Weakness: single-environment v1 | Q1 env-mode config + governed promotion (workflows re-activate, prompts rebuild) |
-| Weakness: narrow ecosystem / community cold-start | Q3 plugin-contract hardening + one real third-party-style exemplar; design-partner pipeline from Q1 |
-| Weakness: self-host adoption barrier | governance and operational truth first; sovereign/air-gap packaging follows those fixes; managed SaaS stays a gated Q6 bet |
+| Weakness: "docs outrun the code" | Stage 0–Stage 1 keep docs, generated HTML, SDK examples, and cookbook examples under executable-spec tests while the contract changes |
+| Weakness: unproven production posture | Stage 2 security/process gates, then measured throughput/DR/acceptance |
+| Weakness: single-environment v1 | Stage 1 env-mode decision + governed promotion (workflows re-activate, prompts rebuild only if selected) |
+| Weakness: narrow ecosystem / community cold-start | Stage 0 pilot and design-partner evidence first; post-v1 #74 plugin-contract hardening + one real third-party-style exemplar |
+| Weakness: self-host adoption barrier | Stage 1 governance/foundation and Stage 2 operational truth first; sovereign/air-gap packaging and managed hosting remain post-v1 #75 bets |
 | Threat #1: MLflow absorbs the loop | Continuous MLflow watch + **pre-committed pivots (§12.D)** + moat on the arcs MLflow won't build |
 | Threat #2: Dify/Langfuse move up-stack | **New** up-stack competitor watch + trigger (§9) |
-| Threat #4/#6: cold-start & consolidation | Q1 design-partner pipeline; the independence/extension story stays attached to Q3 once the contract is real |
-| Differentiators to deepen (diagnosis-driven multi-optimizer, HITL governance, **graph-RAG**, unified lifecycle, **sovereign**) | Q1 (governance), Q3 (optimizer + plugin seam), Q5 (unified 6-artifact + scale), sovereign packaging after Q4 truth work |
+| Threat #4/#6: cold-start & consolidation | Stage 0 design-partner pilot; the independence/extension story stays attached to post-v1 #74 once the contract is real |
+| Differentiators to deepen (diagnosis-driven multi-optimizer, HITL governance, **graph-RAG**, unified lifecycle, **sovereign**) | Stage 0 validates demand and current limits; Stage 1 hardens governance; post-v1 #74 expands lifecycle/optimizer seams; #75 follows v1 operational evidence |
 
 ---
 
