@@ -2002,23 +2002,22 @@ window.DOCS_DATA = {
       "label": "Roadmap",
       "section": "Strategy",
       "section_id": "strategy",
-      "summary": "The feasibility-grounded, stage- and quarter-based plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review.",
+      "summary": "Monthly release train and one- or two-day implementation backlog for the current CALIBER codebase.",
       "audience": [
         "architect",
-        "decision-maker"
+        "decision-maker",
+        "developer"
       ],
       "doc_type": "strategy",
-      "prerequisites": [
-        "Competitive analysis context"
-      ],
+      "prerequisites": [],
       "stability": "ga",
       "reviewed_on": "2026-08-13",
-      "version_applicability": "current main branch docs contract",
+      "version_applicability": "current main branch and GitHub Project #2",
       "tags": [
         "roadmap",
-        "strategy",
-        "planning",
-        "execution"
+        "monthly-release",
+        "execution",
+        "planning"
       ],
       "newtab": false,
       "nav_hidden": false
