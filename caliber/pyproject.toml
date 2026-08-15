@@ -83,7 +83,7 @@ dev = [
     # whose formatter disagrees with CI's on files nobody touched -- so a local
     # ``ruff format`` produced a diff that CI then rejected, and the failure
     # pointed at unrelated files. Bump both places together.
-    "ruff==0.15.20",
+    "ruff==0.16.2",
     "mypy>=1.10",
     "pre-commit>=3.7",
     "build>=1.2",                 # local package parity with the CI distribution job

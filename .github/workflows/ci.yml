@@ -138,7 +138,7 @@ jobs:
         # Pinned (not ">=0.5") so the format check is deterministic — ruff's
         # formatter output shifts between releases, which is what let the repo
         # drift out of "formatted" while CI was dormant.
-        run: uv pip install --system "ruff==0.15.20"
+        run: uv pip install --system "ruff==0.16.2"
       - name: ruff check
         run: ruff check .
       - name: ruff format --check
