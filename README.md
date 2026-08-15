@@ -39,6 +39,8 @@ in-process `mlflow.app` plugin topology and a standalone CALIBER service that ta
 > 📖 **Live docs:** [`docs-site/index.html`](./docs-site/index.html) &nbsp;·&nbsp; 🏛️ **Layered architecture:** [HTML](./docs-site/m-00-layered-architecture.html) / [Markdown](./ARCHITECTURE.md) &nbsp;·&nbsp; 🧑‍🍳 **Learn by doing:** [16 Cookbooks](./docs-site/m-16-cookbooks.html)
 >
 > 🌍 **Published:** [rrahimi-uci.github.io/caliber-suite](https://rrahimi-uci.github.io/caliber-suite/) &nbsp;·&nbsp; 🧪 **Test report:** [`/tests/`](https://rrahimi-uci.github.io/caliber-suite/tests/) — the Allure report from the most recent successful `main` CI run
+>
+> 🎬 **[Play the narrated CALIBER overview](https://rrahimi-uci.github.io/caliber-suite/overview-video.html)** — watch and listen to a guided introduction to the platform in your browser. [Read the narration](./overview-video/narration_script.md) if you prefer the script.
 
 ---
 
