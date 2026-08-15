@@ -2009,7 +2009,10 @@ window.DOCS_DATA = {
         "developer"
       ],
       "doc_type": "strategy",
-      "prerequisites": [],
+      "prerequisites": [
+        "Current-main capability matrix and first-mile evidence",
+        "A named single-tenant deployment owner and supported MLflow provider profile"
+      ],
       "stability": "ga",
       "reviewed_on": "2026-08-13",
       "version_applicability": "current main branch and GitHub Project #2",
