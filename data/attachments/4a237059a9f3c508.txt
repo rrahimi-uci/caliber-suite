@@ -1,0 +1,1 @@
+{"t":"2026-08-15T01:15:33.924Z","severity":"WARNING","logger":"caliber.secrets","message":"secret source 'test': file is empty"}

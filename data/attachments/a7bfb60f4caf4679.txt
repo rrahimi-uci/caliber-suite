@@ -1,0 +1,10 @@
+
+Published-site verification
+======================================================================
+
+  base: https://example.test/site/
+
+ . (root)                          200
+ . m-00-layered-architecture.html  200
+ . m-19-runbook.html               200
+ ! tests/                          404

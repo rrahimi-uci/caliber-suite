@@ -1,0 +1,1 @@
+WARNING  caliber.events.nats_bus:nats_bus.py:136 failed to publish event to NATS: nats down
