@@ -1,0 +1,1 @@
+INFO     caliber.orchestrator.workflow_stages:workflow_stages.py:345 workflow candidate complete: job=RFN-WF patch=WP-746ce49a kind=workflow_manifest

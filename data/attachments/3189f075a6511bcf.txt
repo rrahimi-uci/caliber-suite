@@ -1,1 +1,0 @@
-{"t":"2026-08-15T02:43:13.731Z","severity":"WARNING","logger":"caliber.trace_client","message":"trace detail mapping failed for T1 (data explosion); empty detail"}

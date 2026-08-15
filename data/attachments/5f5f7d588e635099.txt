@@ -1,1 +1,0 @@
-{"t":"2026-08-15T02:39:44.806Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}

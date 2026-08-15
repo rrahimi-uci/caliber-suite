@@ -1,0 +1,1 @@
+{"t":"2026-08-15T03:23:32.343Z","severity":"WARNING","logger":"caliber.llm.openai_agents","message":"DSPyBootstrapFewShot unavailable for job=RFN-1: DSPy optimizer dependencies are not installed. Install with `pip install caliber-suite[dspy]` to enable DSPy refinement paths."}
