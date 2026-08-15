@@ -48,29 +48,52 @@ The controlling dependency is linear: pilot evidence selects the foundation
 scope; the foundation makes the supported path repeatable; only then do
 security, process safety, performance, recovery, and v1 acceptance begin.
 
+## MVP boundary and revised critical path
+
+The MVP is deliberately narrow: one environment, one seeded prompt-refinement
+workflow, and the smallest UI/API surface needed to run it, inspect the result,
+and record evidence. M1 is discovery only; implementation starts after the
+prompt-refinement path, environment assumptions, and acceptance evidence are
+understood. The MVP does not claim multi-environment support, production
+readiness, broad workflow coverage, hosted operations, extensibility, or scale.
+
+Post-MVP non-goals are multi-tenant or multi-environment deployment, managed
+hosting, plugins and lifecycle expansion, identity and enterprise integrations,
+performance at production scale, and generalized automation beyond the supported
+prompt-refinement path. Those decisions remain evidence-led after the MVP.
+
+| Phase | Critical path | Issues | Exit evidence |
+| --- | --- | --- | --- |
+| **M1 · Discovery** | Validate the single-environment prompt-refinement journey and freeze the MVP boundary | #100–#101; #153; #154 | Environment assumptions, prompt-refinement findings, capability truth, and a go/no-go for implementation |
+| **M2 · MVP workflow** | Build the supported prompt-refinement workflow and its governance seams | #102–#107; #122–#124; #152 | Reproducible workflow with explicit environment and release semantics |
+| **M3 · MVP contracts and operations** | Make the supported path diagnosable, recoverable, and usable through the agreed interfaces | #108–#116; #151 | Honest API/SDK/CLI behavior, bounded failures, correlation, and readiness evidence |
+| **M4 · MVP release gate** | Validate the clean build/deploy path and decide whether the MVP is releasable | #117–#121; #129; #135–#138; #155 | Release evidence, no unaccepted P0, and a human go/no-go |
+| **Post-MVP** | Evaluate production expansion only from MVP evidence; do not broaden the MVP critical path | #127–#128/#131–#134/#143–#149 | Separate decisions for production safety, scale, recovery, and future product scope |
+
+
 ## Monthly release train
 
 | Month | GitHub milestone | Release/checkpoint | Scope | Exit evidence |
-|---|---|---|---|---|
-| **M1 · Sep 2026** | `M1 2026-09 — First-mile pilot and scope freeze` | Current-main pilot checkpoint | Epic [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), tester-led journeys #79–#99, capability/triage #100–#101 | Environment record, feature results, reproducible bugs, capability matrix, and selected M2 scope |
-| **M2 · Oct 2026** | `M2 2026-10 — Primary workflow and governance` | Workflow increment | Workstreams #60–#61; tasks #102–#107 | One seeded workflow is reproducible through UI and API/SDK; release and environment semantics are explicit |
-| **M3 · Nov 2026** | `M3 2026-11 — API contracts, recovery, and diagnostics` | Automation/operations increment | Workstreams #62–#64; tasks #108–#116 | Supported API/SDK/CLI matrix, bounded failure semantics, request correlation, and readiness diagnosis |
-| **M4 · Dec 2026** | `M4 2026-12 — v0.1.0 release candidate` | Formal `caliber-v0.1.0` decision | Workstream #65; bug bash #76/#129/#120; gate #66/#121 | Clean build/deploy, release evidence, no unaccepted P0, and human go/no-go |
-| **M5 · Jan 2027** | `M5 2027-01 — v1 security and process safety` | Production-safety increment | Workstreams #67–#68; tasks #122–#128 and #130 | Unsafe defaults rejected, scope/secret/egress boundaries tested, loop ownership and replay evidence |
-| **M6 · Feb 2027** | `M6 2027-02 — v1 performance, recovery, and release` | Formal `caliber-v1.0.0` decision | Workstreams #69–#71; bug bash #77/#141; gate #72/#142; tasks #131–#142 | Measured workload limits, restore/rollback drill, acceptance packet, production-like bug bash, go/no-go |
+| --- | --- | --- | --- | --- |
+| **M1 · Sep 2026** | `M1 2026-09 — First-mile pilot and scope freeze` | Current-main pilot checkpoint | Epic [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), discovery #100–#101, #153, #154 | Environment record, feature results, reproducible bugs, capability matrix, and selected M2 scope |
+| **M2 · Oct 2026** | `M2 2026-10 — Primary workflow and governance` | Workflow increment | Workstreams #102–#107; #122–#124; #152 | One seeded workflow is reproducible through UI and API/SDK; release and environment semantics are explicit |
+| **M3 · Nov 2026** | `M3 2026-11 — API contracts, recovery, and diagnostics` | Automation/operations increment | Workstreams #108–#116; #151 | Supported API/SDK/CLI matrix, bounded failure semantics, request correlation, and readiness diagnosis |
+| **M4 · Dec 2026** | `M4 2026-12 — v0.1.0 release candidate` | Formal `caliber-v0.1.0` decision | Workstream #117–#121; #129; #135–#138; #155 | Clean build/deploy, release evidence, no unaccepted P0, and human go/no-go |
+| **M5 · Jan 2027** | `M5 2027-01 — v1 security and process safety` | Optional post-MVP production expansion | Workstreams #67–#68; deferred #125–#130 | Evaluated only after the MVP go/no-go: Unsafe defaults rejected, scope/secret/egress boundaries tested, loop ownership and replay evidence |
+| **M6 · Feb 2027** | `M6 2027-02 — v1 performance, recovery, and release` | Post-MVP decision/release evidence | Workstreams #69–#71; gate #72; deferred #139–#142 | Evaluated only after the MVP go/no-go: Measured workload limits, restore/rollback drill, acceptance packet, production-like bug bash, go/no-go |
 | **Post-v1 · Mar 2027** | `Post-v1.0.0 — 2027-03 review` | Decision checkpoint, not a committed release | Epic #58; workstreams #73–#75; tasks #143–#149 | Demand/evidence-based decisions for identity, lifecycle/plugins, managed hosting, and scale |
 
 ## Epic and workstream structure
 
 ### M1 pilot — Epic #78
 
-The pilot is split into one named journey per ticket. #79 verifies access and
-fixture seed; #80–#98 each test one feature journey; #99 consolidates results;
-#100–#101 establish capability truth and triage rules. A tester records
-pass/fail/blocked/not-supported, exact commands, evidence, and a separate bug
-issue for each reproducible defect. These journeys are tester/contributor work,
-not 21 engineering person-days: if no tester is available, the M1 exit date
-must move rather than silently consuming the implementation reserve.
+M1 is discovery only: use one environment to validate the prompt-refinement
+journey, fixture assumptions, evidence format, and capability boundary. Record
+pass/fail/blocked/not-supported results, exact commands, and reproducible
+defects, then use #100–#101 to establish capability truth and triage rules.
+M1 does not commit the team to implementing the broader pilot journey inventory
+or to a production-readiness claim; if the discovery evidence is insufficient,
+the implementation start moves rather than silently expanding scope.
 
 ### v0.1.0 foundation — Epic #56
 
@@ -80,12 +103,14 @@ supported workflow is reproducible, the automation subset is honest, failure
 and diagnostics behavior is actionable, and the clean deployment/release path
 has evidence.
 
-### v1.0.0 production safety — Epic #57
+### Post-MVP production expansion — Epic #57
 
-The production gate is coordinated through #67–#71, #77, and #72. The
-implementation children are #122–#142. The v1 gate is not satisfied by a
-feature inventory or test count; it requires measured security, process
-ownership, workload, recovery, and operator evidence.
+Production expansion is post-MVP work, not part of the single-environment
+prompt-refinement critical path. It is coordinated through #67–#71, #77, and
+Issue #72, with implementation children #122–#142, and begins only after MVP evidence
+justifies it. Any production decision requires measured security, process
+ownership, workload, recovery, and operator evidence; feature inventory or test
+count alone is insufficient.
 
 ### Post-v1 decisions — Epic #58
 
@@ -102,7 +127,7 @@ The 1.5-developer assumption is a planning limit, not permission to run every
 ticket in parallel:
 
 | Capacity slice | Purpose | Monthly rule |
-|---|---|---|
+| --- | --- | --- |
 | **Primary stream** | One critical workflow or safety outcome | One active workstream; pull its child tickets in dependency order |
 | **Half stream** | Tests, docs, pilot triage, diagnostics, or small hardening | One active supporting workstream; never hide a second major behind it |
 | **Reserve** | Review, regressions, release evidence, incidents | Protect this capacity every month; it is part of the plan |
@@ -115,13 +140,13 @@ tests.
 The implementation estimates currently assigned to executable tickets are:
 
 | Milestone | Implementation tickets | Estimated effort | Capacity judgement |
-|---|---:|---:|---|
-| M1 | #100–#101 | 2 person-days | Feasible for engineering; #79–#99 require tester/contributor capacity |
-| M2 | #102–#107 | 9 person-days | Comfortable; reserve time for pilot-driven scope changes |
-| M3 | #108–#116 | 12 person-days | Feasible with a protected diagnostics/review stream |
-| M4 | #117–#121 and #129 | 9 person-days | Feasible only if the bug bash and go/no-go remain release work, not feature expansion |
-| M5 | #122–#128 and #130 | 14 person-days | Feasible; keep security and process-safety work ahead of polish |
-| M6 | #131–#142 | 18 person-days | Feasible but the tightest month; protect restore, acceptance, bug bash, and decision tickets |
+| --- | ---: | ---: | --- |
+| M1 | #100–#101; #153; #154 require tester/contributor capacity |
+| M2 | #102–#107; #122–#124; #152 | 9 person-days | Comfortable; reserve time for pilot-driven scope changes |
+| M3 | #108–#116; #151 | 12 person-days | Feasible with a protected diagnostics/review stream |
+| M4 | #117–#121; #129; #135–#138; #155 | 9 person-days | Feasible only if the bug bash and go/no-go remain release work, not feature expansion |
+| M5 | #127–#128, #131–#134 | 14 person-days | not part of MVP; start only after MVP evidence |
+| M6 | #139–#142 | 18 person-days | not part of MVP; start only after MVP evidence |
 | Post-v1 | #143–#149 | 10 person-days | Discovery ceiling; select a subset after #142 rather than committing all work |
 
 ## Codebase grounding
@@ -129,7 +154,7 @@ The implementation estimates currently assigned to executable tickets are:
 The ticket decomposition follows the current package and test boundaries:
 
 | Capability | Implementation seams | Existing verification anchors |
-|---|---|---|
+| --- | --- | --- |
 | Server and routes | `caliber/src/caliber/server.py`, `caliber/src/caliber/routes/` | `caliber/tests/test_routes_*.py`, contract smoke tests |
 | Workflow runtime | `caliber/src/caliber/workflows/`, `caliber/src/caliber/orchestrator/` | workflow compiler/runtime/e2e tests |
 | Release and governance | `caliber/src/caliber/release_operations.py`, `caliber/src/caliber/routes/releases.py`, `caliber/src/caliber/workflows/deploy_gate.py` | release, promoter, approval, and deploy-gate tests |
@@ -143,20 +168,21 @@ The ticket decomposition follows the current package and test boundaries:
 
 ### M1 exit
 
-- #79–#99 have recorded outcomes and linked reproducible bugs.
-- #100 classifies current capabilities using live evidence.
-- #101 defines the common finding format and severity rules.
-- #56 has a documented M2 scope; unsupported features are not silently added.
+- MVP discovery evidence is captured and approved.
+- The #153/#154 MVP contract is agreed and testable.
+- #100 capability truth is established.
+- #101 triage rules are documented and accepted.
 
 ### M4 `caliber-v0.1.0` gate
 
-- #102–#119 are complete or explicitly descoped with evidence.
+- #102–#119, #135–#138, and #155 are complete or explicitly descoped with evidence.
 - #129 and #120 have no untriaged P0/P1 release blocker.
 - The clean-checkout build, deployment, docs, and rollback path is reproducible.
 - #121 records a human go/no-go decision before any formal tag is published.
 
-### M6 `caliber-v1.0.0` gate
+### Post-MVP production gate
 
+- This gate is not required for MVP completion.
 - #122–#140 provide dated security, process, performance, recovery, and
   acceptance evidence.
 - #141 has no unaccepted P0/P1 blocker.
