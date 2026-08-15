@@ -1,0 +1,4 @@
+{"t":"2026-08-15T02:44:21.787Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=2, events=*, pending_capacity=2048)"}
+{"t":"2026-08-15T02:44:21.812Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped with 2 undelivered event(s); recorded as 'shutdown' dead letters for replay"}
+{"t":"2026-08-15T02:44:21.814Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=2, events=*, pending_capacity=2048)"}
+{"t":"2026-08-15T02:44:21.847Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}

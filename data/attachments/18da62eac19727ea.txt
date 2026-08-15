@@ -1,0 +1,2 @@
+INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:43235/tickets "HTTP/1.0 503 Service Unavailable"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:43235/tickets "HTTP/1.0 200 OK"

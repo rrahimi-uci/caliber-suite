@@ -1,0 +1,2 @@
+{"t":"2026-08-15T02:39:48.117Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-08-15T02:39:59.159Z","severity":"WARNING","logger":"caliber.knowledge.service","message":"knowledge-base build failed (version=KBV-ZC): The selected files did not produce any chunks. Check the source types or extraction settings."}
