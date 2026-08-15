@@ -42,6 +42,14 @@ REQUIRED_PATHS: tuple[tuple[str, str], ...] = (
         "the operations runbook; it was announced as published while 404ing for two days",
     ),
     (
+        "overview-video.html",
+        "the narrated overview player linked from the README",
+    ),
+    (
+        "media/caliber-overview.mp4",
+        "the audio-bearing MP4 used by the narrated overview player",
+    ),
+    (
         "tests/",
         "the Allure report staged from CI; the part that silently vanished when "
         "two workflows raced for the same URL",

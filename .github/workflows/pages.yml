@@ -18,7 +18,7 @@ name: Pages
 # publish must RE-publish the report, or /tests/ 404s until the next CI run.
 # That is what the fallback lookup in "Stage the test report" is for.
 #
-# Size, measured rather than assumed: docs-site is ~26 MB (20 MB of it the overview
+# Size, measured rather than assumed: docs-site is ~40 MB (34 MB of it the overview
 # video) and the report is ~126 MB across ~9k files — 105 MB of per-test JSON under
 # data/ plus a history/history.json that grows every run. Well inside the 1 GB Pages
 # limit, but it is the number to look at first if a deployment starts timing out,
@@ -57,6 +57,10 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
+      - name: Stage the narrated overview video
+        run: |
+          install -D -m 0644 overview-video/output/caliber.mp4 \
+            docs-site/media/caliber-overview.mp4
       - name: Stage the test report at /tests/
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

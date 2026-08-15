@@ -97,13 +97,13 @@ def test_the_gate_actually_runs_the_verifier() -> None:
 def test_every_required_page_is_one_the_docs_build_produces() -> None:
     """A promised path the build cannot emit would fail forever and be deleted.
 
-    ``tests/`` is exempt because it is staged at publish time from CI's Allure
-    artifact and never exists in the tree -- which is precisely why it is worth
-    asserting on the live site instead.
+    ``tests/`` and the overview MP4 are exempt because they are staged at
+    publish time and never exist in ``docs-site/`` in the repository -- which
+    is precisely why they are worth asserting on the live site instead.
     """
     module = _verifier_module()
     for path, _why in module.REQUIRED_PATHS:
-        if path in ("", "tests/"):
+        if path in ("", "tests/", "media/caliber-overview.mp4"):
             continue
         assert (DOCS_SITE / path).is_file(), (
             f"verify_published_site.py requires {path!r} but docs-site/ does not "
