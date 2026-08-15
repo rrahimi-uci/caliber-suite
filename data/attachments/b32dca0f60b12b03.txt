@@ -1,3 +1,0 @@
-INFO     caliber.events.webhooks:webhooks.py:477 webhook dispatcher started (urls=2, events=*, pending_capacity=2048)
-ERROR    caliber.events.webhooks:webhooks.py:1103 webhook delivery exhausted, dead-lettering: url=https://doomed.example/hook event='run.completed' err=receiver returned HTTP 400
-WARNING  caliber.events.webhooks:webhooks.py:525 webhook dispatcher stopped with 1 undelivered event(s); recorded as 'shutdown' dead letters for replay

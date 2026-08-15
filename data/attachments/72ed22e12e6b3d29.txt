@@ -1,1 +1,0 @@
-INFO     caliber.llm.circuit_breaker:circuit_breaker.py:308 llm circuit closing after successful probe
