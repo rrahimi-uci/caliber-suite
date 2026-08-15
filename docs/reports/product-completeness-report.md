@@ -924,7 +924,7 @@ instance at a time is now, in five specific places, structurally harder to intro
 
 ### 11.5 A LinkedIn article package, and the copy that drifted inside one session
 
-Landed in `linkedin_caliber/`: a Markdown article on the paper, a DOCX and PDF built
+Landed in `paper/linkedin-caliber/`: a Markdown article on the paper, a DOCX and PDF built
 from it, eight generated images, and `make_images.py`, which regenerates every image
 from SVG via `rsvg-convert`. It is external communication collateral, the same category
 as the seminar deck §10.1 records, and it changes nothing about the product.

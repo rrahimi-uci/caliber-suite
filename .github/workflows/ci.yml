@@ -30,7 +30,6 @@ on:
       #
       # Each entry below is verified to be read by no test and no build step:
       #   overview-video/**  not referenced anywhere under caliber/tests/
-      #   linkedin_caliber/**  publication collateral, not part of product/runtime CI
       #   paper/**  publication artifacts and source, not part of product/runtime CI
       #
       # Deliberately NOT ignored, because they ARE test or build inputs:
@@ -42,7 +41,6 @@ on:
       #   .github/workflows/**
       #                      a CI change must always be exercised by CI
       - "overview-video/**"
-      - "linkedin_caliber/**"
       - "paper/**"
   pull_request:
     branches: [main]
