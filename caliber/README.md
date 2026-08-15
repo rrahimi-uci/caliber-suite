@@ -51,6 +51,14 @@ dated totals there must not be read as a current full-suite result.
 
 ---
 
+---
+
+## Contributors
+
+- [GitHub Copilot](https://github.com/features/copilot)
+
+---
+
 ## Installation
 
 Package metadata supports Python **3.10–3.12**, with **3.11 recommended** for local development. The
