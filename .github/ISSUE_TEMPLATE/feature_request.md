@@ -1,37 +1,22 @@
 ---
 name: Feature request
-about: Suggest a new feature or capability
-title: "[feature] "
+about: Suggest an idea for this project
+title: "[Feature]: "
 labels: enhancement
-assignees: ''
 ---
 
-## What problem does this solve?
+## Is your feature request related to a problem?
 
-<!-- The user-facing pain or workflow gap. Not the proposed solution. -->
+A clear and concise description of what the problem is.
 
-## Proposed solution
+## Describe the solution you'd like
 
-<!-- Your suggestion. Concrete is better than abstract. -->
+A clear and concise description of what you want to happen.
 
-## Alternatives considered
+## Describe alternatives you've considered
 
-<!-- Other approaches and why this one fits better. -->
+Any alternative solutions or features you've considered.
 
-## Spec alignment
+## Additional context
 
-<!--
-Which design doc in caliber-suite/docs/ does this relate to?
-- docs/architecture/backend.md §...
-- docs/architecture/frontend.md §...
-- docs/roadmap/development-plan.md §...
-- docs/demo/demo-story.md §...
--->
-
-## Acceptance criteria
-
-<!-- What would have to be true for this to be considered done? -->
-
-- [ ]
-- [ ]
-- [ ]
+Add any other context or screenshots about the feature request here.
