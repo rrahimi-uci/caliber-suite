@@ -1,1 +1,0 @@
-{"t":"2026-08-17T21:47:01.067Z","severity":"ERROR","logger":"caliber.bundle","message":"bundle promotion failed for approval=AP-1: bundle promotion failed at a-3/prompt: simulated failure for a-3"}

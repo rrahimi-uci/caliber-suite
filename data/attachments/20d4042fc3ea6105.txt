@@ -1,1 +1,0 @@
-{"t":"2026-08-17T21:53:41.511Z","severity":"INFO","logger":"caliber.extensibility.entrypoints","message":"optimizer plugin 'acme' from acme-caliber-optimizers is installed but not allowlisted; add it to CALIBER_PLUGIN_ALLOWLIST to enable"}
