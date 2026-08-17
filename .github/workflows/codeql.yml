@@ -1,0 +1,83 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly scan every Monday at 08:00 UTC.
+    - cron: "0 8 * * 1"
+
+# Cancel in-progress runs on a new push to the same ref.
+# Scheduled runs use a unique group so they are never cancelled by a
+# concurrent push — dropping a scheduled scan would leave a gap in the
+# weekly security-scan history.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+      github.event_name == 'schedule' && github.run_id || github.ref
+    }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to check out the repository.
+      contents: read
+      # Required to upload SARIF results to GitHub Security tab.
+      security-events: write
+      # Required for private repos to submit status checks.
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Use the default query suite for the language.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+          # Write the SARIF to a known path so the next step can upload it
+          # separately.  Skipping the built-in upload here lets us apply
+          # continue-on-error only to the network-dependent upload step,
+          # while keeping the analysis step itself a hard gate.
+          output: "${{ runner.temp }}/codeql-results"
+          upload: never
+
+      - name: Upload SARIF results
+        id: upload-sarif
+        # continue-on-error guards against transient SARIF upload failures
+        # (e.g. "No server is currently available to service your request")
+        # so that a passing analysis is never reported as a failing CI gate
+        # due to a momentary GitHub infrastructure hiccup.
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "${{ runner.temp }}/codeql-results"
+          category: "/language:${{ matrix.language }}"
+
+      - name: Warn on upload failure
+        if: steps.upload-sarif.outcome == 'failure'
+        run: |
+          echo "::warning::CodeQL SARIF upload failed. The analysis succeeded but results \
+          could not be posted to the GitHub Security tab. This may be a transient \
+          infrastructure error; the next run will retry. If this warning persists, \
+          check GitHub status at https://www.githubstatus.com/ and review the \
+          upload-sarif step above for details."
