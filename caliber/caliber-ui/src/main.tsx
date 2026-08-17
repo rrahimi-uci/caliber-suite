@@ -52,7 +52,6 @@ createRoot(container).render(
       <TooltipProvider>
         <BrowserRouter
           basename={ROUTER_BASENAME}
-          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
         >
           <App />
           <Toaster position="bottom-right" richColors closeButton />

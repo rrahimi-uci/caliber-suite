@@ -1,0 +1,192 @@
+---
+audience:
+  - decision-maker
+  - architect
+  - developer
+  - operator
+doc_type: strategy
+product_area: strategy
+stability: internal
+summary: Product requirements and delivery evidence for CALIBER v1.0.0 as a bounded, enterprise-usable single-tenant product.
+prerequisites:
+  - Read docs/roadmap.md for sequencing, milestones, and capacity assumptions
+  - Review the current GitHub Project #2 issue hierarchy and dated delivery evidence before approving a release
+reviewed_on: 2026-08-17
+version_applicability: current main branch, GitHub Project #2, and the proposed v1.0.0 release
+tags:
+  - prd
+  - mvp
+  - single-tenant
+  - release-governance
+---
+
+# CALIBER v1.0.0 product requirements document
+
+## Status and decision
+
+**Status: draft for approval.** This PRD defines the product contract that the
+[roadmap](./roadmap.md) delivers. It does not assert that CALIBER has reached
+v1.0.0 or that all visible alpha capabilities are supported.
+
+The proposed v1.0.0 product is an enterprise-usable, **single-tenant**
+CALIBER deployment for one governed prompt-refinement journey. A named operator
+can take a flagged MLflow trace through verification, diagnosis, candidate
+creation, evaluation, authorized Apply, and auditable release, reconciliation,
+or rollback. The journey is available through the documented UI and a small,
+contract-tested API/SDK/CLI subset.
+
+The product decision is deliberately narrower than the repository's alpha
+surface. It prioritizes an operable and recoverable path over broad lifecycle
+coverage or distributed scale.
+
+## Problem and users
+
+Agent-development teams can observe a poor model or agent outcome but often
+cannot safely turn that evidence into a reviewed production change. The work is
+split among tracing, prompt authoring, evaluation, release tooling, and
+operator runbooks. Failures across a non-transactional provider boundary can
+leave an uncertain live state.
+
+| User | Job to be done | Product outcome |
+| --- | --- | --- |
+| **AI/application developer** | Turn a flagged trace into a measurable candidate without losing the provenance. | A repeatable diagnosis, refinement, and evaluation path. |
+| **Authorized operator** | Inspect evidence and explicitly apply or recover a change. | Visible approval, release state, reconciliation, and rollback actions. |
+| **Platform operator** | Run one tenant safely and restore it after a failure. | A documented, observable, one-process topology with rehearsed recovery. |
+| **Engineering/product lead** | Decide whether the product is ready to support. | Dated pilot, security, workload, and acceptance evidence—not feature counts. |
+
+## Product goal and success measures
+
+The goal is not to make every CALIBER asset family production-ready. The goal
+is to make one named prompt-refinement path supportable for one enterprise
+tenant.
+
+| Measure | v1 success condition | Evidence owner |
+| --- | --- | --- |
+| Supported journey | The canonical journey completes from a clean, documented environment with expected evidence. | #102–#107, #119 |
+| Release integrity | External-effect failure, timeout, retry, duplicate Apply, rollback, and reconciliation are explicit and tested. | #105, #113–#114, #152 |
+| Security boundary | Unsafe bootstrap, secrets/egress, authentication, and project isolation are refused or verified. | #122–#125, #159 |
+| Operational readiness | One-process ownership, bounded workload, recovery, upgrade, and incident behavior have dated drill evidence. | #130–#138, #157–#159 |
+| Release decision | No unaccepted P0/P1 blocker remains; a human records the residual risks and go/no-go decision. | #139–#142 |
+
+Pilot PASS proves only the named commit, environment, fixture, and journey. It
+does not prove production readiness without the v1 security, recovery, and
+acceptance evidence.
+
+## Scope
+
+### Supported v1 journey
+
+```text
+flagged MLflow trace
+  -> human verification
+  -> diagnosis
+  -> candidate creation
+  -> evaluation gate
+  -> explicit authorized Apply
+  -> durable release, reconciliation, or rollback evidence
+```
+
+The supported deployment is one tenant, one active CALIBER process, a durable
+PostgreSQL metadata store, a named MLflow tracking/provider profile, selected
+object storage when required by the canonical fixture, external TLS/ingress and
+network policy, least-privilege credentials, authenticated role-based users,
+logs/traces/metrics/readiness, backup/restore, and a human-operated upgrade and
+incident procedure.
+
+### Explicit non-goals
+
+- Multi-tenancy, SSO/SCIM, and cross-tenant lifecycle management.
+- HA, active-active or multi-worker operation, broker acknowledgement/replay,
+  and multi-region disaster recovery.
+- Managed hosting, Kubernetes operators, or automatic TLS issuance.
+- General-purpose untrusted tool/MCP execution.
+- A uniform lifecycle or production-support claim for every visible asset
+  family, provider, optional dependency, API, SDK, or CLI operation.
+- An unmeasured scale or performance promise.
+
+These are post-v1 decisions, not implicit v1 commitments. They are represented
+by [Epic #58](https://github.com/rrahimi-uci/caliber-suite/issues/58) and its
+child work.
+
+## Product requirements
+
+| ID | Requirement | Priority | Acceptance outcome |
+| --- | --- | --- | --- |
+| PRD-01 | Define one supported MVP contract, persona, provider profile, and capability boundary. | Release blocker | Supported and unsupported combinations are explicit; no alpha surface is implied to be v1 support. |
+| PRD-02 | Make the canonical workflow durable and observable across every stage. | Release blocker | The seeded journey is reproducible through the supported UI and automation surfaces. |
+| PRD-03 | Require an authorized Apply and preserve release state across the MLflow boundary. | Release blocker | The operator can see the intended before/after target and either a settled or reconcilable outcome. |
+| PRD-04 | Publish a deliberately small API/SDK/CLI contract and actionable failure diagnostics. | Release blocker | Only documented operations are supported; cancellation, retry, restart, correlation, and readiness behavior are testable. |
+| PRD-05 | Provide controlled-pilot release evidence before v1 hardening begins. | Release blocker | A clean checkout, documentation, deployment procedure, bug bash, and human controlled-pilot decision are recorded. |
+| PRD-06 | Enforce the one-tenant, one-active-process security and topology boundary. | Release blocker | Unsafe bootstrap/configuration is refused; roles, project isolation, redaction, egress, and loop ownership are verified. |
+| PRD-07 | Operate and recover the selected v1 envelope. | Release blocker | Workload limits, backup/restore, rollback/reconciliation, upgrade boundary, incident procedure, and acceptance packet have dated evidence. |
+| PRD-08 | Keep post-v1 breadth separate from release scope. | Required | Broker, identity, lifecycle breadth, hosting, and scale remain explicit decision work unless a new PRD revision approves them. |
+
+## Experience and operating constraints
+
+The user experience must make the governing decisions visible, not inferred:
+
+- Verification and Apply are human decisions; evaluation evidence informs them
+  but does not silently change the live target.
+- Every external release effect has a durable state and an operator-visible next
+  action. Indeterminate effects must be labelled `reconcile_required`, not
+  reported as successful.
+- The API/SDK/CLI contract is intentionally smaller than the current alpha API
+  surface. Unsupported operations must fail clearly rather than degrade.
+- The hardened deployment runs one active CALIBER process. Starting a second
+  process cannot silently produce duplicate scheduler, reconciler, or worker
+  effects.
+- The release decision is human-owned. Automation, an agent, or a passing test
+  suite cannot approve or merge a production decision.
+
+## Delivery traceability
+
+The GitHub Project is the execution system; this table is the requirements
+trace. Individual issue bodies remain the source for implementation details,
+test commands, dependencies, and completion evidence.
+
+| PRD requirement | Primary epic/workstream | Delivery issues | Exit evidence |
+| --- | --- | --- | --- |
+| PRD-01 | [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), [#56](https://github.com/rrahimi-uci/caliber-suite/issues/56) | #79–#101, #153–#154 | Capability matrix, pilot evidence/triage rules, MVP contract, provider matrix |
+| PRD-02 | #56 / #60 | #102–#104, #107 | Seeded fixture; durable stage evidence; browser and API evidence; single-environment contract |
+| PRD-03 | #56 / #61 | #105–#106, #152 | Release state machine; approval-gate test; failure-injection and reconciliation evidence |
+| PRD-04 | #56 / #62–#64 | #108–#116, #151 | Operation matrix; SDK/CLI contract tests; failure taxonomy; recovery, correlation, and readiness evidence; topology decision |
+| PRD-05 | #56 / #65–#66, #76 | #117–#121, #129 | Clean-checkout/package and deployment evidence; documentation parity; bug bash; human v0.1 decision |
+| PRD-06 | [#57](https://github.com/rrahimi-uci/caliber-suite/issues/57) / #67–#68 | #122–#125, #130, #157, #159 | Rejected unsafe defaults; isolation/redaction tests; loop guard; hardened deployment and retention profile |
+| PRD-07 | #57 / #69–#72, #77 | #131–#142, #158 | Measured envelope; backpressure; recovery objectives; restore, rollback, incident, regression, acceptance, upgrade, and v1 decision evidence |
+| PRD-08 | [#58](https://github.com/rrahimi-uci/caliber-suite/issues/58) / #73–#75 | #126–#128, #143–#149 | Decision records or bounded prototypes after #142; no v1 release dependency |
+
+## Release gates and timeline
+
+The [roadmap](./roadmap.md) owns dates and capacity. The PRD gates those
+milestones as follows:
+
+| Gate | Planned milestone | Product decision |
+| --- | --- | --- |
+| M1 — scope freeze | September 2026 | Approve PRD-01 using pilot and provider-profile evidence; choose the canonical fixture. |
+| M2–M3 — foundation and contracts | October–November 2026 | Prove PRD-02 through PRD-04, including durable release and recovery semantics. |
+| M4 — controlled pilot | December 2026 | Decide whether evidence is sufficient to begin v1 hardening. This is not the v1 release. |
+| M5 — hardening | January 2027 | Prove the security, one-process, topology, retention, and workload prerequisites for PRD-06 and PRD-07. |
+| M6 — v1 decision | February 2027 | Use recovery, acceptance, workload, and residual-risk evidence for the human v1.0.0 go/no-go decision. |
+| Post-v1 review | March 2027 | Select deferred breadth only from v1 evidence and demand. |
+
+## Risks, assumptions, and open decisions
+
+| Item | Status | Required handling |
+| --- | --- | --- |
+| Current repository maturity | Observed alpha/current-main state | Do not treat UI pages, routes, or unit tests alone as support evidence. |
+| Provider compatibility | Planned contract | #154 selects and verifies one real provider path and one deterministic test path. |
+| Worker/event topology | Open decision | #151 must select the supported model before the v1 topology is certified. |
+| External release consistency | Known non-transactional boundary | #152 and #137 must prove settlement, rollback, or operator reconciliation. |
+| Performance envelope | Unknown until measured | #131 and #134 must publish the supported workload; #132 is conditional on measurement. |
+| Deployment/upgrade | Missing v1 artifact | #157 and #158 must provide an operator-owned reference deployment and observed rollback boundary. |
+
+## Approval and change control
+
+Approval requires the product lead to accept this boundary and record the
+decision in [#153](https://github.com/rrahimi-uci/caliber-suite/issues/153).
+Any material change to the supported journey, topology, provider profile, or
+non-goal must update this PRD, the roadmap, the Project hierarchy, and the
+affected issue acceptance criteria in the same pull request.
+
+This PRD is superseded only by a versioned revision that identifies the changed
+requirements and the evidence required to support them.
