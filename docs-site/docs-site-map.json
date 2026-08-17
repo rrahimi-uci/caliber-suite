@@ -479,6 +479,12 @@
       "href": "m-18-roadmap.html",
       "label": "Roadmap",
       "section": "strategy",
+      "nav_order": 30
+    },
+    {
+      "href": "m-59-v1-product-requirements.html",
+      "label": "v1 product requirements",
+      "section": "strategy",
       "nav_order": 20
     },
     {

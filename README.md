@@ -242,6 +242,7 @@ loopback launcher; any network-reachable deployment must leave
 | 🚨 **[Operations runbook](./docs/runbook.md)** | On-call procedure for the recoveries CALIBER cannot complete alone — unsettled release intents, indeterminate external effects, a queue that stopped draining, per-family rollback — and what each triage surface does *not* prove |
 | 🧭 **[Walkthrough runbook](./docs-site/walkthrough.html)** | A copy-pasteable bring-up that tours every SPA page and builds a governed artifact with Aria |
 | 🧑‍🍳 **[Cookbooks](./docs-site/m-16-cookbooks.html)** | 16 step-by-step, UI-only recipes — prompt regression, precision skills, policy-safe tools, doc-to-JSON, governed MCP, grounded knowledge, support/incident copilots, self-healing workflows, observability & triage, trustworthy evaluation, release signoff, and four Aria goal-plan recipes |
+| 🎯 **[v1 product requirements](./docs/prd.md)** | The bounded v1.0.0 product contract: target users, supported prompt-refinement journey, non-goals, release requirements, and traceability to the GitHub delivery plan |
 | 📄 **[Technical paper](./paper/README.md)** | The architectural argument: the governed asset, the governance chain, why guarantees are per-family rather than uniform, and an explicit register of what the work does not establish |
 | 🎤 **[Seminar deck](./paper/slides/)** | A generated 25-slide walkthrough of the paper, with speaker notes and PNG proof sheets |
 | 🧱 **[Build the plugin](./caliber/README.md)** | `cd caliber && python -m pip install -e ".[dev,s3]"`, then `make dev` |

@@ -22,7 +22,10 @@ tags:
 # CALIBER roadmap
 
 This is the execution roadmap for the current CALIBER repository and [GitHub
-Project #2](https://github.com/rrahimi-uci/caliber-suite/projects/2). It uses a
+Project #2](https://github.com/rrahimi-uci/caliber-suite/projects/2). The
+[v1.0.0 product requirements document](./prd.md) defines the product boundary,
+requirements, and requirement-to-ticket trace; this document owns the delivery
+sequence, dates, capacity, and release gates. It uses a
 monthly release train and assumes **1.5 developers**: one primary engineering
 stream plus a half-capacity stream for review, testing, documentation,
 operations, and release work.

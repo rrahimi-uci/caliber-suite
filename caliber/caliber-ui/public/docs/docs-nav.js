@@ -443,6 +443,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-59-v1-product-requirements.html",
+          "label": "v1 product requirements",
+          "newtab": false
+        },
+        {
           "href": "m-18-roadmap.html",
           "label": "Roadmap",
           "newtab": false
@@ -1993,6 +1998,35 @@ window.DOCS_DATA = {
         "competition",
         "market",
         "positioning"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-59-v1-product-requirements.html",
+      "label": "v1 product requirements",
+      "section": "Strategy",
+      "section_id": "strategy",
+      "summary": "Product requirements and delivery evidence for CALIBER v1.0.0 as a bounded, enterprise-usable single-tenant product.",
+      "audience": [
+        "decision-maker",
+        "architect",
+        "developer",
+        "operator"
+      ],
+      "doc_type": "strategy",
+      "prerequisites": [
+        "Read docs/roadmap.md for sequencing, milestones, and capacity assumptions",
+        "Review the current GitHub Project #2 issue hierarchy and dated delivery evidence before approving a release"
+      ],
+      "stability": "internal",
+      "reviewed_on": "2026-08-17",
+      "version_applicability": "current main branch, GitHub Project #2, and the proposed v1.0.0 release",
+      "tags": [
+        "prd",
+        "mvp",
+        "single-tenant",
+        "release-governance"
       ],
       "newtab": false,
       "nav_hidden": false
