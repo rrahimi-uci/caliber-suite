@@ -1,49 +1,28 @@
 ---
 name: Bug report
-about: Something doesn't work as documented or expected
-title: "[bug] "
+about: Report a problem to help us improve
+title: "[Bug]: "
 labels: bug
-assignees: ''
 ---
 
-## Summary
+## Describe the bug
 
-<!-- One or two sentences describing the bug. -->
+A clear and concise description of what the bug is.
 
-## Environment
+## To Reproduce
 
-- CALIBER version: <!-- pip show caliber | grep Version -->
-- MLflow version: <!-- mlflow --version -->
-- Python version: <!-- python --version -->
-- OS: <!-- e.g. macOS 14.5, Ubuntu 22.04 -->
-- Backend store: <!-- e.g. PostgreSQL 16, SQLite, MySQL -->
-- Artifact store: <!-- e.g. S3, MinIO, local FS -->
-
-## Steps to reproduce
-
-1.
-2.
-3.
+Steps to reproduce the behavior.
 
 ## Expected behavior
 
-<!-- What you thought would happen. -->
+What you expected to happen.
 
-## Actual behavior
+## Environment
 
-<!-- What actually happened. Include exact error messages and stack traces if any. -->
-
-## Logs / traces
-
-<details>
-<summary>Relevant log output</summary>
-
-```
-<!-- Paste log output here. Redact secrets. -->
-```
-
-</details>
+- OS:
+- Python version:
+- Commit/tag:
 
 ## Additional context
 
-<!-- Anything else that might help: related issues, recent changes, etc. -->
+Add any other context, logs, or screenshots about the problem here.
