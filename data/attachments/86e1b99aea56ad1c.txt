@@ -1,1 +1,0 @@
-WARNING  caliber.trace_client:trace_client.py:526 trace span mapping failed for T1 (data explosion); returning empty tree

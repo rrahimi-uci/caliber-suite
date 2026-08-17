@@ -1,7 +1,0 @@
-WARNING  caliber.observability.incidents:incidents.py:377 could not route incident INC-3f813862004e
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/observability/incidents.py", line 362, in _route
-    publish(
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_incidents.py", line 263, in _explode
-    raise RuntimeError("subscriber down")
-RuntimeError: subscriber down

@@ -1,1 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:40277/openapi.yaml "HTTP/1.0 404 Not Found"
