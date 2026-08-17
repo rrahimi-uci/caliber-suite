@@ -1,0 +1,1 @@
+{"t":"2026-08-17T21:53:21.088Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:40041/tickets/T-1 \"HTTP/1.0 404 Not Found\""}
