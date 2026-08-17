@@ -5,7 +5,7 @@
 ## Tests and validation
 
 - [ ] Added or updated tests for changed behavior, or explained why tests are not applicable.
-- [ ] Ran the affected repository CI-equivalent backend, SDK, UI, docs, and deployment checks and recorded exact commands/results below.
+- [ ] Ran applicable CI-equivalent backend, SDK, UI, docs, and deployment checks for the changed areas and recorded exact commands/results below (or explained why a check was not run).
 - [ ] Ran `git diff --check`.
 - [ ] Checked for secrets, unrelated changes, generated docs/assets, migrations, and deployment implications.
 
