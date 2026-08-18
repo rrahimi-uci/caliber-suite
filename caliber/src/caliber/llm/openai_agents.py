@@ -702,7 +702,13 @@ class OpenAIAgentsLLMProvider:
             ) from exc
 
         try:
-            return Runner.run_sync(agent, prompt, run_config=RunConfig(tracing_disabled=True))
+            run_config = RunConfig(tracing_disabled=True)
+            try:
+                return Runner.run_sync(agent, prompt, run_config=run_config)
+            except TypeError as exc:
+                if "run_config" not in str(exc):
+                    raise
+                return Runner.run_sync(agent, prompt)
         except Exception as exc:
             logger.exception("%s agent failed for id=%s", stage, item_id)
             raise LLMProviderError(f"{stage} LLM call failed: {exc}") from exc
