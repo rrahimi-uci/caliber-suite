@@ -103,11 +103,14 @@ def _ocr_pdf_worker_impl(path: Path, *, dpi: int = 220, max_pages: int = 100) ->
     after successful OCR work, so the worker exits via ``os._exit()`` after it
     flushes its JSON payload back to the parent.
     """
-    fitz = _require("fitz", "scanned-PDF OCR", extra="ocr")
+    # Import the ``pymupdf`` module name, not the deprecated ``fitz`` alias: newer
+    # PyMuPDF releases print a deprecation notice to stdout on ``import fitz``,
+    # which corrupts this worker's JSON-on-stdout contract with the parent.
+    pymupdf = _require("pymupdf", "scanned-PDF OCR", extra="ocr")
     pytesseract = _require("pytesseract", "scanned-PDF OCR", extra="ocr")
     pil_image = _require("PIL.Image", "scanned-PDF OCR", extra="ocr").Image
     out: list[str] = []
-    doc = fitz.open(str(path))
+    doc = pymupdf.open(str(path))
     try:
         for page in doc:
             if len(out) >= max_pages:
@@ -137,7 +140,7 @@ def _ocr_worker_command(path: Path, *, dpi: int, max_pages: int) -> list[str]:
 def _ocr_pdf(path: Path, *, dpi: int = 220, max_pages: int = 100) -> str:
     """OCR a scanned/image PDF: rasterize each page (PyMuPDF) and read it
     (Tesseract). Needs the ``[ocr]`` extra + the system ``tesseract`` binary."""
-    _ensure_ocr_dependency("fitz")
+    _ensure_ocr_dependency("pymupdf")
     _ensure_ocr_dependency("pytesseract")
     _ensure_ocr_dependency("PIL.Image")
     completed = subprocess.run(  # noqa: S603 - argv built internally (no shell), interpreter + worker path are trusted
