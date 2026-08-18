@@ -100,7 +100,7 @@ def _install_fake_ocr_stack(
     def fake_require(module: str, fmt: str, *, extra: str = "ingest") -> object:
         captured.setdefault("modules", []).append(module)  # type: ignore[union-attr]
         return {
-            "fitz": fake_fitz,
+            "pymupdf": fake_fitz,
             "pytesseract": fake_pytesseract,
             "PIL.Image": fake_pil,
         }[module]
