@@ -1,4 +1,4 @@
-# GitHub Copilot repository instructions
+# Codex repository instructions
 
 - You may work on assigned issues and development tasks, create a branch, and open a pull request. You must never merge a pull request, approve a pull request, push to `main`, or represent your review as human approval.
 - Before opening or marking a pull request ready for human review, understand the issue acceptance criteria, implement the smallest complete change, and add or update tests for changed behavior.
