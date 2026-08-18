@@ -12,6 +12,7 @@ one agent per orchestrator stage that needs LLM work. Currently only
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from collections.abc import Callable
@@ -704,11 +705,15 @@ class OpenAIAgentsLLMProvider:
         try:
             run_config = RunConfig(tracing_disabled=True)
             try:
+                params = inspect.signature(Runner.run_sync).parameters.values()
+            except (TypeError, ValueError):
+                params = ()
+            if any(
+                param.name == "run_config" or param.kind is inspect.Parameter.VAR_KEYWORD
+                for param in params
+            ):
                 return Runner.run_sync(agent, prompt, run_config=run_config)
-            except TypeError as exc:
-                if "run_config" not in str(exc):
-                    raise
-                return Runner.run_sync(agent, prompt)
+            return Runner.run_sync(agent, prompt)
         except Exception as exc:
             logger.exception("%s agent failed for id=%s", stage, item_id)
             raise LLMProviderError(f"{stage} LLM call failed: {exc}") from exc
