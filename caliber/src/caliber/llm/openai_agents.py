@@ -694,7 +694,7 @@ class OpenAIAgentsLLMProvider:
         transport) so the worker's exception handling stays simple.
         """
         try:
-            from agents import Runner  # noqa: PLC0415
+            from agents import RunConfig, Runner  # noqa: PLC0415
         except ImportError as exc:
             raise LLMProviderError(
                 "openai-agents is not installed. Install with "
@@ -702,7 +702,7 @@ class OpenAIAgentsLLMProvider:
             ) from exc
 
         try:
-            return Runner.run_sync(agent, prompt)
+            return Runner.run_sync(agent, prompt, run_config=RunConfig(tracing_disabled=True))
         except Exception as exc:
             logger.exception("%s agent failed for id=%s", stage, item_id)
             raise LLMProviderError(f"{stage} LLM call failed: {exc}") from exc
