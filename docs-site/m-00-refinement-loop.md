@@ -5,6 +5,8 @@
 
 *The one idea that ties the rest of these docs together. Read this before the reference pages: it explains why the building blocks exist and how they connect.*
 
+> **v1 scope:** The concrete prompt-refinement path described here is the supported v1 reference journey. CALIBER runs as a standalone service (Topology B) against a separately running MLflow server over HTTP. Other asset families implement subsets of this lifecycle.
+
 ## At a glance
 
 Every other topic in this documentation — prompts, tools, skills, MCP servers, workflows, knowledge bases, test sets, evaluation, calibration, governance, and the Aria copilot — supports one product motion: **turn a flagged production response into a measured candidate with an attributable deployment decision**. The concrete prompt-refinement path below has six numbered stages and two human decisions: verification and review/apply. The seven-term `Signal → Evidence → Candidate → Measurement → Decision → Release → Trace` chain in the [layered architecture](m-00-layered-architecture.md) is an abstract lifecycle map, not a second seven-stage worker pipeline: the incoming trace and feedback supply its signal, evidence assembly is folded into the transition from Verify toward Diagnose, and the next trace closes the loop after stage 6. Other asset families implement subsets of the lifecycle and must not be assumed to share its aliases, gates, or rollback semantics.
@@ -55,4 +57,4 @@ The loop runs over the artifacts the following sections document:
 - **Operations** — how it's watched and governed once live: [Observability](m-09-observability.md), [Gateways](m-10-gateways.md), and the [QA plan](m-13-qa-plan.md).
 - **Aria** — the [embedded copilot](m-12-assistant.md) that can drive parts of this loop under permission.
 
-> **New here?** Start with the [Platform](m-01-platform.md) overview for the embedded and standalone topologies, then this page for *what* the canonical refinement path does, then dip into whichever artifact you're working with.
+> **New here?** Start with the [Platform](m-01-platform.md) overview for the standalone-service topology and runtime, then this page for *what* the canonical refinement path does, then dip into whichever artifact you're working with.

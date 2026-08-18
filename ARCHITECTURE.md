@@ -20,7 +20,7 @@
 | **The unit of value** | The **governed asset** — one of nine governed asset families or contexts. Typed definitions, versioning, evidence, gates, live targets, and release or rollback are family-specific rather than uniform guarantees (§4). |
 | **The canonical chain** | `Signal → Evidence → Candidate → Measurement → Decision → Release → Trace` — a seven-term conceptual map, not seven worker stages. The concrete prompt refinement loop has six numbered stages (`Verify` through `Promote`): production trace/feedback supplies the signal, evidence assembly is folded into that concrete path, and the next trace closes the loop. Prompt and skill use the standard queued refinement path; workflow-manifest calibration enters at a workflow-specific stage but reuses durable job and apply machinery. Other families implement only the applicable facets. |
 | **What it reuses** | MLflow Experiments, Traces, Assessments, Prompt Registry, Artifact Store, `genai.evaluate`, `genai.make_judge`, `genai.datasets` — CALIBER does not rebuild them. |
-| **Where it runs** | One ASGI app, two topologies: in-process `mlflow.app`, or a standalone service talking to MLflow over HTTP. |
+| **Where it runs** | Standalone CALIBER ASGI service; integrates with MLflow over HTTP through `MLFLOW_TRACKING_URI`. Embedded `mlflow.app` is unsupported as a product or developer path. |
 | **Source of truth** | Relational metadata is authoritative for the control plane; object storage owns file bytes; MLflow owns prompt versions and traces. |
 | **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to nine in-process loops. All are gated by `background_tasks_enabled`; three also have independent enable flags. No separate worker tier. |
 | **Trust model** | Four RBAC scopes — `viewer` / `operator` / `approver` / `admin` — plus route-specific CSRF, rate limiting, visibility filters, service admission, and governed HTTP/MCP execution policy. Coverage is path-specific, not a repository-wide isolation guarantee. |
@@ -67,7 +67,7 @@ section that says so.
 | 6 · Modular & Composable | §1 the layered stack; §9 the seams the system is extended along |
 | 7 · Scalable & Reliable | §5 deployment topologies, §6 the execution model — including the in-process worker limit and what it means for scale |
 | 8 · Open-Source First | The "What it reuses" row above: MLflow is reused rather than reimplemented |
-| 9 · Developer & User Friendly | §5 the embedded-or-standalone choice; the SPA surfaces and the Cookbook examples |
+| 9 · Developer & User Friendly | §5 the standalone-service developer path; the SPA surfaces and the Cookbook examples |
 | 10 · Future Ready | §9 the extension seams; §4's honesty that families differ, which is what lets new families arrive without a rewrite |
 
 > **On principle 8.** Preferring open-source building blocks is a constraint on
@@ -160,7 +160,7 @@ flowchart LR
 
     subgraph L1["1 · INFRASTRUCTURE"]
       direction LR
-      i1["Process host<br/>Starlette ASGI<br/>embedded or standalone"]:::store
+      i1["Process host<br/>Starlette ASGI<br/>standalone service"]:::store
       i2["PostgreSQL 17<br/>pgvector · Apache AGE<br/>SQLite for dev"]:::store
       i3["Object storage<br/>S3 · MinIO · local<br/><i>GCS only via MLflow</i>"]:::store
       i4["MLflow ≥ 3.14<br/>tracking · registry<br/>artifacts · evaluate"]:::ext
@@ -206,7 +206,7 @@ flowchart LR
 
 | Layer | What it owns | Primary code |
 | --- | --- | --- |
-| **6 · Surfaces** — *the interface* | Every human and machine entry point. One same-origin browser control plane in either topology. | [routes/static.py](caliber/src/caliber/routes/static.py) · [routes/](caliber/src/caliber/routes/) · [caliber-ui/src/](caliber/caliber-ui/src/) |
+| **6 · Surfaces** — *the interface* | Every human and machine entry point. One same-origin browser control plane served by the standalone runtime; unsupported embedded compatibility coverage reuses the same surfaces. | [routes/static.py](caliber/src/caliber/routes/static.py) · [routes/](caliber/src/caliber/routes/) · [caliber-ui/src/](caliber/caliber-ui/src/) |
 | **5 · Lifecycle modes** — *the verbs* | Six reusable lifecycle concepts applied where an asset supports them. Each new family must explicitly wire its adapters, routes, authorization, evidence, and tests; integration is not inherited automatically. | [orchestrator/](caliber/src/caliber/orchestrator/) · [eval/](caliber/src/caliber/eval/) · [apply.py](caliber/src/caliber/apply.py) · [promoter.py](caliber/src/caliber/promoter.py) |
 | **4 · Asset families** — *the nouns* | Nine governed families or contexts. Some are authored runtime assets, while others are evidence, scoring, or anchor records; several have no live-target or release primitive (§4). | [db/models.py](caliber/src/caliber/db/models.py) · [schemas.py](caliber/src/caliber/schemas.py) |
 | **3 · Governance substrate** — *the rules* | Shared primitives for identity, execution policy, evidence, release control, and ledgers. Asset paths wire them explicitly, so adoption and guarantees remain path-specific. | [auth.py](caliber/src/caliber/auth.py) · [egress.py](caliber/src/caliber/egress.py) · [mcp_policy.py](caliber/src/caliber/mcp_policy.py) · [gate_verdicts.py](caliber/src/caliber/gate_verdicts.py) · [release_operations.py](caliber/src/caliber/release_operations.py) · [audit.py](caliber/src/caliber/audit.py) |
@@ -382,23 +382,28 @@ share the semantics.**
 
 ---
 
-## 5 · Deployment topologies
+## 5 · Supported and unsupported topologies
 
-One ASGI application; two ways to run it. The choice is a failure-domain and
-operations decision, not a feature decision — the API and SPA are identical.
+Topology B is the only supported CALIBER deployment. Topology A remains only as
+internal compatibility coverage where the code still exists.
+
+| Topology | Status | Description |
+| --- | --- | --- |
+| **Topology B — standalone service** | ✅ Supported | CALIBER ASGI runs independently; integrates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. One CALIBER process, separate MLflow server, separate databases. |
+| Topology A — embedded `mlflow.app` | ❌ Unsupported (internal compatibility only) | CALIBER loaded as an in-process MLflow plugin. Not a supported product or developer path. |
 
 ```mermaid
 flowchart TB
     spa["React SPA — <code>/caliber/</code>"]:::ui
 
-    subgraph embedded["Topology A · embedded mlflow.app"]
-        eproc["MLflow server process<br/>MLflow core + CALIBER ASGI<br/><i>shared failure domain</i>"]:::plug
-    end
-
     subgraph standalone["Topology B · standalone service"]
         capi["CALIBER ASGI :5001<br/>API · SPA · in-process workers"]:::plug
         mflow["MLflow :5000<br/>traces · registry · evaluate"]:::core
         capi -->|"MLFLOW_TRACKING_URI over HTTP"| mflow
+    end
+
+    subgraph embedded["⚠️ Topology A · embedded mlflow.app (unsupported)"]
+        eproc["MLflow server process<br/>MLflow core + CALIBER ASGI<br/><i>internal compatibility only</i>"]:::plug
     end
 
     cdb[("CALIBER metadata DB<br/><code>CALIBER_DATABASE_URL</code>")]:::store
@@ -407,8 +412,7 @@ flowchart TB
     mart[("MLflow artifact root<br/>MLflow-configured backends<br/><i>including S3 · MinIO · GCS · local</i>")]:::store
     llm["LLM providers<br/>OpenAI · Claude · MLflow AI Gateway"]:::ext
 
-    spa -. "choose one topology" .-> eproc
-    spa -. "choose one topology" .-> capi
+    spa --> capi
     eproc --> cdb
     eproc --> mdb
     capi --> cdb
@@ -427,8 +431,9 @@ flowchart TB
     classDef ext fill:#f0fdf4,stroke:#16a34a,color:#14532d;
 ```
 
-- **Neither mode makes CALIBER a transparent gateway in front of MLflow.** It is a
-  sibling surface, not a proxy.
+- **CALIBER is not a transparent gateway in front of MLflow.** The supported
+  standalone topology is a sibling surface, not a proxy; the unsupported embedded
+  compatibility path is not a proxy either.
 - `CALIBER_DATABASE_URL` independently owns CALIBER's tables and is **not required
   to equal** MLflow's backend store. The bundled stack deliberately uses separate
   logical databases so the two Alembic histories never compete for one version table.

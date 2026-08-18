@@ -875,3 +875,28 @@ def test_published_metadata_block_surfaces_prerequisites_on_generated_pages() ->
     assert 'doc-meta-label">Prerequisites<' in api_reference
     assert "CALIBER API integration question" in api_reference
     assert 'doc-meta-chip-type">Reference<' in sdk_reference
+
+
+def test_topology_b_is_sole_supported_topology() -> None:
+    files = [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "ARCHITECTURE.md",
+        REPO_ROOT / "caliber" / "README.md",
+        REPO_ROOT / "docs" / "start" / "decision-maker-overview.md",
+        REPO_ROOT / "docs" / "01-caliber" / "architecture.md",
+    ]
+    disallowed_phrases = [
+        "choose one topology",
+        "two topologies: in-process",
+        "two deployment topologies",
+        "embedded with mlflow or standalone",
+    ]
+
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        lowered = text.lower()
+        assert "standalone" in lowered, f"{path} must document the standalone topology"
+        for phrase in disallowed_phrases:
+            assert phrase not in lowered, (
+                f"{path} still documents deprecated equal-choice topology language: {phrase}"
+            )

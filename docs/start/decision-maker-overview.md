@@ -26,7 +26,7 @@ problems it solves, and where to go next for technical proof.
 | --- | --- |
 | Product shape | MLflow-integrated control plane for governed agentic workflows |
 | Primary problem | Building, evaluating, calibrating, governing, and observing LLM workflows from one platform |
-| Deployment choices | Embedded with MLflow or standalone against MLflow over HTTP |
+| Deployment topology | Standalone CALIBER ASGI service; communicates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. Embedded mode is unsupported. |
 | Governance posture | Explicit evidence, review, approval, and apply/release control paths |
 | Best technical proof | [Layered architecture](../../ARCHITECTURE.md) |
 | Market context | [Competitive analysis](../competitive-analysis.md) |
@@ -53,13 +53,9 @@ one system rather than scattering them across separate point tools.
 
 ## 3. Deployment model
 
-The repository supports two real deployment shapes:
+CALIBER runs as a **standalone ASGI service** that communicates with a separately running vanilla MLflow server over HTTP via `MLFLOW_TRACKING_URI`. CALIBER owns its own metadata database (`CALIBER_DATABASE_URL`), separate from MLflow's backend store.
 
-- embedded with MLflow in one app/process boundary
-- standalone CALIBER service talking to MLflow over HTTP
-
-Use the deep technical docs when you need the exact topology and trust-boundary
-details.
+The embedded `mlflow.app` mode is **not a supported deployment or developer path**. See the [architecture](../../ARCHITECTURE.md) for the full topology support matrix.
 
 ## 4. Governance posture
 

@@ -67,7 +67,7 @@ const GROUPS = [
 
 const MODULES = [
   { md: "../ARCHITECTURE.md", out: "m-00-layered-architecture.html", group: "platform", label: "Layered architecture", blurb: "The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams." },
-  { md: "01-caliber/architecture.md", out: "m-01-platform.html", group: "platform", label: "Platform", blurb: "Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on." },
+  { md: "01-caliber/architecture.md", out: "m-01-platform.html", group: "platform", label: "Platform", blurb: "Boot and dependency graph, standalone-service topology, shared runtime state, async workers, and the trust boundary the whole product stands on." },
   { md: "refinement-loop.md", out: "m-00-refinement-loop.html", group: "platform", label: "The refinement loop", blurb: "The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and durable release — plus the evidence and recovery boundaries that differ across other asset families. Read this first." },
   { md: "02-prompts/architecture.md", out: "m-02-prompts.html", group: "platform", label: "Prompts", blurb: "Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation." },
   { md: "03-tools/architecture.md", out: "m-03-tools.html", group: "platform", label: "Tools", blurb: "Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration." },

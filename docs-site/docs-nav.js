@@ -481,7 +481,7 @@ window.DOCS_DATA = {
       "label": "Platform",
       "section": "Architecture",
       "section_id": "architecture",
-      "summary": "Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on.",
+      "summary": "Boot and dependency graph, standalone-service topology, shared runtime state, async workers, and the trust boundary the whole product stands on.",
       "audience": [
         "architect",
         "developer",
