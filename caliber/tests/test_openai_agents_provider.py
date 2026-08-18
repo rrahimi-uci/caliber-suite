@@ -68,8 +68,8 @@ def _install_agents_module(
         calls: list[dict[str, object]] = []
 
         @staticmethod
-        def run_sync(agent: object, prompt: str) -> object:
-            FakeRunner.calls.append({"agent": agent, "prompt": prompt})
+        def run_sync(agent: object, prompt: str, **kwargs: object) -> object:
+            FakeRunner.calls.append({"agent": agent, "prompt": prompt, **kwargs})
             if error is not None:
                 raise error
             return result
@@ -77,6 +77,7 @@ def _install_agents_module(
     agents_mod = types.ModuleType("agents")
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
+    agents_mod.RunConfig = lambda **kw: types.SimpleNamespace(**kw)
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
     return FakeAgent, FakeRunner
 

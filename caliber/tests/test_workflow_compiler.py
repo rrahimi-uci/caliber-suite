@@ -180,7 +180,7 @@ def test_generated_code_executes_with_importable_registered_tools(
 
     class FakeRunner:
         @staticmethod
-        def run_sync(agent: FakeAgent, prompt: str) -> object:
+        def run_sync(agent: FakeAgent, prompt: str, **kwargs: object) -> object:
             assert agent.kwargs["model"] == "openai:/pinned-export-model"
             tool_result = agent.kwargs["tools"][0](prompt)
             return types.SimpleNamespace(final_output=tool_result["policy"])
@@ -188,6 +188,7 @@ def test_generated_code_executes_with_importable_registered_tools(
     agents_mod = types.ModuleType("agents")
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
+    agents_mod.RunConfig = lambda **kwargs: types.SimpleNamespace(**kwargs)
     agents_mod.handoff = lambda *args, **kwargs: {"args": args, "kwargs": kwargs}
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
 
@@ -252,7 +253,7 @@ def test_generated_code_executes_with_mcp_tool_bindings(
 
     class FakeRunner:
         @staticmethod
-        def run_sync(agent: FakeAgent, prompt: str) -> object:
+        def run_sync(agent: FakeAgent, prompt: str, **kwargs: object) -> object:
             tool_result = agent.kwargs["tools"][0](query=prompt)
             return types.SimpleNamespace(final_output=tool_result["result"]["answer"])
 
@@ -270,6 +271,7 @@ def test_generated_code_executes_with_mcp_tool_bindings(
     agents_mod = types.ModuleType("agents")
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
+    agents_mod.RunConfig = lambda **kwargs: types.SimpleNamespace(**kwargs)
     agents_mod.handoff = lambda *args, **kwargs: {"args": args, "kwargs": kwargs}
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
     monkeypatch.setattr("caliber.mcp_gateway.invoke_tool_by_server_id_sync", _fake_invoke)
