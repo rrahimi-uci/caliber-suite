@@ -961,7 +961,7 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
                 )
     lines.append("from typing import Any")
     lines.append("")
-    lines.append("from agents import Agent, Runner, handoff")
+    lines.append("from agents import Agent, RunConfig, Runner, handoff")
     lines.append("import mlflow")
     lines.append("")
     if mcp_tool_refs:
@@ -1104,7 +1104,7 @@ def generate_python(ir: IRWorkflow) -> str:  # noqa: PLR0912, PLR0915 - linear c
     # Agent construction calls ``workflow_model``. Build inside the context so inherited
     # models resolve to this workflow's pinned default rather than the process fallback.
     lines.append("        entry_agent = _build_agent_graph(config=config)")
-    lines.append("        result = Runner.run_sync(entry_agent, input_text)")
+    lines.append("        result = Runner.run_sync(entry_agent, input_text, run_config=RunConfig(tracing_disabled=True))")
     if guardrails:
         lines.append("        enforce_guardrails(result.final_output, [], _GUARDRAILS)")
     lines.append("        return result.final_output")
