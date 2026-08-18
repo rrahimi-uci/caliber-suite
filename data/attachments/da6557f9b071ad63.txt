@@ -1,0 +1,15 @@
+{"t":"2026-08-18T19:12:33.204Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-18T19:12:33.224Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-18T19:12:33.225Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-18T19:12:33.227Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-18T19:12:33.265Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-18T19:12:33.280Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:33.288Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc/workspace \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:33.300Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PUT http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc/test-cases \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:33.307Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc/workspace \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:33.319Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/test-runs \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-18T19:12:33.327Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc/workspace \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:34.709Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc/calibrate \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:34.715Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc/workspace \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:34.725Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-18T19:12:34.730Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-00469ddc/workspace \"HTTP/1.1 200 OK\""}

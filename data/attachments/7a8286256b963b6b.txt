@@ -1,0 +1,2 @@
+{"t":"2026-08-18T19:09:06.932Z","severity":"INFO","logger":"caliber.orchestrator.worker","message":"job=RFN-W skipping mlflow run binding: experiment 'exp' is not resolvable","trace_id":"b0ba73d1b62c8350"}
+{"t":"2026-08-18T19:09:06.942Z","severity":"WARNING","logger":"caliber.orchestrator.worker","message":"job=RFN-W ineligible for next stage: verification item 'FB-W' not found for job 'RFN-W'","trace_id":"b0ba73d1b62c8350"}

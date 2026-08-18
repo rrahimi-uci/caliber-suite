@@ -1,9 +1,0 @@
-{"t":"2026-08-18T17:28:47.958Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-08-18T17:28:47.981Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-08-18T17:28:47.986Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-08-18T17:28:47.988Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-08-18T17:28:48.025Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions \"HTTP/1.1 201 Created\""}
-{"t":"2026-08-18T17:28:48.040Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions/ASST-ec5ba967/queue \"HTTP/1.1 201 Created\""}
-{"t":"2026-08-18T17:28:48.050Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/assistant/sessions/ASST-ec5ba967/queue \"HTTP/1.1 200 OK\""}
-{"t":"2026-08-18T17:28:48.061Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/assistant/queue/QMSG-997f0a24 \"HTTP/1.1 204 No Content\""}
-{"t":"2026-08-18T17:28:48.067Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/assistant/queue/QMSG-997f0a24 \"HTTP/1.1 404 Not Found\""}

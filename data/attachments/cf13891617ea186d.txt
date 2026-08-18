@@ -1,0 +1,6 @@
+{"t":"2026-08-18T19:02:36.469Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-18T19:02:36.490Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-18T19:02:36.492Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-18T19:02:36.494Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-18T19:02:36.529Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-resolve-guard/calibration-jobs/CAL-TL-resolve-guard-0/resolve \"HTTP/1.1 400 Bad Request\""}
+{"t":"2026-08-18T19:02:36.543Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-resolve-guard/calibration-jobs/CAL-TL-resolve-guard-0/resolve \"HTTP/1.1 409 Conflict\""}
