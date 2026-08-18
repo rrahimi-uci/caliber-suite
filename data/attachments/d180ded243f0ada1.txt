@@ -1,0 +1,5 @@
+WARNING  caliber.llm.circuit_breaker:circuit_breaker.py:343 llm circuit opening: 2 failures within 60.0s window
+INFO     caliber.llm.circuit_breaker:circuit_breaker.py:284 llm circuit half-open after cooldown
+WARNING  caliber.llm.circuit_breaker:circuit_breaker.py:325 llm circuit re-opening; probe call failed
+INFO     caliber.llm.circuit_breaker:circuit_breaker.py:284 llm circuit half-open after cooldown
+INFO     caliber.llm.circuit_breaker:circuit_breaker.py:308 llm circuit closing after successful probe
