@@ -89,8 +89,8 @@ def _install_agents_module(
         calls: list[dict[str, object]] = []
 
         @staticmethod
-        def run_sync(agent: object, prompt: str) -> object:
-            FakeRunner.calls.append({"agent": agent, "prompt": prompt})
+        def run_sync(agent: object, prompt: str, **kwargs: object) -> object:
+            FakeRunner.calls.append({"agent": agent, "prompt": prompt, **kwargs})
             if error is not None:
                 raise error
             return result
@@ -98,6 +98,7 @@ def _install_agents_module(
     agents_mod = types.ModuleType("agents")
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
+    agents_mod.RunConfig = lambda **kw: types.SimpleNamespace(**kw)
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
     return FakeAgent, FakeRunner
 
@@ -366,6 +367,26 @@ def test_run_agent_sync_wraps_sdk_exceptions(monkeypatch: pytest.MonkeyPatch) ->
 
     with pytest.raises(LLMProviderError, match="diagnosis LLM call failed: rate limited"):
         provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+
+def test_run_agent_sync_falls_back_when_runner_does_not_accept_run_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = SimpleNamespace(final_output={"ok": True})
+
+    class LegacyRunner:
+        @staticmethod
+        def run_sync(agent: object, prompt: str) -> object:
+            return result
+
+    agents_mod = types.ModuleType("agents")
+    agents_mod.Runner = LegacyRunner
+    agents_mod.RunConfig = lambda **kw: types.SimpleNamespace(**kw)
+    monkeypatch.setitem(sys.modules, "agents", agents_mod)
+
+    provider = _provider()
+
+    assert provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1") is result
 
 
 def test_extract_helpers_cover_sdk_shape_variants() -> None:

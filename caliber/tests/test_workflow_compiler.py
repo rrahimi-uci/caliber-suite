@@ -188,7 +188,7 @@ def test_generated_code_executes_with_importable_registered_tools(
     agents_mod = types.ModuleType("agents")
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
-    agents_mod.RunConfig = lambda **kw: kw
+    agents_mod.RunConfig = lambda **kwargs: types.SimpleNamespace(**kwargs)
     agents_mod.handoff = lambda *args, **kwargs: {"args": args, "kwargs": kwargs}
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
 
@@ -271,7 +271,7 @@ def test_generated_code_executes_with_mcp_tool_bindings(
     agents_mod = types.ModuleType("agents")
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
-    agents_mod.RunConfig = lambda **kw: kw
+    agents_mod.RunConfig = lambda **kwargs: types.SimpleNamespace(**kwargs)
     agents_mod.handoff = lambda *args, **kwargs: {"args": args, "kwargs": kwargs}
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
     monkeypatch.setattr("caliber.mcp_gateway.invoke_tool_by_server_id_sync", _fake_invoke)

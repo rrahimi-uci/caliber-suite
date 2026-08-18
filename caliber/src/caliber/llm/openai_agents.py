@@ -12,9 +12,10 @@ one agent per orchestrator stage that needs LLM work. Currently only
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -697,7 +698,7 @@ class OpenAIAgentsLLMProvider:
         transport) so the worker's exception handling stays simple.
         """
         try:
-            from agents import Runner  # noqa: PLC0415
+            from agents import RunConfig, Runner  # noqa: PLC0415
         except ImportError as exc:
             raise LLMProviderError(
                 "openai-agents is not installed. Install with "
@@ -705,6 +706,17 @@ class OpenAIAgentsLLMProvider:
             ) from exc
 
         try:
+            run_config = RunConfig(tracing_disabled=True)
+            params: Iterable[inspect.Parameter]
+            try:
+                params = inspect.signature(Runner.run_sync).parameters.values()
+            except (TypeError, ValueError):
+                params = ()
+            if any(
+                param.name == "run_config" or param.kind is inspect.Parameter.VAR_KEYWORD
+                for param in params
+            ):
+                return Runner.run_sync(agent, prompt, run_config=run_config)
             return Runner.run_sync(agent, prompt)
         except Exception as exc:
             logger.exception("%s agent failed for id=%s", stage, item_id)
