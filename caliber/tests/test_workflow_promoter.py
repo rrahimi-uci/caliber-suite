@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import pytest
 from sqlalchemy.orm import Session
@@ -892,7 +893,7 @@ def test_build_executor_default_keeps_direct_openai(
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-xyz")
     cfg = app_config.model_copy(update={"llm_provider": "openai"})
     ex = promoter.build_executor(cfg)
-    assert "api.openai.com" in str(ex._client.base_url)
+    assert urlparse(str(ex._client.base_url)).hostname == "api.openai.com"
     assert ex._parallel_tool_calls is True
     assert ex._prompt_cache_enabled is True
     assert ex._prompt_cache_retention is None
