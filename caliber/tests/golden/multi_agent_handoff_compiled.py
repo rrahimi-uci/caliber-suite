@@ -8,7 +8,7 @@ compiler_version: 0.1.0
 
 from typing import Any
 
-from agents import Agent, Runner, handoff
+from agents import Agent, RunConfig, Runner, handoff
 import mlflow
 
 from caliber.workflows.guardrails import enforce_guardrails
@@ -50,5 +50,5 @@ def run(input_text: str, *, session_id: str | None = None, config: Any | None = 
         session_id=session_id,
     ):
         entry_agent = _build_agent_graph(config=config)
-        result = Runner.run_sync(entry_agent, input_text)
+        result = Runner.run_sync(entry_agent, input_text, run_config=RunConfig(tracing_disabled=True))
         return result.final_output
