@@ -62,6 +62,7 @@ def test_openai_provider_overrides_inherited_openai_key(
     import os
 
     assert os.environ["OPENAI_API_KEY"] == "sk-explicit-config"
+    assert os.environ["OPENAI_AGENTS_DISABLE_TRACING"] == "1"
 
 
 def test_build_provider_threads_flagged_dspy_override(
