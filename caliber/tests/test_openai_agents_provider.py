@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 import sys
 import types
 from types import SimpleNamespace
@@ -49,6 +50,26 @@ def _provider(**overrides: object) -> OpenAIAgentsLLMProvider:
         diagnosis_model="gpt-4o-mini",
         **overrides,
     )
+
+
+def test_provider_sets_api_key_and_disables_agents_tracing_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_AGENTS_DISABLE_TRACING", raising=False)
+
+    _provider()
+
+    assert os.environ["OPENAI_API_KEY"] == "sk-test"
+    assert os.environ["OPENAI_AGENTS_DISABLE_TRACING"] == "1"
+
+
+def test_provider_preserves_explicit_tracing_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_AGENTS_DISABLE_TRACING", "0")
+
+    _provider()
+
+    assert os.environ["OPENAI_AGENTS_DISABLE_TRACING"] == "0"
 
 
 def _install_agents_module(
