@@ -15,7 +15,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -704,6 +704,7 @@ class OpenAIAgentsLLMProvider:
 
         try:
             run_config = RunConfig(tracing_disabled=True)
+            params: Iterable[inspect.Parameter]
             try:
                 params = inspect.signature(Runner.run_sync).parameters.values()
             except (TypeError, ValueError):
