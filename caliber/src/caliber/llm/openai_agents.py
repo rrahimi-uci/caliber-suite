@@ -254,6 +254,9 @@ class OpenAIAgentsLLMProvider:
         import os  # noqa: PLC0415  -- local for the same reason as the agents import
 
         os.environ["OPENAI_API_KEY"] = api_key
+        # The OpenAI Agents SDK enables hosted tracing by default. Disable it
+        # unless the deployment explicitly opted in via environment.
+        os.environ.setdefault("OPENAI_AGENTS_DISABLE_TRACING", "1")
 
     def _agent_class(self) -> Any:
         """Return the ``agents.Agent`` class, raising :class:`LLMProviderError`
