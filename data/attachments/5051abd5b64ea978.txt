@@ -1,0 +1,1 @@
+{"t":"2026-08-18T22:04:50.443Z","severity":"WARNING","logger":"caliber.secrets","message":"secret source 'test': cannot read file ([Errno 21] Is a directory: '/tmp/pytest-of-runner/pytest-0/popen-gw2/test_secret_resolve_file_os_er0/is_dir')"}

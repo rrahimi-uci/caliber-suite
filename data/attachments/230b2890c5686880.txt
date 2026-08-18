@@ -1,9 +1,0 @@
-{"t":"2026-08-18T19:02:37.194Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-08-18T19:02:37.210Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-08-18T19:02:37.214Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-08-18T19:02:37.215Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-08-18T19:02:37.243Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
-{"t":"2026-08-18T19:02:37.256Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PUT http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-423bff2d/test-cases \"HTTP/1.1 200 OK\""}
-{"t":"2026-08-18T19:02:37.266Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-423bff2d/calibration-jobs \"HTTP/1.1 202 Accepted\""}
-{"t":"2026-08-18T19:02:37.277Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-423bff2d/calibration-jobs/CAL-72b9c9f4fb2a \"HTTP/1.1 200 OK\""}
-{"t":"2026-08-18T19:02:37.284Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-423bff2d/calibration-jobs \"HTTP/1.1 200 OK\""}
