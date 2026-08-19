@@ -24,8 +24,9 @@ RUN pip install --upgrade pip \
 # the MLFLOW_GATEWAY_CONFIG env var; baked in as the default so the image runs
 # out of the box.
 COPY gateway.yaml /etc/mlflow/gateway.yaml
+COPY render_config.py /usr/local/bin/render_config.py
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/render_config.py
 
 EXPOSE 5002
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
