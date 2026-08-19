@@ -1,0 +1,33 @@
+INFO     caliber:server.py:407 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:249 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:665 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-4be24726/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-00f1c664/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+WARNING  caliber.workflows.runtime:runtime.py:5489 for_each target item failed: python_code node 'python' failed: ValueError: boom:c
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 5458, in _run_node
+    toks, child_step, child_outputs, child_artifacts = _run_inline_target_node(
+                                                       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 5021, in _run_inline_target_node
+    tokens, step = _run_node_with_policy(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6912, in _run_node_with_policy
+    raise last_exc
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6862, in _run_node_with_policy
+    tokens, step = _execute()
+                   ^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6846, in _execute
+    return _run_node_traced(
+           ^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6784, in _run_node_traced
+    tokens, step = _run_node(
+                   ^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6412, in _run_node
+    raise ToolExecutionError(f"python_code node {nid!r} failed: {error_text}")
+caliber.workflows.runtime.ToolExecutionError: python_code node 'python' failed: ValueError: boom:c
