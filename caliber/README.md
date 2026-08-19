@@ -78,19 +78,23 @@ python -m pip install -e "./caliber"
 For supported local development, start backing services and vanilla MLflow first, then run CALIBER separately:
 
 ```bash
-# Start backing services (Postgres, MinIO) and vanilla MLflow via Compose
-docker compose --env-file ../deploy/.env -f ../deploy/compose.yaml up -d
-# Or with the full app profile (includes CALIBER container):
-# docker compose --env-file ../deploy/.env -f ../deploy/compose.yaml --profile app up -d
+# From the repository root: start vanilla MLflow and its Postgres/MinIO
+# dependencies, but do not start the containerized CALIBER service on :5001.
+docker compose -f deploy/compose.yaml --profile app up -d mlflow
 
-# Run standalone CALIBER (backend reload enabled)
+# From caliber/: run standalone CALIBER with backend reload enabled.
+export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
 uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
 ```
 
-The CALIBER UI is served at `http://127.0.0.1:5001/caliber/`. Set `MLFLOW_TRACKING_URI=http://127.0.0.1:5000` so CALIBER reaches the running MLflow server.
+The CALIBER UI is served at `http://127.0.0.1:5001/caliber/`. The bootstrap flags above are only for a trusted loopback run; change the first-boot password immediately and use a strong password source with Secure cookies in every network-reachable deployment.
 
-For local repo entrypoints, `make dev`, `./scripts/run-dev.sh`, and the
-Playwright bootstrap now default MLflow artifacts to
+`make dev` and `./scripts/run-dev.sh` still exercise the embedded `mlflow.app`
+compatibility path. They are not supported local-development entrypoints. The
+Playwright bootstrap and supported standalone path default MLflow artifacts to
 `s3://mlflow/mlruns` through the local MinIO endpoint at
 `http://127.0.0.1:9000` so new runs do not fall back to filesystem-backed
 `mlruns` / `mlartifacts` trees unless you override `MLFLOW_ARTIFACT_ROOT`.

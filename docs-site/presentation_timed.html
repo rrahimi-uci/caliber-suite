@@ -238,7 +238,7 @@
       <div style="font-size:26px; color:var(--text2); font-weight:300; letter-spacing:.06em; margin-top:18px;">An MLflow-integrated control plane for trusted agentic workflows</div>
     </div>
     <div class="reveal" style="--d:2.9s">
-      <div style="font-size:17px; color:var(--text3); margin-top:26px; letter-spacing:.05em;">Embedded or standalone · Apache 2.0</div>
+      <div style="font-size:17px; color:var(--text3); margin-top:26px; letter-spacing:.05em;">Standalone CALIBER + MLflow over HTTP · Apache 2.0</div>
     </div>
     <div class="reveal" style="--d:3.4s">
       <div style="font-size:14px; color:var(--text3); margin-top:46px; letter-spacing:.18em; text-transform:uppercase;">Design · Verify · Calibrate · Evaluate · Publish · Observe</div>
@@ -668,7 +668,7 @@
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Why different</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">Unified, and <span class="glow-text">evidence-to-action</span>.</div></div>
-    <div class="reveal" style="--d:.9s"><div class="section-subtitle">CALIBER collapses the patchwork into one interface, deployed inside MLflow or beside it. CALIBER metadata and MLflow evidence keep explicit owners, while an integrated prompt-refinement path connects measured proposals to explicit human apply.</div></div>
+    <div class="reveal" style="--d:.9s"><div class="section-subtitle">CALIBER collapses the patchwork into one interface, deployed as its own service beside vanilla MLflow. CALIBER metadata and MLflow evidence keep explicit owners, while an integrated prompt-refinement path connects measured proposals to explicit human apply.</div></div>
     <div class="pipeline-flow reveal" style="--d:1.4s">
       <div class="pipe-step glow"><div class="pn">step 1</div><div class="pt">Evaluate</div><div class="pd">Held-out test set through scorers — real scores, no fabricated numbers</div></div>
       <div class="pipe-arrow">›</div>
@@ -680,7 +680,7 @@
       <div class="pipe-arrow">›</div>
       <div class="pipe-step glow"><div class="pn">step 5</div><div class="pt">Apply</div><div class="pd">Goes live only via an explicit operator step</div></div>
     </div>
-    <div class="reveal" style="--d:2.4s"><div style="color:var(--text2); font-size:15px; margin-top:30px; max-width:1300px; margin-left:auto; margin-right:auto;">Embedded or standalone. Evidence connected to action. Self-hostable — your data stays home.</div></div>
+    <div class="reveal" style="--d:2.4s"><div style="color:var(--text2); font-size:15px; margin-top:30px; max-width:1300px; margin-left:auto; margin-right:auto;">Standalone and evidence connected to action. Self-hostable — your data stays home.</div></div>
   </div>
 </section>
 
@@ -711,7 +711,7 @@
     <div class="vision-grid reveal" style="--d:1.4s">
       <div class="vision-card">
         <h4>Integrated</h4>
-        <p>Mounts at <span class="mono" style="color:var(--accent-light)">/caliber</span> inside MLflow, or runs as a standalone ASGI service connected to vanilla MLflow over HTTP.</p>
+        <p>Runs as a standalone ASGI service, serving <span class="mono" style="color:var(--accent-light)">/caliber</span> and connecting to vanilla MLflow over HTTP.</p>
       </div>
       <div class="vision-card">
         <h4>Agentic</h4>

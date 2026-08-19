@@ -49,9 +49,9 @@ Legend: ✅ strong/native · 🟡 partial/conditional · ❌ absent.
 
 ## 2. What CALIBER is (and the category it competes in)
 
-CALIBER ships one ASGI control-plane codebase in two topologies: an in-process MLflow
-`mlflow.app`, or a standalone CALIBER service that calls vanilla MLflow over HTTP. It
-reuses MLflow's Experiments, Traces, Assessments, Prompt Registry, Artifact Store, and
+CALIBER ships one standalone ASGI control-plane service that calls vanilla MLflow over
+HTTP. The embedded `mlflow.app` path is unsupported as a product or developer topology.
+It reuses MLflow's Experiments, Traces, Assessments, Prompt Registry, Artifact Store, and
 `mlflow.genai.evaluate`; the bundled standalone stack uses separate logical CALIBER and
 MLflow databases. On top of those primitives it adds:
 
@@ -235,7 +235,7 @@ So CALIBER's differentiation is emphatically **not** "we have judges / a prompt 
 1. **It closes the loop.** The end-to-end *feedback → optimize → eval-gate → approve → promote → observe* arc, as one governed system, is genuinely rare. Competitors own arcs; CALIBER owns the circuit.
 2. **Diagnosis-informed optimizer policy.** Five provider paths are implemented, automatic rules choose four, explicit pins can reach all five, and two appear in the prompt form/API; DSPy MIPROv2 is explicit-only. Optimizers themselves are no longer unique — MLflow's `optimize_prompts` bundles three, and Vertex/AWS ship eval-driven optimizers — but the *diagnose → select → evaluate → explicit action → audited promotion* integration remains unusual.
 3. **Evidence-backed, reversible deployment where supported.** Prompts combine per-dimension regression evidence, an advisory verdict, an intent-first/reconcilable alias operation, and exact rollback. Workflows use deployment aliases/checkpoints and their own deploy gates; knowledge bases use an audited active-version pointer; skills restore a snapshot as a new version and have no alias or gate. This improves review safety; it is not one unbypassable cross-artifact policy.
-4. **MLflow-integrated with topology choice.** MLflow shops can use an embedded app, while the bundled standalone mode separates process failure domains and uses MLflow over HTTP. Both reuse tracing/registry/eval rather than replacing them.
+4. **MLflow-integrated with an explicit service boundary.** CALIBER runs separately from MLflow, uses MLflow over HTTP, and preserves separate process failure domains while reusing tracing, registry, and evaluation rather than replacing them.
 5. **Unified but asset-specific lifecycle.** Six artifact types share one control-plane inventory, while versioning, live aliases, gate evidence, and rollback are applied only on the asset families that implement each capability; MCP servers are registered but unversioned.
 6. **Governance as a first-class citizen.** RBAC (`viewer`/`operator`/`approver`/`admin`), human verification and review boundaries, plus audit rows for the tracked mutations and transitions. This is broad, but it is not a claim that every state change is causally linked to feedback.
 7. **Batteries-included knowledge bases with a graph.** Native Apache AGE knowledge-graph + hybrid retrieval + rerank, rather than bolting on an external graph store.

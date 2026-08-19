@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Guided walkthrough | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="Step-by-step runbook to bring up MLflow with the CALIBER plugin, configure storage and an optional real LLM provider, then tour the SPA and build a governed artifact with Aria.">
+  <meta name="description" content="Step-by-step runbook to bring up standalone CALIBER with vanilla MLflow, configure storage and an optional real LLM provider, then tour the SPA and build a governed artifact with Aria.">
   <link rel="icon" type="image/png" href="../caliber-icon.png">
   <script>
     (function () {
@@ -125,7 +125,7 @@
           <h1 id="top">Bring up MLflow, run CALIBER, tour the platform.</h1>
           <p class="doc-summary">
             This is a copy-pasteable runbook for the current build. CALIBER runs as
-            an MLflow application plugin with configurable local or object storage
+            a standalone ASGI service connected to vanilla MLflow over HTTP, with configurable local or object storage
             and optional real LLM providers — there is no canned demo seed to load. You bring the stack up,
             confirm it is healthy, and then either tour each surface of the SPA or
             let Aria, the embedded agentic copilot, build and test a governed
@@ -133,7 +133,7 @@
           </p>
           <div class="runbook-meta">
             <span>⏱ <strong>~15 min</strong> to a running stack</span>
-            <span>🧰 Requires: <strong>Python 3.10–3.12</strong>, <strong>Node 20+</strong>, <strong>git</strong>; <strong>Docker</strong> only for the MinIO option</span>
+            <span>🧰 Requires: <strong>Python 3.10–3.12</strong>, <strong>Node 20+</strong>, <strong>git</strong>, and <strong>Docker</strong> for the local MLflow stack</span>
             <span>🔑 An <strong>OpenAI</strong> or <strong>Anthropic</strong> API key for Aria and LLM-backed features</span>
           </div>
         </header>
@@ -157,20 +157,20 @@
 
     <section id="clone">
       <h2><span class="step-num">1</span>Clone &amp; install</h2>
-      <p>Clone the suite and install the plugin in editable mode with the dev and S3 extras, then install the SPA's npm dependencies:</p>
+      <p>Clone the suite and install the standalone service in editable mode with the dev, S3, and Postgres extras, then install the SPA's npm dependencies:</p>
       <pre><code>git clone https://github.com/rrahimi-uci/caliber-suite.git
 cd caliber-suite/caliber
 
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,s3]"
+pip install -e ".[dev,s3,postgres]"
 
 cd caliber-ui
 npm install</code></pre>
       <p>What that gives you:</p>
       <ul>
         <li>A <code>.venv/</code> with CALIBER, MLflow (<code>&ge; 3.14</code>), Alembic, the Starlette runtime, and the dev toolchain (pytest, ruff, mypy).</li>
-        <li>The <code>s3</code> extra, which pulls in the object-storage client CALIBER uses for artifacts.</li>
+        <li>The <code>s3</code> and <code>postgres</code> extras, which pull in the object-storage client and database driver used by the local standalone stack.</li>
         <li>The SPA's build dependencies (Vite, React, TanStack Query) under <code>caliber-ui/</code>.</li>
       </ul>
       <div class="callout">
@@ -184,11 +184,14 @@ npm install</code></pre>
     <section id="storage">
       <h2><span class="step-num">2</span>Storage &amp; provider keys</h2>
       <p>
-        <code>make dev</code> defaults MLflow artifacts to <code>s3://mlflow/mlruns</code> via MinIO at
-        <code>http://127.0.0.1:9000</code>, so bring that up first (the suite ships a Compose stack under
-        <code>deploy/</code>) or point the variables at your own endpoint. CALIBER workflow/file storage supports both
+        Start vanilla MLflow and its Postgres/MinIO dependencies before CALIBER. The suite ships a loopback-only Compose
+        stack under <code>deploy/</code>; CALIBER workflow/file storage supports both
         local filesystem and S3-compatible backends; this walkthrough uses MinIO so the object-storage surfaces are available.
       </p>
+      <pre><code># Return to the repository root. This starts MLflow plus its dependencies, not
+# the containerized CALIBER service that would occupy :5001.
+cd ../..
+docker compose -f deploy/compose.yaml --profile app up -d mlflow</code></pre>
       <p>Set the provider keys CALIBER should use before launching (a suite-root <code>.env</code> is the usual home for these):</p>
       <pre><code># Real LLM provider for Aria + LLM-backed eval/calibration
 export OPENAI_API_KEY=sk-...        # or ANTHROPIC_API_KEY=...
@@ -206,57 +209,37 @@ export AWS_SECRET_ACCESS_KEY=minioadmin</code></pre>
     </section>
 
     <section id="start">
-      <h2><span class="step-num">3</span>Start MLflow with the CALIBER plugin</h2>
+      <h2><span class="step-num">3</span>Start standalone CALIBER</h2>
       <p>
-        In this embedded walkthrough CALIBER doesn't run as a separate service. It's loaded as an MLflow <em>application</em>:
-        when the server launches with <code>--app-name caliber</code>, MLflow
-        mounts CALIBER's SPA at <code>/caliber/</code> and its REST endpoints
-        at <code>/ajax-api/2.0/mlflow/caliber/*</code> on the same port,
-        alongside MLflow's native UI at <code>/</code>.
+        CALIBER runs in its own ASGI process and uses <code>MLFLOW_TRACKING_URI</code> to communicate with the separately running vanilla MLflow server. CALIBER serves its SPA at <code>/caliber/</code> and its REST endpoints at <code>/ajax-api/2.0/mlflow/caliber/*</code> on port <code>5001</code>.
       </p>
       <p>From <code>caliber/</code> with the venv active, in <em>terminal 1</em>:</p>
-      <pre><code>make dev</code></pre>
-      <p>That wraps <code>scripts/run-dev.sh</code>, which:</p>
+      <pre><code>cd caliber
+export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
+uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001</code></pre>
+      <p>The standalone launcher:</p>
       <ol>
-        <li>Sources <code>.env</code> if present (without clobbering anything already exported).</li>
-        <li>Applies local-dev defaults: a metadata database (SQLite at <code>./caliber.db</code> unless you point <code>CALIBER_DATABASE_URL</code> at Postgres), the MinIO artifact root, and a dev admin identity.</li>
-        <li>Runs <code>alembic upgrade head</code> to bring the schema current.</li>
-        <li>Enables the workflow run queue, runtime approvals, and checkpointing.</li>
-        <li>Execs <code>mlflow server --app-name caliber</code> in the foreground.</li>
+        <li>Connects to the separately owned CALIBER metadata database and MLflow tracking service.</li>
+        <li>Runs the CALIBER ASGI application with automatic backend reload.</li>
+        <li>Starts the configured background loops in that one CALIBER process.</li>
       </ol>
-      <p>The startup banner echoes the resolved configuration and the exact URLs to open:</p>
+      <p>Uvicorn reports the standalone service URL:</p>
       <div class="terminal">
-<span class="cmd">$ make dev</span>
-<span class="ok">&gt;&gt; caliber dev server</span>
-   database         : sqlite:///./caliber.db
-   artifact root    : s3://mlflow/mlruns
-   s3 endpoint      : http://127.0.0.1:9000
-   listen           : http://127.0.0.1:5000
-   caliber UI       : http://127.0.0.1:5000/caliber/
-   caliber API      : http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/
-   dev identity     : admin
-   initial login    : admin / admin (empty account table only; change immediately)
-   workflow queue   : true
-   approvals        : true
-   checkpointing    : true
-<span class="ok">&gt;&gt; applying caliber migrations</span>
-<span class="dim">INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
-INFO  [alembic.runtime.migration] Running upgrade ... -&gt; current head</span>
-<span class="ok">&gt;&gt; starting mlflow server with --app-name caliber</span>
-<span class="dim">[INFO] Listening at: http://127.0.0.1:5000
-caliber.app: plugin initialised, ui=/caliber/, api=/ajax-api/2.0/mlflow/caliber/</span>
+<span class="cmd">$ uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001</span>
+<span class="dim">INFO:     Uvicorn running on http://127.0.0.1:5001 (Press CTRL+C to quit)</span>
       </div>
       <div class="callout">
-        <strong>Port note:</strong> <code>run-dev.sh</code> listens on <code>5000</code> by default; a suite-level
-        <code>.env</code> commonly sets <code>MLFLOW_PORT=5001</code>. Always use the <em>caliber UI</em> URL the banner
-        prints — the examples below use <code>5000</code> to match the script default.
+        <strong>Loopback-only bootstrap:</strong> the two authentication flags above allow a one-time <code>admin</code> / <code>admin</code> account only while the account table is empty. Change it immediately. Never use those flags for a network-reachable deployment; configure a strong bootstrap-password source and Secure cookies instead.
       </div>
     </section>
 
     <section id="verify">
       <h2><span class="step-num">4</span>Verify the server is healthy</h2>
-      <p>In a <em>second</em> terminal (leave <code>make dev</code> running in the first), hit the CALIBER health endpoint:</p>
-      <pre><code>curl -s http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/health | jq</code></pre>
+      <p>In a <em>second</em> terminal (leave Uvicorn running in the first), hit the CALIBER health endpoint:</p>
+      <pre><code>curl -s http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/health | jq</code></pre>
       <div class="terminal">
 <span class="ok">{
   "status": "ok",
@@ -269,7 +252,7 @@ caliber.app: plugin initialised, ui=/caliber/, api=/ajax-api/2.0/mlflow/caliber/
         <code>anthropic</code> and the <code>simulated</code> list should be empty (or list only the subsystems you left
         on a stub):
       </p>
-      <pre><code>curl -s http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/readiness | jq .data</code></pre>
+      <pre><code>curl -s http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/readiness | jq .data</code></pre>
       <div class="terminal">
 <span class="ok">{
   "providers": {
@@ -294,12 +277,12 @@ HTTP/1.1 <span class="ok">200 OK</span>
 
     <section id="open">
       <h2><span class="step-num">5</span>Open the SPA</h2>
-      <p>In your browser, open the <em>caliber UI</em> URL from the startup banner:</p>
-      <pre><code>open http://127.0.0.1:5000/caliber/      # macOS
-xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
+      <p>In your browser, open the standalone CALIBER UI:</p>
+      <pre><code>open http://127.0.0.1:5001/caliber/      # macOS
+xdg-open http://127.0.0.1:5001/caliber/  # Linux</code></pre>
       <p>
         On first load, sign in with <code>admin</code> / <code>admin</code> and immediately replace that local-only
-        first-boot password in <strong>Administration</strong>. The loopback launcher is the component that explicitly
+        first-boot password in <strong>Administration</strong>. The loopback-only configuration in step 3 explicitly
         enables this known credential; the product default leaves it disabled. The database starts empty — there is no demo seed in this build, so the lists are blank until you create
         artifacts, either by hand on each page or by asking Aria to build them for you. The rest of this runbook walks
         the SPA in sidebar order and then has Aria build a governed artifact end to end.
@@ -516,10 +499,10 @@ xdg-open http://127.0.0.1:5000/caliber/  # Linux</code></pre>
       </p>
       <pre><code># Stop terminal 1 (Ctrl-C), then, for the default SQLite metadata DB:
 rm -f caliber.db caliber.db-wal caliber.db-shm
-make dev   # alembic re-creates the schema; the database is empty</code></pre>
+uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001</code></pre>
       <p>
         If you're on Postgres, drop and recreate the CALIBER database (or its schema) instead, then run
-        <code>make dev</code> so Alembic migrates the fresh database to head. Object-storage artifacts live in the
+        the standalone CALIBER command again so Alembic migrates the fresh database to head. Object-storage artifacts live in the
         bucket independently — clear the bucket separately if you want a truly clean slate.
       </p>
     </section>
@@ -536,13 +519,13 @@ make dev   # alembic re-creates the schema; the database is empty</code></pre>
           </tr>
           <tr>
             <td><code>/health</code> returns 404</td>
-            <td>Server started without <code>--app-name caliber</code></td>
-            <td>Use <code>make dev</code>, not a raw <code>mlflow server</code></td>
+            <td>CALIBER is not running on <code>:5001</code></td>
+            <td>Start the standalone Uvicorn command from step 3 and retry the CALIBER endpoint.</td>
           </tr>
           <tr>
             <td>Readiness shows <code>llm: fake</code> / Aria won't build</td>
             <td>No provider key exported, so <code>auto</code> can't resolve a real engine</td>
-            <td>Export <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> before <code>make dev</code> and restart</td>
+            <td>Export <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> before starting Uvicorn and restart</td>
           </tr>
           <tr>
             <td>MinIO / S3 shows not configured; artifact writes fail</td>
@@ -563,7 +546,7 @@ make dev   # alembic re-creates the schema; the database is empty</code></pre>
       </table>
       <p>
         If you hit something not on this table, capture the output of
-        <code>curl -s http://127.0.0.1:5000/ajax-api/2.0/mlflow/caliber/readiness</code> — that payload tells us which
+        <code>curl -s http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/readiness</code> — that payload tells us which
         providers are real versus simulated in one shot.
       </p>
     </section>
@@ -571,7 +554,7 @@ make dev   # alembic re-creates the schema; the database is empty</code></pre>
         <footer>
           <p>
             Source: <code>caliber-suite</code> ·
-            Bring-up: <code>caliber/scripts/run-dev.sh</code> ·
+            Bring-up: standalone Uvicorn command in step 3 ·
             <a href="index.html">← Back to overview</a>
           </p>
         </footer>

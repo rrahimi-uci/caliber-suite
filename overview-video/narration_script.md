@@ -5,7 +5,7 @@
 **Rate:** +5 % (slightly faster, professional pace)
 **Pauses:** 250 ms silence inserted before each scene; ~3 s buffer after each narration
 
-The deck is 16 conceptual scenes — a CSS/diagram-driven product overview with no demo seed and no removed-page screenshots. It tracks the current platform: the problem and market context, the patchwork-stack gap, the MLflow-integrated control plane and its two deployment topologies, the asset registries, workflow Studio, the data plane, evaluation and calibration, observability, Aria the agentic copilot, governance, the two "why different" pillars, and the vision.
+The deck is 16 conceptual scenes — a CSS/diagram-driven product overview with no demo seed and no removed-page screenshots. It tracks the current platform: the problem and market context, the patchwork-stack gap, the standalone MLflow-integrated control plane, the asset registries, workflow Studio, the data plane, evaluation and calibration, observability, Aria the agentic copilot, governance, the two "why different" pillars, and the vision.
 
 Narration below is kept readable with the real product terms. The pipeline respells mispronounced terms automatically before synthesis (see Production Notes) — e.g. "MLflow" is spoken as "em-el-flow" — so you don't write the phonetic spelling here.
 
@@ -17,7 +17,7 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 > CALIBER — Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement. An MLflow-integrated control plane for trusted agentic workflows: design, verify, calibrate, evaluate, publish, and observe agent resources from one browser platform — then use real evidence to guide each asset's supported lifecycle.
 
-**Visual:** Logo icon with glow drop shadow and an animated, glowing **CALIBER** wordmark. The acronym expands beneath it — **C**ontextual **A**daptive **L**ifecycle for **I**ntelligent **B**uild, **E**valuation, and **R**efinement. Tagline: "An MLflow-integrated control plane for trusted agentic workflows." Footers: "Embedded or standalone · Apache 2.0" and "Design · Verify · Calibrate · Evaluate · Publish · Observe."
+**Visual:** Logo icon with glow drop shadow and an animated, glowing **CALIBER** wordmark. The acronym expands beneath it — **C**ontextual **A**daptive **L**ifecycle for **I**ntelligent **B**uild, **E**valuation, and **R**efinement. Tagline: "An MLflow-integrated control plane for trusted agentic workflows." Footers: "Standalone CALIBER + MLflow over HTTP · Apache 2.0" and "Design · Verify · Calibrate · Evaluate · Publish · Observe."
 
 ---
 
@@ -119,9 +119,9 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 ## Scene 14 — Why Different: Unified & Closed-Loop · 27 s
 
-> CALIBER collapses the patchwork into one control-plane interface, deployed either inside MLflow or beside it. CALIBER metadata and MLflow evidence keep explicit owners, while every asset family keeps the lifecycle controls it actually implements. Then the signature difference: an integrated prompt-refinement path that evaluates, searches with provider paths such as Meta-Prompt, GEPA, and DSPy, records per-dimension regression evidence, and requires an explicit human apply before anything goes live.
+> CALIBER collapses the patchwork into one control-plane interface, deployed as its own service beside vanilla MLflow. CALIBER metadata and MLflow evidence keep explicit owners, while every asset family keeps the lifecycle controls it actually implements. Then the signature difference: an integrated prompt-refinement path that evaluates, searches with provider paths such as Meta-Prompt, GEPA, and DSPy, records per-dimension regression evidence, and requires an explicit human apply before anything goes live.
 
-**Visual:** "Why different" tag; title "Unified, and evidence-to-action." Five-step flow, each step with its description — Evaluate ("held-out test set through scorers — real scores, no fabricated numbers") → Search ("provider paths (Meta-Prompt, GEPA, DSPy) search for a better prompt candidate") → Check ("record per-dimension regression evidence") → Candidate-ready ("clears the gate but stays offline — never auto-promoted") → Apply ("goes live only via an explicit operator step"), first and last glowing. Closing line: "Embedded or standalone. Evidence connected to action. Self-hostable — your data stays home."
+**Visual:** "Why different" tag; title "Unified, and evidence-to-action." Five-step flow, each step with its description — Evaluate ("held-out test set through scorers — real scores, no fabricated numbers") → Search ("provider paths (Meta-Prompt, GEPA, DSPy) search for a better prompt candidate") → Check ("record per-dimension regression evidence") → Candidate-ready ("clears the gate but stays offline — never auto-promoted") → Apply ("goes live only via an explicit operator step"), first and last glowing. Closing line: "Standalone and evidence connected to action. Self-hostable — your data stays home."
 
 ---
 
@@ -135,7 +135,7 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 ## Scene 16 — Vision · 33 s
 
-> CALIBER is open source and MLflow-integrated, deployable embedded or standalone. Agentic with Aria's permissioned tool loop. Measured by evaluation and calibration. Refined through asset-specific lifecycles that preserve evidence and human authority. Governed by server-validated identity, a bounded execution boundary, and recorded actions. Observable through tracing and durable incidents. Apache 2 licensed, with no vendor lock-in. A contextual, adaptive lifecycle for intelligent build, evaluation, and refinement — agentic workflows you can measure, refine, govern, and trust.
+> CALIBER is open source and MLflow-integrated, deployed as a standalone service beside MLflow. Agentic with Aria's permissioned tool loop. Measured by evaluation and calibration. Refined through asset-specific lifecycles that preserve evidence and human authority. Governed by server-validated identity, a bounded execution boundary, and recorded actions. Observable through tracing and durable incidents. Apache 2 licensed, with no vendor lock-in. A contextual, adaptive lifecycle for intelligent build, evaluation, and refinement — agentic workflows you can measure, refine, govern, and trust.
 
 **Visual:** "The vision" tag; title "Agentic workflows you can measure, refine, govern, and trust." Six-card vision grid — Integrated, Agentic, Measured & refined, Governed, Observable, Open. Footer: "caliber-suite · Apache 2.0 · open source."
 

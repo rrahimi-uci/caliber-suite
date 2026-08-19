@@ -172,33 +172,37 @@ flowchart TB
 ## 🚀 Quickstart
 
 ```bash
-# ── Backend (from the repo root) ──
+# ── Backing services (terminal 1, from the repo root) ──
+# Starts vanilla MLflow and its Postgres/MinIO dependencies, but not the
+# containerized CALIBER service that would occupy :5001.
+docker compose -f deploy/compose.yaml --profile app up -d mlflow
+```
+
+Then start standalone CALIBER from `caliber/` in a second terminal:
+
+```bash
 cd caliber
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,s3]"
+pip install -e ".[dev,s3,postgres]"
+export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
+uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
+```
 
-# ── Frontend (optional local UI editing, in a second shell) ──
+For frontend HMR, use a third shell:
+
+```bash
 cd caliber/caliber-ui
 npm install
 npm run dev
 ```
 
-Start backing services from the repo root:
-
-```bash
-docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
-```
-
-Then start standalone CALIBER from `caliber/`:
-
-```bash
-source .venv/bin/activate
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
-uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
-```
-
-The supported local development path keeps CALIBER separate from its backing services. Compose can run
-Postgres, MinIO, and vanilla MLflow, while Uvicorn serves the CALIBER ASGI app on `:5001`.
+The supported local development path keeps CALIBER separate from its backing services. Compose runs
+Postgres, MinIO, and vanilla MLflow; Uvicorn serves CALIBER on `:5001`; and Vite proxies `/ajax-api/*`
+to that CALIBER process by default. The insecure bootstrap flags above are loopback-only convenience
+settings: change the first-boot password immediately and never carry them into a network-reachable deployment.
 
 🔗 Open the native-development UI at **`http://127.0.0.1:5001/caliber/`**.
 

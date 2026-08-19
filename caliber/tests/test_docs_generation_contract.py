@@ -878,12 +878,15 @@ def test_published_metadata_block_surfaces_prerequisites_on_generated_pages() ->
 
 
 def test_topology_b_is_sole_supported_topology() -> None:
-    files = [
+    source_files = [
         REPO_ROOT / "README.md",
         REPO_ROOT / "ARCHITECTURE.md",
         REPO_ROOT / "caliber" / "README.md",
         REPO_ROOT / "docs" / "start" / "decision-maker-overview.md",
         REPO_ROOT / "docs" / "01-caliber" / "architecture.md",
+        REPO_ROOT / "docs" / "competitive-analysis.md",
+        REPO_ROOT / "overview-video" / "narration_script.md",
+        REPO_ROOT / "docs" / "01-caliber" / "assets" / "platform-overview.svg",
     ]
     disallowed_phrases = [
         "choose one topology",
@@ -892,7 +895,7 @@ def test_topology_b_is_sole_supported_topology() -> None:
         "embedded with mlflow or standalone",
     ]
 
-    for path in files:
+    for path in source_files:
         text = path.read_text(encoding="utf-8")
         lowered = text.lower()
         assert "standalone" in lowered, f"{path} must document the standalone topology"
@@ -900,3 +903,27 @@ def test_topology_b_is_sole_supported_topology() -> None:
             assert phrase not in lowered, (
                 f"{path} still documents deprecated equal-choice topology language: {phrase}"
             )
+
+    public_files = [
+        DOCS_SITE / "walkthrough.html",
+        DOCS_SITE / "interactive-layered-architecture.html",
+        DOCS_SITE / "presentation.html",
+        DOCS_SITE / "presentation_timed.html",
+    ]
+    for path in public_files:
+        lowered = path.read_text(encoding="utf-8").lower()
+        assert "standalone" in lowered, f"{path} must document the standalone topology"
+        for phrase in disallowed_phrases:
+            assert phrase not in lowered, (
+                f"{path} still documents deprecated equal-choice topology language: {phrase}"
+            )
+
+    walkthrough = (DOCS_SITE / "walkthrough.html").read_text(encoding="utf-8").lower()
+    assert "--app-name caliber" not in walkthrough
+    assert "http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/health" in walkthrough
+    assert "http://127.0.0.1:5000/caliber/" not in walkthrough
+
+    vite_config = (REPO_ROOT / "caliber" / "caliber-ui" / "vite.config.ts").read_text(
+        encoding="utf-8"
+    )
+    assert '?? "http://localhost:5001"' in vite_config

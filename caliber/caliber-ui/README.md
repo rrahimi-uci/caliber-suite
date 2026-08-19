@@ -1,13 +1,13 @@
 # CALIBER UI
 
-Single-page application served by the CALIBER backend in either embedded-MLflow or standalone mode.
+Single-page application served by the standalone CALIBER backend.
 
 ## Overview
 
 This app is the browser control plane for CALIBER. It covers login, overview,
 prompts, tools, skills, MCP servers, file directories, workflows, workflow runs,
 approvals, settings, and assistant authoring. In development it runs on Vite; in
-production the Python backend serves the built bundle at `/caliber/` in both supported topologies.
+production the standalone Python backend serves the built bundle at `/caliber/`.
 
 ## Stack
 
@@ -25,9 +25,9 @@ production the Python backend serves the built bundle at `/caliber/` in both sup
 npm install
 
 # Run the dev server with HMR.
-# Vite proxies /ajax-api/* to http://localhost:5000 by default — start
-# the CALIBER backend separately:
-#   (in caliber/) make dev
+# Vite proxies /ajax-api/* to http://localhost:5001 by default — start
+# standalone CALIBER separately:
+#   (in caliber/) uvicorn caliber.server:create_app --factory --reload --port 5001
 npm run dev
 ```
 
@@ -37,7 +37,7 @@ The SPA is served from `http://localhost:5173/caliber/` in dev. Open that URL �
 
 | Env var              | Where      | Default                 | Notes                                                                             |
 | -------------------- | ---------- | ----------------------- | --------------------------------------------------------------------------------- |
-| `CALIBER_API_TARGET` | Vite dev   | `http://localhost:5000` | Backend URL the dev proxy forwards `/ajax-api/*` to.                              |
+| `CALIBER_API_TARGET` | Vite dev   | `http://localhost:5001` | Backend URL the dev proxy forwards `/ajax-api/*` to.                              |
 | `CALIBER_UI_BASE`    | Vite build | `/caliber/`             | Public base path of the built SPA. Override for non-default reverse-proxy mounts. |
 
 At runtime the hosting backend stamps `window.__CALIBER_STATIC_PREFIX__` into the served `index.html` (e.g. `"/mlflow"`) so the API client and the router agree on the deployment's mount point. Locally the value defaults to `""` (no prefix).
