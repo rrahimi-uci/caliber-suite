@@ -33,8 +33,7 @@ explicitly reviews before any alias update. Evaluation gates enforce whether ref
 `candidate_ready`; separately persisted per-version verdicts are advisory release evidence and never block
 prompt alias rotation. Audited rollback exists only where an asset records live-target or snapshot history,
 and its semantics remain asset-specific. The implementation reuses MLflow's
-Experiments, Traces, Assessments, Prompt Registry, Artifact Store, and `genai.evaluate`. It supports an
-in-process `mlflow.app` plugin topology and a standalone CALIBER service that talks to MLflow over HTTP.
+Experiments, Traces, Assessments, Prompt Registry, Artifact Store, and `genai.evaluate`. It runs as a standalone ASGI service that integrates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. The embedded `mlflow.app` mode is unsupported as a product or developer path.
 
 > 📖 **Live docs:** [`docs-site/index.html`](./docs-site/index.html) &nbsp;·&nbsp; 🏛️ **Layered architecture:** [HTML](./docs-site/m-00-layered-architecture.html) / [Markdown](./ARCHITECTURE.md) &nbsp;·&nbsp; 🧑‍🍳 **Learn by doing:** [16 Cookbooks](./docs-site/m-16-cookbooks.html)
 >
@@ -130,19 +129,11 @@ surface; the repository audit records the exact current boundary.
 > [`ARCHITECTURE.md`](./ARCHITECTURE.md) or its [generated HTML page](./docs-site/m-00-layered-architecture.html).**
 > The section below is the deployment-topology summary.
 
-The same CALIBER ASGI application supports two deployment topologies. Native development can mount it as
-an in-process MLflow `mlflow.app`; the bundled loopback Compose stack runs CALIBER as a standalone service
-and connects to a vanilla MLflow server over HTTP. `CALIBER_DATABASE_URL` is independent of MLflow's backend
-store; the bundled stack deliberately uses separate `caliber` and `mlflow` databases to avoid migration
-ownership collisions.
+CALIBER runs as a **standalone ASGI service** that integrates with a separate vanilla MLflow server over HTTP. The bundled loopback Compose stack runs CALIBER on `:5001` and MLflow on `:5000`; `CALIBER_DATABASE_URL` is independent of MLflow's backend store. Embedded `mlflow.app` mode is unsupported as a product or developer path — see [ARCHITECTURE.md](./ARCHITECTURE.md) for the support matrix.
 
 ```mermaid
 flowchart TB
     spa["React SPA — /caliber/"]:::ui
-
-    subgraph embedded["Topology A · embedded mlflow.app"]
-        eproc["MLflow server process<br/>MLflow core + CALIBER ASGI"]:::plug
-    end
 
     subgraph standalone["Topology B · bundled standalone service"]
         capi["CALIBER ASGI :5001<br/>API · SPA · in-process workers"]:::plug
@@ -150,23 +141,18 @@ flowchart TB
         capi -->|"MLFLOW_TRACKING_URI / HTTP"| mflow
     end
 
+    embedded["⚠️ Topology A · embedded mlflow.app (unsupported)<br/><i>internal compatibility only</i>"]:::plug
     cdb[("CALIBER metadata DB<br/>CALIBER_DATABASE_URL")]:::store
     mdb[("MLflow backend store")]:::store
     cart[("CALIBER storage service<br/>local · S3<br/><i>MinIO via S3 compatibility</i>")]:::store
     mart[("MLflow artifact root<br/>MLflow-configured backends<br/><i>including S3 · MinIO · GCS · local</i>")]:::store
     llm["LLM providers<br/>OpenAI · Claude · MLflow AI Gateway"]:::ext
 
-    spa -. "choose one topology" .-> eproc
-    spa -. "choose one topology" .-> capi
-    eproc --> cdb
-    eproc --> mdb
+    spa --> capi
     capi --> cdb
     mflow --> mdb
-    eproc --> cart
-    eproc --> mart
     capi --> cart
     mflow --> mart
-    eproc --> llm
     capi --> llm
 
     classDef ui fill:#e0f2fe,stroke:#0284c7,color:#075985;
@@ -176,7 +162,7 @@ flowchart TB
     classDef ext fill:#f0fdf4,stroke:#16a34a,color:#14532d;
 ```
 
-- **MLflow-integrated** — embedded mode registers CALIBER in the MLflow process; standalone mode exposes the same API/SPA and uses MLflow's HTTP APIs.
+- **MLflow-integrated** — CALIBER runs as an independent service and integrates with MLflow exclusively over HTTP via `MLFLOW_TRACKING_URI`. Embedded `mlflow.app` mode is not a supported path.
 - **One control-plane codebase** — pollers, dispatchers, schedulers, calibration/refinement drains, and workflow/knowledge/assistant workers run with the CALIBER ASGI app; no separate worker tier is required.
 - **Explicit state ownership** — CALIBER relational metadata and MLflow's backend store have separate configuration and migration owners; object storage holds file bytes.
 - **Portable state** — PostgreSQL 17 (pgvector + Apache AGE) in production and SQLite for lightweight/dev. CALIBER storage supports local or S3 (including MinIO); MLflow artifact storage uses its independently configured backends, including GCS.
@@ -186,29 +172,47 @@ flowchart TB
 ## 🚀 Quickstart
 
 ```bash
-# ── Backend (from the repo root) ──
+# ── Backing services (terminal 1, from the repo root) ──
+# Starts vanilla MLflow and its Postgres/MinIO dependencies, but not the
+# containerized CALIBER service that would occupy :5001.
+docker compose -f deploy/compose.yaml --profile app up -d mlflow
+```
+
+Then start standalone CALIBER from `caliber/` in a second terminal:
+
+```bash
 cd caliber
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,s3]"
+pip install -e ".[dev,s3,postgres]"
+export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
+uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
+```
 
-# ── Frontend (in a second shell) ──
+For frontend HMR, use a third shell:
+
+```bash
 cd caliber/caliber-ui
 npm install
 npm run dev
 ```
 
-Then start the backend from `caliber/`:
+The supported local development path keeps CALIBER separate from its backing services. Compose runs
+Postgres, MinIO, and vanilla MLflow; Uvicorn serves CALIBER on `:5001`; and Vite proxies `/ajax-api/*`
+to that CALIBER process by default. The insecure bootstrap flags above are loopback-only convenience
+settings: change the first-boot password immediately and never carry them into a network-reachable deployment.
 
-```bash
-source .venv/bin/activate
-make dev
-```
+🔗 Open the native-development UI at **`http://127.0.0.1:5001/caliber/`**.
 
-`make dev` defaults MLflow artifacts to `s3://mlflow/mlruns` via the local MinIO endpoint
-(`http://127.0.0.1:9000`) — start the suite's MinIO stack first, or override `MLFLOW_ARTIFACT_ROOT` /
-`MLFLOW_S3_ENDPOINT_URL`.
+## Supported v1 journey: governed prompt refinement
 
-🔗 Open the native-development UI at **`http://127.0.0.1:5000/caliber/login`**.
+CALIBER's canonical v1 path is **governed prompt refinement**: production trace → flagged assessment →
+verify → diagnose → optimize → evaluate → apply → promote. This is the end-to-end reference journey for
+v1; other asset families implement subsets of that lifecycle. The supported local development path runs
+standalone CALIBER (`uvicorn caliber.server:create_app --factory --reload`) separately from its backing
+services, which can run via Compose.
 
 On a fresh local database, sign in with **username `admin` and password `admin`**. Change
 the password immediately in **Administration**; the bootstrap runs only while the account
@@ -224,7 +228,7 @@ loopback launcher; any network-reachable deployment must leave
 
 | Path | What it is |
 | --- | --- |
-| 📦 [`caliber/`](./caliber/) | The Python package for both the in-process MLflow app and standalone CALIBER service — runtime code, Alembic migrations, the React SPA, tests, and packaging. See its [README](./caliber/README.md) for install + dev. |
+| 📦 [`caliber/`](./caliber/) | The Python package for the standalone CALIBER service — runtime code, unsupported embedded-compatibility coverage, Alembic migrations, the React SPA, tests, and packaging. See its [README](./caliber/README.md) for install + dev. |
 | 🌐 [`docs-site/`](./docs-site/) | The published documentation site: the [landing page](./docs-site/index.html); the generated HTML/Markdown documentation corpus built from root [`ARCHITECTURE.md`](./ARCHITECTURE.md) plus [`docs/`](./docs/) by [`build-docs.mjs`](./docs-site/build-docs.mjs); the **[Cookbooks](./docs-site/m-16-cookbooks.html)** — a card index plus 16 step-by-step recipe pages sourced from [`docs-site/cookbooks/`](./docs-site/cookbooks/); the [walkthrough](./docs-site/walkthrough.html) runbook; and click-through slide decks. Also synced into the SPA and served in-app at `/caliber/docs/`. |
 | 📐 [`docs/`](./docs/) | Source-of-truth documentation for architecture, build/integration, operations, use-case guides, SDK/API reference, strategy, and dated audit reports. The architecture corpus still centers on per-area `architecture.md` files plus the [workflow components reference](./docs/06-workflows/components.md); the broader docs tree also includes start/build/use/operate/sdk/api guides, roadmap material, and repository reports. Conventions live in [`docs/STYLE.md`](./docs/STYLE.md); the machine index is `docs-site/llms.txt`. |
 | 📄 [`paper/`](./paper/) | LaTeX source for the technical report *CALIBER: A Layered Control Plane for Governed Releases of AI-Agent Resources* — the architectural argument behind this repository, its per-family guarantee surface, and an explicit account of what it does **not** establish. Also holds the generated [seminar deck](./paper/slides/). See [`paper/README.md`](./paper/README.md). |
@@ -245,7 +249,7 @@ loopback launcher; any network-reachable deployment must leave
 | 🎯 **[v1 product requirements](./docs/prd.md)** | The bounded v1.0.0 product contract: target users, supported prompt-refinement journey, non-goals, release requirements, and traceability to the GitHub delivery plan |
 | 📄 **[Technical paper](./paper/README.md)** | The architectural argument: the governed asset, the governance chain, why guarantees are per-family rather than uniform, and an explicit register of what the work does not establish |
 | 🎤 **[Seminar deck](./paper/slides/)** | A generated 25-slide walkthrough of the paper, with speaker notes and PNG proof sheets |
-| 🧱 **[Build the plugin](./caliber/README.md)** | `cd caliber && python -m pip install -e ".[dev,s3]"`, then `make dev` |
+| 🧱 **[Run CALIBER locally](./caliber/README.md)** | `cd caliber && python -m pip install -e ".[dev,s3]"`, then `uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001` |
 | 🤝 **[Contributing](./caliber/CONTRIBUTING.md)** | Local setup, the quality gate, extension seams, and PR conventions |
 
 **Design context** — start with the rendered [layered architecture](./docs-site/m-00-layered-architecture.html), then browse [`docs/`](./docs/) or the deeper [architecture pages](./docs-site/m-01-platform.html):

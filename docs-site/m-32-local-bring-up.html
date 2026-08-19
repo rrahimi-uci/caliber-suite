@@ -91,22 +91,29 @@
         </header>
 <p>This page is the operator-first path for starting CALIBER locally and verifying that the runtime is healthy before you use deeper feature or architecture docs.</p>
 <h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
-<div class="table-wrap"><table><thead><tr><th>Path</th><th>Use when</th><th>Entry point</th></tr></thead><tbody><tr><td>Full suite</td><td>You want the complete local stack around CALIBER</td><td><code>make setup</code>, <code>make start</code></td></tr><tr><td>Plugin dev</td><td>You want the shortest CALIBER edit/test loop inside <code>caliber/</code></td><td><code>cd caliber &amp;&amp; make install &amp;&amp; make dev</code></td></tr><tr><td>Readiness check</td><td>You want to confirm dependency posture after boot</td><td><code>GET /ajax-api/2.0/mlflow/caliber/readiness</code></td></tr><tr><td>Recovery path</td><td>You need failure handling, not first boot</td><td><a href="m-19-runbook.html">Operations runbook</a></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Use when</th><th>Entry point</th></tr></thead><tbody><tr><td>Full suite</td><td>You want the complete local stack around CALIBER</td><td><code>make setup</code>, <code>make start</code></td></tr><tr><td>Standalone dev</td><td>You want the shortest supported CALIBER edit/test loop inside <code>caliber/</code></td><td><code>docker compose ... --profile app up -d mlflow</code>, then <code>uvicorn caliber.server:create_app --factory --reload --port 5001</code></td></tr><tr><td>Readiness check</td><td>You want to confirm dependency posture after boot</td><td><code>GET /ajax-api/2.0/mlflow/caliber/readiness</code></td></tr><tr><td>Recovery path</td><td>You need failure handling, not first boot</td><td><a href="m-19-runbook.html">Operations runbook</a></td></tr></tbody></table></div>
 <h2 id="1-full-suite-path">1. Full suite path<a class="anchor" href="#1-full-suite-path" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Use the full suite when you want the local product as it is usually demonstrated: CALIBER, MLflow, storage, and the surrounding services together.</p>
 <pre class="language-bash"><code class="language-bash">make setup
 make start</code></pre>
 <p>Then verify:</p>
 <ul><li>CALIBER UI loads</li><li>login succeeds</li><li>readiness reports a usable local posture</li></ul>
-<h2 id="2-plugin-dev-path">2. Plugin-dev path<a class="anchor" href="#2-plugin-dev-path" aria-hidden="true" tabindex="-1">#</a></h2>
-<p>Use the plugin path when you are developing CALIBER itself and want the shorter inner loop.</p>
-<pre class="language-bash"><code class="language-bash">cd caliber
+<h2 id="2-standalone-development-path">2. Standalone development path<a class="anchor" href="#2-standalone-development-path" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Use the standalone path when you are developing CALIBER itself and want the shorter supported inner loop. Start vanilla MLflow and its dependencies from the repository root without starting the containerized CALIBER service:</p>
+<pre class="language-bash"><code class="language-bash">docker compose -f deploy/compose.yaml --profile app up -d mlflow
+
+cd caliber
 make install
-make dev</code></pre>
+export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
+uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001</code></pre>
 <p>Optional frontend dev loop:</p>
 <pre class="language-bash"><code class="language-bash">cd caliber/caliber-ui
 npm install
 npm run dev</code></pre>
+<p>Vite proxies API calls to the standalone CALIBER process on <code>:5001</code> by default. The insecure bootstrap flags are for trusted loopback use only; change the first-boot password immediately and never use them for a network-reachable deployment.</p>
 <h2 id="3-health-and-readiness">3. Health and readiness<a class="anchor" href="#3-health-and-readiness" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>After either path, do not assume the runtime is usable just because the process started.</p>
 <p>Verify both:</p>

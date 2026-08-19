@@ -65,7 +65,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 
 - [Architecture reader guide](m-34-architecture-reader-guide.md): The curated entry point into the architecture corpus: start with the right deep page instead of reading the whole tree.
 - [Layered architecture](m-00-layered-architecture.md): The six-layer platform stack, abstract lifecycle chain, governed-asset anatomy, per-family guarantees, deployment topologies, state ownership, trust boundaries, and extension seams.
-- [Platform](m-01-platform.md): Boot and dependency graph, embedded-or-standalone topology choice, shared runtime state, async workers, and the trust boundary the whole product stands on.
+- [Platform](m-01-platform.md): Boot and dependency graph, standalone-service topology, shared runtime state, async workers, and the trust boundary the whole product stands on.
 - [The refinement loop](m-00-refinement-loop.md): The canonical prompt-refinement path — verify, diagnose, optimize, evaluate, review/apply, and durable release — plus the evidence and recovery boundaries that differ across other asset families. Read this first.
 - [Prompts architecture](m-02-prompts.md): Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation.
 - [Tools architecture](m-03-tools.md): Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration.

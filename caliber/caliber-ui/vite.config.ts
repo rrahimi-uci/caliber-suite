@@ -5,9 +5,10 @@ import { defineConfig } from "vite";
 /**
  * Vite config for the CALIBER SPA.
  *
- * The dev proxy forwards `/ajax-api/*` to the local MLflow server
- * (defaults to http://localhost:5000) so the SPA can run with HMR
- * (`npm run dev`) while still talking to the real CALIBER backend.
+ * The dev proxy forwards `/ajax-api/*` to the standalone CALIBER server
+ * (defaults to http://localhost:5001) so the SPA can run with HMR
+ * (`npm run dev`) while still talking to the real CALIBER backend. MLflow
+ * remains a separate service behind CALIBER.
  *
  * `base` is configurable via `CALIBER_UI_BASE` so the same build can be
  * served from a reverse-proxied subpath (e.g. `/caliber/` behind
@@ -25,7 +26,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/ajax-api": {
-        target: process.env["CALIBER_API_TARGET"] ?? "http://localhost:5000",
+        target: process.env["CALIBER_API_TARGET"] ?? "http://localhost:5001",
         changeOrigin: true,
       },
     },

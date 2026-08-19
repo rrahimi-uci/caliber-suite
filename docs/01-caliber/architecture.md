@@ -35,8 +35,8 @@ paths are shown relative to that prefix once the convention has been stated.
 
 | Dimension | Where CALIBER stands |
 | --- | --- |
-| **What it is** | A system-level ASGI control plane with two MLflow-integrated topologies: embedded `mlflow.app` or standalone service. |
-| **Where it runs** | Either in the MLflow server process, or as the bundled standalone CALIBER service that calls MLflow over HTTP. |
+| **What it is** | A standalone ASGI control plane that integrates with MLflow over HTTP. Embedded `mlflow.app` mode is unsupported as a product or developer path. |
+| **Where it runs** | As a standalone CALIBER ASGI service (`uvicorn caliber.server:create_app --factory`); calls MLflow's HTTP APIs via `MLFLOW_TRACKING_URI`. |
 | **How users reach it** | A React SPA served under `/caliber/`; every action flows through the API under `/ajax-api/2.0/mlflow/caliber/*`. |
 | **Source of truth** | SQLAlchemy relational metadata is authoritative; object storage owns file bytes; MLflow owns prompt versions and traces. |
 | **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to nine in-process loops. All share the background-task lifecycle gate, and three also have independent enable flags. |
@@ -50,19 +50,13 @@ system is extended along.
 assets/platform-overview.svg
 ```
 
-*Platform implementation overview — the same CALIBER ASGI application can be
-embedded in MLflow or served separately, exposes one same-origin browser control
-plane in either topology, and combines durable queue arbitration with configured or
-process-local live fanout.*
+*Platform implementation overview — CALIBER is a standalone ASGI service that exposes one same-origin browser control plane and integrates with MLflow over HTTP; it combines durable queue arbitration with configured or process-local live fanout.*
 
 ## Reference
 
 ## 1. Scope and responsibilities
 
-The `caliber` module is the system-level control plane for the product. Its
-`create_app()` factory is used in two ways: MLflow can load it as an in-process
-`mlflow.app`, or Uvicorn can serve it independently while it uses MLflow's HTTP APIs.
-The first topology shares MLflow's process failure domain; the second does not.
+The `caliber` module is the system-level control plane for the product. Uvicorn serves it as an independent process while it uses MLflow's HTTP APIs via `MLFLOW_TRACKING_URI`. The embedded `mlflow.app` mode is not a supported deployment or developer path.
 Its responsibilities are correspondingly broad — wider than those of any single
 feature module — and span the following concerns:
 
@@ -159,10 +153,10 @@ flowchart LR
 Several structural properties follow from these topologies and are worth making
 explicit, because they shape every design decision downstream:
 
-- Embedded mode loads CALIBER into the MLflow server as a sibling ASGI surface.
-  Standalone mode serves the same application separately and points
-  `MLFLOW_TRACKING_URI` at MLflow. Neither mode makes CALIBER a transparent gateway
-  in front of MLflow.
+- The supported topology serves CALIBER separately and points `MLFLOW_TRACKING_URI`
+  at MLflow. Embedded `mlflow.app` remains only as unsupported internal
+  compatibility coverage, and CALIBER is never a transparent gateway in front of
+  MLflow.
 - The frontend shell is bundled separately with Vite, but it is served through
   the CALIBER package by `routes/static.py` rather than from a distinct origin.
 - Core app-lifetime dependencies are constructed in `create_app()` and exposed
@@ -480,8 +474,9 @@ The primary extension points follow the layering described earlier:
 Set against those seams are the architectural constraints the system currently
 accepts, stated plainly so that future work can weigh them deliberately:
 
-- Embedded mode couples CALIBER and MLflow to one process failure domain; standalone
-  mode trades that coupling for an HTTP dependency and a second service process.
+- The supported standalone topology has separate process failure domains for
+  CALIBER and MLflow; a CALIBER failure does not affect MLflow and vice versa.
+  The embedded `mlflow.app` mode is unsupported.
 - SQLAlchemy usage is sync throughout the server.
 - Many feature modules still perform orchestration directly in the route files
   rather than through deeper service layers.
@@ -492,6 +487,6 @@ accepts, stated plainly so that future work can weigh them deliberately:
   though both are structured well enough to be extracted later.
 
 Taken together, the picture is consistent: CALIBER is one ASGI control-plane
-codebase, deployable embedded or standalone, with feature modules layered on a common runtime substrate. The
+codebase serving as a standalone ASGI service, with feature modules layered on a common runtime substrate. The
 per-feature documents take it from here, describing how each major bounded
 context plugs into that substrate.

@@ -30,7 +30,7 @@ Modern LLM agents fail in ways unit tests can't catch — hallucinated policies,
 
 CALIBER's design center of gravity:
 
-- **MLflow-integrated.** Runs either as an in-process `mlflow.app` or as a standalone CALIBER ASGI service that uses MLflow over HTTP.
+- **MLflow-integrated.** Runs as a standalone CALIBER ASGI service that integrates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. Embedded `mlflow.app` mode is unsupported.
 - **Evidence-gated.** Aggregate and per-dimension thresholds gate candidate readiness; prompt release surfaces carry the resulting evidence as an advisory verdict into an explicitly authorized promotion.
 - **Auditable.** Refinement-originated prompt changes retain signal-to-job lineage; direct prompt edits and releases follow their own audit path.
 - **Honest about bundle scope.** Multi-target promotion plumbing exists, but automatic multi-agent bundle optimization (`MultiAgentCoord`) remains roadmap work; current submission paths are single-target.
@@ -75,16 +75,26 @@ cd caliber-suite
 python -m pip install -e "./caliber"
 ```
 
-Then start MLflow with the CALIBER plugin enabled:
+For supported local development, start backing services and vanilla MLflow first, then run CALIBER separately:
 
 ```bash
-mlflow server --app-name caliber
+# From the repository root: start vanilla MLflow and its Postgres/MinIO
+# dependencies, but do not start the containerized CALIBER service on :5001.
+docker compose -f deploy/compose.yaml --profile app up -d mlflow
+
+# From caliber/: run standalone CALIBER with backend reload enabled.
+export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
+uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
 ```
 
-The CALIBER UI is served at `http://localhost:5000/caliber/`. The CALIBER API is mounted at `http://localhost:5000/ajax-api/2.0/mlflow/caliber/*`.
+The CALIBER UI is served at `http://127.0.0.1:5001/caliber/`. The bootstrap flags above are only for a trusted loopback run; change the first-boot password immediately and use a strong password source with Secure cookies in every network-reachable deployment.
 
-For local repo entrypoints, `make dev`, `./scripts/run-dev.sh`, and the
-Playwright bootstrap now default MLflow artifacts to
+`make dev` and `./scripts/run-dev.sh` still exercise the embedded `mlflow.app`
+compatibility path. They are not supported local-development entrypoints. The
+Playwright bootstrap and supported standalone path default MLflow artifacts to
 `s3://mlflow/mlruns` through the local MinIO endpoint at
 `http://127.0.0.1:9000` so new runs do not fall back to filesystem-backed
 `mlruns` / `mlartifacts` trees unless you override `MLFLOW_ARTIFACT_ROOT`.
@@ -140,7 +150,7 @@ result = Runner.run_sync(support_agent, user_message)
 #    Assessment with category "hallucination". CALIBER's feedback poller
 #    creates a verification-queue item automatically.
 
-# 4. Open http://localhost:5000/caliber/, verify the item, wait for the
+# 4. Open http://127.0.0.1:5001/caliber/, verify the item, wait for the
 #    refinement job to reach candidate_ready, inspect it, and invoke Apply.
 #    CALIBER then rotates the prompt alias.
 #    Your code keeps loading "support-agent@prod" — the next call gets
@@ -224,9 +234,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 
 ## Architecture
 
-CALIBER uses one ASGI application in two topologies. Embedded mode loads it as an
-MLflow `mlflow.app`; the bundled Compose stack starts it with Uvicorn as a standalone
-service and reaches vanilla MLflow through `MLFLOW_TRACKING_URI`. In either mode it registers:
+CALIBER's supported topology is a standalone ASGI service. Uvicorn serves the CALIBER
+API/SPA and its in-process background loops on `:5001`, MLflow runs separately on
+`:5000`, and CALIBER reaches vanilla MLflow through `MLFLOW_TRACKING_URI`. The embedded
+`mlflow.app` path remains only as unsupported internal compatibility coverage. The
+service registers:
 
 - **ASGI routes** under `/ajax-api/2.0/mlflow/caliber/*` for the verification queue, refinement jobs, Apply/rollback, workflows, and dashboard.
 - **Static-file routes** under `/caliber/` for the React SPA (built from `caliber-ui/`).
@@ -236,31 +248,20 @@ service and reaches vanilla MLflow through `MLFLOW_TRACKING_URI`. In either mode
   bundled stack does point to a separate logical database from MLflow's backend store.
 
 ```
-Embedded topology:
-┌─────────────────────────────────────────────────────────┐
-│                  MLflow Server Process                  │
-│  ┌────────────────────────┐  ┌──────────────────────┐   │
-│  │  MLflow Core           │  │  CALIBER Plugin      │   │
-│  │  - Experiments         │  │  - /caliber/*  (SPA) │   │
-│  │  - Runs                │  │  - /caliber/* (API)  │   │
-│  │  - Traces              │  │  - Feedback poller   │   │
-│  │  - Prompt Registry     │  │  - Refinement worker │   │
-│  └────────────────────────┘  └──────────────────────┘   │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │ CALIBER DB      │  ← independently configured
-              │ + MLflow store  │    (may be separate databases)
-              └─────────────────┘
-              ┌─────────────────┐
-              │  Artifact Store │  ← MLflow-managed (S3 / MinIO / GCS / local)
-              └─────────────────┘
+Supported standalone topology:
+Browser / SPA ──> CALIBER :5001 ──HTTP (`MLFLOW_TRACKING_URI`)──> MLflow :5000
+       │                   │                                        │
+       │                   ├──> CALIBER DB (`CALIBER_DATABASE_URL`) │
+       │                   └──> CALIBER storage service             ├──> MLflow backend store
+       │                                                            └──> MLflow artifact root
+
+Unsupported internal compatibility coverage:
+MLflow `mlflow.app` may still load CALIBER in-process for compatibility testing, but it is
+not a supported product or developer deployment path.
 ```
 
-Standalone topology runs the CALIBER API/SPA and its in-process background loops on
-`:5001`, MLflow on `:5000`, and uses separate `caliber` and `mlflow` databases in the
-development Compose stack. See [`deploy/caliber/README.md`](../deploy/caliber/README.md).
+The development Compose stack uses separate `caliber` and `mlflow` databases. See
+[`deploy/caliber/README.md`](../deploy/caliber/README.md).
 
 Architectural reading order: the [layered architecture](../ARCHITECTURE.md) first
 ([generated HTML](../docs-site/m-00-layered-architecture.html)), then the deeper
@@ -286,13 +287,15 @@ inventory for admins and super users. Important groups include:
 
 ## Deployment Guidance
 
-For local embedded deployments, run `mlflow server --app-name caliber` with the
-package installed and the built SPA included. The bundled loopback Compose stack instead
-runs standalone CALIBER and vanilla MLflow as separate services. For a production design,
-use PostgreSQL with independently owned CALIBER and MLflow databases (the bundled stack uses
-`caliber` and `mlflow`; sharing one schema creates Alembic ownership collisions), S3/MinIO or a shared volume for workflow
-files, explicit admin/operator/approver lists, and environment-backed secret
-sources. The repository's Compose files are development evidence, not a production topology.
+Use the bundled loopback Compose stack or the documented standalone Uvicorn workflow for
+local development. For a production design, run CALIBER as its own ASGI service against a
+separately running vanilla MLflow server over HTTP, use PostgreSQL with independently owned
+CALIBER and MLflow databases (the bundled stack uses `caliber` and `mlflow`; sharing one
+schema creates Alembic ownership collisions), S3/MinIO or a shared volume for workflow
+files, explicit admin/operator/approver lists, and environment-backed secret sources. The
+embedded `mlflow.app` path is unsupported and should be treated only as internal
+compatibility coverage. The repository's Compose files are development evidence, not a
+production topology.
 Queue-based workflow execution should enable
 `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true`; only replicas intended to consume the
 queue should set `CALIBER_WORKFLOW_RUN_WORKER_ENABLED=true`. The loopback launchers may
