@@ -24,6 +24,26 @@ config and clients only ever reference the endpoint name.
 Ships with `chat-openai`, `completions-openai`, `embeddings-openai`, and
 `chat-anthropic`. Add an entry and restart to expose another model.
 
+### Unconfigured providers are skipped, not fatal
+
+Each provider key is optional. At startup the entrypoint renders the effective
+config with [`render_config.py`](render_config.py), dropping any endpoint whose
+`$VAR` placeholders are unset or empty and logging what it skipped:
+
+```
+[mlflow-gateway] skipping endpoint 'chat-anthropic': ANTHROPIC_API_KEY unset
+[mlflow-gateway] serving 3 endpoint(s): chat-openai, completions-openai, embeddings-openai
+```
+
+This exists because the gateway validates its whole endpoint list before
+serving: one absent key used to abort startup, and with `restart: unless-stopped`
+that became a crash loop that took the *configured* endpoints down too — the
+CALIBER Gateway page then reported the whole service unreachable.
+
+The gateway still exits non-zero when *no* endpoint is configured, with a message
+naming the keys it looked for. Set `MLFLOW_GATEWAY_SKIP_RENDER=1` to bypass the
+filter and get the gateway's own strict all-or-nothing validation back.
+
 ## How CALIBER uses it
 
 - **Discovery (default on):** CALIBER's **Gateway** page probes this server's endpoint
