@@ -1,3 +1,0 @@
-{"t":"2026-08-19T01:07:11.993Z","severity":"INFO","logger":"caliber.knowledge.worker","message":"knowledge-base worker started (interval=0.0s lease=120.0s worker=knowledge-build-worker-2362-7f4d182da950)"}
-{"t":"2026-08-19T01:07:12.046Z","severity":"WARNING","logger":"caliber.knowledge.worker","message":"knowledge-base worker did not stop within 0.1s; cancelling"}
-{"t":"2026-08-19T01:07:12.048Z","severity":"INFO","logger":"caliber.knowledge.worker","message":"knowledge-base worker stopped"}

@@ -1,1 +1,0 @@
-{"t":"2026-08-19T01:05:28.859Z","severity":"WARNING","logger":"caliber.trace_client","message":"trace span mapping failed for T1 (data explosion); returning empty tree"}

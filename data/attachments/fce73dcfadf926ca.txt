@@ -1,0 +1,27 @@
+{"t":"2026-08-19T01:49:56.747Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-19T01:49:56.770Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-19T01:49:56.773Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-19T01:49:56.775Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-19T01:49:56.833Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-08-19T01:49:58.477Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-19T01:49:58.487Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/versions \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.497Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-8d533be7/sources \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.508Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-8d533be7/chunks?limit=50 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.519Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-8d533be7/entities \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.530Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-8d533be7/relationships \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.540Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-8d533be7/graph \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.551Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/KBV-8d533be7/graph?source=age \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.560Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/runs \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.570Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-runs/KBR-7ecc4895/events \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.910Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-08-19T01:49:58.918Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/versions \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.952Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge/query \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.978Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge/query \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:58.994Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/versions/KBV-8d533be7/activate \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:59.004Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:59.019Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/rollback \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:59.030Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/versions/KBV-8d533be7/activate \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:59.040Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/versions/KBV-ac46e14d/activate \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:59.046Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569 \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:59.053Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/versions/KBV-ac46e14d/activate \"HTTP/1.1 200 OK\""}
+{"t":"2026-08-19T01:49:59.065Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-84934569/rollback \"HTTP/1.1 200 OK\""}
