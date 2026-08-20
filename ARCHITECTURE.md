@@ -105,7 +105,7 @@ flowchart LR
     subgraph L6["6 · SURFACES"]
       direction LR
       s1["<b>React SPA</b><br/><code>/caliber/</code>"]:::ui
-      s2["<b>HTTP API</b><br/>490 method declarations<br/>across 48 modules"]:::ui
+      s2["<b>HTTP API</b><br/>386 HTTP operations<br/>across 45 route modules"]:::ui
       s3["<b>Aria copilot</b><br/>permissioned<br/>agentic tool loop"]:::ui
       s4["<b>Headless</b><br/>service tokens ·<br/>SSE · webhooks"]:::ui
       s1 --- s2 --- s3 --- s4
@@ -645,8 +645,8 @@ touching the substrate.
 | **Storage backends** | `StorageBackend` protocol — `local` and `s3` ship | [storage/base.py](caliber/src/caliber/storage/base.py) |
 | **Event transports** | `in_process`, `nats`, `redis`, `database` | [events/](caliber/src/caliber/events/) |
 | **Tool execution** | `ToolSandbox` protocol — the shipped implementation is a short-lived, bounded local subprocess process boundary, not container, VM, or seccomp isolation | [tool_sandbox/service.py](caliber/src/caliber/tool_sandbox/service.py) |
-| **Workflow components** | 29 built-in node types behind a typed IR and component catalog; the in-server interpreter and generated Agents SDK export share that IR, which is designed for future additional backends | [workflows/ir.py](caliber/src/caliber/workflows/ir.py) · [workflows/component_catalog.py](caliber/src/caliber/workflows/component_catalog.py) |
-| **Aria capabilities** | Declare an operation once — key, risk tier, scopes, input schema, handler — and the agent toolset picks it up as a *projection* of the registry. **Partial current-source snapshot:** the toolset is 29 hand-written `_t_*` tools plus a 7-capability projection, so this is an emerging seam rather than complete parity. | [assistant/capabilities.py](caliber/src/caliber/assistant/capabilities.py) |
+| **Workflow components** | 31 built-in node types behind a typed IR and component catalog; the in-server interpreter and generated Agents SDK export share that IR, which is designed for future additional backends | [workflows/ir.py](caliber/src/caliber/workflows/ir.py) · [workflows/component_catalog.py](caliber/src/caliber/workflows/component_catalog.py) |
+| **Aria capabilities** | Declare an operation once — key, risk tier, scopes, input schema, handler — and the agent toolset picks it up as a *projection* of the registry. **Partial current-source snapshot:** the toolset is 29 hand-written `_t_*` tools plus a 9-capability projection, so this is an emerging seam rather than complete parity. | [assistant/capabilities.py](caliber/src/caliber/assistant/capabilities.py) |
 | **Scorers & judges** | Deterministic scorers plus operator-authored `make_judge` judges, referenced as `Judge.<id>` tokens anywhere a scorer is accepted | [eval/judge_scorer.py](caliber/src/caliber/eval/judge_scorer.py) · [eval/scorecard.py](caliber/src/caliber/eval/scorecard.py) |
 | **Graph extraction** | `heuristic` or `spacy` backends over Apache AGE | [knowledge/graph.py](caliber/src/caliber/knowledge/graph.py) · [knowledge/age.py](caliber/src/caliber/knowledge/age.py) |
 

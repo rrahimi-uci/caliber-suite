@@ -8,7 +8,7 @@ product_area: gateways
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-08-20
 version_applicability: current main branch docs contract
 tags:
   - gateways
@@ -350,6 +350,40 @@ of operational states:
   the external gateway has no configured endpoint inventory.
 - With a gateway reachable while CALIBER routes directly to providers, discovery
   works, but runtime traffic is not yet opted into the gateway.
+
+### 8.1 Partially configured gateways are still served
+
+The gateway CALIBER discovers is an external MLflow AI Gateway, and that server
+validates its *entire* endpoint list before it will serve any of it. A `$VAR`
+placeholder that resolves to nothing therefore aborts startup, and under a
+restart policy that becomes a crash loop in which the endpoints that *are*
+configured go down along with the one that is not. From CALIBER's side the
+symptom is indistinguishable from a network problem: the probe fails and the
+Gateway page reports the whole service unreachable.
+
+The bundled gateway image (`deploy/mlflow-gateway/`) closes that gap before the
+server starts. Its entrypoint renders the effective configuration first, keeping
+the endpoints whose placeholders resolve, dropping the ones they do not, and
+logging each omission by name:
+
+```text
+[mlflow-gateway] skipping endpoint 'chat-anthropic': ANTHROPIC_API_KEY unset
+[mlflow-gateway] serving 3 endpoint(s): chat-openai, completions-openai, embeddings-openai
+```
+
+Two properties follow, and both matter when reading the Gateway page:
+
+- A missing provider key narrows the discovered endpoint inventory. It does not
+  make the gateway unreachable. An inventory smaller than `gateway.yaml`
+  suggests an unset key, not a connectivity fault.
+- An empty result still fails loudly. With no endpoint left to serve the
+  container exits non-zero and names the keys it looked for, so a wholly
+  unconfigured gateway is a startup error rather than a silent no-op.
+
+`MLFLOW_GATEWAY_SKIP_RENDER=1` bypasses the render step and restores the
+gateway's own strict all-or-nothing validation. This behavior belongs to the
+deployment image, not to the CALIBER service: a gateway operated outside this
+repository validates however its own operator configured it.
 
 ## 9. Extension points and current constraints
 
