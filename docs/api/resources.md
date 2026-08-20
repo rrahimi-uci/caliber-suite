@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-08-11
+reviewed_on: 2026-08-20
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -40,6 +40,9 @@ does this capability live?" before you drop into per-route details.
 | `/workflows`, `/workflow-components`, `/workflow-templates` | Workflow registry, composition, and templates |
 | `/workflow-versions`, `/workflow-runs`, `/workflows/{id}/deployments` | Version lifecycle, execution, approvals, and deployment |
 | `/services` and `/workflows/{id}/service` | Publish a workflow as an external HTTP service, invoke it, and inspect service tokens/OpenAPI |
+| `/workflow-files`, `/workflow-cron-preview`, `/workflow-promotions`, `/workflow-benchmark-reports` | Run-workspace files, schedule preview, promotion approval/rejection, and benchmark reports |
+| `/agents` | Agent records that verification items, refinement jobs, and approvals hang off |
+| `/openapi-integrations` | Governed import of external OpenAPI contracts: pinned snapshots, operation classification, dependency detection, curated tool drafts, and publication into the tool registry |
 
 ## Data, knowledge, and evidence
 
@@ -52,6 +55,9 @@ does this capability live?" before you drop into per-route details.
 | `/evaluations` | Scored evaluation runs |
 | `/judges` | Model-backed graders and alignment |
 | `/review-queues` | Human review queues and adjudication outputs |
+| `/knowledge-runs/{id}/events` | Live build-progress events for a knowledge-base run |
+| `/playground-runs/{id}/files` | Files produced by an ad-hoc playground run |
+| `/memory` | Long-term agent memory: add, search, list, and delete, always scoped by agent/user/run |
 
 ## Operations and governance
 
@@ -64,6 +70,7 @@ does this capability live?" before you drop into per-route details.
 | `/audit-log` | Read-only audit explorer and export |
 | `/gateway/*` and `/llm-pricing` | Gateway discovery, guardrails, usage, and pricing overrides |
 | `/system/services`, `/system/incidents`, `/system/effects`, `/system/webhook-dead-letters` | Runtime health and operational recovery surfaces |
+| `/gate-verdicts/{artifact_type}/{version_key}` | Version-addressable advisory evaluation-gate verdicts read before a promotion |
 | `/secrets` | Write-only secret references and lifecycle |
 
 ## Assistant and agentic surfaces

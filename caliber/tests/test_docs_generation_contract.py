@@ -17,6 +17,8 @@ from functools import cache
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from starlette.testclient import TestClient
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_SITE = REPO_ROOT / "docs-site"
 DOCS_SOURCE = REPO_ROOT / "docs"
@@ -927,3 +929,68 @@ def test_topology_b_is_sole_supported_topology() -> None:
         encoding="utf-8"
     )
     assert '?? "http://localhost:5001"' in vite_config
+
+
+# ---------------------------------------------------------------------------
+# Numeric claims in ARCHITECTURE.md
+#
+# ARCHITECTURE.md states concrete counts (node types, HTTP operations, Aria
+# capability projection) directly in prose and in the layered-architecture
+# Mermaid diagram. Those numbers are the first thing to go stale after a
+# feature lands, and nothing regenerates them. Derive each from the tree and
+# pin the published claim to it.
+# ---------------------------------------------------------------------------
+
+MANAGEMENT_API_PREFIX = "/ajax-api/2.0/mlflow/caliber"
+_NON_HTTP_METHODS = frozenset({"HEAD", "OPTIONS"})
+
+
+def test_architecture_node_type_count_matches_component_catalog() -> None:
+    from caliber.workflows.component_catalog import build_workflow_component_catalog
+
+    node_types = len(build_workflow_component_catalog()["components"])
+    text = LAYERED_ARCHITECTURE.read_text(encoding="utf-8")
+
+    assert f"{node_types} built-in node types" in text, (
+        f"ARCHITECTURE.md must state {node_types} built-in node types "
+        f"(the component catalog's current size)"
+    )
+
+
+def test_architecture_aria_projection_count_matches_capability_registry() -> None:
+    from caliber.assistant.capabilities import registered_capabilities
+
+    projected = len(registered_capabilities())
+    text = LAYERED_ARCHITECTURE.read_text(encoding="utf-8")
+
+    assert f"{projected}-capability projection" in text, (
+        f"ARCHITECTURE.md must state a {projected}-capability projection "
+        f"(the assistant capability registry's current size)"
+    )
+
+
+def test_architecture_http_surface_counts_match_mounted_routes(client: TestClient) -> None:
+    app = client.app
+
+    operations = 0
+    modules: set[str] = set()
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        if not path.startswith(f"{MANAGEMENT_API_PREFIX}/"):
+            continue
+        methods = set(getattr(route, "methods", None) or ()) - _NON_HTTP_METHODS
+        operations += len(methods)
+        endpoint = getattr(route, "endpoint", None)
+        module = getattr(endpoint, "__module__", "") if endpoint is not None else ""
+        if module.startswith("caliber.routes."):
+            modules.add(module)
+
+    text = LAYERED_ARCHITECTURE.read_text(encoding="utf-8")
+    assert f"{operations} HTTP operations" in text, (
+        f"ARCHITECTURE.md must state {operations} HTTP operations "
+        f"(management-API path x method, excluding HEAD/OPTIONS)"
+    )
+    assert f"across {len(modules)} route modules" in text, (
+        f"ARCHITECTURE.md must state {len(modules)} route modules "
+        f"(caliber.routes.* modules serving management-API endpoints)"
+    )
