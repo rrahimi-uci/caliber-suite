@@ -497,6 +497,7 @@ async def get_run(request: Request) -> JSONResponse:
 # Available models the UI can choose from.
 _BUILTIN_AVAILABLE_MODELS = [
     # GPT-5.x series
+    {"id": "gpt-5.6-luna", "name": "GPT-5.6 Luna", "provider": "openai"},
     {"id": "gpt-5.5", "name": "GPT-5.5", "provider": "openai"},
     {"id": "gpt-5.4", "name": "GPT-5.4", "provider": "openai"},
     {"id": "gpt-5.3", "name": "GPT-5.3", "provider": "openai"},
@@ -521,7 +522,7 @@ _BUILTIN_AVAILABLE_MODELS = [
 
 # Provider defaults used when the configured model is empty (auto posture).
 _DEFAULT_MODEL_BY_PROVIDER = {
-    "openai": "gpt-5.2",
+    "openai": "gpt-5.6-luna",
     "anthropic": "claude-sonnet-4-20250514",
     "ollama": "qwen2.5:7b",
 }
@@ -644,7 +645,7 @@ async def get_assistant_config(request: Request) -> JSONResponse:
     )
     # Empty model → report the resolved provider's default so the UI shows it.
     if not model:
-        model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, "gpt-5.2")
+        model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, "gpt-5.6-luna")
     available_models = _available_models(current_model=model, current_provider=provider)
 
     return JSONResponse(
@@ -739,7 +740,7 @@ async def update_assistant_config(request: Request) -> JSONResponse:  # noqa: PL
         engine_name if engine_name in _REAL_ASSISTANT_ENGINES else "openai"
     )
     if not current_model:
-        current_model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, "gpt-5.2")
+        current_model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, "gpt-5.6-luna")
 
     response_engine = engine_name
     effective_model = current_model

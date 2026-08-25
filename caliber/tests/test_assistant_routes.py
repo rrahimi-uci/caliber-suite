@@ -338,6 +338,15 @@ class TestRunRoutes:
 
 
 class TestAssistantAuth:
+    def test_config_reports_new_openai_default(self, client: TestClient) -> None:
+        resp = client.get(f"{PREFIX}/config")
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["model"] == "gpt-5.6-luna"
+        assert data["reasoning"] == "medium"
+        assert any(model["id"] == "gpt-5.6-luna" for model in data["available_models"])
+
     def test_no_user_header_returns_401(self, client: TestClient) -> None:
         resp = client.get(
             f"{PREFIX}/sessions",
@@ -385,7 +394,7 @@ class TestAssistantAuth:
         )
         client.app.state._assistant_overrides = {
             "engine": "openai",
-            "model": "gpt-5.2",
+            "model": "gpt-5.6-luna",
             "reasoning": "",
         }
 
@@ -394,10 +403,10 @@ class TestAssistantAuth:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["engine"] == "openai"
-        assert data["model"] == "gpt-5.2"
+        assert data["model"] == "gpt-5.6-luna"
         assert data["provider"] == "openai"
         assert data["reasoning"] == "high"
-        assert rebuild_calls == [("openai", "gpt-5.2", "high")]
+        assert rebuild_calls == [("openai", "gpt-5.6-luna", "high")]
 
     def test_config_includes_discovered_ollama_models(
         self, client: TestClient, monkeypatch: pytest.MonkeyPatch

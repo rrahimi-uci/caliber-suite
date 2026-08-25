@@ -41,6 +41,8 @@ def _patch_openai(
 def test_init_warns_without_key(caplog: pytest.LogCaptureFixture) -> None:
     engine = OpenAIAssistantEngine(api_key="", api_key_env="NO_SUCH_KEY_ENV_VAR")
     assert engine._api_key == ""
+    assert engine._model == "gpt-5.6-luna"
+    assert engine._reasoning == "medium"
 
 
 def test_run_turn_parses_structured_json(monkeypatch: pytest.MonkeyPatch) -> None:
