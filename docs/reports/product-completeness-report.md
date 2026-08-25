@@ -1178,8 +1178,8 @@ for the gate ledger, applied one layer further out.
 
 The working tree at the time of this update carries an uncommitted rename of this document:
 `product-completness-developement-report.md` deleted, `product-completness-report.md`
-untracked. Four committed files link to the old name — [README.md:247](README.md#L247),
-[ARCHITECTURE.md:608](ARCHITECTURE.md#L608), `docs-site/m-00-layered-architecture.md:603`, and
+untracked. Four committed files link to the old name — [README.md:247](../../README.md#L247),
+[ARCHITECTURE.md:608](../../ARCHITECTURE.md#L608), `docs-site/m-00-layered-architecture.md:603`, and
 `caliber/caliber-ui/public/docs/m-00-layered-architecture.md:603`, plus the gitignored
 packaged copy under `caliber/src/caliber/ui/docs/`.
 

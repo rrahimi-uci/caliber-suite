@@ -1,6 +1,6 @@
 """OpenAI Agents SDK assistant engine.
 
-Uses ``gpt-5.2`` by default with optional reasoning effort. The API key is read
+Uses ``gpt-5.6-luna`` by default with medium reasoning effort. The API key is read
 from the environment variable pointed to by ``CaliberConfig.llm_api_key_env``
 (typically ``OPENAI_API_KEY``).
 """
@@ -50,8 +50,8 @@ class OpenAIAssistantEngine:
     def __init__(
         self,
         *,
-        model: str = "gpt-5.2",
-        reasoning: str = "",
+        model: str = "gpt-5.6-luna",
+        reasoning: str = "medium",
         api_key: str | None = None,
         api_key_env: str = "OPENAI_API_KEY",
         tool_dispatcher: AssistantToolDispatcher | None = None,

@@ -28,6 +28,8 @@ def test_defaults() -> None:
     assert config.mcp_stdio_command_allowlist == "${PYTHON}"
     assert config.mcp_stdio_safe_path == os.defpath
     assert config.mcp_stdio_isolation_profile == "none"
+    assert config.assistant_model == ""
+    assert config.assistant_reasoning == "medium"
     assert config.mcp_require_external_isolation_for_aliases == "prod"
     assert config.auth_bootstrap_admin_user == "admin"
     assert config.auth_bootstrap_allow_insecure_default is False

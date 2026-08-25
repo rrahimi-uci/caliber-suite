@@ -963,12 +963,12 @@ class CaliberConfig(BaseModel):
         default="",
         description=(
             "Model id for the assistant engine. Empty means use the resolved "
-            "provider's default (OpenAI gpt-5.2 / Anthropic claude-sonnet-4)."
+            "provider's default (OpenAI gpt-5.6-luna / Anthropic claude-sonnet-4)."
         ),
     )
     assistant_reasoning: str = Field(
-        default="",
-        description="Optional reasoning effort/setting for OpenAI assistant engine.",
+        default="medium",
+        description="Reasoning effort/setting for the OpenAI assistant engine.",
     )
     assistant_disabled_intents: str = Field(
         default="",

@@ -869,7 +869,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-08-20",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "gateways",
@@ -1050,7 +1050,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-11",
+      "reviewed_on": "2026-08-20",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1411,7 +1411,7 @@ window.DOCS_DATA = {
         "A CALIBER failure or degraded runtime question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-08-20",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "troubleshooting",
