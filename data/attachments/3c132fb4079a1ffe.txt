@@ -1,7 +1,0 @@
-ERROR    caliber.artifact_store:artifact_store.py:126 failed to load skill triage from DB
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/artifact_store.py", line 115, in get_active_skill
-    with self._session_factory() as session:
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_artifact_store.py", line 136, in __enter__
-    raise RuntimeError("db unavailable")
-RuntimeError: db unavailable

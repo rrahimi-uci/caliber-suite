@@ -1,1 +1,0 @@
-{"t":"2026-08-19T01:54:03.496Z","severity":"WARNING","logger":"caliber.secrets","message":"secret source 'file:///tmp/pytest-of-runner/pytest-0/popen-gw3/test_file_scheme_missing_file_0/nope': file does not exist"}
