@@ -31,6 +31,7 @@ const ALL_DESTINATIONS = [
   "/knowledge-bases",
   "/object-store",
   "/mcp-servers",
+  "/openapi-integrations",
   "/gateway",
   "/eval-datasets",
   "/judges",
@@ -44,6 +45,32 @@ const ALL_DESTINATIONS = [
 ];
 
 const GROUP_IDS = ["build", "resources", "integrations", "evaluate", "operate", "admin"];
+
+const EXPECTED_NAV_LABELS = [
+  "Dashboard",
+  "Workflows",
+  "Cookbooks",
+  "Agents",
+  "Plans",
+  "Prompts",
+  "Tools",
+  "Skills",
+  "Knowledge Bases",
+  "Object Store",
+  "LLM Gateway",
+  "MCP Servers",
+  "OpenAPI Integrations",
+  "Test Sets",
+  "Judges",
+  "Evaluations",
+  "Releases",
+  "Observability",
+  "Review Queues",
+  "Audit Log",
+  "Administration",
+  "Settings",
+  "Docs",
+];
 
 function envelope<T>(data: T): { data: T } {
   return { data };
@@ -99,6 +126,23 @@ describe("Sidebar navigation groups", () => {
     for (const destination of ALL_DESTINATIONS) {
       expect(hrefs, `missing destination ${destination}`).toContain(destination);
     }
+  });
+
+  it("orders destinations by build, integration, evaluation, and operating lifecycle", async () => {
+    stubPlans();
+    const user = userEvent.setup();
+    renderSidebar();
+
+    for (const id of GROUP_IDS) {
+      const toggle = await screen.findByTestId(`nav-group-toggle-${id}`);
+      if (toggle.getAttribute("aria-expanded") === "false") await user.click(toggle);
+    }
+
+    expect(
+      within(screen.getByLabelText("CALIBER navigation"))
+        .getAllByRole("link")
+        .map((link) => link.textContent?.trim()),
+    ).toEqual(EXPECTED_NAV_LABELS);
   });
 
   it("groups MCP Servers and the LLM Gateway together as integrations", async () => {

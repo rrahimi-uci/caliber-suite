@@ -3,7 +3,7 @@
  * collapsible grouped sections, and animated active states.
  *
  * The information architecture lives in ``NAV_GROUPS`` rather than in JSX so
- * the grouping is one readable list instead of twenty-two hand-placed blocks,
+ * the grouping is one readable list instead of many hand-placed blocks,
  * and so tests can assert the structure directly.
  *
  * Two independent "collapsed" concepts meet here and must not be confused:
@@ -212,8 +212,8 @@ const NAV_GROUPS: NavGroup[] = [
     title: "Resources",
     items: [
       { to: "/prompts", icon: <MessageSquareText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Prompts" },
-      { to: "/skills", icon: <Puzzle className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Skills" },
       { to: "/tools", icon: <Wrench className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Tools" },
+      { to: "/skills", icon: <Puzzle className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Skills" },
       { to: "/knowledge-bases", icon: <Library className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Knowledge Bases" },
       // Deliberately still "Object Store", not "Files": ``routes/files.py`` is a
       // different concept (workflow file staging and run-scoped uploads), and
@@ -226,9 +226,9 @@ const NAV_GROUPS: NavGroup[] = [
     id: "integrations",
     title: "Integrations",
     items: [
+      { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
       { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers" },
       { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations" },
-      { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
     ],
   },
   {
@@ -244,9 +244,9 @@ const NAV_GROUPS: NavGroup[] = [
     id: "operate",
     title: "Operate",
     items: [
+      { to: "/releases", icon: <Rocket className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Releases" },
       { to: "/observability", icon: <Activity className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Observability" },
       { to: "/review-queues", icon: <ClipboardCheck className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Review Queues" },
-      { to: "/releases", icon: <Rocket className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Releases" },
       { to: "/audit-log", icon: <ScrollText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Audit Log" },
     ],
   },
@@ -256,7 +256,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/administration", icon: <ShieldCheck className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Administration" },
       { to: "/settings", icon: <Settings2 className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Settings" },
-      { to: `${import.meta.env.BASE_URL}docs/index.html`, icon: <FileText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Docs", external: true },
     ],
   },
 ];
@@ -342,7 +341,7 @@ export function Sidebar({
   const activeGroup = activeGroupId(location.pathname);
 
   // Default to the active group alone: the point of the change is that the
-  // first viewport stops showing all twenty-two destinations at once.
+  // first viewport stops showing every grouped destination at once.
   //
   // Falling back to "build" matters. On the Dashboard no group is active, and
   // an empty default would open the app on six collapsed headers and zero
@@ -402,6 +401,19 @@ export function Sidebar({
             pinToBottom={group.id === "admin"}
           />
         ))}
+
+        {/* Documentation is a global help destination, not an administrative
+            setting. Keep it persistently reachable below the pinned Admin
+            section, including in the desktop icon rail and mobile drawer. */}
+        <div className="mt-3 border-t border-slate-200/60 pt-3">
+          <NavItem
+            to={`${import.meta.env.BASE_URL}docs/index.html`}
+            icon={<FileText className={NAV_ICON_CLASS} strokeWidth={1.85} />}
+            label="Docs"
+            external
+            onNavigate={onNavigate}
+          />
+        </div>
 
         {/* Footer status (hidden in the collapsed rail). Derived from the
             real /health poll — a decorative always-green dot here taught
