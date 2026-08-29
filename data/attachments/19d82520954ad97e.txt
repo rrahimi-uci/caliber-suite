@@ -1,0 +1,1 @@
+{"t":"2026-08-29T21:56:42.846Z","severity":"INFO","logger":"caliber.orchestrator.workflow_stages","message":"workflow calibration candidate complete: job=RFN-WF patch=WP-35b35ba0 winner=cal-1"}
