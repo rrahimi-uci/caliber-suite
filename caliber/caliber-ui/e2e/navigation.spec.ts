@@ -1,26 +1,29 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { goToSidebarRoute, signIn } from "./helpers";
 
 const EXPECTED_NAV_ORDER = [
   "Dashboard",
   "Workflows",
+  "Cookbooks",
   "Agents",
   "Plans",
   "Prompts",
   "Tools",
   "Skills",
-  "MCP Servers",
-  "Knowledge Base",
+  "Knowledge Bases",
   "Object Store",
+  "LLM Gateway",
+  "MCP Servers",
+  "OpenAPI Integrations",
   "Test Sets",
   "Judges",
   "Evaluations",
+  "Releases",
   "Observability",
   "Review Queues",
-  "Releases",
   "Audit Log",
-  "LLM Gateway",
+  "Administration",
   "Settings",
   "Docs",
 ];
@@ -30,30 +33,43 @@ const EXPECTED_NAV_ORDER = [
 // site, so both are exercised separately from this list.
 const SIDEBAR_ROUTES = [
   { label: "Workflows", path: "/caliber/workflows", heading: "Workflows" },
+  { label: "Cookbooks", path: "/caliber/cookbooks", heading: "Cookbooks" },
   { label: "Agents", path: "/caliber/agents", heading: "Agents" },
   { label: "Plans", path: "/caliber/aria/plans", heading: "Aria Plans" },
   { label: "Prompts", path: "/caliber/prompts", heading: "Prompts" },
   { label: "Tools", path: "/caliber/tools", heading: "Tools" },
   { label: "Skills", path: "/caliber/skills", heading: "Skills" },
-  { label: "MCP Servers", path: "/caliber/mcp-servers", heading: "MCP Servers" },
-  { label: "Knowledge Base", path: "/caliber/knowledge-bases", heading: "Knowledge Bases" },
+  { label: "Knowledge Bases", path: "/caliber/knowledge-bases", heading: "Knowledge Bases" },
   { label: "Object Store", path: "/caliber/object-store", heading: "Object Store" },
+  { label: "LLM Gateway", path: "/caliber/gateway", heading: "LLM Gateway" },
+  { label: "MCP Servers", path: "/caliber/mcp-servers", heading: "MCP Servers" },
+  { label: "OpenAPI Integrations", path: "/caliber/openapi-integrations", heading: "OpenAPI Integrations" },
   { label: "Test Sets", path: "/caliber/eval-datasets", heading: "Test Sets" },
   { label: "Judges", path: "/caliber/judges", heading: "Judges" },
   { label: "Evaluations", path: "/caliber/evaluations", heading: "Evaluations" },
+  { label: "Releases", path: "/caliber/releases", heading: "Releases" },
   { label: "Observability", path: "/caliber/observability", heading: "Observability" },
   { label: "Review Queues", path: "/caliber/review-queues", heading: "Review Queues" },
-  { label: "Releases", path: "/caliber/releases", heading: "Releases" },
   { label: "Audit Log", path: "/caliber/audit-log", heading: "Audit Log" },
-  { label: "LLM Gateway", path: "/caliber/gateway", heading: "LLM Gateway" },
+  { label: "Administration", path: "/caliber/administration", heading: "Administration" },
   { label: "Settings", path: "/caliber/settings", heading: "Settings" },
 ] as const;
+
+async function openAllGroups(page: Page): Promise<void> {
+  for (const group of ["Build", "Resources", "Integrations", "Evaluate", "Operate", "Admin"]) {
+    const toggle = page.getByRole("button", { name: group, exact: true });
+    if ((await toggle.getAttribute("aria-expanded")) === "false") {
+      await toggle.click();
+    }
+  }
+}
 
 test.describe("Toolbar Navigation", () => {
   test("keeps sidebar order aligned with toolbar information architecture", async ({
     page,
   }) => {
     await signIn(page);
+    await openAllGroups(page);
     const labels = (await page
       .locator('aside[aria-label="CALIBER navigation"] .nav-item span.flex-1')
       .allInnerTexts())
@@ -66,6 +82,7 @@ test.describe("Toolbar Navigation", () => {
     page,
   }) => {
     await signIn(page);
+    await openAllGroups(page);
     await expect(page.getByRole("heading", { name: "Dashboard" }).first()).toBeVisible();
 
     for (const route of SIDEBAR_ROUTES) {
@@ -80,6 +97,7 @@ test.describe("Toolbar Navigation", () => {
 
   test("preserves the active theme across every sidebar route", async ({ page }) => {
     await signIn(page);
+    await openAllGroups(page);
 
     const html = page.locator("html");
     const initiallyDark = (await html.getAttribute("class"))?.includes("dark") ?? false;

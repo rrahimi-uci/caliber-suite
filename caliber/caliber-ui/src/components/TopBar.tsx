@@ -82,19 +82,6 @@ export function TopBar({
       {/* Right actions */}
       <div className="ml-auto flex items-center gap-2">
         <WorkspaceSelector />
-        <div className="hidden h-4 w-px bg-slate-200 dark:bg-white/15 sm:block" />
-        {/* Health dot */}
-        <span
-          className="flex items-center gap-1.5 text-[11px] text-slate-400 mr-1"
-          title={HEALTH_TITLE[health]}
-          aria-label={HEALTH_TITLE[health]}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`}
-            aria-hidden="true"
-          />
-        </span>
-
         <button
           type="button"
           aria-label="Ask Aria"
@@ -111,25 +98,18 @@ export function TopBar({
         </button>
 
         <div className="h-4 w-px bg-slate-200 dark:bg-white/15" />
-        {currentUser && (
-          <div className="hidden items-center gap-2 rounded-lg border border-slate-200/70 bg-white/70 px-2.5 py-1.5 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-white/5 sm:flex">
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-slate-900 text-[10px] font-bold uppercase text-white">
-              {currentUser.slice(0, 2)}
-            </span>
-            <span className="max-w-24 truncate text-xs font-semibold text-slate-600 dark:text-slate-200">
-              {currentUser}
-            </span>
-            {onLogout && (
-              <button
-                type="button"
-                className="text-xs font-semibold text-slate-400 transition-colors hover:text-red-600 dark:text-slate-500 dark:hover:text-red-300"
-                onClick={onLogout}
-              >
-                Log out
-              </button>
-            )}
-          </div>
-        )}
+        {/* Health dot */}
+        <span
+          className="flex items-center gap-1.5 text-[11px] text-slate-400"
+          title={HEALTH_TITLE[health]}
+          aria-label={HEALTH_TITLE[health]}
+        >
+          <span
+            className={`w-2 h-2 rounded-full ${HEALTH_DOT[health]}`}
+            aria-hidden="true"
+          />
+        </span>
+
         <button
           type="button"
           aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
@@ -162,6 +142,29 @@ export function TopBar({
             </svg>
           )}
         </button>
+
+        {currentUser && (
+          <>
+            <div className="hidden h-4 w-px bg-slate-200 dark:bg-white/15 sm:block" />
+            <div className="hidden items-center gap-2 rounded-lg border border-slate-200/70 bg-white/70 px-2.5 py-1.5 shadow-sm backdrop-blur-sm dark:border-white/10 dark:bg-white/5 sm:flex">
+              <span className="grid h-6 w-6 place-items-center rounded-md bg-slate-900 text-[10px] font-bold uppercase text-white">
+                {currentUser.slice(0, 2)}
+              </span>
+              <span className="max-w-24 truncate text-xs font-semibold text-slate-600 dark:text-slate-200">
+                {currentUser}
+              </span>
+              {onLogout && (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-slate-400 transition-colors hover:text-red-600 dark:text-slate-500 dark:hover:text-red-300"
+                  onClick={onLogout}
+                >
+                  Log out
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </header>
   );
