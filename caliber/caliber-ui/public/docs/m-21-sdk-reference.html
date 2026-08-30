@@ -1529,6 +1529,108 @@
 <p><strong>Returns:</strong> <a href="#workflowrun"><code>WorkflowRun</code></a></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li><li><a href="#waitfailed"><code>WaitFailed</code></a></li><li><a href="#waittimeout"><code>WaitTimeout</code></a></li><li><a href="#workflowrunfailed"><code>WorkflowRunFailed</code></a></li></ul>
+<h6 id="by_tracetrace_id-str-workflowrun"><code>by_trace(trace_id: str) -&gt; WorkflowRun</code><a class="anchor" href="#by_tracetrace_id-str-workflowrun" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Look up the run that produced a given MLflow trace id.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>trace_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <a href="#workflowrun"><code>WorkflowRun</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="resume_by_eventpayload-any"><code>resume_by_event(**payload) -&gt; Any</code><a class="anchor" href="#resume_by_eventpayload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Resume whichever paused run is waiting on the given external event, without knowing its run id up front.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="resumerun_id-str-payload-any"><code>resume(run_id: str, **payload) -&gt; Any</code><a class="anchor" href="#resumerun_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Resume a run paused at a checkpoint (e.g. a Human Approval node once :meth:<code>approve</code> has recorded the decision).</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="retryrun_id-str-payload-any"><code>retry(run_id: str, **payload) -&gt; Any</code><a class="anchor" href="#retryrun_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Retry a failed run from its last durable checkpoint rather than from the start.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="eventsrun_id-str-params-any"><code>events(run_id: str, **params) -&gt; Any</code><a class="anchor" href="#eventsrun_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The run's event tail. `<code>params</code><code> may carry </code><code>after</code><code>/</code><code>limit</code>` for incremental polling.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="tracerun_id-str-any"><code>trace(run_id: str) -&gt; Any</code><a class="anchor" href="#tracerun_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The run's full MLflow span tree, left untyped: the node structure is MLflow's, and re-declaring it here would drift from it.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="lineagerun_id-str-any"><code>lineage(run_id: str) -&gt; Any</code><a class="anchor" href="#lineagerun_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The chain of parent/child runs this run belongs to (resume and retry both create a new run linked back to the original).</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="manifestrun_id-str-any"><code>manifest(run_id: str) -&gt; Any</code><a class="anchor" href="#manifestrun_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The exact manifest snapshot this run executed against -- not the version's current manifest, which may have changed since.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="checkpointsrun_id-str-params-any"><code>checkpoints(run_id: str, **params) -&gt; Any</code><a class="anchor" href="#checkpointsrun_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Durable checkpoints recorded during this run, newest first. `<code>params</code><code> may carry </code><code>after</code><code>/</code><code>limit</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="approvalsrun_id-str-any"><code>approvals(run_id: str) -&gt; Any</code><a class="anchor" href="#approvalsrun_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Human Approval checkpoints this run has raised, pending or decided.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="approverun_id-str-payload-any"><code>approve(run_id: str, **payload) -&gt; Any</code><a class="anchor" href="#approverun_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Approve a pending Human Approval checkpoint. The run does not resume automatically -- call :meth:<code>resume</code> after.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="rejectrun_id-str-payload-any"><code>reject(run_id: str, **payload) -&gt; Any</code><a class="anchor" href="#rejectrun_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Reject a pending Human Approval checkpoint.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="filesrun_id-str-params-any"><code>files(run_id: str, **params) -&gt; Any</code><a class="anchor" href="#filesrun_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Files recorded for this run, hiding pending/rejected/deleted rows. `<code>params</code><code> may carry </code><code>kind</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="upload_filerun_id-str-filename-str-content-bytes-kind-str-output-media_type-str-none-none-any"><code>upload_file(run_id: str, filename: str, content: bytes, *, kind: str = 'output', media_type: str | None = None) -&gt; Any</code><a class="anchor" href="#upload_filerun_id-str-filename-str-content-bytes-kind-str-output-media_type-str-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Upload a file into this run's namespace. Multipart, so it does not go through the JSON path.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>filename</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>content</code></td><td>positional-or-keyword</td><td><code>bytes</code></td><td><code>—</code></td></tr><tr><td><code>kind</code></td><td>keyword-only</td><td><code>str</code></td><td><code>'output'</code></td></tr><tr><td><code>media_type</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="filerun_id-str-file_id-str-any"><code>file(run_id: str, file_id: str) -&gt; Any</code><a class="anchor" href="#filerun_id-str-file_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>One file's metadata record (not its bytes -- see :meth:<code>file_content</code>).</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>file_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="file_contentrun_id-str-file_id-str-bytes"><code>file_content(run_id: str, file_id: str) -&gt; bytes</code><a class="anchor" href="#file_contentrun_id-str-file_id-str-bytes" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Download a run file's raw bytes.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>file_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>bytes</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="register_artifactrun_id-str-file_id-str-params-any"><code>register_artifact(run_id: str, *, file_id: str, **params) -&gt; Any</code><a class="anchor" href="#register_artifactrun_id-str-file_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Promote an existing run file to a registered artifact. `<code>params</code><code> may carry </code><code>artifact_type</code><code>, </code><code>display_name</code><code>, </code><code>summary</code><code>, </code><code>producer_node_id</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>file_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h5 id="workflowservicesapi"><code>WorkflowServicesAPI</code><a class="anchor" href="#workflowservicesapi" aria-hidden="true" tabindex="-1">#</a></h5>
 <p><code>class WorkflowServicesAPI()</code></p>
 <p>Workflows published as external HTTP services.</p>

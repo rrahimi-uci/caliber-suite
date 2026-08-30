@@ -3666,6 +3666,292 @@ instead.
 - [`WaitTimeout`](#waittimeout)
 - [`WorkflowRunFailed`](#workflowrunfailed)
 
+###### `by_trace(trace_id: str) -> WorkflowRun`
+
+Look up the run that produced a given MLflow trace id.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `trace_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkflowRun`](#workflowrun)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resume_by_event(**payload) -> Any`
+
+Resume whichever paused run is waiting on the given external
+event, without knowing its run id up front.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resume(run_id: str, **payload) -> Any`
+
+Resume a run paused at a checkpoint (e.g. a Human Approval node
+once :meth:`approve` has recorded the decision).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `retry(run_id: str, **payload) -> Any`
+
+Retry a failed run from its last durable checkpoint rather than
+from the start.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `events(run_id: str, **params) -> Any`
+
+The run's event tail. ``params`` may carry ``after``/``limit``
+for incremental polling.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `trace(run_id: str) -> Any`
+
+The run's full MLflow span tree, left untyped: the node
+structure is MLflow's, and re-declaring it here would drift from
+it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `lineage(run_id: str) -> Any`
+
+The chain of parent/child runs this run belongs to (resume and
+retry both create a new run linked back to the original).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `manifest(run_id: str) -> Any`
+
+The exact manifest snapshot this run executed against -- not the
+version's current manifest, which may have changed since.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `checkpoints(run_id: str, **params) -> Any`
+
+Durable checkpoints recorded during this run, newest first.
+``params`` may carry ``after``/``limit``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `approvals(run_id: str) -> Any`
+
+Human Approval checkpoints this run has raised, pending or
+decided.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `approve(run_id: str, **payload) -> Any`
+
+Approve a pending Human Approval checkpoint. The run does not
+resume automatically -- call :meth:`resume` after.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reject(run_id: str, **payload) -> Any`
+
+Reject a pending Human Approval checkpoint.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `files(run_id: str, **params) -> Any`
+
+Files recorded for this run, hiding pending/rejected/deleted
+rows. ``params`` may carry ``kind``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `upload_file(run_id: str, filename: str, content: bytes, *, kind: str = 'output', media_type: str | None = None) -> Any`
+
+Upload a file into this run's namespace. Multipart, so it does
+not go through the JSON path.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `filename` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `bytes` | `—` |
+| `kind` | keyword-only | `str` | `'output'` |
+| `media_type` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `file(run_id: str, file_id: str) -> Any`
+
+One file's metadata record (not its bytes -- see
+:meth:`file_content`).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `file_content(run_id: str, file_id: str) -> bytes`
+
+Download a run file's raw bytes.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `register_artifact(run_id: str, *, file_id: str, **params) -> Any`
+
+Promote an existing run file to a registered artifact.
+``params`` may carry ``artifact_type``, ``display_name``,
+``summary``, ``producer_node_id``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `WorkflowServicesAPI`
 
 `class WorkflowServicesAPI()`
