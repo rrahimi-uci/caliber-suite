@@ -3003,7 +3003,12 @@ field to know which they have.
 
 ###### `test(judge_id: str, **payload) -> Any`
 
-Run a judge against sample input without recording a scorecard.
+Run a judge against sample input (``inputs=``, ``outputs=``,
+``expectations=``) without recording a scorecard. Returns the raw
+``{"score", "value", "rationale"}`` — untyped because the judge's
+``value`` is author-defined (bool, number, or string; see
+``feedback_value_type``), so a fixed model here would either narrow
+that or duplicate the union for no benefit over reading the dict.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |

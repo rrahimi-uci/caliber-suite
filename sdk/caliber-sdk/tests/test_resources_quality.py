@@ -121,3 +121,24 @@ def test_dataset_and_judge_lists_hit_the_documented_paths() -> None:
         caliber.evaluations.list(dataset_id="ED-1")
 
     assert seen == ["/eval-datasets", "/judges", "/evaluations"]
+
+
+def test_running_a_judge_hits_the_real_test_run_route() -> None:
+    """Regression test: this method previously POSTed to
+    ``/judges/{id}/test``, which no server route serves -- the real route is
+    ``POST /judges/{id}/test-run`` (``routes/judges.py``'s ``TEST_RUN_PATH``).
+    The SDK<->API coverage gate (``test_sdk_api_coverage.py``) is what caught
+    the mismatch; this pins the fix so it cannot silently regress.
+    """
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
+        assert request.read()  # a body was sent, not a bare POST
+        return envelope({"score": 1.0, "value": True, "rationale": "matches"})
+
+    with client_with(handler) as caliber:
+        result = caliber.judges.test("JDG-1", inputs={"q": "x"}, outputs={"a": "y"})
+
+    assert seen == ["POST /judges/JDG-1/test-run"]
+    assert result == {"score": 1.0, "value": True, "rationale": "matches"}

@@ -103,8 +103,14 @@ class JudgesAPI(Resource):
         return decode(Judge, self._post("/judges", json=body))
 
     def test(self, judge_id: str, **payload: Any) -> Any:
-        """Run a judge against sample input without recording a scorecard."""
-        return self._post(f"/judges/{judge_id}/test", json=payload)
+        """Run a judge against sample input (``inputs=``, ``outputs=``,
+        ``expectations=``) without recording a scorecard. Returns the raw
+        ``{"score", "value", "rationale"}`` — untyped because the judge's
+        ``value`` is author-defined (bool, number, or string; see
+        ``feedback_value_type``), so a fixed model here would either narrow
+        that or duplicate the union for no benefit over reading the dict.
+        """
+        return self._post(f"/judges/{judge_id}/test-run", json=payload)
 
     def alignment(self, judge_id: str, **payload: Any) -> JudgeAlignment:
         """Agreement with human labels.

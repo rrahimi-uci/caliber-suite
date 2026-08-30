@@ -33,7 +33,8 @@ CYAN   := \033[0;36m
 NC     := \033[0m
 
 .PHONY: help check setup start stop dev test test-all test-allure allure-report allure-publish allure lint ui build status logs clean reset \
-        infra-up infra-build infra-down infra-logs infra-status infra-reset seed-graph
+        infra-up infra-build infra-down infra-logs infra-status infra-reset seed-graph \
+        sdk plugin-sdk cli sdk-coverage
 
 help: ## show available commands
 	@echo ""
@@ -221,6 +222,45 @@ allure: ## render + open the Allure report via a local/Dockerized Java server
 lint: ## ruff + mypy + typecheck
 	cd $(PLUGIN_DIR) && $(MAKE) VENV=../$(VENV) lint
 	cd $(UI_DIR) && npm run typecheck
+
+# ── SDK, CLI, and plugin SDK ─────────────────────────────────
+#
+# Each is a separate distribution with its own pyproject.toml (see
+# sdk/*/pyproject.toml) and no reason to share a venv with the server or with
+# each other -- caliber-sdk and caliber-plugin-sdk are CI-asserted to carry no
+# server dependency (ci.yml), and mixing them into $(VENV) would make that
+# invisible locally. Each target creates its own package-local .venv on first
+# run and reuses it after. These mirror exactly what .github/workflows/ci.yml
+# runs for the `sdk`, `plugin-sdk`, and `cli` jobs -- so `make sdk` failing
+# locally means that CI job will fail too, and passing means it will not.
+
+SDK_DIR        := sdk/caliber-sdk
+CLI_DIR        := sdk/caliber-cli
+PLUGIN_SDK_DIR := sdk/caliber-plugin-sdk
+
+sdk: ## caliber-sdk: ruff + mypy + pytest (own venv, zero server deps)
+	cd $(SDK_DIR) && test -x .venv/bin/python || python3 -m venv .venv
+	cd $(SDK_DIR) && .venv/bin/pip install -q -e ".[dev]"
+	cd $(SDK_DIR) && .venv/bin/ruff check src tests examples
+	cd $(SDK_DIR) && .venv/bin/mypy src tests examples
+	cd $(SDK_DIR) && .venv/bin/pytest
+
+plugin-sdk: ## caliber-plugin-sdk: ruff + mypy + pytest (own venv, zero runtime deps)
+	cd $(PLUGIN_SDK_DIR) && test -x .venv/bin/python || python3 -m venv .venv
+	cd $(PLUGIN_SDK_DIR) && .venv/bin/pip install -q -e ".[dev]"
+	cd $(PLUGIN_SDK_DIR) && .venv/bin/ruff check src tests
+	cd $(PLUGIN_SDK_DIR) && .venv/bin/mypy src tests
+	cd $(PLUGIN_SDK_DIR) && .venv/bin/pytest
+
+cli: sdk ## caliber-cli: ruff + mypy + pytest (installs the local caliber-sdk checkout, not PyPI)
+	cd $(CLI_DIR) && test -x .venv/bin/python || python3 -m venv .venv
+	cd $(CLI_DIR) && .venv/bin/pip install -q -e "../caliber-sdk" -e ".[dev]"
+	cd $(CLI_DIR) && .venv/bin/ruff check src tests
+	cd $(CLI_DIR) && .venv/bin/mypy src tests
+	cd $(CLI_DIR) && .venv/bin/pytest
+
+sdk-coverage: ## the SDK<->API parity gate alone (needs the server venv: `make setup` first)
+	cd $(PLUGIN_DIR) && ../$(PY) -m pytest tests/test_sdk_api_coverage.py -v --no-cov
 
 # ── Cleanup ──────────────────────────────────────────────────
 

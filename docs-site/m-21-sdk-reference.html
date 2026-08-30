@@ -1385,7 +1385,7 @@
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="testjudge_id-str-payload-any"><code>test(judge_id: str, **payload) -&gt; Any</code><a class="anchor" href="#testjudge_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
-<p>Run a judge against sample input without recording a scorecard.</p>
+<p>Run a judge against sample input (`<code>inputs=</code><code>, </code><code>outputs=</code><code>, </code><code>expectations=</code><code>) without recording a scorecard. Returns the raw </code><code>{"score", "value", "rationale"}</code><code> — untyped because the judge's </code><code>value</code><code> is author-defined (bool, number, or string; see </code><code>feedback_value_type</code>`), so a fixed model here would either narrow that or duplicate the union for no benefit over reading the dict.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>judge_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
