@@ -27,11 +27,11 @@ countdown to SDK completeness.
 from __future__ import annotations
 
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
+import tomllib
 from starlette.testclient import TestClient
 
 from caliber.routes.openapi import PREFIX, build_openapi_document
@@ -44,7 +44,7 @@ ALLOWLIST_PATH = REPO_ROOT / "sdk" / "caliber-sdk" / "coverage_allowlist.toml"
 # docstring for why it lives outside both packages rather than being
 # duplicated into one of them.
 sys.path.insert(0, str(REPO_ROOT / "docs-site"))
-import sdk_coverage  # noqa: E402
+import sdk_coverage
 
 
 def _live_operations(app: Any) -> dict[tuple[str, str], dict[str, str]]:
@@ -70,9 +70,7 @@ def _live_operations(app: Any) -> dict[tuple[str, str], dict[str, str]]:
     return operations
 
 
-def _load_allowlist() -> tuple[
-    dict[tuple[str, str], str], dict[tuple[str, str], dict[str, str]]
-]:
+def _load_allowlist() -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], dict[str, str]]]:
     """Parse ``coverage_allowlist.toml`` into ``(exclusions, gaps)`` keyed by
     ``(METHOD, path)``, each value carrying the entry's own fields for the
     staleness checks below.
@@ -204,21 +202,23 @@ def test_every_live_operation_is_covered_or_allowlisted(
         )
 
 
-def test_the_coverage_gap_is_shrinking_not_growing(
+def test_the_coverage_percentage_is_a_sane_fraction(
     allowlist: tuple[dict[tuple[str, str], str], dict[tuple[str, str], dict[str, str]]],
     covered: set[tuple[str, str]],
 ) -> None:
-    """A soft, human-readable summary rather than a hard threshold -- the
-    ratchet is enforced by the two tests above (nothing can be added to the
-    allowlist without also being live-and-uncovered, and nothing already
-    covered can remain on it), so this test cannot itself be gamed by
-    padding. It exists to make the current state legible in CI output."""
+    """Guards the percentage arithmetic itself (a divide-by-zero or an
+    inverted ratio would otherwise only ever surface as a wrong number in a
+    report someone reads later, not a failing test).
+
+    Deliberately not a threshold check -- the ratchet is enforced by the two
+    tests above (nothing can be added to the allowlist without also being
+    live-and-uncovered, and nothing already covered can remain on it), so
+    this test cannot itself be gamed by padding.
+    """
     _, gaps = allowlist
     total_addressable = len(covered) + len(gaps)
     if total_addressable == 0:
         pytest.skip("no addressable operations measured")
     pct = 100 * len(covered) / total_addressable
-    print(
-        f"\nSDK addressable coverage: {len(covered)}/{total_addressable} ({pct:.1f}%); "
-        f"{len(gaps)} operations remain in coverage_allowlist.toml"
-    )
+    assert 0.0 <= pct <= 100.0
+    assert len(covered) + len(gaps) == total_addressable
