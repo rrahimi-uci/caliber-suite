@@ -1,1 +1,0 @@
-WARNING  caliber.assistant.openai_engine:openai_engine.py:64 OpenAI API key not found in environment variable NO_SUCH_KEY_ENV_VAR. Assistant engine calls will fail until a valid key is set.

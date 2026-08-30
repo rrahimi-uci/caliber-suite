@@ -1,3 +1,0 @@
-{"t":"2026-08-29T21:47:00.778Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=1, events=*, pending_capacity=1)"}
-{"t":"2026-08-29T21:47:00.807Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=1); dead-lettering event='run.completed'"}
-{"t":"2026-08-29T21:47:00.822Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped with 2 undelivered event(s); recorded as 'shutdown' dead letters for replay"}
