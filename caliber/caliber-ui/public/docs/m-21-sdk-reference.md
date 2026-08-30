@@ -47,6 +47,7 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`Account`](#account) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`AccountsAPI`](#accountsapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
+| [`AgentsAPI`](#agentsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
 | [`AriaAPI`](#ariaapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`AriaInteraction`](#ariainteraction) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
 | [`AriaPlan`](#ariaplan) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
@@ -117,6 +118,7 @@ Every documented class and module-level function, with the module that defines i
 
 | Symbol | Defined in |
 | --- | --- |
+| [`GateVerdictsAPI`](#gateverdictsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`GatewayAPI`](#gatewayapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
 
 **I**
@@ -216,6 +218,7 @@ Every documented class and module-level function, with the module that defines i
 | [`Stability`](#stability) | [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon) |
 | [`state_of`](#state_ofpayload-keys-sequencestr-status-state-str) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | [`StoredObject`](#storedobject) | [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations) |
+| [`SystemAPI`](#systemapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 
 **T**
 
@@ -238,6 +241,7 @@ Every documented class and module-level function, with the module that defines i
 | [`WaitFailed`](#waitfailed) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | [`WaitTimeout`](#waittimeout) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | [`Workflow`](#workflow) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowPromotionsAPI`](#workflowpromotionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowRun`](#workflowrun) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowRunCapabilities`](#workflowruncapabilities) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`WorkflowRunFailed`](#workflowrunfailed) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
@@ -363,6 +367,9 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `events` | `EventsAPI` | Server-sent event stream. |
 | `cookbooks` | `CookbooksAPI` | The built-in cookbook catalog and installer. |
 | `secrets` | `SecretsAPI` | Write-only secret references. |
+| `agents` | `AgentsAPI` | — |
+| `gate_verdicts` | `GateVerdictsAPI` | — |
+| `system` | `SystemAPI` | — |
 
 **Properties**
 
@@ -1301,7 +1308,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AriaAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -1916,7 +1923,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`PromptsAPI`, `SkillsAPI`, `ToolsAPI`
+`AgentsAPI`, `PromptsAPI`, `SkillsAPI`, `ToolsAPI`
 
 #### Classes
 
@@ -2311,6 +2318,62 @@ calibration is a result to inspect, not an error in the call.
 - [`WaitFailed`](#waitfailed)
 - [`WaitTimeout`](#waittimeout)
 
+##### `AgentsAPI`
+
+`class AgentsAPI()`
+
+The agent record — the anchor verification items, refinement jobs, and
+approvals hang off — plus its rollback lifecycle.
+
+Only the rollback surface is covered so far (``checkpoints``/``rollback``);
+the CRUD methods (list/get/create/update/delete) and the ``skills``/
+``experiment`` reads land in a follow-up wave. This class is the intended
+home for all of it — see ``sdk-completeness-plan.md`` wave 3b — so a
+caller who reaches for ``client.agents.get(...)`` today gets a clear
+``AttributeError`` rather than a class that has to be renamed later.
+
+**Methods**
+
+###### `checkpoints(agent_id: str) -> Any`
+
+Rollback checkpoints for this agent, newest first.
+
+Left untyped: the checkpoint shape (``RollbackCheckpointSchema``) is
+the promoter's internal record, not a governed contract, and every
+artifact type serializes its own version fields into it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `rollback(agent_id: str, *, checkpoint_id: str | None = None) -> Any`
+
+Roll this agent's live artifact back to a prior version.
+
+Without ``checkpoint_id``, rolls back to the most recent unused
+checkpoint — the "undo the last promotion" affordance. Raises
+:class:`~caliber_sdk.CaliberConflictError` (409) if the checkpoint
+was already rolled back or claimed by a concurrent call.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+| `checkpoint_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ### Module `caliber_sdk.resources.workflows`
 
 Workflows, versions, runs, deployments, and services.
@@ -2323,7 +2386,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 #### Classes
 
@@ -2679,11 +2742,59 @@ client carries.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `WorkflowPromotionsAPI`
+
+`class WorkflowPromotionsAPI()`
+
+Approve or reject a pending deployment-alias promotion.
+
+A promotion is created by ``deployments.promote`` on a gated alias (see
+``ARCHITECTURE.md`` §4) and sits pending until an approver scope acts on
+it. There is no listing method here yet -- ``GET
+/workflows/{id}/promotions`` is covered by a follow-up wave.
+
+**Methods**
+
+###### `approve(promotion_id: str, *, reason: str | None = None, **params) -> Any`
+
+Operate on the workflow promotions surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `promotion_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reject(promotion_id: str, *, reason: str | None = None, **params) -> Any`
+
+Operate on the workflow promotions surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `promotion_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `WorkflowsAPI`
 
 `class WorkflowsAPI(transport)`
 
-Workflows, plus versions, runs, and services as sub-resources.
+Workflows, plus versions, runs, services, and promotions as
+sub-resources.
 
 **Usage example**
 
@@ -2712,6 +2823,7 @@ Operate on the workflows surface with the supplied arguments and return the serv
 | `versions` | `WorkflowVersionsAPI` | — |
 | `runs` | `WorkflowRunsAPI` | — |
 | `services` | `WorkflowServicesAPI` | — |
+| `promotions` | `WorkflowPromotionsAPI` | — |
 
 **Methods**
 
@@ -4541,7 +4653,7 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 
 **Public exports**
 
-`AriaAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `JobsAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `SecretsAPI`
+`AriaAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `GateVerdictsAPI`, `JobsAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `SecretsAPI`, `SystemAPI`
 
 #### Classes
 
@@ -5067,6 +5179,260 @@ without a reason is not evidence of a decision.
 | `decision` | keyword-only | `str` | `—` |
 | `rationale` | keyword-only | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `report_job(report_job_id: str) -> Any`
+
+Fetch a generated Allure-format report job by id.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `report_job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `timeline(**params) -> Any`
+
+Recent promotion/rollback/activation events, newest first.
+
+``params``: ``limit`` (default 50, server-capped at 200) and
+``entity_type`` (``prompt`` / ``workflow`` / ``knowledge_base`` /
+``skill``).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `live() -> Any`
+
+What is currently live across artifact types.
+
+Prompt ``@prod`` liveness lives in the MLflow registry, not here — see
+the server route's own docstring; this reports DB-backed liveness
+(workflow deployments, knowledge-base active versions).
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `operations(**params) -> Any`
+
+Durable release intents, including any with an incomplete external
+effect. ``params``: ``status``, ``limit`` (default 100, capped 500).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reconcile() -> Any`
+
+Observe provider alias state and settle incomplete prompt release
+intents. The operator-triggered half of the intent-first release
+protocol described in ``ARCHITECTURE.md`` §8.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resolve_operation(operation_id: str, *, action: str, **params) -> Any`
+
+Retry or abandon a ``prepared`` (pre-effect) release intent.
+
+``action`` is ``"retry"`` or ``"abandon"``. Only ``prepared`` rows are
+accepted — once a row reaches ``applying`` the provider may already
+have changed, and reconciliation (:meth:`reconcile`), not a blind
+retry, is the safe next step.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+| `action` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `GateVerdictsAPI`
+
+`class GateVerdictsAPI()`
+
+Advisory per-version evaluation verdicts (prompt/workflow/skill).
+
+Advisory in v1: a verdict never blocks alias rotation on its own (see
+``ARCHITECTURE.md`` §4) — it is release evidence for the Version panel,
+not a gate.
+
+**Methods**
+
+###### `get(artifact_type: str, version_key: str) -> Any`
+
+The latest verdict, or ``{"state": "none"}`` if none was recorded.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `artifact_type` | positional-or-keyword | `str` | `—` |
+| `version_key` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `record(artifact_type: str, version_key: str, *, state: str, **params) -> Any`
+
+Upsert a verdict. ``state`` is ``"pass"``, ``"fail"``, or
+``"none"``; ``params`` may carry ``score``, ``baseline_score``,
+``min_aggregate_score``, ``worst_regression``, ``max_regression_delta``,
+and ``eval_run_id``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `artifact_type` | positional-or-keyword | `str` | `—` |
+| `version_key` | positional-or-keyword | `str` | `—` |
+| `state` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `SystemAPI`
+
+`class SystemAPI()`
+
+Operational recovery surfaces: effects that need a human decision.
+
+Two related recoveries, both "CALIBER could not complete something
+outward-facing, and only a person can decide what happens next" — see the
+server module's own docstring (``routes/system_effects.py``) for the full
+rationale. Only these two are covered so far; ``/system/services``,
+``/system/queue``, ``/system/alerts``, and ``/system/incidents`` land in a
+follow-up wave onto this same class.
+
+**Methods**
+
+###### `effects(**params) -> Any`
+
+Indeterminate effect-ledger claims. Defaults to ``status=in_progress``
+server-side -- the set that actually needs a decision. ``params``:
+``status``, ``workflow_run_id``, ``limit``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resolve_effect(effect_key: str, *, resolution: str, **params) -> Any`
+
+Record whether an indeterminate effect happened. ``resolution`` is
+``"skip"`` (it did happen; do not repeat it) or ``"retry"`` (it did
+not). Admin-scoped and audited -- this asserts something about the
+outside world CALIBER cannot verify on its own.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `effect_key` | positional-or-keyword | `str` | `—` |
+| `resolution` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `webhook_dead_letters(**params) -> Any`
+
+Outbound events that were never delivered. Defaults to
+``status=open`` server-side. ``params``: ``status``, ``kind``, ``limit``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `acknowledge_dead_letter(dead_letter_id: str, **params) -> Any`
+
+Mark a dead letter handled without resending it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dead_letter_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `replay_dead_letter(dead_letter_id: str) -> Any`
+
+Re-send a lost event. A failed replay leaves the row open (not
+acknowledged) and records why, so a failed recovery never looks like
+a completed one.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dead_letter_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `Any`
 

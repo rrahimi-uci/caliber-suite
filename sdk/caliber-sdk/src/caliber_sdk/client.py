@@ -20,6 +20,7 @@ import httpx
 from .auth import AuthProvider, NoAuth, TokenAuth, TrustedHeaderAuth
 from .errors import CaliberConfigError
 from .resources import (
+    AgentsAPI,
     AriaAPI,
     AuditAPI,
     AuthAPI,
@@ -28,6 +29,7 @@ from .resources import (
     EvalDatasetsAPI,
     EvaluationsAPI,
     EventsAPI,
+    GateVerdictsAPI,
     GatewayAPI,
     JobsAPI,
     JudgesAPI,
@@ -45,6 +47,7 @@ from .resources import (
     SecretsAPI,
     SettingsAPI,
     SkillsAPI,
+    SystemAPI,
     ToolsAPI,
     WorkflowsAPI,
 )
@@ -120,6 +123,9 @@ class CaliberClient:
         self.events = EventsAPI(self._transport)
         self.cookbooks = CookbooksAPI(self._transport)
         self.secrets = SecretsAPI(self._transport)
+        self.agents = AgentsAPI(self._transport)
+        self.gate_verdicts = GateVerdictsAPI(self._transport)
+        self.system = SystemAPI(self._transport)
 
     @staticmethod
     def _auth_from(token: str | None, user: str | None, proxy_secret: str | None) -> AuthProvider:

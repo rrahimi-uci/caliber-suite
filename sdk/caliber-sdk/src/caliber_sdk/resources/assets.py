@@ -197,4 +197,39 @@ class ToolsAPI(Resource):
         )
 
 
-__all__ = ["PromptsAPI", "SkillsAPI", "ToolsAPI"]
+class AgentsAPI(Resource):
+    """The agent record — the anchor verification items, refinement jobs, and
+    approvals hang off — plus its rollback lifecycle.
+
+    Only the rollback surface is covered so far (``checkpoints``/``rollback``);
+    the CRUD methods (list/get/create/update/delete) and the ``skills``/
+    ``experiment`` reads land in a follow-up wave. This class is the intended
+    home for all of it — see ``sdk-completeness-plan.md`` wave 3b — so a
+    caller who reaches for ``client.agents.get(...)`` today gets a clear
+    ``AttributeError`` rather than a class that has to be renamed later.
+    """
+
+    def checkpoints(self, agent_id: str) -> Any:
+        """Rollback checkpoints for this agent, newest first.
+
+        Left untyped: the checkpoint shape (``RollbackCheckpointSchema``) is
+        the promoter's internal record, not a governed contract, and every
+        artifact type serializes its own version fields into it.
+        """
+        return self._get(f"/agents/{agent_id}/checkpoints")
+
+    def rollback(self, agent_id: str, *, checkpoint_id: str | None = None) -> Any:
+        """Roll this agent's live artifact back to a prior version.
+
+        Without ``checkpoint_id``, rolls back to the most recent unused
+        checkpoint — the "undo the last promotion" affordance. Raises
+        :class:`~caliber_sdk.CaliberConflictError` (409) if the checkpoint
+        was already rolled back or claimed by a concurrent call.
+        """
+        body: dict[str, Any] = {}
+        if checkpoint_id is not None:
+            body["checkpoint_id"] = checkpoint_id
+        return self._post(f"/agents/{agent_id}/rollback", json=body)
+
+
+__all__ = ["AgentsAPI", "PromptsAPI", "SkillsAPI", "ToolsAPI"]

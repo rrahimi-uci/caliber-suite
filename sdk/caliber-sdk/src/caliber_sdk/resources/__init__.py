@@ -1,7 +1,7 @@
 """Resource modules — typed façades over route groups."""
 
 from ._base import Resource
-from .assets import PromptsAPI, SkillsAPI, ToolsAPI
+from .assets import AgentsAPI, PromptsAPI, SkillsAPI, ToolsAPI
 from .auth import AccountsAPI, AuthAPI, TokensAPI
 from .integrations import (
     GatewayAPI,
@@ -15,17 +15,20 @@ from .operations import (
     AuditAPI,
     CookbooksAPI,
     EventsAPI,
+    GateVerdictsAPI,
     JobsAPI,
     ObservabilityAPI,
     ReleasesAPI,
     ReviewQueuesAPI,
     SecretsAPI,
+    SystemAPI,
 )
 from .projects import ProjectFilesAPI, ProjectsAPI
 from .quality import EvalDatasetsAPI, EvaluationsAPI, JudgesAPI
 from .raw import RawAPI
 from .system import CapabilitiesAPI, MeAPI, SettingsAPI
 from .workflows import (
+    WorkflowPromotionsAPI,
     WorkflowRunFailed,
     WorkflowRunsAPI,
     WorkflowsAPI,
@@ -35,6 +38,7 @@ from .workflows import (
 
 __all__ = [
     "AccountsAPI",
+    "AgentsAPI",
     "AriaAPI",
     "AuditAPI",
     "AuthAPI",
@@ -43,6 +47,7 @@ __all__ = [
     "EvalDatasetsAPI",
     "EvaluationsAPI",
     "EventsAPI",
+    "GateVerdictsAPI",
     "GatewayAPI",
     "JobsAPI",
     "JudgesAPI",
@@ -62,8 +67,10 @@ __all__ = [
     "SecretsAPI",
     "SettingsAPI",
     "SkillsAPI",
+    "SystemAPI",
     "TokensAPI",
     "ToolsAPI",
+    "WorkflowPromotionsAPI",
     "WorkflowRunFailed",
     "WorkflowRunsAPI",
     "WorkflowServicesAPI",

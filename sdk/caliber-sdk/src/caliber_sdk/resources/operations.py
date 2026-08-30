@@ -214,6 +214,118 @@ class ReleasesAPI(Resource):
             json={"decision": decision, "rationale": rationale, **options},
         )
 
+    def report_job(self, report_job_id: str) -> Any:
+        """Fetch a generated Allure-format report job by id."""
+        return self._get(f"/releases/report-jobs/{report_job_id}")
+
+    def timeline(self, **params: Any) -> Any:
+        """Recent promotion/rollback/activation events, newest first.
+
+        ``params``: ``limit`` (default 50, server-capped at 200) and
+        ``entity_type`` (``prompt`` / ``workflow`` / ``knowledge_base`` /
+        ``skill``).
+        """
+        return self._get("/releases/timeline", params=params or None)
+
+    def live(self) -> Any:
+        """What is currently live across artifact types.
+
+        Prompt ``@prod`` liveness lives in the MLflow registry, not here — see
+        the server route's own docstring; this reports DB-backed liveness
+        (workflow deployments, knowledge-base active versions).
+        """
+        return self._get("/releases/live")
+
+    def operations(self, **params: Any) -> Any:
+        """Durable release intents, including any with an incomplete external
+        effect. ``params``: ``status``, ``limit`` (default 100, capped 500)."""
+        return self._get("/releases/operations", params=params or None)
+
+    def reconcile(self) -> Any:
+        """Observe provider alias state and settle incomplete prompt release
+        intents. The operator-triggered half of the intent-first release
+        protocol described in ``ARCHITECTURE.md`` §8."""
+        return self._post("/releases/operations/reconcile")
+
+    def resolve_operation(self, operation_id: str, *, action: str, **params: Any) -> Any:
+        """Retry or abandon a ``prepared`` (pre-effect) release intent.
+
+        ``action`` is ``"retry"`` or ``"abandon"``. Only ``prepared`` rows are
+        accepted — once a row reaches ``applying`` the provider may already
+        have changed, and reconciliation (:meth:`reconcile`), not a blind
+        retry, is the safe next step.
+        """
+        return self._post(
+            f"/releases/operations/{operation_id}/resolve",
+            json={"action": action, **params},
+        )
+
+
+class GateVerdictsAPI(Resource):
+    """Advisory per-version evaluation verdicts (prompt/workflow/skill).
+
+    Advisory in v1: a verdict never blocks alias rotation on its own (see
+    ``ARCHITECTURE.md`` §4) — it is release evidence for the Version panel,
+    not a gate.
+    """
+
+    def get(self, artifact_type: str, version_key: str) -> Any:
+        """The latest verdict, or ``{"state": "none"}`` if none was recorded."""
+        return self._get(f"/gate-verdicts/{artifact_type}/{version_key}")
+
+    def record(self, artifact_type: str, version_key: str, *, state: str, **params: Any) -> Any:
+        """Upsert a verdict. ``state`` is ``"pass"``, ``"fail"``, or
+        ``"none"``; ``params`` may carry ``score``, ``baseline_score``,
+        ``min_aggregate_score``, ``worst_regression``, ``max_regression_delta``,
+        and ``eval_run_id``."""
+        return self._post(
+            f"/gate-verdicts/{artifact_type}/{version_key}",
+            json={"state": state, **params},
+        )
+
+
+class SystemAPI(Resource):
+    """Operational recovery surfaces: effects that need a human decision.
+
+    Two related recoveries, both "CALIBER could not complete something
+    outward-facing, and only a person can decide what happens next" — see the
+    server module's own docstring (``routes/system_effects.py``) for the full
+    rationale. Only these two are covered so far; ``/system/services``,
+    ``/system/queue``, ``/system/alerts``, and ``/system/incidents`` land in a
+    follow-up wave onto this same class.
+    """
+
+    def effects(self, **params: Any) -> Any:
+        """Indeterminate effect-ledger claims. Defaults to ``status=in_progress``
+        server-side -- the set that actually needs a decision. ``params``:
+        ``status``, ``workflow_run_id``, ``limit``."""
+        return self._get("/system/effects", params=params or None)
+
+    def resolve_effect(self, effect_key: str, *, resolution: str, **params: Any) -> Any:
+        """Record whether an indeterminate effect happened. ``resolution`` is
+        ``"skip"`` (it did happen; do not repeat it) or ``"retry"`` (it did
+        not). Admin-scoped and audited -- this asserts something about the
+        outside world CALIBER cannot verify on its own."""
+        return self._post(
+            f"/system/effects/{effect_key}/resolve",
+            json={"resolution": resolution, **params},
+        )
+
+    def webhook_dead_letters(self, **params: Any) -> Any:
+        """Outbound events that were never delivered. Defaults to
+        ``status=open`` server-side. ``params``: ``status``, ``kind``, ``limit``."""
+        return self._get("/system/webhook-dead-letters", params=params or None)
+
+    def acknowledge_dead_letter(self, dead_letter_id: str, **params: Any) -> Any:
+        """Mark a dead letter handled without resending it."""
+        return self._post(f"/system/webhook-dead-letters/{dead_letter_id}/acknowledge", json=params)
+
+    def replay_dead_letter(self, dead_letter_id: str) -> Any:
+        """Re-send a lost event. A failed replay leaves the row open (not
+        acknowledged) and records why, so a failed recovery never looks like
+        a completed one."""
+        return self._post(f"/system/webhook-dead-letters/{dead_letter_id}/replay")
+
 
 class ObservabilityAPI(Resource):
     """Traces, experiments, and metrics."""
@@ -304,9 +416,11 @@ __all__ = [
     "AuditAPI",
     "CookbooksAPI",
     "EventsAPI",
+    "GateVerdictsAPI",
     "JobsAPI",
     "ObservabilityAPI",
     "ReleasesAPI",
     "ReviewQueuesAPI",
     "SecretsAPI",
+    "SystemAPI",
 ]
