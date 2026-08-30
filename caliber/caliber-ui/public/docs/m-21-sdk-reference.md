@@ -3768,6 +3768,88 @@ client carries.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `management_openapi(workflow_id: str) -> Any`
+
+The same OpenAPI spec :meth:`openapi` serves, but read through
+CALIBER's own session auth instead of a service token -- for an
+operator inspecting the contract without minting a token first.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `tokens(workflow_id: str) -> Any`
+
+Service tokens issued for this workflow's published service.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_token(workflow_id: str, **options) -> Any`
+
+Mint a new service token. The plaintext secret is returned once
+and never shown again -- store it immediately.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `revoke_token(workflow_id: str, token_id: str) -> Any`
+
+Operate on the workflow services surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `token_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `run_status(workflow_id: str, run_id: str) -> Any`
+
+Poll a run submitted through the external service surface, under
+the same token-authorization policy as the original invocation.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `WorkflowPromotionsAPI`
 
 `class WorkflowPromotionsAPI()`
@@ -4012,6 +4094,224 @@ this workflow's approval UI.
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `import_workflow(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, name: str | None = None, owner: str | None = None) -> Workflow`
+
+Import a manifest as a new, independently-owned workflow. The
+source ``workflow_id``/``owner`` inside the manifest are never
+trusted -- a fresh id is generated server-side and the caller's
+identity becomes the owner. 409 on a name clash; 400 if graph/
+dependency preflight fails.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `manifest` | keyword-only | `dict[str, Any] | None` | `None` |
+| `manifest_yaml` | keyword-only | `str | None` | `None` |
+| `name` | keyword-only | `str | None` | `None` |
+| `owner` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`Workflow`](#workflow)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `preview_import(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, name: str | None = None, owner: str | None = None) -> Any`
+
+Validate and resolve an import without creating anything --
+reports ``ready_to_import`` plus the validation/dependency detail
+:meth:`import_workflow` would otherwise fail on.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `manifest` | keyword-only | `dict[str, Any] | None` | `None` |
+| `manifest_yaml` | keyword-only | `str | None` | `None` |
+| `name` | keyword-only | `str | None` | `None` |
+| `owner` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibration_options(workflow_id: str) -> Any`
+
+Objectives, protected-node rules, budgets, and move-set choices
+available for a manual workflow calibration run.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_calibration_run(workflow_id: str, *, agent_id: str, **params) -> Any`
+
+Queue a manual workflow calibration run. ``params`` may carry
+``objective``, ``protected``, ``budget``, ``dataset``, ``move_set``;
+see :meth:`calibration_options` for what's available.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `agent_id` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `deployments(workflow_id: str) -> Any`
+
+Active deployment-alias -> version bindings for this workflow.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `promote_deployment(workflow_id: str, alias: str, *, version_id: str, **params) -> Any`
+
+Point a deployment alias at a version. On a gated alias this
+creates a pending promotion instead of rotating immediately -- see
+``client.workflows.promotions``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `alias` | positional-or-keyword | `str` | `—` |
+| `version_id` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `rollback_deployment(workflow_id: str, alias: str, **params) -> Any`
+
+Pop the deployment's checkpoint stack, restoring the prior
+version on this alias.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `alias` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_promotions(workflow_id: str) -> Any`
+
+Pending and historical promotions for this workflow. To act on
+one, see ``client.workflows.promotions.approve``/``.reject`` --
+named ``list_promotions`` (not ``promotions``) because that name
+is already the ``WorkflowPromotionsAPI`` sub-resource.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `runs_stats(workflow_id: str, **params) -> Any`
+
+Aggregate run counts/latencies for this workflow, for the
+dashboard summary tiles.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `trigger(workflow_id: str, **payload) -> Any`
+
+Start a run from an external event (a Start-trigger node in
+``mode: event``). ``payload`` may carry ``alias``, ``event_name``,
+``input``, ``idempotency_key``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `session_memory(workflow_id: str, *, session_id: str, node_id: str | None = None) -> Any`
+
+Read a session's accumulated workflow memory. ``session_id`` is
+required; ``node_id`` narrows to one memory-writing node.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `session_id` | keyword-only | `str` | `—` |
+| `node_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `clear_session_memory(workflow_id: str, *, session_id: str, node_id: str | None = None) -> Any`
+
+Operate on the workflows surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+| `session_id` | keyword-only | `str` | `—` |
+| `node_id` | keyword-only | `str | None` | `None` |
 
 **Returns:** `Any`
 

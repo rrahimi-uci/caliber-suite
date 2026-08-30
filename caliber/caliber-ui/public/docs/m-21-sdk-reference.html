@@ -1567,6 +1567,36 @@
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="management_openapiworkflow_id-str-any"><code>management_openapi(workflow_id: str) -&gt; Any</code><a class="anchor" href="#management_openapiworkflow_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The same OpenAPI spec :meth:<code>openapi</code> serves, but read through CALIBER's own session auth instead of a service token -- for an operator inspecting the contract without minting a token first.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="tokensworkflow_id-str-any"><code>tokens(workflow_id: str) -&gt; Any</code><a class="anchor" href="#tokensworkflow_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Service tokens issued for this workflow's published service.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="create_tokenworkflow_id-str-options-any"><code>create_token(workflow_id: str, **options) -&gt; Any</code><a class="anchor" href="#create_tokenworkflow_id-str-options-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Mint a new service token. The plaintext secret is returned once and never shown again -- store it immediately.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>options</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="revoke_tokenworkflow_id-str-token_id-str-any"><code>revoke_token(workflow_id: str, token_id: str) -&gt; Any</code><a class="anchor" href="#revoke_tokenworkflow_id-str-token_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Operate on the workflow services surface with the supplied arguments and return the server response.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>token_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="run_statusworkflow_id-str-run_id-str-any"><code>run_status(workflow_id: str, run_id: str) -&gt; Any</code><a class="anchor" href="#run_statusworkflow_id-str-run_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Poll a run submitted through the external service surface, under the same token-authorization policy as the original invocation.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h5 id="workflowpromotionsapi"><code>WorkflowPromotionsAPI</code><a class="anchor" href="#workflowpromotionsapi" aria-hidden="true" tabindex="-1">#</a></h5>
 <p><code>class WorkflowPromotionsAPI()</code></p>
 <p>Approve or reject a pending deployment-alias promotion.</p>
@@ -1660,6 +1690,78 @@
 <h6 id="patchesworkflow_id-str-any"><code>patches(workflow_id: str) -&gt; Any</code><a class="anchor" href="#patchesworkflow_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Proposed patch candidates (from `<code>versions.propose_patch</code>`) for this workflow's approval UI.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="import_workflow-manifest-dictstr-any-none-none-manifest_yaml-str-none-none-name-str-none-none-owner-str-none-none-workflow"><code>import_workflow(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, name: str | None = None, owner: str | None = None) -&gt; Workflow</code><a class="anchor" href="#import_workflow-manifest-dictstr-any-none-none-manifest_yaml-str-none-none-name-str-none-none-owner-str-none-none-workflow" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Import a manifest as a new, independently-owned workflow. The source `<code>workflow_id</code><code>/</code><code>owner</code>` inside the manifest are never trusted -- a fresh id is generated server-side and the caller's identity becomes the owner. 409 on a name clash; 400 if graph/ dependency preflight fails.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>manifest</code></td><td>keyword-only</td><td>`dict[str, Any]</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>manifest_yaml</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>name</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>owner</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <a href="#workflow"><code>Workflow</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="preview_import-manifest-dictstr-any-none-none-manifest_yaml-str-none-none-name-str-none-none-owner-str-none-none-any"><code>preview_import(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, name: str | None = None, owner: str | None = None) -&gt; Any</code><a class="anchor" href="#preview_import-manifest-dictstr-any-none-none-manifest_yaml-str-none-none-name-str-none-none-owner-str-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Validate and resolve an import without creating anything -- reports `<code>ready_to_import</code><code> plus the validation/dependency detail :meth:</code>import_workflow` would otherwise fail on.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>manifest</code></td><td>keyword-only</td><td>`dict[str, Any]</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>manifest_yaml</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>name</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>owner</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="calibration_optionsworkflow_id-str-any"><code>calibration_options(workflow_id: str) -&gt; Any</code><a class="anchor" href="#calibration_optionsworkflow_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Objectives, protected-node rules, budgets, and move-set choices available for a manual workflow calibration run.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="create_calibration_runworkflow_id-str-agent_id-str-params-any"><code>create_calibration_run(workflow_id: str, *, agent_id: str, **params) -&gt; Any</code><a class="anchor" href="#create_calibration_runworkflow_id-str-agent_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Queue a manual workflow calibration run. `<code>params</code><code> may carry </code><code>objective</code><code>, </code><code>protected</code><code>, </code><code>budget</code><code>, </code><code>dataset</code><code>, </code><code>move_set</code><code>; see :meth:</code>calibration_options` for what's available.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>agent_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="deploymentsworkflow_id-str-any"><code>deployments(workflow_id: str) -&gt; Any</code><a class="anchor" href="#deploymentsworkflow_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Active deployment-alias -&gt; version bindings for this workflow.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="promote_deploymentworkflow_id-str-alias-str-version_id-str-params-any"><code>promote_deployment(workflow_id: str, alias: str, *, version_id: str, **params) -&gt; Any</code><a class="anchor" href="#promote_deploymentworkflow_id-str-alias-str-version_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Point a deployment alias at a version. On a gated alias this creates a pending promotion instead of rotating immediately -- see `<code>client.workflows.promotions</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>alias</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>version_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="rollback_deploymentworkflow_id-str-alias-str-params-any"><code>rollback_deployment(workflow_id: str, alias: str, **params) -&gt; Any</code><a class="anchor" href="#rollback_deploymentworkflow_id-str-alias-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Pop the deployment's checkpoint stack, restoring the prior version on this alias.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>alias</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="list_promotionsworkflow_id-str-any"><code>list_promotions(workflow_id: str) -&gt; Any</code><a class="anchor" href="#list_promotionsworkflow_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Pending and historical promotions for this workflow. To act on one, see `<code>client.workflows.promotions.approve</code><code>/</code><code>.reject</code><code> -- named </code><code>list_promotions</code><code> (not </code><code>promotions</code><code>) because that name is already the </code><code>WorkflowPromotionsAPI</code>` sub-resource.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="runs_statsworkflow_id-str-params-any"><code>runs_stats(workflow_id: str, **params) -&gt; Any</code><a class="anchor" href="#runs_statsworkflow_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Aggregate run counts/latencies for this workflow, for the dashboard summary tiles.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="triggerworkflow_id-str-payload-any"><code>trigger(workflow_id: str, **payload) -&gt; Any</code><a class="anchor" href="#triggerworkflow_id-str-payload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Start a run from an external event (a Start-trigger node in `<code>mode: event</code><code>). </code><code>payload</code><code> may carry </code><code>alias</code><code>, </code><code>event_name</code><code>, </code><code>input</code><code>, </code><code>idempotency_key</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="session_memoryworkflow_id-str-session_id-str-node_id-str-none-none-any"><code>session_memory(workflow_id: str, *, session_id: str, node_id: str | None = None) -&gt; Any</code><a class="anchor" href="#session_memoryworkflow_id-str-session_id-str-node_id-str-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Read a session's accumulated workflow memory. `<code>session_id</code><code> is required; </code><code>node_id</code>` narrows to one memory-writing node.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>session_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>node_id</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="clear_session_memoryworkflow_id-str-session_id-str-node_id-str-none-none-any"><code>clear_session_memory(workflow_id: str, *, session_id: str, node_id: str | None = None) -&gt; Any</code><a class="anchor" href="#clear_session_memoryworkflow_id-str-session_id-str-node_id-str-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Operate on the workflows surface with the supplied arguments and return the server response.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>workflow_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>session_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>node_id</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
