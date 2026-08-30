@@ -241,6 +241,7 @@ Every documented class and module-level function, with the module that defines i
 | [`WaitFailed`](#waitfailed) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | [`WaitTimeout`](#waittimeout) | [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | [`Workflow`](#workflow) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
+| [`WorkflowBenchmarkReportsAPI`](#workflowbenchmarkreportsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowPromotionsAPI`](#workflowpromotionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowRun`](#workflowrun) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowRunCapabilities`](#workflowruncapabilities) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
@@ -3219,7 +3220,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`WorkflowBenchmarkReportsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 #### Classes
 
@@ -3348,6 +3349,198 @@ Promote the draft or version into the published state used by operators or runti
 | `version_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** [`WorkflowVersion`](#workflowversion)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(version_id: str, *, manifest: dict[str, Any], manifest_hash: str) -> WorkflowVersion`
+
+Edit a draft version's manifest. ``manifest_hash`` must match the
+version's current hash (optimistic concurrency) -- a mismatch is a
+409, meaning reload before editing. Published versions refuse
+(409): they are immutable.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `manifest` | keyword-only | `dict[str, Any]` | `—` |
+| `manifest_hash` | keyword-only | `str` | `—` |
+
+**Returns:** [`WorkflowVersion`](#workflowversion)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `restore(version_id: str) -> WorkflowVersion`
+
+Clone any prior version's manifest into a new editable draft.
+History is preserved -- the source version is untouched.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkflowVersion`](#workflowversion)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `diff(version_id: str, other_version_id: str) -> Any`
+
+Structured, order-independent graph diff. ``version_id`` is the
+base (older/left); ``other_version_id`` is the candidate (newer/
+right) -- oriented so added/removed read naturally comparing
+v(n-1) -> v(n).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `other_version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `export_manifest(version_id: str) -> str`
+
+The version's manifest as YAML text (not JSON -- the server
+returns ``application/x-yaml`` directly, so this downloads raw
+bytes rather than going through the envelope path).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `str`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `export_python(version_id: str) -> str`
+
+The version compiled to standalone Python source (text, not
+JSON). Prefers the immutable stored bundle for a published version,
+so the export is byte-identical to what was compiled/approved.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `str`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `preview_run(version_id: str, *, input = None, session_id: str | None = None, **params) -> Any`
+
+Run the version in preview mode: real tool bindings are not used.
+For a real, persisted run see :meth:`run` or ``client.workflows.runs``.
+``params`` may carry ``manifest`` to preview an unsaved edit before
+it is written to a version.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `input` | keyword-only | `Any` | `None` |
+| `session_id` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `run(version_id: str, *, input = None, alias: str | None = None, **params) -> Any`
+
+Execute the version as a real, persisted manual run -- real tool
+bindings and the configured executor, unlike :meth:`preview_run`.
+
+A ``manifest`` override in ``params`` is only accepted when
+``alias`` is ``"manual"`` (the default): a deployed alias always
+executes its immutable saved version.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `input` | keyword-only | `Any` | `None` |
+| `alias` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `propose_patch(version_id: str, *, evidence: dict[str, Any], job_id: str | None = None) -> Any`
+
+Generate a patch candidate from failure evidence: localizes the
+failure, generates semantic patch ops, compiles the candidate, and
+persists it for the approval UI. Returns the diagnosis, patch,
+graph diff, and candidate validation report -- nothing is applied
+automatically.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `evidence` | keyword-only | `dict[str, Any]` | `—` |
+| `job_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `copilot_edit(version_id: str, *, instruction: str, manifest: dict[str, Any] | None = None) -> Any`
+
+Propose a natural-language edit to the manifest. Nothing is
+persisted -- apply an accepted proposal through :meth:`update`.
+With the default ``fake`` LLM provider the manifest comes back
+unchanged (a safe no-op).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `instruction` | keyword-only | `str` | `—` |
+| `manifest` | keyword-only | `dict[str, Any] | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `plan_build(version_id: str, *, goal: str, manifest: dict[str, Any] | None = None) -> Any`
+
+Author a manifest from a plain-language goal -- the blank-slate
+sibling of :meth:`copilot_edit`. Nothing is persisted.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+| `goal` | keyword-only | `str` | `—` |
+| `manifest` | keyword-only | `dict[str, Any] | None` | `None` |
+
+**Returns:** `Any`
 
 **Raises:**
 
@@ -3622,12 +3815,84 @@ Operate on the workflow promotions surface with the supplied arguments and retur
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `WorkflowBenchmarkReportsAPI`
+
+`class WorkflowBenchmarkReportsAPI()`
+
+Saved bakeoff/benchmark scorecards -- an evidence record, not a
+per-workflow child; reports are not scoped to one workflow's own id.
+
+**Methods**
+
+###### `list(*, status: str = 'all') -> Any`
+
+Return the current collection of workflow benchmark reports, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str` | `'all'` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(*, name: str, worksheet: dict[str, Any], **options) -> Any`
+
+Create a new record on the workflow benchmark reports surface and return the server-normalized result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | keyword-only | `str` | `—` |
+| `worksheet` | keyword-only | `dict[str, Any]` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(report_id: str, **changes) -> Any`
+
+Patch an existing record on the workflow benchmark reports surface and return the updated result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `report_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(report_id: str) -> Any`
+
+Delete a record on the workflow benchmark reports surface and return the server acknowledgement.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `report_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `WorkflowsAPI`
 
 `class WorkflowsAPI(transport)`
 
-Workflows, plus versions, runs, services, and promotions as
-sub-resources.
+Workflows, plus versions, runs, services, promotions, and benchmark
+reports as sub-resources.
 
 **Usage example**
 
@@ -3657,6 +3922,7 @@ Operate on the workflows surface with the supplied arguments and return the serv
 | `runs` | `WorkflowRunsAPI` | — |
 | `services` | `WorkflowServicesAPI` | — |
 | `promotions` | `WorkflowPromotionsAPI` | — |
+| `benchmark_reports` | `WorkflowBenchmarkReportsAPI` | — |
 
 **Methods**
 
@@ -3730,6 +3996,90 @@ Delete a record on the workflows surface and return the server acknowledgement. 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `patches(workflow_id: str) -> Any`
+
+Proposed patch candidates (from ``versions.propose_patch``) for
+this workflow's approval UI.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `workflow_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `components() -> Any`
+
+The Studio node-palette catalog: every built-in component type
+and its typed input/output ports.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `templates() -> Any`
+
+The starter-manifest catalog used by "New workflow from
+template".
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `cron_preview(*, expr: str, tz: str = 'UTC', count: int = 5) -> Any`
+
+Next fire times for a Start-trigger cron expression. Read-only,
+no workflow required -- powers the Studio trigger panel's preview.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `expr` | keyword-only | `str` | `—` |
+| `tz` | keyword-only | `str` | `'UTC'` |
+| `count` | keyword-only | `int` | `5` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `upload_staging_file(filename: str, content: bytes, *, kind: str = 'input', media_type: str | None = None, session_id: str | None = None) -> Any`
+
+Upload a file before any run exists -- a manual-run input staged
+ahead of :meth:`WorkflowVersionsAPI.run`, not yet bound to a
+``workflow_run_id``. Multipart, so it does not go through the JSON
+path.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `filename` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `bytes` | `—` |
+| `kind` | keyword-only | `str` | `'input'` |
+| `media_type` | keyword-only | `str | None` | `None` |
+| `session_id` | keyword-only | `str | None` | `None` |
 
 **Returns:** `Any`
 

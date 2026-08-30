@@ -57,55 +57,6 @@ wave = "3b"
 
 [[gap]]
 method = "GET"
-path = "/workflow-benchmark-reports"
-tag = "workflow-benchmark-reports"
-stability = "beta"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-benchmark-reports"
-tag = "workflow-benchmark-reports"
-stability = "beta"
-wave = "3b"
-
-[[gap]]
-method = "DELETE"
-path = "/workflow-benchmark-reports/{}"
-tag = "workflow-benchmark-reports"
-stability = "beta"
-wave = "3b"
-
-[[gap]]
-method = "PATCH"
-path = "/workflow-benchmark-reports/{}"
-tag = "workflow-benchmark-reports"
-stability = "beta"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflow-components"
-tag = "workflow-components"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflow-cron-preview"
-tag = "workflow-cron-preview"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-files"
-tag = "workflow-files"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
 path = "/workflow-runs/by-trace/{}"
 tag = "workflow-runs"
 stability = "ga"
@@ -224,83 +175,6 @@ stability = "ga"
 wave = "3b"
 
 [[gap]]
-method = "GET"
-path = "/workflow-templates"
-tag = "workflow-templates"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "PATCH"
-path = "/workflow-versions/{}"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-versions/{}/copilot-edit"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflow-versions/{}/diff/{}"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflow-versions/{}/export/manifest"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflow-versions/{}/export/python"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-versions/{}/plan-build"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-versions/{}/preview-run"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-versions/{}/propose-patch"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-versions/{}/restore"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflow-versions/{}/run"
-tag = "workflow-versions"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
 method = "POST"
 path = "/workflows/import"
 tag = "workflows"
@@ -345,13 +219,6 @@ wave = "3b"
 [[gap]]
 method = "POST"
 path = "/workflows/{}/deployments/{}/rollback"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/patches"
 tag = "workflows"
 stability = "ga"
 wave = "3b"

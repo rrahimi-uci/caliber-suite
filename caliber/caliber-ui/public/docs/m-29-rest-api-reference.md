@@ -106,17 +106,17 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Workflows (`workflows`) | `ga` | `28` | Partial (11/28) | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
-| Workflow Versions (`workflow-versions`) | `ga` | `14` | Partial (4/14) | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
+| Workflows (`workflows`) | `ga` | `28` | Partial (12/28) | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
+| Workflow Versions (`workflow-versions`) | `ga` | `14` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
 | Workflow Runs (`workflow-runs`) | `ga` | `20` | Partial (3/20) | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
-| Workflow Components (`workflow-components`) | `ga` | `1` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Workflow Templates (`workflow-templates`) | `ga` | `1` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Workflow Files (`workflow-files`) | `ga` | `1` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Services (`services`) | `ga` | `3` | Partial (2/3) | `client.workflows.services` | Publish a workflow as a service, inspect service OpenAPI, and invoke it. |
 | Eval Datasets (`eval-datasets`) | `ga` | `11` | Partial (6/11) | `client.datasets` | Evaluation datasets, examples, and trace-to-dataset capture. |
 | Evaluations (`evaluations`) | `ga` | `3` | Typed SDK | `client.evaluations` | Create, inspect, and wait on evaluation runs. |
 | Judges (`judges`) | `ga` | `6` | Partial (5/6) | `client.judges` | Judge creation, test execution, and human-alignment scoring. |
-| Workflow Cron Preview (`workflow-cron-preview`) | `ga` | `1` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Cron Preview (`workflow-cron-preview`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflow Promotions (`workflow-promotions`) | `ga` | `2` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Knowledge Bases (`knowledge-bases`) | `beta` | `14` | Typed SDK | `client.knowledge_bases` | Knowledge-base lifecycle, versions, runs, retrieval, baseline, and rollback. |
 | Knowledge (`knowledge`) | `beta` | `2` | Typed SDK | `client.knowledge_bases.query(...)`, `client.knowledge_bases.test_run(...)` | Retrieval/query and knowledge test-run reads. |
@@ -136,7 +136,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Object Store (`object-store`) | `beta` | `13` | Typed SDK | `client.object_store` | Bucket/object console operations, distinct from project file management. |
 | Playground Runs (`playground-runs`) | `beta` | `3` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Secrets (`secrets`) | `beta` | `4` | Typed SDK | `client.secrets` | Secret inventory and mutation surfaces. |
-| Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Assistant (`assistant`) | `internal` | `29` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
 | Dashboard (`dashboard`) | `internal` | `1` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
 | Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
