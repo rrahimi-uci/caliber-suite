@@ -102,10 +102,10 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_api.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
 | Projects (`projects`) | `ga` | `14` | Partial (12/14) | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
-| Prompts (`prompts`) | `ga` | `22` | Partial (6/22) | `client.prompts` | Prompt registry, versions, and alias promotion. |
-| Skills (`skills`) | `ga` | `19` | Partial (7/19) | `client.skills` | Skill registry, render checks, selection tests, and versions. |
+| Prompts (`prompts`) | `ga` | `22` | Partial (10/22) | `client.prompts` | Prompt registry, versions, and alias promotion. |
+| Skills (`skills`) | `ga` | `19` | Partial (11/19) | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Partial (7/20) | `client.tools` | Tool registry plus calibration job submission and polling. |
-| Agents (`agents`) | `ga` | `9` | Partial (2/9) | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Agents (`agents`) | `ga` | `9` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflows (`workflows`) | `ga` | `28` | Partial (11/28) | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `14` | Partial (4/14) | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
 | Workflow Runs (`workflow-runs`) | `ga` | `20` | Partial (3/20) | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |

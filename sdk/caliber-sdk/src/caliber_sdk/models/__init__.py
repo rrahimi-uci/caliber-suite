@@ -2,6 +2,7 @@
 
 from ._decode import decode, decode_list
 from .assets import (
+    Agent,
     CalibrationJob,
     Prompt,
     Skill,
@@ -71,6 +72,7 @@ __all__ = [
     "STABILITY_INTERNAL",
     "TERMINAL_RUN_STATES",
     "Account",
+    "Agent",
     "AriaInteraction",
     "AriaPlan",
     "AriaPlanDetail",
