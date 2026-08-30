@@ -91,6 +91,25 @@ def test_revoke_and_rotate_hit_the_documented_paths() -> None:
     assert seen == ["DELETE /auth/tokens/PAT-1", "POST /auth/tokens/PAT-1/rotate"]
 
 
+def test_revoking_an_accounts_sessions_hits_the_real_route() -> None:
+    """Regression test: this method previously POSTed to
+    ``/auth/accounts/{id}/revoke-sessions``, which no server route serves --
+    the real route is ``DELETE /auth/accounts/{id}/sessions``. The SDK<->API
+    coverage gate (``test_sdk_api_coverage.py``) is what caught the mismatch;
+    this pins the fix so it cannot silently regress.
+    """
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
+        return envelope({"user_id": "U-1", "revoked": 3})
+
+    with client_with(handler) as caliber:
+        assert caliber.auth.accounts.revoke_sessions("U-1") == 3
+
+    assert seen == ["DELETE /auth/accounts/U-1/sessions"]
+
+
 # --- identity -------------------------------------------------------------
 
 

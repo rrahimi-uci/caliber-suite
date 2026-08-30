@@ -17,8 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CALIBER_ROOT = REPO_ROOT / "caliber"
 sys.path.insert(0, str(CALIBER_ROOT / "src"))
 
-from caliber.routes.openapi import build_openapi_document  # noqa: E402
+from caliber.routes.openapi import PREFIX, build_openapi_document  # noqa: E402
 from caliber.server import create_app  # noqa: E402
+
+import sdk_coverage  # noqa: E402
 
 TIER_ORDER = ("ga", "beta", "internal")
 TIER_LABELS = {
@@ -239,21 +241,58 @@ def _escape_cell(value: str) -> str:
     return value.replace("|", r"\|").replace("\n", " ").strip()
 
 
-def _sdk_surface_row(tag: str, tier: str) -> tuple[str, str, str]:
+def _sdk_coverage_counts(
+    entries: list[tuple[str, str, dict[str, object]]],
+    covered_ops: set[tuple[str, str]],
+) -> tuple[int, int]:
+    """``(covered, total)`` operation counts for one tag, measured against the
+    real ``caliber-sdk`` source via :mod:`sdk_coverage` -- the single
+    implementation this table and ``caliber/tests/test_sdk_api_coverage.py``
+    both use, so this table can never claim more coverage than the CI gate
+    verifies.
+    """
+    total = len(entries)
+    covered = 0
+    for path, method, _operation in entries:
+        assert path.startswith(PREFIX), f"tag row carried an unprefixed path: {path!r}"
+        relative = path[len(PREFIX) :] or "/"
+        if sdk_coverage.is_covered(method, relative, covered_ops):
+            covered += 1
+    return covered, total
+
+
+def _sdk_surface_row(
+    tag: str, tier: str, covered_count: int, total_count: int
+) -> tuple[str, str, str]:
+    """The coverage label is **measured**, not asserted by ``SDK_SURFACE_MAP``.
+
+    ``SDK_SURFACE_MAP`` supplies only the human-written entry-point and notes
+    text now -- a tag missing from it, or one the map calls "Typed SDK", gets
+    exactly the label its real operation count earns. This is what makes it
+    impossible for the published table to overstate coverage the way the
+    previous tag-is-present-or-not version could (13 tags did, at one point
+    -- see ``sdk-completeness-plan.md`` §2.7).
+    """
     surface = SDK_SURFACE_MAP.get(tag)
-    if surface:
-        return ("Typed SDK", surface["entry"], surface["notes"])
-    if tier == "internal":
-        return (
-            "No typed SDK",
-            "—",
-            "Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract.",
-        )
-    return (
-        "Raw only",
-        "`client.raw`",
-        "No typed wrapper on the current SDK surface. Use raw HTTP or generate a client against the served OpenAPI if you need this family today.",
+    entry = surface["entry"] if surface else "`client.raw`"
+    note = surface["notes"] if surface else (
+        "No typed wrapper documented for this family yet. Use raw HTTP or "
+        "generate a client against the served OpenAPI document if you need it today."
     )
+    if total_count == 0:
+        return ("n/a", entry, note)
+    if covered_count == total_count:
+        return ("Typed SDK", entry, note)
+    if covered_count == 0:
+        if tier == "internal":
+            return (
+                "No typed SDK",
+                "—",
+                "Internal route family. Use the served OpenAPI or raw HTTP only when you "
+                "are intentionally working below the supported SDK contract.",
+            )
+        return ("Raw only", "`client.raw`", note)
+    return (f"Partial ({covered_count}/{total_count})", entry, note)
 
 
 def _security_scheme_summary(name: str, payload: dict[str, object]) -> tuple[str, str]:
@@ -319,6 +358,7 @@ def _tag_sort_key(tag: str) -> tuple[int, str]:
 def render_inventory() -> str:
     app = create_app()
     document = build_openapi_document(app)
+    covered_ops = sdk_coverage.covered_operations(REPO_ROOT)
     coverage = document.get("x-caliber-schema-coverage", {})
     components = document.get("components", {})
     schemas = components.get("schemas", {}) if isinstance(components, dict) else {}
@@ -409,7 +449,10 @@ def render_inventory() -> str:
     for tier in TIER_ORDER:
         for tag in sorted(tiered_tags.get(tier, []), key=_tag_sort_key):
             entries = grouped[tag]
-            coverage_label, sdk_entry, sdk_note = _sdk_surface_row(tag, tier)
+            covered_count, total_count = _sdk_coverage_counts(entries, covered_ops)
+            coverage_label, sdk_entry, sdk_note = _sdk_surface_row(
+                tag, tier, covered_count, total_count
+            )
             lines.append(
                 "| "
                 + " | ".join(

@@ -91,7 +91,7 @@ class AccountsAPI(Resource):
 
     def revoke_sessions(self, user_id: str) -> int:
         """Sign an account out everywhere. Returns how many sessions were cut."""
-        payload = self._post(f"/auth/accounts/{user_id}/revoke-sessions")
+        payload = self._delete(f"/auth/accounts/{user_id}/sessions")
         return int(payload.get("revoked", 0)) if isinstance(payload, dict) else 0
 
 

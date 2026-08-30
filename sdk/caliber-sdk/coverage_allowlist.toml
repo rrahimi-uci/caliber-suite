@@ -1,0 +1,1316 @@
+# Coverage allowlist for the SDK<->API parity gate.
+#
+# Read by caliber/tests/test_sdk_api_coverage.py, which enumerates every
+# operation the live server serves (via caliber.routes.openapi.build_openapi_document)
+# and requires each one to be either:
+#
+#   1. reachable through a typed caliber-sdk method (verified by scanning
+#      sdk/caliber-sdk/src/caliber_sdk/{resources/*.py,client.py} -- see
+#      docs-site/sdk_coverage.py, the single shared implementation both this
+#      gate and the published REST-inventory coverage table use), or
+#   2. listed below, under [[exclusion]] (permanent -- never SDK scope) or
+#      [[gap]] (temporary -- tracked, owned by a wave in sdk-completeness-plan.md).
+#
+# The gate fails in BOTH directions:
+#   * a live operation with no SDK method and no entry here -- new, untracked drift.
+#   * a [[gap]] entry the SDK now covers, or one naming a path the server no
+#     longer serves -- stale bookkeeping that must be deleted, not left behind.
+#
+# See sdk-completeness-plan.md Phase 3 for what each wave covers.
+
+[[exclusion]]
+method = "GET"
+path = "/csrf"
+reason = "Handled internally by Transport.bootstrap_csrf(); a resource method would duplicate it."
+
+[[exclusion]]
+method = "POST"
+path = "/auth/login"
+reason = "Browser cookie session. The SDK authenticates with tokens by design (README); cookie auth is deliberately not modelled."
+
+[[exclusion]]
+method = "POST"
+path = "/auth/logout"
+reason = "Browser cookie session. The SDK authenticates with tokens by design (README); cookie auth is deliberately not modelled."
+
+[[exclusion]]
+method = "GET"
+path = "/observability/allure-report"
+reason = "Static HTML report proxy, not a JSON API operation."
+
+[[exclusion]]
+method = "GET"
+path = "/observability/allure-report/{}"
+reason = "Static HTML report proxy, not a JSON API operation."
+
+[[exclusion]]
+method = "GET"
+path = "/metrics"
+reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a client."
+
+[[gap]]
+method = "GET"
+path = "/agents/{}/checkpoints"
+tag = "agents"
+stability = "ga"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/agents/{}/rollback"
+tag = "agents"
+stability = "ga"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/gate-verdicts/{}/{}"
+tag = "gate-verdicts"
+stability = "internal"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/gate-verdicts/{}/{}"
+tag = "gate-verdicts"
+stability = "internal"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/releases/live"
+tag = "releases"
+stability = "beta"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/releases/operations"
+tag = "releases"
+stability = "beta"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/releases/operations/reconcile"
+tag = "releases"
+stability = "beta"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/releases/operations/{}/resolve"
+tag = "releases"
+stability = "beta"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/releases/report-jobs/{}"
+tag = "releases"
+stability = "beta"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/releases/timeline"
+tag = "releases"
+stability = "beta"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/system/effects"
+tag = "system"
+stability = "internal"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/system/effects/{}/resolve"
+tag = "system"
+stability = "internal"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/system/webhook-dead-letters"
+tag = "system"
+stability = "internal"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/system/webhook-dead-letters/{}/acknowledge"
+tag = "system"
+stability = "internal"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/system/webhook-dead-letters/{}/replay"
+tag = "system"
+stability = "internal"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/workflow-promotions/{}/approve"
+tag = "workflow-promotions"
+stability = "ga"
+wave = "3a"
+
+[[gap]]
+method = "POST"
+path = "/workflow-promotions/{}/reject"
+tag = "workflow-promotions"
+stability = "ga"
+wave = "3a"
+
+[[gap]]
+method = "GET"
+path = "/agents"
+tag = "agents"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/agents"
+tag = "agents"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "DELETE"
+path = "/agents/{}"
+tag = "agents"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/agents/{}"
+tag = "agents"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "PATCH"
+path = "/agents/{}"
+tag = "agents"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/agents/{}/experiment"
+tag = "agents"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/agents/{}/skills"
+tag = "agents"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/prompts/calibration/options"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/calibration/runs"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/prompts/optimization/options"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/optimization/runs"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/prompts/template-library"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/template-library/preview"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/prompts/test-runs"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/test-runs"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/prompts/test-runs/{}"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "DELETE"
+path = "/prompts/{}"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/{}/baseline"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/{}/bind"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/{}/rollback"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/prompts/{}/test-render"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/prompts/{}/versions/{}"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/prompts/{}/workspace"
+tag = "prompts"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/services/{}/runs/{}"
+tag = "services"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/skills/import-package"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/skills/import-package.zip"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/skills/test-runs"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/skills/test-runs"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/skills/test-runs/{}"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/skills/{}/baseline"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/skills/{}/bind"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/skills/{}/calibrate"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/skills/{}/package"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/skills/{}/package.zip"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/skills/{}/rollback"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/skills/{}/workspace"
+tag = "skills"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/tools/test-runs"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/tools/test-runs"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/tools/test-runs/{}"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/tools/{}/archive"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/tools/{}/baseline"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/tools/{}/calibration-jobs"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/tools/{}/calibration-jobs/{}/resolve"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/tools/{}/source"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "PUT"
+path = "/tools/{}/test-cases"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/tools/{}/test-run"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/tools/{}/usage"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/tools/{}/versions"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/tools/{}/workspace"
+tag = "tools"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-benchmark-reports"
+tag = "workflow-benchmark-reports"
+stability = "beta"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-benchmark-reports"
+tag = "workflow-benchmark-reports"
+stability = "beta"
+wave = "3b"
+
+[[gap]]
+method = "DELETE"
+path = "/workflow-benchmark-reports/{}"
+tag = "workflow-benchmark-reports"
+stability = "beta"
+wave = "3b"
+
+[[gap]]
+method = "PATCH"
+path = "/workflow-benchmark-reports/{}"
+tag = "workflow-benchmark-reports"
+stability = "beta"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-components"
+tag = "workflow-components"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-cron-preview"
+tag = "workflow-cron-preview"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-files"
+tag = "workflow-files"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/by-trace/{}"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-runs/resume-by-event"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-runs/{}/approval/approve"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-runs/{}/approval/reject"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/approvals"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-runs/{}/artifacts"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/checkpoints"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/events"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/files"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-runs/{}/files"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/files/{}"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/files/{}/content"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/lineage"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/manifest"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-runs/{}/resume"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-runs/{}/retry"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-runs/{}/trace"
+tag = "workflow-runs"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-templates"
+tag = "workflow-templates"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "PATCH"
+path = "/workflow-versions/{}"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-versions/{}/copilot-edit"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-versions/{}/diff/{}"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-versions/{}/export/manifest"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflow-versions/{}/export/python"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-versions/{}/plan-build"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-versions/{}/preview-run"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-versions/{}/propose-patch"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-versions/{}/restore"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflow-versions/{}/run"
+tag = "workflow-versions"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflows/import"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflows/import/preview"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/calibration/options"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflows/{}/calibration/runs"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/deployments"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflows/{}/deployments/{}/promote"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflows/{}/deployments/{}/rollback"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/patches"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/promotions"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/runs/stats"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/service/openapi.json"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/service/tokens"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflows/{}/service/tokens"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "DELETE"
+path = "/workflows/{}/service/tokens/{}"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "DELETE"
+path = "/workflows/{}/session-memory"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "GET"
+path = "/workflows/{}/session-memory"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "POST"
+path = "/workflows/{}/trigger"
+tag = "workflows"
+stability = "ga"
+wave = "3b"
+
+[[gap]]
+method = "DELETE"
+path = "/assistant/attachments/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/config"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "PATCH"
+path = "/assistant/config"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/drafts/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "PATCH"
+path = "/assistant/drafts/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/drafts/{}/approve"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/drafts/{}/publish"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/drafts/{}/test"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/drafts/{}/validate"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/prompt-draft"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "DELETE"
+path = "/assistant/queue/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/runs/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "PATCH"
+path = "/assistant/sessions/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions/{}/attachments"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions/{}/attachments"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions/{}/attachments/upload"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions/{}/drafts"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions/{}/intent/resolve"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions/{}/messages"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions/{}/messages"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions/{}/operations/{}"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions/{}/plans"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions/{}/plans/execute"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions/{}/plans/latest"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/assistant/sessions/{}/queue"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/assistant/sessions/{}/queue"
+tag = "assistant"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "DELETE"
+path = "/memory"
+tag = "memory"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/memory"
+tag = "memory"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/memory"
+tag = "memory"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "POST"
+path = "/memory/search"
+tag = "memory"
+stability = "internal"
+wave = "3c"
+
+[[gap]]
+method = "GET"
+path = "/object-store/buckets/{}/object"
+tag = "object-store"
+stability = "beta"
+wave = "3d"
+
+[[gap]]
+method = "POST"
+path = "/object-store/buckets/{}/objects"
+tag = "object-store"
+stability = "beta"
+wave = "3d"
+
+[[gap]]
+method = "GET"
+path = "/playground-runs/{}/files"
+tag = "playground-runs"
+stability = "beta"
+wave = "3d"
+
+[[gap]]
+method = "POST"
+path = "/playground-runs/{}/files"
+tag = "playground-runs"
+stability = "beta"
+wave = "3d"
+
+[[gap]]
+method = "GET"
+path = "/playground-runs/{}/files/{}/content"
+tag = "playground-runs"
+stability = "beta"
+wave = "3d"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/files"
+tag = "projects"
+stability = "ga"
+wave = "3d"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/files/{}/content"
+tag = "projects"
+stability = "ga"
+wave = "3d"
+
+[[gap]]
+method = "GET"
+path = "/audit-log/export"
+tag = "audit-log"
+stability = "beta"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/dashboard/summary"
+tag = "dashboard"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "PATCH"
+path = "/eval-datasets/{}"
+tag = "eval-datasets"
+stability = "ga"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/eval-datasets/{}/examples/{}/revise"
+tag = "eval-datasets"
+stability = "ga"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/eval-datasets/{}/examples/{}/supersede"
+tag = "eval-datasets"
+stability = "ga"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/eval-datasets/{}/restore"
+tag = "eval-datasets"
+stability = "ga"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/eval-datasets/{}/sync"
+tag = "eval-datasets"
+stability = "ga"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/events/stream"
+tag = "events"
+stability = "beta"
+wave = "3e"
+
+[[gap]]
+method = "DELETE"
+path = "/gateway/endpoints/{}/guardrails/{}"
+tag = "gateway"
+stability = "beta"
+wave = "3e"
+
+[[gap]]
+method = "PATCH"
+path = "/gateway/endpoints/{}/guardrails/{}"
+tag = "gateway"
+stability = "beta"
+wave = "3e"
+
+[[gap]]
+method = "PATCH"
+path = "/judges/{}"
+tag = "judges"
+stability = "ga"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/llm-pricing"
+tag = "llm-pricing"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/llm-pricing"
+tag = "llm-pricing"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/llm-pricing/{}"
+tag = "llm-pricing"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "PATCH"
+path = "/llm-pricing/{}"
+tag = "llm-pricing"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/observability/traces/{}/feedback"
+tag = "observability"
+stability = "beta"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/readiness"
+tag = "readiness"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/system/alerts"
+tag = "system"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/system/incidents"
+tag = "system"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/system/incidents/{}/acknowledge"
+tag = "system"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "POST"
+path = "/system/incidents/{}/silence"
+tag = "system"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/system/queue"
+tag = "system"
+stability = "internal"
+wave = "3e"
+
+[[gap]]
+method = "GET"
+path = "/system/services"
+tag = "system"
+stability = "internal"
+wave = "3e"
