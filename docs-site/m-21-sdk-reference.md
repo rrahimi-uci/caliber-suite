@@ -2733,7 +2733,16 @@ Patch an existing record on the tools and calibration cases surface and return t
 
 ###### `calibrate(tool_id: str, **options) -> CalibrationJob`
 
-Queue a calibration run. Returns immediately with a job to poll.
+Score every saved test case now and return the aggregate.
+
+**Synchronous** -- this call blocks until all cases finish (the
+server's own docstring for this route calls it "score saved test
+cases", not a queue). The response has no ``job_id``/``status``, so
+those fields decode to their defaults; ``pass_rate`` is real, and
+``total``/``passed``/``cases``/``ran_at`` land in ``.extra``. For
+two hundred cases this holds a connection open for minutes -- use
+:meth:`submit_calibration_job` + :meth:`wait_for_calibration` for the
+durable, poll-instead-of-block form.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -2741,6 +2750,49 @@ Queue a calibration run. Returns immediately with a job to poll.
 | `options` | var-keyword | `Any` | `—` |
 
 **Returns:** [`CalibrationJob`](#calibrationjob)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `submit_calibration_job(tool_id: str) -> CalibrationJob`
+
+Queue a calibration run against the tool's saved test cases.
+
+Returns immediately (202) with a real ``job_id`` to poll via
+:meth:`calibration_job` or :meth:`wait_for_calibration` -- the
+durable counterpart to :meth:`calibrate`, for a case count large
+enough that holding a connection open is the wrong trade.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`CalibrationJob`](#calibrationjob)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resolve_calibration_job(tool_id: str, job_id: str, *, action: str, reason: str) -> Any`
+
+Abandon or explicitly retry an ambiguously ``running`` job.
+
+``action`` is ``"abandon"`` or ``"retry"``; ``reason`` is required
+(a non-empty resolution reason). Automatic requeue is unsafe because
+an authored tool may have side effects -- this is the operator
+decision that a stuck job needs.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `action` | keyword-only | `str` | `—` |
+| `reason` | keyword-only | `str` | `—` |
+
+**Returns:** `Any`
 
 **Raises:**
 
@@ -2780,7 +2832,8 @@ Operate on the tools and calibration cases surface with the supplied arguments a
 
 ###### `wait_for_calibration(tool_id: str, job_id: str, *, timeout: float = 600.0, **options) -> CalibrationJob`
 
-Poll a calibration job until it stops.
+Poll a calibration job (from :meth:`submit_calibration_job`) until
+it stops.
 
 Returns the terminal job rather than raising on failure: a failed
 calibration is a result to inspect, not an error in the call.
@@ -2800,6 +2853,190 @@ calibration is a result to inspect, not an error in the call.
 - [`CaliberTransportError`](#calibertransporterror)
 - [`WaitFailed`](#waitfailed)
 - [`WaitTimeout`](#waittimeout)
+
+###### `archive(tool_id: str) -> Tool`
+
+Retire a tool. Refuses (409) while an active workflow deployment
+still references it -- undeploy first.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Tool`](#tool)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `set_baseline(tool_id: str, *, test_run_id: str) -> Any`
+
+Pin a persisted tool-test run as the comparison baseline. The run
+must belong to this tool.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `test_run_id` | keyword-only | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `source(tool_id: str) -> Any`
+
+The tool callable's real source, signature, and docstring.
+``available=False`` (with an ``error``) for a non-Python-callable
+execution backend -- there is no source to show.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `usage(tool_id: str) -> Any`
+
+Workflow versions that reference this tool, scoped to the caller's
+visible workflows. Meant to warn before deprecate/archive.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `versions(tool_id: str) -> list[Tool]`
+
+Every version in this tool's family (same ``name``), newest
+first. Tools have no live alias to promote/roll back -- this is a
+read-only history, not a release surface.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`list[Tool]`](#tool)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `workspace(tool_id: str) -> Any`
+
+Runtime facts + computed lifecycle status (Published > Hardened >
+Tested > Has fixtures > Draft) for the Tools-tab workspace view.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `save_test_cases(tool_id: str, test_cases: Sequence[dict[str, Any]]) -> Any`
+
+Persist the saved fixture set a calibration run scores against.
+Replaces the whole set (not a merge).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `test_cases` | positional-or-keyword | `Sequence[dict[str, Any]]` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_invoke(tool_id: str, *, input: dict[str, Any] | None = None) -> Any`
+
+Invoke the tool once under preview effect policy: ``write``/
+``external_action`` tools are always mocked; ``read`` tools run live
+only when ``allow_in_preview`` is set. Not durable -- for a recorded
+run, see :meth:`create_test_run`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | positional-or-keyword | `str` | `—` |
+| `input` | keyword-only | `dict[str, Any] | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_test_run(*, tool_id: str, results: Sequence[dict[str, Any]], **params) -> Any`
+
+Persist a completed tool-test run. ``results`` is the per-case
+list; the server recomputes pass/fail/partial counts and the overall
+score from it rather than trusting client-supplied aggregates.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `tool_id` | keyword-only | `str` | `—` |
+| `results` | keyword-only | `Sequence[dict[str, Any]]` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_runs(**params) -> Any`
+
+Run history summaries, newest first.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_run(test_run_id: str) -> Any`
+
+One run's full per-case results.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `test_run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ##### `AgentsAPI`
 

@@ -376,8 +376,43 @@ class ToolsAPI(Resource):
         return decode(Tool, self._patch(f"/tools/{tool_id}", json=changes))
 
     def calibrate(self, tool_id: str, **options: Any) -> CalibrationJob:
-        """Queue a calibration run. Returns immediately with a job to poll."""
+        """Score every saved test case now and return the aggregate.
+
+        **Synchronous** -- this call blocks until all cases finish (the
+        server's own docstring for this route calls it "score saved test
+        cases", not a queue). The response has no ``job_id``/``status``, so
+        those fields decode to their defaults; ``pass_rate`` is real, and
+        ``total``/``passed``/``cases``/``ran_at`` land in ``.extra``. For
+        two hundred cases this holds a connection open for minutes -- use
+        :meth:`submit_calibration_job` + :meth:`wait_for_calibration` for the
+        durable, poll-instead-of-block form.
+        """
         return decode(CalibrationJob, self._post(f"/tools/{tool_id}/calibrate", json=options))
+
+    def submit_calibration_job(self, tool_id: str) -> CalibrationJob:
+        """Queue a calibration run against the tool's saved test cases.
+
+        Returns immediately (202) with a real ``job_id`` to poll via
+        :meth:`calibration_job` or :meth:`wait_for_calibration` -- the
+        durable counterpart to :meth:`calibrate`, for a case count large
+        enough that holding a connection open is the wrong trade.
+        """
+        return decode(CalibrationJob, self._post(f"/tools/{tool_id}/calibration-jobs"))
+
+    def resolve_calibration_job(
+        self, tool_id: str, job_id: str, *, action: str, reason: str
+    ) -> Any:
+        """Abandon or explicitly retry an ambiguously ``running`` job.
+
+        ``action`` is ``"abandon"`` or ``"retry"``; ``reason`` is required
+        (a non-empty resolution reason). Automatic requeue is unsafe because
+        an authored tool may have side effects -- this is the operator
+        decision that a stuck job needs.
+        """
+        return self._post(
+            f"/tools/{tool_id}/calibration-jobs/{job_id}/resolve",
+            json={"action": action, "reason": reason},
+        )
 
     def calibration_job(self, tool_id: str, job_id: str) -> CalibrationJob:
         return decode(CalibrationJob, self._get(f"/tools/{tool_id}/calibration-jobs/{job_id}"))
@@ -390,7 +425,8 @@ class ToolsAPI(Resource):
     def wait_for_calibration(
         self, tool_id: str, job_id: str, *, timeout: float = 600.0, **options: Any
     ) -> CalibrationJob:
-        """Poll a calibration job until it stops.
+        """Poll a calibration job (from :meth:`submit_calibration_job`) until
+        it stops.
 
         Returns the terminal job rather than raising on failure: a failed
         calibration is a result to inspect, not an error in the call.
@@ -401,6 +437,70 @@ class ToolsAPI(Resource):
             timeout=timeout,
             **options,
         )
+
+    def archive(self, tool_id: str) -> Tool:
+        """Retire a tool. Refuses (409) while an active workflow deployment
+        still references it -- undeploy first."""
+        return decode(Tool, self._post(f"/tools/{tool_id}/archive"))
+
+    def set_baseline(self, tool_id: str, *, test_run_id: str) -> Any:
+        """Pin a persisted tool-test run as the comparison baseline. The run
+        must belong to this tool."""
+        return self._post(f"/tools/{tool_id}/baseline", json={"test_run_id": test_run_id})
+
+    def source(self, tool_id: str) -> Any:
+        """The tool callable's real source, signature, and docstring.
+        ``available=False`` (with an ``error``) for a non-Python-callable
+        execution backend -- there is no source to show."""
+        return self._get(f"/tools/{tool_id}/source")
+
+    def usage(self, tool_id: str) -> Any:
+        """Workflow versions that reference this tool, scoped to the caller's
+        visible workflows. Meant to warn before deprecate/archive."""
+        return self._get(f"/tools/{tool_id}/usage")
+
+    def versions(self, tool_id: str) -> _List[Tool]:
+        """Every version in this tool's family (same ``name``), newest
+        first. Tools have no live alias to promote/roll back -- this is a
+        read-only history, not a release surface."""
+        return decode_list(Tool, self._get(f"/tools/{tool_id}/versions"))
+
+    def workspace(self, tool_id: str) -> Any:
+        """Runtime facts + computed lifecycle status (Published > Hardened >
+        Tested > Has fixtures > Draft) for the Tools-tab workspace view."""
+        return self._get(f"/tools/{tool_id}/workspace")
+
+    def save_test_cases(self, tool_id: str, test_cases: Sequence[dict[str, Any]]) -> Any:
+        """Persist the saved fixture set a calibration run scores against.
+        Replaces the whole set (not a merge)."""
+        return self._put(f"/tools/{tool_id}/test-cases", json={"test_cases": list(test_cases)})
+
+    def test_invoke(self, tool_id: str, *, input: dict[str, Any] | None = None) -> Any:
+        """Invoke the tool once under preview effect policy: ``write``/
+        ``external_action`` tools are always mocked; ``read`` tools run live
+        only when ``allow_in_preview`` is set. Not durable -- for a recorded
+        run, see :meth:`create_test_run`.
+        """
+        return self._post(f"/tools/{tool_id}/test-run", json={"input": input or {}})
+
+    def create_test_run(
+        self, *, tool_id: str, results: Sequence[dict[str, Any]], **params: Any
+    ) -> Any:
+        """Persist a completed tool-test run. ``results`` is the per-case
+        list; the server recomputes pass/fail/partial counts and the overall
+        score from it rather than trusting client-supplied aggregates."""
+        return self._post(
+            "/tools/test-runs",
+            json={"tool_id": tool_id, "results": list(results), **params},
+        )
+
+    def test_runs(self, **params: Any) -> Any:
+        """Run history summaries, newest first."""
+        return self._get("/tools/test-runs", params=params or None)
+
+    def test_run(self, test_run_id: str) -> Any:
+        """One run's full per-case results."""
+        return self._get(f"/tools/test-runs/{test_run_id}")
 
 
 class AgentsAPI(Resource):
