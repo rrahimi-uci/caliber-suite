@@ -137,12 +137,12 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Playground Runs (`playground-runs`) | `beta` | `3` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Secrets (`secrets`) | `beta` | `4` | Typed SDK | `client.secrets` | Secret inventory and mutation surfaces. |
 | Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Assistant (`assistant`) | `internal` | `29` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
+| Assistant (`assistant`) | `internal` | `29` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Dashboard (`dashboard`) | `internal` | `1` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
 | Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Health (`health`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | LLM Pricing (`llm-pricing`) | `internal` | `4` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
-| Memory (`memory`) | `internal` | `4` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
+| Memory (`memory`) | `internal` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Metrics (`metrics`) | `internal` | `1` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
 | Readiness (`readiness`) | `internal` | `1` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
 | System (`system`) | `internal` | `11` | Partial (5/11) | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
