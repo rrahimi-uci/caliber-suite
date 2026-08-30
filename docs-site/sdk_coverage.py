@@ -18,9 +18,19 @@ the resource modules' source text directly, which is what lets it run in the
 docs build (no SDK install there) and in the backend test suite (SDK
 installed) identically.
 
-**What counts as "covered".** Only calls through the sync resource layer
+**What counts as "covered".** Calls through the sync resource layer
 (``resources/*.py``) that name a literal path — an f-string with the request
-method inlined. Two things are deliberately excluded:
+method inlined -- via any of three call shapes: ``self._get/_post/_put/
+_patch/_delete("literal")`` (the ``Resource`` base's per-verb helpers),
+``self._transport.request("METHOD", "literal", ...)`` (the multipart-upload
+shape, method and path as the first two positional arguments), and
+``self._transport.download("literal")`` (always a ``GET``). All three appear
+in this SDK today; missing either of the latter two undercounts real
+coverage — exactly the failure mode that let ``AuditAPI.export`` and
+``ProjectFilesAPI.upload`` read as "uncovered" despite being implemented,
+tested, and shipped since the coverage gate's first version.
+
+Two things are deliberately excluded:
 
 * ``resources/raw.py`` — its methods forward a caller-supplied ``path``
   variable, never a literal, so it produces no matches and needs no special
@@ -42,6 +52,20 @@ from pathlib import Path
 _CALL = re.compile(
     r"self\.(?:_transport\.)?(_?(?:get|post|put|patch|delete))\(\s*f?\"([^\"]+)\""
 )
+
+#: ``self._transport.request("POST", f"/x/{y}", files=..., data=...)`` — the
+#: multipart-upload shape. ``\s*`` matches the newline in the two-line form
+#: every current call site uses (``self._transport.request(\n    "POST",
+#: f"/path", ...\n)``), so this is not a line-break issue -- ``_CALL`` above
+#: simply never looks for a method named as a *string argument* rather than
+#: an attribute.
+_REQUEST_CALL = re.compile(
+    r"self\._transport\.request\(\s*\"([A-Z]+)\"\s*,\s*f?\"([^\"]+)\""
+)
+
+#: ``self._transport.download(f"/x/{y}", ...)`` — always a GET; there is no
+#: method argument to read.
+_DOWNLOAD_CALL = re.compile(r"self\._transport\.download\(\s*f?\"([^\"]+)\"")
 
 #: Method-name alias -> canonical HTTP verb. The leading underscore is the
 #: ``Resource`` base's private helper name; the bare form is ``Transport``'s
@@ -101,6 +125,10 @@ def _covered_in_file(path: Path) -> set[tuple[str, str]]:
         if method is None:
             continue
         covered.add((method, normalize_path(match.group(2))))
+    for match in _REQUEST_CALL.finditer(text):
+        covered.add((match.group(1), normalize_path(match.group(2))))
+    for match in _DOWNLOAD_CALL.finditer(text):
+        covered.add(("GET", normalize_path(match.group(1))))
     return covered
 
 

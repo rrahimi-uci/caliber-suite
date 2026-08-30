@@ -101,9 +101,9 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_api.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
-| Projects (`projects`) | `ga` | `14` | Partial (12/14) | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
-| Prompts (`prompts`) | `ga` | `22` | Partial (10/22) | `client.prompts` | Prompt registry, versions, and alias promotion. |
-| Skills (`skills`) | `ga` | `19` | Partial (11/19) | `client.skills` | Skill registry, render checks, selection tests, and versions. |
+| Projects (`projects`) | `ga` | `14` | Typed SDK | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
+| Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
+| Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Partial (7/20) | `client.tools` | Tool registry plus calibration job submission and polling. |
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflows (`workflows`) | `ga` | `28` | Partial (11/28) | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
@@ -130,10 +130,10 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Gateway (`gateway`) | `beta` | `9` | Partial (7/9) | `client.gateway` | Gateway endpoint discovery, guardrails, and trace-derived usage. |
 | Cookbooks (`cookbooks`) | `beta` | `2` | Typed SDK | `client.cookbooks` | Cookbook catalog and related operational metadata. |
 | Aria (`aria`) | `beta` | `10` | Typed SDK | `client.aria` | Goal-plan creation, approval, execution, polling, and interactions. |
-| Audit Log (`audit-log`) | `beta` | `2` | Partial (1/2) | `client.audit` | Audit-log listing and export. |
+| Audit Log (`audit-log`) | `beta` | `2` | Typed SDK | `client.audit` | Audit-log listing and export. |
 | Knowledge Base Versions (`knowledge-base-versions`) | `beta` | `7` | Typed SDK | `client.knowledge_bases` | Version-specific reads are exposed through the knowledge-bases resource methods. |
 | Knowledge Runs (`knowledge-runs`) | `beta` | `1` | Typed SDK | `client.knowledge_bases.run_events(...)` | Knowledge-base build run event inspection. |
-| Object Store (`object-store`) | `beta` | `13` | Partial (11/13) | `client.object_store` | Bucket/object console operations, distinct from project file management. |
+| Object Store (`object-store`) | `beta` | `13` | Typed SDK | `client.object_store` | Bucket/object console operations, distinct from project file management. |
 | Playground Runs (`playground-runs`) | `beta` | `3` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Secrets (`secrets`) | `beta` | `4` | Typed SDK | `client.secrets` | Secret inventory and mutation surfaces. |
 | Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
