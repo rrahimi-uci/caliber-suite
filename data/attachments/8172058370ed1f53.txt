@@ -1,0 +1,1 @@
+{"t":"2026-08-30T19:24:26.215Z","severity":"WARNING","logger":"caliber.extensibility.entrypoints","message":"optimizer entry-point discovery failed: corrupt dist-info"}
