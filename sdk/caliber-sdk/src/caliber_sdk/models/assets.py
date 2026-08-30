@@ -1,4 +1,4 @@
-"""Typed models for the governed asset families: prompts, skills, tools.
+"""Typed models for the governed asset families: agents, prompts, skills, tools.
 
 Field sets mirror the server (``caliber.schemas`` and the prompt route
 serializers). Where the server keeps a payload open — a tool's JSON Schema, a
@@ -10,6 +10,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+
+@dataclass
+class Agent:
+    """The agent record — the anchor a verification item, refinement job,
+    approval, and rollback checkpoint all hang off of.
+
+    Mirrors ``caliber.schemas.AgentConfigSchema``. ``optimizer_config``,
+    ``eval_thresholds``, and ``approval_policy`` stay open dicts because the
+    server itself keeps them open -- they're policy payloads whose shape
+    varies by optimizer/artifact type, not a fixed CALIBER contract.
+    """
+
+    agent_id: str = ""
+    experiment_id: str = ""
+    name: str = ""
+    owner: str = ""
+    artifact_types: list[str] = field(default_factory=list)
+    eval_thresholds: dict[str, Any] = field(default_factory=dict)
+    optimizer_config: dict[str, Any] = field(default_factory=dict)
+    approval_policy: dict[str, Any] = field(default_factory=dict)
+    optimize_for: str = ""
+    collaboration_mode: str | None = None
+    enabled: bool = True
+    required_approvals: int = 1
+    created_at: str | None = None
+    updated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

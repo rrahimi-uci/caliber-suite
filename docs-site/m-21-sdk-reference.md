@@ -2044,6 +2044,77 @@ Point an alias at a version. This is the deployment step.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `rollback(name: str, *, alias: str = 'prod') -> Any`
+
+Rotate the alias back to the version that was live before the
+current one, read from the promotion audit trail.
+
+Raises :class:`~caliber_sdk.CaliberConflictError` (409) when there is
+no recorded prior live version to restore.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `alias` | keyword-only | `str` | `'prod'` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `set_baseline(name: str, *, test_run_id: str) -> Any`
+
+Pin a prompt test run as the comparison baseline for future runs.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `test_run_id` | keyword-only | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `bind(name: str, *, kind: str, **params) -> Any`
+
+Record where a prompt is wired in.
+
+``kind`` is ``"agent"`` (requires ``agent_id=``), ``"workflow_node"``
+(requires ``workflow_id=`` and ``node_id=``), or ``"standalone"``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `kind` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(name: str) -> Any`
+
+Delete a prompt registry entry and its CALIBER-side records.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `SkillsAPI`
 
 `class SkillsAPI()`
@@ -2167,6 +2238,82 @@ Operate on the skills surface with the supplied arguments and return the server 
 | `skill_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** [`list[SkillVersion]`](#skillversion)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `rollback(skill_id: str) -> Any`
+
+Restore the immediately-prior content snapshot as a **new**
+version (skills are forward-only; this never rewrites history).
+Raises :class:`~caliber_sdk.CaliberConflictError` (409) when there is
+no earlier version to restore.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `set_baseline(skill_id: str, *, test_run_id: str) -> Any`
+
+Pin a skill test run as the comparison baseline for future runs.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+| `test_run_id` | keyword-only | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `bind(skill_id: str, *, kind: str, **params) -> Any`
+
+Record where a skill is wired in.
+
+``kind`` is ``"agent"`` (requires ``agent_id=``, adds the skill's name
+to that agent's referenced skills), ``"workflow_node"``, or
+``"standalone"``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+| `kind` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibrate(skill_id: str, **options) -> Any`
+
+Agent-free calibration front door: queues a refinement job against
+a hidden, auto-provisioned target rather than requiring an operator
+to pick an agent first. ``options`` may carry ``optimizer_type`` and
+``notes``. Distinct from :meth:`ToolsAPI.calibrate` -- a skill
+calibration produces a verification item and refinement job, not a
+standalone :class:`~caliber_sdk.models.CalibrationJob`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
 
 **Raises:**
 
@@ -2322,17 +2469,130 @@ calibration is a result to inspect, not an error in the call.
 
 `class AgentsAPI()`
 
-The agent record — the anchor verification items, refinement jobs, and
-approvals hang off — plus its rollback lifecycle.
-
-Only the rollback surface is covered so far (``checkpoints``/``rollback``);
-the CRUD methods (list/get/create/update/delete) and the ``skills``/
-``experiment`` reads land in a follow-up wave. This class is the intended
-home for all of it — see ``sdk-completeness-plan.md`` wave 3b — so a
-caller who reaches for ``client.agents.get(...)`` today gets a clear
-``AttributeError`` rather than a class that has to be renamed later.
+The agent record — the anchor a verification item, refinement job,
+approval, and rollback checkpoint all hang off of.
 
 **Methods**
+
+###### `list() -> list[Agent]`
+
+Return the current collection of agents, applying any supported filters.
+
+This callable takes no public parameters.
+
+**Returns:** `list[Agent]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(agent_id: str) -> Agent`
+
+Fetch one record from the agents surface identified by `agent_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Agent`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(agent_id: str, *, experiment_id: str, name: str, **options) -> Agent`
+
+Register a new agent. ``agent_id`` and ``experiment_id`` are both
+one-shot: identity is fixed at registration (re-keying means delete +
+re-create, so the audit trail stays clean), and a re-used
+``experiment_id`` is a 409 (unique per agent).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+| `experiment_id` | keyword-only | `str` | `—` |
+| `name` | keyword-only | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Agent`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(agent_id: str, **changes) -> Agent`
+
+Partial update. ``enabled=False`` is the pause lever the refinement
+worker reads before claiming a queued job for this agent.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `Agent`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(agent_id: str) -> bool`
+
+Remove an agent and cascade its dependent verification/refinement/
+approval/checkpoint/regression rows in one transaction.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `skills(agent_id: str) -> Any`
+
+Skills this agent references in its ``optimizer_config``, plus any
+cited name that didn't resolve (``missing``) -- e.g. an archived or
+renamed skill an agent still points at. Left untyped: it nests
+``Skill``-shaped records inside a response envelope this SDK doesn't
+otherwise model, and the two-key shape is simple enough to read off
+the dict directly.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `experiment(agent_id: str) -> Any`
+
+Whether this agent's configured MLflow experiment is actually
+reachable. Left untyped: the server itself keeps this shape open
+(``ExperimentBindingSchema`` allows extra fields) because it reflects
+whatever MLflow reports, not a fixed CALIBER contract.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ###### `checkpoints(agent_id: str) -> Any`
 
@@ -5826,7 +6086,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -6385,7 +6645,7 @@ Data model returned by the SDK for project folder records.
 
 ### Module `caliber_sdk.models.assets`
 
-Typed models for the governed asset families: prompts, skills, tools.
+Typed models for the governed asset families: agents, prompts, skills, tools.
 
 **Tested example**
 

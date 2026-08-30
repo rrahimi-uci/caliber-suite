@@ -50,55 +50,6 @@ reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a cl
 
 [[gap]]
 method = "GET"
-path = "/agents"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/agents"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "DELETE"
-path = "/agents/{}"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/agents/{}"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "PATCH"
-path = "/agents/{}"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/agents/{}/experiment"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/agents/{}/skills"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
 path = "/prompts/calibration/options"
 tag = "prompts"
 stability = "ga"
@@ -156,34 +107,6 @@ wave = "3b"
 [[gap]]
 method = "GET"
 path = "/prompts/test-runs/{}"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "DELETE"
-path = "/prompts/{}"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/{}/baseline"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/{}/bind"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/{}/rollback"
 tag = "prompts"
 stability = "ga"
 wave = "3b"
@@ -252,27 +175,6 @@ stability = "ga"
 wave = "3b"
 
 [[gap]]
-method = "POST"
-path = "/skills/{}/baseline"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/{}/bind"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/{}/calibrate"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
 method = "GET"
 path = "/skills/{}/package"
 tag = "skills"
@@ -282,13 +184,6 @@ wave = "3b"
 [[gap]]
 method = "GET"
 path = "/skills/{}/package.zip"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/{}/rollback"
 tag = "skills"
 stability = "ga"
 wave = "3b"

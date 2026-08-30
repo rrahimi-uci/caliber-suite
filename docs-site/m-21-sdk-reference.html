@@ -950,6 +950,32 @@
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="rollbackname-str-alias-str-prod-any"><code>rollback(name: str, *, alias: str = 'prod') -&gt; Any</code><a class="anchor" href="#rollbackname-str-alias-str-prod-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Rotate the alias back to the version that was live before the current one, read from the promotion audit trail.</p>
+<p>Raises :class:<code>~caliber_sdk.CaliberConflictError</code> (409) when there is no recorded prior live version to restore.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>name</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>alias</code></td><td>keyword-only</td><td><code>str</code></td><td><code>'prod'</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="set_baselinename-str-test_run_id-str-any"><code>set_baseline(name: str, *, test_run_id: str) -&gt; Any</code><a class="anchor" href="#set_baselinename-str-test_run_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Pin a prompt test run as the comparison baseline for future runs.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>name</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>test_run_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="bindname-str-kind-str-params-any"><code>bind(name: str, *, kind: str, **params) -&gt; Any</code><a class="anchor" href="#bindname-str-kind-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Record where a prompt is wired in.</p>
+<p>`<code>kind</code><code> is </code><code>"agent"</code><code> (requires </code><code>agent_id=</code><code>), </code><code>"workflow_node"</code><code> (requires </code><code>workflow_id=</code><code> and </code><code>node_id=</code><code>), or </code><code>"standalone"</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>name</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>kind</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="deletename-str-any"><code>delete(name: str) -&gt; Any</code><a class="anchor" href="#deletename-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Delete a prompt registry entry and its CALIBER-side records.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>name</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h5 id="skillsapi"><code>SkillsAPI</code><a class="anchor" href="#skillsapi" aria-hidden="true" tabindex="-1">#</a></h5>
 <p><code>class SkillsAPI()</code></p>
 <p>Skill registry, rendering, selection testing, and versions.</p>
@@ -996,6 +1022,31 @@
 <p>Operate on the skills surface with the supplied arguments and return the server response.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
 <p><strong>Returns:</strong> <a href="#skillversion"><code>list[SkillVersion]</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="rollbackskill_id-str-any"><code>rollback(skill_id: str) -&gt; Any</code><a class="anchor" href="#rollbackskill_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Restore the immediately-prior content snapshot as a <strong>new</strong> version (skills are forward-only; this never rewrites history). Raises :class:<code>~caliber_sdk.CaliberConflictError</code> (409) when there is no earlier version to restore.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="set_baselineskill_id-str-test_run_id-str-any"><code>set_baseline(skill_id: str, *, test_run_id: str) -&gt; Any</code><a class="anchor" href="#set_baselineskill_id-str-test_run_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Pin a skill test run as the comparison baseline for future runs.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>test_run_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="bindskill_id-str-kind-str-params-any"><code>bind(skill_id: str, *, kind: str, **params) -&gt; Any</code><a class="anchor" href="#bindskill_id-str-kind-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Record where a skill is wired in.</p>
+<p>`<code>kind</code><code> is </code><code>"agent"</code><code> (requires </code><code>agent_id=</code><code>, adds the skill's name to that agent's referenced skills), </code><code>"workflow_node"</code><code>, or </code><code>"standalone"</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>kind</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="calibrateskill_id-str-options-any"><code>calibrate(skill_id: str, **options) -&gt; Any</code><a class="anchor" href="#calibrateskill_id-str-options-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Agent-free calibration front door: queues a refinement job against a hidden, auto-provisioned target rather than requiring an operator to pick an agent first. `<code>options</code><code> may carry </code><code>optimizer_type</code><code> and </code><code>notes</code><code>. Distinct from :meth:</code>ToolsAPI.calibrate<code> -- a skill calibration produces a verification item and refinement job, not a standalone :class:</code>~caliber_sdk.models.CalibrationJob`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>options</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h5 id="toolsapi"><code>ToolsAPI</code><a class="anchor" href="#toolsapi" aria-hidden="true" tabindex="-1">#</a></h5>
@@ -1053,9 +1104,50 @@
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li><li><a href="#waitfailed"><code>WaitFailed</code></a></li><li><a href="#waittimeout"><code>WaitTimeout</code></a></li></ul>
 <h5 id="agentsapi"><code>AgentsAPI</code><a class="anchor" href="#agentsapi" aria-hidden="true" tabindex="-1">#</a></h5>
 <p><code>class AgentsAPI()</code></p>
-<p>The agent record — the anchor verification items, refinement jobs, and approvals hang off — plus its rollback lifecycle.</p>
-<p>Only the rollback surface is covered so far (`<code>checkpoints</code><code>/</code><code>rollback</code><code>); the CRUD methods (list/get/create/update/delete) and the </code><code>skills</code><code>/ </code><code>experiment</code><code> reads land in a follow-up wave. This class is the intended home for all of it — see </code><code>sdk-completeness-plan.md</code><code> wave 3b — so a caller who reaches for </code><code>client.agents.get(...)</code><code> today gets a clear </code><code>AttributeError</code>` rather than a class that has to be renamed later.</p>
+<p>The agent record — the anchor a verification item, refinement job, approval, and rollback checkpoint all hang off of.</p>
 <p><strong>Methods</strong></p>
+<h6 id="list-listagent"><code>list() -&gt; list[Agent]</code><a class="anchor" href="#list-listagent" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Return the current collection of agents, applying any supported filters.</p>
+<p>This callable takes no public parameters.</p>
+<p><strong>Returns:</strong> <code>list[Agent]</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="getagent_id-str-agent"><code>get(agent_id: str) -&gt; Agent</code><a class="anchor" href="#getagent_id-str-agent" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Fetch one record from the agents surface identified by <code>agent_id</code>.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Agent</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="createagent_id-str-experiment_id-str-name-str-options-agent"><code>create(agent_id: str, *, experiment_id: str, name: str, **options) -&gt; Agent</code><a class="anchor" href="#createagent_id-str-experiment_id-str-name-str-options-agent" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Register a new agent. `<code>agent_id</code><code> and </code><code>experiment_id</code><code> are both one-shot: identity is fixed at registration (re-keying means delete + re-create, so the audit trail stays clean), and a re-used </code><code>experiment_id</code>` is a 409 (unique per agent).</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>experiment_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>name</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>options</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Agent</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="updateagent_id-str-changes-agent"><code>update(agent_id: str, **changes) -&gt; Agent</code><a class="anchor" href="#updateagent_id-str-changes-agent" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Partial update. `<code>enabled=False</code>` is the pause lever the refinement worker reads before claiming a queued job for this agent.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>changes</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Agent</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="deleteagent_id-str-bool"><code>delete(agent_id: str) -&gt; bool</code><a class="anchor" href="#deleteagent_id-str-bool" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Remove an agent and cascade its dependent verification/refinement/ approval/checkpoint/regression rows in one transaction.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>bool</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="skillsagent_id-str-any"><code>skills(agent_id: str) -&gt; Any</code><a class="anchor" href="#skillsagent_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Skills this agent references in its `<code>optimizer_config</code><code>, plus any cited name that didn't resolve (</code><code>missing</code><code>) -- e.g. an archived or renamed skill an agent still points at. Left untyped: it nests </code><code>Skill</code>`-shaped records inside a response envelope this SDK doesn't otherwise model, and the two-key shape is simple enough to read off the dict directly.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="experimentagent_id-str-any"><code>experiment(agent_id: str) -&gt; Any</code><a class="anchor" href="#experimentagent_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Whether this agent's configured MLflow experiment is actually reachable. Left untyped: the server itself keeps this shape open (`<code>ExperimentBindingSchema</code>` allows extra fields) because it reflects whatever MLflow reports, not a fixed CALIBER contract.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="checkpointsagent_id-str-any"><code>checkpoints(agent_id: str) -&gt; Any</code><a class="anchor" href="#checkpointsagent_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Rollback checkpoints for this agent, newest first.</p>
 <p>Left untyped: the checkpoint shape (`<code>RollbackCheckpointSchema</code>`) is the promoter's internal record, not a governed contract, and every artifact type serializes its own version fields into it.</p>
@@ -2595,7 +2687,7 @@
         <span class="tok-string">"queue_enabled"</span><span class="tok-punctuation">:</span> capabilities<span class="tok-punctuation">.</span>workflow_runs<span class="tok-punctuation">.</span>queue_enabled<span class="tok-punctuation">,</span>
     <span class="tok-punctuation">}</span></code></pre><figcaption>From <code>sdk/caliber-sdk/examples/quickstart.py</code> — executed by the SDK test suite.</figcaption></figure>
 <p><strong>Public exports</strong></p>
-<p><code>FAILED_RUN_STATES</code>, <code>STABILITY_BETA</code>, <code>STABILITY_GA</code>, <code>STABILITY_INTERNAL</code>, <code>TERMINAL_RUN_STATES</code>, <code>Account</code>, <code>AriaInteraction</code>, <code>AriaPlan</code>, <code>AriaPlanDetail</code>, <code>AriaPlanStep</code>, <code>AuditEntry</code>, <code>Bucket</code>, <code>CalibrationJob</code>, <code>Capabilities</code>, <code>CookbookRecipe</code>, <code>ErrorBody</code>, <code>EvalDataset</code>, <code>EvalExample</code>, <code>Evaluation</code>, <code>Extensibility</code>, <code>FieldError</code>, <code>Identity</code>, <code>IssuedToken</code>, <code>Job</code>, <code>Judge</code>, <code>JudgeAlignment</code>, <code>KnowledgeBase</code>, <code>LlmSetupStatus</code>, <code>McpServer</code>, <code>OpenApiIntegration</code>, <code>OpenApiIntegrationVersion</code>, <code>OpenApiOperation</code>, <code>OpenApiOperationDependency</code>, <code>OpenApiToolDraft</code>, <code>OptimizerPlugin</code>, <code>Page</code>, <code>PersonalAccessToken</code>, <code>Project</code>, <code>ProjectFile</code>, <code>ProjectFolder</code>, <code>ProjectMember</code>, <code>Prompt</code>, <code>RegisteredOptimizer</code>, <code>ReleaseCandidate</code>, <code>ReviewQueue</code>, <code>RuntimeSettings</code>, <code>RuntimeSettingsSummary</code>, <code>SessionInfo</code>, <code>Skill</code>, <code>SkillRender</code>, <code>SkillSelection</code>, <code>SkillVersion</code>, <code>Stability</code>, <code>StoredObject</code>, <code>Tool</code>, <code>Trace</code>, <code>Workflow</code>, <code>WorkflowRun</code>, <code>WorkflowRunCapabilities</code>, <code>WorkflowService</code>, <code>WorkflowVersion</code>, <code>decode</code>, <code>decode_list</code></p>
+<p><code>FAILED_RUN_STATES</code>, <code>STABILITY_BETA</code>, <code>STABILITY_GA</code>, <code>STABILITY_INTERNAL</code>, <code>TERMINAL_RUN_STATES</code>, <code>Account</code>, <code>Agent</code>, <code>AriaInteraction</code>, <code>AriaPlan</code>, <code>AriaPlanDetail</code>, <code>AriaPlanStep</code>, <code>AuditEntry</code>, <code>Bucket</code>, <code>CalibrationJob</code>, <code>Capabilities</code>, <code>CookbookRecipe</code>, <code>ErrorBody</code>, <code>EvalDataset</code>, <code>EvalExample</code>, <code>Evaluation</code>, <code>Extensibility</code>, <code>FieldError</code>, <code>Identity</code>, <code>IssuedToken</code>, <code>Job</code>, <code>Judge</code>, <code>JudgeAlignment</code>, <code>KnowledgeBase</code>, <code>LlmSetupStatus</code>, <code>McpServer</code>, <code>OpenApiIntegration</code>, <code>OpenApiIntegrationVersion</code>, <code>OpenApiOperation</code>, <code>OpenApiOperationDependency</code>, <code>OpenApiToolDraft</code>, <code>OptimizerPlugin</code>, <code>Page</code>, <code>PersonalAccessToken</code>, <code>Project</code>, <code>ProjectFile</code>, <code>ProjectFolder</code>, <code>ProjectMember</code>, <code>Prompt</code>, <code>RegisteredOptimizer</code>, <code>ReleaseCandidate</code>, <code>ReviewQueue</code>, <code>RuntimeSettings</code>, <code>RuntimeSettingsSummary</code>, <code>SessionInfo</code>, <code>Skill</code>, <code>SkillRender</code>, <code>SkillSelection</code>, <code>SkillVersion</code>, <code>Stability</code>, <code>StoredObject</code>, <code>Tool</code>, <code>Trace</code>, <code>Workflow</code>, <code>WorkflowRun</code>, <code>WorkflowRunCapabilities</code>, <code>WorkflowService</code>, <code>WorkflowVersion</code>, <code>decode</code>, <code>decode_list</code></p>
 <h3 id="module-caliber_sdkmodelscommon">Module <code>caliber_sdk.models.common</code><a class="anchor" href="#module-caliber_sdkmodelscommon" aria-hidden="true" tabindex="-1">#</a></h3>
 <p>Shapes shared across the API, independent of any one resource.</p>
 <p><strong>Tested example</strong></p>
@@ -2803,7 +2895,7 @@
 <p><strong>Dataclass fields</strong></p>
 <div class="table-wrap"><table><thead><tr><th>Field</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>path</code></td><td><code>str</code></td><td><code>''</code></td></tr><tr><td><code>name</code></td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>file_ref</code></td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>storage_backend</code></td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>created_at</code></td><td>`str</td><td>None`</td><td><code>None</code></td></tr><tr><td><code>extra</code></td><td><code>dict[str, Any]</code></td><td><code>field(default_factory=dict)</code></td></tr></tbody></table></div>
 <h3 id="module-caliber_sdkmodelsassets">Module <code>caliber_sdk.models.assets</code><a class="anchor" href="#module-caliber_sdkmodelsassets" aria-hidden="true" tabindex="-1">#</a></h3>
-<p>Typed models for the governed asset families: prompts, skills, tools.</p>
+<p>Typed models for the governed asset families: agents, prompts, skills, tools.</p>
 <p><strong>Tested example</strong></p>
 <figure class="code-example" data-example-src="sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle"><pre class="language-python"><code class="language-python"><span class="tok-keyword">def</span> <span class="tok-function">prompt_lifecycle</span><span class="tok-punctuation">(</span>
     caliber<span class="tok-punctuation">:</span> CaliberClient<span class="tok-punctuation">,</span> <span class="tok-operator">*</span><span class="tok-punctuation">,</span> agent_id<span class="tok-punctuation">:</span> str <span class="tok-operator">=</span> <span class="tok-string">"intake-classifier"</span></code></pre><figcaption>From <code>sdk/caliber-sdk/examples/prompt_lifecycle.py</code> — executed by the SDK test suite.</figcaption></figure>
