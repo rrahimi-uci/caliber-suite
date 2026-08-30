@@ -50,174 +50,6 @@ reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a cl
 
 [[gap]]
 method = "GET"
-path = "/agents/{}/checkpoints"
-tag = "agents"
-stability = "ga"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/agents/{}/rollback"
-tag = "agents"
-stability = "ga"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/gate-verdicts/{}/{}"
-tag = "gate-verdicts"
-stability = "internal"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/gate-verdicts/{}/{}"
-tag = "gate-verdicts"
-stability = "internal"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/releases/live"
-tag = "releases"
-stability = "beta"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/releases/operations"
-tag = "releases"
-stability = "beta"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/releases/operations/reconcile"
-tag = "releases"
-stability = "beta"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/releases/operations/{}/resolve"
-tag = "releases"
-stability = "beta"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/releases/report-jobs/{}"
-tag = "releases"
-stability = "beta"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/releases/timeline"
-tag = "releases"
-stability = "beta"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/system/effects"
-tag = "system"
-stability = "internal"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/system/effects/{}/resolve"
-tag = "system"
-stability = "internal"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/system/webhook-dead-letters"
-tag = "system"
-stability = "internal"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/system/webhook-dead-letters/{}/acknowledge"
-tag = "system"
-stability = "internal"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/system/webhook-dead-letters/{}/replay"
-tag = "system"
-stability = "internal"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/workflow-promotions/{}/approve"
-tag = "workflow-promotions"
-stability = "ga"
-wave = "3a"
-
-[[gap]]
-method = "POST"
-path = "/workflow-promotions/{}/reject"
-tag = "workflow-promotions"
-stability = "ga"
-wave = "3a"
-
-[[gap]]
-method = "GET"
-path = "/agents"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/agents"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "DELETE"
-path = "/agents/{}"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/agents/{}"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "PATCH"
-path = "/agents/{}"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/agents/{}/experiment"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/agents/{}/skills"
-tag = "agents"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
 path = "/prompts/calibration/options"
 tag = "prompts"
 stability = "ga"
@@ -275,34 +107,6 @@ wave = "3b"
 [[gap]]
 method = "GET"
 path = "/prompts/test-runs/{}"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "DELETE"
-path = "/prompts/{}"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/{}/baseline"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/{}/bind"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/{}/rollback"
 tag = "prompts"
 stability = "ga"
 wave = "3b"
@@ -371,27 +175,6 @@ stability = "ga"
 wave = "3b"
 
 [[gap]]
-method = "POST"
-path = "/skills/{}/baseline"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/{}/bind"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/{}/calibrate"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
 method = "GET"
 path = "/skills/{}/package"
 tag = "skills"
@@ -401,13 +184,6 @@ wave = "3b"
 [[gap]]
 method = "GET"
 path = "/skills/{}/package.zip"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/{}/rollback"
 tag = "skills"
 stability = "ga"
 wave = "3b"

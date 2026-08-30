@@ -11,6 +11,7 @@ from typing import Any
 
 from ..models._decode import decode, decode_list
 from ..models.assets import (
+    Agent,
     CalibrationJob,
     Prompt,
     Skill,
@@ -71,6 +72,31 @@ class PromptsAPI(Resource):
         """Point an alias at a version. This is the deployment step."""
         return self._post(f"/prompts/{agent_id}/aliases/{alias}", json={"version": version})
 
+    def rollback(self, name: str, *, alias: str = "prod") -> Any:
+        """Rotate the alias back to the version that was live before the
+        current one, read from the promotion audit trail.
+
+        Raises :class:`~caliber_sdk.CaliberConflictError` (409) when there is
+        no recorded prior live version to restore.
+        """
+        return self._post(f"/prompts/{name}/rollback", json={"alias": alias})
+
+    def set_baseline(self, name: str, *, test_run_id: str) -> Any:
+        """Pin a prompt test run as the comparison baseline for future runs."""
+        return self._post(f"/prompts/{name}/baseline", json={"test_run_id": test_run_id})
+
+    def bind(self, name: str, *, kind: str, **params: Any) -> Any:
+        """Record where a prompt is wired in.
+
+        ``kind`` is ``"agent"`` (requires ``agent_id=``), ``"workflow_node"``
+        (requires ``workflow_id=`` and ``node_id=``), or ``"standalone"``.
+        """
+        return self._post(f"/prompts/{name}/bind", json={"kind": kind, **params})
+
+    def delete(self, name: str) -> Any:
+        """Delete a prompt registry entry and its CALIBER-side records."""
+        return self._delete(f"/prompts/{name}")
+
 
 class SkillsAPI(Resource):
     """Skill registry, rendering, selection testing, and versions."""
@@ -130,6 +156,37 @@ class SkillsAPI(Resource):
 
     def versions(self, skill_id: str) -> _List[SkillVersion]:
         return decode_list(SkillVersion, self._get(f"/skills/{skill_id}/versions"))
+
+    def rollback(self, skill_id: str) -> Any:
+        """Restore the immediately-prior content snapshot as a **new**
+        version (skills are forward-only; this never rewrites history).
+        Raises :class:`~caliber_sdk.CaliberConflictError` (409) when there is
+        no earlier version to restore.
+        """
+        return self._post(f"/skills/{skill_id}/rollback")
+
+    def set_baseline(self, skill_id: str, *, test_run_id: str) -> Any:
+        """Pin a skill test run as the comparison baseline for future runs."""
+        return self._post(f"/skills/{skill_id}/baseline", json={"test_run_id": test_run_id})
+
+    def bind(self, skill_id: str, *, kind: str, **params: Any) -> Any:
+        """Record where a skill is wired in.
+
+        ``kind`` is ``"agent"`` (requires ``agent_id=``, adds the skill's name
+        to that agent's referenced skills), ``"workflow_node"``, or
+        ``"standalone"``.
+        """
+        return self._post(f"/skills/{skill_id}/bind", json={"kind": kind, **params})
+
+    def calibrate(self, skill_id: str, **options: Any) -> Any:
+        """Agent-free calibration front door: queues a refinement job against
+        a hidden, auto-provisioned target rather than requiring an operator
+        to pick an agent first. ``options`` may carry ``optimizer_type`` and
+        ``notes``. Distinct from :meth:`ToolsAPI.calibrate` -- a skill
+        calibration produces a verification item and refinement job, not a
+        standalone :class:`~caliber_sdk.models.CalibrationJob`.
+        """
+        return self._post(f"/skills/{skill_id}/calibrate", json=options)
 
 
 class ToolsAPI(Resource):
@@ -197,4 +254,87 @@ class ToolsAPI(Resource):
         )
 
 
-__all__ = ["PromptsAPI", "SkillsAPI", "ToolsAPI"]
+class AgentsAPI(Resource):
+    """The agent record — the anchor a verification item, refinement job,
+    approval, and rollback checkpoint all hang off of."""
+
+    def list(self) -> list[Agent]:
+        return decode_list(Agent, self._get("/agents"))
+
+    def get(self, agent_id: str) -> Agent:
+        return decode(Agent, self._get(f"/agents/{agent_id}"))
+
+    def create(
+        self,
+        agent_id: str,
+        *,
+        experiment_id: str,
+        name: str,
+        **options: Any,
+    ) -> Agent:
+        """Register a new agent. ``agent_id`` and ``experiment_id`` are both
+        one-shot: identity is fixed at registration (re-keying means delete +
+        re-create, so the audit trail stays clean), and a re-used
+        ``experiment_id`` is a 409 (unique per agent).
+        """
+        body: dict[str, Any] = {
+            "agent_id": agent_id,
+            "experiment_id": experiment_id,
+            "name": name,
+            **options,
+        }
+        return decode(Agent, self._post("/agents", json=body))
+
+    def update(self, agent_id: str, **changes: Any) -> Agent:
+        """Partial update. ``enabled=False`` is the pause lever the refinement
+        worker reads before claiming a queued job for this agent."""
+        return decode(Agent, self._patch(f"/agents/{agent_id}", json=changes))
+
+    def delete(self, agent_id: str) -> bool:
+        """Remove an agent and cascade its dependent verification/refinement/
+        approval/checkpoint/regression rows in one transaction."""
+        payload = self._delete(f"/agents/{agent_id}")
+        return isinstance(payload, dict) and bool(payload.get("deleted"))
+
+    def skills(self, agent_id: str) -> Any:
+        """Skills this agent references in its ``optimizer_config``, plus any
+        cited name that didn't resolve (``missing``) -- e.g. an archived or
+        renamed skill an agent still points at. Left untyped: it nests
+        ``Skill``-shaped records inside a response envelope this SDK doesn't
+        otherwise model, and the two-key shape is simple enough to read off
+        the dict directly.
+        """
+        return self._get(f"/agents/{agent_id}/skills")
+
+    def experiment(self, agent_id: str) -> Any:
+        """Whether this agent's configured MLflow experiment is actually
+        reachable. Left untyped: the server itself keeps this shape open
+        (``ExperimentBindingSchema`` allows extra fields) because it reflects
+        whatever MLflow reports, not a fixed CALIBER contract.
+        """
+        return self._get(f"/agents/{agent_id}/experiment")
+
+    def checkpoints(self, agent_id: str) -> Any:
+        """Rollback checkpoints for this agent, newest first.
+
+        Left untyped: the checkpoint shape (``RollbackCheckpointSchema``) is
+        the promoter's internal record, not a governed contract, and every
+        artifact type serializes its own version fields into it.
+        """
+        return self._get(f"/agents/{agent_id}/checkpoints")
+
+    def rollback(self, agent_id: str, *, checkpoint_id: str | None = None) -> Any:
+        """Roll this agent's live artifact back to a prior version.
+
+        Without ``checkpoint_id``, rolls back to the most recent unused
+        checkpoint — the "undo the last promotion" affordance. Raises
+        :class:`~caliber_sdk.CaliberConflictError` (409) if the checkpoint
+        was already rolled back or claimed by a concurrent call.
+        """
+        body: dict[str, Any] = {}
+        if checkpoint_id is not None:
+            body["checkpoint_id"] = checkpoint_id
+        return self._post(f"/agents/{agent_id}/rollback", json=body)
+
+
+__all__ = ["AgentsAPI", "PromptsAPI", "SkillsAPI", "ToolsAPI"]

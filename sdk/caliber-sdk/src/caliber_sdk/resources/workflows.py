@@ -175,14 +175,38 @@ class WorkflowServicesAPI(Resource):
         return self._post(f"/services/{workflow_id}/invoke", json=payload or {}, **options)
 
 
+class WorkflowPromotionsAPI(Resource):
+    """Approve or reject a pending deployment-alias promotion.
+
+    A promotion is created by ``deployments.promote`` on a gated alias (see
+    ``ARCHITECTURE.md`` §4) and sits pending until an approver scope acts on
+    it. There is no listing method here yet -- ``GET
+    /workflows/{id}/promotions`` is covered by a follow-up wave.
+    """
+
+    def approve(self, promotion_id: str, *, reason: str | None = None, **params: Any) -> Any:
+        body: dict[str, Any] = {**params}
+        if reason is not None:
+            body["reason"] = reason
+        return self._post(f"/workflow-promotions/{promotion_id}/approve", json=body)
+
+    def reject(self, promotion_id: str, *, reason: str | None = None, **params: Any) -> Any:
+        body: dict[str, Any] = {**params}
+        if reason is not None:
+            body["reason"] = reason
+        return self._post(f"/workflow-promotions/{promotion_id}/reject", json=body)
+
+
 class WorkflowsAPI(Resource):
-    """Workflows, plus versions, runs, and services as sub-resources."""
+    """Workflows, plus versions, runs, services, and promotions as
+    sub-resources."""
 
     def __init__(self, transport: Any) -> None:
         super().__init__(transport)
         self.versions = WorkflowVersionsAPI(transport)
         self.runs = WorkflowRunsAPI(transport)
         self.services = WorkflowServicesAPI(transport)
+        self.promotions = WorkflowPromotionsAPI(transport)
 
     def list(self, *, status: str | None = None) -> _List[Workflow]:
         params = {"status": status} if status else None
@@ -205,6 +229,7 @@ class WorkflowsAPI(Resource):
 
 
 __all__ = [
+    "WorkflowPromotionsAPI",
     "WorkflowRunFailed",
     "WorkflowRunsAPI",
     "WorkflowServicesAPI",
