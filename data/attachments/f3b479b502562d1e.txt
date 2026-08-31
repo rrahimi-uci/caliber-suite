@@ -1,0 +1,6 @@
+{"t":"2026-08-31T04:07:55.407Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-31T04:07:55.418Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-31T04:07:55.419Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-31T04:07:55.420Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-31T04:07:55.432Z","severity":"WARNING","logger":"caliber.routes.observability","message":"allure s3 fetch failed for allure/index.html (s3 error)","trace_id":"ff9fc67adfbdc2e1"}
+{"t":"2026-08-31T04:07:55.433Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/observability/allure-report/ \"HTTP/1.1 502 Bad Gateway\""}

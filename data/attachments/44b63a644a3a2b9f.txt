@@ -1,0 +1,3 @@
+2026/08/31 04:01:14 INFO mlflow.store.db.utils: Creating initial MLflow database tables...
+2026/08/31 04:01:14 INFO mlflow.store.db.utils: Updating database tables
+{"t":"2026-08-31T04:01:16.505Z","severity":"ERROR","logger":"caliber.assistant.service","message":"assistant reviewer failed for draft ADRF-7a69b9e3","error":"RuntimeError","stack_trace":"Traceback (most recent call last):\n  File \"/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/service.py\", line 5266, in _review_draft\n    raise RuntimeError(config_error)\nRuntimeError: Reviewer identity must be distinct from the draft author."}
