@@ -1,1 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: GET https://tickets.example.com/tickets/T-9 "HTTP/1.1 200 OK"

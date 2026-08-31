@@ -1,5 +1,0 @@
-WARNING  caliber.orchestrator.calibration_drain:calibration_drain.py:403 calibration job CAL-TL-does-not-exist-0 failed
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/orchestrator/calibration_drain.py", line 366, in run_job
-    raise ValueError("job has no captured tool snapshot; resubmit it after upgrading")
-ValueError: job has no captured tool snapshot; resubmit it after upgrading
