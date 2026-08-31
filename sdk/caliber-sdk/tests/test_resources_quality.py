@@ -49,7 +49,7 @@ def test_capturing_a_trace_as_an_example_posts_the_trace_id() -> None:
         return envelope({"example_id": "EX-1", "source_trace_id": "tr-1"})
 
     with client_with(handler) as caliber:
-        example = caliber.datasets.add_from_trace("ED-1", "tr-1")
+        example = caliber.eval_datasets.add_from_trace("ED-1", "tr-1")
 
     assert sent["trace_id"] == "tr-1"
     assert example.source_trace_id == "tr-1"
@@ -116,7 +116,7 @@ def test_dataset_and_judge_lists_hit_the_documented_paths() -> None:
         return envelope([])
 
     with client_with(handler) as caliber:
-        caliber.datasets.list()
+        caliber.eval_datasets.list()
         caliber.judges.list()
         caliber.evaluations.list(dataset_id="ED-1")
 

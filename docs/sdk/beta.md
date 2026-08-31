@@ -26,7 +26,7 @@ Ask the deployment rather than assuming, because the tier is a property of the
 running server and not of the SDK version:
 
 ```python
-tier = caliber.capabilities_api.get().tier_of("aria")   # "beta"
+tier = caliber.capabilities_info.get().tier_of("aria")   # "beta"
 ```
 
 Every code block below is extracted from

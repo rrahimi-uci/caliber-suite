@@ -83,6 +83,7 @@ Every documented class and module-level function, with the module that defines i
 | [`CaliberClient`](#caliberclient) | [`caliber_sdk.client`](#module-caliber_sdkclient) |
 | [`CaliberConfigError`](#caliberconfigerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberConflictError`](#caliberconflicterror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberDecodeError`](#caliberdecodeerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberError`](#calibererror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberNotFoundError`](#calibernotfounderror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberPermissionError`](#caliberpermissionerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
@@ -272,7 +273,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
+`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
 
 **Module constants**
 
@@ -349,14 +350,14 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `raw` | `RawAPI` | Low-level route access through the SDK transport. |
 | `auth` | `AuthAPI` | Session inspection plus token and account sub-resources. |
 | `me` | `MeAPI` | The caller identity surface. |
-| `capabilities_api` | `CapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
+| `capabilities_info` | `CapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
 | `settings` | `SettingsAPI` | Runtime and LLM configuration inventory. |
 | `projects` | `ProjectsAPI` | Projects plus the managed file registry. |
 | `prompts` | `PromptsAPI` | Prompt registry authoring and promotion. |
 | `skills` | `SkillsAPI` | Skill registry, render tests, selection tests, and versions. |
 | `tools` | `ToolsAPI` | Tool registry, schemas, and deterministic calibration. |
 | `workflows` | `WorkflowsAPI` | Workflow registry plus versions, runs, and services. |
-| `datasets` | `EvalDatasetsAPI` | Evaluation datasets and examples. |
+| `eval_datasets` | `EvalDatasetsAPI` | Evaluation datasets and examples. |
 | `judges` | `JudgesAPI` | Model-backed graders and alignment scoring. |
 | `evaluations` | `EvaluationsAPI` | Scored dataset runs. |
 | `mcp_servers` | `McpServersAPI` | Managed MCP server registry and governed tool invocation. |
@@ -389,6 +390,30 @@ Tags grouped by ``ga`` / ``beta`` / ``internal``.
 This callable takes no public parameters.
 
 **Returns:** `dict[str, list[str]]`
+
+###### `capabilities_api() -> CapabilitiesAPI`
+
+Deprecated alias for :attr:`capabilities_info`.
+
+``capabilities_api`` reads as "the capabilities API resource", which
+is accurate but indistinguishable from ``CaliberClient.capabilities()``
+at a glance. ``capabilities_info`` names what it actually returns.
+
+This callable takes no public parameters.
+
+**Returns:** `CapabilitiesAPI`
+
+###### `datasets() -> EvalDatasetsAPI`
+
+Deprecated alias for :attr:`eval_datasets`.
+
+``datasets`` reads as every kind of stored data CALIBER has (prompt
+datasets, knowledge bases, ...); ``eval_datasets`` names the one this
+resource actually is.
+
+This callable takes no public parameters.
+
+**Returns:** `EvalDatasetsAPI`
 
 **Methods**
 
@@ -1030,7 +1055,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
+`CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
 
 #### Functions
 
@@ -1083,6 +1108,42 @@ The request never produced an HTTP response.
 Connection refused, DNS failure, timeout. Distinct from
 :class:`CaliberAPIError` because there is no server verdict to inspect --
 and because retrying is often correct here and often wrong there.
+
+##### `CaliberDecodeError`
+
+`class CaliberDecodeError(payload)`
+
+**Bases:** [`CaliberError`](#calibererror)
+
+A 2xx payload had the wrong shape to decode.
+
+Distinct from :class:`CaliberAPIError`: the request succeeded and the
+server is not complaining about anything, but the payload was not the
+list (or object) this call expected -- an error page from a
+misconfigured proxy, an envelope from the wrong endpoint, ``None``
+where a body was required. Raised only by callers that opt into strict
+decoding (``decode_list(..., strict=True)``); by default a shape
+mismatch degrades to an empty result instead, per this module's
+tolerant-decoding principle (S4) -- strict mode exists for the contract
+tests that must tell "empty" apart from "wrong shape entirely".
+
+**Constructor**
+
+###### `__init__(payload) -> None`
+
+Operate on the caliber decode error surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `payload` | `Any` | — |
 
 ##### `CaliberAPIError`
 
@@ -10245,10 +10306,20 @@ Operate on the caliber client surface with the supplied arguments and return the
 | --- | --- | --- |
 | `raw` | `AsyncRawAPI` | Low-level route access through the SDK transport. |
 | `me` | `AsyncMeAPI` | The caller identity surface. |
-| `capabilities_api` | `AsyncCapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
+| `capabilities_info` | `AsyncCapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
 | `workflows` | `AsyncWorkflowRunsAPI` | Workflow registry plus versions, runs, and services. |
 | `jobs` | `AsyncJobsAPI` | Long-running background jobs. |
 | `events` | `AsyncEventsAPI` | Server-sent event stream. |
+
+**Properties**
+
+###### `capabilities_api() -> AsyncCapabilitiesAPI`
+
+Deprecated alias for :attr:`capabilities_info`.
+
+This callable takes no public parameters.
+
+**Returns:** `AsyncCapabilitiesAPI`
 
 **Methods**
 

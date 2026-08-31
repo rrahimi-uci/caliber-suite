@@ -20,6 +20,8 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, TypeVar
 
+from ..errors import CaliberDecodeError
+
 T = TypeVar("T")
 
 
@@ -34,9 +36,21 @@ def decode(cls: type[T], payload: Any) -> T:
     return cls(**known)
 
 
-def decode_list(cls: type[T], payload: Any) -> list[T]:
-    """Decode a list payload, tolerating a non-list by returning nothing."""
+def decode_list(cls: type[T], payload: Any, *, strict: bool = False) -> list[T]:
+    """Decode a list payload, tolerating a non-list by returning nothing.
+
+    A genuinely empty list and a payload that was never a list at all both
+    produce ``[]`` by default -- consistent with this module's tolerant
+    principle, but a caller that needs to tell them apart (a contract test
+    asserting the server's shape, a script that would otherwise silently
+    treat "wrong endpoint" as "nothing found") cannot, from the return value
+    alone. Pass ``strict=True`` to raise :class:`~caliber_sdk.CaliberDecodeError`
+    instead of swallowing a non-list payload; a genuinely empty list still
+    decodes to ``[]`` either way.
+    """
     if not isinstance(payload, list):
+        if strict:
+            raise CaliberDecodeError(payload)
         return []
     return [decode(cls, item) for item in payload]
 

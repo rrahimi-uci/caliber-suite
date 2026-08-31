@@ -10,11 +10,13 @@ tables that silently drift.
 from __future__ import annotations
 
 import sys
+import tomllib
 from collections import defaultdict
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CALIBER_ROOT = REPO_ROOT / "caliber"
+ALLOWLIST_PATH = REPO_ROOT / "sdk" / "caliber-sdk" / "coverage_allowlist.toml"
 sys.path.insert(0, str(CALIBER_ROOT / "src"))
 
 from caliber.routes.openapi import PREFIX, build_openapi_document  # noqa: E402
@@ -47,7 +49,7 @@ SDK_SURFACE_MAP = {
         "notes": "Identity and effective scopes for the current credential.",
     },
     "capabilities": {
-        "entry": "`CaliberClient.capabilities()`, `client.capabilities_api.get()`",
+        "entry": "`CaliberClient.capabilities()`, `client.capabilities_info.get()`",
         "notes": "Feature flags and SDK stability tiers for the current deployment.",
     },
     "settings": {
@@ -87,7 +89,7 @@ SDK_SURFACE_MAP = {
         "notes": "Publish a workflow as a service, inspect service OpenAPI, and invoke it.",
     },
     "eval-datasets": {
-        "entry": "`client.datasets`",
+        "entry": "`client.eval_datasets`",
         "notes": "Evaluation datasets, examples, and trace-to-dataset capture.",
     },
     "evaluations": {
@@ -241,21 +243,53 @@ def _escape_cell(value: str) -> str:
     return value.replace("|", r"\|").replace("\n", " ").strip()
 
 
+def _load_excluded_ops() -> set[tuple[str, str]]:
+    """Operations permanently out of SDK scope -- ``coverage_allowlist.toml``
+    ``[[exclusion]]`` entries, keyed the same way ``covered_ops`` is.
+
+    These can never gain a typed method by definition (see
+    sdk-completeness-plan.md §2.8: CSRF bootstrap, cookie-based login/logout,
+    the allure-report HTML proxy, Prometheus exposition). Only ``[[exclusion]]``
+    entries are loaded here, not ``[[gap]]`` -- a gap is addressable, temporary
+    debt that should keep counting against a tag until it is actually covered.
+    """
+    payload = tomllib.loads(ALLOWLIST_PATH.read_text(encoding="utf-8"))
+    return {
+        (str(entry["method"]).upper(), sdk_coverage.normalize_path(str(entry["path"])))
+        for entry in payload.get("exclusion", [])
+    }
+
+
 def _sdk_coverage_counts(
     entries: list[tuple[str, str, dict[str, object]]],
     covered_ops: set[tuple[str, str]],
+    excluded_ops: set[tuple[str, str]],
 ) -> tuple[int, int]:
     """``(covered, total)`` operation counts for one tag, measured against the
     real ``caliber-sdk`` source via :mod:`sdk_coverage` -- the single
     implementation this table and ``caliber/tests/test_sdk_api_coverage.py``
     both use, so this table can never claim more coverage than the CI gate
     verifies.
+
+    Permanently excluded operations (``excluded_ops``) are dropped from both
+    the numerator and the denominator: they are not part of the SDK's
+    addressable surface at all, so counting them against a tag understates
+    it once every *addressable* operation in that tag is typed. Without this,
+    ``auth`` (which carries the excluded ``POST /auth/login`` and
+    ``POST /auth/logout``) and ``observability`` (which carries the excluded
+    allure-report proxy routes) show "Partial" forever, even at 100%
+    addressable coverage. The "Ops" column in the rendered table stays the
+    raw route count -- it lists everything, matching the detailed route
+    inventory below it; only this coverage fraction is addressable-only.
     """
-    total = len(entries)
+    total = 0
     covered = 0
     for path, method, _operation in entries:
         assert path.startswith(PREFIX), f"tag row carried an unprefixed path: {path!r}"
         relative = path[len(PREFIX) :] or "/"
+        if (method.upper(), sdk_coverage.normalize_path(relative)) in excluded_ops:
+            continue
+        total += 1
         if sdk_coverage.is_covered(method, relative, covered_ops):
             covered += 1
     return covered, total
@@ -272,6 +306,13 @@ def _sdk_surface_row(
     impossible for the published table to overstate coverage the way the
     previous tag-is-present-or-not version could (13 tags did, at one point
     -- see ``sdk-completeness-plan.md`` §2.7).
+
+    ``total_count`` already excludes permanently out-of-scope operations
+    (``coverage_allowlist.toml`` ``[[exclusion]]``), so it can only be 0 when
+    every operation in the tag is one -- ``csrf`` and ``metrics`` today. That
+    is a distinct case from "not covered yet": there is nothing to type,
+    ever, so it gets its own message instead of the "yet" phrasing meant for
+    unmapped-but-addressable tags.
     """
     surface = SDK_SURFACE_MAP.get(tag)
     entry = surface["entry"] if surface else "`client.raw`"
@@ -280,7 +321,14 @@ def _sdk_surface_row(
         "generate a client against the served OpenAPI document if you need it today."
     )
     if total_count == 0:
-        return ("n/a", entry, note)
+        return (
+            "n/a",
+            "`client.raw`",
+            "Every operation in this family is permanently outside SDK scope "
+            "(see coverage_allowlist.toml and sdk-completeness-plan.md §2.8) -- "
+            "there is nothing here a typed method would add. Use `client.raw` "
+            "or the served OpenAPI document directly.",
+        )
     if covered_count == total_count:
         return ("Typed SDK", entry, note)
     if covered_count == 0:
@@ -359,6 +407,7 @@ def render_inventory() -> str:
     app = create_app()
     document = build_openapi_document(app)
     covered_ops = sdk_coverage.covered_operations(REPO_ROOT)
+    excluded_ops = _load_excluded_ops()
     coverage = document.get("x-caliber-schema-coverage", {})
     components = document.get("components", {})
     schemas = components.get("schemas", {}) if isinstance(components, dict) else {}
@@ -449,7 +498,7 @@ def render_inventory() -> str:
     for tier in TIER_ORDER:
         for tag in sorted(tiered_tags.get(tier, []), key=_tag_sort_key):
             entries = grouped[tag]
-            covered_count, total_count = _sdk_coverage_counts(entries, covered_ops)
+            covered_count, total_count = _sdk_coverage_counts(entries, covered_ops, excluded_ops)
             coverage_label, sdk_entry, sdk_note = _sdk_surface_row(
                 tag, tier, covered_count, total_count
             )

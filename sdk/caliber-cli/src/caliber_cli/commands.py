@@ -38,7 +38,7 @@ def whoami(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int
 
 def capabilities(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
     """What this deployment supports."""
-    out.data(client.capabilities_api.get())
+    out.data(client.capabilities_info.get())
     return exits.OK
 
 
@@ -148,6 +148,61 @@ def workflow_status(client: CaliberClient, args: argparse.Namespace, out: Printe
     return exits.OK if run.status in {"succeeded", "completed"} else exits.FAILURE
 
 
+def workflow_deployments(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    out.data(client.workflows.deployments(args.workflow_id))
+    return exits.OK
+
+
+def workflow_promote(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Point a deployment alias at a version.
+
+    On a gated alias the server creates a pending promotion instead of
+    rotating immediately -- this command reports whichever one actually
+    happened rather than assuming; see ``workflow promotions`` and
+    ``promotion approve``/``reject`` for the gated path.
+    """
+    out.data(
+        client.workflows.promote_deployment(
+            args.workflow_id, args.alias, version_id=args.version_id
+        )
+    )
+    return exits.OK
+
+
+def workflow_rollback(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Pop the deployment's checkpoint stack, restoring the prior version.
+
+    Changes what a live alias serves right now, so it needs --yes like every
+    other command here that does something to production traffic.
+    """
+    if not args.yes:
+        out.error(
+            f"rolling back {args.workflow_id}:{args.alias} changes what that alias "
+            "serves right now; pass --yes to confirm"
+        )
+        return exits.USAGE
+    out.data(client.workflows.rollback_deployment(args.workflow_id, args.alias))
+    return exits.OK
+
+
+def workflow_promotions(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    out.data(client.workflows.list_promotions(args.workflow_id))
+    return exits.OK
+
+
+# -- promotions --------------------------------------------------------------
+
+
+def promotion_approve(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    out.data(client.workflows.promotions.approve(args.promotion_id, reason=args.reason))
+    return exits.OK
+
+
+def promotion_reject(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    out.data(client.workflows.promotions.reject(args.promotion_id, reason=args.reason))
+    return exits.OK
+
+
 # -- jobs ------------------------------------------------------------------
 
 
@@ -205,6 +260,33 @@ def release_sign(client: CaliberClient, args: argparse.Namespace, out: Printer) 
         client.releases.sign(args.candidate_id, decision=args.decision, rationale=args.rationale)
     )
     return exits.OK if args.decision == "go" else exits.GATE_FAILED
+
+
+# -- gate verdicts -----------------------------------------------------------
+
+
+def gate_verdict_show(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Show the latest verdict for one version, or ``{"state": "none"}``.
+
+    A plain read: unlike ``record``, showing a verdict does not itself produce
+    a decision, so it always exits OK and leaves interpreting ``state`` to the
+    caller.
+    """
+    out.data(client.gate_verdicts.get(args.artifact_type, args.version_key))
+    return exits.OK
+
+
+def gate_verdict_record(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Record a verdict.
+
+    Advisory in v1 -- CALIBER never blocks alias rotation on a verdict by
+    itself (see ``ARCHITECTURE.md`` Sec 4's "Gate semantics" column) -- but
+    a script recording one still needs an exit code carrying the answer,
+    the same way ``release sign`` does for a signoff.
+    """
+    verdict = client.gate_verdicts.record(args.artifact_type, args.version_key, state=args.state)
+    out.data(verdict)
+    return exits.OK if args.state != "fail" else exits.GATE_FAILED
 
 
 # -- cookbooks -------------------------------------------------------------
@@ -326,7 +408,7 @@ def plugin_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -
     deployment asked for it, so a green exit would report a configuration that
     is not in effect.
     """
-    extensibility = client.capabilities_api.get().extensibility
+    extensibility = client.capabilities_info.get().extensibility
 
     out.table(
         extensibility.optimizers,

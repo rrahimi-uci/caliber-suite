@@ -37,8 +37,8 @@ plumbing of its own:
 Personal access tokens are issued by the API and returned **once**:
 
 ```python
-created = caliber.raw.post("/auth/tokens", json={"name": "ci", "scopes": ["caliber.operator"]})
-print(created["token"])  # calpat_... — store it now; it is never shown again
+created = caliber.auth.tokens.create("ci", scopes=["caliber.operator"])
+print(created.token)  # calpat_... — store it now; it is never shown again
 ```
 
 Scopes are a **ceiling**, not a grant: the effective authority is what the token
@@ -86,6 +86,9 @@ client reports them, so a script can check rather than assume:
 if "knowledge-bases" in caliber.stability["ga"]:
     ...
 ```
+
+See [`VERSIONING.md`](VERSIONING.md) for what each tier promises, the SemVer
+and deprecation-window policy, and the server/SDK compatibility statement.
 
 ## Anything not yet modelled
 

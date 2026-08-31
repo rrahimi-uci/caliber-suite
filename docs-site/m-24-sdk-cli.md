@@ -88,6 +88,9 @@ caliberctl token revoke PAT-9 --yes   # revokes
 | `capabilities` | What the deployment supports. |
 | `token list \| create \| rotate \| revoke` | Access token lifecycle. |
 | `workflow list \| run \| status` | Run a workflow and wait for it. |
+| `workflow deployments \| promote \| rollback \| promotions` | Deployment-alias governance: what's live, point an alias at a version, restore the prior one, and list pending/historical promotions. |
+| `promotion approve \| reject` | Act on a pending gated promotion (see `workflow promote`). |
+| `gate-verdict show \| record` | Advisory per-version evaluation verdicts (`prompt`/`workflow`/`skill`). |
 | `job list \| wait` | Background jobs, including the ones that wait for you. |
 | `release list \| sign` | Release candidates and go / no-go. |
 | `cookbook list \| install` | Example workflows, with readiness checked first. |
@@ -95,7 +98,7 @@ caliberctl token revoke PAT-9 --yes   # revokes
 | `service show \| publish \| unpublish` | A workflow's external HTTP service. |
 | `plugin list` | Optimizers, and plugins installed but not enabled. |
 
-Five choices worth knowing about:
+Choices worth knowing about:
 
 **`whoami` exits 6 on an anonymous identity.** `GET /me` reports rather than
 requires, so an unusable credential returns 200 with `user_id: anonymous`. That
@@ -118,6 +121,22 @@ something to do by accident.
 **`release sign --rationale` is required.** By the API, and therefore here. A CLI
 that defaulted it to "signed via caliberctl" would manufacture exactly the record
 the requirement exists to prevent.
+
+**`workflow rollback` requires `--yes`.** It changes what a live deployment
+alias serves right now, by popping that alias's checkpoint stack — the same
+irreversible-action guard as `token revoke` and `service unpublish`.
+
+**`workflow promote` may not promote immediately.** On a gated alias the
+server creates a pending promotion instead of rotating the alias — check the
+response, or `workflow promotions`, rather than assuming the alias moved. Act
+on a pending one with `promotion approve` / `promotion reject`.
+
+**`gate-verdict record --state fail` exits 4 (gate failed); `show` never does.**
+`record` produces a decision the same way `release sign` does, so its answer
+travels in the exit code. `show` is a plain read of whatever was last
+recorded — it exits 0 regardless of `state`, and leaves interpreting the value
+to the caller. Verdicts are advisory in v1: CALIBER never blocks alias
+rotation on one by itself; this is release evidence, not an enforced gate.
 
 ## The async client
 
@@ -157,7 +176,7 @@ runs = await asyncio.gather(*(
 ### What it covers, and what it does not
 
 `AsyncCaliberClient` gives you the transport, `raw`, async waiters, and the typed
-surfaces where async changes the outcome: `me`, `capabilities_api`, `workflows`
+surfaces where async changes the outcome: `me`, `capabilities_info`, `workflows`
 (runs), `jobs`, and `events`.
 
 It does **not** mirror all twenty-odd typed resource modules, and that is a

@@ -96,10 +96,10 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Family | Stability | Ops | SDK coverage | SDK entry point | Notes |
 | --- | --- | --- | --- | --- | --- |
 | OpenAPI JSON (`openapi.json`) | `ga` | `1` | Typed SDK | `CaliberClient.openapi()` | Fetch the live management OpenAPI document directly from the root client. |
-| Auth (`auth`) | `ga` | `11` | Partial (9/11) | `client.auth.tokens`, `client.auth.accounts`, `client.auth.session()` | Token issuance, rotation, revocation, account management, and session inspection. |
-| CSRF (`csrf`) | `ga` | `1` | Raw only | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Auth (`auth`) | `ga` | `11` | Typed SDK | `client.auth.tokens`, `client.auth.accounts`, `client.auth.session()` | Token issuance, rotation, revocation, account management, and session inspection. |
+| CSRF (`csrf`) | `ga` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml and sdk-completeness-plan.md §2.8) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
-| Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_api.get()` | Feature flags and SDK stability tiers for the current deployment. |
+| Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_info.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
 | Projects (`projects`) | `ga` | `14` | Typed SDK | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
@@ -113,7 +113,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Services (`services`) | `ga` | `3` | Typed SDK | `client.workflows.services` | Publish a workflow as a service, inspect service OpenAPI, and invoke it. |
-| Eval Datasets (`eval-datasets`) | `ga` | `11` | Typed SDK | `client.datasets` | Evaluation datasets, examples, and trace-to-dataset capture. |
+| Eval Datasets (`eval-datasets`) | `ga` | `11` | Typed SDK | `client.eval_datasets` | Evaluation datasets, examples, and trace-to-dataset capture. |
 | Evaluations (`evaluations`) | `ga` | `3` | Typed SDK | `client.evaluations` | Create, inspect, and wait on evaluation runs. |
 | Judges (`judges`) | `ga` | `6` | Typed SDK | `client.judges` | Judge creation, test execution, and human-alignment scoring. |
 | Workflow Cron Preview (`workflow-cron-preview`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
@@ -125,7 +125,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Releases (`releases`) | `beta` | `13` | Typed SDK | `client.releases` | Release candidates, evaluation, waivers, reports, and signoff. |
 | Review Queues (`review-queues`) | `beta` | `7` | Typed SDK | `client.review_queues` | Queue creation, enqueue/submit flows, and alignment examples. |
 | Jobs (`jobs`) | `beta` | `4` | Typed SDK | `client.jobs` | Durable background jobs, targets, apply, and wait semantics. |
-| Observability (`observability`) | `beta` | `7` | Partial (5/7) | `client.observability` | Trace listing/detail, experiments, and metrics reads. |
+| Observability (`observability`) | `beta` | `7` | Typed SDK | `client.observability` | Trace listing/detail, experiments, and metrics reads. |
 | Events (`events`) | `beta` | `1` | Typed SDK | `client.events` | Server-sent events stream access. |
 | Gateway (`gateway`) | `beta` | `9` | Typed SDK | `client.gateway` | Gateway endpoint discovery, guardrails, and trace-derived usage. |
 | Cookbooks (`cookbooks`) | `beta` | `2` | Typed SDK | `client.cookbooks` | Cookbook catalog and related operational metadata. |
@@ -143,7 +143,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Health (`health`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | LLM Pricing (`llm-pricing`) | `internal` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Memory (`memory`) | `internal` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Metrics (`metrics`) | `internal` | `1` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
+| Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml and sdk-completeness-plan.md §2.8) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Readiness (`readiness`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | System (`system`) | `internal` | `11` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 

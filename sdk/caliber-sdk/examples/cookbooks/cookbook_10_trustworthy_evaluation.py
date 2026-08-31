@@ -20,7 +20,7 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         acknowledge_prerequisites=bool(recipe.prerequisites),
     )
     owner = caliber.me.get().user_id
-    dataset = caliber.datasets.create(
+    dataset = caliber.eval_datasets.create(
         "evaluation-candidates",
         owner=owner,
         description="Cookbook 10 comparison set",

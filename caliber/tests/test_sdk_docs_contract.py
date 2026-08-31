@@ -169,6 +169,10 @@ def test_every_method_that_performs_a_request_documents_its_exceptions() -> None
             # Genuinely cannot raise: local accessors, a factory that *returns*
             # an exception, and ``bootstrap_csrf``, which catches and returns
             # None because a deployment with CSRF disabled serves no token.
+            # ``capabilities_api``/``datasets`` are deprecated aliases (AD-6):
+            # pure attribute access plus a warning, delegating to an
+            # already-documented resource rather than performing a request
+            # themselves.
             if name in {
                 "close",
                 "aclose",
@@ -176,6 +180,8 @@ def test_every_method_that_performs_a_request_documents_its_exceptions() -> None
                 "error_for_response",
                 "bootstrap_csrf",
                 "stability",
+                "capabilities_api",
+                "datasets",
             }:
                 continue
             missing.append(f"{class_name}.{name}")

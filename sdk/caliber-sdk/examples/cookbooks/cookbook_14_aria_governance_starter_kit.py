@@ -34,7 +34,7 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         "plan_id": settled.plan.plan_id,
         "status": settled.plan.status,
         "judges": [judge.judge_id for judge in caliber.judges.list()],
-        "datasets": [dataset.dataset_id for dataset in caliber.datasets.list()],
+        "datasets": [dataset.dataset_id for dataset in caliber.eval_datasets.list()],
         "queues": [queue.queue_id for queue in caliber.review_queues.list()],
     }
 

@@ -7,8 +7,8 @@ from typing import Any
 import httpx
 import pytest
 
-from caliber_sdk import CaliberClient
-from caliber_sdk.models import Identity, PersonalAccessToken, decode
+from caliber_sdk import CaliberClient, CaliberDecodeError
+from caliber_sdk.models import Identity, PersonalAccessToken, decode, decode_list
 
 BASE = "https://caliber.test"
 
@@ -155,7 +155,7 @@ def test_capabilities_decodes_the_nested_workflow_block() -> None:
         )
 
     with client_with(handler) as caliber:
-        capabilities = caliber.capabilities_api.get()
+        capabilities = caliber.capabilities_info.get()
 
     assert capabilities.workflow_runs.queue_enabled is True
     assert capabilities.workflow_runs.event_backend == "database"
@@ -294,6 +294,30 @@ def test_decoding_a_non_object_yields_defaults_rather_than_raising(payload: Any)
     assert decode(Identity, payload).user_id == ""
 
 
+@pytest.mark.parametrize("payload", [None, {"detail": "not found"}, "text", 42])
+def test_decode_list_tolerates_a_non_list_payload_by_default(payload: Any) -> None:
+    """The default: a wrong-shaped payload degrades to empty, same as a
+    genuinely empty list would -- there is no way to tell them apart from
+    the return value alone, which is exactly what ``strict=True`` is for."""
+    assert decode_list(PersonalAccessToken, payload) == []
+
+
+def test_decode_list_strict_raises_on_a_non_list_payload() -> None:
+    """The gap ``strict=True`` closes: a proxy error page, the wrong
+    endpoint's envelope, or a malformed response must be distinguishable
+    from "the list is empty" for a contract test (or a caller) that needs
+    to know which one actually happened."""
+    with pytest.raises(CaliberDecodeError) as excinfo:
+        decode_list(PersonalAccessToken, {"detail": "not found"}, strict=True)
+    assert excinfo.value.payload == {"detail": "not found"}
+
+
+def test_decode_list_strict_still_accepts_a_genuinely_empty_list() -> None:
+    """Strict mode narrows what counts as an error; it must not turn a real
+    empty result into one."""
+    assert decode_list(PersonalAccessToken, [], strict=True) == []
+
+
 # --- extensibility --------------------------------------------------------
 
 
@@ -331,7 +355,7 @@ def test_capabilities_decodes_the_extensibility_block_two_levels_down() -> None:
         )
 
     with client_with(handler) as caliber:
-        extensibility = caliber.capabilities_api.get().extensibility
+        extensibility = caliber.capabilities_info.get().extensibility
 
     assert [item.name for item in extensibility.optimizers] == ["MetaPrompt", "AcmeOptimizer"]
     # The distinction an operator needs before pinning an agent to one.
@@ -357,7 +381,7 @@ def test_filtering_optimizers_by_artifact_kind_avoids_a_server_rejection() -> No
         )
 
     with client_with(handler) as caliber:
-        extensibility = caliber.capabilities_api.get().extensibility
+        extensibility = caliber.capabilities_info.get().extensibility
 
     assert [item.name for item in extensibility.optimizers_for("skill")] == [
         "SkillMetaPrompt",
@@ -373,7 +397,7 @@ def test_an_installed_but_unlisted_plugin_is_not_active() -> None:
         return envelope({"extensibility": {"plugins": [{"name": "acme", "allowlisted": False}]}})
 
     with client_with(handler) as caliber:
-        plugin = caliber.capabilities_api.get().extensibility.plugins[0]
+        plugin = caliber.capabilities_info.get().extensibility.plugins[0]
 
     assert not plugin.is_active
     assert plugin.error is None
@@ -394,7 +418,7 @@ def test_an_allowlisted_plugin_that_failed_to_load_is_not_active() -> None:
         )
 
     with client_with(handler) as caliber:
-        plugin = caliber.capabilities_api.get().extensibility.plugins[0]
+        plugin = caliber.capabilities_info.get().extensibility.plugins[0]
 
     assert not plugin.is_active
     assert plugin.error
@@ -407,7 +431,7 @@ def test_a_server_without_the_extensibility_block_decodes_to_an_empty_one() -> N
         return envelope({"sync_workflow_version_run": True})
 
     with client_with(handler) as caliber:
-        extensibility = caliber.capabilities_api.get().extensibility
+        extensibility = caliber.capabilities_info.get().extensibility
 
     assert extensibility.optimizers == []
     assert extensibility.allowlist_env_var == "CALIBER_PLUGIN_ALLOWLIST"

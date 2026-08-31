@@ -35,6 +35,25 @@ class CaliberTransportError(CaliberError):
     """
 
 
+class CaliberDecodeError(CaliberError):
+    """A 2xx payload had the wrong shape to decode.
+
+    Distinct from :class:`CaliberAPIError`: the request succeeded and the
+    server is not complaining about anything, but the payload was not the
+    list (or object) this call expected -- an error page from a
+    misconfigured proxy, an envelope from the wrong endpoint, ``None``
+    where a body was required. Raised only by callers that opt into strict
+    decoding (``decode_list(..., strict=True)``); by default a shape
+    mismatch degrades to an empty result instead, per this module's
+    tolerant-decoding principle (S4) -- strict mode exists for the contract
+    tests that must tell "empty" apart from "wrong shape entirely".
+    """
+
+    def __init__(self, payload: Any) -> None:
+        super().__init__(f"expected a list payload, got {type(payload).__name__}: {payload!r}")
+        self.payload = payload
+
+
 class CaliberAPIError(CaliberError):
     """The server returned a non-2xx response."""
 
@@ -187,6 +206,7 @@ __all__ = [
     "CaliberAuthenticationError",
     "CaliberConfigError",
     "CaliberConflictError",
+    "CaliberDecodeError",
     "CaliberError",
     "CaliberNotFoundError",
     "CaliberPermissionError",

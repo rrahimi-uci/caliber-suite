@@ -27,7 +27,7 @@ def run(caliber: CaliberClient) -> dict[str, object]:
             {"name": "escalation_notes", "type": "text", "required": False},
         ],
     )
-    dataset = caliber.datasets.create(
+    dataset = caliber.eval_datasets.create(
         "support-ticket-cases",
         owner=owner,
         description="Cookbook 07 evaluation set",
