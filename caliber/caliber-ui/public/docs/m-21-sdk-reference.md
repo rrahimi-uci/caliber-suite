@@ -83,6 +83,7 @@ Every documented class and module-level function, with the module that defines i
 | [`CaliberClient`](#caliberclient) | [`caliber_sdk.client`](#module-caliber_sdkclient) |
 | [`CaliberConfigError`](#caliberconfigerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberConflictError`](#caliberconflicterror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberDecodeError`](#caliberdecodeerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberError`](#calibererror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberNotFoundError`](#calibernotfounderror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberPermissionError`](#caliberpermissionerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
@@ -272,7 +273,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
+`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
 
 **Module constants**
 
@@ -1054,7 +1055,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
+`CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
 
 #### Functions
 
@@ -1107,6 +1108,42 @@ The request never produced an HTTP response.
 Connection refused, DNS failure, timeout. Distinct from
 :class:`CaliberAPIError` because there is no server verdict to inspect --
 and because retrying is often correct here and often wrong there.
+
+##### `CaliberDecodeError`
+
+`class CaliberDecodeError(payload)`
+
+**Bases:** [`CaliberError`](#calibererror)
+
+A 2xx payload had the wrong shape to decode.
+
+Distinct from :class:`CaliberAPIError`: the request succeeded and the
+server is not complaining about anything, but the payload was not the
+list (or object) this call expected -- an error page from a
+misconfigured proxy, an envelope from the wrong endpoint, ``None``
+where a body was required. Raised only by callers that opt into strict
+decoding (``decode_list(..., strict=True)``); by default a shape
+mismatch degrades to an empty result instead, per this module's
+tolerant-decoding principle (S4) -- strict mode exists for the contract
+tests that must tell "empty" apart from "wrong shape entirely".
+
+**Constructor**
+
+###### `__init__(payload) -> None`
+
+Operate on the caliber decode error surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `payload` | `Any` | — |
 
 ##### `CaliberAPIError`
 
