@@ -543,7 +543,23 @@ def test_decode_list_strict_mode_against_a_genuine_server_response_shape(
 
     # A genuinely empty list from the real server still decodes cleanly under
     # strict mode -- confirmed against a real empty registry, not a stand-in.
-    assert decode_list(PersonalAccessToken, sdk.raw.get("/prompts"), strict=True) == []  # type: ignore[attr-defined]
+    # /judges rather than /prompts deliberately: judges live in CALIBER's own
+    # tables (routes/judges.py -- "CALIBER stays the source of truth"),
+    # torn down and recreated fresh by the `engine` fixture for every test
+    # function. /prompts is served from MLflow's own Prompt Registry
+    # (routes/prompts.py's MlflowClient().search_prompts()) -- a store this
+    # suite does not reset per test -- so it is not actually guaranteed
+    # empty here: it failed exactly this way the one time this test ran as
+    # part of the full suite instead of in isolation, because an earlier,
+    # unrelated test had already registered a real prompt. (/auth/tokens was
+    # tried first and rejected too: its envelope nests the list under a
+    # "tokens" key -- {"tokens": [...]} -- that only TokensAPI.list()'s own
+    # extra unwrap step handles; /judges' route returns the bare list
+    # decode_list expects directly, matching JudgesAPI.list()'s own
+    # implementation exactly.)
+    from caliber_sdk.models import Judge
+
+    assert decode_list(Judge, sdk.raw.get("/judges"), strict=True) == []  # type: ignore[attr-defined]
 
 
 # --- CLI + SDK + real server together (Phase 5.3) --------------------------
