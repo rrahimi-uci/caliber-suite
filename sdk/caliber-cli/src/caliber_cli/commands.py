@@ -38,7 +38,7 @@ def whoami(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int
 
 def capabilities(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
     """What this deployment supports."""
-    out.data(client.capabilities_api.get())
+    out.data(client.capabilities_info.get())
     return exits.OK
 
 
@@ -326,7 +326,7 @@ def plugin_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -
     deployment asked for it, so a green exit would report a configuration that
     is not in effect.
     """
-    extensibility = client.capabilities_api.get().extensibility
+    extensibility = client.capabilities_info.get().extensibility
 
     out.table(
         extensibility.optimizers,

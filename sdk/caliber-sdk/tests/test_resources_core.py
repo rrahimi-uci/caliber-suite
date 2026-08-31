@@ -155,7 +155,7 @@ def test_capabilities_decodes_the_nested_workflow_block() -> None:
         )
 
     with client_with(handler) as caliber:
-        capabilities = caliber.capabilities_api.get()
+        capabilities = caliber.capabilities_info.get()
 
     assert capabilities.workflow_runs.queue_enabled is True
     assert capabilities.workflow_runs.event_backend == "database"
@@ -331,7 +331,7 @@ def test_capabilities_decodes_the_extensibility_block_two_levels_down() -> None:
         )
 
     with client_with(handler) as caliber:
-        extensibility = caliber.capabilities_api.get().extensibility
+        extensibility = caliber.capabilities_info.get().extensibility
 
     assert [item.name for item in extensibility.optimizers] == ["MetaPrompt", "AcmeOptimizer"]
     # The distinction an operator needs before pinning an agent to one.
@@ -357,7 +357,7 @@ def test_filtering_optimizers_by_artifact_kind_avoids_a_server_rejection() -> No
         )
 
     with client_with(handler) as caliber:
-        extensibility = caliber.capabilities_api.get().extensibility
+        extensibility = caliber.capabilities_info.get().extensibility
 
     assert [item.name for item in extensibility.optimizers_for("skill")] == [
         "SkillMetaPrompt",
@@ -373,7 +373,7 @@ def test_an_installed_but_unlisted_plugin_is_not_active() -> None:
         return envelope({"extensibility": {"plugins": [{"name": "acme", "allowlisted": False}]}})
 
     with client_with(handler) as caliber:
-        plugin = caliber.capabilities_api.get().extensibility.plugins[0]
+        plugin = caliber.capabilities_info.get().extensibility.plugins[0]
 
     assert not plugin.is_active
     assert plugin.error is None
@@ -394,7 +394,7 @@ def test_an_allowlisted_plugin_that_failed_to_load_is_not_active() -> None:
         )
 
     with client_with(handler) as caliber:
-        plugin = caliber.capabilities_api.get().extensibility.plugins[0]
+        plugin = caliber.capabilities_info.get().extensibility.plugins[0]
 
     assert not plugin.is_active
     assert plugin.error
@@ -407,7 +407,7 @@ def test_a_server_without_the_extensibility_block_decodes_to_an_empty_one() -> N
         return envelope({"sync_workflow_version_run": True})
 
     with client_with(handler) as caliber:
-        extensibility = caliber.capabilities_api.get().extensibility
+        extensibility = caliber.capabilities_info.get().extensibility
 
     assert extensibility.optimizers == []
     assert extensibility.allowlist_env_var == "CALIBER_PLUGIN_ALLOWLIST"

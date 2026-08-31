@@ -157,7 +157,7 @@ runs = await asyncio.gather(*(
 ### What it covers, and what it does not
 
 `AsyncCaliberClient` gives you the transport, `raw`, async waiters, and the typed
-surfaces where async changes the outcome: `me`, `capabilities_api`, `workflows`
+surfaces where async changes the outcome: `me`, `capabilities_info`, `workflows`
 (runs), `jobs`, and `events`.
 
 It does **not** mirror all twenty-odd typed resource modules, and that is a

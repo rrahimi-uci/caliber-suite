@@ -9,8 +9,8 @@ from caliber_sdk import CaliberClient
 
 def build_and_score(caliber: CaliberClient, *, owner: str = "@you") -> dict[str, Any]:
     """Create a dataset, add a row, define a judge, and run an evaluation."""
-    dataset = caliber.datasets.create("intake-golden", owner=owner)
-    caliber.datasets.add_example(
+    dataset = caliber.eval_datasets.create("intake-golden", owner=owner)
+    caliber.eval_datasets.add_example(
         dataset.dataset_id,
         inputs={"ticket": "I was charged twice"},
         expected={"intent": "billing"},

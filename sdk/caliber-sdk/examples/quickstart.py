@@ -15,7 +15,7 @@ def quickstart(caliber: CaliberClient) -> dict[str, Any]:
         # invalid token shows up here as anonymous instead of an exception.
         raise SystemExit("no usable credential — check CALIBER_TOKEN")
 
-    capabilities = caliber.capabilities_api.get()
+    capabilities = caliber.capabilities_info.get()
     return {
         "user_id": identity.user_id,
         "scopes": identity.scopes,

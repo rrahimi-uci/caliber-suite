@@ -13,6 +13,7 @@ auth provider -- is a keyword argument with a sensible default.
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Any
 
 import httpx
@@ -100,14 +101,14 @@ class CaliberClient:
         #: unreachable.
         self.auth = AuthAPI(self._transport)
         self.me = MeAPI(self._transport)
-        self.capabilities_api = CapabilitiesAPI(self._transport)
+        self.capabilities_info = CapabilitiesAPI(self._transport)
         self.settings = SettingsAPI(self._transport)
         self.projects = ProjectsAPI(self._transport)
         self.prompts = PromptsAPI(self._transport)
         self.skills = SkillsAPI(self._transport)
         self.tools = ToolsAPI(self._transport)
         self.workflows = WorkflowsAPI(self._transport)
-        self.datasets = EvalDatasetsAPI(self._transport)
+        self.eval_datasets = EvalDatasetsAPI(self._transport)
         self.judges = JudgesAPI(self._transport)
         self.evaluations = EvaluationsAPI(self._transport)
         #: Beta surfaces. Real and supported, but their shapes are still
@@ -215,6 +216,44 @@ class CaliberClient:
         payload = self.capabilities()
         tiers = payload.get("sdk_stability") if isinstance(payload, dict) else None
         return tiers if isinstance(tiers, dict) else {}
+
+    # -- deprecated aliases -------------------------------------------------
+    #
+    # AD-6 (sdk-completeness-plan.md): a name that outgrew its scope gets
+    # corrected, and the old one keeps working for one minor cycle so nothing
+    # breaks without warning. Both are scheduled for removal in 0.2.0.
+
+    @property
+    def capabilities_api(self) -> CapabilitiesAPI:
+        """Deprecated alias for :attr:`capabilities_info`.
+
+        ``capabilities_api`` reads as "the capabilities API resource", which
+        is accurate but indistinguishable from ``CaliberClient.capabilities()``
+        at a glance. ``capabilities_info`` names what it actually returns.
+        """
+        warnings.warn(
+            "CaliberClient.capabilities_api is deprecated and will be removed "
+            "in caliber-sdk 0.2.0; use .capabilities_info instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.capabilities_info
+
+    @property
+    def datasets(self) -> EvalDatasetsAPI:
+        """Deprecated alias for :attr:`eval_datasets`.
+
+        ``datasets`` reads as every kind of stored data CALIBER has (prompt
+        datasets, knowledge bases, ...); ``eval_datasets`` names the one this
+        resource actually is.
+        """
+        warnings.warn(
+            "CaliberClient.datasets is deprecated and will be removed in "
+            "caliber-sdk 0.2.0; use .eval_datasets instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.eval_datasets
 
     def __repr__(self) -> str:
         return f"CaliberClient(base_url={self._transport.base_url!r})"

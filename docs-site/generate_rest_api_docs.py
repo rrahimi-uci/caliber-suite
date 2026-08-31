@@ -49,7 +49,7 @@ SDK_SURFACE_MAP = {
         "notes": "Identity and effective scopes for the current credential.",
     },
     "capabilities": {
-        "entry": "`CaliberClient.capabilities()`, `client.capabilities_api.get()`",
+        "entry": "`CaliberClient.capabilities()`, `client.capabilities_info.get()`",
         "notes": "Feature flags and SDK stability tiers for the current deployment.",
     },
     "settings": {
@@ -89,7 +89,7 @@ SDK_SURFACE_MAP = {
         "notes": "Publish a workflow as a service, inspect service OpenAPI, and invoke it.",
     },
     "eval-datasets": {
-        "entry": "`client.datasets`",
+        "entry": "`client.eval_datasets`",
         "notes": "Evaluation datasets, examples, and trace-to-dataset capture.",
     },
     "evaluations": {

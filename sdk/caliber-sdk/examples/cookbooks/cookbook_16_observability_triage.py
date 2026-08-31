@@ -21,13 +21,13 @@ def run(caliber: CaliberClient) -> dict[str, object]:
     )
     traces = caliber.observability.traces(limit=3, status="error")
     owner = caliber.me.get().user_id
-    dataset = caliber.datasets.create(
+    dataset = caliber.eval_datasets.create(
         "prod-regression-cases",
         owner=owner,
         description="Cookbook 16 regression evidence",
     )
     if traces:
-        caliber.datasets.add_from_trace(
+        caliber.eval_datasets.add_from_trace(
             dataset.dataset_id,
             traces[0].trace_id,
             expected={"status": "resolved"},
