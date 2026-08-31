@@ -12,7 +12,7 @@ def build_and_score(caliber: CaliberClient, *, owner: str = "@you") -> dict[str,
     dataset = caliber.eval_datasets.create("intake-golden", owner=owner)
     caliber.eval_datasets.add_example(
         dataset.dataset_id,
-        inputs={"ticket": "I was charged twice"},
+        input={"ticket": "I was charged twice"},
         expected={"intent": "billing"},
     )
 
@@ -25,7 +25,9 @@ def build_and_score(caliber: CaliberClient, *, owner: str = "@you") -> dict[str,
         feedback_value_type="bool",
     )
 
-    evaluation = caliber.evaluations.create(dataset.dataset_id, judge_id=judge.judge_id)
+    # A judge is selected as a scorer by name (``Judge.<id>``), not by a bare
+    # ``judge_id`` field -- the request schema has no such field and rejects it.
+    evaluation = caliber.evaluations.create(dataset.dataset_id, scorers=[f"Judge.{judge.judge_id}"])
     return {
         "dataset_id": dataset.dataset_id,
         "judge_id": judge.judge_id,

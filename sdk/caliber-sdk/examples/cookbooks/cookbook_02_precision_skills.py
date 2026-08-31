@@ -35,12 +35,13 @@ def run(caliber: CaliberClient) -> dict[str, Any]:
         skill.skill_id,
         "Respond to an angry billing escalation",
     )
-    calibration = caliber.raw.post(
-        f"/skills/{skill.skill_id}/calibrate",
-        json={
-            "scenario_set": "cookbook-02",
-            "metadata": {"workflow_id": installed["workflow"]["workflow_id"]},
-        },
+    # `SkillCalibrateRequest` is deliberately minimal (see its docstring): only
+    # `optimizer_type` and `notes` -- `scenario_set`/`metadata` are not real
+    # fields and the request schema forbids extras, so passing them would 422
+    # against a real server despite matching a canned mocked response.
+    calibration = caliber.skills.calibrate(
+        skill.skill_id,
+        notes=f"Cookbook 02 run for workflow {installed['workflow']['workflow_id']}",
     )
     return {
         "installed": recipe.id,

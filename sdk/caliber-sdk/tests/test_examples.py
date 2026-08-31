@@ -134,12 +134,27 @@ def test_evaluation_example_uses_a_judge_with_an_evaluation_variable() -> None:
         assert "{{ inputs }}" in body["instructions"] or "{{ outputs }}" in body["instructions"]
         return {"judge_id": "J-1", "feedback_value_type": "bool"}
 
+    def add_example(request: httpx.Request) -> Any:
+        body = jsonlib.loads(request.content)
+        # The server's field is ``input`` (singular); an ``inputs=`` call used
+        # to pass every mocked test here while 422ing against a real server.
+        assert "input" in body and "inputs" not in body
+        return {"example_id": "EX-1"}
+
+    def evaluations_create(request: httpx.Request) -> Any:
+        body = jsonlib.loads(request.content)
+        # A judge is selected by name in ``scorers``; a bare ``judge_id`` field
+        # does not exist on the request schema and would 422 for real.
+        assert body["scorers"] == ["Judge.J-1"]
+        assert "judge_id" not in body
+        return {"evaluation_id": "EV-1", "status": "queued"}
+
     caliber = stub_server(
         {
             "POST /eval-datasets": {"dataset_id": "ED-1"},
-            "POST /eval-datasets/ED-1/examples": {"example_id": "EX-1"},
+            "POST /eval-datasets/ED-1/examples": add_example,
             "POST /judges": judge,
-            "POST /evaluations": {"evaluation_id": "EV-1", "status": "queued"},
+            "POST /evaluations": evaluations_create,
         }
     )
     with caliber:

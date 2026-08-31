@@ -179,7 +179,7 @@ client<span class="tok-punctuation">.</span>projects<span class="tok-punctuation
     dataset <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>eval_datasets<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span><span class="tok-string">"intake-golden"</span><span class="tok-punctuation">,</span> owner<span class="tok-operator">=</span>owner<span class="tok-punctuation">)</span>
     caliber<span class="tok-punctuation">.</span>eval_datasets<span class="tok-punctuation">.</span><span class="tok-function">add_example</span><span class="tok-punctuation">(</span>
         dataset<span class="tok-punctuation">.</span>dataset_id<span class="tok-punctuation">,</span>
-        inputs<span class="tok-operator">=</span><span class="tok-punctuation">{</span><span class="tok-string">"ticket"</span><span class="tok-punctuation">:</span> <span class="tok-string">"I was charged twice"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+        input<span class="tok-operator">=</span><span class="tok-punctuation">{</span><span class="tok-string">"ticket"</span><span class="tok-punctuation">:</span> <span class="tok-string">"I was charged twice"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
         expected<span class="tok-operator">=</span><span class="tok-punctuation">{</span><span class="tok-string">"intent"</span><span class="tok-punctuation">:</span> <span class="tok-string">"billing"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
     <span class="tok-punctuation">)</span>
 
@@ -192,7 +192,9 @@ client<span class="tok-punctuation">.</span>projects<span class="tok-punctuation
         feedback_value_type<span class="tok-operator">=</span><span class="tok-string">"bool"</span><span class="tok-punctuation">,</span>
     <span class="tok-punctuation">)</span>
 
-    evaluation <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>evaluations<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span>dataset<span class="tok-punctuation">.</span>dataset_id<span class="tok-punctuation">,</span> judge_id<span class="tok-operator">=</span>judge<span class="tok-punctuation">.</span>judge_id<span class="tok-punctuation">)</span>
+    <span class="tok-comment"># A judge is selected as a scorer by name (``Judge.&lt;id&gt;``), not by a bare</span>
+    <span class="tok-comment"># ``judge_id`` field -- the request schema has no such field and rejects it.</span>
+    evaluation <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>evaluations<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span>dataset<span class="tok-punctuation">.</span>dataset_id<span class="tok-punctuation">,</span> scorers<span class="tok-operator">=</span><span class="tok-punctuation">[</span><span class="tok-string">f"Judge.{judge.judge_id}"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
     <span class="tok-keyword">return</span> <span class="tok-punctuation">{</span>
         <span class="tok-string">"dataset_id"</span><span class="tok-punctuation">:</span> dataset<span class="tok-punctuation">.</span>dataset_id<span class="tok-punctuation">,</span>
         <span class="tok-string">"judge_id"</span><span class="tok-punctuation">:</span> judge<span class="tok-punctuation">.</span>judge_id<span class="tok-punctuation">,</span>

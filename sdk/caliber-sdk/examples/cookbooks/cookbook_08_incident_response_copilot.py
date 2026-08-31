@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 from caliber_sdk import CaliberClient
 from examples.cookbooks._helpers import configuration_blockers, env_client, get_recipe
@@ -20,12 +21,26 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         acknowledge_prerequisites=bool(recipe.prerequisites),
     )
     traces = caliber.observability.traces(limit=5, status="error")
-    metrics = caliber.observability.metrics(window="24h")
+    # `metrics()` reads `experiment_id`/`since_ms`, not `window` -- an unknown
+    # query param is silently ignored (a GET, not schema-validated), so
+    # `window="24h"` used to look like a real filter while doing nothing.
+    since_ms = int((time.time() - 24 * 60 * 60) * 1000)
+    metrics = caliber.observability.metrics(since_ms=since_ms)
     queue = caliber.review_queues.create(
         "incident-decision-review",
         questions=[
-            {"name": "action_is_safe", "type": "pass_fail", "required": True},
-            {"name": "rollback_needed", "type": "pass_fail", "required": True},
+            {
+                "key": "action_is_safe",
+                "title": "Is the proposed action safe?",
+                "type": "pass_fail",
+                "required": True,
+            },
+            {
+                "key": "rollback_needed",
+                "title": "Is a rollback needed?",
+                "type": "pass_fail",
+                "required": True,
+            },
         ],
     )
     if traces:

@@ -10,9 +10,13 @@ Design rule:
 
 - use the built-in cookbook installer to materialize the versioned platform
   recipe that CALIBER already ships;
-- then use typed SDK resources — and `client.raw` only where the typed layer
-  does not yet wrap the live route — to finish configuration, execution, and
-  evidence capture.
+- then use typed SDK resources — never `client.raw` — to finish
+  configuration, execution, and evidence capture. `client.raw` remains the
+  SDK's permanent escape hatch for a route the typed layer has not wrapped
+  yet (see the [SDK guide](m-20-sdk-guide.md#anything-not-yet-modelled)), but none of
+  the sixteen recipes below currently need it: a prior pass through this
+  gallery found three that reached for it out of habit rather than
+  necessity, and each had an existing typed method all along.
 
 Every code block on this page is generated from the source files under
 `sdk/caliber-sdk/examples/cookbooks/` at build time. The example test suite
@@ -24,7 +28,7 @@ examples.
 
 ## Cookbook implementations
 
-Each script on this page follows the same contract: inspect readiness, install the versioned recipe through the cookbook catalog, and then finish the scenario through typed SDK calls or `client.raw` where the typed layer deliberately has not wrapped a route yet.
+Each script on this page follows the same contract: inspect readiness, install the versioned recipe through the cookbook catalog, and then finish the scenario entirely through typed SDK calls — `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped, but none of these sixteen recipes currently need it.
 
 The code blocks are full files, not snippets. You can run them directly once `CALIBER_BASE_URL` and `CALIBER_TOKEN` are set.
 
@@ -36,13 +40,13 @@ python sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classif
 
 ## Cookbook 01 — Trustworthy Intake Classifier
 
-Install the versioned recipe, create a regression dataset, register the compliance judge, and launch a scoreable evaluation run.
+Install the versioned recipe, then run the prompt workspace's own regression loop: author and promote the prompt, build the test set, pin a baseline run, introduce a regression, and read the Vs. baseline diff before queuing calibration.
 
-**SDK surfaces:** `cookbooks`, `datasets`, `judges`, `evaluations`
+**SDK surfaces:** `cookbooks`, `prompts`, `datasets`, `judges`
 
 1. Inspect cookbook readiness and acknowledge prerequisites before installation.
-2. Install the built-in recipe as a paused workflow and editable draft.
-3. Create the dataset, add labeled intake rows, register the JSON-compliance judge, and start an evaluation run.
+2. Install the built-in recipe, then author and promote the strict-JSON prompt version through the typed prompts resource.
+3. Build the regression test set, pin a baseline test run, introduce a deliberately weaker version, and diff the comparison run against that baseline before queuing a calibration run.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classifier.py
@@ -50,13 +54,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classifier.py
 
 ## Cookbook 02 — Precision Skills
 
-Install the recipe, register the reusable skill, run render and selection tests, and trigger skill calibration through the live route.
+Install the recipe, register the reusable skill, run render and selection tests, and trigger skill calibration through the typed skills resource.
 
-**SDK surfaces:** `cookbooks`, `skills`, `raw`
+**SDK surfaces:** `cookbooks`, `skills`
 
 1. Materialize the cookbook draft through the built-in installer.
 2. Create the skill and immediately prove its variable rendering and trigger-selection behavior.
-3. Start the server-side calibration job through `client.raw` so the example uses the current backend route without re-implementing it.
+3. Start the server-side calibration job through `client.skills.calibrate()`, tagging the run with the installed workflow's id.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_02_precision_skills.py
@@ -66,7 +70,7 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_02_precision_skills.py
 
 Install the recipe, register the deterministic tool, persist hardening cases, and run a calibration pass against those fixtures.
 
-**SDK surfaces:** `cookbooks`, `tools`, `raw`
+**SDK surfaces:** `cookbooks`, `tools`
 
 1. Install the versioned cookbook artifact after verifying readiness.
 2. Register the decision tool with explicit input and output schemas.
@@ -78,13 +82,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_03_policy_safe_decision_tool.py
 
 ## Cookbook 04 — Document-to-JSON Pipeline
 
-Install the recipe, upload a source document into a project, and validate the generated workflow draft against the uploaded managed file.
+Install the recipe, upload a source document into a project, and preview-run the generated workflow draft against the uploaded managed file.
 
 **SDK surfaces:** `cookbooks`, `projects`, `workflows`
 
 1. Create a project-scoped home for the source documents and upload a managed file through the SDK.
 2. Install the cookbook draft so the platform materializes the maintained workflow manifest for you.
-3. Validate the installed workflow version and return the file/workflow identities needed for the next execution step.
+3. Preview-run the installed workflow version against the uploaded file (real tool bindings are not used in preview mode) and return the file/workflow identities needed for the next execution step.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_04_document_to_json_pipeline.py
@@ -92,13 +96,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_04_document_to_json_pipeline.py
 
 ## Cookbook 05 — Governed Tool Connectivity
 
-Install the recipe, connect an MCP server, test reachability, discover tools, enforce a policy overlay, and calibrate the allowed tool.
+Install the recipe, connect an MCP server, test reachability, discover tools, invoke the read tool, enforce a policy block on the write tool, then re-invoke it to capture the structured refusal.
 
 **SDK surfaces:** `cookbooks`, `mcp_servers`
 
 1. Install the official recipe and connect the target MCP server through the registry surface.
-2. Probe the server, refresh the discovered inventory, and apply a policy block to the write tool.
-3. Save calibration cases for the read tool and start the governed calibration run.
+2. Probe the server, refresh the discovered inventory, and invoke a read tool to prove it works before anything is locked down.
+3. Apply a policy block to the write tool, save calibration cases for the read tool, then re-invoke the now-blocked tool to capture its structured refusal as evidence.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_05_governed_tool_connectivity.py
@@ -106,13 +110,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_05_governed_tool_connectivity.py
 
 ## Cookbook 06 — Grounded Knowledge Assistant
 
-Install the recipe, create the knowledge base, build a version, query it, and launch a retrieval calibration run.
+Install the recipe, read the deployment's real chunking/embedding catalog, create the knowledge base and a version from it, query the corpus by version, and calibrate against a dedicated eval dataset.
 
-**SDK surfaces:** `cookbooks`, `knowledge_bases`
+**SDK surfaces:** `cookbooks`, `knowledge_bases`, `datasets`
 
 1. Install the recipe as the versioned workflow scaffold for the scenario.
-2. Create the knowledge base and register a first version from SDK-supplied source metadata.
-3. Query the active corpus and launch an inline calibration run to capture retrieval evidence.
+2. Read the deployment's real chunking-strategy and embedding-model catalog, then create the knowledge base and its first version from those choices.
+3. Query the corpus by version id, build a small eval dataset, and launch a calibration run scored against it.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_06_grounded_knowledge_assistant.py
@@ -120,13 +124,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_06_grounded_knowledge_assistant.py
 
 ## Cookbook 07 — Support Triage Copilot
 
-Install the recipe, create the support review queue, build the evaluation dataset, and score grounded replies with a custom judge.
+Install the recipe, create its evaluation and review assets, then drive the approval-gated escalation branch both ways: one run approved through to completion, a matching run rejected before its external write.
 
-**SDK surfaces:** `cookbooks`, `review_queues`, `datasets`, `judges`, `evaluations`
+**SDK surfaces:** `cookbooks`, `review_queues`, `datasets`, `judges`, `evaluations`, `workflows`
 
 1. Install the maintained recipe instead of copying a workflow manifest into the script.
-2. Create the human-review queue that governs escalations and issue filing.
-3. Create the support dataset, register the grounding judge, and launch the evaluation run.
+2. Create the human-review queue, the support dataset, the grounding judge, and the evaluation run that score this loop.
+3. Publish the installed draft, then submit two escalation runs: approve and resume one to completion, and reject the other to prove no external write occurs.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_07_support_triage_copilot.py
@@ -148,13 +152,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_08_incident_response_copilot.py
 
 ## Cookbook 09 — Self-Healing Workflows
 
-Install the recipe, publish the workflow version, submit a run, wait for the failure state, and capture the failed run for triage.
+Install the recipe, publish the version, drive a run to a reproducible failure, capture its checkpoints and trace, retry it from that checkpoint, then approve the retry through to recovery and propose a patch candidate from the evidence.
 
 **SDK surfaces:** `cookbooks`, `workflows`
 
 1. Install the cookbook draft and promote the version from draft to runnable.
-2. Submit the workflow run against the installed version with an idempotency key.
-3. Wait for the run to stop and return the failure state without hiding it behind a generic exception.
+2. Submit a run, reject its pending approval to reproduce a reliable failure, then capture its checkpoints and debugger trace.
+3. Retry from the last checkpoint, approve and resume the retried attempt to a recovered terminal state, and generate a patch candidate from the failure evidence.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py
@@ -162,13 +166,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py
 
 ## Cookbook 10 — Trustworthy Evaluation
 
-Install the recipe, build the dataset, register the judge, create the evaluation, and provision the review queue used for disagreement analysis.
+Install the recipe, build the dataset/judge/evaluation, enqueue a real trace for human review, then compute judge/human alignment (Cohen's kappa) against that completed review.
 
-**SDK surfaces:** `cookbooks`, `datasets`, `judges`, `evaluations`, `review_queues`
+**SDK surfaces:** `cookbooks`, `datasets`, `judges`, `evaluations`, `review_queues`, `observability`
 
 1. Install the versioned recipe through the SDK so the platform owns the scaffold.
-2. Create the evaluation dataset and the custom judge that scores grounded correctness.
-3. Launch the evaluation run and create the queue that will collect disagreement items for human review.
+2. Create the evaluation dataset, the custom judge, the evaluation run, and the disagreement-review queue.
+3. Enqueue a real trace, answer it, and compute the judge's alignment against that human label -- the recipe's defining evidence.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py
@@ -190,13 +194,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_11_release_signoff_factory.py
 
 ## Cookbook 12 — Aria: Evaluation Harness from Intent
 
-Install the recipe, ask Aria for the plan, approve it, execute it, and return the resulting plan state.
+Install the recipe, drive the Aria plan through approval, and create the judge and eval dataset the plan's own interactions ask for -- the shipped planner leaves their inputs empty, so the real artifacts come from their typed calls.
 
-**SDK surfaces:** `cookbooks`, `aria`
+**SDK surfaces:** `cookbooks`, `aria`, `judges`, `datasets`
 
 1. Install the recipe so the workflow scaffold stays aligned with the product catalog.
-2. Create the Aria plan from a typed intent, then wait until it pauses or completes.
-3. Approve and execute the plan explicitly rather than inferring approval from continued script execution.
+2. Create the Aria plan from a typed intent, approve it, and execute it.
+3. Answer each pending interaction and create the judge/dataset it asks for through their own typed calls -- the documented execution gap means the plan alone would create neither.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_12_aria_evaluation_harness.py
@@ -204,13 +208,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_12_aria_evaluation_harness.py
 
 ## Cookbook 13 — Aria: Human-Review Queue from Intent
 
-Install the recipe, create the Aria plan, approve it, and inspect the resulting review queue inventory.
+Install the recipe, drive the Aria plan through approval, and create the real review queue its interaction asks for, denying the add-items step since no traces exist yet.
 
 **SDK surfaces:** `cookbooks`, `aria`, `review_queues`
 
 1. Install the catalog-managed recipe for the review-governance scenario.
-2. Drive the plan lifecycle through the Aria surface until the queue-creation steps settle.
-3. Read back the queue inventory through the typed review-queue API so the result is visible without opening the UI.
+2. Create the Aria plan, approve it, and execute it.
+3. Create the review queue through its own typed call when the plan's interaction asks for it, and deny the add-items interaction since no traces exist yet.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_13_aria_review_queue.py
@@ -218,13 +222,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_13_aria_review_queue.py
 
 ## Cookbook 14 — Aria: Governance Starter Kit from Intent
 
-Install the recipe, run the multi-artifact Aria plan, and return the resulting judge, dataset, and review-queue inventory.
+Install the recipe, drive the Aria plan through approval, and create all three governance artifacts -- judge, eval dataset, review queue -- its interactions ask for.
 
 **SDK surfaces:** `cookbooks`, `aria`, `judges`, `datasets`, `review_queues`
 
 1. Install the recipe that binds the governance starter-kit scenario to the live platform catalog.
-2. Drive Aria through plan creation, approval, and execution with explicit operator acknowledgement.
-3. Read the resulting governance inventory through the typed resource APIs.
+2. Create the Aria plan, approve it, and execute it.
+3. Create the judge, eval dataset, and review queue through their own typed calls as each interaction asks for them, denying add-items since no traces exist yet.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_14_aria_governance_starter_kit.py
@@ -232,13 +236,13 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_14_aria_governance_starter_kit.py
 
 ## Cookbook 15 — Aria: Triage & Recalibrate Loop
 
-Install the recipe, execute the Aria plan, list the queue inventory, and poll the background jobs that the recalibration loop spawns.
+Install the recipe, drive the Aria plan through approval, create the triage queue and enqueue flagged traces, kick off a real workflow calibration, then poll the plan through its first async capability to completion.
 
-**SDK surfaces:** `cookbooks`, `aria`, `review_queues`, `jobs`
+**SDK surfaces:** `cookbooks`, `aria`, `review_queues`, `observability`, `workflows`
 
 1. Install the recipe through the supported cookbook installer.
-2. Create, approve, and execute the Aria plan for triage and recalibration.
-3. Read back the review queues and any spawned background jobs so the operator can follow the loop without the browser.
+2. Create the Aria plan, approve it, and execute it against this recipe's own installed workflow as the remediation subject.
+3. Create the queue, enqueue the flagged traces, and start the workflow calibration through their own typed calls, then poll the plan -- parked in `waiting_job` -- until the async job resolves.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_15_aria_triage_recalibrate_loop.py

@@ -32,12 +32,21 @@ def run(caliber: CaliberClient) -> dict[str, object]:
             traces[0].trace_id,
             expected={"status": "resolved"},
         )
+    # `ReviewQuestion` requires `key` (not `name`) and a `title`; the request
+    # schema forbids extra fields, so `name=` on its own used to 422 against
+    # a real server despite matching a canned mocked reply.
     queue = caliber.review_queues.create(
         "prod-triage",
         questions=[
-            {"name": "root_cause_known", "type": "pass_fail", "required": True},
             {
-                "name": "failure_mode",
+                "key": "root_cause_known",
+                "title": "Is the root cause known?",
+                "type": "pass_fail",
+                "required": True,
+            },
+            {
+                "key": "failure_mode",
+                "title": "Failure mode",
                 "type": "categorical",
                 "options": ["prompt", "tool", "retrieval", "data", "infra"],
             },

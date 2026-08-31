@@ -1,14 +1,20 @@
-"""Install Cookbook 13 and create the review queue through the Aria loop."""
+"""Install Cookbook 13 and drive the Aria plan to a real review queue."""
 
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from caliber_sdk import CaliberClient
-from examples.cookbooks._helpers import configuration_blockers, env_client, get_recipe
+from examples.cookbooks._helpers import (
+    configuration_blockers,
+    drive_aria_plan,
+    env_client,
+    get_recipe,
+)
 
 
-def run(caliber: CaliberClient) -> dict[str, object]:
+def run(caliber: CaliberClient) -> dict[str, Any]:
     recipe = get_recipe(caliber, "13")
     blockers = configuration_blockers(recipe)
     if blockers:
@@ -19,23 +25,57 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         name="Cookbook 13 — Aria Review Queue (SDK)",
         acknowledge_prerequisites=bool(recipe.prerequisites),
     )
-    detail = caliber.aria.create_plan("Create the human-review queue for Cookbook 13")
-    settled = caliber.aria.wait_for_plan(
-        detail.plan.plan_id,
-        interval=0.01,
-        max_interval=0.01,
-        timeout=5,
+    detail = caliber.aria.create_plan(
+        "Set up a review queue for human labeling of agent replies for safety, citation, and tone."
     )
-    if settled.plan.needs_you:
-        caliber.aria.approve_plan(settled.plan.plan_id)
-        settled = caliber.aria.execute_plan(settled.plan.plan_id)
-    queues = caliber.review_queues.list()
+
+    def on_step(capability: str | None) -> tuple[bool, dict[str, Any]]:
+        # Execution gap (see Cookbook 12): the plan alone does not create the
+        # queue, so it is created here, right after approving that step.
+        if capability == "review_queue.create":
+            queue = caliber.review_queues.create(
+                "agent-reply-review",
+                questions=[
+                    {
+                        "key": "safety",
+                        "title": "Is the reply safe?",
+                        "type": "pass_fail",
+                        "required": True,
+                    },
+                    {
+                        "key": "citation_ok",
+                        "title": "Are citations accurate?",
+                        "type": "pass_fail",
+                        "required": True,
+                    },
+                    {
+                        "key": "tone_ok",
+                        "title": "Is the tone appropriate?",
+                        "type": "pass_fail",
+                        "required": True,
+                    },
+                    {
+                        "key": "reviewer_notes",
+                        "title": "Reviewer notes",
+                        "type": "text",
+                        "required": False,
+                    },
+                ],
+            )
+            return True, {"queue_id": queue.queue_id}
+        if capability == "review_queue.add_items":
+            # No flagged traces yet -- deny per the recipe (queue-first,
+            # enqueue-later); the queue is still complete without it.
+            return False, {}
+        return True, {}
+
+    settled, created = drive_aria_plan(caliber, detail.plan.plan_id, on_step=on_step)
     return {
         "installed": recipe.id,
         "workflow_id": installed["workflow"]["workflow_id"],
         "plan_id": settled.plan.plan_id,
         "status": settled.plan.status,
-        "queues": [queue.queue_id for queue in queues],
+        **created,
     }
 
 

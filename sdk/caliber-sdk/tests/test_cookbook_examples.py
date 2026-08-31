@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json as jsonlib
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -87,10 +89,32 @@ def installed_payload(cookbook_id: str, workflow_id: str, version_id: str) -> di
     }
 
 
-def plan_detail(plan_id: str, status: str) -> dict[str, Any]:
+def plan_detail(
+    plan_id: str, status: str, *, steps: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     return {
         "plan": {"plan_id": plan_id, "goal": "g", "status": status},
-        "steps": [{"step_id": f"{plan_id}-1", "plan_id": plan_id, "title": "step"}],
+        "steps": steps
+        if steps is not None
+        else [{"step_id": f"{plan_id}-1", "plan_id": plan_id, "title": "step"}],
+    }
+
+
+def plan_step(plan_id: str, index: int, capability_key: str) -> dict[str, Any]:
+    return {
+        "step_id": f"{plan_id}-{index}",
+        "plan_id": plan_id,
+        "title": capability_key,
+        "capability_key": capability_key,
+    }
+
+
+def plan_interaction(plan_id: str, step_id: str, interaction_id: str) -> dict[str, Any]:
+    return {
+        "interaction_id": interaction_id,
+        "plan_id": plan_id,
+        "step_id": step_id,
+        "kind": "confirm",
     }
 
 
@@ -98,7 +122,19 @@ def trace_items(*trace_ids: str) -> dict[str, Any]:
     return {"items": [{"trace_id": trace_id} for trace_id in trace_ids]}
 
 
-def test_cookbook_01_builds_dataset_judge_and_evaluation() -> None:
+def test_cookbook_01_runs_the_prompt_workspace_baseline_diff_loop() -> None:
+    """Regression is scored on the prompt workspace's Test Sets -> Runs loop
+    (pin a baseline, then read the Vs. baseline diff), not a generic
+    dataset+judge+evaluation flow -- see the recipe's own README."""
+
+    test_run_ids = iter(["PTR-01-baseline", "PTR-01-comparison"])
+
+    def create_test_run(request: httpx.Request) -> dict[str, Any]:
+        body = jsonlib.loads(request.content)
+        assert body["agent_id"] == "cookbook-01-intake-classifier"
+        assert len(body["results"]) == 2
+        return {"test_run_id": next(test_run_ids)}
+
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -107,18 +143,46 @@ def test_cookbook_01_builds_dataset_judge_and_evaluation() -> None:
                 prerequisite="Configured model provider",
             ),
             "POST /cookbooks/01/install": installed_payload("01", "WF-01", "WFV-01"),
+            "POST /prompts": {"name": "cookbook-01-intake-classifier"},
+            "POST /prompts/cookbook-01-intake-classifier/aliases/prod": {"version": 1},
             "GET /me": {"user_id": "@alice"},
             "POST /eval-datasets": {"dataset_id": "ED-01"},
             "POST /eval-datasets/ED-01/examples": {"example_id": "EX-01"},
+            "POST /prompts/test-runs": create_test_run,
+            "POST /prompts/cookbook-01-intake-classifier/baseline": {
+                "baseline_run_id": "PTR-01-baseline"
+            },
+            "POST /prompts/cookbook-01-intake-classifier/versions": {"version": 2},
+            "GET /prompts/test-runs/PTR-01-baseline": {
+                "test_run_id": "PTR-01-baseline",
+                "results": [
+                    {"testCaseId": "P01", "verdict": "pass"},
+                    {"testCaseId": "P02", "verdict": "pass"},
+                ],
+            },
+            "GET /prompts/test-runs/PTR-01-comparison": {
+                "test_run_id": "PTR-01-comparison",
+                "results": [
+                    {"testCaseId": "P01", "verdict": "fail"},
+                    {"testCaseId": "P02", "verdict": "fail"},
+                ],
+            },
             "POST /judges": {"judge_id": "J-01"},
-            "POST /evaluations": {"evaluation_id": "EV-01", "status": "queued"},
+            "POST /prompts/calibration/runs": {
+                "job": {"job_id": "CAL-01"},
+                "item": {"item_id": "VI-01"},
+            },
         }
     )
     with caliber:
         result = run_01(caliber)
+    assert result["prompt_name"] == "cookbook-01-intake-classifier"
     assert result["dataset_id"] == "ED-01"
+    assert result["baseline_run_id"] == "PTR-01-baseline"
+    assert result["comparison_run_id"] == "PTR-01-comparison"
+    assert result["regressions"] == ["P01", "P02"]
     assert result["judge_id"] == "J-01"
-    assert result["evaluation_id"] == "EV-01"
+    assert result["calibration_job_id"] == "CAL-01"
 
 
 def test_cookbook_02_creates_and_calibrates_skill() -> None:
@@ -159,7 +223,7 @@ def test_cookbook_03_registers_tool_and_saves_hardening_cases() -> None:
     assert result["calibration_job_id"] == "CAL-03"
 
 
-def test_cookbook_04_uploads_managed_file_and_validates_workflow() -> None:
+def test_cookbook_04_uploads_managed_file_and_preview_runs_workflow() -> None:
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -170,17 +234,34 @@ def test_cookbook_04_uploads_managed_file_and_validates_workflow() -> None:
             "POST /projects": {"project_id": "PRJ-04"},
             "POST /projects/PRJ-04/files": {"file_id": "FILE-04"},
             "POST /cookbooks/04/install": installed_payload("04", "WF-04", "WFV-04"),
-            "POST /workflow-versions/WFV-04/validate": {"valid": True},
+            "POST /workflow-versions/WFV-04/preview-run": {"status": "succeeded"},
         }
     )
     with caliber:
         result = run_04(caliber)
     assert result["project_id"] == "PRJ-04"
     assert result["file_id"] == "FILE-04"
-    assert result["validation"] == {"valid": True}
+    assert result["preview"] == {"status": "succeeded"}
 
 
-def test_cookbook_05_connects_and_calibrates_mcp_server() -> None:
+def test_cookbook_05_proves_the_governed_tool_block_before_and_after() -> None:
+    invoke_calls: Iterator[dict[str, Any]] = iter(
+        [
+            {"success": True, "error": None, "result": {"items": []}},
+            {"success": False, "error": "tool 'issue_write' is not allowed", "result": None},
+        ]
+    )
+
+    def create_server(request: httpx.Request) -> dict[str, Any]:
+        body = jsonlib.loads(request.content)
+        # `transport` is hyphenated and the URL field is `uri`, not `url`.
+        assert body["transport"] == "streamable-http"
+        assert body["uri"] == "https://api.githubcopilot.com/mcp/"
+        return {"server_id": "MCP-05"}
+
+    def invoke_tool(request: httpx.Request) -> dict[str, Any]:
+        return next(invoke_calls)
+
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -189,9 +270,10 @@ def test_cookbook_05_connects_and_calibrates_mcp_server() -> None:
                 prerequisite="Reachable MCP server",
             ),
             "POST /cookbooks/05/install": installed_payload("05", "WF-05", "WFV-05"),
-            "POST /mcp-servers": {"server_id": "MCP-05"},
+            "POST /mcp-servers": create_server,
             "POST /mcp-servers/MCP-05/test-connection": {"ok": True},
             "POST /mcp-servers/MCP-05/discover-tools": {"discovered": 2},
+            "POST /mcp-servers/MCP-05/invoke-tool": invoke_tool,
             "PATCH /mcp-servers/MCP-05/tools/issue_write/policy": {"allowed": False},
             "PUT /mcp-servers/MCP-05/tools/search_repositories/test-cases": {"saved": 1},
             "POST /mcp-servers/MCP-05/tools/search_repositories/calibrate": {"status": "passed"},
@@ -201,9 +283,26 @@ def test_cookbook_05_connects_and_calibrates_mcp_server() -> None:
         result = run_05(caliber)
     assert result["server_id"] == "MCP-05"
     assert result["connection"] == {"ok": True}
+    allowed_call, blocked_call = result["allowed_call"], result["blocked_call"]
+    assert isinstance(allowed_call, dict) and allowed_call["success"] is True
+    assert isinstance(blocked_call, dict) and blocked_call["success"] is False
 
 
 def test_cookbook_06_builds_and_queries_knowledge_base() -> None:
+    def create_kb(request: httpx.Request) -> dict[str, Any]:
+        body = jsonlib.loads(request.content)
+        # Real catalog choices from `options()`, not free-form guesses.
+        assert body["chunking_strategy"] == "fixed_size"
+        assert body["embedding_model"] == "text-embedding-3-small"
+        assert body["source_bucket"]
+        return {"knowledge_base_id": "KB-06"}
+
+    def query(request: httpx.Request) -> dict[str, Any]:
+        body = jsonlib.loads(request.content)
+        assert body["version_ids"] == ["KBV-06"]
+        assert "knowledge_base_id" not in body
+        return {"answer": "Escalate to billing review."}
+
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -212,9 +311,16 @@ def test_cookbook_06_builds_and_queries_knowledge_base() -> None:
                 prerequisite="Embedding provider",
             ),
             "POST /cookbooks/06/install": installed_payload("06", "WF-06", "WFV-06"),
-            "POST /knowledge-bases": {"knowledge_base_id": "KB-06"},
+            "GET /knowledge-bases/options": {
+                "chunking_strategies": [{"id": "fixed_size", "name": "Fixed size"}],
+                "embedding_models": [{"id": "text-embedding-3-small", "name": "Small"}],
+            },
+            "POST /knowledge-bases": create_kb,
             "POST /knowledge-bases/KB-06/versions": {"version_id": "KBV-06"},
-            "POST /knowledge/query": {"answer": "Escalate to billing review."},
+            "POST /knowledge/query": query,
+            "GET /me": {"user_id": "@alice"},
+            "POST /eval-datasets": {"dataset_id": "ED-06"},
+            "POST /eval-datasets/ED-06/examples": {"example_id": "EX-06"},
             "POST /knowledge-bases/KB-06/calibrate": {"score": 0.91},
         }
     )
@@ -222,9 +328,33 @@ def test_cookbook_06_builds_and_queries_knowledge_base() -> None:
         result = run_06(caliber)
     assert result["knowledge_base_id"] == "KB-06"
     assert result["version_id"] == "KBV-06"
+    assert result["eval_dataset_id"] == "ED-06"
 
 
-def test_cookbook_07_creates_review_and_evaluation_assets() -> None:
+def test_cookbook_07_drives_the_approval_gate_both_ways() -> None:
+    """One run is approved and resumes to completion; a matching second run
+    is rejected and must never reach a terminal success -- the two safety
+    branches the recipe's own README calls out as its demo evidence."""
+
+    run_status: dict[str, str] = {}
+
+    def submit_run(request: httpx.Request) -> dict[str, Any]:
+        body = jsonlib.loads(request.content)
+        run_id = "WR-07-approve" if body["idempotency_key"].endswith("approve") else "WR-07-reject"
+        run_status[run_id] = "waiting_approval"
+        return {"workflow_run_id": run_id, "status": "queued"}
+
+    def get_run(run_id: str) -> Any:
+        return lambda _request: {"workflow_run_id": run_id, "status": run_status[run_id]}
+
+    def resume_run(request: httpx.Request) -> dict[str, Any]:
+        run_status["WR-07-approve"] = "succeeded"
+        return {"workflow_run_id": "WR-07-approve", "status": "succeeded"}
+
+    def reject_run(request: httpx.Request) -> dict[str, Any]:
+        run_status["WR-07-reject"] = "failed"
+        return {"rejected": True}
+
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -238,12 +368,24 @@ def test_cookbook_07_creates_review_and_evaluation_assets() -> None:
             "POST /eval-datasets": {"dataset_id": "ED-07"},
             "POST /judges": {"judge_id": "J-07"},
             "POST /evaluations": {"evaluation_id": "EV-07"},
+            "POST /workflow-versions/WFV-07/publish": {
+                "version_id": "WFV-07",
+                "status": "published",
+            },
+            "POST /workflow-runs": submit_run,
+            "GET /workflow-runs/WR-07-approve": get_run("WR-07-approve"),
+            "GET /workflow-runs/WR-07-reject": get_run("WR-07-reject"),
+            "POST /workflow-runs/WR-07-approve/approval/approve": {"approved": True},
+            "POST /workflow-runs/WR-07-approve/resume": resume_run,
+            "POST /workflow-runs/WR-07-reject/approval/reject": reject_run,
         }
     )
     with caliber:
         result = run_07(caliber)
     assert result["queue_id"] == "RQ-07"
     assert result["evaluation_id"] == "EV-07"
+    assert result["approved_status"] == "succeeded"
+    assert result["rejected_status"] == "failed"
 
 
 def test_cookbook_08_collects_observability_and_enqueues_reviews() -> None:
@@ -267,7 +409,28 @@ def test_cookbook_08_collects_observability_and_enqueues_reviews() -> None:
     assert result["trace_ids"] == ["TR-08A", "TR-08B"]
 
 
-def test_cookbook_09_publishes_and_waits_for_failure_state() -> None:
+def test_cookbook_09_reproduces_retries_and_recovers_a_failing_run() -> None:
+    run_status: dict[str, str] = {}
+
+    def submit_run(request: httpx.Request) -> dict[str, Any]:
+        run_status["WR-09"] = "waiting_approval"
+        return {"workflow_run_id": "WR-09", "status": "queued"}
+
+    def get_run(run_id: str) -> Any:
+        return lambda _request: {"workflow_run_id": run_id, "status": run_status[run_id]}
+
+    def reject_run(request: httpx.Request) -> dict[str, Any]:
+        run_status["WR-09"] = "failed"
+        return {"rejected": True}
+
+    def retry_run(request: httpx.Request) -> dict[str, Any]:
+        run_status["WR-09-retry"] = "waiting_approval"
+        return {"workflow_run_id": "WR-09-retry", "status": "queued"}
+
+    def resume_run(request: httpx.Request) -> dict[str, Any]:
+        run_status["WR-09-retry"] = "succeeded"
+        return {"workflow_run_id": "WR-09-retry", "status": "succeeded"}
+
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -280,17 +443,47 @@ def test_cookbook_09_publishes_and_waits_for_failure_state() -> None:
                 "version_id": "WFV-09",
                 "status": "published",
             },
-            "POST /workflow-runs": {"workflow_run_id": "WR-09", "status": "queued"},
-            "GET /workflow-runs/WR-09": {"workflow_run_id": "WR-09", "status": "failed"},
+            "POST /workflow-runs": submit_run,
+            "GET /workflow-runs/WR-09": get_run("WR-09"),
+            "POST /workflow-runs/WR-09/approval/reject": reject_run,
+            "GET /workflow-runs/WR-09/checkpoints": [{"checkpoint_id": "CKPT-09"}],
+            "GET /workflow-runs/WR-09/trace": {"spans": []},
+            "POST /workflow-runs/WR-09/retry": retry_run,
+            "GET /workflow-runs/WR-09-retry/lineage": {"parent_run_id": "WR-09"},
+            "GET /workflow-runs/WR-09-retry": get_run("WR-09-retry"),
+            "POST /workflow-runs/WR-09-retry/approval/approve": {"approved": True},
+            "POST /workflow-runs/WR-09-retry/resume": resume_run,
+            "POST /workflow-versions/WFV-09/propose-patch": {"patch_id": "PATCH-09"},
         }
     )
     with caliber:
         result = run_09(caliber)
-    assert result["run_id"] == "WR-09"
-    assert result["status"] == "failed"
+    assert result["failing_run_id"] == "WR-09"
+    assert result["failing_status"] == "failed"
+    assert result["checkpoint_count"] == 1
+    assert result["has_trace"] is True
+    assert result["retried_run_id"] == "WR-09-retry"
+    assert result["recovered_run_id"] == "WR-09-retry"
+    assert result["recovered_status"] == "succeeded"
+    assert result["patch_id"] == "PATCH-09"
 
 
-def test_cookbook_10_creates_queue_for_disagreement_review() -> None:
+def test_cookbook_10_computes_judge_human_alignment() -> None:
+    """The recipe's defining mechanic is judge/human alignment (Cohen's
+    kappa), not just that a judge and a queue exist side by side."""
+
+    def submit_answer(request: httpx.Request) -> dict[str, Any]:
+        body = jsonlib.loads(request.content)
+        assert body == {"answers": {"judge_is_correct": True}}
+        return {"item_id": "RI-10", "status": "completed"}
+
+    def alignment(request: httpx.Request) -> dict[str, Any]:
+        body = jsonlib.loads(request.content)
+        # `provenance` must be stripped before this call -- the request
+        # schema forbids it as an extra field.
+        assert set(body["examples"][0]) == {"inputs", "outputs", "expectations", "label"}
+        return {"judge_id": "J-10", "kappa": 1.0, "agreement": 1.0, "sample_size": 1}
+
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -304,12 +497,29 @@ def test_cookbook_10_creates_queue_for_disagreement_review() -> None:
             "POST /judges": {"judge_id": "J-10"},
             "POST /evaluations": {"evaluation_id": "EV-10"},
             "POST /review-queues": {"queue_id": "RQ-10"},
+            "GET /observability/traces": trace_items("TR-10"),
+            "POST /review-queues/RQ-10/items": [{"item_id": "RI-10"}],
+            "POST /review-queues/RQ-10/items/RI-10/submit": submit_answer,
+            "GET /review-queues/RQ-10/alignment-examples": {
+                "examples": [
+                    {
+                        "inputs": {"trace_id": "TR-10"},
+                        "outputs": "billing dispute",
+                        "expectations": {},
+                        "label": True,
+                        "provenance": {"queue_id": "RQ-10", "item_id": "RI-10"},
+                    }
+                ],
+                "skipped": [],
+            },
+            "POST /judges/J-10/alignment": alignment,
         }
     )
     with caliber:
         result = run_10(caliber)
     assert result["queue_id"] == "RQ-10"
     assert result["judge_id"] == "J-10"
+    assert result["alignment_kappa"] == 1.0
 
 
 def test_cookbook_11_drives_release_signoff_end_to_end() -> None:
@@ -336,26 +546,57 @@ def test_cookbook_11_drives_release_signoff_end_to_end() -> None:
     assert result["score"] == 0.94
 
 
-def test_cookbook_12_executes_the_aria_plan_after_approval() -> None:
-    states = iter(["paused"])
+def test_cookbook_12_creates_the_judge_and_dataset_past_the_execution_gap() -> None:
+    """The shipped planner leaves step inputs empty (the recipe's own
+    verified "Execution gap"): approving the plan alone creates nothing, so
+    the real judge/dataset must come from their own typed calls."""
+
+    steps = [
+        plan_step("PLAN-12", 1, "judge.create"),
+        plan_step("PLAN-12", 2, "eval_dataset.create"),
+    ]
+    plan_states = iter(["paused"])
+    answers = iter(["running", "completed"])
     caliber = stub_server(
         {
             "GET /cookbooks": recipe_payload("12", "Aria Evaluation Harness from Intent"),
             "POST /cookbooks/12/install": installed_payload("12", "WF-12", "WFV-12"),
-            "POST /aria/plans": plan_detail("PLAN-12", "planning"),
-            "GET /aria/plans/PLAN-12": lambda _r: plan_detail("PLAN-12", next(states)),
-            "POST /aria/plans/PLAN-12/approve": plan_detail("PLAN-12", "approved"),
-            "POST /aria/plans/PLAN-12/execute": plan_detail("PLAN-12", "completed"),
+            "GET /me": {"user_id": "@alice"},
+            "POST /aria/plans": plan_detail("PLAN-12", "planning", steps=steps),
+            "GET /aria/plans/PLAN-12": lambda _r: plan_detail(
+                "PLAN-12", next(plan_states), steps=steps
+            ),
+            "POST /aria/plans/PLAN-12/approve": plan_detail("PLAN-12", "approved", steps=steps),
+            "POST /aria/plans/PLAN-12/execute": plan_detail("PLAN-12", "running", steps=steps),
+            "GET /aria/plans/PLAN-12/interactions": [
+                plan_interaction("PLAN-12", "PLAN-12-1", "INT-12-1"),
+                plan_interaction("PLAN-12", "PLAN-12-2", "INT-12-2"),
+            ],
+            "POST /judges": {"judge_id": "J-12"},
+            "POST /eval-datasets": {"dataset_id": "ED-12"},
+            "POST /aria/interactions/INT-12-1/answer": lambda _r: plan_detail(
+                "PLAN-12", next(answers), steps=steps
+            ),
+            "POST /aria/interactions/INT-12-2/answer": lambda _r: plan_detail(
+                "PLAN-12", next(answers), steps=steps
+            ),
         }
     )
     with caliber:
         result = run_12(caliber)
     assert result["plan_id"] == "PLAN-12"
     assert result["status"] == "completed"
+    assert result["judge_id"] == "J-12"
+    assert result["dataset_id"] == "ED-12"
 
 
-def test_cookbook_13_reads_back_the_created_review_queues() -> None:
-    states = iter(["paused"])
+def test_cookbook_13_creates_the_review_queue_past_the_execution_gap() -> None:
+    steps = [
+        plan_step("PLAN-13", 1, "review_queue.create"),
+        plan_step("PLAN-13", 2, "review_queue.add_items"),
+    ]
+    plan_states = iter(["paused"])
+    answers = iter(["running", "completed"])
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -364,42 +605,98 @@ def test_cookbook_13_reads_back_the_created_review_queues() -> None:
                 prerequisite="Trace ids",
             ),
             "POST /cookbooks/13/install": installed_payload("13", "WF-13", "WFV-13"),
-            "POST /aria/plans": plan_detail("PLAN-13", "planning"),
-            "GET /aria/plans/PLAN-13": lambda _r: plan_detail("PLAN-13", next(states)),
-            "POST /aria/plans/PLAN-13/approve": plan_detail("PLAN-13", "approved"),
-            "POST /aria/plans/PLAN-13/execute": plan_detail("PLAN-13", "completed"),
-            "GET /review-queues": [{"queue_id": "RQ-13"}],
+            "POST /aria/plans": plan_detail("PLAN-13", "planning", steps=steps),
+            "GET /aria/plans/PLAN-13": lambda _r: plan_detail(
+                "PLAN-13", next(plan_states), steps=steps
+            ),
+            "POST /aria/plans/PLAN-13/approve": plan_detail("PLAN-13", "approved", steps=steps),
+            "POST /aria/plans/PLAN-13/execute": plan_detail("PLAN-13", "running", steps=steps),
+            "GET /aria/plans/PLAN-13/interactions": [
+                plan_interaction("PLAN-13", "PLAN-13-1", "INT-13-1"),
+                plan_interaction("PLAN-13", "PLAN-13-2", "INT-13-2"),
+            ],
+            "POST /review-queues": {"queue_id": "RQ-13"},
+            "POST /aria/interactions/INT-13-1/answer": lambda _r: plan_detail(
+                "PLAN-13", next(answers), steps=steps
+            ),
+            "POST /aria/interactions/INT-13-2/answer": lambda _r: plan_detail(
+                "PLAN-13", next(answers), steps=steps
+            ),
         }
     )
     with caliber:
         result = run_13(caliber)
-    assert result["queues"] == ["RQ-13"]
+    assert result["plan_id"] == "PLAN-13"
+    assert result["status"] == "completed"
+    assert result["queue_id"] == "RQ-13"
 
 
-def test_cookbook_14_reads_back_all_governance_assets() -> None:
-    states = iter(["paused"])
+def test_cookbook_14_creates_all_three_governance_assets_past_the_execution_gap() -> None:
+    steps = [
+        plan_step("PLAN-14", 1, "judge.create"),
+        plan_step("PLAN-14", 2, "eval_dataset.create"),
+        plan_step("PLAN-14", 3, "review_queue.create"),
+        plan_step("PLAN-14", 4, "review_queue.add_items"),
+    ]
+    plan_states = iter(["paused"])
+    answers = iter(["running", "running", "running", "completed"])
     caliber = stub_server(
         {
             "GET /cookbooks": recipe_payload("14", "Aria Governance Starter Kit"),
             "POST /cookbooks/14/install": installed_payload("14", "WF-14", "WFV-14"),
-            "POST /aria/plans": plan_detail("PLAN-14", "planning"),
-            "GET /aria/plans/PLAN-14": lambda _r: plan_detail("PLAN-14", next(states)),
-            "POST /aria/plans/PLAN-14/approve": plan_detail("PLAN-14", "approved"),
-            "POST /aria/plans/PLAN-14/execute": plan_detail("PLAN-14", "completed"),
-            "GET /judges": [{"judge_id": "J-14"}],
-            "GET /eval-datasets": [{"dataset_id": "ED-14"}],
-            "GET /review-queues": [{"queue_id": "RQ-14"}],
+            "GET /me": {"user_id": "@alice"},
+            "POST /aria/plans": plan_detail("PLAN-14", "planning", steps=steps),
+            "GET /aria/plans/PLAN-14": lambda _r: plan_detail(
+                "PLAN-14", next(plan_states), steps=steps
+            ),
+            "POST /aria/plans/PLAN-14/approve": plan_detail("PLAN-14", "approved", steps=steps),
+            "POST /aria/plans/PLAN-14/execute": plan_detail("PLAN-14", "running", steps=steps),
+            "GET /aria/plans/PLAN-14/interactions": [
+                plan_interaction("PLAN-14", "PLAN-14-1", "INT-14-1"),
+                plan_interaction("PLAN-14", "PLAN-14-2", "INT-14-2"),
+                plan_interaction("PLAN-14", "PLAN-14-3", "INT-14-3"),
+                plan_interaction("PLAN-14", "PLAN-14-4", "INT-14-4"),
+            ],
+            "POST /judges": {"judge_id": "J-14"},
+            "POST /eval-datasets": {"dataset_id": "ED-14"},
+            "POST /review-queues": {"queue_id": "RQ-14"},
+            "POST /aria/interactions/INT-14-1/answer": lambda _r: plan_detail(
+                "PLAN-14", next(answers), steps=steps
+            ),
+            "POST /aria/interactions/INT-14-2/answer": lambda _r: plan_detail(
+                "PLAN-14", next(answers), steps=steps
+            ),
+            "POST /aria/interactions/INT-14-3/answer": lambda _r: plan_detail(
+                "PLAN-14", next(answers), steps=steps
+            ),
+            "POST /aria/interactions/INT-14-4/answer": lambda _r: plan_detail(
+                "PLAN-14", next(answers), steps=steps
+            ),
         }
     )
     with caliber:
         result = run_14(caliber)
-    assert result["judges"] == ["J-14"]
-    assert result["datasets"] == ["ED-14"]
-    assert result["queues"] == ["RQ-14"]
+    assert result["plan_id"] == "PLAN-14"
+    assert result["status"] == "completed"
+    assert result["judge_id"] == "J-14"
+    assert result["dataset_id"] == "ED-14"
+    assert result["queue_id"] == "RQ-14"
 
 
-def test_cookbook_15_lists_review_queues_and_jobs() -> None:
-    states = iter(["paused"])
+def test_cookbook_15_drives_the_triage_then_recalibrate_loop() -> None:
+    """`workflow.calibrate` is Aria's first async capability: the step parks
+    in `waiting_job` and the plan stays `running` until polled to
+    resolution, rather than pausing for a human or finishing inline."""
+
+    steps = [
+        plan_step("PLAN-15", 1, "review_queue.create"),
+        plan_step("PLAN-15", 2, "review_queue.add_items"),
+        plan_step("PLAN-15", 3, "workflow.calibrate"),
+    ]
+    plan_states = iter(["paused"])
+    # The first two interactions still advance the plan; the calibrate
+    # interaction parks it in `running` rather than completing inline.
+    answers = iter(["running", "running", "running"])
     caliber = stub_server(
         {
             "GET /cookbooks": cookbook_listing(
@@ -408,18 +705,40 @@ def test_cookbook_15_lists_review_queues_and_jobs() -> None:
                 prerequisite="Existing traces",
             ),
             "POST /cookbooks/15/install": installed_payload("15", "WF-15", "WFV-15"),
-            "POST /aria/plans": plan_detail("PLAN-15", "planning"),
-            "GET /aria/plans/PLAN-15": lambda _r: plan_detail("PLAN-15", next(states)),
-            "POST /aria/plans/PLAN-15/approve": plan_detail("PLAN-15", "approved"),
-            "POST /aria/plans/PLAN-15/execute": plan_detail("PLAN-15", "completed"),
-            "GET /review-queues": [{"queue_id": "RQ-15"}],
-            "GET /jobs": [{"job_id": "JOB-15", "status": "queued"}],
+            "GET /observability/traces": trace_items("TR-15"),
+            "POST /aria/plans": plan_detail("PLAN-15", "planning", steps=steps),
+            "GET /aria/plans/PLAN-15": lambda _r: plan_detail(
+                "PLAN-15", next(plan_states), steps=steps
+            ),
+            "POST /aria/plans/PLAN-15/approve": plan_detail("PLAN-15", "approved", steps=steps),
+            "POST /aria/plans/PLAN-15/execute": plan_detail("PLAN-15", "running", steps=steps),
+            "GET /aria/plans/PLAN-15/interactions": [
+                plan_interaction("PLAN-15", "PLAN-15-1", "INT-15-1"),
+                plan_interaction("PLAN-15", "PLAN-15-2", "INT-15-2"),
+                plan_interaction("PLAN-15", "PLAN-15-3", "INT-15-3"),
+            ],
+            "POST /review-queues": {"queue_id": "RQ-15"},
+            "POST /review-queues/RQ-15/items": [{"item_id": "RI-15"}],
+            "POST /workflows/WF-15/calibration/runs": {"job_id": "JOB-15"},
+            "POST /aria/interactions/INT-15-1/answer": lambda _r: plan_detail(
+                "PLAN-15", next(answers), steps=steps
+            ),
+            "POST /aria/interactions/INT-15-2/answer": lambda _r: plan_detail(
+                "PLAN-15", next(answers), steps=steps
+            ),
+            "POST /aria/interactions/INT-15-3/answer": lambda _r: plan_detail(
+                "PLAN-15", next(answers), steps=steps
+            ),
+            "POST /aria/plans/PLAN-15/poll": plan_detail("PLAN-15", "completed", steps=steps),
         }
     )
     with caliber:
         result = run_15(caliber)
-    assert result["queue_ids"] == ["RQ-15"]
-    assert result["job_ids"] == ["JOB-15"]
+    assert result["plan_id"] == "PLAN-15"
+    assert result["status"] == "completed"
+    assert result["queue_id"] == "RQ-15"
+    assert result["enqueued_trace_ids"] == ["TR-15"]
+    assert result["calibration_job_id"] == "JOB-15"
 
 
 def test_cookbook_16_promotes_a_trace_into_a_dataset_and_queue() -> None:

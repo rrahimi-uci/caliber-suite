@@ -1,4 +1,6 @@
-"""Install Cookbook 04, upload the source document, and validate the draft."""
+"""Install Cookbook 04, upload the source document, and preview-run the
+draft against it.
+"""
 
 from __future__ import annotations
 
@@ -31,16 +33,20 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         name="Cookbook 04 — Document-to-JSON Pipeline (SDK)",
         acknowledge_prerequisites=bool(recipe.prerequisites),
     )
-    validation = caliber.raw.post(
-        f"/workflow-versions/{installed['version']['version_id']}/validate",
-        json={"example_input": {"project_file_id": uploaded.file_id}},
+    # `validate()` only checks the manifest's own structure -- it never reads
+    # a request body, so passing an example input to it is a silent no-op.
+    # `preview_run()` is the call that actually exercises the draft against
+    # real input, in preview mode (no persisted run, no tool side effects).
+    preview = caliber.workflows.versions.preview_run(
+        installed["version"]["version_id"],
+        input={"project_file_id": uploaded.file_id},
     )
     return {
         "installed": recipe.id,
         "project_id": project.project_id,
         "file_id": uploaded.file_id,
         "version_id": installed["version"]["version_id"],
-        "validation": validation,
+        "preview": preview,
     }
 
 
