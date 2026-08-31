@@ -71,9 +71,14 @@ caliberctl token revoke PAT-9 --yes      # revokes
 | `capabilities` | What the deployment supports. |
 | `token list \| create \| rotate \| revoke` | Access token lifecycle. |
 | `workflow list \| run \| status` | Run a workflow and wait for it. |
+| `workflow deployments \| promote \| rollback \| promotions` | Deployment-alias governance: what's live, point an alias at a version, restore the prior one, and list pending/historical promotions. |
+| `promotion approve \| reject` | Act on a pending gated promotion (see `workflow promote`). |
+| `gate-verdict show \| record` | Advisory per-version evaluation verdicts (`prompt`/`workflow`/`skill`). |
 | `job list \| wait` | Background jobs, including the ones that wait for you. |
 | `release list \| sign` | Release candidates and go / no-go. |
 | `cookbook list \| install` | Example workflows, with readiness checked first. |
+| `prompt list \| show` | Governed prompts and their live versions. |
+| `service show \| publish \| unpublish` | Publish a workflow as an HTTP service, or withdraw it. |
 | `plugin list` | Optimizers, and plugins installed but not enabled. |
 
 ### Notes on specific commands
@@ -99,6 +104,23 @@ environment and you may know something it does not.
 **`release sign --rationale` is required.** By the API, and therefore here. A CLI
 that defaulted it to "signed via caliberctl" would manufacture exactly the record
 the requirement exists to prevent.
+
+**`workflow rollback` requires `--yes`.** It changes what a live deployment
+alias serves right now, by popping that alias's checkpoint stack — the same
+irreversible-action guard as `token revoke` and `service unpublish`.
+
+**`workflow promote` may not promote immediately.** On a gated alias the
+server creates a pending promotion instead of rotating the alias — check the
+response, or `workflow promotions`, rather than assuming the alias moved.
+Act on a pending one with `promotion approve` / `promotion reject`.
+
+**`gate-verdict record --state fail` exits 4 (gate failed); `show` never does.**
+`record` produces a decision the same way `release sign` does, so its answer
+travels in the exit code. `show` is a plain read of whatever was last
+recorded — it exits 0 regardless of `state`, and leaves interpreting the
+value to the caller. Verdicts are advisory in v1: CALIBER never blocks alias
+rotation on one by itself (see `ARCHITECTURE.md` §4's "Gate semantics"
+column); this is release evidence, not an enforced gate.
 
 ## Configuration
 
