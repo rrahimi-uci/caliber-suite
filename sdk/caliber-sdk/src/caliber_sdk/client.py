@@ -36,6 +36,7 @@ from .resources import (
     KnowledgeBasesAPI,
     McpServersAPI,
     MeAPI,
+    MemoryAPI,
     ObjectStoreAPI,
     ObservabilityAPI,
     OpenApiIntegrationsAPI,
@@ -126,6 +127,7 @@ class CaliberClient:
         self.agents = AgentsAPI(self._transport)
         self.gate_verdicts = GateVerdictsAPI(self._transport)
         self.system = SystemAPI(self._transport)
+        self.memory = MemoryAPI(self._transport)
 
     @staticmethod
     def _auth_from(token: str | None, user: str | None, proxy_secret: str | None) -> AuthProvider:

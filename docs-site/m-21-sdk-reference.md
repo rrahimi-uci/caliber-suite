@@ -49,10 +49,12 @@ Every documented class and module-level function, with the module that defines i
 | [`AccountsAPI`](#accountsapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
 | [`AgentsAPI`](#agentsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
 | [`AriaAPI`](#ariaapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`AriaDraftsAPI`](#ariadraftsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`AriaInteraction`](#ariainteraction) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
 | [`AriaPlan`](#ariaplan) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
 | [`AriaPlanDetail`](#ariaplandetail) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
 | [`AriaPlanStep`](#ariaplanstep) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
+| [`AriaSessionsAPI`](#ariasessionsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`AsyncCaliberClient`](#asynccaliberclient) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncCapabilitiesAPI`](#asynccapabilitiesapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncEventsAPI`](#asynceventsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
@@ -158,6 +160,7 @@ Every documented class and module-level function, with the module that defines i
 | [`McpServer`](#mcpserver) | [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations) |
 | [`McpServersAPI`](#mcpserversapi) | [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations) |
 | [`MeAPI`](#meapi) | [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem) |
+| [`MemoryAPI`](#memoryapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 
 **N**
 
@@ -371,6 +374,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `agents` | `AgentsAPI` | — |
 | `gate_verdicts` | `GateVerdictsAPI` | — |
 | `system` | `SystemAPI` | — |
+| `memory` | `MemoryAPI` | — |
 
 **Properties**
 
@@ -1309,7 +1313,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -6422,7 +6426,7 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 
 **Public exports**
 
-`AriaAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `GateVerdictsAPI`, `JobsAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `SecretsAPI`, `SystemAPI`
+`AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `GateVerdictsAPI`, `JobsAPI`, `MemoryAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `SecretsAPI`, `SystemAPI`
 
 #### Classes
 
@@ -6637,11 +6641,444 @@ Human labels usable for judge-alignment scoring.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `AriaSessionsAPI`
+
+`class AriaSessionsAPI()`
+
+Aria conversational sessions: messages, attachments, the message
+queue, intent resolution, and the session-scoped plan lifecycle.
+
+Distinct from ``client.aria.plans``/``.create_plan``/etc: those are
+Aria's durable **goal-plans** (``/aria/plans/*``), while this is the
+**chat session** surface (``/assistant/*``) a goal-plan is created from.
+Both are "Aria" to a user; they are different route families on the
+server, which is why they are separate classes under one ``client.aria``
+tree rather than one flat namespace.
+
+**Methods**
+
+###### `list(*, owner: str | None = None) -> Any`
+
+Return the current collection of Aria sessions, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `owner` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(**options) -> Any`
+
+``options`` may carry ``title``, ``goal``, ``metadata_``,
+``artifact_type``, ``skill_mode``, ``pinned_skill_names``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(session_id: str) -> Any`
+
+Fetch one record from the Aria sessions surface identified by `session_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(session_id: str, **changes) -> Any`
+
+Patch an existing record on the Aria sessions surface and return the updated result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `messages(session_id: str) -> Any`
+
+Operate on the Aria sessions surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `send_message(session_id: str, content: str, **params) -> Any`
+
+``params`` may carry ``artifact_type``, ``skill_mode``,
+``skill_names``, ``mode``, ``steer``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `queue(session_id: str) -> Any`
+
+Messages queued to send once the current turn finishes.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `enqueue_message(session_id: str, content: str, **params) -> Any`
+
+``params`` may carry ``mode`` (queue vs. steer) and ``kind``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `cancel_queued(queue_id: str) -> bool`
+
+204 on success; the queued message is gone either way once this
+returns without raising.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `queue_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `attachments(session_id: str) -> Any`
+
+Operate on the Aria sessions surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_attachment(session_id: str, *, kind: str, **params) -> Any`
+
+Attach by reference rather than uploading bytes. ``kind`` is
+``"text_snippet"`` (requires ``text=``), ``"library_resource"``
+(requires ``resource_type=``, ``resource_id=``), or
+``"object_file"`` (requires ``bucket=``, ``key=``). For raw file
+bytes see :meth:`upload_attachment`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `kind` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `upload_attachment(session_id: str, filename: str, content: bytes, *, bucket: str | None = None) -> Any`
+
+Upload a file's bytes as an attachment. Multipart, so it does not
+go through the JSON path. ``bucket``, if given, also persists the
+raw file to that object-store bucket.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `filename` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `bytes` | `—` |
+| `bucket` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete_attachment(attachment_id: str) -> bool`
+
+Operate on the Aria sessions surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `attachment_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resolve_intent(session_id: str, content: str, **params) -> Any`
+
+Classify a free-text message into a known intent + slots before
+committing to a plan. ``params`` may carry ``context``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_plan(session_id: str, **params) -> Any`
+
+``params`` may carry ``content``, ``intent_name``,
+``slot_overrides``, ``context``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `latest_plan(session_id: str) -> Any`
+
+Operate on the Aria sessions surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `execute_plan(session_id: str, **params) -> Any`
+
+Operate on the Aria sessions surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `operation(session_id: str, operation_id: str) -> Any`
+
+Poll a long-running plan-execution operation.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `drafts(session_id: str) -> Any`
+
+Artifact drafts this session has produced. To act on one, see
+``client.aria.drafts``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `session_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AriaDraftsAPI`
+
+`class AriaDraftsAPI()`
+
+An artifact draft's validate -> test -> approve -> publish lifecycle.
+
+``approve``/``publish`` are ``gated`` in Aria's own tool projection --
+the autonomous loop cannot call them regardless of build mode -- but
+both remain ordinary, human-driven HTTP operations reachable here.
+
+**Methods**
+
+###### `get(draft_id: str) -> Any`
+
+Fetch one record from the Aria drafts surface identified by `draft_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(draft_id: str, **changes) -> Any`
+
+Patch an existing record on the Aria drafts surface and return the updated result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `validate(draft_id: str) -> Any`
+
+Run the server-side validation pass against the targeted draft.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test(draft_id: str) -> Any`
+
+Operate on the Aria drafts surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `approve(draft_id: str) -> Any`
+
+Operate on the Aria drafts surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `publish(draft_id: str) -> Any`
+
+A failed publish reports ``success: false`` in the body (400)
+rather than raising for every failure mode -- check the report.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `draft_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `AriaAPI`
 
-`class AriaAPI()`
+`class AriaAPI(transport)`
 
-Aria goal-plans: the permissioned agentic loop.
+Aria: conversational sessions (``.sessions``), artifact drafts
+(``.drafts``), durable goal-plans, and deployment-wide config.
 
 **Usage example**
 
@@ -6651,6 +7088,25 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 
 **Related APIs:** [`JobsAPI`](#jobsapi), [`ReviewQueuesAPI`](#reviewqueuesapi), [`JudgesAPI`](#judgesapi), [`EvalDatasetsAPI`](#evaldatasetsapi)
 
+**Constructor**
+
+###### `__init__(transport) -> None`
+
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `transport` | positional-or-keyword | `Any` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `sessions` | `AriaSessionsAPI` | — |
+| `drafts` | `AriaDraftsAPI` | — |
+
 **Methods**
 
 ###### `capabilities() -> Any`
@@ -6658,6 +7114,68 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 What Aria is allowed to do in this deployment.
 
 This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `config() -> Any`
+
+Deployment-wide assistant settings: engine, model, reasoning
+effort, enabled intents/domains, autonomy status.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_config(**changes) -> Any`
+
+Operate on the Aria plans and interaction state surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `prompt_draft(description: str) -> Any`
+
+One-shot prompt draft from a free-text task description -- feeds
+the manual prompt builder's "Describe it" on-ramp. Not session-
+scoped and nothing is persisted.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `description` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `run(run_id: str) -> Any`
+
+One Aria-driven run's detail (a message turn or plan-execution
+run), for the session transcript's expandable trace.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `Any`
 
@@ -7452,6 +7970,89 @@ Delete a record on the secret references surface and return the server acknowled
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `MemoryAPI`
+
+`class MemoryAPI()`
+
+Direct add/search/list/delete over agent long-term memory (mem0).
+
+Every operation is scoped by ``agent_id``/``user_id``/``run_id`` -- at
+least one is required -- so the shared team store stays partitioned.
+503s when memory is disabled or the ``[memory]`` extra is absent on the
+server.
+
+**Methods**
+
+###### `add(text: str, *, agent_id: str | None = None, **params) -> Any`
+
+``params`` may carry ``user_id``, ``run_id``, ``metadata``,
+``infer``. At least one of ``agent_id``/``user_id``/``run_id`` is
+required.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `text` | positional-or-keyword | `str` | `—` |
+| `agent_id` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `search(query: str, *, agent_id: str | None = None, **params) -> Any`
+
+``params`` may carry ``user_id``, ``run_id``, ``top_k`` (default
+10 server-side).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `query` | positional-or-keyword | `str` | `—` |
+| `agent_id` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list(*, agent_id: str | None = None, **params) -> Any`
+
+``params`` may carry ``user_id``, ``run_id``, ``top_k`` (default
+50 server-side). Sent as query parameters, not a JSON body.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete_all(*, agent_id: str | None = None, **params) -> Any`
+
+Delete every memory in the given scope. Irreversible.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | keyword-only | `str | None` | `None` |
+| `params` | var-keyword | `Any` | `—` |
 
 **Returns:** `Any`
 

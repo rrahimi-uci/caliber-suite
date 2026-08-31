@@ -99,12 +99,185 @@ class ReviewQueuesAPI(Resource):
         return self._get(f"/review-queues/{queue_id}/alignment-examples")
 
 
+class AriaSessionsAPI(Resource):
+    """Aria conversational sessions: messages, attachments, the message
+    queue, intent resolution, and the session-scoped plan lifecycle.
+
+    Distinct from ``client.aria.plans``/``.create_plan``/etc: those are
+    Aria's durable **goal-plans** (``/aria/plans/*``), while this is the
+    **chat session** surface (``/assistant/*``) a goal-plan is created from.
+    Both are "Aria" to a user; they are different route families on the
+    server, which is why they are separate classes under one ``client.aria``
+    tree rather than one flat namespace.
+    """
+
+    def list(self, *, owner: str | None = None) -> Any:
+        return self._get("/assistant/sessions", params={"owner": owner} if owner else None)
+
+    def create(self, **options: Any) -> Any:
+        """``options`` may carry ``title``, ``goal``, ``metadata_``,
+        ``artifact_type``, ``skill_mode``, ``pinned_skill_names``."""
+        return self._post("/assistant/sessions", json=options)
+
+    def get(self, session_id: str) -> Any:
+        return self._get(f"/assistant/sessions/{session_id}")
+
+    def update(self, session_id: str, **changes: Any) -> Any:
+        return self._patch(f"/assistant/sessions/{session_id}", json=changes)
+
+    def messages(self, session_id: str) -> Any:
+        return self._get(f"/assistant/sessions/{session_id}/messages")
+
+    def send_message(self, session_id: str, content: str, **params: Any) -> Any:
+        """``params`` may carry ``artifact_type``, ``skill_mode``,
+        ``skill_names``, ``mode``, ``steer``."""
+        return self._post(
+            f"/assistant/sessions/{session_id}/messages",
+            json={"content": content, **params},
+        )
+
+    def queue(self, session_id: str) -> Any:
+        """Messages queued to send once the current turn finishes."""
+        return self._get(f"/assistant/sessions/{session_id}/queue")
+
+    def enqueue_message(self, session_id: str, content: str, **params: Any) -> Any:
+        """``params`` may carry ``mode`` (queue vs. steer) and ``kind``."""
+        return self._post(
+            f"/assistant/sessions/{session_id}/queue",
+            json={"content": content, **params},
+        )
+
+    def cancel_queued(self, queue_id: str) -> bool:
+        """204 on success; the queued message is gone either way once this
+        returns without raising."""
+        self._delete(f"/assistant/queue/{queue_id}")
+        return True
+
+    def attachments(self, session_id: str) -> Any:
+        return self._get(f"/assistant/sessions/{session_id}/attachments")
+
+    def create_attachment(self, session_id: str, *, kind: str, **params: Any) -> Any:
+        """Attach by reference rather than uploading bytes. ``kind`` is
+        ``"text_snippet"`` (requires ``text=``), ``"library_resource"``
+        (requires ``resource_type=``, ``resource_id=``), or
+        ``"object_file"`` (requires ``bucket=``, ``key=``). For raw file
+        bytes see :meth:`upload_attachment`."""
+        return self._post(
+            f"/assistant/sessions/{session_id}/attachments",
+            json={"kind": kind, **params},
+        )
+
+    def upload_attachment(
+        self,
+        session_id: str,
+        filename: str,
+        content: bytes,
+        *,
+        bucket: str | None = None,
+    ) -> Any:
+        """Upload a file's bytes as an attachment. Multipart, so it does not
+        go through the JSON path. ``bucket``, if given, also persists the
+        raw file to that object-store bucket."""
+        files = {"file": (filename, content, "application/octet-stream")}
+        data: dict[str, str] = {"bucket": bucket} if bucket else {}
+        response = self._transport.request(
+            "POST", f"/assistant/sessions/{session_id}/attachments/upload", files=files, data=data
+        )
+        return response.data
+
+    def delete_attachment(self, attachment_id: str) -> bool:
+        self._delete(f"/assistant/attachments/{attachment_id}")
+        return True
+
+    def resolve_intent(self, session_id: str, content: str, **params: Any) -> Any:
+        """Classify a free-text message into a known intent + slots before
+        committing to a plan. ``params`` may carry ``context``."""
+        return self._post(
+            f"/assistant/sessions/{session_id}/intent/resolve",
+            json={"content": content, **params},
+        )
+
+    def create_plan(self, session_id: str, **params: Any) -> Any:
+        """``params`` may carry ``content``, ``intent_name``,
+        ``slot_overrides``, ``context``."""
+        return self._post(f"/assistant/sessions/{session_id}/plans", json=params)
+
+    def latest_plan(self, session_id: str) -> Any:
+        return self._get(f"/assistant/sessions/{session_id}/plans/latest")
+
+    def execute_plan(self, session_id: str, **params: Any) -> Any:
+        return self._post(f"/assistant/sessions/{session_id}/plans/execute", json=params)
+
+    def operation(self, session_id: str, operation_id: str) -> Any:
+        """Poll a long-running plan-execution operation."""
+        return self._get(f"/assistant/sessions/{session_id}/operations/{operation_id}")
+
+    def drafts(self, session_id: str) -> Any:
+        """Artifact drafts this session has produced. To act on one, see
+        ``client.aria.drafts``."""
+        return self._get(f"/assistant/sessions/{session_id}/drafts")
+
+
+class AriaDraftsAPI(Resource):
+    """An artifact draft's validate -> test -> approve -> publish lifecycle.
+
+    ``approve``/``publish`` are ``gated`` in Aria's own tool projection --
+    the autonomous loop cannot call them regardless of build mode -- but
+    both remain ordinary, human-driven HTTP operations reachable here.
+    """
+
+    def get(self, draft_id: str) -> Any:
+        return self._get(f"/assistant/drafts/{draft_id}")
+
+    def update(self, draft_id: str, **changes: Any) -> Any:
+        return self._patch(f"/assistant/drafts/{draft_id}", json=changes)
+
+    def validate(self, draft_id: str) -> Any:
+        return self._post(f"/assistant/drafts/{draft_id}/validate")
+
+    def test(self, draft_id: str) -> Any:
+        return self._post(f"/assistant/drafts/{draft_id}/test")
+
+    def approve(self, draft_id: str) -> Any:
+        return self._post(f"/assistant/drafts/{draft_id}/approve")
+
+    def publish(self, draft_id: str) -> Any:
+        """A failed publish reports ``success: false`` in the body (400)
+        rather than raising for every failure mode -- check the report."""
+        return self._post(f"/assistant/drafts/{draft_id}/publish")
+
+
 class AriaAPI(Resource):
-    """Aria goal-plans: the permissioned agentic loop."""
+    """Aria: conversational sessions (``.sessions``), artifact drafts
+    (``.drafts``), durable goal-plans, and deployment-wide config."""
+
+    def __init__(self, transport: Any) -> None:
+        super().__init__(transport)
+        self.sessions = AriaSessionsAPI(transport)
+        self.drafts = AriaDraftsAPI(transport)
 
     def capabilities(self) -> Any:
         """What Aria is allowed to do in this deployment."""
         return self._get("/aria/capabilities")
+
+    def config(self) -> Any:
+        """Deployment-wide assistant settings: engine, model, reasoning
+        effort, enabled intents/domains, autonomy status."""
+        return self._get("/assistant/config")
+
+    def update_config(self, **changes: Any) -> Any:
+        return self._patch("/assistant/config", json=changes)
+
+    def prompt_draft(self, description: str) -> Any:
+        """One-shot prompt draft from a free-text task description -- feeds
+        the manual prompt builder's "Describe it" on-ramp. Not session-
+        scoped and nothing is persisted."""
+        return self._post("/assistant/prompt-draft", json={"description": description})
+
+    def run(self, run_id: str) -> Any:
+        """One Aria-driven run's detail (a message turn or plan-execution
+        run), for the session transcript's expandable trace."""
+        return self._get(f"/assistant/runs/{run_id}")
 
     def plans(
         self,
@@ -411,13 +584,58 @@ class SecretsAPI(Resource):
         return self._delete(f"/secrets/{name}")
 
 
+class MemoryAPI(Resource):
+    """Direct add/search/list/delete over agent long-term memory (mem0).
+
+    Every operation is scoped by ``agent_id``/``user_id``/``run_id`` -- at
+    least one is required -- so the shared team store stays partitioned.
+    503s when memory is disabled or the ``[memory]`` extra is absent on the
+    server.
+    """
+
+    def add(self, text: str, *, agent_id: str | None = None, **params: Any) -> Any:
+        """``params`` may carry ``user_id``, ``run_id``, ``metadata``,
+        ``infer``. At least one of ``agent_id``/``user_id``/``run_id`` is
+        required."""
+        body: dict[str, Any] = {"text": text, **params}
+        if agent_id is not None:
+            body["agent_id"] = agent_id
+        return self._post("/memory", json=body)
+
+    def search(self, query: str, *, agent_id: str | None = None, **params: Any) -> Any:
+        """``params`` may carry ``user_id``, ``run_id``, ``top_k`` (default
+        10 server-side)."""
+        body: dict[str, Any] = {"query": query, **params}
+        if agent_id is not None:
+            body["agent_id"] = agent_id
+        return self._post("/memory/search", json=body)
+
+    def list(self, *, agent_id: str | None = None, **params: Any) -> Any:
+        """``params`` may carry ``user_id``, ``run_id``, ``top_k`` (default
+        50 server-side). Sent as query parameters, not a JSON body."""
+        query: dict[str, Any] = {**params}
+        if agent_id is not None:
+            query["agent_id"] = agent_id
+        return self._get("/memory", params=query or None)
+
+    def delete_all(self, *, agent_id: str | None = None, **params: Any) -> Any:
+        """Delete every memory in the given scope. Irreversible."""
+        query: dict[str, Any] = {**params}
+        if agent_id is not None:
+            query["agent_id"] = agent_id
+        return self._delete("/memory", params=query or None)
+
+
 __all__ = [
     "AriaAPI",
+    "AriaDraftsAPI",
+    "AriaSessionsAPI",
     "AuditAPI",
     "CookbooksAPI",
     "EventsAPI",
     "GateVerdictsAPI",
     "JobsAPI",
+    "MemoryAPI",
     "ObservabilityAPI",
     "ReleasesAPI",
     "ReviewQueuesAPI",
