@@ -3668,6 +3668,18 @@ Scoped to a workflow because the server has no unscoped run listing:
 ``/workflow-runs`` is POST-only (submission). An SDK method implying
 otherwise returned 405 at runtime, which is how this was found.
 
+This route's envelope carries pagination metadata alongside the list
+(``{"data": [...], "next_cursor": ...}``), which the transport's
+generic unwrap deliberately leaves untouched -- it only strips a
+*bare* ``{"data": ...}`` shape, precisely so an unenveloped body (the
+OpenAPI document) is never mistaken for one. Left to the generic
+unwrap, this method always decoded an empty list against the real
+server regardless of how many runs existed -- caught only by an
+end-to-end test against a real response, since every mocked test
+supplied the bare shape. ``payload["data"]`` is pulled explicitly
+here until AD-5's uniform pagination contract lands and gives every
+list method one shared way to do this.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `workflow_id` | positional-or-keyword | `str` | `—` |

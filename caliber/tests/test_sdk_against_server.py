@@ -15,6 +15,8 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
+from tests.workflow_helpers import make_manifest
+
 caliber_sdk = pytest.importorskip("caliber_sdk", reason="caliber-sdk is not installed")
 
 
@@ -42,7 +44,7 @@ def test_the_sdk_reads_identity_from_the_real_server(sdk: object) -> None:
 
 def test_the_sdk_reads_capabilities_and_stability_tiers(sdk: object) -> None:
     """Proves the nested decoding matches what the server actually sends."""
-    capabilities = sdk.capabilities_api.get()  # type: ignore[attr-defined]
+    capabilities = sdk.capabilities_info.get()  # type: ignore[attr-defined]
     assert capabilities.sdk_stability
     assert capabilities.is_ga("prompts")
     assert capabilities.tier_of("assistant") == "internal"
@@ -156,7 +158,7 @@ def test_the_sdk_round_trips_a_workflow_and_a_dataset(sdk: object) -> None:
     assert sdk.workflows.get(workflow.workflow_id).workflow_id == workflow.workflow_id  # type: ignore[attr-defined]
     assert isinstance(sdk.workflows.versions.list(workflow.workflow_id), list)  # type: ignore[attr-defined]
 
-    dataset = sdk.datasets.create(  # type: ignore[attr-defined]
+    dataset = sdk.eval_datasets.create(  # type: ignore[attr-defined]
         "sdk-integration-dataset", owner="@sdk-tests"
     )
     assert dataset.dataset_id
@@ -180,7 +182,7 @@ def test_the_sdk_lists_every_ga_surface_it_models(sdk: object) -> None:
     """
     for call in (
         sdk.workflows.list,  # type: ignore[attr-defined]
-        sdk.datasets.list,  # type: ignore[attr-defined]
+        sdk.eval_datasets.list,  # type: ignore[attr-defined]
         sdk.judges.list,  # type: ignore[attr-defined]
         sdk.evaluations.list,  # type: ignore[attr-defined]
         sdk.projects.list,  # type: ignore[attr-defined]
@@ -290,7 +292,7 @@ def test_the_sdk_reads_the_optimizer_registry_from_the_real_server(sdk: object) 
     decodes it by hand — a wrong key would produce an empty list rather than an
     error, which is the failure mode a mocked test happily reproduces.
     """
-    extensibility = sdk.capabilities_api.get().extensibility  # type: ignore[attr-defined]
+    extensibility = sdk.capabilities_info.get().extensibility  # type: ignore[attr-defined]
 
     metaprompt = extensibility.optimizer("MetaPrompt")
     assert metaprompt is not None
@@ -307,3 +309,313 @@ def test_the_sdk_reads_the_optimizer_registry_from_the_real_server(sdk: object) 
     # default rather than a missing feature.
     assert extensibility.plugins == []
     assert extensibility.allowlist_env_var == "CALIBER_PLUGIN_ALLOWLIST"
+
+
+# --- governance lifecycle (Phase 3 wave 3a/3b, Phase 5.3 CLI verbs) --------
+#
+# The single biggest surface this plan closed was the release/rollback path
+# (wave 3a's rationale: "the release/rollback path is the product's core
+# claim and is currently unreachable"). A mocked test proves each method
+# sends the right request; only a real deployment/checkpoint stack proves the
+# *sequence* -- promote, promote again, roll back -- actually round-trips.
+
+
+def test_the_sdk_drives_a_workflow_version_through_validate_compile_publish(
+    sdk: object,
+) -> None:
+    """A draft version is not runnable; publish is the step that changes that.
+
+    Exercises all three pre-publish checks the SDK exposes as separate calls
+    (``validate``, ``compile``, ``publish``) rather than only the one publish
+    needs internally -- each is real SDK surface a caller can reach for
+    independently (e.g. a CI job that wants to catch a bad manifest before
+    ever publishing it).
+    """
+    workflow = sdk.workflows.create("sdk-e2e-governance-workflow")  # type: ignore[attr-defined]
+    manifest = make_manifest(workflow.workflow_id)
+
+    version = sdk.workflows.versions.create(workflow.workflow_id, manifest)  # type: ignore[attr-defined]
+    assert version.workflow_id == workflow.workflow_id
+    assert version.status == "draft"
+
+    validation = sdk.workflows.versions.validate(version.version_id)  # type: ignore[attr-defined]
+    assert isinstance(validation, dict)
+
+    compiled = sdk.workflows.versions.compile(version.version_id)  # type: ignore[attr-defined]
+    assert isinstance(compiled, dict)
+
+    published = sdk.workflows.versions.publish(version.version_id)  # type: ignore[attr-defined]
+    assert published.status == "published"
+    # Idempotent: publishing an already-published version must not raise.
+    assert sdk.workflows.versions.publish(version.version_id).status == "published"  # type: ignore[attr-defined]
+
+
+def test_the_sdk_drives_deployment_promote_and_rollback_end_to_end(sdk: object) -> None:
+    """Promote, promote again, roll back -- the exact sequence
+    ``caliberctl workflow promote``/``rollback`` (Phase 5.3) wraps.
+
+    The first promotion on a fresh alias has nothing to checkpoint (the
+    server's own rollback-checkpoint stack starts empty); a rollback attempt
+    at that point must fail. The *second* promotion is what pushes the first
+    version onto the checkpoint stack, and that is what rollback then pops --
+    so this drives two versions through two promotions specifically to prove
+    the checkpoint stack, not just one call each of promote/rollback in
+    isolation.
+    """
+    workflow = sdk.workflows.create("sdk-e2e-deployment-workflow")  # type: ignore[attr-defined]
+    v1 = sdk.workflows.versions.publish(  # type: ignore[attr-defined]
+        sdk.workflows.versions.create(  # type: ignore[attr-defined]
+            workflow.workflow_id, make_manifest(workflow.workflow_id)
+        ).version_id
+    )
+    v2 = sdk.workflows.versions.publish(  # type: ignore[attr-defined]
+        sdk.workflows.versions.create(  # type: ignore[attr-defined]
+            workflow.workflow_id, make_manifest(workflow.workflow_id)
+        ).version_id
+    )
+
+    # Ungated alias: rotation is immediate, no pending promotion created.
+    first = sdk.workflows.promote_deployment(  # type: ignore[attr-defined]
+        workflow.workflow_id, "staging", version_id=v1.version_id
+    )
+    assert isinstance(first, dict)
+
+    assert _deployed_version(sdk, workflow.workflow_id, "staging") == v1.version_id
+
+    with pytest.raises(caliber_sdk.CaliberNotFoundError) as no_checkpoint:
+        sdk.workflows.rollback_deployment(workflow.workflow_id, "staging")  # type: ignore[attr-defined]
+    assert "checkpoint" in (no_checkpoint.value.detail or "").lower()
+
+    sdk.workflows.promote_deployment(  # type: ignore[attr-defined]
+        workflow.workflow_id, "staging", version_id=v2.version_id
+    )
+    assert _deployed_version(sdk, workflow.workflow_id, "staging") == v2.version_id
+
+    sdk.workflows.rollback_deployment(workflow.workflow_id, "staging")  # type: ignore[attr-defined]
+    assert _deployed_version(sdk, workflow.workflow_id, "staging") == v1.version_id
+
+
+def _deployed_version(sdk: object, workflow_id: str, alias: str) -> str | None:
+    """``deployments()`` returns a list of ``{"alias", "version_id", ...}``
+    rows, one per active alias -- not a dict keyed by alias."""
+    deployments = sdk.workflows.deployments(workflow_id)  # type: ignore[attr-defined]
+    for row in deployments:
+        if row.get("alias") == alias:
+            return row.get("version_id")
+    return None
+
+
+def test_the_sdk_records_and_reads_a_gate_verdict_for_a_real_version(sdk: object) -> None:
+    """Advisory evidence attached to a version that actually exists.
+
+    ``get`` before any verdict is recorded must answer ``{"state": "none"}``
+    rather than 404 -- a version with no verdict yet is a normal state, not a
+    missing resource -- so this checks that shape too, not only the
+    round-trip after recording one.
+    """
+    workflow = sdk.workflows.create("sdk-e2e-gate-verdict-workflow")  # type: ignore[attr-defined]
+    version = sdk.workflows.versions.create(  # type: ignore[attr-defined]
+        workflow.workflow_id, make_manifest(workflow.workflow_id)
+    )
+
+    before = sdk.gate_verdicts.get("workflow", version.version_id)  # type: ignore[attr-defined]
+    assert before.get("state") == "none"
+
+    recorded = sdk.gate_verdicts.record(  # type: ignore[attr-defined]
+        "workflow", version.version_id, state="pass", score=0.95
+    )
+    assert recorded.get("state") == "pass"
+
+    after = sdk.gate_verdicts.get("workflow", version.version_id)  # type: ignore[attr-defined]
+    assert after.get("state") == "pass"
+
+
+def test_the_sdk_submits_a_run_and_lists_it_scoped_to_its_workflow(
+    sdk: object, client: TestClient
+) -> None:
+    """Submission plus the scoped listing that surfaces it.
+
+    ``WorkflowRunsAPI.list`` is scoped to a workflow because the server has no
+    unscoped listing (``POST /workflow-runs`` is submission-only) -- this
+    proves the submitted run actually shows up there, not only that
+    submission itself returns 2xx.
+    """
+    # The fixture app disables the run queue by default (a 409 explains why,
+    # rather than submission just hanging); this test is specifically about
+    # submission and scoped listing, not the queue feature itself.
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"workflow_run_queue_enabled": True}
+    )
+    workflow_id, version_id = _publish_workflow(sdk, "sdk-e2e-run-workflow")
+
+    run = sdk.workflows.runs.submit(  # type: ignore[attr-defined]
+        workflow_id=workflow_id, workflow_version_id=version_id, input="hello"
+    )
+    assert run.workflow_run_id
+    assert run.status
+
+    fetched = sdk.workflows.runs.get(run.workflow_run_id)  # type: ignore[attr-defined]
+    assert fetched.workflow_run_id == run.workflow_run_id
+
+    listed = sdk.workflows.runs.list(workflow_id)  # type: ignore[attr-defined]
+    assert run.workflow_run_id in [item.workflow_run_id for item in listed]
+
+
+def _publish_workflow(sdk: object, name: str) -> tuple[str, str]:
+    """Shared arrange-step: a workflow with one published version."""
+    workflow = sdk.workflows.create(name)  # type: ignore[attr-defined]
+    version = sdk.workflows.versions.publish(  # type: ignore[attr-defined]
+        sdk.workflows.versions.create(  # type: ignore[attr-defined]
+            workflow.workflow_id, make_manifest(workflow.workflow_id)
+        ).version_id
+    )
+    return workflow.workflow_id, version.version_id
+
+
+# --- agents (Phase 3 wave 3a/3b) -------------------------------------------
+
+
+def test_the_sdk_drives_an_agent_through_update_and_rollback(sdk: object) -> None:
+    """An agent's mutable config, and the checkpoint stack that lets an
+    operator undo a bad update -- the same rollback shape as a deployment,
+    on a different asset family."""
+    agent = sdk.agents.create(  # type: ignore[attr-defined]
+        "sdk-e2e-agent", experiment_id="exp-sdk-e2e-agent", name="SDK E2E Agent"
+    )
+    assert agent.agent_id == "sdk-e2e-agent"
+    assert agent.enabled is not False
+
+    updated = sdk.agents.update(agent.agent_id, name="SDK E2E Agent (renamed)")  # type: ignore[attr-defined]
+    assert updated.name == "SDK E2E Agent (renamed)"
+
+    paused = sdk.agents.update(agent.agent_id, enabled=False)  # type: ignore[attr-defined]
+    assert paused.enabled is False
+
+    assert sdk.agents.get(agent.agent_id).agent_id == agent.agent_id  # type: ignore[attr-defined]
+    assert agent.agent_id in [a.agent_id for a in sdk.agents.list()]  # type: ignore[attr-defined]
+
+    assert sdk.agents.delete(agent.agent_id) is True  # type: ignore[attr-defined]
+    with pytest.raises(caliber_sdk.CaliberNotFoundError):
+        sdk.agents.get(agent.agent_id)  # type: ignore[attr-defined]
+
+
+# --- naming-corrections deprecation (AD-6) ---------------------------------
+
+
+def test_the_deprecated_client_aliases_still_reach_the_real_server(sdk: object) -> None:
+    """The whole point of a deprecation alias: old code keeps working.
+
+    A caller who has not migrated off ``capabilities_api``/``datasets`` yet
+    must still get real data from a real deployment -- a warning, not a
+    breakage. This is the one place that claim is checked against the actual
+    server rather than a mock.
+    """
+    with pytest.warns(DeprecationWarning, match="capabilities_info"):
+        via_alias = sdk.capabilities_api.get()  # type: ignore[attr-defined]
+    assert via_alias.sdk_stability
+
+    with pytest.warns(DeprecationWarning, match="eval_datasets"):
+        via_alias_list = sdk.datasets.list()  # type: ignore[attr-defined]
+    assert isinstance(via_alias_list, list)
+
+
+# --- decode_list strict mode (Phase 4.7) -----------------------------------
+
+
+def test_decode_list_strict_mode_against_a_genuine_server_response_shape(
+    sdk: object,
+) -> None:
+    """Strict mode is meant to catch a payload that was never a list --
+    proved here against a real, non-mocked object response (``/me``), not a
+    hand-built fixture standing in for "the wrong shape"."""
+    from caliber_sdk.models import PersonalAccessToken, decode_list
+
+    me_payload = sdk.raw.get("/me")  # type: ignore[attr-defined]
+    assert isinstance(me_payload, dict)  # sanity: this really is an object, not a list
+
+    # Default: tolerated, degrades to empty.
+    assert decode_list(PersonalAccessToken, me_payload) == []
+
+    # Strict: the same real payload now raises instead of silently emptying.
+    with pytest.raises(caliber_sdk.CaliberDecodeError) as excinfo:
+        decode_list(PersonalAccessToken, me_payload, strict=True)
+    assert excinfo.value.payload == me_payload
+
+    # A genuinely empty list from the real server still decodes cleanly under
+    # strict mode -- confirmed against a real empty registry, not a stand-in.
+    assert decode_list(PersonalAccessToken, sdk.raw.get("/prompts"), strict=True) == []  # type: ignore[attr-defined]
+
+
+# --- CLI + SDK + real server together (Phase 5.3) --------------------------
+#
+# ``test_cli.py`` (sdk/caliber-cli) proves the CLI sends the right request
+# for each new governance-verb command. ``test_the_sdk_drives_deployment_...``
+# above proves the SDK methods those commands wrap work against a real
+# server. Neither proves the three layers -- parser, SDK, real application --
+# agree with each other; this does, driving ``caliber_cli.main`` directly.
+
+caliber_cli_cli = pytest.importorskip("caliber_cli.cli", reason="caliber-cli is not installed")
+exits = pytest.importorskip("caliber_cli.exits", reason="caliber-cli is not installed")
+
+
+@pytest.fixture
+def cli_main(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """Patch ``caliber_cli``'s client construction to reuse the in-process
+    ``TestClient`` transport, mirroring ``sdk/caliber-cli/tests/conftest.py``'s
+    own ``stub`` fixture -- but against the real application instead of a
+    mocked one."""
+
+    def patched(*args: object, **kwargs: object) -> object:
+        kwargs["http_client"] = client
+        return caliber_sdk.CaliberClient(*args, **kwargs)
+
+    monkeypatch.setattr(caliber_cli_cli, "CaliberClient", patched)
+    monkeypatch.setenv("CALIBER_BASE_URL", "http://testserver")
+    monkeypatch.setenv("CALIBER_TOKEN", "")
+    return caliber_cli_cli.main
+
+
+def test_the_cli_drives_the_governance_verbs_against_the_real_server(
+    cli_main: object, sdk: object
+) -> None:
+    """The exact command sequence Phase 5.3 added, run for real: promote,
+    read the deployment back, roll back, record and show a gate verdict --
+    each through ``caliberctl``'s own argument parser and exit-code
+    mapping, not a direct SDK call."""
+    workflow_id, v1 = _publish_workflow(sdk, "sdk-e2e-cli-workflow")
+    v2 = sdk.workflows.versions.publish(  # type: ignore[attr-defined]
+        sdk.workflows.versions.create(  # type: ignore[attr-defined]
+            workflow_id, make_manifest(workflow_id)
+        ).version_id
+    ).version_id
+
+    assert cli_main(["workflow", "promote", workflow_id, "dev", "--version-id", v1]) == exits.OK
+    assert cli_main(["workflow", "deployments", workflow_id]) == exits.OK
+    assert _deployed_version(sdk, workflow_id, "dev") == v1
+
+    assert cli_main(["workflow", "promote", workflow_id, "dev", "--version-id", v2]) == exits.OK
+    assert cli_main(["workflow", "rollback", workflow_id, "dev", "--yes"]) == exits.OK
+    assert _deployed_version(sdk, workflow_id, "dev") == v1
+
+    assert cli_main(["gate-verdict", "record", "workflow", v1, "--state", "pass"]) == exits.OK
+    assert cli_main(["gate-verdict", "show", "workflow", v1]) == exits.OK
+
+    assert (
+        cli_main(["gate-verdict", "record", "workflow", v2, "--state", "fail"]) == exits.GATE_FAILED
+    )
+
+
+def test_the_cli_reports_awaiting_human_and_gate_failed_against_real_routes(
+    cli_main: object, sdk: object
+) -> None:
+    """The two exit codes that only mean something end to end: a real 400/409
+    from a rollback with no checkpoint must become the CLI's own FAILURE
+    code, not a crash, and ``--yes`` really is required before anything
+    changes -- checked against the live route, not a stub that always
+    agrees with whatever the test expects."""
+    workflow_id, _v1 = _publish_workflow(sdk, "sdk-e2e-cli-guard-workflow")
+
+    assert cli_main(["workflow", "rollback", workflow_id, "dev"]) == exits.USAGE  # no --yes
+    assert (
+        cli_main(["workflow", "rollback", workflow_id, "dev", "--yes"]) == exits.FAILURE
+    )  # no checkpoint yet on the real server

@@ -372,16 +372,20 @@ jobs:
           python-version: "3.11"
       - name: Install package + dev extras
         run: uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
-      - name: Install the client and plugin SDKs
+      - name: Install the client, CLI, and plugin SDKs
         # Without these, the cross-package suites skip -- and a skipped test is
         # not coverage. ``test_sdk_against_server.py`` is the only place the SDK
         # is driven against the real application, which is where wrong paths and
-        # renamed keys have actually been caught; ``test_plugin_contract.py``
-        # likewise proves the server accepts the plugin SDK's own declaration
-        # type rather than a stand-in. Both need the packages present.
+        # renamed keys have actually been caught; ``test_cli_against_server.py``
+        # is the same proof one layer up -- caliberctl's parser, the SDK, and the
+        # real application together, which a mocked CLI test or a mocked SDK
+        # test each only half-cover; ``test_plugin_contract.py`` likewise proves
+        # the server accepts the plugin SDK's own declaration type rather than a
+        # stand-in. All three need the packages present.
         working-directory: .
         run: |
           uv pip install --system -e sdk/caliber-sdk
+          uv pip install --system -e sdk/caliber-cli
           uv pip install --system -e sdk/caliber-plugin-sdk
       # Balance free-function modules across workers. Tests with real subprocess timing
       # or loopback-port coupling use explicit ``xdist_group`` serialization.
