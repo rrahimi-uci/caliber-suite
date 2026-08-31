@@ -1,9 +1,9 @@
 # Versioning, stability, and compatibility
 
-This is Phase 5.1/5.5 of [`sdk-completeness-plan.md`](../../sdk-completeness-plan.md):
-a published versioning policy, and a compatibility statement between `caliber-sdk`
-and the CALIBER server. It applies to `caliber-sdk` specifically; `caliber-cli` and
-`caliber-plugin-sdk` follow the same shape but are versioned independently.
+A published versioning policy, and a compatibility statement between
+`caliber-sdk` and the CALIBER server. It applies to `caliber-sdk`
+specifically; `caliber-cli` and `caliber-plugin-sdk` follow the same shape
+but are versioned independently.
 
 ## Where this stands today
 
@@ -23,10 +23,10 @@ symbols actually governed by it.
   to upgrade for a `ga`-only caller.
 - **PATCH** — bug fixes that do not change a documented contract.
 
-**`caliber-sdk` graduates from `0.1.0.dev0`/Alpha to `1.0.0` only when Phase 3
-*and* Phase 4 of the plan both exit** — 100% addressable coverage (already
-true) and the interface-quality bar in §8.4 (typed request models, uniform
-idempotency, typed SSE frames, no dead exports). Shipping 1.0.0 before then
+**`caliber-sdk` graduates from `0.1.0.dev0`/Alpha to `1.0.0` only when two
+things are both true**: 100% addressable API coverage (already true) and an
+interface-quality bar — typed request models, uniform idempotency, typed SSE
+frames, no dead exports — that is not yet met. Shipping 1.0.0 before then
 would claim a stability the interface does not yet have.
 
 ## What `ga` / `beta` / `internal` promise
@@ -49,8 +49,8 @@ if "aria" in caliber.stability.get("beta", []):
 
 ## Deprecation window
 
-When a public name is corrected (see AD-6 in the plan), the old name is kept
-as an alias for **one minor cycle**:
+When a public name is corrected, the old name is kept as an alias for **one
+minor cycle**:
 
 1. The new name ships. The old name becomes a thin wrapper — same behavior,
    same return value — that raises `DeprecationWarning` naming its
@@ -101,6 +101,6 @@ What exists instead, and is real today:
 **Once `caliber` starts publishing independently-versioned releases** (tagged,
 with a changelog), this section will be replaced with an actual matrix of
 tested server-version ↔ SDK-version ranges, published here and cross-checked
-by a contract test against real recorded response payloads from each — the
-mechanism `test_docs_generation_contract.py`'s L5 fixture reuse (see
-`sdk-completeness-plan.md` §7 / Appendix A6) already has the raw material for.
+by a contract test against real recorded response payloads from each —
+`caliber-ui/src/test/handlers.ts`'s MSW mock fixtures are the raw material
+already sitting in the repo for that.

@@ -325,9 +325,9 @@ def _sdk_surface_row(
             "n/a",
             "`client.raw`",
             "Every operation in this family is permanently outside SDK scope "
-            "(see coverage_allowlist.toml and sdk-completeness-plan.md §2.8) -- "
-            "there is nothing here a typed method would add. Use `client.raw` "
-            "or the served OpenAPI document directly.",
+            "(see coverage_allowlist.toml's [[exclusion]] entries) -- there is "
+            "nothing here a typed method would add. Use `client.raw` or the "
+            "served OpenAPI document directly.",
         )
     if covered_count == total_count:
         return ("Typed SDK", entry, note)

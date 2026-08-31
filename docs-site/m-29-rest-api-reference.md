@@ -97,7 +97,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | --- | --- | --- | --- | --- | --- |
 | OpenAPI JSON (`openapi.json`) | `ga` | `1` | Typed SDK | `CaliberClient.openapi()` | Fetch the live management OpenAPI document directly from the root client. |
 | Auth (`auth`) | `ga` | `11` | Typed SDK | `client.auth.tokens`, `client.auth.accounts`, `client.auth.session()` | Token issuance, rotation, revocation, account management, and session inspection. |
-| CSRF (`csrf`) | `ga` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml and sdk-completeness-plan.md §2.8) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
+| CSRF (`csrf`) | `ga` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_info.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
@@ -143,7 +143,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Health (`health`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | LLM Pricing (`llm-pricing`) | `internal` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Memory (`memory`) | `internal` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml and sdk-completeness-plan.md §2.8) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
+| Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Readiness (`readiness`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | System (`system`) | `internal` | `11` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 

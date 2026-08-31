@@ -3,9 +3,9 @@
 ``test_sdk_against_server.py`` proves the SDK is *correct* on the paths it
 already models -- it never asserts anything about paths it does not model.
 Coverage therefore drifted from parity to roughly half the API with no test
-ever failing (see ``sdk-completeness-plan.md``). This module is the fix: it
-enumerates every operation the live server actually serves and requires each
-one to be accounted for, in one of exactly three ways:
+ever failing. This module is the fix: it enumerates every operation the live
+server actually serves and requires each one to be accounted for, in one of
+exactly three ways:
 
 1. Reachable through a typed ``caliber-sdk`` method (measured by
    ``docs-site/sdk_coverage.py``, the one shared implementation this gate and
@@ -13,8 +13,9 @@ one to be accounted for, in one of exactly three ways:
    docs can never claim more than this test verifies).
 2. Listed in ``coverage_allowlist.toml`` under ``[[exclusion]]`` -- permanent,
    never SDK scope (a static asset, a browser-cookie-only auth flow, ...).
-3. Listed under ``[[gap]]`` -- temporary, tracked debt naming the
-   ``sdk-completeness-plan.md`` wave that closes it.
+3. Listed under ``[[gap]]`` -- temporary, tracked debt naming the wave of
+   work (the entry's own ``wave`` field, plus a linked issue/PR) that closes
+   it.
 
 The gate fails in **both** directions: a live operation with no SDK method and
 no allowlist entry is new, untracked drift; a ``[[gap]]`` entry the SDK now
@@ -114,15 +115,17 @@ def test_the_allowlist_parses_and_has_no_duplicate_entries() -> None:
             seen.add(key)
 
 
-def test_every_gap_entry_names_a_real_wave(
+def test_every_gap_entry_names_a_non_empty_wave(
     allowlist: tuple[dict[tuple[str, str], str], dict[tuple[str, str], dict[str, str]]],
 ) -> None:
-    """A typo'd wave (``"3A"``, ``"3f"``) would silently vanish from every
-    per-wave report; this is the one place that catches it."""
+    """``wave`` is free-form (there is no longer a fixed taxonomy to check it
+    against -- the wave-based closure plan that once defined one shipped and
+    was retired), but a blank or whitespace-only value would still silently
+    vanish from any per-wave report someone builds against this file. This is
+    the one place that catches that."""
     _, gaps = allowlist
-    valid_waves = {"3a", "3b", "3c", "3d", "3e"}
-    bad = {key: entry["wave"] for key, entry in gaps.items() if entry["wave"] not in valid_waves}
-    assert not bad, f"gap entries with an unrecognized wave: {bad}"
+    bad = {key: entry["wave"] for key, entry in gaps.items() if not str(entry["wave"]).strip()}
+    assert not bad, f"gap entries with a blank wave: {bad}"
 
 
 def test_no_allowlist_entry_names_an_operation_the_server_no_longer_serves(
