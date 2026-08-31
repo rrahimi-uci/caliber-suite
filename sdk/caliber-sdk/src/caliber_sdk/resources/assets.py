@@ -97,6 +97,75 @@ class PromptsAPI(Resource):
         """Delete a prompt registry entry and its CALIBER-side records."""
         return self._delete(f"/prompts/{name}")
 
+    def version(self, name: str, version: int) -> Any:
+        """Load the full template for one specific registry version."""
+        return self._get(f"/prompts/{name}/versions/{version}")
+
+    def workspace(self, name: str) -> Any:
+        """Runtime facts + computed lifecycle status (Bound > Calibrated >
+        Tested > Has test set > Draft) for the Prompts-tab workspace view."""
+        return self._get(f"/prompts/{name}/workspace")
+
+    def test_render(self, agent_id: str, *, variables: dict[str, Any] | None = None) -> Any:
+        """Render a deployed prompt template with caller-supplied variables."""
+        return self._post(f"/prompts/{agent_id}/test-render", json={"variables": variables or {}})
+
+    def template_library(self) -> Any:
+        """The prompt-builder catalog (base templates + modifiers) used by
+        the Create Prompt flow."""
+        return self._get("/prompts/template-library")
+
+    def preview_template(self, *, base_template_id: str, **params: Any) -> Any:
+        """Compile a prompt-builder recipe into a single prompt + validation
+        report, without creating anything. ``params`` may carry
+        ``modifier_ids``, ``builder_values``, ``preview_variables``,
+        ``runtime_variables``, ``template_override``, ``section_overrides``.
+        """
+        return self._post(
+            "/prompts/template-library/preview",
+            json={"base_template_id": base_template_id, **params},
+        )
+
+    def calibration_options(self) -> Any:
+        """Optimizer/scorer capabilities for a manual calibration run."""
+        return self._get("/prompts/calibration/options")
+
+    def optimization_options(self) -> Any:
+        """Alias of :meth:`calibration_options` -- the server backs both
+        URLs with the same handler; both are modelled so a caller reaching
+        for either name finds it."""
+        return self._get("/prompts/optimization/options")
+
+    def create_calibration_run(self, **payload: Any) -> Any:
+        """Queue a manual prompt calibration run. ``payload`` requires
+        ``agent_id``, ``eval_dataset_id``, ``optimizer_type``, and
+        ``scorers``; see :meth:`calibration_options` for what's available."""
+        return self._post("/prompts/calibration/runs", json=payload)
+
+    def create_optimization_run(self, **payload: Any) -> Any:
+        """Alias of :meth:`create_calibration_run` -- same handler, the
+        other URL."""
+        return self._post("/prompts/optimization/runs", json=payload)
+
+    def create_test_run(
+        self, *, agent_id: str, results: Sequence[dict[str, Any]], **params: Any
+    ) -> Any:
+        """Persist a completed prompt-test run. ``results`` is the per-case
+        list; the server recomputes pass/fail/partial counts and the overall
+        score from it rather than trusting client-supplied aggregates."""
+        return self._post(
+            "/prompts/test-runs",
+            json={"agent_id": agent_id, "results": list(results), **params},
+        )
+
+    def test_runs(self, **params: Any) -> Any:
+        """Run history summaries, newest first."""
+        return self._get("/prompts/test-runs", params=params or None)
+
+    def test_run(self, test_run_id: str) -> Any:
+        """One run's full per-case results."""
+        return self._get(f"/prompts/test-runs/{test_run_id}")
+
 
 class SkillsAPI(Resource):
     """Skill registry, rendering, selection testing, and versions."""
@@ -187,6 +256,86 @@ class SkillsAPI(Resource):
         standalone :class:`~caliber_sdk.models.CalibrationJob`.
         """
         return self._post(f"/skills/{skill_id}/calibrate", json=options)
+
+    def workspace(self, skill_id: str) -> Any:
+        """Runtime facts for the Skills-tab workspace view."""
+        return self._get(f"/skills/{skill_id}/workspace")
+
+    def package(self, skill_id: str) -> Any:
+        """Preview the OpenAI-compatible package (``SKILL.md`` +
+        ``agents/openai.yaml`` + bundled resources) generated for a skill.
+        Read-only; malformed resource metadata surfaces as ``warnings``
+        rather than failing, so the preview still shows what *can* be
+        generated."""
+        return self._get(f"/skills/{skill_id}/package")
+
+    def package_zip(self, skill_id: str) -> bytes:
+        """Download the generated package as a ZIP archive."""
+        return self._transport.download(f"/skills/{skill_id}/package.zip")
+
+    def import_package(
+        self,
+        files: Sequence[dict[str, Any]],
+        *,
+        owner: str,
+        **options: Any,
+    ) -> Any:
+        """Create a skill from an OpenAI-style package.
+
+        ``files`` is a list of ``{"path": ..., "content": ...}`` objects (one
+        ``SKILL.md`` with kebab-case ``name`` frontmatter, resources only
+        under ``scripts/``/``references/``/``assets/``). ``options`` may
+        carry ``category``, ``tags``, ``skill_metadata``, ``allowed_tools``,
+        ``depends_on`` -- caller ``skill_metadata`` is merged *over* the
+        parsed package metadata, never replacing it.
+        """
+        return self._post(
+            "/skills/import-package",
+            json={"files": list(files), "owner": owner, **options},
+        )
+
+    def import_package_zip(
+        self,
+        filename: str,
+        content: bytes,
+        *,
+        conflict_strategy: str = "reject",
+        rename_to: str | None = None,
+    ) -> Any:
+        """Import a ZIP package directly. Multipart, so it does not go
+        through the JSON path.
+
+        ``conflict_strategy`` is ``"reject"`` (default), ``"rename"``
+        (requires ``rename_to``, a kebab-case name), or ``"merge"``
+        (admin-only, forward-versioned update of an existing skill).
+        """
+        files = {"file": (filename, content, "application/zip")}
+        data: dict[str, str] = {"conflict_strategy": conflict_strategy}
+        if rename_to is not None:
+            data["rename_to"] = rename_to
+        response = self._transport.request(
+            "POST", "/skills/import-package.zip", files=files, data=data
+        )
+        return response.data
+
+    def create_test_run(
+        self, *, skill_id: str, results: Sequence[dict[str, Any]], **params: Any
+    ) -> Any:
+        """Persist a completed skill-test run. ``results`` is the per-case
+        list; the server recomputes pass/fail/partial counts and the overall
+        score from it rather than trusting client-supplied aggregates."""
+        return self._post(
+            "/skills/test-runs",
+            json={"skill_id": skill_id, "results": list(results), **params},
+        )
+
+    def test_runs(self, **params: Any) -> Any:
+        """Run history summaries, newest first."""
+        return self._get("/skills/test-runs", params=params or None)
+
+    def test_run(self, test_run_id: str) -> Any:
+        """One run's full per-case results."""
+        return self._get(f"/skills/test-runs/{test_run_id}")
 
 
 class ToolsAPI(Resource):

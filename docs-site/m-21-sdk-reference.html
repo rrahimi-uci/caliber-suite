@@ -976,6 +976,78 @@
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="versionname-str-version-int-any"><code>version(name: str, version: int) -&gt; Any</code><a class="anchor" href="#versionname-str-version-int-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Load the full template for one specific registry version.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>name</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>version</code></td><td>positional-or-keyword</td><td><code>int</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="workspacename-str-any"><code>workspace(name: str) -&gt; Any</code><a class="anchor" href="#workspacename-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Runtime facts + computed lifecycle status (Bound &gt; Calibrated &gt; Tested &gt; Has test set &gt; Draft) for the Prompts-tab workspace view.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>name</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_renderagent_id-str-variables-dictstr-any-none-none-any"><code>test_render(agent_id: str, *, variables: dict[str, Any] | None = None) -&gt; Any</code><a class="anchor" href="#test_renderagent_id-str-variables-dictstr-any-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Render a deployed prompt template with caller-supplied variables.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>variables</code></td><td>keyword-only</td><td>`dict[str, Any]</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="template_library-any"><code>template_library() -&gt; Any</code><a class="anchor" href="#template_library-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The prompt-builder catalog (base templates + modifiers) used by the Create Prompt flow.</p>
+<p>This callable takes no public parameters.</p>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="preview_template-base_template_id-str-params-any"><code>preview_template(*, base_template_id: str, **params) -&gt; Any</code><a class="anchor" href="#preview_template-base_template_id-str-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Compile a prompt-builder recipe into a single prompt + validation report, without creating anything. `<code>params</code><code> may carry </code><code>modifier_ids</code><code>, </code><code>builder_values</code><code>, </code><code>preview_variables</code><code>, </code><code>runtime_variables</code><code>, </code><code>template_override</code><code>, </code><code>section_overrides</code>`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>base_template_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="calibration_options-any"><code>calibration_options() -&gt; Any</code><a class="anchor" href="#calibration_options-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Optimizer/scorer capabilities for a manual calibration run.</p>
+<p>This callable takes no public parameters.</p>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="optimization_options-any"><code>optimization_options() -&gt; Any</code><a class="anchor" href="#optimization_options-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Alias of :meth:<code>calibration_options</code> -- the server backs both URLs with the same handler; both are modelled so a caller reaching for either name finds it.</p>
+<p>This callable takes no public parameters.</p>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="create_calibration_runpayload-any"><code>create_calibration_run(**payload) -&gt; Any</code><a class="anchor" href="#create_calibration_runpayload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Queue a manual prompt calibration run. `<code>payload</code><code> requires </code><code>agent_id</code><code>, </code><code>eval_dataset_id</code><code>, </code><code>optimizer_type</code><code>, and </code><code>scorers</code><code>; see :meth:</code>calibration_options` for what's available.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="create_optimization_runpayload-any"><code>create_optimization_run(**payload) -&gt; Any</code><a class="anchor" href="#create_optimization_runpayload-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Alias of :meth:<code>create_calibration_run</code> -- same handler, the other URL.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>payload</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="create_test_run-agent_id-str-results-sequencedictstr-any-params-any"><code>create_test_run(*, agent_id: str, results: Sequence[dict[str, Any]], **params) -&gt; Any</code><a class="anchor" href="#create_test_run-agent_id-str-results-sequencedictstr-any-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Persist a completed prompt-test run. `<code>results</code>` is the per-case list; the server recomputes pass/fail/partial counts and the overall score from it rather than trusting client-supplied aggregates.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>agent_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>results</code></td><td>keyword-only</td><td><code>Sequence[dict[str, Any]]</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_runsparams-any"><code>test_runs(**params) -&gt; Any</code><a class="anchor" href="#test_runsparams-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Run history summaries, newest first.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_runtest_run_id-str-any"><code>test_run(test_run_id: str) -&gt; Any</code><a class="anchor" href="#test_runtest_run_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>One run's full per-case results.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>test_run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h5 id="skillsapi"><code>SkillsAPI</code><a class="anchor" href="#skillsapi" aria-hidden="true" tabindex="-1">#</a></h5>
 <p><code>class SkillsAPI()</code></p>
 <p>Skill registry, rendering, selection testing, and versions.</p>
@@ -1046,6 +1118,56 @@
 <h6 id="calibrateskill_id-str-options-any"><code>calibrate(skill_id: str, **options) -&gt; Any</code><a class="anchor" href="#calibrateskill_id-str-options-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Agent-free calibration front door: queues a refinement job against a hidden, auto-provisioned target rather than requiring an operator to pick an agent first. `<code>options</code><code> may carry </code><code>optimizer_type</code><code> and </code><code>notes</code><code>. Distinct from :meth:</code>ToolsAPI.calibrate<code> -- a skill calibration produces a verification item and refinement job, not a standalone :class:</code>~caliber_sdk.models.CalibrationJob`.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>options</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="workspaceskill_id-str-any"><code>workspace(skill_id: str) -&gt; Any</code><a class="anchor" href="#workspaceskill_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Runtime facts for the Skills-tab workspace view.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="packageskill_id-str-any"><code>package(skill_id: str) -&gt; Any</code><a class="anchor" href="#packageskill_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Preview the OpenAI-compatible package (`<code>SKILL.md</code><code> + </code><code>agents/openai.yaml</code><code> + bundled resources) generated for a skill. Read-only; malformed resource metadata surfaces as </code><code>warnings</code>` rather than failing, so the preview still shows what <em>can</em> be generated.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="package_zipskill_id-str-bytes"><code>package_zip(skill_id: str) -&gt; bytes</code><a class="anchor" href="#package_zipskill_id-str-bytes" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Download the generated package as a ZIP archive.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>bytes</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="import_packagefiles-sequencedictstr-any-owner-str-options-any"><code>import_package(files: Sequence[dict[str, Any]], *, owner: str, **options) -&gt; Any</code><a class="anchor" href="#import_packagefiles-sequencedictstr-any-owner-str-options-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Create a skill from an OpenAI-style package.</p>
+<p>`<code>files</code><code> is a list of </code><code>{"path": ..., "content": ...}</code><code> objects (one </code><code>SKILL.md</code><code> with kebab-case </code><code>name</code><code> frontmatter, resources only under </code><code>scripts/</code><code>/</code><code>references/</code><code>/</code><code>assets/</code><code>). </code><code>options</code><code> may carry </code><code>category</code><code>, </code><code>tags</code><code>, </code><code>skill_metadata</code><code>, </code><code>allowed_tools</code><code>, </code><code>depends_on</code><code> -- caller </code><code>skill_metadata</code>` is merged <em>over</em> the parsed package metadata, never replacing it.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>files</code></td><td>positional-or-keyword</td><td><code>Sequence[dict[str, Any]]</code></td><td><code>—</code></td></tr><tr><td><code>owner</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>options</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="import_package_zipfilename-str-content-bytes-conflict_strategy-str-reject-rename_to-str-none-none-any"><code>import_package_zip(filename: str, content: bytes, *, conflict_strategy: str = 'reject', rename_to: str | None = None) -&gt; Any</code><a class="anchor" href="#import_package_zipfilename-str-content-bytes-conflict_strategy-str-reject-rename_to-str-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Import a ZIP package directly. Multipart, so it does not go through the JSON path.</p>
+<p>`<code>conflict_strategy</code><code> is </code><code>"reject"</code><code> (default), </code><code>"rename"</code><code> (requires </code><code>rename_to</code><code>, a kebab-case name), or </code><code>"merge"</code>` (admin-only, forward-versioned update of an existing skill).</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>filename</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>content</code></td><td>positional-or-keyword</td><td><code>bytes</code></td><td><code>—</code></td></tr><tr><td><code>conflict_strategy</code></td><td>keyword-only</td><td><code>str</code></td><td><code>'reject'</code></td></tr><tr><td><code>rename_to</code></td><td>keyword-only</td><td>`str</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="create_test_run-skill_id-str-results-sequencedictstr-any-params-any"><code>create_test_run(*, skill_id: str, results: Sequence[dict[str, Any]], **params) -&gt; Any</code><a class="anchor" href="#create_test_run-skill_id-str-results-sequencedictstr-any-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Persist a completed skill-test run. `<code>results</code>` is the per-case list; the server recomputes pass/fail/partial counts and the overall score from it rather than trusting client-supplied aggregates.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>skill_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>results</code></td><td>keyword-only</td><td><code>Sequence[dict[str, Any]]</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_runsparams-any"><code>test_runs(**params) -&gt; Any</code><a class="anchor" href="#test_runsparams-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Run history summaries, newest first.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_runtest_run_id-str-any"><code>test_run(test_run_id: str) -&gt; Any</code><a class="anchor" href="#test_runtest_run_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>One run's full per-case results.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>test_run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
 <p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>

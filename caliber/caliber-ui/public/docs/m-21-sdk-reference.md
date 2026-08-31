@@ -2115,6 +2115,197 @@ Delete a prompt registry entry and its CALIBER-side records.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `version(name: str, version: int) -> Any`
+
+Load the full template for one specific registry version.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `version` | positional-or-keyword | `int` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `workspace(name: str) -> Any`
+
+Runtime facts + computed lifecycle status (Bound > Calibrated >
+Tested > Has test set > Draft) for the Prompts-tab workspace view.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_render(agent_id: str, *, variables: dict[str, Any] | None = None) -> Any`
+
+Render a deployed prompt template with caller-supplied variables.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+| `variables` | keyword-only | `dict[str, Any] | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `template_library() -> Any`
+
+The prompt-builder catalog (base templates + modifiers) used by
+the Create Prompt flow.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `preview_template(*, base_template_id: str, **params) -> Any`
+
+Compile a prompt-builder recipe into a single prompt + validation
+report, without creating anything. ``params`` may carry
+``modifier_ids``, ``builder_values``, ``preview_variables``,
+``runtime_variables``, ``template_override``, ``section_overrides``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `base_template_id` | keyword-only | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `calibration_options() -> Any`
+
+Optimizer/scorer capabilities for a manual calibration run.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `optimization_options() -> Any`
+
+Alias of :meth:`calibration_options` -- the server backs both
+URLs with the same handler; both are modelled so a caller reaching
+for either name finds it.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_calibration_run(**payload) -> Any`
+
+Queue a manual prompt calibration run. ``payload`` requires
+``agent_id``, ``eval_dataset_id``, ``optimizer_type``, and
+``scorers``; see :meth:`calibration_options` for what's available.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_optimization_run(**payload) -> Any`
+
+Alias of :meth:`create_calibration_run` -- same handler, the
+other URL.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `payload` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_test_run(*, agent_id: str, results: Sequence[dict[str, Any]], **params) -> Any`
+
+Persist a completed prompt-test run. ``results`` is the per-case
+list; the server recomputes pass/fail/partial counts and the overall
+score from it rather than trusting client-supplied aggregates.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | keyword-only | `str` | `—` |
+| `results` | keyword-only | `Sequence[dict[str, Any]]` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_runs(**params) -> Any`
+
+Run history summaries, newest first.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_run(test_run_id: str) -> Any`
+
+One run's full per-case results.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `test_run_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `SkillsAPI`
 
 `class SkillsAPI()`
@@ -2312,6 +2503,151 @@ standalone :class:`~caliber_sdk.models.CalibrationJob`.
 | --- | --- | --- | --- |
 | `skill_id` | positional-or-keyword | `str` | `—` |
 | `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `workspace(skill_id: str) -> Any`
+
+Runtime facts for the Skills-tab workspace view.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `package(skill_id: str) -> Any`
+
+Preview the OpenAI-compatible package (``SKILL.md`` +
+``agents/openai.yaml`` + bundled resources) generated for a skill.
+Read-only; malformed resource metadata surfaces as ``warnings``
+rather than failing, so the preview still shows what *can* be
+generated.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `package_zip(skill_id: str) -> bytes`
+
+Download the generated package as a ZIP archive.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `import_package(files: Sequence[dict[str, Any]], *, owner: str, **options) -> Any`
+
+Create a skill from an OpenAI-style package.
+
+``files`` is a list of ``{"path": ..., "content": ...}`` objects (one
+``SKILL.md`` with kebab-case ``name`` frontmatter, resources only
+under ``scripts/``/``references/``/``assets/``). ``options`` may
+carry ``category``, ``tags``, ``skill_metadata``, ``allowed_tools``,
+``depends_on`` -- caller ``skill_metadata`` is merged *over* the
+parsed package metadata, never replacing it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `files` | positional-or-keyword | `Sequence[dict[str, Any]]` | `—` |
+| `owner` | keyword-only | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `import_package_zip(filename: str, content: bytes, *, conflict_strategy: str = 'reject', rename_to: str | None = None) -> Any`
+
+Import a ZIP package directly. Multipart, so it does not go
+through the JSON path.
+
+``conflict_strategy`` is ``"reject"`` (default), ``"rename"``
+(requires ``rename_to``, a kebab-case name), or ``"merge"``
+(admin-only, forward-versioned update of an existing skill).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `filename` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `bytes` | `—` |
+| `conflict_strategy` | keyword-only | `str` | `'reject'` |
+| `rename_to` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_test_run(*, skill_id: str, results: Sequence[dict[str, Any]], **params) -> Any`
+
+Persist a completed skill-test run. ``results`` is the per-case
+list; the server recomputes pass/fail/partial counts and the overall
+score from it rather than trusting client-supplied aggregates.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `skill_id` | keyword-only | `str` | `—` |
+| `results` | keyword-only | `Sequence[dict[str, Any]]` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_runs(**params) -> Any`
+
+Run history summaries, newest first.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `test_run(test_run_id: str) -> Any`
+
+One run's full per-case results.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `test_run_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `Any`
 

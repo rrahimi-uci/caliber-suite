@@ -50,148 +50,8 @@ reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a cl
 
 [[gap]]
 method = "GET"
-path = "/prompts/calibration/options"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/calibration/runs"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/prompts/optimization/options"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/optimization/runs"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/prompts/template-library"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/template-library/preview"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/prompts/test-runs"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/test-runs"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/prompts/test-runs/{}"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/prompts/{}/test-render"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/prompts/{}/versions/{}"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/prompts/{}/workspace"
-tag = "prompts"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
 path = "/services/{}/runs/{}"
 tag = "services"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/import-package"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/import-package.zip"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/skills/test-runs"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/skills/test-runs"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/skills/test-runs/{}"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/skills/{}/package"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/skills/{}/package.zip"
-tag = "skills"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/skills/{}/workspace"
-tag = "skills"
 stability = "ga"
 wave = "3b"
 
@@ -883,20 +743,6 @@ wave = "3c"
 
 [[gap]]
 method = "GET"
-path = "/object-store/buckets/{}/object"
-tag = "object-store"
-stability = "beta"
-wave = "3d"
-
-[[gap]]
-method = "POST"
-path = "/object-store/buckets/{}/objects"
-tag = "object-store"
-stability = "beta"
-wave = "3d"
-
-[[gap]]
-method = "GET"
 path = "/playground-runs/{}/files"
 tag = "playground-runs"
 stability = "beta"
@@ -915,27 +761,6 @@ path = "/playground-runs/{}/files/{}/content"
 tag = "playground-runs"
 stability = "beta"
 wave = "3d"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/files"
-tag = "projects"
-stability = "ga"
-wave = "3d"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/files/{}/content"
-tag = "projects"
-stability = "ga"
-wave = "3d"
-
-[[gap]]
-method = "GET"
-path = "/audit-log/export"
-tag = "audit-log"
-stability = "beta"
-wave = "3e"
 
 [[gap]]
 method = "GET"
