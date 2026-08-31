@@ -50,13 +50,6 @@ reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a cl
 
 [[gap]]
 method = "GET"
-path = "/services/{}/runs/{}"
-tag = "services"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
 path = "/workflow-runs/by-trace/{}"
 tag = "workflow-runs"
 stability = "ga"
@@ -171,118 +164,6 @@ wave = "3b"
 method = "GET"
 path = "/workflow-runs/{}/trace"
 tag = "workflow-runs"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflows/import"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflows/import/preview"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/calibration/options"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflows/{}/calibration/runs"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/deployments"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflows/{}/deployments/{}/promote"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflows/{}/deployments/{}/rollback"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/promotions"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/runs/stats"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/service/openapi.json"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/service/tokens"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflows/{}/service/tokens"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "DELETE"
-path = "/workflows/{}/service/tokens/{}"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "DELETE"
-path = "/workflows/{}/session-memory"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "GET"
-path = "/workflows/{}/session-memory"
-tag = "workflows"
-stability = "ga"
-wave = "3b"
-
-[[gap]]
-method = "POST"
-path = "/workflows/{}/trigger"
-tag = "workflows"
 stability = "ga"
 wave = "3b"
 

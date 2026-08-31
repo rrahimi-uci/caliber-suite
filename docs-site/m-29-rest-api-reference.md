@@ -106,13 +106,13 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Workflows (`workflows`) | `ga` | `28` | Partial (12/28) | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
+| Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `14` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
 | Workflow Runs (`workflow-runs`) | `ga` | `20` | Partial (3/20) | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Services (`services`) | `ga` | `3` | Partial (2/3) | `client.workflows.services` | Publish a workflow as a service, inspect service OpenAPI, and invoke it. |
+| Services (`services`) | `ga` | `3` | Typed SDK | `client.workflows.services` | Publish a workflow as a service, inspect service OpenAPI, and invoke it. |
 | Eval Datasets (`eval-datasets`) | `ga` | `11` | Partial (6/11) | `client.datasets` | Evaluation datasets, examples, and trace-to-dataset capture. |
 | Evaluations (`evaluations`) | `ga` | `3` | Typed SDK | `client.evaluations` | Create, inspect, and wait on evaluation runs. |
 | Judges (`judges`) | `ga` | `6` | Partial (5/6) | `client.judges` | Judge creation, test execution, and human-alignment scoring. |

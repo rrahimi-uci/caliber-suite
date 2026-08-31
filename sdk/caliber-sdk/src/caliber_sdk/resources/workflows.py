@@ -283,6 +283,29 @@ class WorkflowServicesAPI(Resource):
         """
         return self._post(f"/services/{workflow_id}/invoke", json=payload or {}, **options)
 
+    def management_openapi(self, workflow_id: str) -> Any:
+        """The same OpenAPI spec :meth:`openapi` serves, but read through
+        CALIBER's own session auth instead of a service token -- for an
+        operator inspecting the contract without minting a token first."""
+        return self._get(f"/workflows/{workflow_id}/service/openapi.json")
+
+    def tokens(self, workflow_id: str) -> Any:
+        """Service tokens issued for this workflow's published service."""
+        return self._get(f"/workflows/{workflow_id}/service/tokens")
+
+    def create_token(self, workflow_id: str, **options: Any) -> Any:
+        """Mint a new service token. The plaintext secret is returned once
+        and never shown again -- store it immediately."""
+        return self._post(f"/workflows/{workflow_id}/service/tokens", json=options)
+
+    def revoke_token(self, workflow_id: str, token_id: str) -> Any:
+        return self._delete(f"/workflows/{workflow_id}/service/tokens/{token_id}")
+
+    def run_status(self, workflow_id: str, run_id: str) -> Any:
+        """Poll a run submitted through the external service surface, under
+        the same token-authorization policy as the original invocation."""
+        return self._get(f"/services/{workflow_id}/runs/{run_id}")
+
 
 class WorkflowPromotionsAPI(Resource):
     """Approve or reject a pending deployment-alias promotion.
@@ -361,6 +384,122 @@ class WorkflowsAPI(Resource):
         """Proposed patch candidates (from ``versions.propose_patch``) for
         this workflow's approval UI."""
         return self._get(f"/workflows/{workflow_id}/patches")
+
+    def import_workflow(
+        self,
+        *,
+        manifest: dict[str, Any] | None = None,
+        manifest_yaml: str | None = None,
+        name: str | None = None,
+        owner: str | None = None,
+    ) -> Workflow:
+        """Import a manifest as a new, independently-owned workflow. The
+        source ``workflow_id``/``owner`` inside the manifest are never
+        trusted -- a fresh id is generated server-side and the caller's
+        identity becomes the owner. 409 on a name clash; 400 if graph/
+        dependency preflight fails."""
+        body: dict[str, Any] = {}
+        for key, value in (
+            ("manifest", manifest),
+            ("manifest_yaml", manifest_yaml),
+            ("name", name),
+            ("owner", owner),
+        ):
+            if value is not None:
+                body[key] = value
+        return decode(Workflow, self._post("/workflows/import", json=body))
+
+    def preview_import(
+        self,
+        *,
+        manifest: dict[str, Any] | None = None,
+        manifest_yaml: str | None = None,
+        name: str | None = None,
+        owner: str | None = None,
+    ) -> Any:
+        """Validate and resolve an import without creating anything --
+        reports ``ready_to_import`` plus the validation/dependency detail
+        :meth:`import_workflow` would otherwise fail on."""
+        body: dict[str, Any] = {}
+        for key, value in (
+            ("manifest", manifest),
+            ("manifest_yaml", manifest_yaml),
+            ("name", name),
+            ("owner", owner),
+        ):
+            if value is not None:
+                body[key] = value
+        return self._post("/workflows/import/preview", json=body)
+
+    def calibration_options(self, workflow_id: str) -> Any:
+        """Objectives, protected-node rules, budgets, and move-set choices
+        available for a manual workflow calibration run."""
+        return self._get(f"/workflows/{workflow_id}/calibration/options")
+
+    def create_calibration_run(self, workflow_id: str, *, agent_id: str, **params: Any) -> Any:
+        """Queue a manual workflow calibration run. ``params`` may carry
+        ``objective``, ``protected``, ``budget``, ``dataset``, ``move_set``;
+        see :meth:`calibration_options` for what's available."""
+        return self._post(
+            f"/workflows/{workflow_id}/calibration/runs",
+            json={"agent_id": agent_id, **params},
+        )
+
+    def deployments(self, workflow_id: str) -> Any:
+        """Active deployment-alias -> version bindings for this workflow."""
+        return self._get(f"/workflows/{workflow_id}/deployments")
+
+    def promote_deployment(
+        self, workflow_id: str, alias: str, *, version_id: str, **params: Any
+    ) -> Any:
+        """Point a deployment alias at a version. On a gated alias this
+        creates a pending promotion instead of rotating immediately -- see
+        ``client.workflows.promotions``."""
+        return self._post(
+            f"/workflows/{workflow_id}/deployments/{alias}/promote",
+            json={"version_id": version_id, **params},
+        )
+
+    def rollback_deployment(self, workflow_id: str, alias: str, **params: Any) -> Any:
+        """Pop the deployment's checkpoint stack, restoring the prior
+        version on this alias."""
+        return self._post(f"/workflows/{workflow_id}/deployments/{alias}/rollback", json=params)
+
+    def list_promotions(self, workflow_id: str) -> Any:
+        """Pending and historical promotions for this workflow. To act on
+        one, see ``client.workflows.promotions.approve``/``.reject`` --
+        named ``list_promotions`` (not ``promotions``) because that name
+        is already the ``WorkflowPromotionsAPI`` sub-resource."""
+        return self._get(f"/workflows/{workflow_id}/promotions")
+
+    def runs_stats(self, workflow_id: str, **params: Any) -> Any:
+        """Aggregate run counts/latencies for this workflow, for the
+        dashboard summary tiles."""
+        return self._get(f"/workflows/{workflow_id}/runs/stats", params=params or None)
+
+    def trigger(self, workflow_id: str, **payload: Any) -> Any:
+        """Start a run from an external event (a Start-trigger node in
+        ``mode: event``). ``payload`` may carry ``alias``, ``event_name``,
+        ``input``, ``idempotency_key``."""
+        return self._post(f"/workflows/{workflow_id}/trigger", json=payload)
+
+    def session_memory(
+        self, workflow_id: str, *, session_id: str, node_id: str | None = None
+    ) -> Any:
+        """Read a session's accumulated workflow memory. ``session_id`` is
+        required; ``node_id`` narrows to one memory-writing node."""
+        params: dict[str, Any] = {"session_id": session_id}
+        if node_id is not None:
+            params["node_id"] = node_id
+        return self._get(f"/workflows/{workflow_id}/session-memory", params=params)
+
+    def clear_session_memory(
+        self, workflow_id: str, *, session_id: str, node_id: str | None = None
+    ) -> Any:
+        params: dict[str, Any] = {"session_id": session_id}
+        if node_id is not None:
+            params["node_id"] = node_id
+        return self._delete(f"/workflows/{workflow_id}/session-memory", params=params)
 
     def components(self) -> Any:
         """The Studio node-palette catalog: every built-in component type
