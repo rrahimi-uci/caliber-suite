@@ -37,8 +37,8 @@ plumbing of its own:
 Personal access tokens are issued by the API and returned **once**:
 
 ```python
-created = caliber.raw.post("/auth/tokens", json={"name": "ci", "scopes": ["caliber.operator"]})
-print(created["token"])  # calpat_... — store it now; it is never shown again
+created = caliber.auth.tokens.create("ci", scopes=["caliber.operator"])
+print(created.token)  # calpat_... — store it now; it is never shown again
 ```
 
 Scopes are a **ceiling**, not a grant: the effective authority is what the token
