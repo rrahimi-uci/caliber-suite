@@ -27,6 +27,7 @@ So the split follows where async earns its complexity:
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
@@ -86,7 +87,7 @@ class AsyncCaliberClient:
         )
         self.raw = AsyncRawAPI(self._transport)
         self.me = AsyncMeAPI(self._transport)
-        self.capabilities_api = AsyncCapabilitiesAPI(self._transport)
+        self.capabilities_info = AsyncCapabilitiesAPI(self._transport)
         self.workflows = AsyncWorkflowRunsAPI(self._transport)
         self.jobs = AsyncJobsAPI(self._transport)
         self.events = AsyncEventsAPI(self._transport)
@@ -99,6 +100,22 @@ class AsyncCaliberClient:
 
     async def __aexit__(self, *_: object) -> None:
         await self.aclose()
+
+    # -- deprecated aliases -------------------------------------------------
+    #
+    # Mirrors CaliberClient.capabilities_api -- see AD-6 (sdk-completeness-plan.md).
+    # Scheduled for removal in 0.2.0, alongside the sync client's alias.
+
+    @property
+    def capabilities_api(self) -> AsyncCapabilitiesAPI:
+        """Deprecated alias for :attr:`capabilities_info`."""
+        warnings.warn(
+            "AsyncCaliberClient.capabilities_api is deprecated and will be "
+            "removed in caliber-sdk 0.2.0; use .capabilities_info instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.capabilities_info
 
 
 class _AsyncResource:

@@ -182,7 +182,7 @@ server catches it at load time in case conformance never ran.
 `GET /capabilities` reports both what can run and what is installed:
 
 ```python
-extensibility = caliber.capabilities_api.get().extensibility
+extensibility = caliber.capabilities_info.get().extensibility
 
 for optimizer in extensibility.optimizers_for("prompt"):
     print(optimizer.name, optimizer.source, optimizer.is_third_party)

@@ -96,11 +96,11 @@ def test_eval_dataset_lifecycle_methods_hit_the_documented_paths() -> None:
         return envelope({}, status=201 if request.method == "POST" else 200)
 
     with client_with(handler) as caliber:
-        caliber.datasets.update("ED-1", description="revised")
-        caliber.datasets.revise_example("ED-1", "EX-1", input={"q": "x"}, expected={"a": "y"})
-        caliber.datasets.supersede_example("ED-1", "EX-2")
-        caliber.datasets.restore("ED-1", version=3)
-        caliber.datasets.sync("ED-1")
+        caliber.eval_datasets.update("ED-1", description="revised")
+        caliber.eval_datasets.revise_example("ED-1", "EX-1", input={"q": "x"}, expected={"a": "y"})
+        caliber.eval_datasets.supersede_example("ED-1", "EX-2")
+        caliber.eval_datasets.restore("ED-1", version=3)
+        caliber.eval_datasets.sync("ED-1")
 
     assert seen == [
         "PATCH /eval-datasets/ED-1",
@@ -119,7 +119,7 @@ def test_restore_sends_version_as_the_body() -> None:
         return envelope({})
 
     with client_with(handler) as caliber:
-        caliber.datasets.restore("ED-1", version=3)
+        caliber.eval_datasets.restore("ED-1", version=3)
 
     assert bodies[0] == b'{"version":3}'
 
