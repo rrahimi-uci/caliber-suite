@@ -63,6 +63,115 @@ class WorkflowVersionsAPI(Resource):
     def publish(self, version_id: str) -> WorkflowVersion:
         return decode(WorkflowVersion, self._post(f"/workflow-versions/{version_id}/publish"))
 
+    def update(
+        self, version_id: str, *, manifest: dict[str, Any], manifest_hash: str
+    ) -> WorkflowVersion:
+        """Edit a draft version's manifest. ``manifest_hash`` must match the
+        version's current hash (optimistic concurrency) -- a mismatch is a
+        409, meaning reload before editing. Published versions refuse
+        (409): they are immutable."""
+        return decode(
+            WorkflowVersion,
+            self._patch(
+                f"/workflow-versions/{version_id}",
+                json={"manifest": manifest, "manifest_hash": manifest_hash},
+            ),
+        )
+
+    def restore(self, version_id: str) -> WorkflowVersion:
+        """Clone any prior version's manifest into a new editable draft.
+        History is preserved -- the source version is untouched."""
+        return decode(WorkflowVersion, self._post(f"/workflow-versions/{version_id}/restore"))
+
+    def diff(self, version_id: str, other_version_id: str) -> Any:
+        """Structured, order-independent graph diff. ``version_id`` is the
+        base (older/left); ``other_version_id`` is the candidate (newer/
+        right) -- oriented so added/removed read naturally comparing
+        v(n-1) -> v(n)."""
+        return self._get(f"/workflow-versions/{version_id}/diff/{other_version_id}")
+
+    def export_manifest(self, version_id: str) -> str:
+        """The version's manifest as YAML text (not JSON -- the server
+        returns ``application/x-yaml`` directly, so this downloads raw
+        bytes rather than going through the envelope path)."""
+        return self._transport.download(f"/workflow-versions/{version_id}/export/manifest").decode(
+            "utf-8"
+        )
+
+    def export_python(self, version_id: str) -> str:
+        """The version compiled to standalone Python source (text, not
+        JSON). Prefers the immutable stored bundle for a published version,
+        so the export is byte-identical to what was compiled/approved."""
+        return self._transport.download(f"/workflow-versions/{version_id}/export/python").decode(
+            "utf-8"
+        )
+
+    def preview_run(
+        self, version_id: str, *, input: Any = None, session_id: str | None = None, **params: Any
+    ) -> Any:
+        """Run the version in preview mode: real tool bindings are not used.
+        For a real, persisted run see :meth:`run` or ``client.workflows.runs``.
+        ``params`` may carry ``manifest`` to preview an unsaved edit before
+        it is written to a version."""
+        body: dict[str, Any] = {**params}
+        if input is not None:
+            body["input"] = input
+        if session_id is not None:
+            body["session_id"] = session_id
+        return self._post(f"/workflow-versions/{version_id}/preview-run", json=body)
+
+    def run(
+        self, version_id: str, *, input: Any = None, alias: str | None = None, **params: Any
+    ) -> Any:
+        """Execute the version as a real, persisted manual run -- real tool
+        bindings and the configured executor, unlike :meth:`preview_run`.
+
+        A ``manifest`` override in ``params`` is only accepted when
+        ``alias`` is ``"manual"`` (the default): a deployed alias always
+        executes its immutable saved version.
+        """
+        body: dict[str, Any] = {**params}
+        if input is not None:
+            body["input"] = input
+        if alias is not None:
+            body["alias"] = alias
+        return self._post(f"/workflow-versions/{version_id}/run", json=body)
+
+    def propose_patch(
+        self, version_id: str, *, evidence: dict[str, Any], job_id: str | None = None
+    ) -> Any:
+        """Generate a patch candidate from failure evidence: localizes the
+        failure, generates semantic patch ops, compiles the candidate, and
+        persists it for the approval UI. Returns the diagnosis, patch,
+        graph diff, and candidate validation report -- nothing is applied
+        automatically."""
+        body: dict[str, Any] = {"evidence": evidence}
+        if job_id is not None:
+            body["job_id"] = job_id
+        return self._post(f"/workflow-versions/{version_id}/propose-patch", json=body)
+
+    def copilot_edit(
+        self, version_id: str, *, instruction: str, manifest: dict[str, Any] | None = None
+    ) -> Any:
+        """Propose a natural-language edit to the manifest. Nothing is
+        persisted -- apply an accepted proposal through :meth:`update`.
+        With the default ``fake`` LLM provider the manifest comes back
+        unchanged (a safe no-op)."""
+        body: dict[str, Any] = {"instruction": instruction}
+        if manifest is not None:
+            body["manifest"] = manifest
+        return self._post(f"/workflow-versions/{version_id}/copilot-edit", json=body)
+
+    def plan_build(
+        self, version_id: str, *, goal: str, manifest: dict[str, Any] | None = None
+    ) -> Any:
+        """Author a manifest from a plain-language goal -- the blank-slate
+        sibling of :meth:`copilot_edit`. Nothing is persisted."""
+        body: dict[str, Any] = {"goal": goal}
+        if manifest is not None:
+            body["manifest"] = manifest
+        return self._post(f"/workflow-versions/{version_id}/plan-build", json=body)
+
 
 class WorkflowRunsAPI(Resource):
     """Executions, and waiting on them."""
@@ -197,9 +306,29 @@ class WorkflowPromotionsAPI(Resource):
         return self._post(f"/workflow-promotions/{promotion_id}/reject", json=body)
 
 
+class WorkflowBenchmarkReportsAPI(Resource):
+    """Saved bakeoff/benchmark scorecards -- an evidence record, not a
+    per-workflow child; reports are not scoped to one workflow's own id."""
+
+    def list(self, *, status: str = "all") -> Any:
+        return self._get("/workflow-benchmark-reports", params={"status": status})
+
+    def create(self, *, name: str, worksheet: dict[str, Any], **options: Any) -> Any:
+        return self._post(
+            "/workflow-benchmark-reports",
+            json={"name": name, "worksheet": worksheet, **options},
+        )
+
+    def update(self, report_id: str, **changes: Any) -> Any:
+        return self._patch(f"/workflow-benchmark-reports/{report_id}", json=changes)
+
+    def delete(self, report_id: str) -> Any:
+        return self._delete(f"/workflow-benchmark-reports/{report_id}")
+
+
 class WorkflowsAPI(Resource):
-    """Workflows, plus versions, runs, services, and promotions as
-    sub-resources."""
+    """Workflows, plus versions, runs, services, promotions, and benchmark
+    reports as sub-resources."""
 
     def __init__(self, transport: Any) -> None:
         super().__init__(transport)
@@ -207,6 +336,7 @@ class WorkflowsAPI(Resource):
         self.runs = WorkflowRunsAPI(transport)
         self.services = WorkflowServicesAPI(transport)
         self.promotions = WorkflowPromotionsAPI(transport)
+        self.benchmark_reports = WorkflowBenchmarkReportsAPI(transport)
 
     def list(self, *, status: str | None = None) -> _List[Workflow]:
         params = {"status": status} if status else None
@@ -227,8 +357,51 @@ class WorkflowsAPI(Resource):
     def delete(self, workflow_id: str) -> Any:
         return self._delete(f"/workflows/{workflow_id}")
 
+    def patches(self, workflow_id: str) -> Any:
+        """Proposed patch candidates (from ``versions.propose_patch``) for
+        this workflow's approval UI."""
+        return self._get(f"/workflows/{workflow_id}/patches")
+
+    def components(self) -> Any:
+        """The Studio node-palette catalog: every built-in component type
+        and its typed input/output ports."""
+        return self._get("/workflow-components")
+
+    def templates(self) -> Any:
+        """The starter-manifest catalog used by "New workflow from
+        template"."""
+        return self._get("/workflow-templates")
+
+    def cron_preview(self, *, expr: str, tz: str = "UTC", count: int = 5) -> Any:
+        """Next fire times for a Start-trigger cron expression. Read-only,
+        no workflow required -- powers the Studio trigger panel's preview."""
+        return self._get("/workflow-cron-preview", params={"expr": expr, "tz": tz, "count": count})
+
+    def upload_staging_file(
+        self,
+        filename: str,
+        content: bytes,
+        *,
+        kind: str = "input",
+        media_type: str | None = None,
+        session_id: str | None = None,
+    ) -> Any:
+        """Upload a file before any run exists -- a manual-run input staged
+        ahead of :meth:`WorkflowVersionsAPI.run`, not yet bound to a
+        ``workflow_run_id``. Multipart, so it does not go through the JSON
+        path.
+        """
+        files = {"file": (filename, content, media_type or "application/octet-stream")}
+        data: dict[str, str] = {"kind": kind}
+        params = {"session_id": session_id} if session_id else None
+        response = self._transport.request(
+            "POST", "/workflow-files", files=files, data=data, params=params
+        )
+        return response.data
+
 
 __all__ = [
+    "WorkflowBenchmarkReportsAPI",
     "WorkflowPromotionsAPI",
     "WorkflowRunFailed",
     "WorkflowRunsAPI",
