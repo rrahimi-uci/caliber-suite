@@ -491,26 +491,57 @@ Ordered by governance value, then user-visible impact.
 
 ### Phase 4 — Depth, ergonomics, and the server contract *(quality)*
 
-| # | Deliverable |
-| --- | --- |
-| 4.1 | `models/requests/` typed request models for every mutating operation (AD-3) |
-| 4.2 | Replace `**options`/`**changes` with typed parameters where a stable contract exists; keep them only where the server's schema is genuinely open-ended, each with a comment saying why |
-| 4.3 | Transport-level `idempotency_key` (AD-4) |
-| 4.4 | **Server change:** uniform `total` + `next_cursor` envelopes; activate `Page`; `paginate()` honours cursors (AD-5) |
-| 4.5 | Typed SSE frame models for `events_stream`, mirroring the UI's typed frames |
-| 4.6 | Naming corrections behind deprecation aliases (AD-6) |
-| 4.7 | Strict mode for `decode_list` so "unexpected shape" is distinguishable from "empty", used by the contract tests |
-| 4.8 | Bulk-operation helpers (object-store bulk delete by keys and by prefix) |
+| # | Deliverable | Status |
+| --- | --- | --- |
+| 4.1 | `models/requests/` typed request models for every mutating operation (AD-3) | Not started |
+| 4.2 | Replace `**options`/`**changes` with typed parameters where a stable contract exists; keep them only where the server's schema is genuinely open-ended, each with a comment saying why | Not started |
+| 4.3 | Transport-level `idempotency_key` (AD-4) | Not started — see note below |
+| 4.4 | **Server change:** uniform `total` + `next_cursor` envelopes; activate `Page`; `paginate()` honours cursors (AD-5) | Not started — needs a server contract decision, see note below |
+| 4.5 | Typed SSE frame models for `events_stream`, mirroring the UI's typed frames | Not started |
+| 4.6 | Naming corrections behind deprecation aliases (AD-6) | **Done** ([#205](https://github.com/rrahimi-uci/caliber-suite/pull/205)) — `capabilities_api`→`capabilities_info`, `datasets`→`eval_datasets`; `aria.sessions`/`.drafts`/`.plans` were already shipped in wave 3c |
+| 4.7 | Strict mode for `decode_list` so "unexpected shape" is distinguishable from "empty", used by the contract tests | **Done** ([#206](https://github.com/rrahimi-uci/caliber-suite/pull/206)) |
+| 4.8 | Bulk-operation helpers (object-store bulk delete by keys and by prefix) | Not started — no such route exists on the server yet; this is new backend surface, not an SDK gap |
+
+**On 4.3 (idempotency):** the server currently reads `idempotency_key` from the
+request **body** on exactly two routes (`POST /workflow-runs`,
+`POST /services/{id}/invoke`) — there is no `Idempotency-Key` header contract
+today. Most other request schemas set `model_config = ConfigDict(extra="forbid")`
+(`caliber/src/caliber/schemas.py`), so a transport-level kwarg that blindly
+injected the field into every write's JSON body would 422 on any route that
+doesn't declare it. AD-4's full vision — available on *every* server-supported
+idempotent route via the transport — needs the server to either widen which
+routes accept the field or adopt a header, which is a contract decision, not
+an SDK refactor. Deferred rather than shipped as a false generality.
+
+**On 4.4 (pagination):** the plan already names this the one item that
+"cannot be delivered inside `sdk/`" (AD-5's own note) — it needs a server
+change to make list envelopes uniformly carry `next_cursor`/`total`, which is
+outside this round's scope by the plan's own design, not an oversight.
+
+**Continuation plan for 4.1/4.2 (typed request models):** this is comparable
+in scope to all of Phase 3 (~183 operations closed across 10 PRs) — every
+mutating operation across ~30 resource modules needs a reviewed request
+schema, not a mechanical transform. Recommended treatment: its own wave-sized
+breakdown (by resource family, mirroring 3a–3e), each wave landing with the
+same red-to-green test discipline this plan used throughout, rather than one
+PR attempting all of it.
 
 ### Phase 5 — Versioning, documentation, release readiness *(graduation)*
 
-| # | Deliverable |
-| --- | --- |
-| 5.1 | Documented versioning policy: SemVer; what `ga`/`beta`/`internal` promise; deprecation window (one minor cycle, `DeprecationWarning`, named removal release) |
-| 5.2 | Graduate `caliber-sdk` from `0.1.0.dev0`/Alpha to `1.0.0` **only when Phase 3 exits and the allowlist is empty** |
-| 5.3 | CLI expansion to the governance verbs (rollback, promote, gate verdicts); fix the README command table to match the parser |
-| 5.4 | Regenerate SDK reference/cookbook docs; fix the README `raw` token example to use `client.auth.tokens.create` |
-| 5.5 | Server/SDK compatibility matrix, published and tested |
+| # | Deliverable | Status |
+| --- | --- | --- |
+| 5.1 | Documented versioning policy: SemVer; what `ga`/`beta`/`internal` promise; deprecation window (one minor cycle, `DeprecationWarning`, named removal release) | **Done** ([#209](https://github.com/rrahimi-uci/caliber-suite/pull/209), `sdk/caliber-sdk/VERSIONING.md`) |
+| 5.2 | Graduate `caliber-sdk` from `0.1.0.dev0`/Alpha to `1.0.0` **only when Phase 3 exits and the allowlist is empty** | **Not done, deliberately.** Phase 3's own condition is met (380/380, empty allowlist), but §8's acceptance criteria treat 8.1–8.5 as one checklist for "complete," and 8.4 (typed request models, transport idempotency, typed SSE frames) is not met. Bumping to `1.0.0`/`Production-Stable` on 5.2's literal wording alone would claim an interface stability the SDK does not have yet — held until Phase 4 actually closes |
+| 5.3 | CLI expansion to the governance verbs (rollback, promote, gate verdicts); fix the README command table to match the parser | **Done** ([#208](https://github.com/rrahimi-uci/caliber-suite/pull/208)) |
+| 5.4 | Regenerate SDK reference/cookbook docs; fix the README `raw` token example to use `client.auth.tokens.create` | **Done** ([#207](https://github.com/rrahimi-uci/caliber-suite/pull/207)) |
+| 5.5 | Server/SDK compatibility matrix, published and tested | **Done, reframed** ([#209](https://github.com/rrahimi-uci/caliber-suite/pull/209)) — no historical matrix exists to publish honestly yet (`caliber` and `caliber-sdk` are released in lockstep from one repository with no independent version history); documented the real mechanism that exists instead (`GET /health`, `GET /capabilities`, tolerant decoding) and tested the one compatibility claim that *is* true today (version lockstep across all four distributions) |
+
+**Also landed this round, not on the original Phase 4/5 list:** the 4
+pre-existing ruff-format-drift files flagged as follow-up throughout Phase 3
+([#203](https://github.com/rrahimi-uci/caliber-suite/pull/203)), and the
+cosmetic per-tag coverage quirk where `auth`/`observability` displayed
+"Partial" because excluded operations counted toward the tag denominator
+([#204](https://github.com/rrahimi-uci/caliber-suite/pull/204)).
 
 ---
 
@@ -606,20 +637,20 @@ operations — worth mining rather than re-deriving shapes from route source.
 
 - [ ] Every mutating operation accepts a typed request model.
 - [ ] `**options: Any` survives only where the server's schema is genuinely open-ended, each occurrence commented.
-- [ ] `idempotency_key` is a transport option on every idempotent route.
-- [ ] Upload and download are typed resource methods returning bytes/streams, never URL strings.
+- [ ] `idempotency_key` is a transport option on every idempotent route. Blocked on a server decision — see Phase 4's 4.3 note: only two routes accept the field today, and most request schemas set `extra="forbid"`, so this cannot be a blanket transport-level injection without a server change.
+- [x] Upload and download are typed resource methods returning bytes/streams, never URL strings. (Shipped in Phase 3, wave 3d.)
 - [ ] SSE events decode to typed frames.
-- [ ] No exported symbol is dead (`Page` used or removed).
-- [ ] Naming corrections shipped with deprecation aliases.
+- [ ] No exported symbol is dead (`Page` used or removed). Confirmed still dead as of this pass — grepped for a `Page(` construction anywhere in `src/`; none exists. Left as-is pending AD-5 (it is the type `paginate()` was designed to return once cursor pagination lands).
+- [x] Naming corrections shipped with deprecation aliases. ([#205](https://github.com/rrahimi-uci/caliber-suite/pull/205))
 
 ### 8.5 Documentation and versioning
 
 - [ ] Generated SDK reference covers 100 % of public modules and symbols (already gated).
-- [ ] Versioning and deprecation policy published.
-- [ ] Server/SDK compatibility matrix published and tested.
-- [ ] CLI README command table matches the real parser.
-- [ ] No documentation example uses `raw` where a typed method exists.
-- [ ] `caliber-sdk` is `1.0.0`, `Development Status :: 5 - Production/Stable`.
+- [x] Versioning and deprecation policy published. ([#209](https://github.com/rrahimi-uci/caliber-suite/pull/209), `VERSIONING.md`)
+- [x] Server/SDK compatibility matrix published and tested. ([#209](https://github.com/rrahimi-uci/caliber-suite/pull/209)) — reframed, not a historical matrix; see Phase 5's 5.5 note for why.
+- [x] CLI README command table matches the real parser. ([#208](https://github.com/rrahimi-uci/caliber-suite/pull/208))
+- [x] No documentation example uses `raw` where a typed method exists. ([#207](https://github.com/rrahimi-uci/caliber-suite/pull/207))
+- [ ] `caliber-sdk` is `1.0.0`, `Development Status :: 5 - Production/Stable`. Deliberately not done — see Phase 5's 5.2 note.
 
 ### 8.6 Backward compatibility
 
