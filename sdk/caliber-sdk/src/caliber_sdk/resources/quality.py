@@ -61,6 +61,48 @@ class EvalDatasetsAPI(Resource):
             ),
         )
 
+    def update(self, dataset_id: str, **changes: Any) -> EvalDataset:
+        return decode(EvalDataset, self._patch(f"/eval-datasets/{dataset_id}", json=changes))
+
+    def revise_example(
+        self,
+        dataset_id: str,
+        example_id: str,
+        *,
+        input: dict[str, Any],
+        expected: dict[str, Any],
+        **params: Any,
+    ) -> EvalExample:
+        """Supersede the old row and append a replacement atomically --
+        append-only, so history stays reproducible. ``params`` may carry
+        ``weight``, ``tags``. Returns the new (replacement) example."""
+        return decode(
+            EvalExample,
+            self._post(
+                f"/eval-datasets/{dataset_id}/examples/{example_id}/revise",
+                json={"input": input, "expected": expected, **params},
+            ),
+        )
+
+    def supersede_example(self, dataset_id: str, example_id: str) -> EvalExample:
+        """Retire an example without replacing it. Idempotent -- superseding
+        an already-superseded row just returns it unchanged."""
+        return decode(
+            EvalExample,
+            self._post(f"/eval-datasets/{dataset_id}/examples/{example_id}/supersede"),
+        )
+
+    def restore(self, dataset_id: str, *, version: int) -> Any:
+        """Restore a prior version's example set as a new head version
+        (forward-only; history is preserved, not rewritten)."""
+        return self._post(f"/eval-datasets/{dataset_id}/restore", json={"version": version})
+
+    def sync(self, dataset_id: str, **options: Any) -> Any:
+        """Push the dataset's current example set to MLflow's GenAI dataset
+        registry. CALIBER stays the source of truth; this is a one-way
+        push, not a bidirectional sync."""
+        return self._post(f"/eval-datasets/{dataset_id}/sync", json=options)
+
 
 class JudgesAPI(Resource):
     """Model-backed graders and their human alignment."""
@@ -101,6 +143,9 @@ class JudgesAPI(Resource):
         if model is not None:
             body["model"] = model
         return decode(Judge, self._post("/judges", json=body))
+
+    def update(self, judge_id: str, **changes: Any) -> Judge:
+        return decode(Judge, self._patch(f"/judges/{judge_id}", json=changes))
 
     def test(self, judge_id: str, **payload: Any) -> Any:
         """Run a judge against sample input (``inputs=``, ``outputs=``,

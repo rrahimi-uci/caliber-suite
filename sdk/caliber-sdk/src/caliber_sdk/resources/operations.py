@@ -458,14 +458,11 @@ class GateVerdictsAPI(Resource):
 
 
 class SystemAPI(Resource):
-    """Operational recovery surfaces: effects that need a human decision.
-
-    Two related recoveries, both "CALIBER could not complete something
-    outward-facing, and only a person can decide what happens next" — see the
-    server module's own docstring (``routes/system_effects.py``) for the full
-    rationale. Only these two are covered so far; ``/system/services``,
-    ``/system/queue``, ``/system/alerts``, and ``/system/incidents`` land in a
-    follow-up wave onto this same class.
+    """Operational surfaces: effect-ledger and webhook recovery (both
+    "CALIBER could not complete something outward-facing, and only a person
+    can decide what happens next" -- see ``routes/system_effects.py`` for
+    the full rationale), plus service health, the background-loop queue,
+    and the incident/alert surface.
     """
 
     def effects(self, **params: Any) -> Any:
@@ -499,6 +496,36 @@ class SystemAPI(Resource):
         a completed one."""
         return self._post(f"/system/webhook-dead-letters/{dead_letter_id}/replay")
 
+    def services(self) -> Any:
+        """Live health probes for CALIBER's own backing services
+        (database, object storage, MLflow, ...) -- the Settings page's
+        service-status panel."""
+        return self._get("/system/services")
+
+    def queue(self) -> Any:
+        """Depth and health of the in-process background-loop queues
+        (refinement, calibration, workflow runs, ...)."""
+        return self._get("/system/queue")
+
+    def alerts(self) -> Any:
+        """Active operational alerts (a queue backed up, a loop stalled)."""
+        return self._get("/system/alerts")
+
+    def incidents(self) -> Any:
+        """Durable incident records -- distinct from :meth:`alerts`, which
+        is live/transient; an incident persists once opened."""
+        return self._get("/system/incidents")
+
+    def acknowledge_incident(self, incident_id: str) -> Any:
+        """Take ownership. Deliberately not the same as resolving: "someone
+        is looking at this" and "it stopped" are different facts."""
+        return self._post(f"/system/incidents/{incident_id}/acknowledge")
+
+    def silence_incident(self, incident_id: str, *, minutes: int = 60) -> Any:
+        """Mute routing for ``minutes`` (default 60) while keeping the
+        record -- the incident is not resolved, just not paging anyone."""
+        return self._post(f"/system/incidents/{incident_id}/silence", json={"minutes": minutes})
+
 
 class ObservabilityAPI(Resource):
     """Traces, experiments, and metrics."""
@@ -518,6 +545,16 @@ class ObservabilityAPI(Resource):
 
     def metrics(self, **params: Any) -> Any:
         return self._get("/observability/metrics", params=params or None)
+
+    def record_feedback(self, trace_id: str, *, value: Any, **params: Any) -> Any:
+        """Attach a human feedback assessment to a trace
+        (``mlflow.log_feedback``). ``value`` is a bool, number, or string;
+        ``params`` may carry ``name`` (default ``"feedback"``) and
+        ``rationale``. Returns the trace's refreshed assessments."""
+        return self._post(
+            f"/observability/traces/{trace_id}/feedback",
+            json={"value": value, **params},
+        )
 
 
 class AuditAPI(Resource):
@@ -584,6 +621,41 @@ class SecretsAPI(Resource):
         return self._delete(f"/secrets/{name}")
 
 
+class LlmPricingAPI(Resource):
+    """Per-model token pricing (USD per 1K), used to cost out gateway
+    usage."""
+
+    def list(self, *, status: str | None = None) -> Any:
+        return self._get("/llm-pricing", params={"status": status} if status else None)
+
+    def get(self, pricing_id: str) -> Any:
+        return self._get(f"/llm-pricing/{pricing_id}")
+
+    def create(
+        self,
+        *,
+        provider: str,
+        model_id: str,
+        prompt_price: float,
+        completion_price: float,
+        **options: Any,
+    ) -> Any:
+        """``options`` may carry ``cached_prompt_price``, ``tags``."""
+        return self._post(
+            "/llm-pricing",
+            json={
+                "provider": provider,
+                "model_id": model_id,
+                "prompt_price": prompt_price,
+                "completion_price": completion_price,
+                **options,
+            },
+        )
+
+    def update(self, pricing_id: str, **changes: Any) -> Any:
+        return self._patch(f"/llm-pricing/{pricing_id}", json=changes)
+
+
 class MemoryAPI(Resource):
     """Direct add/search/list/delete over agent long-term memory (mem0).
 
@@ -635,6 +707,7 @@ __all__ = [
     "EventsAPI",
     "GateVerdictsAPI",
     "JobsAPI",
+    "LlmPricingAPI",
     "MemoryAPI",
     "ObservabilityAPI",
     "ReleasesAPI",
