@@ -20,14 +20,16 @@ installed) identically.
 
 **What counts as "covered".** Calls through the sync resource layer
 (``resources/*.py``) that name a literal path — an f-string with the request
-method inlined -- via any of three call shapes: ``self._get/_post/_put/
+method inlined -- via any of four call shapes: ``self._get/_post/_put/
 _patch/_delete("literal")`` (the ``Resource`` base's per-verb helpers),
 ``self._transport.request("METHOD", "literal", ...)`` (the multipart-upload
-shape, method and path as the first two positional arguments), and
-``self._transport.download("literal")`` (always a ``GET``). All three appear
-in this SDK today; missing either of the latter two undercounts real
-coverage — exactly the failure mode that let ``AuditAPI.export`` and
-``ProjectFilesAPI.upload`` read as "uncovered" despite being implemented,
+shape, method and path as the first two positional arguments),
+``self._transport.download("literal")`` (always a ``GET``), and
+``self._transport.stream_lines("literal", ...)`` (also always a ``GET`` --
+an SSE stream has no other verb). All four appear in this SDK today; missing
+any of the latter three undercounts real coverage — exactly the failure mode
+that let ``AuditAPI.export``, ``ProjectFilesAPI.upload``, and
+``EventsAPI.stream`` each read as "uncovered" despite being implemented,
 tested, and shipped since the coverage gate's first version.
 
 Two things are deliberately excluded:
@@ -49,9 +51,7 @@ from pathlib import Path
 #: ``self._transport.get(...)`` — every verb the ``Resource`` base and the
 #: transport itself expose, whether called directly or through ``self.raw``'s
 #: pass-through (which never supplies a literal, so it never matches).
-_CALL = re.compile(
-    r"self\.(?:_transport\.)?(_?(?:get|post|put|patch|delete))\(\s*f?\"([^\"]+)\""
-)
+_CALL = re.compile(r"self\.(?:_transport\.)?(_?(?:get|post|put|patch|delete))\(\s*f?\"([^\"]+)\"")
 
 #: ``self._transport.request("POST", f"/x/{y}", files=..., data=...)`` — the
 #: multipart-upload shape. ``\s*`` matches the newline in the two-line form
@@ -59,13 +59,15 @@ _CALL = re.compile(
 #: f"/path", ...\n)``), so this is not a line-break issue -- ``_CALL`` above
 #: simply never looks for a method named as a *string argument* rather than
 #: an attribute.
-_REQUEST_CALL = re.compile(
-    r"self\._transport\.request\(\s*\"([A-Z]+)\"\s*,\s*f?\"([^\"]+)\""
-)
+_REQUEST_CALL = re.compile(r"self\._transport\.request\(\s*\"([A-Z]+)\"\s*,\s*f?\"([^\"]+)\"")
 
 #: ``self._transport.download(f"/x/{y}", ...)`` — always a GET; there is no
 #: method argument to read.
 _DOWNLOAD_CALL = re.compile(r"self\._transport\.download\(\s*f?\"([^\"]+)\"")
+
+#: ``self._transport.stream_lines(f"/x/{y}", ...)`` — an SSE stream, always a
+#: GET (there is no other verb an event source could use).
+_STREAM_CALL = re.compile(r"self\._transport\.stream_lines\(\s*f?\"([^\"]+)\"")
 
 #: Method-name alias -> canonical HTTP verb. The leading underscore is the
 #: ``Resource`` base's private helper name; the bare form is ``Transport``'s
@@ -128,6 +130,8 @@ def _covered_in_file(path: Path) -> set[tuple[str, str]]:
     for match in _REQUEST_CALL.finditer(text):
         covered.add((match.group(1), normalize_path(match.group(2))))
     for match in _DOWNLOAD_CALL.finditer(text):
+        covered.add(("GET", normalize_path(match.group(1))))
+    for match in _STREAM_CALL.finditer(text):
         covered.add(("GET", normalize_path(match.group(1))))
     return covered
 

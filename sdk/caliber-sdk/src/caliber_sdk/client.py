@@ -34,12 +34,14 @@ from .resources import (
     JobsAPI,
     JudgesAPI,
     KnowledgeBasesAPI,
+    LlmPricingAPI,
     McpServersAPI,
     MeAPI,
     MemoryAPI,
     ObjectStoreAPI,
     ObservabilityAPI,
     OpenApiIntegrationsAPI,
+    PlaygroundRunsAPI,
     ProjectsAPI,
     PromptsAPI,
     RawAPI,
@@ -128,6 +130,8 @@ class CaliberClient:
         self.gate_verdicts = GateVerdictsAPI(self._transport)
         self.system = SystemAPI(self._transport)
         self.memory = MemoryAPI(self._transport)
+        self.llm_pricing = LlmPricingAPI(self._transport)
+        self.playground_runs = PlaygroundRunsAPI(self._transport)
 
     @staticmethod
     def _auth_from(token: str | None, user: str | None, proxy_secret: str | None) -> AuthProvider:
@@ -185,6 +189,16 @@ class CaliberClient:
 
     def health(self) -> Any:
         return self._transport.get("/health").data
+
+    def readiness(self) -> Any:
+        """Whether CALIBER's configured dependencies (database, object
+        storage, MLflow, ...) are actually reachable -- stronger than
+        :meth:`health`, which only reports the process is up."""
+        return self._transport.get("/readiness").data
+
+    def dashboard_summary(self) -> Any:
+        """Aggregate counts and status tiles for the Overview page."""
+        return self._transport.get("/dashboard/summary").data
 
     def bootstrap_csrf(self) -> str | None:
         """Fetch a CSRF token up front.

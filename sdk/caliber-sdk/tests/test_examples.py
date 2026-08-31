@@ -282,9 +282,7 @@ def test_readonly_openapi_example_publishes_the_selected_operation() -> None:
                     "side_effect_level": "read",
                 }
             ],
-            "POST /openapi-integrations/OAI-1/tool-drafts/generate": [
-                {"draft_id": "OATD-1"}
-            ],
+            "POST /openapi-integrations/OAI-1/tool-drafts/generate": [{"draft_id": "OATD-1"}],
             "POST /openapi-integrations/OAI-1/tool-drafts/OATD-1/preview": {
                 "result": {"status_code": 200}
             },

@@ -110,9 +110,7 @@ class ProjectsAPI(Resource):
             return []
         return decode_list(ProjectMember, payload.get("members"))
 
-    def add_member(
-        self, project_id: str, user_id: str, *, role: str = "viewer"
-    ) -> ProjectMember:
+    def add_member(self, project_id: str, user_id: str, *, role: str = "viewer") -> ProjectMember:
         """Grant ``user_id`` a project role; only owners may manage members."""
         return decode(
             ProjectMember,

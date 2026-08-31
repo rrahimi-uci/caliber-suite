@@ -54,7 +54,9 @@ def test_import_spec_dispatches_on_the_source_kwarg() -> None:
 
     with client_with(handler) as caliber:
         caliber.openapi_integrations.import_spec("OAI-1", spec_text="openapi: 3.0.3")
-        caliber.openapi_integrations.import_spec("OAI-1", spec_url="https://example.com/openapi.json")
+        caliber.openapi_integrations.import_spec(
+            "OAI-1", spec_url="https://example.com/openapi.json"
+        )
         caliber.openapi_integrations.import_spec("OAI-1", spec_base64="b3BlbmFwaTogMy4wLjM=")
 
     assert bodies[0] == {"source_kind": "inline_text", "spec_text": "openapi: 3.0.3"}
@@ -176,7 +178,5 @@ def test_raw_escape_hatch_reaches_the_same_transport() -> None:
         return httpx.Response(200, json={"data": {"ok": True}})
 
     with client_with(handler) as caliber:
-        result = caliber.openapi_integrations.raw.get(
-            "/openapi-integrations/OAI-1/tool-drafts"
-        )
+        result = caliber.openapi_integrations.raw.get("/openapi-integrations/OAI-1/tool-drafts")
     assert result.data == {"ok": True}

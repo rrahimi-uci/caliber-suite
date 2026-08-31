@@ -19,6 +19,7 @@ from .operations import (
     EventsAPI,
     GateVerdictsAPI,
     JobsAPI,
+    LlmPricingAPI,
     MemoryAPI,
     ObservabilityAPI,
     ReleasesAPI,
@@ -31,6 +32,7 @@ from .quality import EvalDatasetsAPI, EvaluationsAPI, JudgesAPI
 from .raw import RawAPI
 from .system import CapabilitiesAPI, MeAPI, SettingsAPI
 from .workflows import (
+    PlaygroundRunsAPI,
     WorkflowPromotionsAPI,
     WorkflowRunFailed,
     WorkflowRunsAPI,
@@ -57,12 +59,14 @@ __all__ = [
     "JobsAPI",
     "JudgesAPI",
     "KnowledgeBasesAPI",
+    "LlmPricingAPI",
     "McpServersAPI",
     "MeAPI",
     "MemoryAPI",
     "ObjectStoreAPI",
     "ObservabilityAPI",
     "OpenApiIntegrationsAPI",
+    "PlaygroundRunsAPI",
     "ProjectFilesAPI",
     "ProjectsAPI",
     "PromptsAPI",

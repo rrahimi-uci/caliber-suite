@@ -340,6 +340,38 @@ class WorkflowRunsAPI(Resource):
         return self._post(f"/workflow-runs/{run_id}/artifacts", json={"file_id": file_id, **params})
 
 
+class PlaygroundRunsAPI(Resource):
+    """Files for an ad-hoc sandbox preview run -- the prompt/skill/tool
+    "try it" playground, not a real persisted workflow run. Same file
+    lifecycle shape as ``client.workflows.runs`` (list/upload/download), a
+    separate class because the server keys the namespace by ``run_id``
+    outside any workflow.
+    """
+
+    def files(self, run_id: str, **params: Any) -> Any:
+        return self._get(f"/playground-runs/{run_id}/files", params=params or None)
+
+    def upload_file(
+        self,
+        run_id: str,
+        filename: str,
+        content: bytes,
+        *,
+        kind: str = "output",
+        media_type: str | None = None,
+    ) -> Any:
+        """Multipart, so it does not go through the JSON path."""
+        files = {"file": (filename, content, media_type or "application/octet-stream")}
+        response = self._transport.request(
+            "POST", f"/playground-runs/{run_id}/files", files=files, data={"kind": kind}
+        )
+        return response.data
+
+    def file_content(self, run_id: str, file_id: str) -> bytes:
+        """Download a playground file's raw bytes."""
+        return self._transport.download(f"/playground-runs/{run_id}/files/{file_id}/content")
+
+
 class WorkflowServicesAPI(Resource):
     """Workflows published as external HTTP services.
 
@@ -636,6 +668,7 @@ class WorkflowsAPI(Resource):
 
 
 __all__ = [
+    "PlaygroundRunsAPI",
     "WorkflowBenchmarkReportsAPI",
     "WorkflowPromotionsAPI",
     "WorkflowRunFailed",
