@@ -1,14 +1,20 @@
-"""Install Cookbook 14 and read back the governance assets Aria provisions."""
+"""Install Cookbook 14 and drive the Aria plan to a whole governance kit."""
 
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from caliber_sdk import CaliberClient
-from examples.cookbooks._helpers import configuration_blockers, env_client, get_recipe
+from examples.cookbooks._helpers import (
+    configuration_blockers,
+    drive_aria_plan,
+    env_client,
+    get_recipe,
+)
 
 
-def run(caliber: CaliberClient) -> dict[str, object]:
+def run(caliber: CaliberClient) -> dict[str, Any]:
     recipe = get_recipe(caliber, "14")
     blockers = configuration_blockers(recipe)
     if blockers:
@@ -18,24 +24,75 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         "14",
         name="Cookbook 14 — Aria Governance Starter Kit (SDK)",
     )
-    detail = caliber.aria.create_plan("Create the governance starter kit for Cookbook 14")
-    settled = caliber.aria.wait_for_plan(
-        detail.plan.plan_id,
-        interval=0.01,
-        max_interval=0.01,
-        timeout=5,
+    owner = caliber.me.get().user_id
+    detail = caliber.aria.create_plan(
+        "Stand up our governance starter kit: a judge for answer faithfulness, "
+        "an eval dataset to score against, and a review queue for human checks."
     )
-    if settled.plan.needs_you:
-        caliber.aria.approve_plan(settled.plan.plan_id)
-        settled = caliber.aria.execute_plan(settled.plan.plan_id)
+
+    def on_step(capability: str | None) -> tuple[bool, dict[str, Any]]:
+        # Execution gap (see Cookbook 12): each of the three artifacts is
+        # created here, right after approving the step that asked for it.
+        if capability == "judge.create":
+            judge = caliber.judges.create(
+                "AnswerFaithfulness",
+                instructions=(
+                    "Return true when {{ outputs }} is faithful to "
+                    "{{ expectations }} for {{ inputs }}."
+                ),
+                feedback_value_type="bool",
+            )
+            return True, {"judge_id": judge.judge_id}
+        if capability == "eval_dataset.create":
+            dataset = caliber.eval_datasets.create(
+                "release-candidates-eval",
+                owner=owner,
+                description="Cookbook 14 governance eval set",
+            )
+            return True, {"dataset_id": dataset.dataset_id}
+        if capability == "review_queue.create":
+            queue = caliber.review_queues.create(
+                "governance-review",
+                questions=[
+                    {
+                        "key": "faithful",
+                        "title": "Is the reply faithful to its sources?",
+                        "type": "pass_fail",
+                        "required": True,
+                    },
+                    {
+                        "key": "citation_ok",
+                        "title": "Are citations accurate?",
+                        "type": "pass_fail",
+                        "required": True,
+                    },
+                    {
+                        "key": "tone",
+                        "title": "Is the tone appropriate?",
+                        "type": "pass_fail",
+                        "required": True,
+                    },
+                    {
+                        "key": "notes",
+                        "title": "Reviewer notes",
+                        "type": "text",
+                        "required": False,
+                    },
+                ],
+            )
+            return True, {"queue_id": queue.queue_id}
+        if capability == "review_queue.add_items":
+            # No traces yet -- deny; the kit is complete without it.
+            return False, {}
+        return True, {}
+
+    settled, created = drive_aria_plan(caliber, detail.plan.plan_id, on_step=on_step)
     return {
         "installed": recipe.id,
         "workflow_id": installed["workflow"]["workflow_id"],
         "plan_id": settled.plan.plan_id,
         "status": settled.plan.status,
-        "judges": [judge.judge_id for judge in caliber.judges.list()],
-        "datasets": [dataset.dataset_id for dataset in caliber.eval_datasets.list()],
-        "queues": [queue.queue_id for queue in caliber.review_queues.list()],
+        **created,
     }
 
 

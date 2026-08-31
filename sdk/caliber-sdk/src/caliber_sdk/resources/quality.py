@@ -37,9 +37,16 @@ class EvalDatasetsAPI(Resource):
         return decode(EvalDataset, self._post("/eval-datasets", json=body))
 
     def add_example(
-        self, dataset_id: str, *, inputs: Any, expected: Any = None, **options: Any
+        self, dataset_id: str, *, input: Any, expected: Any = None, **options: Any
     ) -> EvalExample:
-        body: dict[str, Any] = {"inputs": inputs, **options}
+        """Append one labeled example row.
+
+        The parameter is ``input`` (singular) because that is the server's
+        field name (``EvalExampleCreateRequest.input``); the request schema
+        forbids extra fields, so an ``inputs=`` (plural) call used to 422
+        against a real server despite matching every mocked test.
+        """
+        body: dict[str, Any] = {"input": input, **options}
         if expected is not None:
             body["expected"] = expected
         return decode(EvalExample, self._post(f"/eval-datasets/{dataset_id}/examples", json=body))

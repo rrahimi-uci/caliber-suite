@@ -33,22 +33,25 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         side_effect_level="read",
         allow_in_preview=True,
     )
-    caliber.raw.put(
-        f"/tools/{tool.tool_id}/test-cases",
-        json={
-            "test_cases": [
-                {
-                    "name": "small refund",
-                    "input": {"amount": 45},
-                    "expected_output": {"eligible": True},
-                },
-                {
-                    "name": "large refund",
-                    "input": {"amount": 1200},
-                    "expected_output": {"eligible": False},
-                },
-            ]
-        },
+    # A saved case is judged by `assertion`, not a bare `expected_output` --
+    # the request schema (`CalibrationCase`) forbids extra fields, and the
+    # comparison value is checked against the JSON-stringified invocation
+    # output (`json.dumps(output, sort_keys=True)`), hence the lowercase
+    # `true`/`false` literals below.
+    caliber.tools.save_test_cases(
+        tool.tool_id,
+        [
+            {
+                "name": "small refund",
+                "input": {"amount": 45},
+                "assertion": {"type": "output_contains", "value": '"eligible": true'},
+            },
+            {
+                "name": "large refund",
+                "input": {"amount": 1200},
+                "assertion": {"type": "output_contains", "value": '"eligible": false'},
+            },
+        ],
     )
     calibration = caliber.tools.calibrate(tool.tool_id, metadata={"cookbook_id": "03"})
     return {

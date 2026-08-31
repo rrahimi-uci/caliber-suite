@@ -4930,14 +4930,19 @@ something to infer from whichever credential ran the script.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `add_example(dataset_id: str, *, inputs, expected = None, **options) -> EvalExample`
+###### `add_example(dataset_id: str, *, input, expected = None, **options) -> EvalExample`
 
-Append one labeled example row to the targeted evaluation dataset.
+Append one labeled example row.
+
+The parameter is ``input`` (singular) because that is the server's
+field name (``EvalExampleCreateRequest.input``); the request schema
+forbids extra fields, so an ``inputs=`` (plural) call used to 422
+against a real server despite matching every mocked test.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `dataset_id` | positional-or-keyword | `str` | `—` |
-| `inputs` | keyword-only | `Any` | `—` |
+| `input` | keyword-only | `Any` | `—` |
 | `expected` | keyword-only | `Any` | `None` |
 | `options` | var-keyword | `Any` | `—` |
 
@@ -6921,6 +6926,12 @@ Add the supplied items to the targeted review queue.
 
 Answer a queued item. The write-back that turns review into evidence.
 
+``answers`` is wrapped in ``{"answers": ...}`` because that is the
+server's actual field (``ReviewItemSubmitRequest.answers``); the
+request schema forbids extra fields, so posting the answer keys
+unwrapped at the top level used to 422 against a real server despite
+matching every mocked test.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `queue_id` | positional-or-keyword | `str` | `—` |
@@ -6934,13 +6945,18 @@ Answer a queued item. The write-back that turns review into evidence.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `alignment_examples(queue_id: str) -> Any`
+###### `alignment_examples(queue_id: str, **params) -> Any`
 
 Human labels usable for judge-alignment scoring.
+
+``question_key`` (required by the server) belongs in ``params`` --
+without it the route always 400s, which this method used to make
+impossible to avoid since it accepted no query parameters at all.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `queue_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
 
 **Returns:** `Any`
 

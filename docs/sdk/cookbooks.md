@@ -25,9 +25,13 @@ Design rule:
 
 - use the built-in cookbook installer to materialize the versioned platform
   recipe that CALIBER already ships;
-- then use typed SDK resources — and `client.raw` only where the typed layer
-  does not yet wrap the live route — to finish configuration, execution, and
-  evidence capture.
+- then use typed SDK resources — never `client.raw` — to finish
+  configuration, execution, and evidence capture. `client.raw` remains the
+  SDK's permanent escape hatch for a route the typed layer has not wrapped
+  yet (see the [SDK guide](guide.md#anything-not-yet-modelled)), but none of
+  the sixteen recipes below currently need it: a prior pass through this
+  gallery found three that reached for it out of habit rather than
+  necessity, and each had an existing typed method all along.
 
 Every code block on this page is generated from the source files under
 `sdk/caliber-sdk/examples/cookbooks/` at build time. The example test suite

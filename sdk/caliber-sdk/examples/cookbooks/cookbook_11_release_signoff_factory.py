@@ -19,26 +19,33 @@ def run(caliber: CaliberClient) -> dict[str, object]:
         name="Cookbook 11 — Release Signoff Factory (SDK)",
         acknowledge_prerequisites=bool(recipe.prerequisites),
     )
+    # `ReleaseCandidateCreateRequest`/`ReleaseCriterion` forbid extra fields:
+    # the version reference is `version_ref` (not `artifact_version`), and
+    # each criterion needs a `title` plus `score` (not `observed_score`) --
+    # this call used to 422 against a real server on its very first
+    # mutating step despite matching a canned mocked reply.
     candidate = caliber.releases.create_candidate(
         "support-copilot-2026-08-11",
         artifact_type="workflow",
         artifact_ref=installed["workflow"]["workflow_id"],
-        artifact_version=installed["version"]["version_id"],
+        version_ref=installed["version"]["version_id"],
         required_score=0.9,
         planned_action={"action": "publish"},
         rollback_target={"workflow_version_id": installed["version"]["version_id"]},
         criteria=[
             {
                 "key": "workflow_readiness",
+                "title": "Workflow readiness",
                 "weight": 0.4,
-                "observed_score": 0.92,
+                "score": 0.92,
                 "threshold": 0.9,
                 "blocking": True,
             },
             {
                 "key": "review_coverage",
+                "title": "Review coverage",
                 "weight": 0.3,
-                "observed_score": 0.95,
+                "score": 0.95,
                 "threshold": 0.8,
                 "blocking": True,
             },

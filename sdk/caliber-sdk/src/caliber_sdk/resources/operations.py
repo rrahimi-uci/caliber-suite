@@ -91,12 +91,26 @@ class ReviewQueuesAPI(Resource):
         return self._post(f"/review-queues/{queue_id}/items", json=payload)
 
     def submit(self, queue_id: str, item_id: str, **answers: Any) -> Any:
-        """Answer a queued item. The write-back that turns review into evidence."""
-        return self._post(f"/review-queues/{queue_id}/items/{item_id}/submit", json=answers)
+        """Answer a queued item. The write-back that turns review into evidence.
 
-    def alignment_examples(self, queue_id: str) -> Any:
-        """Human labels usable for judge-alignment scoring."""
-        return self._get(f"/review-queues/{queue_id}/alignment-examples")
+        ``answers`` is wrapped in ``{"answers": ...}`` because that is the
+        server's actual field (``ReviewItemSubmitRequest.answers``); the
+        request schema forbids extra fields, so posting the answer keys
+        unwrapped at the top level used to 422 against a real server despite
+        matching every mocked test.
+        """
+        return self._post(
+            f"/review-queues/{queue_id}/items/{item_id}/submit", json={"answers": answers}
+        )
+
+    def alignment_examples(self, queue_id: str, **params: Any) -> Any:
+        """Human labels usable for judge-alignment scoring.
+
+        ``question_key`` (required by the server) belongs in ``params`` --
+        without it the route always 400s, which this method used to make
+        impossible to avoid since it accepted no query parameters at all.
+        """
+        return self._get(f"/review-queues/{queue_id}/alignment-examples", params=params or None)
 
 
 class AriaSessionsAPI(Resource):
