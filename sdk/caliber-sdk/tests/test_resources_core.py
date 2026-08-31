@@ -7,8 +7,8 @@ from typing import Any
 import httpx
 import pytest
 
-from caliber_sdk import CaliberClient
-from caliber_sdk.models import Identity, PersonalAccessToken, decode
+from caliber_sdk import CaliberClient, CaliberDecodeError
+from caliber_sdk.models import Identity, PersonalAccessToken, decode, decode_list
 
 BASE = "https://caliber.test"
 
@@ -292,6 +292,30 @@ def test_missing_fields_fall_back_to_defaults() -> None:
 def test_decoding_a_non_object_yields_defaults_rather_than_raising(payload: Any) -> None:
     """A proxy returning something unexpected should not crash the caller."""
     assert decode(Identity, payload).user_id == ""
+
+
+@pytest.mark.parametrize("payload", [None, {"detail": "not found"}, "text", 42])
+def test_decode_list_tolerates_a_non_list_payload_by_default(payload: Any) -> None:
+    """The default: a wrong-shaped payload degrades to empty, same as a
+    genuinely empty list would -- there is no way to tell them apart from
+    the return value alone, which is exactly what ``strict=True`` is for."""
+    assert decode_list(PersonalAccessToken, payload) == []
+
+
+def test_decode_list_strict_raises_on_a_non_list_payload() -> None:
+    """The gap ``strict=True`` closes: a proxy error page, the wrong
+    endpoint's envelope, or a malformed response must be distinguishable
+    from "the list is empty" for a contract test (or a caller) that needs
+    to know which one actually happened."""
+    with pytest.raises(CaliberDecodeError) as excinfo:
+        decode_list(PersonalAccessToken, {"detail": "not found"}, strict=True)
+    assert excinfo.value.payload == {"detail": "not found"}
+
+
+def test_decode_list_strict_still_accepts_a_genuinely_empty_list() -> None:
+    """Strict mode narrows what counts as an error; it must not turn a real
+    empty result into one."""
+    assert decode_list(PersonalAccessToken, [], strict=True) == []
 
 
 # --- extensibility --------------------------------------------------------
