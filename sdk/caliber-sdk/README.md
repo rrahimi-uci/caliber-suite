@@ -87,6 +87,9 @@ if "knowledge-bases" in caliber.stability["ga"]:
     ...
 ```
 
+See [`VERSIONING.md`](VERSIONING.md) for what each tier promises, the SemVer
+and deprecation-window policy, and the server/SDK compatibility statement.
+
 ## Anything not yet modelled
 
 `caliber.raw` reaches any endpoint under `/ajax-api/2.0/mlflow/caliber`:
