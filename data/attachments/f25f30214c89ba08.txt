@@ -1,2 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:45065/tickets/T-1 "HTTP/1.0 503 Service Unavailable"
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:45065/tickets/T-1 "HTTP/1.0 200 OK"

@@ -1,1 +1,0 @@
-{"t":"2026-08-31T04:03:08.812Z","severity":"INFO","logger":"caliber.orchestrator.calibration_drain","message":"calibration job CAL-TL-1-1 finished against stale inputs (tool_definition_changed, test_cases_changed); result recorded on the job but not on the tool"}

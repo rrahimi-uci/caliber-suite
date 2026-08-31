@@ -1,0 +1,2 @@
+error: rolling back WF-bd86ba0c:dev changes what that alias serves right now; pass --yes to confirm
+error: [404] no deployment for alias 'dev' (POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-bd86ba0c/deployments/dev/rollback) request_id=1d0f7d1302a349518a98f07358b2c7b6

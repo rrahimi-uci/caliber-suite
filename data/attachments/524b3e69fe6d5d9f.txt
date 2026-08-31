@@ -1,0 +1,4 @@
+{"t":"2026-08-31T04:58:36.621Z","severity":"INFO","logger":"caliber.events.database_bus","message":"database event bus connected"}
+{"t":"2026-08-31T04:58:36.628Z","severity":"INFO","logger":"caliber.events.database_bus","message":"database event bus connected"}
+{"t":"2026-08-31T04:58:36.649Z","severity":"INFO","logger":"caliber.events.database_bus","message":"database event bus disconnected"}
+{"t":"2026-08-31T04:58:36.652Z","severity":"INFO","logger":"caliber.events.database_bus","message":"database event bus disconnected"}

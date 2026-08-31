@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.diagnosis:diagnosis.py:144 diagnosis complete: job=RFN-DIAG confidence=0.87 cost_usd=0.0015

@@ -1,7 +1,0 @@
-ERROR    caliber.promoter:promoter.py:230 set_prompt_alias failed for support-agent
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/promoter.py", line 222, in promote
-    set_prompt_alias(name=prompt_name, alias=self._alias, version=version_number)
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_promoter.py", line 109, in set_prompt_alias
-    raise RuntimeError("alias service unavailable")
-RuntimeError: alias service unavailable
