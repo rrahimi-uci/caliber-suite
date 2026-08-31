@@ -1,1 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:41981/openapi.yaml "HTTP/1.0 200 OK"

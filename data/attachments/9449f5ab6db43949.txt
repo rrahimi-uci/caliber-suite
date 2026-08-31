@@ -1,1 +1,0 @@
-{"t":"2026-08-31T18:06:05.863Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:39775/openapi.yaml \"HTTP/1.0 200 OK\""}

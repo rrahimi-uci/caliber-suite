@@ -1,1 +1,0 @@
-{"t":"2026-08-31T18:11:13.955Z","severity":"WARNING","logger":"caliber.secrets","message":"secret source 'secret://anything' cannot resolve: no encrypted secret store is bound (set CALIBER_SECRET_ENCRYPTION_KEY_SOURCE)"}
