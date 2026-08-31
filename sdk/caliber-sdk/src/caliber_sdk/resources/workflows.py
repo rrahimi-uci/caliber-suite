@@ -243,6 +243,102 @@ class WorkflowRunsAPI(Resource):
             raise WorkflowRunFailed(run)
         return run
 
+    def by_trace(self, trace_id: str) -> WorkflowRun:
+        """Look up the run that produced a given MLflow trace id."""
+        return decode(WorkflowRun, self._get(f"/workflow-runs/by-trace/{trace_id}"))
+
+    def resume_by_event(self, **payload: Any) -> Any:
+        """Resume whichever paused run is waiting on the given external
+        event, without knowing its run id up front."""
+        return self._post("/workflow-runs/resume-by-event", json=payload)
+
+    def resume(self, run_id: str, **payload: Any) -> Any:
+        """Resume a run paused at a checkpoint (e.g. a Human Approval node
+        once :meth:`approve` has recorded the decision)."""
+        return self._post(f"/workflow-runs/{run_id}/resume", json=payload)
+
+    def retry(self, run_id: str, **payload: Any) -> Any:
+        """Retry a failed run from its last durable checkpoint rather than
+        from the start."""
+        return self._post(f"/workflow-runs/{run_id}/retry", json=payload)
+
+    def events(self, run_id: str, **params: Any) -> Any:
+        """The run's event tail. ``params`` may carry ``after``/``limit``
+        for incremental polling."""
+        return self._get(f"/workflow-runs/{run_id}/events", params=params or None)
+
+    def trace(self, run_id: str) -> Any:
+        """The run's full MLflow span tree, left untyped: the node
+        structure is MLflow's, and re-declaring it here would drift from
+        it."""
+        return self._get(f"/workflow-runs/{run_id}/trace")
+
+    def lineage(self, run_id: str) -> Any:
+        """The chain of parent/child runs this run belongs to (resume and
+        retry both create a new run linked back to the original)."""
+        return self._get(f"/workflow-runs/{run_id}/lineage")
+
+    def manifest(self, run_id: str) -> Any:
+        """The exact manifest snapshot this run executed against -- not the
+        version's current manifest, which may have changed since."""
+        return self._get(f"/workflow-runs/{run_id}/manifest")
+
+    def checkpoints(self, run_id: str, **params: Any) -> Any:
+        """Durable checkpoints recorded during this run, newest first.
+        ``params`` may carry ``after``/``limit``."""
+        return self._get(f"/workflow-runs/{run_id}/checkpoints", params=params or None)
+
+    def approvals(self, run_id: str) -> Any:
+        """Human Approval checkpoints this run has raised, pending or
+        decided."""
+        return self._get(f"/workflow-runs/{run_id}/approvals")
+
+    def approve(self, run_id: str, **payload: Any) -> Any:
+        """Approve a pending Human Approval checkpoint. The run does not
+        resume automatically -- call :meth:`resume` after."""
+        return self._post(f"/workflow-runs/{run_id}/approval/approve", json=payload)
+
+    def reject(self, run_id: str, **payload: Any) -> Any:
+        """Reject a pending Human Approval checkpoint."""
+        return self._post(f"/workflow-runs/{run_id}/approval/reject", json=payload)
+
+    def files(self, run_id: str, **params: Any) -> Any:
+        """Files recorded for this run, hiding pending/rejected/deleted
+        rows. ``params`` may carry ``kind``."""
+        return self._get(f"/workflow-runs/{run_id}/files", params=params or None)
+
+    def upload_file(
+        self,
+        run_id: str,
+        filename: str,
+        content: bytes,
+        *,
+        kind: str = "output",
+        media_type: str | None = None,
+    ) -> Any:
+        """Upload a file into this run's namespace. Multipart, so it does
+        not go through the JSON path."""
+        files = {"file": (filename, content, media_type or "application/octet-stream")}
+        response = self._transport.request(
+            "POST", f"/workflow-runs/{run_id}/files", files=files, data={"kind": kind}
+        )
+        return response.data
+
+    def file(self, run_id: str, file_id: str) -> Any:
+        """One file's metadata record (not its bytes -- see
+        :meth:`file_content`)."""
+        return self._get(f"/workflow-runs/{run_id}/files/{file_id}")
+
+    def file_content(self, run_id: str, file_id: str) -> bytes:
+        """Download a run file's raw bytes."""
+        return self._transport.download(f"/workflow-runs/{run_id}/files/{file_id}/content")
+
+    def register_artifact(self, run_id: str, *, file_id: str, **params: Any) -> Any:
+        """Promote an existing run file to a registered artifact.
+        ``params`` may carry ``artifact_type``, ``display_name``,
+        ``summary``, ``producer_node_id``."""
+        return self._post(f"/workflow-runs/{run_id}/artifacts", json={"file_id": file_id, **params})
+
 
 class WorkflowServicesAPI(Resource):
     """Workflows published as external HTTP services.

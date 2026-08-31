@@ -108,7 +108,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `14` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
-| Workflow Runs (`workflow-runs`) | `ga` | `20` | Partial (3/20) | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
+| Workflow Runs (`workflow-runs`) | `ga` | `20` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
