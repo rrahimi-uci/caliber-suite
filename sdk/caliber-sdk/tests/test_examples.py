@@ -25,6 +25,7 @@ from examples.openapi_integration_readonly import import_and_publish_readonly_to
 from examples.prompt_lifecycle import prompt_lifecycle
 from examples.quickstart import quickstart
 from examples.tokens import issue_scoped_token
+from examples.workflow_deployment import promote_and_rollback, record_gate_verdict
 from examples.workflow_run import run_and_wait
 
 BASE = "https://caliber.test"
@@ -187,6 +188,53 @@ def test_workflow_example_reports_a_failed_run_rather_than_crashing() -> None:
         result = run_and_wait(caliber, workflow_id="WF-1")
 
     assert result == {"run_id": "WR-1", "status": "failed"}
+
+
+def test_deployment_example_promotes_twice_then_rolls_back_to_the_first() -> None:
+    """Rollback undoes the *last* promotion, so the example promotes the
+    presumed-live version first -- giving the alias a checkpoint -- before
+    promoting the candidate it then rolls back."""
+    live: dict[str, str] = {}
+
+    def promote(request: httpx.Request) -> Any:
+        body = jsonlib.loads(request.content)
+        live["version_id"] = body["version_id"]
+        return {"deployment_id": "DEP-1", "alias": "staging", "version_id": body["version_id"]}
+
+    def rollback(_request: httpx.Request) -> Any:
+        # The server pops its own checkpoint stack; this stub just reports
+        # whichever version the *first* promote call recorded.
+        return {"deployment_id": "DEP-1", "alias": "staging", "version_id": "WFV-1"}
+
+    caliber = stub_server(
+        {
+            "POST /workflows/WF-1/deployments/staging/promote": promote,
+            "GET /workflows/WF-1/deployments": lambda _r: [
+                {"deployment_id": "DEP-1", "alias": "staging", "version_id": live["version_id"]}
+            ],
+            "POST /workflows/WF-1/deployments/staging/rollback": rollback,
+        }
+    )
+    with caliber:
+        result = promote_and_rollback(
+            caliber, workflow_id="WF-1", live_version_id="WFV-1", candidate_version_id="WFV-2"
+        )
+
+    assert result == {"promoted_to": "WFV-2", "restored_to": "WFV-1"}
+
+
+def test_gate_verdict_example_records_a_pass_or_fail_state() -> None:
+    def handler(request: httpx.Request) -> Any:
+        body = jsonlib.loads(request.content)
+        return {"state": body["state"]}
+
+    caliber = stub_server({"POST /gate-verdicts/workflow/WFV-1": handler})
+    with caliber:
+        passed = record_gate_verdict(caliber, version_id="WFV-1", passed=True)
+        failed = record_gate_verdict(caliber, version_id="WFV-1", passed=False)
+
+    assert passed == {"state": "pass"}
+    assert failed == {"state": "fail"}
 
 
 # --- agentic examples ------------------------------------------------------
