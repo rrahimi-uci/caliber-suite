@@ -1200,9 +1200,24 @@
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="calibratetool_id-str-options-calibrationjob"><code>calibrate(tool_id: str, **options) -&gt; CalibrationJob</code><a class="anchor" href="#calibratetool_id-str-options-calibrationjob" aria-hidden="true" tabindex="-1">#</a></h6>
-<p>Queue a calibration run. Returns immediately with a job to poll.</p>
+<p>Score every saved test case now and return the aggregate.</p>
+<p><strong>Synchronous</strong> -- this call blocks until all cases finish (the server's own docstring for this route calls it "score saved test cases", not a queue). The response has no `<code>job_id</code><code>/</code><code>status</code><code>, so those fields decode to their defaults; </code><code>pass_rate</code><code> is real, and </code><code>total</code><code>/</code><code>passed</code><code>/</code><code>cases</code><code>/</code><code>ran_at</code><code> land in </code><code>.extra</code><code>. For two hundred cases this holds a connection open for minutes -- use :meth:</code>submit_calibration_job<code> + :meth:</code>wait_for_calibration` for the durable, poll-instead-of-block form.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>options</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
 <p><strong>Returns:</strong> <a href="#calibrationjob"><code>CalibrationJob</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="submit_calibration_jobtool_id-str-calibrationjob"><code>submit_calibration_job(tool_id: str) -&gt; CalibrationJob</code><a class="anchor" href="#submit_calibration_jobtool_id-str-calibrationjob" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Queue a calibration run against the tool's saved test cases.</p>
+<p>Returns immediately (202) with a real `<code>job_id</code><code> to poll via :meth:</code>calibration_job<code> or :meth:</code>wait_for_calibration<code> -- the durable counterpart to :meth:</code>calibrate`, for a case count large enough that holding a connection open is the wrong trade.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <a href="#calibrationjob"><code>CalibrationJob</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="resolve_calibration_jobtool_id-str-job_id-str-action-str-reason-str-any"><code>resolve_calibration_job(tool_id: str, job_id: str, *, action: str, reason: str) -&gt; Any</code><a class="anchor" href="#resolve_calibration_jobtool_id-str-job_id-str-action-str-reason-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Abandon or explicitly retry an ambiguously `<code>running</code>` job.</p>
+<p>`<code>action</code><code> is </code><code>"abandon"</code><code> or </code><code>"retry"</code><code>; </code><code>reason</code>` is required (a non-empty resolution reason). Automatic requeue is unsafe because an authored tool may have side effects -- this is the operator decision that a stuck job needs.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>job_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>action</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>reason</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="calibration_jobtool_id-str-job_id-str-calibrationjob"><code>calibration_job(tool_id: str, job_id: str) -&gt; CalibrationJob</code><a class="anchor" href="#calibration_jobtool_id-str-job_id-str-calibrationjob" aria-hidden="true" tabindex="-1">#</a></h6>
@@ -1218,12 +1233,78 @@
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h6 id="wait_for_calibrationtool_id-str-job_id-str-timeout-float-6000-options-calibrationjob"><code>wait_for_calibration(tool_id: str, job_id: str, *, timeout: float = 600.0, **options) -&gt; CalibrationJob</code><a class="anchor" href="#wait_for_calibrationtool_id-str-job_id-str-timeout-float-6000-options-calibrationjob" aria-hidden="true" tabindex="-1">#</a></h6>
-<p>Poll a calibration job until it stops.</p>
+<p>Poll a calibration job (from :meth:<code>submit_calibration_job</code>) until it stops.</p>
 <p>Returns the terminal job rather than raising on failure: a failed calibration is a result to inspect, not an error in the call.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>job_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>timeout</code></td><td>keyword-only</td><td><code>float</code></td><td><code>600.0</code></td></tr><tr><td><code>options</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
 <p><strong>Returns:</strong> <a href="#calibrationjob"><code>CalibrationJob</code></a></p>
 <p><strong>Raises:</strong></p>
 <ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li><li><a href="#waitfailed"><code>WaitFailed</code></a></li><li><a href="#waittimeout"><code>WaitTimeout</code></a></li></ul>
+<h6 id="archivetool_id-str-tool"><code>archive(tool_id: str) -&gt; Tool</code><a class="anchor" href="#archivetool_id-str-tool" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Retire a tool. Refuses (409) while an active workflow deployment still references it -- undeploy first.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <a href="#tool"><code>Tool</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="set_baselinetool_id-str-test_run_id-str-any"><code>set_baseline(tool_id: str, *, test_run_id: str) -&gt; Any</code><a class="anchor" href="#set_baselinetool_id-str-test_run_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Pin a persisted tool-test run as the comparison baseline. The run must belong to this tool.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>test_run_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="sourcetool_id-str-any"><code>source(tool_id: str) -&gt; Any</code><a class="anchor" href="#sourcetool_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>The tool callable's real source, signature, and docstring. `<code>available=False</code><code> (with an </code><code>error</code>`) for a non-Python-callable execution backend -- there is no source to show.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="usagetool_id-str-any"><code>usage(tool_id: str) -&gt; Any</code><a class="anchor" href="#usagetool_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Workflow versions that reference this tool, scoped to the caller's visible workflows. Meant to warn before deprecate/archive.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="versionstool_id-str-listtool"><code>versions(tool_id: str) -&gt; list[Tool]</code><a class="anchor" href="#versionstool_id-str-listtool" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Every version in this tool's family (same `<code>name</code>`), newest first. Tools have no live alias to promote/roll back -- this is a read-only history, not a release surface.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <a href="#tool"><code>list[Tool]</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="workspacetool_id-str-any"><code>workspace(tool_id: str) -&gt; Any</code><a class="anchor" href="#workspacetool_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Runtime facts + computed lifecycle status (Published &gt; Hardened &gt; Tested &gt; Has fixtures &gt; Draft) for the Tools-tab workspace view.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="save_test_casestool_id-str-test_cases-sequencedictstr-any-any"><code>save_test_cases(tool_id: str, test_cases: Sequence[dict[str, Any]]) -&gt; Any</code><a class="anchor" href="#save_test_casestool_id-str-test_cases-sequencedictstr-any-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Persist the saved fixture set a calibration run scores against. Replaces the whole set (not a merge).</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>test_cases</code></td><td>positional-or-keyword</td><td><code>Sequence[dict[str, Any]]</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_invoketool_id-str-input-dictstr-any-none-none-any"><code>test_invoke(tool_id: str, *, input: dict[str, Any] | None = None) -&gt; Any</code><a class="anchor" href="#test_invoketool_id-str-input-dictstr-any-none-none-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Invoke the tool once under preview effect policy: `<code>write</code><code>/ </code><code>external_action</code><code> tools are always mocked; </code><code>read</code><code> tools run live only when </code><code>allow_in_preview</code><code> is set. Not durable -- for a recorded run, see :meth:</code>create_test_run`.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>input</code></td><td>keyword-only</td><td>`dict[str, Any]</td><td>None`</td><td><code>None</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="create_test_run-tool_id-str-results-sequencedictstr-any-params-any"><code>create_test_run(*, tool_id: str, results: Sequence[dict[str, Any]], **params) -&gt; Any</code><a class="anchor" href="#create_test_run-tool_id-str-results-sequencedictstr-any-params-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Persist a completed tool-test run. `<code>results</code>` is the per-case list; the server recomputes pass/fail/partial counts and the overall score from it rather than trusting client-supplied aggregates.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>tool_id</code></td><td>keyword-only</td><td><code>str</code></td><td><code>—</code></td></tr><tr><td><code>results</code></td><td>keyword-only</td><td><code>Sequence[dict[str, Any]]</code></td><td><code>—</code></td></tr><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_runsparams-any"><code>test_runs(**params) -&gt; Any</code><a class="anchor" href="#test_runsparams-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Run history summaries, newest first.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>params</code></td><td>var-keyword</td><td><code>Any</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
+<h6 id="test_runtest_run_id-str-any"><code>test_run(test_run_id: str) -&gt; Any</code><a class="anchor" href="#test_runtest_run_id-str-any" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>One run's full per-case results.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>test_run_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <code>Any</code></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberapierror"><code>CaliberAPIError</code></a></li><li><a href="#calibertransporterror"><code>CaliberTransportError</code></a></li></ul>
 <h5 id="agentsapi"><code>AgentsAPI</code><a class="anchor" href="#agentsapi" aria-hidden="true" tabindex="-1">#</a></h5>
 <p><code>class AgentsAPI()</code></p>
 <p>The agent record — the anchor a verification item, refinement job, approval, and rollback checkpoint all hang off of.</p>
