@@ -97,9 +97,7 @@ class OpenApiIntegrationsAPI(Resource):
 
     def list(self, *, status: str | None = None) -> _List[OpenApiIntegration]:
         params = {"status": status} if status else None
-        return decode_list(
-            OpenApiIntegration, self._get("/openapi-integrations", params=params)
-        )
+        return decode_list(OpenApiIntegration, self._get("/openapi-integrations", params=params))
 
     def get(self, integration_id: str) -> OpenApiIntegration:
         return decode(OpenApiIntegration, self._get(f"/openapi-integrations/{integration_id}"))
