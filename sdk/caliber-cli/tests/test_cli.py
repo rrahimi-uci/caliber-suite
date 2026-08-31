@@ -519,3 +519,129 @@ def test_the_service_surface_is_scoped_to_a_workflow(stub: Any) -> None:
     ``GET /services`` returned 404."""
     run = stub({"GET /workflows/WF-1/service": {"workflow_id": "WF-1", "status": "published"}})
     assert run(["service", "show", "WF-1"]) == exits.OK
+
+
+# --- workflow deployments and promotions -----------------------------------
+
+
+def test_workflow_deployments_reads_the_alias_to_version_map(
+    stub: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = stub({"GET /workflows/WF-1/deployments": {"prod": "WFV-9", "staging": "WFV-10"}})
+    assert run(["--json", "workflow", "deployments", "WF-1"]) == exits.OK
+    out, _ = out_err(capsys)
+    assert jsonlib.loads(out) == {"prod": "WFV-9", "staging": "WFV-10"}
+
+
+def test_promoting_a_deployment_sends_the_version_id(stub: Any) -> None:
+    sent: dict[str, Any] = {}
+
+    def record(request: httpx.Request) -> Any:
+        sent.update(body_of(request) or {})
+        return {"status": "promoted"}
+
+    run = stub({"POST /workflows/WF-1/deployments/prod/promote": record})
+    assert run(["workflow", "promote", "WF-1", "prod", "--version-id", "WFV-9"]) == exits.OK
+    assert sent == {"version_id": "WFV-9"}
+
+
+def test_rolling_back_without_confirmation_does_nothing(
+    stub: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rollback changes what a live alias serves right now -- the same
+    irreversible-action guard as every other write here that touches
+    production traffic."""
+    rolled_back: list[str] = []
+
+    def record(request: httpx.Request) -> Any:
+        rolled_back.append("rolled back")
+        return {}
+
+    run = stub({"POST /workflows/WF-1/deployments/prod/rollback": record})
+    assert run(["workflow", "rollback", "WF-1", "prod"]) == exits.USAGE
+    assert rolled_back == []
+    _, err = out_err(capsys)
+    assert "changes what that alias serves" in err
+
+
+def test_rolling_back_with_confirmation_rolls_back(stub: Any) -> None:
+    run = stub({"POST /workflows/WF-1/deployments/prod/rollback": {"restored_version_id": "WFV-8"}})
+    assert run(["workflow", "rollback", "WF-1", "prod", "--yes"]) == exits.OK
+
+
+def test_workflow_promotions_lists_pending_and_historical(
+    stub: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = stub(
+        {"GET /workflows/WF-1/promotions": [{"promotion_id": "PROMO-1", "status": "pending"}]}
+    )
+    assert run(["--json", "workflow", "promotions", "WF-1"]) == exits.OK
+    out, _ = out_err(capsys)
+    assert jsonlib.loads(out)[0]["promotion_id"] == "PROMO-1"
+
+
+def test_approving_a_promotion_sends_the_optional_reason(stub: Any) -> None:
+    sent: dict[str, Any] = {}
+
+    def record(request: httpx.Request) -> Any:
+        sent.update(body_of(request) or {})
+        return {"promotion_id": "PROMO-1", "status": "approved"}
+
+    run = stub({"POST /workflow-promotions/PROMO-1/approve": record})
+    assert run(["promotion", "approve", "PROMO-1", "--reason", "gates green"]) == exits.OK
+    assert sent == {"reason": "gates green"}
+
+
+def test_rejecting_a_promotion_without_a_reason_sends_no_reason_key(stub: Any) -> None:
+    sent: dict[str, Any] = {}
+
+    def record(request: httpx.Request) -> Any:
+        sent.update(body_of(request) or {})
+        return {"promotion_id": "PROMO-1", "status": "rejected"}
+
+    run = stub({"POST /workflow-promotions/PROMO-1/reject": record})
+    assert run(["promotion", "reject", "PROMO-1"]) == exits.OK
+    assert sent == {}
+
+
+# --- gate verdicts -----------------------------------------------------------
+
+
+def test_showing_a_verdict_always_exits_ok_regardless_of_state(
+    stub: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A plain read does not itself produce a decision -- unlike ``record``,
+    which does -- so ``show`` never maps ``state`` to an exit code."""
+    run = stub({"GET /gate-verdicts/prompt/triage@4": {"state": "fail"}})
+    assert run(["--json", "gate-verdict", "show", "prompt", "triage@4"]) == exits.OK
+    out, _ = out_err(capsys)
+    assert jsonlib.loads(out)["state"] == "fail"
+
+
+def test_recording_a_failing_verdict_exits_gate_failed(stub: Any) -> None:
+    run = stub({"POST /gate-verdicts/prompt/triage@4": {"state": "fail"}})
+    assert (
+        run(["gate-verdict", "record", "prompt", "triage@4", "--state", "fail"])
+        == exits.GATE_FAILED
+    )
+
+
+def test_recording_a_passing_verdict_exits_ok_and_sends_the_state(stub: Any) -> None:
+    sent: dict[str, Any] = {}
+
+    def record(request: httpx.Request) -> Any:
+        sent.update(body_of(request) or {})
+        return {"state": "pass"}
+
+    run = stub({"POST /gate-verdicts/workflow/WFV-9": record})
+    assert run(["gate-verdict", "record", "workflow", "WFV-9", "--state", "pass"]) == exits.OK
+    assert sent == {"state": "pass"}
+
+
+def test_an_unsupported_artifact_type_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    """Validated locally against the server's real ``{prompt, workflow, skill}``
+    set (``caliber/src/caliber/routes/gate_verdicts.py``), so a typo fails fast
+    with argparse's own message instead of a round trip."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["gate-verdict", "show", "agent", "AGT-1"])
+    assert excinfo.value.code == exits.USAGE

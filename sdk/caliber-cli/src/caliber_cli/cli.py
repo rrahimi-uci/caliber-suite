@@ -122,6 +122,70 @@ def build_parser() -> argparse.ArgumentParser:
     status = _add(workflow, "status", commands.workflow_status, "show one run")
     status.add_argument("run_id")
 
+    deployments = _add(
+        workflow,
+        "deployments",
+        commands.workflow_deployments,
+        "show active alias -> version bindings",
+    )
+    deployments.add_argument("workflow_id")
+
+    promote = _add(
+        workflow, "promote", commands.workflow_promote, "point a deployment alias at a version"
+    )
+    promote.add_argument("workflow_id")
+    promote.add_argument("alias")
+    promote.add_argument("--version-id", required=True, dest="version_id")
+
+    rollback = _add(
+        workflow,
+        "rollback",
+        commands.workflow_rollback,
+        "restore the prior version on a deployment alias",
+    )
+    rollback.add_argument("workflow_id")
+    rollback.add_argument("alias")
+    rollback.add_argument(
+        "--yes", action="store_true", help="confirm changing what the alias serves right now"
+    )
+
+    promotions = _add(
+        workflow,
+        "promotions",
+        commands.workflow_promotions,
+        "list pending and historical promotions for a workflow",
+    )
+    promotions.add_argument("workflow_id")
+
+    # -- promotion -------------------------------------------------------------
+    promotion = _group(
+        subparsers, "promotion", "approve or reject a pending deployment-alias promotion"
+    )
+    approve = _add(promotion, "approve", commands.promotion_approve, "approve a pending promotion")
+    approve.add_argument("promotion_id")
+    approve.add_argument("--reason", help="why (optional, recorded with the decision)")
+
+    reject = _add(promotion, "reject", commands.promotion_reject, "reject a pending promotion")
+    reject.add_argument("promotion_id")
+    reject.add_argument("--reason", help="why (optional, recorded with the decision)")
+
+    # -- gate-verdict ----------------------------------------------------------
+    gate_verdict = _group(
+        subparsers,
+        "gate-verdict",
+        "advisory per-version evaluation verdicts (prompt/workflow/skill)",
+    )
+    verdict_show = _add(
+        gate_verdict, "show", commands.gate_verdict_show, "show the latest verdict for a version"
+    )
+    verdict_show.add_argument("artifact_type", choices=["prompt", "workflow", "skill"])
+    verdict_show.add_argument("version_key")
+
+    verdict_record = _add(gate_verdict, "record", commands.gate_verdict_record, "record a verdict")
+    verdict_record.add_argument("artifact_type", choices=["prompt", "workflow", "skill"])
+    verdict_record.add_argument("version_key")
+    verdict_record.add_argument("--state", choices=["pass", "fail", "none"], required=True)
+
     # -- job -----------------------------------------------------------------
     job = _group(subparsers, "job", "inspect and wait on background jobs")
     job_listing = _add(job, "list", commands.job_list, "list jobs")
