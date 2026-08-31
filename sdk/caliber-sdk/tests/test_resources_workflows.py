@@ -47,6 +47,38 @@ def test_the_five_route_groups_are_one_resource_tree() -> None:
     ]
 
 
+def test_run_listing_decodes_the_real_envelope_with_pagination_metadata() -> None:
+    """Regression test: ``GET /workflows/{id}/runs`` carries pagination
+    metadata alongside the list -- ``{"data": [...], "next_cursor": ...}`` --
+    not the bare ``{"data": [...]}`` shape every other list envelope in this
+    file's ``envelope()`` helper produces. Decoded against a real server this
+    silently returned ``[]`` regardless of how many runs existed, because the
+    transport's generic unwrap only strips a *bare* ``{"data": ...}`` dict and
+    otherwise leaves the payload alone -- caught only by an end-to-end test
+    (``caliber/tests/test_sdk_against_server.py``), since every mocked test
+    of this method used an empty list, which looks identical whether or not
+    the bug is present. This test uses the real shape with real content
+    specifically so that can't happen again.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"workflow_run_id": "WR-1", "workflow_id": "WF-1", "status": "queued"},
+                    {"workflow_run_id": "WR-2", "workflow_id": "WF-1", "status": "succeeded"},
+                ],
+                "next_cursor": None,
+            },
+        )
+
+    with client_with(handler) as caliber:
+        runs = caliber.workflows.runs.list("WF-1")
+
+    assert [run.workflow_run_id for run in runs] == ["WR-1", "WR-2"]
+
+
 def test_submitting_a_run_posts_to_the_collection_not_a_version_subpath() -> None:
     """The server accepts a version id *or* a workflow plus alias.
 
