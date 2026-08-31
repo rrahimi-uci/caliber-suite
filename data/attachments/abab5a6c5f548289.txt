@@ -1,0 +1,6 @@
+{"t":"2026-08-31T18:07:24.078Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-31T18:07:24.096Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-31T18:07:24.101Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-31T18:07:24.102Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-08-31T18:07:24.121Z","severity":"WARNING","logger":"caliber.routes.gateway","message":"MLflow gateway unreachable at http://gw:5002: ConnectionError: connection refused","trace_id":"3a68438804a092ef"}
+{"t":"2026-08-31T18:07:24.122Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/gateway \"HTTP/1.1 200 OK\""}

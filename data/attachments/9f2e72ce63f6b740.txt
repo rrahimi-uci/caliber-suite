@@ -1,0 +1,2 @@
+INFO     caliber.orchestrator.janitor:janitor.py:80 janitor started (interval=60.0s, stale_threshold=300s)
+INFO     caliber.orchestrator.janitor:janitor.py:100 janitor stopped

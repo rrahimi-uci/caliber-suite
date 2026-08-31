@@ -1,0 +1,1 @@
+WARNING  caliber.llm.circuit_breaker:circuit_breaker.py:343 llm circuit opening: 3 failures within 60.0s window

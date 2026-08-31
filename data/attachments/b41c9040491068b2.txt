@@ -1,0 +1,5 @@
+{"t":"2026-08-31T18:04:06.913Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-08-31T18:04:06.933Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-08-31T18:04:06.936Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-08-31T18:04:06.937Z","severity":"WARNING","logger":"caliber.assistant.openai_engine","message":"OpenAI API key not found in environment variable OPENAI_API_KEY. Assistant engine calls will fail until a valid key is set."}
+{"t":"2026-08-31T18:04:06.938Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: openai (configured=auto)"}
