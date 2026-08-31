@@ -391,6 +391,17 @@ class GatewayAPI(Resource):
     def attach_guardrail(self, endpoint_id: str, **payload: Any) -> Any:
         return self._post(f"/gateway/endpoints/{endpoint_id}/guardrails", json=payload)
 
+    def update_guardrail_config(self, endpoint_id: str, guardrail_id: str, **changes: Any) -> Any:
+        """Change how an already-attached guardrail behaves on this
+        endpoint (e.g. its enabled state or order) without detaching and
+        reattaching it."""
+        return self._patch(
+            f"/gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}", json=changes
+        )
+
+    def detach_guardrail(self, endpoint_id: str, guardrail_id: str) -> Any:
+        return self._delete(f"/gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}")
+
 
 class KnowledgeBasesAPI(Resource):
     """Versioned RAG corpora, retrieval, and calibration."""

@@ -151,6 +151,7 @@ Every documented class and module-level function, with the module that defines i
 
 | Symbol | Defined in |
 | --- | --- |
+| [`LlmPricingAPI`](#llmpricingapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`LlmSetupStatus`](#llmsetupstatus) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 
 **M**
@@ -183,6 +184,7 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`Page`](#page) | [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon) |
 | [`PersonalAccessToken`](#personalaccesstoken) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`PlaygroundRunsAPI`](#playgroundrunsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`Project`](#project) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectFile`](#projectfile) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectFilesAPI`](#projectfilesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
@@ -375,6 +377,8 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `gate_verdicts` | `GateVerdictsAPI` | — |
 | `system` | `SystemAPI` | — |
 | `memory` | `MemoryAPI` | — |
+| `llm_pricing` | `LlmPricingAPI` | — |
+| `playground_runs` | `PlaygroundRunsAPI` | — |
 
 **Properties**
 
@@ -467,6 +471,34 @@ This callable takes no public parameters.
 ###### `health() -> Any`
 
 Fetch the lightweight health/readiness view exposed by the deployment.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `readiness() -> Any`
+
+Whether CALIBER's configured dependencies (database, object
+storage, MLflow, ...) are actually reachable -- stronger than
+:meth:`health`, which only reports the process is up.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `dashboard_summary() -> Any`
+
+Aggregate counts and status tiles for the Overview page.
 
 This callable takes no public parameters.
 
@@ -1313,7 +1345,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -3224,7 +3256,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`WorkflowBenchmarkReportsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`PlaygroundRunsAPI`, `WorkflowBenchmarkReportsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 #### Classes
 
@@ -3950,6 +3982,69 @@ Promote an existing run file to a registered artifact.
 | `params` | var-keyword | `Any` | `—` |
 
 **Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `PlaygroundRunsAPI`
+
+`class PlaygroundRunsAPI()`
+
+Files for an ad-hoc sandbox preview run -- the prompt/skill/tool
+"try it" playground, not a real persisted workflow run. Same file
+lifecycle shape as ``client.workflows.runs`` (list/upload/download), a
+separate class because the server keys the namespace by ``run_id``
+outside any workflow.
+
+**Methods**
+
+###### `files(run_id: str, **params) -> Any`
+
+Operate on the playground runs surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `upload_file(run_id: str, filename: str, content: bytes, *, kind: str = 'output', media_type: str | None = None) -> Any`
+
+Multipart, so it does not go through the JSON path.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `filename` | positional-or-keyword | `str` | `—` |
+| `content` | positional-or-keyword | `bytes` | `—` |
+| `kind` | keyword-only | `str` | `'output'` |
+| `media_type` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `file_content(run_id: str, file_id: str) -> bytes`
+
+Download a playground file's raw bytes.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `run_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bytes`
 
 **Raises:**
 
@@ -4815,6 +4910,95 @@ the refinement loop starts.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `update(dataset_id: str, **changes) -> EvalDataset`
+
+Patch an existing record on the evaluation datasets surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** [`EvalDataset`](#evaldataset)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `revise_example(dataset_id: str, example_id: str, *, input: dict[str, Any], expected: dict[str, Any], **params) -> EvalExample`
+
+Supersede the old row and append a replacement atomically --
+append-only, so history stays reproducible. ``params`` may carry
+``weight``, ``tags``. Returns the new (replacement) example.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `example_id` | positional-or-keyword | `str` | `—` |
+| `input` | keyword-only | `dict[str, Any]` | `—` |
+| `expected` | keyword-only | `dict[str, Any]` | `—` |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** [`EvalExample`](#evalexample)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `supersede_example(dataset_id: str, example_id: str) -> EvalExample`
+
+Retire an example without replacing it. Idempotent -- superseding
+an already-superseded row just returns it unchanged.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `example_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`EvalExample`](#evalexample)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `restore(dataset_id: str, *, version: int) -> Any`
+
+Restore a prior version's example set as a new head version
+(forward-only; history is preserved, not rewritten).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `version` | keyword-only | `int` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `sync(dataset_id: str, **options) -> Any`
+
+Push the dataset's current example set to MLflow's GenAI dataset
+registry. CALIBER stays the source of truth; this is a one-way
+push, not a bidirectional sync.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `dataset_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `JudgesAPI`
 
 `class JudgesAPI()`
@@ -4878,6 +5062,22 @@ field to know which they have.
 | `feedback_value_type` | keyword-only | `str` | `'bool'` |
 | `model` | keyword-only | `str | None` | `None` |
 | `options` | var-keyword | `Any` | `—` |
+
+**Returns:** [`Judge`](#judge)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(judge_id: str, **changes) -> Judge`
+
+Patch an existing record on the judges and alignment assets surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `judge_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
 
 **Returns:** [`Judge`](#judge)
 
@@ -5772,6 +5972,41 @@ Operate on the gateway policies and usage surface with the supplied arguments an
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `update_guardrail_config(endpoint_id: str, guardrail_id: str, **changes) -> Any`
+
+Change how an already-attached guardrail behaves on this
+endpoint (e.g. its enabled state or order) without detaching and
+reattaching it.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `endpoint_id` | positional-or-keyword | `str` | `—` |
+| `guardrail_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `detach_guardrail(endpoint_id: str, guardrail_id: str) -> Any`
+
+Operate on the gateway policies and usage surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `endpoint_id` | positional-or-keyword | `str` | `—` |
+| `guardrail_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `KnowledgeBasesAPI`
 
 `class KnowledgeBasesAPI()`
@@ -6426,7 +6661,7 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 
 **Public exports**
 
-`AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `GateVerdictsAPI`, `JobsAPI`, `MemoryAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `SecretsAPI`, `SystemAPI`
+`AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `GateVerdictsAPI`, `JobsAPI`, `LlmPricingAPI`, `MemoryAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `SecretsAPI`, `SystemAPI`
 
 #### Classes
 
@@ -7631,14 +7866,11 @@ and ``eval_run_id``.
 
 `class SystemAPI()`
 
-Operational recovery surfaces: effects that need a human decision.
-
-Two related recoveries, both "CALIBER could not complete something
-outward-facing, and only a person can decide what happens next" — see the
-server module's own docstring (``routes/system_effects.py``) for the full
-rationale. Only these two are covered so far; ``/system/services``,
-``/system/queue``, ``/system/alerts``, and ``/system/incidents`` land in a
-follow-up wave onto this same class.
+Operational surfaces: effect-ledger and webhook recovery (both
+"CALIBER could not complete something outward-facing, and only a person
+can decide what happens next" -- see ``routes/system_effects.py`` for
+the full rationale), plus service health, the background-loop queue,
+and the incident/alert surface.
 
 **Methods**
 
@@ -7728,6 +7960,95 @@ a completed one.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `services() -> Any`
+
+Live health probes for CALIBER's own backing services
+(database, object storage, MLflow, ...) -- the Settings page's
+service-status panel.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `queue() -> Any`
+
+Depth and health of the in-process background-loop queues
+(refinement, calibration, workflow runs, ...).
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `alerts() -> Any`
+
+Active operational alerts (a queue backed up, a loop stalled).
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `incidents() -> Any`
+
+Durable incident records -- distinct from :meth:`alerts`, which
+is live/transient; an incident persists once opened.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `acknowledge_incident(incident_id: str) -> Any`
+
+Take ownership. Deliberately not the same as resolving: "someone
+is looking at this" and "it stopped" are different facts.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `incident_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `silence_incident(incident_id: str, *, minutes: int = 60) -> Any`
+
+Mute routing for ``minutes`` (default 60) while keeping the
+record -- the incident is not resolved, just not paging anyone.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `incident_id` | positional-or-keyword | `str` | `—` |
+| `minutes` | keyword-only | `int` | `60` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `ObservabilityAPI`
 
 `class ObservabilityAPI()`
@@ -7786,6 +8107,26 @@ Operate on the observability traces and metrics surface with the supplied argume
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
+| `params` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `record_feedback(trace_id: str, *, value, **params) -> Any`
+
+Attach a human feedback assessment to a trace
+(``mlflow.log_feedback``). ``value`` is a bool, number, or string;
+``params`` may carry ``name`` (default ``"feedback"``) and
+``rationale``. Returns the trace's refreshed assessments.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `trace_id` | positional-or-keyword | `str` | `—` |
+| `value` | keyword-only | `Any` | `—` |
 | `params` | var-keyword | `Any` | `—` |
 
 **Returns:** `Any`
@@ -7970,6 +8311,80 @@ Delete a record on the secret references surface and return the server acknowled
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `LlmPricingAPI`
+
+`class LlmPricingAPI()`
+
+Per-model token pricing (USD per 1K), used to cost out gateway
+usage.
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> Any`
+
+Return the current collection of llm pricing, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(pricing_id: str) -> Any`
+
+Fetch one record from the llm pricing surface identified by `pricing_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `pricing_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(*, provider: str, model_id: str, prompt_price: float, completion_price: float, **options) -> Any`
+
+``options`` may carry ``cached_prompt_price``, ``tags``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `provider` | keyword-only | `str` | `—` |
+| `model_id` | keyword-only | `str` | `—` |
+| `prompt_price` | keyword-only | `float` | `—` |
+| `completion_price` | keyword-only | `float` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(pricing_id: str, **changes) -> Any`
+
+Patch an existing record on the llm pricing surface and return the updated result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `pricing_id` | positional-or-keyword | `str` | `—` |
+| `changes` | var-keyword | `Any` | `—` |
 
 **Returns:** `Any`
 
