@@ -103,7 +103,7 @@ class AsyncCaliberClient:
 
     # -- deprecated aliases -------------------------------------------------
     #
-    # Mirrors CaliberClient.capabilities_api -- see AD-6 (sdk-completeness-plan.md).
+    # Mirrors CaliberClient.capabilities_api -- see AD-6 (client.py).
     # Scheduled for removal in 0.2.0, alongside the sync client's alias.
 
     @property

@@ -9,7 +9,7 @@ exactly one place:
   that could silently overstate coverage.
 * ``caliber/tests/test_sdk_api_coverage.py`` — the CI gate that fails when a
   server operation has neither a typed SDK method nor an allowlist entry
-  naming which phase will close it (see ``sdk-completeness-plan.md``).
+  naming the work that will close it.
 
 Stdlib-only, matching the constraint ``generate_rest_api_docs.py`` already
 has, so the Node docs build can shell out to it without a Python virtualenv of

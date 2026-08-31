@@ -219,7 +219,7 @@ class CaliberClient:
 
     # -- deprecated aliases -------------------------------------------------
     #
-    # AD-6 (sdk-completeness-plan.md): a name that outgrew its scope gets
+    # AD-6: a name that outgrew its scope gets
     # corrected, and the old one keeps working for one minor cycle so nothing
     # breaks without warning. Both are scheduled for removal in 0.2.0.
 

@@ -9,18 +9,19 @@
 #      docs-site/sdk_coverage.py, the single shared implementation both this
 #      gate and the published REST-inventory coverage table use), or
 #   2. listed below, under [[exclusion]] (permanent -- never SDK scope) or
-#      [[gap]] (temporary -- tracked, owned by a wave in sdk-completeness-plan.md).
+#      [[gap]] (temporary -- an operation not yet covered; the entry's own
+#      `wave` field and a linked issue/PR are what track closing it).
 #
 # The gate fails in BOTH directions:
 #   * a live operation with no SDK method and no entry here -- new, untracked drift.
 #   * a [[gap]] entry the SDK now covers, or one naming a path the server no
 #     longer serves -- stale bookkeeping that must be deleted, not left behind.
 #
-# Phase 3 (sdk-completeness-plan.md) is complete: every wave (3a-3e) closed,
-# zero [[gap]] entries remain. Addressable coverage is 380/380 (100%). Only
-# the permanent [[exclusion]] entries below are left -- a future PR that adds
-# a brand-new server operation without SDK coverage will fail this gate and
-# must either add the method or justify a new exclusion here.
+# Current state: every gap that existed has been closed. Addressable coverage
+# is 380/380 (100%). Only the permanent [[exclusion]] entries below remain --
+# a future PR that adds a brand-new server operation without SDK coverage will
+# fail this gate and must either add the method, add a [[gap]] entry naming
+# the work that will close it, or justify a new exclusion here.
 
 [[exclusion]]
 method = "GET"
