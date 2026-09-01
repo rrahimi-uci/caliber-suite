@@ -111,6 +111,12 @@ llm = [
     "openai>=1.40",
     "gepa>=0.0.27",
 ]
+# Provider-backed DeepEval scorer family exposed by prompt optimization and
+# calibration. Kept as an explicit extra so minimal library installs remain
+# lightweight while the bundled application image can enable the capability.
+deepeval = [
+    "deepeval>=4.2.0,<5",
+]
 # DSPy teleprompters (BootstrapFewShot / MIPROv2) are optional on top of the
 # OpenAI-backed provider. Keep them isolated from the base ``[llm]`` extra so
 # production-safe installs can enable OpenAI workflow execution without also

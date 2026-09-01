@@ -68,7 +68,7 @@ different spaCy model or want to fall back to `heuristic`.
 To ship local Hugging Face embeddings in the deployed image, rebuild with:
 
 ```bash
-CALIBER_INSTALL_EXTRAS=s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge,knowledge-local \
+CALIBER_INSTALL_EXTRAS=s3,postgres,llm,deepeval,anthropic,nats,ingest,ocr,knowledge,knowledge-local \
 docker compose --env-file deploy/.env --env-file .env -f deploy/compose.yaml --profile app --profile nats up -d --build
 ```
 

@@ -62,6 +62,13 @@ def test_caliber_container_retains_its_documented_runtime_hardening() -> None:
     caliber = services["caliber"]
     assert isinstance(caliber, dict)
 
+    build = caliber["build"]
+    assert isinstance(build, dict)
+    build_args = build["args"]
+    assert isinstance(build_args, dict)
+    install_extras = {item.strip() for item in str(build_args["CALIBER_INSTALL_EXTRAS"]).split(",")}
+    assert "deepeval" in install_extras
+
     assert caliber["read_only"] is True
     assert caliber["user"] == "65532:65532"
     assert caliber["cap_drop"] == ["ALL"]
@@ -83,8 +90,10 @@ def test_caliber_image_is_reproducible_and_unprivileged() -> None:
     dockerfile = (REPO_ROOT / "deploy" / "caliber" / "Dockerfile").read_text()
 
     assert "RUN npm ci --no-audit --no-fund" in dockerfile
+    assert "ARG CALIBER_INSTALL_EXTRAS=" in dockerfile
+    assert "-e \"/app[${CALIBER_INSTALL_EXTRAS}]\"" in dockerfile
+    assert "deepeval" in dockerfile.split("ARG CALIBER_INSTALL_EXTRAS=", 1)[1].splitlines()[0]
     assert "USER 65532:65532" in dockerfile
-
 
 def test_suite_root_docker_context_excludes_local_secrets_and_databases() -> None:
     patterns = {
