@@ -64,6 +64,15 @@ def test_response_parser_ignores_non_list_structured_fields() -> None:
     assert result.draft_deltas == []
 
 
+def test_response_parser_ignores_non_object_draft_entries() -> None:
+    result = parse_assistant_response(
+        '{"reply":"usable","draft_deltas":[null,"csv",42,["prompt"]]}'
+    )
+
+    assert result.reply == "usable"
+    assert result.draft_deltas == []
+
+
 def test_response_parser_does_not_treat_string_false_as_done() -> None:
     result = parse_assistant_response('{"reply":"continue","done":"false"}')
 

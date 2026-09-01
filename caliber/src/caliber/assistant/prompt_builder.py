@@ -122,8 +122,10 @@ def parse_assistant_response(content: str) -> AssistantTurnResult:
         raw_deltas = []
     deltas: list[DraftDelta] = []
     for item in raw_deltas:
+        if not isinstance(item, dict):
+            continue
         try:
-            deltas.append(DraftDelta(**item) if isinstance(item, dict) else DraftDelta())
+            deltas.append(DraftDelta(**item))
         except (TypeError, ValidationError):
             continue
 
