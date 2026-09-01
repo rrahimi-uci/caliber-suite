@@ -62,6 +62,12 @@ def test_caliber_container_retains_its_documented_runtime_hardening() -> None:
     caliber = services["caliber"]
     assert isinstance(caliber, dict)
 
+    build = caliber["build"]
+    assert isinstance(build, dict)
+    build_args = build["args"]
+    assert isinstance(build_args, dict)
+    assert "deepeval" in str(build_args["CALIBER_INSTALL_EXTRAS"]).split(",")
+
     assert caliber["read_only"] is True
     assert caliber["user"] == "65532:65532"
     assert caliber["cap_drop"] == ["ALL"]

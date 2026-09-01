@@ -82,7 +82,7 @@ services:
       dockerfile: deploy/caliber/Dockerfile
       args:
         CALIBER_DEFAULT_SPACY_MODEL: ${CALIBER_KNOWLEDGE_GRAPH_SPACY_MODEL:-en_core_web_sm}
-        CALIBER_INSTALL_EXTRAS: ${CALIBER_INSTALL_EXTRAS:-s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge}
+        CALIBER_INSTALL_EXTRAS: ${CALIBER_INSTALL_EXTRAS:-s3,postgres,llm,deepeval,anthropic,nats,ingest,ocr,knowledge}
         CALIBER_TORCH_SPEC: "${CALIBER_TORCH_SPEC:-torch>=1.11,<3}"
     image: caliber/caliber:latest
     container_name: caliber
