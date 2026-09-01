@@ -717,7 +717,7 @@ jobs:
       # repo already vendors locally.
       - name: Set up Java (Allure CLI needs a JRE)
         if: steps.have_results.outputs.found == 'true'
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
