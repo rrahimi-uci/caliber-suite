@@ -28,7 +28,7 @@ classifiers = [
 # storage, and ingestion stacks stay in explicit extras below so a base install
 # does not pull optional execution engines.
 dependencies = [
-    "mlflow>=3.14.0,<4",
+    "mlflow>=3.15.0,<4",
     "sqlalchemy>=2.0,<3",
     "alembic>=1.13,<2",
     "pydantic>=2.6,<3",
