@@ -1,1 +1,0 @@
-ERROR    caliber.assistant.openai_engine:openai_engine.py:135 OpenAI API error: rate limited
