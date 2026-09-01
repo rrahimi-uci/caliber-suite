@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           # Use the default query suite for the language.
@@ -51,7 +51,7 @@ jobs:
 
       - name: Perform CodeQL Analysis
         id: analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
           # Write the SARIF to a known path so the next step can upload it
@@ -68,7 +68,7 @@ jobs:
         # so that a passing analysis is never reported as a failing CI gate
         # due to a momentary GitHub infrastructure hiccup.
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: "${{ runner.temp }}/codeql-results"
           category: "/language:${{ matrix.language }}"
