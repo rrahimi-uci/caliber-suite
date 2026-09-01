@@ -1274,7 +1274,7 @@ export const handlers = [
                 label: "Assistant model",
                 description:
                   "Initial model for provider-backed assistant engines.",
-                display_value: "gpt-4o-mini",
+                display_value: "gpt-5.6-luna",
                 value_type: "string",
                 source: "default",
                 control: "live",
@@ -1287,7 +1287,7 @@ export const handlers = [
                 label: "Reasoning effort",
                 description:
                   "Optional reasoning setting for OpenAI assistant engines.",
-                display_value: "medium",
+                display_value: "high",
                 value_type: "string",
                 source: "configured",
                 control: "live",
@@ -1494,10 +1494,10 @@ export const handlers = [
                 label: "Model",
                 type: "string",
                 required: true,
-                default: "gpt-4.1-mini",
+                default: "gpt-5.6-luna",
                 description: "LLM model reference used by this agent.",
                 constraints: {},
-                examples: ["gpt-4.1-mini"],
+                examples: ["gpt-5.6-luna"],
               },
               {
                 key: "instructions",
@@ -2590,7 +2590,7 @@ export const handlers = [
         prompt_name: "support-agent",
         prompt_alias: "prod",
         prompt_version: 1,
-        model: "gpt-4o-mini",
+        model: "gpt-5.6-luna",
         eval_dataset_id: null,
         test_set_size: 0,
         passed_count: 0,
@@ -2615,7 +2615,7 @@ export const handlers = [
     const name = String(params.name);
     return HttpResponse.json(
       envelope({
-        model: "gpt-4o-mini",
+        model: "gpt-5.6-luna",
         version: 3,
         status: "Tested",
         bound_to: null,
@@ -2754,13 +2754,14 @@ export const handlers = [
     return HttpResponse.json(
       envelope({
         engine: "fake",
-        model: "gpt-4o-mini",
+        model: "gpt-5.6-luna",
         provider: "openai",
-        reasoning: "medium",
+        reasoning: "high",
         enabled: true,
         disabled_intents: [],
         disabled_domains: [],
         available_models: [
+          { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", provider: "openai" },
           { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" },
           { id: "qwen2.5:7b", name: "qwen2.5:7b", provider: "ollama" },
         ],

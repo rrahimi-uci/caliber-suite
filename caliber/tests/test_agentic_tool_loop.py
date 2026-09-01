@@ -375,6 +375,7 @@ def test_openai_loop_executes_model_chosen_tool_with_args() -> None:
     calls = client.chat.completions.calls
     assert len(calls) == 2
     assert "tools" in calls[0] and calls[0]["tool_choice"] == "auto"
+    assert "reasoning_effort" not in calls[0]  # explicit non-reasoning override
     # The 2nd request carried the assistant tool_calls message + the tool result.
     roles = [m["role"] for m in calls[1]["messages"]]
     assert "tool" in roles and "assistant" in roles
@@ -569,6 +570,7 @@ def test_openai_responses_loop_executes_model_chosen_tool_with_args() -> None:
     calls = client.responses.calls
     assert len(calls) == 2
     assert "tools" in calls[0] and calls[0]["tool_choice"] == "auto"
+    assert calls[0]["reasoning"] == {"effort": "high"}
     assert calls[1]["previous_response_id"] == "resp-1"
     assert calls[1]["input"] == [
         {"type": "function_call_output", "call_id": "call-1", "output": '{"policy": "30 days"}'}
@@ -786,6 +788,7 @@ def test_openai_agents_executor_executes_sdk_tools_and_tracks_usage(
     assert result.cost_usd == 0.000187
     assert result.model == "gpt-5.4"
     assert fake_agent.instances[0].kwargs["tool_use_behavior"] == "run_llm_again"
+    assert fake_agent.instances[0].kwargs["model_settings"].kwargs["reasoning"].effort == "high"
     provider = fake_runner.calls[0]["run_config"].model_provider
     assert isinstance(provider, fake_provider)
     assert provider.kwargs["base_url"] == "http://gw:5000/gateway/mlflow/v1"

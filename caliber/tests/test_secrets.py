@@ -221,7 +221,7 @@ def test_llm_provider_resolves_api_key_from_file(
     )
     provider = build_provider(config)
     assert isinstance(provider, OpenAIAgentsLLMProvider)
-    assert provider._gepa_reflection_model == "openai:/gpt-4o"
+    assert provider._gepa_reflection_model == "openai:/gpt-5.6-luna"
     assert provider._gepa_max_metric_calls == 100
 
 

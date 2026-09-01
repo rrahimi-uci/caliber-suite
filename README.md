@@ -351,6 +351,11 @@ variables include `CALIBER_DATABASE_URL`, `CALIBER_ADMIN_USERS`, `CALIBER_WORKFL
 `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`, `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES`, and provider selections such as `CALIBER_LLM_PROVIDER`,
 `CALIBER_EVAL_PROVIDER`, and `CALIBER_PROMOTER_PROVIDER`.
 
+OpenAI-backed model calls default consistently to `gpt-5.6-luna` with `high`
+reasoning across agents, workflows, evaluation, calibration, memory, knowledge,
+and the assistant. Operators can still override the model or reasoning budget
+through the documented environment, asset, and call-level controls.
+
 <details>
 <summary><b>Single development environment (v1)</b></summary>
 

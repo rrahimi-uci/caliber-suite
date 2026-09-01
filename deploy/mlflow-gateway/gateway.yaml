@@ -12,7 +12,7 @@ endpoints:
     endpoint_type: llm/v1/chat
     model:
       provider: openai
-      name: gpt-4o-mini
+      name: gpt-5.6-luna
       config:
         openai_api_key: $OPENAI_API_KEY
 
@@ -20,6 +20,8 @@ endpoints:
     endpoint_type: llm/v1/completions
     model:
       provider: openai
+      # Explicit compatibility override: reasoning models use Responses/chat
+      # rather than OpenAI's legacy text-completions endpoint.
       name: gpt-4o-mini
       config:
         openai_api_key: $OPENAI_API_KEY

@@ -105,6 +105,7 @@ from caliber.knowledge.schemas import (
     KnowledgeQueryVersionResultSchema,
     KnowledgeRetrievalMode,
 )
+from caliber.llm.models import DEFAULT_OPENAI_MODEL, reasoning_effort_for_model
 from caliber.observability.mlflow_tracing import get_tracer
 from caliber.runtime_advisories import local_embedding_block_reason
 from caliber.secrets import resolve_secret
@@ -4764,6 +4765,7 @@ class KnowledgeBaseService:
         engine = (self._config.assistant_engine or "fake").lower()
         model = chat_model or self._config.assistant_model
         if engine == "openai":
+            model = model or DEFAULT_OPENAI_MODEL
             try:
                 return self._generate_openai_answer(
                     model=model,
@@ -4817,7 +4819,10 @@ class KnowledgeBaseService:
                 role = "user"
             messages.append({"role": role, "content": message.get("content", "")})
         messages.append({"role": "user", "content": _rag_user_prompt(question, retrieved_chunks)})
-        response = client.chat.completions.create(model=model, messages=cast(Any, messages))
+        kwargs: dict[str, Any] = {"model": model, "messages": cast(Any, messages)}
+        if effort := reasoning_effort_for_model(model, self._config.assistant_reasoning):
+            kwargs["reasoning_effort"] = effort
+        response = client.chat.completions.create(**kwargs)
         return str(response.choices[0].message.content or "").strip()
 
     def _generate_anthropic_answer(

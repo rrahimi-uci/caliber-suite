@@ -372,6 +372,8 @@ DSPy path honors `CALIBER_DSPY_MIPRO_AUTO` and the bootstrap/labeled demo caps, 
 the few-shot auto-selection is opt-in through the agent's `optimizer_config`. The
 workflow LLM judge is gated by `workflow_llm_judge_enabled` together with a real
 provider and resolvable API key; absent any of these, scoring stays structural.
+OpenAI-backed calibration inherits `gpt-5.6-luna` and `high` reasoning from the
+platform model contract unless a job or environment explicitly overrides it.
 
 For inspection, the refinement job stores its `eval_results` — candidate and
 baseline scores, deltas, and the gate decision — alongside provenance tags such as

@@ -70,7 +70,12 @@ def test_build_completion_fn_none_for_fake_provider() -> None:
 
 def test_build_completion_fn_none_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("caliber.eval.predict.resolve_secret", lambda _env: "")
-    cfg = SimpleNamespace(llm_provider="openai", llm_api_key_env="X", llm_diagnosis_model="gpt-4o")
+    cfg = SimpleNamespace(
+        llm_provider="openai",
+        llm_api_key_env="X",
+        llm_diagnosis_model="gpt-4o",
+        llm_reasoning_effort="high",
+    )
     assert build_completion_fn(cfg) is None  # type: ignore[arg-type]
 
 

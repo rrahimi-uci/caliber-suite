@@ -643,8 +643,8 @@ class CaliberJudge(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     # NL instructions; must reference at least one template var (validated in the schema).
     instructions: Mapped[str] = mapped_column(Text, default="")
-    # MLflow model identifier, e.g. ``openai:/gpt-4o-mini``. Null → the runner
-    # falls back to CALIBER's configured eval model.
+    # MLflow model identifier. Null → the runner inherits CALIBER's configured
+    # eval model (gpt-5.6-luna with high reasoning by default).
     model: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
     # Optional feedback value type hint: ``bool`` | ``int`` | ``float`` | ``str``.
     feedback_value_type: Mapped[str | None] = mapped_column(String(16), nullable=True, default=None)

@@ -289,8 +289,8 @@ def build_kb_judge(model: str | None = None) -> KbJudge | None:
 
     Returns ``None`` when the judges can't be built (``mlflow.genai`` unavailable),
     so a calibration run degrades to its deterministic retrieval metrics rather
-    than failing. ``model`` is an optional mlflow model id (e.g.
-    ``openai:/gpt-4o-mini``); ``None`` lets the judge use mlflow's default.
+    than failing. ``model`` is an optional MLflow model id; ``None`` inherits
+    CALIBER's ``gpt-5.6-luna`` default with high reasoning.
     """
     try:
         faithfulness = build_judge(

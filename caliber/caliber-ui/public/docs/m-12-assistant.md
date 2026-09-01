@@ -504,8 +504,9 @@ These behaviors are driven by configuration on `CaliberConfig`, surfaced through
 
 - Engine and model selection: `assistant_enabled`, `assistant_engine`
   (`auto` default / `openai` / `anthropic` / `ollama` / `fake`-for-tests),
-  `assistant_model` (empty → the resolved provider's default), and
-  `assistant_reasoning`.
+  `assistant_model` (empty → the resolved provider's default; OpenAI resolves
+  to `gpt-5.6-luna`), and `assistant_reasoning` (`high` by default). Explicit
+  runtime selections continue to override both defaults.
 - Skill runtime and intent gating: `assistant_skill_runtime_enabled`,
   `assistant_disabled_intents`, and `assistant_disabled_domains`.
 - Session bounds: `assistant_max_turns`, `assistant_max_questions_per_turn`, and

@@ -24,6 +24,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from caliber.llm.models import (
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    reasoning_effort_for_model,
+)
+
 # ``feedback_value_type`` string -> the Python type ``make_judge`` enforces for
 # structured output. Mirrors ``eval.mlflow_runner._JUDGE_VALUE_TYPE_MAP`` (kept
 # in sync; that module now imports this one).
@@ -80,9 +86,18 @@ def build_judge(
             "mlflow.genai.make_judge is unavailable; upgrade mlflow to >=3.14"
         ) from exc
 
-    kwargs: dict[str, Any] = {"name": name, "instructions": instructions}
-    if isinstance(model, str) and model.strip():
-        kwargs["model"] = model
+    effective_model = (
+        model.strip()
+        if isinstance(model, str) and model.strip()
+        else f"openai:/{DEFAULT_OPENAI_MODEL}"
+    )
+    kwargs: dict[str, Any] = {
+        "name": name,
+        "instructions": instructions,
+        "model": effective_model,
+    }
+    if effort := reasoning_effort_for_model(effective_model, DEFAULT_OPENAI_REASONING_EFFORT):
+        kwargs["inference_params"] = {"reasoning_effort": effort}
     value_type = JUDGE_VALUE_TYPE_MAP.get(feedback_value_type)
     if value_type is not None:
         kwargs["feedback_value_type"] = value_type

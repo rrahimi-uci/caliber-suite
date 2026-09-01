@@ -111,7 +111,7 @@ describe("Judges", () => {
     // The model already used by an existing judge is offered as a suggestion,
     // alongside the app's default — and the field stays a free-text input.
     expect(values).toContain("anthropic:/claude-3-5-sonnet");
-    expect(values).toContain("openai:/gpt-4o-mini");
+    expect(values).toContain("openai:/gpt-5.6-luna");
   });
 
   it("blocks the create submit until instructions reference a template var", async () => {

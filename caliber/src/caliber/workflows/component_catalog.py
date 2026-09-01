@@ -1073,7 +1073,7 @@ _FIELD_EXAMPLES: dict[str, tuple[Any, ...]] = {
     "embedding_model": ("BAAI/bge-m3",),
     "max_iterations": (5,),
     "stop_condition": ("state.done or iteration >= 3",),
-    "model": ("gpt-4.1-mini",),
+    "model": ("gpt-5.6-luna",),
     "template": (
         "Hello {{customer.name}}, your request is {{input}}.",
         '{"ticket_id":"{{variables.ticket.id}}","summary":"{{input}}","labels":{{variables.labels}}}',

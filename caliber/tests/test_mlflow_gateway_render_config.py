@@ -199,6 +199,16 @@ def test_shipped_config_serves_openai_when_only_openai_is_configured(
         "completions-openai",
         "embeddings-openai",
     ]
+    openai_models = {
+        endpoint["name"]: endpoint["model"]["name"]
+        for endpoint in rendered["endpoints"]
+        if endpoint["model"]["provider"] == "openai"
+    }
+    assert openai_models["chat-openai"] == "gpt-5.6-luna"
+    # Luna is the chat default; the legacy text-completions endpoint deliberately
+    # retains a compatible non-reasoning model.
+    assert openai_models["completions-openai"] == "gpt-4o-mini"
+    assert openai_models["embeddings-openai"] == "text-embedding-3-small"
     assert [name for name, _ in skipped] == ["chat-anthropic"]
 
 

@@ -1,6 +1,6 @@
 """OpenAI Agents SDK assistant engine.
 
-Uses ``gpt-5.6-luna`` by default with medium reasoning effort. The API key is read
+Uses ``gpt-5.6-luna`` by default with high reasoning effort. The API key is read
 from the environment variable pointed to by ``CaliberConfig.llm_api_key_env``
 (typically ``OPENAI_API_KEY``).
 """
@@ -21,7 +21,11 @@ from caliber.assistant.models import (
 )
 from caliber.assistant.prompt_builder import build_assistant_system_prompt
 from caliber.config import provider_request_timeout
-from caliber.llm.models import is_reasoning_model
+from caliber.llm.models import (
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    reasoning_effort_for_model,
+)
 
 if TYPE_CHECKING:
     from caliber.assistant.tools import AssistantToolDispatcher
@@ -50,8 +54,8 @@ class OpenAIAssistantEngine:
     def __init__(
         self,
         *,
-        model: str = "gpt-5.6-luna",
-        reasoning: str = "medium",
+        model: str = DEFAULT_OPENAI_MODEL,
+        reasoning: str = DEFAULT_OPENAI_REASONING_EFFORT,
         api_key: str | None = None,
         api_key_env: str = "OPENAI_API_KEY",
         tool_dispatcher: AssistantToolDispatcher | None = None,
@@ -95,6 +99,17 @@ class OpenAIAssistantEngine:
         executed: list[AssistantToolCall] = []
 
         try:
+            # Luna/high cannot combine function tools with Chat Completions.
+            # OpenAI requires the Responses API for that combination. Explicit
+            # non-reasoning model overrides retain the established chat path.
+            if tools and reasoning_effort_for_model(self._model, self._reasoning):
+                return self._run_responses_tool_loop(
+                    client,
+                    messages,
+                    tools=tools,
+                    dispatcher=dispatcher,
+                    executed=executed,
+                )
             # Tool-calling loop: keep going while the model requests tools, up to
             # the iteration cap. With no dispatcher, ``tools`` is None and this is
             # a single completion (the original single-shot behaviour).
@@ -123,6 +138,56 @@ class OpenAIAssistantEngine:
                 tool_calls=executed,
             )
 
+    def _run_responses_tool_loop(
+        self,
+        client: Any,
+        input_items: list[Any],
+        *,
+        tools: list[dict[str, Any]],
+        dispatcher: AssistantToolDispatcher | None,
+        executed: list[AssistantToolCall],
+    ) -> AssistantTurnResult:
+        """Run a Luna/high tool loop through OpenAI's Responses API."""
+        response_tools = [_responses_tool_spec(spec) for spec in tools]
+        items = list(input_items)
+        effort = reasoning_effort_for_model(self._model, self._reasoning)
+        for _ in range(self._MAX_TOOL_ITERATIONS):
+            response = client.responses.create(
+                model=self._model,
+                input=items,
+                reasoning={"effort": effort},
+                tools=response_tools,
+            )
+            calls = [
+                item
+                for item in list(getattr(response, "output", None) or [])
+                if getattr(item, "type", None) == "function_call"
+            ]
+            if not calls:
+                result = self._parse_response(_responses_text(response))
+                result.tool_calls = executed
+                return result
+            items.extend(list(getattr(response, "output", None) or []))
+            for call in calls:
+                tool_msg, record = self._run_tool_call(dispatcher, call)
+                items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": getattr(call, "call_id", "") or getattr(call, "id", ""),
+                        "output": tool_msg["content"],
+                    }
+                )
+                executed.append(record)
+
+        final = client.responses.create(
+            model=self._model,
+            input=items,
+            reasoning={"effort": effort},
+        )
+        result = self._parse_response(_responses_text(final))
+        result.tool_calls = executed
+        return result
+
     def _create(self, client: Any, messages: list[dict[str, Any]], *, tools: Any) -> Any:
         """One chat-completions call; returns the response message."""
         kwargs: dict[str, Any] = {"model": self._model, "messages": messages}
@@ -130,8 +195,8 @@ class OpenAIAssistantEngine:
         # nested ``reasoning={"effort": ...}`` object is the Responses-API shape
         # and a 400 here. Only send a recognized effort so a misconfigured value
         # is omitted rather than rejected by the server.
-        effort = self._reasoning.strip().lower()
-        if is_reasoning_model(self._model) and effort in _REASONING_EFFORTS:
+        effort = reasoning_effort_for_model(self._model, self._reasoning)
+        if effort is not None:
             kwargs["reasoning_effort"] = effort
         if tools:
             kwargs["tools"] = tools
@@ -142,8 +207,9 @@ class OpenAIAssistantEngine:
         self, dispatcher: AssistantToolDispatcher | None, call: Any
     ) -> tuple[dict[str, Any], AssistantToolCall]:
         """Execute one model tool call → (``tool`` message, surfacing record)."""
-        name = getattr(getattr(call, "function", None), "name", "") or ""
-        raw_args = getattr(getattr(call, "function", None), "arguments", "") or "{}"
+        function = getattr(call, "function", None)
+        name = getattr(function, "name", "") or getattr(call, "name", "") or ""
+        raw_args = getattr(function, "arguments", "") or getattr(call, "arguments", "") or "{}"
         try:
             args = json.loads(raw_args)
         except (json.JSONDecodeError, TypeError):
@@ -167,7 +233,8 @@ class OpenAIAssistantEngine:
             result_summary=content[:500],
             ok=ok,
         )
-        tool_msg = {"role": "tool", "tool_call_id": getattr(call, "id", ""), "content": content}
+        call_id = getattr(call, "id", "") or getattr(call, "call_id", "")
+        tool_msg = {"role": "tool", "tool_call_id": call_id, "content": content}
         return tool_msg, record
 
     def _build_system_prompt(self, request: AssistantTurnRequest) -> str:
@@ -229,5 +296,27 @@ def _assistant_tool_call_message(message: Any) -> dict[str, Any]:
     }
 
 
-# Valid Chat Completions ``reasoning_effort`` values (gpt-5* adds "minimal").
-_REASONING_EFFORTS = frozenset({"minimal", "low", "medium", "high"})
+def _responses_tool_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    """Convert a Chat Completions function tool to the Responses shape."""
+    raw_function = spec.get("function")
+    function: dict[str, Any] = raw_function if isinstance(raw_function, dict) else {}
+    return {
+        "type": "function",
+        "name": function.get("name", ""),
+        "description": function.get("description", ""),
+        "parameters": function.get("parameters", {"type": "object", "properties": {}}),
+    }
+
+
+def _responses_text(response: Any) -> str:
+    """Extract final text from real Responses objects and lightweight doubles."""
+    output_text = getattr(response, "output_text", None)
+    if isinstance(output_text, str):
+        return output_text
+    chunks: list[str] = []
+    for item in list(getattr(response, "output", None) or []):
+        for part in list(getattr(item, "content", None) or []):
+            text = getattr(part, "text", None)
+            if isinstance(text, str):
+                chunks.append(text)
+    return "".join(chunks)

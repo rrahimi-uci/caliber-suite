@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from caliber.llm.models import is_reasoning_model, supports_temperature
+from caliber.llm.models import (
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    is_reasoning_model,
+    reasoning_effort_for_model,
+    supports_temperature,
+)
 
 
 @pytest.mark.parametrize(
@@ -17,6 +23,7 @@ from caliber.llm.models import is_reasoning_model, supports_temperature
         "O3-PRO",
         "gpt-5",
         "gpt-5.2",
+        "gpt-5.6-luna",
         "gpt-5-mini",
         "openai:/gpt-5.2",
     ],
@@ -40,3 +47,10 @@ def test_o_prefix_requires_a_digit() -> None:
     # "openai" / "omni" etc. must NOT be misread as o-series reasoning models.
     assert is_reasoning_model("omni-model") is False
     assert is_reasoning_model("openai-thing") is False
+
+
+def test_repository_default_is_luna_with_high_reasoning() -> None:
+    assert DEFAULT_OPENAI_MODEL == "gpt-5.6-luna"
+    assert DEFAULT_OPENAI_REASONING_EFFORT == "high"
+    assert reasoning_effort_for_model(DEFAULT_OPENAI_MODEL, "HIGH") == "high"
+    assert reasoning_effort_for_model("gpt-4o", "high") is None

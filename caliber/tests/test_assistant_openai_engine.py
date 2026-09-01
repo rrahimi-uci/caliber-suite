@@ -42,7 +42,7 @@ def test_init_warns_without_key(caplog: pytest.LogCaptureFixture) -> None:
     engine = OpenAIAssistantEngine(api_key="", api_key_env="NO_SUCH_KEY_ENV_VAR")
     assert engine._api_key == ""
     assert engine._model == "gpt-5.6-luna"
-    assert engine._reasoning == "medium"
+    assert engine._reasoning == "high"
 
 
 def test_run_turn_parses_structured_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,6 +223,59 @@ def test_run_turn_drives_tool_calling_loop(monkeypatch: pytest.MonkeyPatch) -> N
     assert dispatcher.dispatched == [("list_skills", {})]
     assert result.reply == "You have 2 skills: alpha, beta."
     assert all(state["saw_tools"])  # tools advertised on every call in the loop
+
+
+def test_luna_high_tool_loop_uses_responses_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    import openai
+
+    calls: list[dict[str, Any]] = []
+
+    class _Responses:
+        def create(self, **kwargs: Any) -> Any:
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return SimpleNamespace(
+                    output_text="",
+                    output=[
+                        SimpleNamespace(
+                            type="function_call",
+                            call_id="tc1",
+                            name="list_skills",
+                            arguments="{}",
+                        )
+                    ],
+                )
+            return SimpleNamespace(output_text="You have 2 skills: alpha, beta.", output=[])
+
+    class _FakeOpenAI:
+        def __init__(self, **_: Any) -> None:
+            self.responses = _Responses()
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **_kwargs: pytest.fail("Luna/high tools must use Responses")
+                )
+            )
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+    dispatcher = _FakeDispatcher()
+    result = OpenAIAssistantEngine(api_key="sk-x", tool_dispatcher=dispatcher).run_turn(_request())
+
+    assert result.reply == "You have 2 skills: alpha, beta."
+    assert dispatcher.dispatched == [("list_skills", {})]
+    assert calls[0]["reasoning"] == {"effort": "high"}
+    assert calls[0]["tools"] == [
+        {
+            "type": "function",
+            "name": "list_skills",
+            "description": "list skills",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        }
+    ]
+    assert calls[1]["input"][-1] == {
+        "type": "function_call_output",
+        "call_id": "tc1",
+        "output": '[{"name": "alpha"}, {"name": "beta"}]',
+    }
 
 
 def test_run_turn_without_dispatcher_is_single_shot(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -126,7 +126,7 @@ def test_judge_parses_client_json(monkeypatch) -> None:
         create=lambda **kw: SimpleNamespace(choices=[SimpleNamespace(message=msg)])
     )
     fake_client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
-    monkeypatch.setattr(gr, "_judge_client", lambda: (fake_client, "gpt-4o-mini"))
+    monkeypatch.setattr(gr, "_judge_client", lambda: (fake_client, "gpt-4o-mini", "high"))
     assert gr._judge("text", "crit") == (True, "x")
 
 
@@ -140,7 +140,7 @@ def test_judge_returns_none_on_client_error(monkeypatch) -> None:
         raise RuntimeError("api down")
 
     fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_boom)))
-    monkeypatch.setattr(gr, "_judge_client", lambda: (fake_client, "m"))
+    monkeypatch.setattr(gr, "_judge_client", lambda: (fake_client, "m", "high"))
     assert gr._judge("t", "c") is None
 
 

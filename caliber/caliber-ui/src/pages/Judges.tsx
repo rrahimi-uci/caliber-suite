@@ -51,7 +51,7 @@ export function Judges(): JSX.Element {
     () =>
       Array.from(
         new Set([
-          "openai:/gpt-4o-mini",
+          "openai:/gpt-5.6-luna",
           ...(data ?? []).map((j) => j.model).filter((m): m is string => Boolean(m)),
         ]),
       ),
@@ -720,7 +720,7 @@ function CreateJudgePanel({
     name: "",
     description: "",
     instructions: "",
-    model: "openai:/gpt-4o-mini",
+    model: "openai:/gpt-5.6-luna",
     feedback_value_type: "bool",
     tags: [],
   });
@@ -763,7 +763,7 @@ function CreateJudgePanel({
           label="Model"
           value={form.model ?? ""}
           onChange={(v) => setForm({ ...form, model: v })}
-          placeholder="openai:/gpt-4o-mini"
+          placeholder="openai:/gpt-5.6-luna"
           list={modelSuggestions.length > 0 ? "judge-model-options" : undefined}
         />
         <datalist id="judge-model-options">

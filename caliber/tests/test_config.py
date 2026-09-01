@@ -29,7 +29,11 @@ def test_defaults() -> None:
     assert config.mcp_stdio_safe_path == os.defpath
     assert config.mcp_stdio_isolation_profile == "none"
     assert config.assistant_model == ""
-    assert config.assistant_reasoning == "medium"
+    assert config.llm_diagnosis_model == "gpt-5.6-luna"
+    assert config.llm_reasoning_effort == "high"
+    assert config.gepa_reflection_model == "gpt-5.6-luna"
+    assert config.memory_llm_model == "gpt-5.6-luna"
+    assert config.assistant_reasoning == "high"
     assert config.mcp_require_external_isolation_for_aliases == "prod"
     assert config.auth_bootstrap_admin_user == "admin"
     assert config.auth_bootstrap_allow_insecure_default is False
@@ -164,6 +168,20 @@ def test_gepa_settings_from_env() -> None:
     )
     assert config.gepa_reflection_model == "openai:/gpt-4.1"
     assert config.gepa_max_metric_calls == 250
+
+
+def test_reasoning_effort_from_env_is_validated() -> None:
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_LLM_REASONING_EFFORT": "high",
+            "CALIBER_ASSISTANT_REASONING": "high",
+        }
+    )
+    assert config.llm_reasoning_effort == "high"
+    assert config.assistant_reasoning == "high"
+
+    with pytest.raises(ConfigError, match="invalid CALIBER configuration"):
+        CaliberConfig.load(environ={"CALIBER_LLM_REASONING_EFFORT": "extreme"})
 
 
 def test_nats_event_backend_settings_from_env() -> None:

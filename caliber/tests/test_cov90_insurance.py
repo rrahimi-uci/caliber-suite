@@ -178,9 +178,10 @@ def test_judge_client_builds_openai_client_when_configured(
 
     built = gr._judge_client()
     assert built is not None
-    client, model = built
+    client, model, reasoning_effort = built
     assert client is sentinel_client
     assert model == "gpt-judge"
+    assert reasoning_effort == "high"
     # cached on repeat
     assert gr._judge_client() is built
 

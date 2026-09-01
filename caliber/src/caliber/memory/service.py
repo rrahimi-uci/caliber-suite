@@ -27,6 +27,7 @@ from typing import Any
 from sqlalchemy.engine import make_url
 
 from caliber.config import CaliberConfig
+from caliber.llm.models import reasoning_effort_for_model
 from caliber.secrets import resolve_secret
 
 logger = logging.getLogger("caliber.memory")
@@ -50,7 +51,12 @@ def build_mem0_config(config: CaliberConfig) -> dict[str, Any]:
     url = make_url(config.database_url)
     api_key = resolve_secret(config.llm_api_key_env) or ""
 
-    llm_config: dict[str, Any] = {"model": config.memory_llm_model, "api_key": api_key}
+    llm_config: dict[str, Any] = {
+        "model": config.memory_llm_model,
+        "api_key": api_key,
+    }
+    if effort := reasoning_effort_for_model(config.memory_llm_model, config.llm_reasoning_effort):
+        llm_config["reasoning_effort"] = effort
     if config.llm_base_url:
         # mem0's OpenAI LLM reads ``openai_base_url`` → route extraction through
         # the gateway.

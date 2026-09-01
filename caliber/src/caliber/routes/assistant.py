@@ -44,6 +44,7 @@ from caliber.auth import (
     resolve_identity,
     scopes_for_user,
 )
+from caliber.llm.models import DEFAULT_OPENAI_MODEL
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 
 logger = logging.getLogger(__name__)
@@ -522,7 +523,7 @@ _BUILTIN_AVAILABLE_MODELS = [
 
 # Provider defaults used when the configured model is empty (auto posture).
 _DEFAULT_MODEL_BY_PROVIDER = {
-    "openai": "gpt-5.6-luna",
+    "openai": DEFAULT_OPENAI_MODEL,
     "anthropic": "claude-sonnet-4-20250514",
     "ollama": "qwen2.5:7b",
 }
@@ -645,7 +646,7 @@ async def get_assistant_config(request: Request) -> JSONResponse:
     )
     # Empty model → report the resolved provider's default so the UI shows it.
     if not model:
-        model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, "gpt-5.6-luna")
+        model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, DEFAULT_OPENAI_MODEL)
     available_models = _available_models(current_model=model, current_provider=provider)
 
     return JSONResponse(
@@ -740,7 +741,7 @@ async def update_assistant_config(request: Request) -> JSONResponse:  # noqa: PL
         engine_name if engine_name in _REAL_ASSISTANT_ENGINES else "openai"
     )
     if not current_model:
-        current_model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, "gpt-5.6-luna")
+        current_model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, DEFAULT_OPENAI_MODEL)
 
     response_engine = engine_name
     effective_model = current_model

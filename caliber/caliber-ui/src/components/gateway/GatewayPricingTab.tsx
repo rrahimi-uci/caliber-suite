@@ -240,7 +240,7 @@ function PricingForm({
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Field label="Provider" value={form.provider} onChange={set("provider")} placeholder="openai" />
-        <Field label="Model" value={form.model_id} onChange={set("model_id")} placeholder="gpt-4o" />
+        <Field label="Model" value={form.model_id} onChange={set("model_id")} placeholder="gpt-5.6-luna" />
         <Field label="$/1K in" value={form.prompt_price} onChange={set("prompt_price")} placeholder="0.0025" />
         <Field
           label="$/1K out"

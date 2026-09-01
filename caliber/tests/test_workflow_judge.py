@@ -44,10 +44,11 @@ def test_openai_judge_omits_temperature_for_reasoning_model(
     _install_fake_openai(monkeypatch, captured)
     score = _openai_judge_fn("sk-test", "gpt-5.2")("question", "answer")
     assert score == 0.8
-    # Reasoning models reject a custom temperature (and need reasoning budget),
-    # so the judge must send neither — this is the bug being guarded.
+    # Reasoning models reject a custom temperature and receive the repository's
+    # high reasoning budget.
     assert "temperature" not in captured
     assert "max_tokens" not in captured
+    assert captured["reasoning_effort"] == "high"
 
 
 def test_openai_judge_sets_temperature_for_plain_model(
