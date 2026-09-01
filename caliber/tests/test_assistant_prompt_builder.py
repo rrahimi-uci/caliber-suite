@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from caliber.assistant.models import AssistantTurnRequest
-from caliber.assistant.prompt_builder import build_assistant_system_prompt
+from caliber.assistant.prompt_builder import (
+    build_assistant_system_prompt,
+    parse_assistant_response,
+)
 from caliber.assistant.skill_runtime import AssistantResolvedSkill
 from caliber.assistant.task_context import AssistantTaskContext, TaskContextRef
 
@@ -49,6 +52,23 @@ def test_prompt_includes_selected_skill_after_platform_policy() -> None:
     assert (
         "File formats such as csv, json, pdf, and markdown are not CALIBER artifact types" in prompt
     )
+
+
+def test_response_parser_ignores_non_list_structured_fields() -> None:
+    result = parse_assistant_response(
+        '{"reply":"usable","questions":null,"draft_deltas":{"artifact_type":"csv"}}'
+    )
+
+    assert result.reply == "usable"
+    assert result.questions == []
+    assert result.draft_deltas == []
+
+
+def test_response_parser_does_not_treat_string_false_as_done() -> None:
+    result = parse_assistant_response('{"reply":"continue","done":"false"}')
+
+    assert result.reply == "continue"
+    assert result.done is False
 
 
 def test_normal_skill_authoring_does_not_enter_playground_mode() -> None:

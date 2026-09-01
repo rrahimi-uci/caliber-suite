@@ -103,8 +103,11 @@ def parse_assistant_response(content: str) -> AssistantTurnResult:
     if not isinstance(data, dict) or "reply" not in data:
         return AssistantTurnResult(reply=content)
 
+    raw_questions = data.get("questions", [])
+    if not isinstance(raw_questions, list):
+        raw_questions = []
     questions: list[ClarifyingQuestion] = []
-    for item in data.get("questions", []):
+    for item in raw_questions:
         try:
             questions.append(
                 ClarifyingQuestion(**item)
@@ -114,19 +117,24 @@ def parse_assistant_response(content: str) -> AssistantTurnResult:
         except (TypeError, ValidationError):
             continue
 
+    raw_deltas = data.get("draft_deltas", [])
+    if not isinstance(raw_deltas, list):
+        raw_deltas = []
     deltas: list[DraftDelta] = []
-    for item in data.get("draft_deltas", []):
+    for item in raw_deltas:
         try:
             deltas.append(DraftDelta(**item) if isinstance(item, dict) else DraftDelta())
         except (TypeError, ValidationError):
             continue
 
     reply = data.get("reply", content)
+    raw_done = data.get("done", False)
+    done = raw_done if isinstance(raw_done, bool) else False
     return AssistantTurnResult(
         reply=reply if isinstance(reply, str) else str(reply),
         questions=questions,
         draft_deltas=deltas,
-        done=bool(data.get("done", False)),
+        done=done,
     )
 
 
