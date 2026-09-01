@@ -91,9 +91,10 @@ def test_caliber_image_is_reproducible_and_unprivileged() -> None:
 
     assert "RUN npm ci --no-audit --no-fund" in dockerfile
     assert "ARG CALIBER_INSTALL_EXTRAS=" in dockerfile
-    assert "-e \"/app[${CALIBER_INSTALL_EXTRAS}]\"" in dockerfile
+    assert '-e "/app[${CALIBER_INSTALL_EXTRAS}]"' in dockerfile
     assert "deepeval" in dockerfile.split("ARG CALIBER_INSTALL_EXTRAS=", 1)[1].splitlines()[0]
     assert "USER 65532:65532" in dockerfile
+
 
 def test_suite_root_docker_context_excludes_local_secrets_and_databases() -> None:
     patterns = {

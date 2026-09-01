@@ -124,6 +124,7 @@ class MLflowEvalProvider:
 
         data = self._resolve_dataset(request.eval_dataset_id, request.eval_dataset_version)
         scorers = self._resolve_scorers(request.scorer_names, request.scorer_configs)
+        metric_names = _selected_metric_names(request.scorer_names, scorers)
 
         candidate_scores = self._run_eval_pass(
             mlflow,
@@ -133,6 +134,8 @@ class MLflowEvalProvider:
             label="candidate",
             request=request,
         )
+        candidate_scores = _align_selected_scores(candidate_scores, metric_names)
+        _require_requested_scores(candidate_scores, request.scorer_names, label="candidate")
         candidate_scores = apply_scorer_weights(candidate_scores, request.scorer_weights)
 
         baseline_scores: ScoreSet | None
@@ -147,6 +150,8 @@ class MLflowEvalProvider:
                 label="baseline",
                 request=request,
             )
+            baseline_scores = _align_selected_scores(baseline_scores, metric_names)
+            _require_requested_scores(baseline_scores, request.scorer_names, label="baseline")
             baseline_scores = apply_scorer_weights(baseline_scores, request.scorer_weights)
 
         deltas = _compute_deltas(candidate_scores, baseline_scores)
@@ -405,6 +410,43 @@ def _metrics_to_score_set(metrics: dict[str, Any]) -> ScoreSet:
         overall = 0.0
 
     return ScoreSet(overall=round(overall, 4), dimensions=dimensions)
+
+
+def _selected_metric_names(selected: list[str], scorers: list[Any]) -> dict[str, str]:
+    """Map UI scorer identifiers to the metric names emitted by MLflow."""
+    if not selected:
+        return {}
+    return {
+        selected_name: str(getattr(scorer, "name", selected_name) or selected_name)
+        for selected_name, scorer in zip(selected, scorers, strict=True)
+    }
+
+
+def _align_selected_scores(scores: ScoreSet, metric_names: dict[str, str]) -> ScoreSet:
+    """Rename MLflow metric dimensions to the scorer identifiers CALIBER stores."""
+    if not metric_names:
+        return scores
+    dimensions = dict(scores.dimensions)
+    for selected_name, metric_name in metric_names.items():
+        if selected_name in dimensions or metric_name not in dimensions:
+            continue
+        dimensions[selected_name] = dimensions.pop(metric_name)
+    return ScoreSet(overall=scores.overall, dimensions=dimensions)
+
+
+def _require_requested_scores(scores: ScoreSet, requested: list[str], *, label: str) -> None:
+    """Fail the run when MLflow omitted any explicitly selected scorer.
+
+    MLflow can finish an evaluation while recording NaN for a scorer that
+    failed on every row. Treating the remaining dimensions as the full score
+    silently inflated invalid calibration runs to 100 percent.
+    """
+    missing = [name for name in requested if name not in scores.dimensions]
+    if missing:
+        raise EvalProviderError(
+            f"{label} evaluation produced no valid score for selected scorer(s): "
+            f"{', '.join(missing)}. Check the scorer requirements and eval dataset fields."
+        )
 
 
 def _loader_accepts_version(loader: Callable[..., Any]) -> bool:
