@@ -91,6 +91,7 @@ class OpenAIAssistantEngine:
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         for msg in request.history:
             messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+        messages.append({"role": "user", "content": request.user_message})
 
         # A per-turn toolset (context-bound, permissioned) takes precedence over
         # the constructor-time read-only dispatcher.

@@ -264,6 +264,7 @@ def test_luna_high_tool_loop_uses_responses_api(monkeypatch: pytest.MonkeyPatch)
     assert result.reply == "You have 2 skills: alpha, beta."
     assert dispatcher.dispatched == [("list_skills", {})]
     assert calls[0]["reasoning"] == {"effort": "high"}
+    assert calls[0]["input"][-1] == {"role": "user", "content": "help me"}
     assert calls[0]["tools"] == [
         {
             "type": "function",
@@ -284,7 +285,7 @@ def test_luna_high_tool_loop_uses_responses_api(monkeypatch: pytest.MonkeyPatch)
 def test_run_turn_without_dispatcher_is_single_shot(monkeypatch: pytest.MonkeyPatch) -> None:
     import openai
 
-    state = {"create": 0, "saw_tools": False}
+    state: dict[str, Any] = {"create": 0, "saw_tools": False, "messages": []}
 
     class _FakeOpenAI:
         def __init__(self, **_: Any) -> None:
@@ -293,6 +294,7 @@ def test_run_turn_without_dispatcher_is_single_shot(monkeypatch: pytest.MonkeyPa
         def _create(self, **kwargs: Any) -> Any:
             state["create"] += 1
             state["saw_tools"] = "tools" in kwargs
+            state["messages"] = kwargs["messages"]
             return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="hi"))])
 
     monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
@@ -302,6 +304,7 @@ def test_run_turn_without_dispatcher_is_single_shot(monkeypatch: pytest.MonkeyPa
 
     assert state["create"] == 1  # single shot
     assert state["saw_tools"] is False  # no tools advertised
+    assert state["messages"][-1] == {"role": "user", "content": "help me"}
     assert result.reply == "hi"
 
 
