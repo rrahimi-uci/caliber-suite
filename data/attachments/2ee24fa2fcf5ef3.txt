@@ -1,0 +1,31 @@
+WARNING  caliber.workflows.runtime:runtime.py:5409 for_each agent item failed: boom:c
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 5381, in _run_agent_item
+    toks, child_step, child_outputs, child_artifacts = _run_inline_target_node(
+                                                       ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 5021, in _run_inline_target_node
+    tokens, step = _run_node_with_policy(
+                   ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6912, in _run_node_with_policy
+    raise last_exc
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6862, in _run_node_with_policy
+    tokens, step = _execute()
+                   ^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6846, in _execute
+    return _run_node_traced(
+           ^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6761, in _run_node_traced
+    return _run_node(
+           ^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 6456, in _run_node
+    result, published_history, source_history = _run_agent_with_history(
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 4054, in _run_agent_with_history
+    result = _run_agent_traced(
+             ^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/workflows/runtime.py", line 1677, in _run_agent_traced
+    result = run_agent(agent, input_text, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_workflow_runtime.py", line 2905, in run_agent
+    raise RuntimeError(f"boom:{input_text}")
+RuntimeError: boom:c
