@@ -36,7 +36,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-# Plugin with S3 + Postgres + LLM + NATS extras (MinIO storage, Postgres
+# Plugin with S3 + Postgres + LLM + DeepEval + NATS extras (MinIO storage, Postgres
 # metadata DB, real OpenAI-backed LLM provider and DeepEval scorer support,
 # knowledge-base chunking + graph extraction, document ingestion + OCR, and
 # shared event fanout)
