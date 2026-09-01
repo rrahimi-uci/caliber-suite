@@ -1,0 +1,3 @@
+{"t":"2026-09-01T22:12:14.109Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool flaky failed (attempt 1/2): still broken"}
+{"t":"2026-09-01T22:12:14.109Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool flaky failed (attempt 2/2): still broken"}
+{"t":"2026-09-01T22:12:14.111Z","severity":"WARNING","logger":"caliber.workflows.runtime","message":"tool slow timed out (attempt 1/1)"}

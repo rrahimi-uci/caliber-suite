@@ -1,0 +1,1 @@
+INFO     caliber.orchestrator.janitor:janitor.py:137 janitor pruned 5 expired workflow-run rows
