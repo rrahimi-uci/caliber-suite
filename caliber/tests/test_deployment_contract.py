@@ -83,6 +83,8 @@ def test_caliber_image_is_reproducible_and_unprivileged() -> None:
     dockerfile = (REPO_ROOT / "deploy" / "caliber" / "Dockerfile").read_text()
 
     assert "RUN npm ci --no-audit --no-fund" in dockerfile
+    assert "ARG CALIBER_INSTALL_EXTRAS=" in dockerfile
+    assert "deepeval" in dockerfile.split("ARG CALIBER_INSTALL_EXTRAS=", 1)[1].splitlines()[0]
     assert "USER 65532:65532" in dockerfile
 
 

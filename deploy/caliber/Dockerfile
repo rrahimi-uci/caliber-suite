@@ -22,7 +22,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 ARG CALIBER_DEFAULT_SPACY_MODEL=en_core_web_sm
-ARG CALIBER_INSTALL_EXTRAS=s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge
+ARG CALIBER_INSTALL_EXTRAS=s3,postgres,llm,deepeval,anthropic,nats,ingest,ocr,knowledge
 ARG CALIBER_TORCH_SPEC=torch>=1.11,<3
 ARG TORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
 
@@ -37,8 +37,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Plugin with S3 + Postgres + LLM + NATS extras (MinIO storage, Postgres
-# metadata DB, real OpenAI-backed LLM provider support, knowledge-base chunking
-# + graph extraction, document ingestion + OCR, and shared event fanout)
+# metadata DB, real OpenAI-backed LLM provider and DeepEval scorer support,
+# knowledge-base chunking + graph extraction, document ingestion + OCR, and
+# shared event fanout)
 # + uvicorn + alembic.
 #
 # Keep the default image on the safer `knowledge` profile. When a deployment
