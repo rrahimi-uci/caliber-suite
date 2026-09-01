@@ -91,11 +91,11 @@
         </header>
 <p>These recipes are the SDK-native counterparts to the platform cookbook gallery. Each example uses only <code>caliber-sdk</code> plus Python's standard library.</p>
 <p>Design rule:</p>
-<ul><li>use the built-in cookbook installer to materialize the versioned platform recipe that CALIBER already ships;</li><li>then use typed SDK resources — never <code>client.raw</code> — to finish configuration, execution, and evidence capture. <code>client.raw</code> remains the SDK's permanent escape hatch for a route the typed layer has not wrapped yet (see the <a href="m-20-sdk-guide.html#anything-not-yet-modelled">SDK guide</a>), but none of the sixteen recipes below currently need it: a prior pass through this gallery found three that reached for it out of habit rather than necessity, and each had an existing typed method all along.</li></ul>
+<ul><li>use the built-in cookbook installer when the example extends one of the versioned platform recipes CALIBER already ships;</li><li>create standalone SDK automation examples directly through typed resources when there is no corresponding installable workflow recipe;</li><li>use typed SDK resources — never <code>client.raw</code> — for configuration, execution, file persistence, and evidence capture. <code>client.raw</code> remains the SDK's permanent escape hatch for a route the typed layer has not wrapped yet (see the <a href="m-20-sdk-guide.html#anything-not-yet-modelled">SDK guide</a>), but none of the recipes below currently need it.</li></ul>
 <p>Every code block on this page is generated from the source files under <code>sdk/caliber-sdk/examples/cookbooks/</code> at build time. The example test suite executes those files so the published docs stay tied to runnable SDK code.</p>
 <p>For setup and typed client behavior, use the <a href="m-20-sdk-guide.html">SDK guide</a> and the <a href="m-21-sdk-reference.html">SDK API reference</a>. This page is only for end-to-end runnable examples.</p>
 <h2 id="cookbook-implementations">Cookbook implementations<a class="anchor" href="#cookbook-implementations" aria-hidden="true" tabindex="-1">#</a></h2>
-<p>Each script on this page follows the same contract: inspect readiness, install the versioned recipe through the cookbook catalog, and then finish the scenario entirely through typed SDK calls — <code>client.raw</code> is the SDK's permanent escape hatch for anything not yet wrapped, but none of these sixteen recipes currently need it.</p>
+<p>Each script on this page finishes its scenario entirely through typed SDK calls. Recipes 01–16 extend versioned entries in the built-in cookbook catalog; standalone SDK automations such as recipe 17 create their own project and assets directly. <code>client.raw</code> is the SDK's permanent escape hatch for anything not yet wrapped, but none of these recipes currently need it.</p>
 <p>The code blocks are full files, not snippets. You can run them directly once <code>CALIBER_BASE_URL</code> and <code>CALIBER_TOKEN</code> are set.</p>
 <pre class="language-bash"><code class="language-bash">export CALIBER_BASE_URL=https://caliber.example.com
 export CALIBER_TOKEN=calpat_...
@@ -1661,6 +1661,467 @@ draft against it.
 
 <span class="tok-keyword">if</span> __name__ <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"__main__"</span><span class="tok-punctuation">:</span>
     <span class="tok-function">main</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span></code></pre><figcaption>Full source from <code>sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py</code> — executed by the SDK example test suite.</figcaption></figure>
+<h2 id="cookbook-17-monthly-financial-analysis">Cookbook 17 — Monthly Financial Analysis<a class="anchor" href="#cookbook-17-monthly-financial-analysis" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Create a project and object-store bucket, generate and persist realistic monthly financial CSV data, register and execute a statistics prompt, then persist and verify the structured analysis -- entirely through typed SDK resources. This recipe requires an admin-scoped SDK token for object-store mutations and a configured model provider for live prompt execution.</p>
+<p><strong>SDK surfaces:</strong> <code>projects</code>, <code>object_store</code>, <code>prompts</code>, <code>aria</code></p>
+<ol><li>Create the financial-analysis project and select it as the temporary SDK project scope.</li><li>Create a dedicated blob bucket, generate the CSV in memory, upload and download-verify it, then import the object into the project's governed file registry for lineage.</li><li>Create and re-read the registered prompt, execute it through the typed assistant-session surface, validate its mean/median/percentile/extrema JSON, then upload and download-verify the result in blob storage.</li></ol>
+<figure class="code-example" data-example-src="sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py"><pre class="language-python"><code class="language-python"><span class="tok-string">"""Create, execute, and persist a monthly financial analysis using only the SDK."""</span>
+
+<span class="tok-keyword">from</span> __future__ <span class="tok-keyword">import</span> annotations
+
+<span class="tok-keyword">import</span> csv
+<span class="tok-keyword">import</span> io
+<span class="tok-keyword">import</span> json
+<span class="tok-keyword">import</span> math
+<span class="tok-keyword">import</span> re
+<span class="tok-keyword">from</span> datetime <span class="tok-keyword">import</span> datetime<span class="tok-punctuation">,</span> timezone
+<span class="tok-keyword">from</span> typing <span class="tok-keyword">import</span> Any
+
+<span class="tok-keyword">from</span> caliber_sdk <span class="tok-keyword">import</span> CaliberClient
+<span class="tok-keyword">from</span> examples<span class="tok-punctuation">.</span>cookbooks<span class="tok-punctuation">.</span>_helpers <span class="tok-keyword">import</span> env_client
+
+CSV_FILENAME <span class="tok-operator">=</span> <span class="tok-string">"monthly-financials.csv"</span>
+RESULT_FILENAME <span class="tok-operator">=</span> <span class="tok-string">"monthly-financial-analysis.json"</span>
+NUMERIC_COLUMNS <span class="tok-operator">=</span> <span class="tok-punctuation">(</span>
+    <span class="tok-string">"revenue"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"payroll"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"operating_income"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">,</span>
+    <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span>
+CSV_FIELDS <span class="tok-operator">=</span> <span class="tok-punctuation">(</span><span class="tok-string">"month"</span><span class="tok-punctuation">,</span> <span class="tok-operator">*</span>NUMERIC_COLUMNS<span class="tok-punctuation">)</span>
+
+<span class="tok-comment"># ``operating_expenses`` is general operating spend excluding the separately</span>
+<span class="tok-comment"># reported payroll, cloud/compute, and other-expense categories. The last three</span>
+<span class="tok-comment"># columns are month-end balance-sheet snapshots; all amounts are USD.</span>
+MONTHLY_FINANCIALS<span class="tok-punctuation">:</span> tuple<span class="tok-punctuation">[</span>dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> str<span class="tok-punctuation">]</span><span class="tok-punctuation">,</span> <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">]</span> <span class="tok-operator">=</span> <span class="tok-punctuation">(</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-01"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1240000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"185000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"420000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"92000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"48000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"745000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"495000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2850000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"410000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"215000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-02"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1315000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"190000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"425000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"95000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"51000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"761000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"554000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"3010000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"432000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"221000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-03"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1380000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"198000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"428000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"101000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"47000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"774000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"606000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"3225000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"447000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"229000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-04"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1290000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"192000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"435000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"104000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"56000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"787000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"503000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"3310000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"438000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"236000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-05"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1460000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"205000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"442000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"109000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"52000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"808000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"652000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"3540000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"469000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"244000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-06"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1530000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"212000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"448000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"115000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"61000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"836000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"694000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"3795000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"488000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"252000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-07"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1490000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"210000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"455000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"121000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"58000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"844000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"646000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"3960000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"481000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"261000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-08"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1610000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"218000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"462000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"128000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"54000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"862000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"748000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"4215000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"512000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"269000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-09"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1570000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"216000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"468000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"126000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"63000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"873000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"697000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"4380000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"505000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"278000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-10"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1720000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"225000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"475000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"134000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"57000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"891000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"829000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"4675000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"541000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"287000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-11"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1810000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"232000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"482000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"141000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"69000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"924000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"886000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"4950000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"568000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"298000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">{</span>
+        <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> <span class="tok-string">"2025-12"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"revenue"</span><span class="tok-punctuation">:</span> <span class="tok-string">"1960000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"245000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"payroll"</span><span class="tok-punctuation">:</span> <span class="tok-string">"495000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cloud_compute_costs"</span><span class="tok-punctuation">:</span> <span class="tok-string">"153000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"other_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"88000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"total_expenses"</span><span class="tok-punctuation">:</span> <span class="tok-string">"981000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"operating_income"</span><span class="tok-punctuation">:</span> <span class="tok-string">"979000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"cash_balance"</span><span class="tok-punctuation">:</span> <span class="tok-string">"5320000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_receivable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"596000"</span><span class="tok-punctuation">,</span>
+        <span class="tok-string">"accounts_payable"</span><span class="tok-punctuation">:</span> <span class="tok-string">"312000"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+<span class="tok-punctuation">)</span>
+
+PROMPT_TEMPLATE <span class="tok-operator">=</span> <span class="tok-string">"""You are a financial analyst. Analyze the CSV supplied in the user message.
+
+The CSV contains monthly USD values. `operating_expenses` excludes payroll,
+cloud/compute, and other expenses. `total_expenses` is their sum, and
+`operating_income` is revenue minus total expenses. Cash, receivables, and
+payables are month-end balance-sheet snapshots.
+
+For every numeric column, calculate mean, median, P25, P50, P75, P90, minimum,
+and maximum. Use linear interpolation with rank `(n - 1) * percentile`; P50 must
+equal the median. Minimum and maximum must include both month and value.
+
+Return only one valid JSON object with this exact top-level shape:
+{
+  "currency": "USD",
+  "periods": 12,
+  "percentile_method": "linear_interpolation_rank_(n-1)*p",
+  "statistics": {
+    "&lt;numeric_column&gt;": {
+      "mean": 0,
+      "median": 0,
+      "p25": 0,
+      "p50": 0,
+      "p75": 0,
+      "p90": 0,
+      "minimum": {"month": "YYYY-MM", "value": 0},
+      "maximum": {"month": "YYYY-MM", "value": 0}
+    }
+  },
+  "observations": ["two or three concise findings grounded in the numbers"]
+}
+
+Do not omit columns, add commentary outside the JSON, or invent data."""</span>
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">build_financial_csv</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> bytes<span class="tok-punctuation">:</span>
+    <span class="tok-string">"""Return the complete input fixture without writing a local file."""</span>
+    stream <span class="tok-operator">=</span> io<span class="tok-punctuation">.</span><span class="tok-function">StringIO</span><span class="tok-punctuation">(</span>newline<span class="tok-operator">=</span><span class="tok-string">""</span><span class="tok-punctuation">)</span>
+    writer <span class="tok-operator">=</span> csv<span class="tok-punctuation">.</span><span class="tok-function">DictWriter</span><span class="tok-punctuation">(</span>stream<span class="tok-punctuation">,</span> fieldnames<span class="tok-operator">=</span>CSV_FIELDS<span class="tok-punctuation">,</span> lineterminator<span class="tok-operator">=</span><span class="tok-string">"\n"</span><span class="tok-punctuation">)</span>
+    writer<span class="tok-punctuation">.</span><span class="tok-function">writeheader</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+    writer<span class="tok-punctuation">.</span><span class="tok-function">writerows</span><span class="tok-punctuation">(</span>MONTHLY_FINANCIALS<span class="tok-punctuation">)</span>
+    <span class="tok-keyword">return</span> stream<span class="tok-punctuation">.</span><span class="tok-function">getvalue</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span><span class="tok-punctuation">.</span><span class="tok-function">encode</span><span class="tok-punctuation">(</span><span class="tok-string">"utf-8"</span><span class="tok-punctuation">)</span>
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">_percentile</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">:</span> list<span class="tok-punctuation">[</span>float<span class="tok-punctuation">]</span><span class="tok-punctuation">,</span> percentile<span class="tok-punctuation">:</span> float<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> float<span class="tok-punctuation">:</span>
+    ordered <span class="tok-operator">=</span> <span class="tok-function">sorted</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">)</span>
+    rank <span class="tok-operator">=</span> <span class="tok-punctuation">(</span><span class="tok-function">len</span><span class="tok-punctuation">(</span>ordered<span class="tok-punctuation">)</span> <span class="tok-operator">-</span> <span class="tok-number">1</span><span class="tok-punctuation">)</span> <span class="tok-operator">*</span> percentile
+    lower <span class="tok-operator">=</span> math<span class="tok-punctuation">.</span><span class="tok-function">floor</span><span class="tok-punctuation">(</span>rank<span class="tok-punctuation">)</span>
+    upper <span class="tok-operator">=</span> math<span class="tok-punctuation">.</span><span class="tok-function">ceil</span><span class="tok-punctuation">(</span>rank<span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> lower <span class="tok-operator">=</span><span class="tok-operator">=</span> upper<span class="tok-punctuation">:</span>
+        <span class="tok-keyword">return</span> ordered<span class="tok-punctuation">[</span>lower<span class="tok-punctuation">]</span>
+    <span class="tok-keyword">return</span> ordered<span class="tok-punctuation">[</span>lower<span class="tok-punctuation">]</span> <span class="tok-operator">+</span> <span class="tok-punctuation">(</span>ordered<span class="tok-punctuation">[</span>upper<span class="tok-punctuation">]</span> <span class="tok-operator">-</span> ordered<span class="tok-punctuation">[</span>lower<span class="tok-punctuation">]</span><span class="tok-punctuation">)</span> <span class="tok-operator">*</span> <span class="tok-punctuation">(</span>rank <span class="tok-operator">-</span> lower<span class="tok-punctuation">)</span>
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">expected_statistics</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
+    <span class="tok-string">"""Deterministic reference used to reject plausible-looking bad model math."""</span>
+    statistics<span class="tok-punctuation">:</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">]</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span><span class="tok-punctuation">}</span>
+    <span class="tok-keyword">for</span> column <span class="tok-keyword">in</span> NUMERIC_COLUMNS<span class="tok-punctuation">:</span>
+        values <span class="tok-operator">=</span> <span class="tok-punctuation">[</span><span class="tok-function">float</span><span class="tok-punctuation">(</span>row<span class="tok-punctuation">[</span>column<span class="tok-punctuation">]</span><span class="tok-punctuation">)</span> <span class="tok-keyword">for</span> row <span class="tok-keyword">in</span> MONTHLY_FINANCIALS<span class="tok-punctuation">]</span>
+        minimum <span class="tok-operator">=</span> <span class="tok-function">min</span><span class="tok-punctuation">(</span><span class="tok-function">enumerate</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> key<span class="tok-operator">=</span><span class="tok-keyword">lambda</span> pair<span class="tok-punctuation">:</span> pair<span class="tok-punctuation">[</span><span class="tok-number">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+        maximum <span class="tok-operator">=</span> <span class="tok-function">max</span><span class="tok-punctuation">(</span><span class="tok-function">enumerate</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> key<span class="tok-operator">=</span><span class="tok-keyword">lambda</span> pair<span class="tok-punctuation">:</span> pair<span class="tok-punctuation">[</span><span class="tok-number">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+        statistics<span class="tok-punctuation">[</span>column<span class="tok-punctuation">]</span> <span class="tok-operator">=</span> <span class="tok-punctuation">{</span>
+            <span class="tok-string">"mean"</span><span class="tok-punctuation">:</span> <span class="tok-function">sum</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">)</span> <span class="tok-operator">/</span> <span class="tok-function">len</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"median"</span><span class="tok-punctuation">:</span> <span class="tok-function">_percentile</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">,</span> <span class="tok-number">0.50</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"p25"</span><span class="tok-punctuation">:</span> <span class="tok-function">_percentile</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">,</span> <span class="tok-number">0.25</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"p50"</span><span class="tok-punctuation">:</span> <span class="tok-function">_percentile</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">,</span> <span class="tok-number">0.50</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"p75"</span><span class="tok-punctuation">:</span> <span class="tok-function">_percentile</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">,</span> <span class="tok-number">0.75</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"p90"</span><span class="tok-punctuation">:</span> <span class="tok-function">_percentile</span><span class="tok-punctuation">(</span>values<span class="tok-punctuation">,</span> <span class="tok-number">0.90</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"minimum"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span>
+                <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> MONTHLY_FINANCIALS<span class="tok-punctuation">[</span>minimum<span class="tok-punctuation">[</span><span class="tok-number">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"month"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+                <span class="tok-string">"value"</span><span class="tok-punctuation">:</span> minimum<span class="tok-punctuation">[</span><span class="tok-number">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+            <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"maximum"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">{</span>
+                <span class="tok-string">"month"</span><span class="tok-punctuation">:</span> MONTHLY_FINANCIALS<span class="tok-punctuation">[</span>maximum<span class="tok-punctuation">[</span><span class="tok-number">0</span><span class="tok-punctuation">]</span><span class="tok-punctuation">]</span><span class="tok-punctuation">[</span><span class="tok-string">"month"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+                <span class="tok-string">"value"</span><span class="tok-punctuation">:</span> maximum<span class="tok-punctuation">[</span><span class="tok-number">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">,</span>
+            <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">}</span>
+    <span class="tok-keyword">return</span> statistics
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">_is_number</span><span class="tok-punctuation">(</span>value<span class="tok-punctuation">:</span> Any<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> bool<span class="tok-punctuation">:</span>
+    <span class="tok-keyword">return</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>value<span class="tok-punctuation">,</span> <span class="tok-punctuation">(</span>int<span class="tok-punctuation">,</span> float<span class="tok-punctuation">)</span><span class="tok-punctuation">)</span> <span class="tok-keyword">and</span> <span class="tok-keyword">not</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>value<span class="tok-punctuation">,</span> bool<span class="tok-punctuation">)</span>
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">parse_analysis</span><span class="tok-punctuation">(</span>content<span class="tok-punctuation">:</span> str<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
+    <span class="tok-string">"""Decode and validate the model's strict JSON financial-analysis result."""</span>
+    candidate <span class="tok-operator">=</span> content<span class="tok-punctuation">.</span><span class="tok-function">strip</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> candidate<span class="tok-punctuation">.</span><span class="tok-function">startswith</span><span class="tok-punctuation">(</span><span class="tok-string">"```"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+        candidate <span class="tok-operator">=</span> re<span class="tok-punctuation">.</span><span class="tok-function">sub</span><span class="tok-punctuation">(</span><span class="tok-string">r"^```(?:json)?\s*"</span><span class="tok-punctuation">,</span> <span class="tok-string">""</span><span class="tok-punctuation">,</span> candidate<span class="tok-punctuation">,</span> count<span class="tok-operator">=</span><span class="tok-number">1</span><span class="tok-punctuation">,</span> flags<span class="tok-operator">=</span>re<span class="tok-punctuation">.</span>I<span class="tok-punctuation">)</span>
+        candidate <span class="tok-operator">=</span> re<span class="tok-punctuation">.</span><span class="tok-function">sub</span><span class="tok-punctuation">(</span><span class="tok-string">r"\s*```$"</span><span class="tok-punctuation">,</span> <span class="tok-string">""</span><span class="tok-punctuation">,</span> candidate<span class="tok-punctuation">,</span> count<span class="tok-operator">=</span><span class="tok-number">1</span><span class="tok-punctuation">)</span>
+    start<span class="tok-punctuation">,</span> end <span class="tok-operator">=</span> candidate<span class="tok-punctuation">.</span><span class="tok-function">find</span><span class="tok-punctuation">(</span><span class="tok-string">"{"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> candidate<span class="tok-punctuation">.</span><span class="tok-function">rfind</span><span class="tok-punctuation">(</span><span class="tok-string">"}"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> start <span class="tok-operator">&lt;</span> <span class="tok-number">0</span> <span class="tok-keyword">or</span> end <span class="tok-operator">&lt;</span> start<span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">"prompt result did not contain a JSON object"</span><span class="tok-punctuation">)</span>
+    parsed <span class="tok-operator">=</span> json<span class="tok-punctuation">.</span><span class="tok-function">loads</span><span class="tok-punctuation">(</span>candidate<span class="tok-punctuation">[</span>start <span class="tok-punctuation">:</span> end <span class="tok-operator">+</span> <span class="tok-number">1</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>parsed<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">"prompt result must be a JSON object"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> parsed<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"currency"</span><span class="tok-punctuation">)</span> <span class="tok-operator">!</span><span class="tok-operator">=</span> <span class="tok-string">"USD"</span> <span class="tok-keyword">or</span> parsed<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"periods"</span><span class="tok-punctuation">)</span> <span class="tok-operator">!</span><span class="tok-operator">=</span> <span class="tok-function">len</span><span class="tok-punctuation">(</span>MONTHLY_FINANCIALS<span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">"prompt result has the wrong currency or period count"</span><span class="tok-punctuation">)</span>
+    statistics <span class="tok-operator">=</span> parsed<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"statistics"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>statistics<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">"prompt result is missing the statistics object"</span><span class="tok-punctuation">)</span>
+    metric_names <span class="tok-operator">=</span> <span class="tok-punctuation">(</span><span class="tok-string">"mean"</span><span class="tok-punctuation">,</span> <span class="tok-string">"median"</span><span class="tok-punctuation">,</span> <span class="tok-string">"p25"</span><span class="tok-punctuation">,</span> <span class="tok-string">"p50"</span><span class="tok-punctuation">,</span> <span class="tok-string">"p75"</span><span class="tok-punctuation">,</span> <span class="tok-string">"p90"</span><span class="tok-punctuation">)</span>
+    reference <span class="tok-operator">=</span> <span class="tok-function">expected_statistics</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">for</span> column <span class="tok-keyword">in</span> NUMERIC_COLUMNS<span class="tok-punctuation">:</span>
+        metrics <span class="tok-operator">=</span> statistics<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span>column<span class="tok-punctuation">)</span>
+        <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>metrics<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+            <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">f"prompt result is missing statistics for {column}"</span><span class="tok-punctuation">)</span>
+        <span class="tok-keyword">if</span> <span class="tok-function">any</span><span class="tok-punctuation">(</span><span class="tok-keyword">not</span> <span class="tok-function">_is_number</span><span class="tok-punctuation">(</span>metrics<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span>name<span class="tok-punctuation">)</span><span class="tok-punctuation">)</span> <span class="tok-keyword">for</span> name <span class="tok-keyword">in</span> metric_names<span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+            <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">f"prompt result has non-numeric statistics for {column}"</span><span class="tok-punctuation">)</span>
+        <span class="tok-keyword">for</span> name <span class="tok-keyword">in</span> metric_names<span class="tok-punctuation">:</span>
+            <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> math<span class="tok-punctuation">.</span><span class="tok-function">isclose</span><span class="tok-punctuation">(</span>
+                <span class="tok-function">float</span><span class="tok-punctuation">(</span>metrics<span class="tok-punctuation">[</span>name<span class="tok-punctuation">]</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-function">float</span><span class="tok-punctuation">(</span>reference<span class="tok-punctuation">[</span>column<span class="tok-punctuation">]</span><span class="tok-punctuation">[</span>name<span class="tok-punctuation">]</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> rel_tol<span class="tok-operator">=</span><span class="tok-number">0</span><span class="tok-punctuation">,</span> abs_tol<span class="tok-operator">=</span><span class="tok-number">0.01</span>
+            <span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+                <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">f"prompt result has an incorrect {name} for {column}"</span><span class="tok-punctuation">)</span>
+        <span class="tok-keyword">for</span> extreme <span class="tok-keyword">in</span> <span class="tok-punctuation">(</span><span class="tok-string">"minimum"</span><span class="tok-punctuation">,</span> <span class="tok-string">"maximum"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+            value <span class="tok-operator">=</span> metrics<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span>extreme<span class="tok-punctuation">)</span>
+            <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>value<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">)</span> <span class="tok-keyword">or</span> <span class="tok-keyword">not</span> <span class="tok-function">_is_number</span><span class="tok-punctuation">(</span>value<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"value"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+                <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">f"prompt result has an invalid {extreme} for {column}"</span><span class="tok-punctuation">)</span>
+            expected_extreme <span class="tok-operator">=</span> reference<span class="tok-punctuation">[</span>column<span class="tok-punctuation">]</span><span class="tok-punctuation">[</span>extreme<span class="tok-punctuation">]</span>
+            <span class="tok-keyword">if</span> value<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"month"</span><span class="tok-punctuation">)</span> <span class="tok-operator">!</span><span class="tok-operator">=</span> expected_extreme<span class="tok-punctuation">[</span><span class="tok-string">"month"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
+                <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">f"prompt result has an invalid {extreme} month for {column}"</span><span class="tok-punctuation">)</span>
+            <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> math<span class="tok-punctuation">.</span><span class="tok-function">isclose</span><span class="tok-punctuation">(</span>
+                <span class="tok-function">float</span><span class="tok-punctuation">(</span>value<span class="tok-punctuation">[</span><span class="tok-string">"value"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> <span class="tok-function">float</span><span class="tok-punctuation">(</span>expected_extreme<span class="tok-punctuation">[</span><span class="tok-string">"value"</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> rel_tol<span class="tok-operator">=</span><span class="tok-number">0</span><span class="tok-punctuation">,</span> abs_tol<span class="tok-operator">=</span><span class="tok-number">0.01</span>
+            <span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+                <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">f"prompt result has an incorrect {extreme} for {column}"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">return</span> parsed
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>payload<span class="tok-punctuation">:</span> Any<span class="tok-punctuation">,</span> key<span class="tok-punctuation">:</span> str<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> Any<span class="tok-punctuation">:</span>
+    <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>payload<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">)</span> <span class="tok-keyword">or</span> payload<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span>key<span class="tok-punctuation">)</span> <span class="tok-keyword">in</span> <span class="tok-punctuation">(</span><span class="tok-null">None</span><span class="tok-punctuation">,</span> <span class="tok-string">""</span><span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">RuntimeError</span><span class="tok-punctuation">(</span><span class="tok-string">f"SDK response is missing {key!r}"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">return</span> payload<span class="tok-punctuation">[</span>key<span class="tok-punctuation">]</span>
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">parse_turn_analysis</span><span class="tok-punctuation">(</span>turn<span class="tok-punctuation">:</span> Any<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
+    <span class="tok-string">"""Surface provider failures before validating a successful JSON response."""</span>
+    assistant_message <span class="tok-operator">=</span> <span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>turn<span class="tok-punctuation">,</span> <span class="tok-string">"assistant_message"</span><span class="tok-punctuation">)</span>
+    content <span class="tok-operator">=</span> <span class="tok-function">str</span><span class="tok-punctuation">(</span><span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>assistant_message<span class="tok-punctuation">,</span> <span class="tok-string">"content"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+    metadata <span class="tok-operator">=</span> assistant_message<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"metadata_"</span><span class="tok-punctuation">,</span> <span class="tok-punctuation">{</span><span class="tok-punctuation">}</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>metadata<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">)</span> <span class="tok-keyword">and</span> metadata<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"error"</span><span class="tok-punctuation">)</span> <span class="tok-keyword">is</span> <span class="tok-boolean">True</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">RuntimeError</span><span class="tok-punctuation">(</span><span class="tok-string">f"prompt execution failed: {content}"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">return</span> <span class="tok-function">parse_analysis</span><span class="tok-punctuation">(</span>content<span class="tok-punctuation">)</span>
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">run</span><span class="tok-punctuation">(</span>caliber<span class="tok-punctuation">:</span> CaliberClient<span class="tok-punctuation">,</span> <span class="tok-operator">*</span><span class="tok-punctuation">,</span> run_key<span class="tok-punctuation">:</span> str <span class="tok-operator">|</span> <span class="tok-null">None</span> <span class="tok-operator">=</span> <span class="tok-null">None</span><span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
+    <span class="tok-string">"""Run the end-to-end financial workflow against one CALIBER deployment."""</span>
+    identity <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>me<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> identity<span class="tok-punctuation">.</span>is_anonymous<span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">RuntimeError</span><span class="tok-punctuation">(</span><span class="tok-string">"CALIBER_TOKEN does not resolve to an authenticated user"</span><span class="tok-punctuation">)</span>
+
+    key <span class="tok-operator">=</span> run_key <span class="tok-keyword">or</span> datetime<span class="tok-punctuation">.</span><span class="tok-function">now</span><span class="tok-punctuation">(</span>timezone<span class="tok-punctuation">.</span>utc<span class="tok-punctuation">)</span><span class="tok-punctuation">.</span><span class="tok-function">strftime</span><span class="tok-punctuation">(</span><span class="tok-string">"%Y%m%d-%H%M%S"</span><span class="tok-punctuation">)</span>
+    <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> re<span class="tok-punctuation">.</span><span class="tok-function">fullmatch</span><span class="tok-punctuation">(</span><span class="tok-string">r"[a-z0-9][a-z0-9-]{2,47}"</span><span class="tok-punctuation">,</span> key<span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span> <span class="tok-function">ValueError</span><span class="tok-punctuation">(</span><span class="tok-string">"run_key must be 3-48 lowercase letters, digits, or hyphens"</span><span class="tok-punctuation">)</span>
+
+    project <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>projects<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span>
+        <span class="tok-string">f"SDK Financial Analysis {key}"</span><span class="tok-punctuation">,</span>
+        description<span class="tok-operator">=</span><span class="tok-string">"SDK-only monthly financial analysis with persisted input and output"</span><span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">)</span>
+    csv_bytes <span class="tok-operator">=</span> <span class="tok-function">build_financial_csv</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+    bucket <span class="tok-operator">=</span> <span class="tok-string">f"sdk-financial-{key}"</span>
+    input_object_key <span class="tok-operator">=</span> <span class="tok-string">f"projects/{project.project_id}/inputs/{CSV_FILENAME}"</span>
+    output_object_key <span class="tok-operator">=</span> <span class="tok-string">f"projects/{project.project_id}/outputs/{RESULT_FILENAME}"</span>
+
+    <span class="tok-keyword">with</span> caliber<span class="tok-punctuation">.</span><span class="tok-function">project_scope</span><span class="tok-punctuation">(</span>project<span class="tok-punctuation">.</span>project_id<span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+        store_status <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>object_store<span class="tok-punctuation">.</span><span class="tok-function">status</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+        <span class="tok-keyword">if</span> <span class="tok-keyword">not</span> <span class="tok-function">isinstance</span><span class="tok-punctuation">(</span>store_status<span class="tok-punctuation">,</span> dict<span class="tok-punctuation">)</span> <span class="tok-keyword">or</span> store_status<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"connected"</span><span class="tok-punctuation">)</span> <span class="tok-keyword">is</span> <span class="tok-keyword">not</span> <span class="tok-boolean">True</span><span class="tok-punctuation">:</span>
+            <span class="tok-keyword">raise</span> <span class="tok-function">RuntimeError</span><span class="tok-punctuation">(</span><span class="tok-string">"CALIBER object store is not connected"</span><span class="tok-punctuation">)</span>
+        caliber<span class="tok-punctuation">.</span>object_store<span class="tok-punctuation">.</span><span class="tok-function">create_bucket</span><span class="tok-punctuation">(</span>bucket<span class="tok-punctuation">)</span>
+        source <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>object_store<span class="tok-punctuation">.</span><span class="tok-function">upload</span><span class="tok-punctuation">(</span>
+            bucket<span class="tok-punctuation">,</span>
+            filename<span class="tok-operator">=</span>CSV_FILENAME<span class="tok-punctuation">,</span>
+            content<span class="tok-operator">=</span>csv_bytes<span class="tok-punctuation">,</span>
+            key<span class="tok-operator">=</span>input_object_key<span class="tok-punctuation">,</span>
+            media_type<span class="tok-operator">=</span><span class="tok-string">"text/csv"</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">)</span>
+        stored_input_key <span class="tok-operator">=</span> <span class="tok-function">str</span><span class="tok-punctuation">(</span><span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>source<span class="tok-punctuation">,</span> <span class="tok-string">"key"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+        stored_csv <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>object_store<span class="tok-punctuation">.</span><span class="tok-function">download</span><span class="tok-punctuation">(</span>bucket<span class="tok-punctuation">,</span> stored_input_key<span class="tok-punctuation">)</span>
+        <span class="tok-keyword">if</span> stored_csv <span class="tok-operator">!</span><span class="tok-operator">=</span> csv_bytes<span class="tok-punctuation">:</span>
+            <span class="tok-keyword">raise</span> <span class="tok-function">RuntimeError</span><span class="tok-punctuation">(</span><span class="tok-string">"downloaded CSV does not match the SDK-uploaded input"</span><span class="tok-punctuation">)</span>
+        managed_source <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>object_store<span class="tok-punctuation">.</span><span class="tok-function">import_object</span><span class="tok-punctuation">(</span>
+            bucket<span class="tok-punctuation">,</span>
+            stored_input_key<span class="tok-punctuation">,</span>
+            path<span class="tok-operator">=</span><span class="tok-string">f"inputs/{CSV_FILENAME}"</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">)</span>
+        managed_file_id <span class="tok-operator">=</span> <span class="tok-function">str</span><span class="tok-punctuation">(</span><span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>managed_source<span class="tok-punctuation">,</span> <span class="tok-string">"file_id"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+
+        prompt_name <span class="tok-operator">=</span> <span class="tok-string">f"sdk-financial-analysis-{key}"</span>
+        created_prompt <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>prompts<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span>
+            prompt_name<span class="tok-punctuation">,</span>
+            PROMPT_TEMPLATE<span class="tok-punctuation">,</span>
+            commit_message<span class="tok-operator">=</span><span class="tok-string">"Create SDK financial-analysis cookbook prompt"</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">)</span>
+        prompt_version <span class="tok-operator">=</span> <span class="tok-function">int</span><span class="tok-punctuation">(</span><span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>created_prompt<span class="tok-punctuation">,</span> <span class="tok-string">"version"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+        registered_prompt <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>prompts<span class="tok-punctuation">.</span><span class="tok-function">version</span><span class="tok-punctuation">(</span>prompt_name<span class="tok-punctuation">,</span> prompt_version<span class="tok-punctuation">)</span>
+        registered_template <span class="tok-operator">=</span> <span class="tok-function">str</span><span class="tok-punctuation">(</span><span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>registered_prompt<span class="tok-punctuation">,</span> <span class="tok-string">"template"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+
+        session <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>aria<span class="tok-punctuation">.</span>sessions<span class="tok-punctuation">.</span><span class="tok-function">create</span><span class="tok-punctuation">(</span>
+            title<span class="tok-operator">=</span><span class="tok-string">f"SDK Financial Analysis {key}"</span><span class="tok-punctuation">,</span>
+            goal<span class="tok-operator">=</span><span class="tok-punctuation">(</span><span class="tok-string">f"Follow this registered system prompt exactly:\n\n{registered_template}"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            metadata_<span class="tok-operator">=</span><span class="tok-punctuation">{</span>
+                <span class="tok-string">"source"</span><span class="tok-punctuation">:</span> <span class="tok-string">"sdk-cookbook-17"</span><span class="tok-punctuation">,</span>
+                <span class="tok-string">"project_id"</span><span class="tok-punctuation">:</span> project<span class="tok-punctuation">.</span>project_id<span class="tok-punctuation">,</span>
+                <span class="tok-string">"prompt_ref"</span><span class="tok-punctuation">:</span> <span class="tok-string">f"prompts:/{prompt_name}/{prompt_version}"</span><span class="tok-punctuation">,</span>
+                <span class="tok-string">"blob_bucket"</span><span class="tok-punctuation">:</span> bucket<span class="tok-punctuation">,</span>
+                <span class="tok-string">"blob_key"</span><span class="tok-punctuation">:</span> stored_input_key<span class="tok-punctuation">,</span>
+                <span class="tok-string">"managed_file_id"</span><span class="tok-punctuation">:</span> managed_file_id<span class="tok-punctuation">,</span>
+            <span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
+            artifact_type<span class="tok-operator">=</span><span class="tok-string">"prompt"</span><span class="tok-punctuation">,</span>
+            skill_mode<span class="tok-operator">=</span><span class="tok-string">"off"</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">)</span>
+        session_id <span class="tok-operator">=</span> <span class="tok-function">str</span><span class="tok-punctuation">(</span><span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>session<span class="tok-punctuation">,</span> <span class="tok-string">"session_id"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+        turn <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>aria<span class="tok-punctuation">.</span>sessions<span class="tok-punctuation">.</span><span class="tok-function">send_message</span><span class="tok-punctuation">(</span>
+            session_id<span class="tok-punctuation">,</span>
+            <span class="tok-punctuation">(</span>
+                <span class="tok-string">f"Analyze the SDK-uploaded file {CSV_FILENAME}. Its exact stored content is:\n\n"</span>
+                <span class="tok-string">f"```csv\n{stored_csv.decode('utf-8')}\n```"</span>
+            <span class="tok-punctuation">)</span><span class="tok-punctuation">,</span>
+            artifact_type<span class="tok-operator">=</span><span class="tok-string">"prompt"</span><span class="tok-punctuation">,</span>
+            skill_mode<span class="tok-operator">=</span><span class="tok-string">"off"</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">)</span>
+        analysis <span class="tok-operator">=</span> <span class="tok-function">parse_turn_analysis</span><span class="tok-punctuation">(</span>turn<span class="tok-punctuation">)</span>
+
+        result_document <span class="tok-operator">=</span> <span class="tok-punctuation">{</span>
+            <span class="tok-string">"scenario"</span><span class="tok-punctuation">:</span> <span class="tok-string">"monthly_company_financial_analysis"</span><span class="tok-punctuation">,</span>
+            <span class="tok-string">"project_id"</span><span class="tok-punctuation">:</span> project<span class="tok-punctuation">.</span>project_id<span class="tok-punctuation">,</span>
+            <span class="tok-string">"blob_bucket"</span><span class="tok-punctuation">:</span> bucket<span class="tok-punctuation">,</span>
+            <span class="tok-string">"input_object_key"</span><span class="tok-punctuation">:</span> stored_input_key<span class="tok-punctuation">,</span>
+            <span class="tok-string">"managed_file_id"</span><span class="tok-punctuation">:</span> managed_file_id<span class="tok-punctuation">,</span>
+            <span class="tok-string">"prompt_name"</span><span class="tok-punctuation">:</span> prompt_name<span class="tok-punctuation">,</span>
+            <span class="tok-string">"prompt_version"</span><span class="tok-punctuation">:</span> prompt_version<span class="tok-punctuation">,</span>
+            <span class="tok-string">"assistant_session_id"</span><span class="tok-punctuation">:</span> session_id<span class="tok-punctuation">,</span>
+            <span class="tok-string">"analysis"</span><span class="tok-punctuation">:</span> analysis<span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">}</span>
+        result_bytes <span class="tok-operator">=</span> <span class="tok-punctuation">(</span>json<span class="tok-punctuation">.</span><span class="tok-function">dumps</span><span class="tok-punctuation">(</span>result_document<span class="tok-punctuation">,</span> indent<span class="tok-operator">=</span><span class="tok-number">2</span><span class="tok-punctuation">,</span> sort_keys<span class="tok-operator">=</span><span class="tok-boolean">True</span><span class="tok-punctuation">)</span> <span class="tok-operator">+</span> <span class="tok-string">"\n"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">.</span><span class="tok-function">encode</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+        output <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>object_store<span class="tok-punctuation">.</span><span class="tok-function">upload</span><span class="tok-punctuation">(</span>
+            bucket<span class="tok-punctuation">,</span>
+            filename<span class="tok-operator">=</span>RESULT_FILENAME<span class="tok-punctuation">,</span>
+            content<span class="tok-operator">=</span>result_bytes<span class="tok-punctuation">,</span>
+            key<span class="tok-operator">=</span>output_object_key<span class="tok-punctuation">,</span>
+            media_type<span class="tok-operator">=</span><span class="tok-string">"application/json"</span><span class="tok-punctuation">,</span>
+        <span class="tok-punctuation">)</span>
+        stored_output_key <span class="tok-operator">=</span> <span class="tok-function">str</span><span class="tok-punctuation">(</span><span class="tok-function">_required_mapping_value</span><span class="tok-punctuation">(</span>output<span class="tok-punctuation">,</span> <span class="tok-string">"key"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+        <span class="tok-keyword">if</span> caliber<span class="tok-punctuation">.</span>object_store<span class="tok-punctuation">.</span><span class="tok-function">download</span><span class="tok-punctuation">(</span>bucket<span class="tok-punctuation">,</span> stored_output_key<span class="tok-punctuation">)</span> <span class="tok-operator">!</span><span class="tok-operator">=</span> result_bytes<span class="tok-punctuation">:</span>
+            <span class="tok-keyword">raise</span> <span class="tok-function">RuntimeError</span><span class="tok-punctuation">(</span><span class="tok-string">"downloaded result does not match the SDK-uploaded output"</span><span class="tok-punctuation">)</span>
+
+    <span class="tok-keyword">return</span> <span class="tok-punctuation">{</span>
+        <span class="tok-string">"project_id"</span><span class="tok-punctuation">:</span> project<span class="tok-punctuation">.</span>project_id<span class="tok-punctuation">,</span>
+        <span class="tok-string">"blob_bucket"</span><span class="tok-punctuation">:</span> bucket<span class="tok-punctuation">,</span>
+        <span class="tok-string">"input_object_key"</span><span class="tok-punctuation">:</span> stored_input_key<span class="tok-punctuation">,</span>
+        <span class="tok-string">"managed_file_id"</span><span class="tok-punctuation">:</span> managed_file_id<span class="tok-punctuation">,</span>
+        <span class="tok-string">"prompt_name"</span><span class="tok-punctuation">:</span> prompt_name<span class="tok-punctuation">,</span>
+        <span class="tok-string">"prompt_version"</span><span class="tok-punctuation">:</span> prompt_version<span class="tok-punctuation">,</span>
+        <span class="tok-string">"assistant_session_id"</span><span class="tok-punctuation">:</span> session_id<span class="tok-punctuation">,</span>
+        <span class="tok-string">"output_object_key"</span><span class="tok-punctuation">:</span> stored_output_key<span class="tok-punctuation">,</span>
+        <span class="tok-string">"analysis"</span><span class="tok-punctuation">:</span> analysis<span class="tok-punctuation">,</span>
+    <span class="tok-punctuation">}</span>
+
+
+<span class="tok-keyword">def</span> <span class="tok-function">main</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> <span class="tok-null">None</span><span class="tok-punctuation">:</span>
+    <span class="tok-keyword">with</span> <span class="tok-function">env_client</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span> <span class="tok-keyword">as</span> caliber<span class="tok-punctuation">:</span>
+        <span class="tok-function">print</span><span class="tok-punctuation">(</span>json<span class="tok-punctuation">.</span><span class="tok-function">dumps</span><span class="tok-punctuation">(</span><span class="tok-function">run</span><span class="tok-punctuation">(</span>caliber<span class="tok-punctuation">)</span><span class="tok-punctuation">,</span> indent<span class="tok-operator">=</span><span class="tok-number">2</span><span class="tok-punctuation">,</span> sort_keys<span class="tok-operator">=</span><span class="tok-boolean">True</span><span class="tok-punctuation">)</span><span class="tok-punctuation">)</span>
+
+
+<span class="tok-keyword">if</span> __name__ <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"__main__"</span><span class="tok-punctuation">:</span>
+    <span class="tok-function">main</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span></code></pre><figcaption>Full source from <code>sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py</code> — executed by the SDK example test suite.</figcaption></figure>
         <footer>
           <p>
             CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement —

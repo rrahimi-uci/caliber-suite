@@ -8,15 +8,15 @@ Each example uses only `caliber-sdk` plus Python's standard library.
 
 Design rule:
 
-- use the built-in cookbook installer to materialize the versioned platform
-  recipe that CALIBER already ships;
-- then use typed SDK resources — never `client.raw` — to finish
-  configuration, execution, and evidence capture. `client.raw` remains the
-  SDK's permanent escape hatch for a route the typed layer has not wrapped
-  yet (see the [SDK guide](m-20-sdk-guide.md#anything-not-yet-modelled)), but none of
-  the sixteen recipes below currently need it: a prior pass through this
-  gallery found three that reached for it out of habit rather than
-  necessity, and each had an existing typed method all along.
+- use the built-in cookbook installer when the example extends one of the
+  versioned platform recipes CALIBER already ships;
+- create standalone SDK automation examples directly through typed resources
+  when there is no corresponding installable workflow recipe;
+- use typed SDK resources — never `client.raw` — for configuration, execution,
+  file persistence, and evidence capture. `client.raw` remains the SDK's
+  permanent escape hatch for a route the typed layer has not wrapped yet (see
+  the [SDK guide](m-20-sdk-guide.md#anything-not-yet-modelled)), but none of the recipes
+  below currently need it.
 
 Every code block on this page is generated from the source files under
 `sdk/caliber-sdk/examples/cookbooks/` at build time. The example test suite
@@ -28,7 +28,7 @@ examples.
 
 ## Cookbook implementations
 
-Each script on this page follows the same contract: inspect readiness, install the versioned recipe through the cookbook catalog, and then finish the scenario entirely through typed SDK calls — `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped, but none of these sixteen recipes currently need it.
+Each script on this page finishes its scenario entirely through typed SDK calls. Recipes 01–16 extend versioned entries in the built-in cookbook catalog; standalone SDK automations such as recipe 17 create their own project and assets directly. `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped, but none of these recipes currently need it.
 
 The code blocks are full files, not snippets. You can run them directly once `CALIBER_BASE_URL` and `CALIBER_TOKEN` are set.
 
@@ -260,4 +260,18 @@ Install the recipe, collect traces, create the regression dataset from a trace, 
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py
+```
+
+## Cookbook 17 — Monthly Financial Analysis
+
+Create a project and object-store bucket, generate and persist realistic monthly financial CSV data, register and execute a statistics prompt, then persist and verify the structured analysis -- entirely through typed SDK resources. This recipe requires an admin-scoped SDK token for object-store mutations and a configured model provider for live prompt execution.
+
+**SDK surfaces:** `projects`, `object_store`, `prompts`, `aria`
+
+1. Create the financial-analysis project and select it as the temporary SDK project scope.
+2. Create a dedicated blob bucket, generate the CSV in memory, upload and download-verify it, then import the object into the project's governed file registry for lineage.
+3. Create and re-read the registered prompt, execute it through the typed assistant-session surface, validate its mean/median/percentile/extrema JSON, then upload and download-verify the result in blob storage.
+
+```python-file
+sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py
 ```

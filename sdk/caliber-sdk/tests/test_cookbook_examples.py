@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json as jsonlib
 from collections.abc import Iterator
 from typing import Any
 
 import httpx
+import pytest
 
 from caliber_sdk import CaliberClient
 from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import run as run_01
@@ -25,6 +28,16 @@ from examples.cookbooks.cookbook_13_aria_review_queue import run as run_13
 from examples.cookbooks.cookbook_14_aria_governance_starter_kit import run as run_14
 from examples.cookbooks.cookbook_15_aria_triage_recalibrate_loop import run as run_15
 from examples.cookbooks.cookbook_16_observability_triage import run as run_16
+from examples.cookbooks.cookbook_17_financial_analysis import (
+    CSV_FIELDS,
+    MONTHLY_FINANCIALS,
+    PROMPT_TEMPLATE,
+    build_financial_csv,
+    expected_statistics,
+    parse_analysis,
+    parse_turn_analysis,
+)
+from examples.cookbooks.cookbook_17_financial_analysis import run as run_17
 
 BASE = "https://caliber.test"
 
@@ -37,6 +50,8 @@ def stub_server(routes: dict[str, Any]) -> CaliberClient:
             raise AssertionError(f"example called an unstubbed route: {key}")
         body = routes[key]
         payload = body(request) if callable(body) else body
+        if isinstance(payload, httpx.Response):
+            return payload
         return httpx.Response(200, json={"data": payload})
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
@@ -763,3 +778,184 @@ def test_cookbook_16_promotes_a_trace_into_a_dataset_and_queue() -> None:
     assert result["dataset_id"] == "ED-16"
     assert result["queue_id"] == "RQ-16"
     assert result["trace_ids"] == ["TR-16A", "TR-16B"]
+
+
+def _financial_analysis_fixture() -> dict[str, Any]:
+    return {
+        "currency": "USD",
+        "periods": 12,
+        "percentile_method": "linear_interpolation_rank_(n-1)*p",
+        "statistics": expected_statistics(),
+        "observations": ["Revenue and operating income increased over the year."],
+    }
+
+
+def test_cookbook_17_csv_has_realistic_balanced_monthly_financials() -> None:
+    rows = list(csv.DictReader(io.StringIO(build_financial_csv().decode())))
+
+    assert tuple(rows[0]) == CSV_FIELDS
+    assert len(rows) == 12 == len(MONTHLY_FINANCIALS)
+    assert [row["month"] for row in rows] == [f"2025-{month:02d}" for month in range(1, 13)]
+    for row in rows:
+        components = sum(
+            int(row[column])
+            for column in (
+                "operating_expenses",
+                "payroll",
+                "cloud_compute_costs",
+                "other_expenses",
+            )
+        )
+        assert int(row["total_expenses"]) == components
+        assert int(row["operating_income"]) == int(row["revenue"]) - components
+
+
+def test_cookbook_17_rejects_incomplete_model_statistics() -> None:
+    incomplete = _financial_analysis_fixture()
+    del incomplete["statistics"]["revenue"]["p90"]
+
+    with pytest.raises(ValueError, match="revenue"):
+        parse_analysis(jsonlib.dumps(incomplete))
+
+
+def test_cookbook_17_surfaces_provider_errors_before_persisting_output() -> None:
+    with pytest.raises(RuntimeError, match="AuthenticationError"):
+        parse_turn_analysis(
+            {
+                "assistant_message": {
+                    "content": "I encountered an error: AuthenticationError",
+                    "metadata_": {"error": True},
+                }
+            }
+        )
+
+
+def test_cookbook_17_creates_runs_and_persists_everything_through_typed_sdk() -> None:
+    csv_bytes = build_financial_csv()
+    analysis = _financial_analysis_fixture()
+    scoped_headers: list[str | None] = []
+
+    expected_result = (
+        jsonlib.dumps(
+            {
+                "scenario": "monthly_company_financial_analysis",
+                "project_id": "PRJ-17",
+                "blob_bucket": "sdk-financial-unit-test",
+                "input_object_key": "projects/PRJ-17/inputs/monthly-financials.csv",
+                "managed_file_id": "FILE-17-IN",
+                "prompt_name": "sdk-financial-analysis-unit-test",
+                "prompt_version": 1,
+                "assistant_session_id": "SESSION-17",
+                "analysis": analysis,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode()
+
+    def project(request: httpx.Request) -> dict[str, Any]:
+        assert "x-caliber-project" not in request.headers
+        body = jsonlib.loads(request.content)
+        assert body["name"] == "SDK Financial Analysis unit-test"
+        return {"project_id": "PRJ-17", "name": body["name"]}
+
+    def create_bucket(request: httpx.Request) -> dict[str, Any]:
+        scoped_headers.append(request.headers.get("x-caliber-project"))
+        assert jsonlib.loads(request.content) == {"name": "sdk-financial-unit-test"}
+        return {"name": "sdk-financial-unit-test"}
+
+    def upload(request: httpx.Request) -> dict[str, Any]:
+        scoped_headers.append(request.headers.get("x-caliber-project"))
+        if b'filename="monthly-financials.csv"' in request.content:
+            assert b"monthly-financials.csv" in request.content
+            assert CSV_FIELDS[0].encode() in request.content
+            assert b"projects/PRJ-17/inputs/monthly-financials.csv" in request.content
+            return {"key": "projects/PRJ-17/inputs/monthly-financials.csv"}
+        assert b"monthly-financial-analysis.json" in request.content
+        assert b"projects/PRJ-17/outputs/monthly-financial-analysis.json" in request.content
+        assert expected_result in request.content
+        return {"key": "projects/PRJ-17/outputs/monthly-financial-analysis.json"}
+
+    def download(request: httpx.Request) -> httpx.Response:
+        scoped_headers.append(request.headers.get("x-caliber-project"))
+        key = request.url.params["key"]
+        if key.endswith("monthly-financials.csv"):
+            return httpx.Response(200, content=csv_bytes, headers={"content-type": "text/csv"})
+        assert key.endswith("monthly-financial-analysis.json")
+        return httpx.Response(
+            200, content=expected_result, headers={"content-type": "application/json"}
+        )
+
+    def import_object(request: httpx.Request) -> dict[str, Any]:
+        scoped_headers.append(request.headers.get("x-caliber-project"))
+        assert jsonlib.loads(request.content) == {
+            "key": "projects/PRJ-17/inputs/monthly-financials.csv",
+            "path": "inputs/monthly-financials.csv",
+        }
+        return {"file_id": "FILE-17-IN", "project_id": "PRJ-17"}
+
+    def create_prompt(request: httpx.Request) -> dict[str, Any]:
+        scoped_headers.append(request.headers.get("x-caliber-project"))
+        body = jsonlib.loads(request.content)
+        assert body == {
+            "name": "sdk-financial-analysis-unit-test",
+            "template": PROMPT_TEMPLATE,
+            "commit_message": "Create SDK financial-analysis cookbook prompt",
+        }
+        return {"name": body["name"], "version": 1}
+
+    def create_session(request: httpx.Request) -> dict[str, Any]:
+        scoped_headers.append(request.headers.get("x-caliber-project"))
+        body = jsonlib.loads(request.content)
+        assert PROMPT_TEMPLATE in body["goal"]
+        assert body["metadata_"]["project_id"] == "PRJ-17"
+        assert body["metadata_"]["blob_bucket"] == "sdk-financial-unit-test"
+        assert body["metadata_"]["blob_key"].endswith("monthly-financials.csv")
+        assert body["metadata_"]["managed_file_id"] == "FILE-17-IN"
+        assert body["skill_mode"] == "off"
+        return {"session_id": "SESSION-17"}
+
+    def send_message(request: httpx.Request) -> dict[str, Any]:
+        scoped_headers.append(request.headers.get("x-caliber-project"))
+        body = jsonlib.loads(request.content)
+        assert csv_bytes.decode() in body["content"]
+        assert body["artifact_type"] == "prompt"
+        assert body["skill_mode"] == "off"
+        return {"assistant_message": {"content": jsonlib.dumps(analysis)}}
+
+    caliber = stub_server(
+        {
+            "GET /me": {"user_id": "@alice"},
+            "POST /projects": project,
+            "GET /object-store/status": {"connected": True},
+            "POST /object-store/buckets": create_bucket,
+            "POST /object-store/buckets/sdk-financial-unit-test/objects": upload,
+            "GET /object-store/buckets/sdk-financial-unit-test/object": download,
+            "POST /object-store/buckets/sdk-financial-unit-test/object/import": import_object,
+            "POST /prompts": create_prompt,
+            "GET /prompts/sdk-financial-analysis-unit-test/versions/1": {
+                "name": "sdk-financial-analysis-unit-test",
+                "version": 1,
+                "template": PROMPT_TEMPLATE,
+            },
+            "POST /assistant/sessions": create_session,
+            "POST /assistant/sessions/SESSION-17/messages": send_message,
+        }
+    )
+    with caliber:
+        result = run_17(caliber, run_key="unit-test")
+        caliber.whoami()
+
+    assert result == {
+        "project_id": "PRJ-17",
+        "blob_bucket": "sdk-financial-unit-test",
+        "input_object_key": "projects/PRJ-17/inputs/monthly-financials.csv",
+        "managed_file_id": "FILE-17-IN",
+        "prompt_name": "sdk-financial-analysis-unit-test",
+        "prompt_version": 1,
+        "assistant_session_id": "SESSION-17",
+        "output_object_key": "projects/PRJ-17/outputs/monthly-financial-analysis.json",
+        "analysis": analysis,
+    }
+    assert scoped_headers and set(scoped_headers) == {"PRJ-17"}
