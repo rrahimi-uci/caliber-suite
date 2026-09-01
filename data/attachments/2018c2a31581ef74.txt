@@ -1,0 +1,17 @@
+INFO     botocore.credentials:credentials.py:1252 Found credentials in environment variables.
+WARNING  caliber.knowledge.service:service.py:2811 knowledge-base build failed (version=KBV-ART): No source objects were found in the selected files or folders.
+WARNING  caliber.knowledge.service:service.py:2858 failed to persist knowledge-base failure artifacts (version=KBV-ART)
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/knowledge/service.py", line 2926, in _process_build
+    raise ValueError("No source objects were found in the selected files or folders.")
+ValueError: No source objects were found in the selected files or folders.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/knowledge/service.py", line 2832, in persist_failure
+    artifacts = self._persist_artifacts(
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_cov90_knowledge_service.py", line 1952, in _boom
+    raise RuntimeError("artifact write failed")
+RuntimeError: artifact write failed
