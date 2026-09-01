@@ -300,7 +300,7 @@ function RunEvaluationPanel({
             aria-label="Label"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. gpt-4o-mini baseline"
+            placeholder="e.g. gpt-5.6-luna high-reasoning baseline"
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 outline-none focus:border-caliber-400 focus:ring-2 focus:ring-caliber-400/20"
           />
         </div>

@@ -70,6 +70,14 @@ def test_caliber_container_retains_its_documented_runtime_hardening() -> None:
     assert any(str(item).endswith(":/data") for item in caliber["volumes"])
     assert all(str(port).startswith("127.0.0.1:") for port in caliber["ports"])
 
+    environment = caliber["environment"]
+    assert environment["CALIBER_LLM_DIAGNOSIS_MODEL"].endswith(":-gpt-5.6-luna}")
+    assert environment["CALIBER_LLM_REASONING_EFFORT"].endswith(":-high}")
+    assert environment["CALIBER_GEPA_REFLECTION_MODEL"].endswith(":-gpt-5.6-luna}")
+    assert environment["CALIBER_MEMORY_LLM_MODEL"].endswith(":-gpt-5.6-luna}")
+    assert environment["CALIBER_ASSISTANT_MODEL"].endswith(":-gpt-5.6-luna}")
+    assert environment["CALIBER_ASSISTANT_REASONING"].endswith(":-high}")
+
 
 def test_caliber_image_is_reproducible_and_unprivileged() -> None:
     dockerfile = (REPO_ROOT / "deploy" / "caliber" / "Dockerfile").read_text()

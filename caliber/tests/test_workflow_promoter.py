@@ -908,6 +908,8 @@ def test_build_executor_can_select_openai_responses_executor(
     )
     ex = promoter.build_executor(cfg)
     assert isinstance(ex, OpenAIResponsesWorkflowExecutor)
+    assert ex._default_model == "gpt-5.6-luna"
+    assert ex._reasoning_effort == "high"
     assert ex._parallel_tool_calls is True
     assert ex._prompt_cache_enabled is True
 
@@ -921,6 +923,8 @@ def test_build_executor_can_select_openai_agents_executor(
     )
     ex = promoter.build_executor(cfg)
     assert isinstance(ex, OpenAIAgentsWorkflowExecutor)
+    assert ex._default_model == "gpt-5.6-luna"
+    assert ex._reasoning_effort == "high"
     assert ex._prompt_cache_enabled is True
     assert ex._prompt_cache_retention is None
 

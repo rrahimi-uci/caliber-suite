@@ -339,7 +339,7 @@ describe("Gateway → Pricing tab", () => {
 
     await user.click(screen.getByRole("button", { name: /Add rate/ }));
     await user.type(screen.getByPlaceholderText("openai"), "openai");
-    await user.type(screen.getByPlaceholderText("gpt-4o"), "gpt-4o-mini");
+    await user.type(screen.getByPlaceholderText("gpt-5.6-luna"), "gpt-4o-mini");
     await user.type(screen.getByPlaceholderText("0.0025"), "0.00015");
     await user.type(screen.getByPlaceholderText("0.01"), "0.0006");
     await user.click(screen.getByRole("button", { name: "Create" }));

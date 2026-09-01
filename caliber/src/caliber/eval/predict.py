@@ -26,7 +26,11 @@ import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from caliber.llm.models import supports_temperature
+from caliber.llm.models import (
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    reasoning_effort_for_model,
+    supports_temperature,
+)
 from caliber.secrets import resolve_secret
 
 if TYPE_CHECKING:
@@ -112,7 +116,11 @@ def _supports_temperature(model: str) -> bool:
     return supports_temperature(model)
 
 
-def _openai_completion_fn(api_key: str, model: str) -> CompletionFn:
+def _openai_completion_fn(
+    api_key: str,
+    model: str,
+    reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
+) -> CompletionFn:
     from openai import OpenAI  # noqa: PLC0415
 
     client = OpenAI(api_key=api_key)
@@ -127,6 +135,8 @@ def _openai_completion_fn(api_key: str, model: str) -> CompletionFn:
         }
         if _supports_temperature(model):
             kwargs["temperature"] = 0.0
+        elif effort := reasoning_effort_for_model(model, reasoning_effort):
+            kwargs["reasoning_effort"] = effort
         response = client.chat.completions.create(**kwargs)
         return response.choices[0].message.content or ""
 
@@ -172,7 +182,11 @@ def build_completion_fn(config: CaliberConfig) -> CompletionFn | None:
         return None
     model = config.llm_diagnosis_model
     if provider == "openai":
-        return _openai_completion_fn(api_key, model)
+        return _openai_completion_fn(
+            api_key,
+            model,
+            getattr(config, "llm_reasoning_effort", DEFAULT_OPENAI_REASONING_EFFORT),
+        )
     if provider == "anthropic":
         return _anthropic_completion_fn(api_key, model)
     return None

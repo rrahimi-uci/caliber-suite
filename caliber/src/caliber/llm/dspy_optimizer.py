@@ -47,6 +47,7 @@ from typing import Any
 import dspy
 from dspy.teleprompt import BootstrapFewShot, MIPROv2
 
+from caliber.llm.models import DEFAULT_OPENAI_REASONING_EFFORT, reasoning_effort_for_model
 from caliber.llm.provider import CandidateContext, LLMUsage, PromptCandidate
 
 logger = logging.getLogger("caliber.llm.dspy_optimizer")
@@ -66,6 +67,7 @@ def run_bootstrap_fewshot(
     model: str,
     max_bootstrapped_demos: int,
     max_labeled_demos: int,
+    reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
 ) -> tuple[PromptCandidate, LLMUsage]:
     """Run DSPy ``BootstrapFewShot`` and return a few-shot-augmented candidate.
 
@@ -76,7 +78,7 @@ def run_bootstrap_fewshot(
         ``[{"input": ..., "expected": ...}]`` rows; ``current_artifact_content``
         becomes the program's instructions.
     model:
-        Plain OpenAI model id (e.g. ``"gpt-4o-mini"``). Wrapped as
+        Plain OpenAI model id (by default ``"gpt-5.6-luna"``). Wrapped as
         ``"openai/<model>"`` for DSPy's litellm-backed ``dspy.LM``.
     max_bootstrapped_demos / max_labeled_demos:
         Teleprompter caps — how many self-generated vs. raw labeled demos may
@@ -87,7 +89,7 @@ def run_bootstrap_fewshot(
     EmptyTrainsetError
         If no usable trainset rows are present.
     """
-    lm, program, examples, instructions = _prepare_program(context, model)
+    lm, program, examples, instructions = _prepare_program(context, model, reasoning_effort)
 
     teleprompter = BootstrapFewShot(
         metric=_demo_metric,
@@ -114,6 +116,7 @@ def run_mipro(
     max_bootstrapped_demos: int,
     max_labeled_demos: int,
     auto: str = "light",
+    reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
 ) -> tuple[PromptCandidate, LLMUsage]:
     """Run DSPy ``MIPROv2`` and return an instruction+demo-optimized candidate.
 
@@ -136,7 +139,7 @@ def run_mipro(
     EmptyTrainsetError
         If no usable trainset rows are present.
     """
-    lm, program, examples, instructions = _prepare_program(context, model)
+    lm, program, examples, instructions = _prepare_program(context, model, reasoning_effort)
 
     teleprompter = MIPROv2(
         metric=_demo_metric,
@@ -165,7 +168,9 @@ def run_mipro(
 # ---------------------------------------------------------------------------
 
 
-def _prepare_program(context: CandidateContext, model: str) -> tuple[Any, Any, list[Any], str]:
+def _prepare_program(
+    context: CandidateContext, model: str, reasoning_effort: str
+) -> tuple[Any, Any, list[Any], str]:
     """Shared setup for the DSPy teleprompters.
 
     Builds the ``dspy.Example`` trainset, configures the LM, and wraps the
@@ -184,7 +189,8 @@ def _prepare_program(context: CandidateContext, model: str) -> tuple[Any, Any, l
     if not instructions:
         instructions = f"You are {label}."
 
-    lm = dspy.LM(f"openai/{model}")
+    effort = reasoning_effort_for_model(model, reasoning_effort)
+    lm = dspy.LM(f"openai/{model}", **({"reasoning_effort": effort} if effort else {}))
     dspy.configure(lm=lm)
 
     signature = dspy.Signature("question -> answer").with_instructions(instructions)

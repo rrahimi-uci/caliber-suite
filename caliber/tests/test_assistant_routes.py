@@ -344,7 +344,7 @@ class TestAssistantAuth:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["model"] == "gpt-5.6-luna"
-        assert data["reasoning"] == "medium"
+        assert data["reasoning"] == "high"
         assert any(model["id"] == "gpt-5.6-luna" for model in data["available_models"])
 
     def test_no_user_header_returns_401(self, client: TestClient) -> None:

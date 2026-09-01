@@ -23,6 +23,7 @@ def _config(**overrides: Any) -> SimpleNamespace:
         "llm_provider": "openai",
         "llm_api_key_env": "JUDGE_TEST_KEY",
         "llm_diagnosis_model": "gpt-4o-mini",
+        "llm_reasoning_effort": "high",
     }
     base.update(overrides)
     return SimpleNamespace(**base)

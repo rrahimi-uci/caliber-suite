@@ -99,6 +99,7 @@ def _install_agents_module(
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
     agents_mod.RunConfig = lambda **kw: types.SimpleNamespace(**kw)
+    agents_mod.ModelSettings = lambda **kw: types.SimpleNamespace(**kw)
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
     return FakeAgent, FakeRunner
 
@@ -455,8 +456,9 @@ def _install_gepa_modules(
             captured["optimizer_kwargs"] = kwargs
 
     class FakeCorrectness:
-        def __init__(self, *, model: str) -> None:
+        def __init__(self, *, model: str, inference_params: object = None) -> None:
             captured["correctness_model"] = model
+            captured["correctness_inference_params"] = inference_params
 
     class FakeLoadedPrompt:
         def format(self, **kwargs: object) -> str:
@@ -497,8 +499,10 @@ def _install_gepa_modules(
         def __init__(self) -> None:
             self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-        def _create(self, *, model: str, messages: list[dict[str, str]]) -> object:
-            captured["openai_request"] = {"model": model, "messages": messages}
+        def _create(
+            self, *, model: str, messages: list[dict[str, str]], **kwargs: object
+        ) -> object:
+            captured["openai_request"] = {"model": model, "messages": messages, **kwargs}
             return SimpleNamespace(
                 choices=[SimpleNamespace(message=SimpleNamespace(content="predicted answer"))]
             )

@@ -434,6 +434,7 @@ def _build_base_provider(config: CaliberConfig) -> LLMProvider:
         return OpenAIAgentsLLMProvider(
             api_key=api_key,
             diagnosis_model=config.llm_diagnosis_model,
+            reasoning_effort=config.llm_reasoning_effort,
             gepa_reflection_model=config.gepa_reflection_model,
             gepa_max_metric_calls=config.gepa_max_metric_calls,
             dspy_max_bootstrapped_demos=config.dspy_max_bootstrapped_demos,

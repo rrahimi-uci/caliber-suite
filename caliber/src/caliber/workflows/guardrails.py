@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
+from caliber.llm.models import DEFAULT_OPENAI_REASONING_EFFORT, reasoning_effort_for_model
 from caliber.workflows.ir import IRGuardrail
 
 
@@ -301,11 +302,11 @@ _GROUNDEDNESS_CRITERION = (
 )
 
 #: Lazy judge-client cache: empty -> not built; [None] -> unavailable;
-#: [(client, model)] -> ready. Reused across checks within a process.
-_JUDGE_CLIENT: list[tuple[Any, str] | None] = []
+#: [(client, model, reasoning_effort)] -> ready. Reused across checks within a process.
+_JUDGE_CLIENT: list[tuple[Any, str, str] | None] = []
 
 
-def _judge_client() -> tuple[Any, str] | None:
+def _judge_client() -> tuple[Any, str, str] | None:
     """Build (or reuse) an OpenAI-compatible judge client from CALIBER config.
 
     Returns ``None`` when no real judge is configured (provider != openai, no
@@ -313,7 +314,7 @@ def _judge_client() -> tuple[Any, str] | None:
     """
     if _JUDGE_CLIENT:
         return _JUDGE_CLIENT[0]
-    built: tuple[Any, str] | None = None
+    built: tuple[Any, str, str] | None = None
     try:
         from caliber.config import CaliberConfig  # noqa: PLC0415
         from caliber.secrets import resolve_secret  # noqa: PLC0415
@@ -326,6 +327,7 @@ def _judge_client() -> tuple[Any, str] | None:
             built = (
                 OpenAI(api_key=key, base_url=cfg.llm_base_url or None),
                 cfg.llm_diagnosis_model,
+                getattr(cfg, "llm_reasoning_effort", DEFAULT_OPENAI_REASONING_EFFORT),
             )
     except Exception:  # pragma: no cover - missing extra / bad config => no judge
         built = None
@@ -342,16 +344,20 @@ def _judge(content: str, criterion: str, *, model: str | None = None) -> tuple[b
     client = _judge_client()
     if client is None:
         return None
-    openai_client, default_model = client
+    openai_client, default_model, default_reasoning = client
+    effective_model = model or default_model
+    kwargs: dict[str, Any] = {
+        "model": effective_model,
+        "messages": [
+            {"role": "system", "content": _JUDGE_SYSTEM},
+            {"role": "user", "content": f"CRITERION:\n{criterion}\n\nTEXT:\n{content}"},
+        ],
+        "response_format": {"type": "json_object"},
+    }
+    if effort := reasoning_effort_for_model(effective_model, default_reasoning):
+        kwargs["reasoning_effort"] = effort
     try:
-        resp = openai_client.chat.completions.create(
-            model=model or default_model,
-            messages=[
-                {"role": "system", "content": _JUDGE_SYSTEM},
-                {"role": "user", "content": f"CRITERION:\n{criterion}\n\nTEXT:\n{content}"},
-            ],
-            response_format={"type": "json_object"},
-        )
+        resp = openai_client.chat.completions.create(**kwargs)
         data = json.loads(resp.choices[0].message.content or "{}")
         return bool(data.get("violation")), str(data.get("reason", ""))
     except Exception:

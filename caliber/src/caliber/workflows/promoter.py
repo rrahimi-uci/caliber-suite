@@ -278,6 +278,7 @@ def build_executor(
         common_kwargs: dict[str, Any] = {
             "api_key": api_key,
             "default_model": config.llm_diagnosis_model,
+            "reasoning_effort": config.llm_reasoning_effort,
         }
         if config.llm_base_url:
             common_kwargs["base_url"] = config.llm_base_url

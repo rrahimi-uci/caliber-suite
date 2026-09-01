@@ -41,8 +41,16 @@ then move into the deeper runtime docs when you need subsystem detail.
 | Setting | Purpose |
 | --- | --- |
 | `CALIBER_LLM_PROVIDER` | select the default provider implementation |
+| `CALIBER_LLM_DIAGNOSIS_MODEL` | default OpenAI model; `gpt-5.6-luna` when unset |
+| `CALIBER_LLM_REASONING_EFFORT` | platform-wide reasoning default; `high` when unset |
+| `CALIBER_GEPA_REFLECTION_MODEL` | GEPA reflection model; inherits the Luna default |
+| `CALIBER_MEMORY_LLM_MODEL` | memory extraction model; inherits the Luna default |
 | `CALIBER_LLM_BASE_URL` | override the OpenAI-compatible base URL |
 | `CALIBER_GATEWAY_URI` | discover an MLflow AI Gateway surface |
+
+The assistant uses the same OpenAI default through `CALIBER_ASSISTANT_MODEL`
+and `CALIBER_ASSISTANT_REASONING`. Explicit per-asset and per-call selections
+remain supported overrides.
 
 ## 4. Object store
 

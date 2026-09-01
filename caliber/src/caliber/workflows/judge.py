@@ -23,7 +23,11 @@ import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from caliber.llm.models import is_reasoning_model
+from caliber.llm.models import (
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    is_reasoning_model,
+    reasoning_effort_for_model,
+)
 from caliber.secrets import resolve_secret
 from caliber.workflows.refinement import RunScorer, default_run_scorer
 from caliber.workflows.runtime import WorkflowRunResult
@@ -101,7 +105,11 @@ def _judge_user_message(input_text: str, output: str) -> str:
     return f"QUESTION:\n{question}\n\nRESPONSE:\n{output}"
 
 
-def _openai_judge_fn(api_key: str, model: str) -> JudgeFn:
+def _openai_judge_fn(
+    api_key: str,
+    model: str,
+    reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
+) -> JudgeFn:
     from openai import OpenAI  # noqa: PLC0415
 
     client = OpenAI(api_key=api_key)
@@ -120,6 +128,8 @@ def _openai_judge_fn(api_key: str, model: str) -> JudgeFn:
         if not is_reasoning_model(model):
             kwargs["temperature"] = 0.0
             kwargs["max_tokens"] = 8
+        elif effort := reasoning_effort_for_model(model, reasoning_effort):
+            kwargs["reasoning_effort"] = effort
         response = client.chat.completions.create(**kwargs)
         return _parse_score(response.choices[0].message.content or "")
 
@@ -155,7 +165,11 @@ def _build_judge_fn(provider: str, config: Any) -> JudgeFn | None:
         return None
     model = config.llm_diagnosis_model
     if provider == "openai":
-        return _openai_judge_fn(api_key, model)
+        return _openai_judge_fn(
+            api_key,
+            model,
+            getattr(config, "llm_reasoning_effort", DEFAULT_OPENAI_REASONING_EFFORT),
+        )
     if provider == "anthropic":
         return _anthropic_judge_fn(api_key, model)
     return None

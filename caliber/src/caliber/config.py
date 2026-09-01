@@ -21,6 +21,11 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from caliber.db_url import normalize_database_url
+from caliber.model_defaults import (
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    ReasoningEffort,
+)
 
 #: Shipped ceiling for one LLM provider HTTP request. Referenced by both the
 #: ``CaliberConfig`` field and :func:`provider_request_timeout` so the default
@@ -173,15 +178,22 @@ class CaliberConfig(BaseModel):
         ),
     )
     llm_diagnosis_model: str = Field(
-        default="gpt-4o-mini",
+        default=DEFAULT_OPENAI_MODEL,
         description="Model passed to the diagnosis agent when ``llm_provider=='openai'``.",
     )
+    llm_reasoning_effort: ReasoningEffort = Field(
+        default=DEFAULT_OPENAI_REASONING_EFFORT,
+        description=(
+            "Default OpenAI reasoning effort for diagnosis, optimization, evaluation, "
+            "judge, workflow, knowledge, and memory calls. Explicit call-level overrides win."
+        ),
+    )
     gepa_reflection_model: str = Field(
-        default="gpt-4o",
+        default=DEFAULT_OPENAI_MODEL,
         description=(
             "Model used by the GEPA optimizer's reflection and mutation steps. "
             "Format: ``<provider>:/<model>`` for MLflow's native GEPA integration "
-            "(e.g. ``openai:/gpt-4o``). Only used when the optimizer selector "
+            "(e.g. ``openai:/gpt-5.6-luna``). Only used when the optimizer selector "
             "picks GEPA."
         ),
     )
@@ -249,7 +261,7 @@ class CaliberConfig(BaseModel):
         ),
     )
     memory_llm_model: str = Field(
-        default="gpt-4o-mini",
+        default=DEFAULT_OPENAI_MODEL,
         description=(
             "Model mem0 uses to extract/consolidate memories on write. Routed "
             "through ``llm_base_url`` (the gateway) when that is set."
@@ -966,8 +978,8 @@ class CaliberConfig(BaseModel):
             "provider's default (OpenAI gpt-5.6-luna / Anthropic claude-sonnet-4)."
         ),
     )
-    assistant_reasoning: str = Field(
-        default="medium",
+    assistant_reasoning: ReasoningEffort = Field(
+        default=DEFAULT_OPENAI_REASONING_EFFORT,
         description="Reasoning effort/setting for the OpenAI assistant engine.",
     )
     assistant_disabled_intents: str = Field(
@@ -1681,6 +1693,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_DATABASE_URL", "database_url", normalize_database_url),
     ("CALIBER_LLM_PROVIDER", "llm_provider", str),
     ("CALIBER_LLM_DIAGNOSIS_MODEL", "llm_diagnosis_model", str),
+    ("CALIBER_LLM_REASONING_EFFORT", "llm_reasoning_effort", str),
     ("CALIBER_GEPA_REFLECTION_MODEL", "gepa_reflection_model", str),
     ("CALIBER_GEPA_MAX_METRIC_CALLS", "gepa_max_metric_calls", int),
     ("CALIBER_DSPY_MAX_BOOTSTRAPPED_DEMOS", "dspy_max_bootstrapped_demos", int),

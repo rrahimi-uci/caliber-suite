@@ -731,7 +731,9 @@ def test_openai_engine_surfaces_tool_calls(monkeypatch: pytest.MonkeyPatch) -> N
             return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
     monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
-    engine = OpenAIAssistantEngine(api_key="sk-x")
+    # This test covers the explicit legacy Chat Completions override. The Luna
+    # default's Responses API tool loop is covered in test_assistant_openai_engine.
+    engine = OpenAIAssistantEngine(api_key="sk-x", model="gpt-4o-mini")
     result = engine.run_turn(
         AssistantTurnRequest(session_id="s1", user_message="show skills"),
         toolset=_StubToolset(),

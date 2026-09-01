@@ -45,7 +45,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from caliber.config import provider_request_timeout
 from caliber.integrations.openapi.executor import bind_openapi_http_tool
-from caliber.llm.models import is_reasoning_model
+from caliber.llm.models import (
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    is_reasoning_model,
+    reasoning_effort_for_model,
+)
 from caliber.mcp_gateway import McpGatewayError, invoke_tool_by_server_id_sync
 from caliber.observability.mlflow_tracing import Tracer, get_tracer, model_cost_usd
 from caliber.tool_sandbox.models import ToolSandboxRunRequest
@@ -656,6 +660,7 @@ class OpenAIChatWorkflowExecutor:
         *,
         api_key: str,
         default_model: str,
+        reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
         client: Any = None,
         base_url: str | None = None,
         parallel_tool_calls: bool = False,
@@ -684,6 +689,7 @@ class OpenAIChatWorkflowExecutor:
                 timeout=provider_request_timeout(),
             )
         self._default_model = default_model
+        self._reasoning_effort = reasoning_effort
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
         self._prompt_cache_retention = prompt_cache_retention or None
@@ -733,6 +739,8 @@ class OpenAIChatWorkflowExecutor:
             # for determinism.
             if not _is_reasoning_model(model):
                 kwargs["temperature"] = 0.2
+            elif effort := reasoning_effort_for_model(model, self._reasoning_effort):
+                kwargs["reasoning_effort"] = effort
             if response_format is not None:
                 kwargs["response_format"] = response_format
             if use_tools and specs:
@@ -842,6 +850,7 @@ class OpenAIResponsesWorkflowExecutor:
         *,
         api_key: str,
         default_model: str,
+        reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
         client: Any = None,
         base_url: str | None = None,
         parallel_tool_calls: bool = False,
@@ -867,6 +876,7 @@ class OpenAIResponsesWorkflowExecutor:
                 timeout=provider_request_timeout(),
             )
         self._default_model = default_model
+        self._reasoning_effort = reasoning_effort
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
         self._prompt_cache_retention = prompt_cache_retention or None
@@ -922,6 +932,8 @@ class OpenAIResponsesWorkflowExecutor:
                 kwargs["previous_response_id"] = previous_response_id
             if not _is_reasoning_model(model):
                 kwargs["temperature"] = 0.2
+            elif effort := reasoning_effort_for_model(model, self._reasoning_effort):
+                kwargs["reasoning"] = {"effort": effort}
             if text_format is not None:
                 kwargs["text"] = text_format
             if specs:
@@ -1030,6 +1042,7 @@ class OpenAIAgentsWorkflowExecutor:
         *,
         api_key: str,
         default_model: str,
+        reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
         base_url: str | None = None,
         parallel_tool_calls: bool = False,
         prompt_cache_enabled: bool = False,
@@ -1037,6 +1050,7 @@ class OpenAIAgentsWorkflowExecutor:
     ) -> None:
         self._api_key = api_key
         self._default_model = default_model
+        self._reasoning_effort = reasoning_effort
         self._base_url = base_url or None
         self._parallel_tool_calls = parallel_tool_calls
         self._prompt_cache_enabled = prompt_cache_enabled
@@ -1192,6 +1206,10 @@ class OpenAIAgentsWorkflowExecutor:
             model_settings_kwargs: dict[str, Any] = {"include_usage": True}
             if not _is_reasoning_model(agent_model):
                 model_settings_kwargs["temperature"] = 0.2
+            elif effort := reasoning_effort_for_model(agent_model, self._reasoning_effort):
+                from openai.types.shared.reasoning import Reasoning  # noqa: PLC0415
+
+                model_settings_kwargs["reasoning"] = Reasoning(effort=effort)
             extra_args: dict[str, Any] = {}
             if self._parallel_tool_calls and tools:
                 extra_args["parallel_tool_calls"] = True

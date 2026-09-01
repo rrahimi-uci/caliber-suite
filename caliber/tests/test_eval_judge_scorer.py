@@ -127,6 +127,21 @@ def test_build_judge_maps_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["feedback_value_type"] is bool
 
 
+def test_build_judge_defaults_to_luna_with_high_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_make_judge(**kwargs: Any) -> str:
+        captured.update(kwargs)
+        return "built"
+
+    _install_fake_make_judge(monkeypatch, fake_make_judge)
+    assert build_judge("tone", "Rate {{ outputs }}.") == "built"
+    assert captured["model"] == "openai:/gpt-5.6-luna"
+    assert captured["inference_params"] == {"reasoning_effort": "high"}
+
+
 def test_build_judge_requires_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fake_make_judge(monkeypatch, lambda **_kw: object())
     with pytest.raises(JudgeError, match="instructions"):

@@ -391,6 +391,16 @@ def _runtime_groups(config: CaliberConfig) -> list[dict[str, Any]]:
                 ),
                 _setting(
                     config,
+                    key="llm_reasoning_effort",
+                    env_var="CALIBER_LLM_REASONING_EFFORT",
+                    label="Platform reasoning effort",
+                    description=(
+                        "Default reasoning effort for OpenAI-backed agents, workflows, "
+                        "judges, evaluation, knowledge, optimization, and memory calls."
+                    ),
+                ),
+                _setting(
+                    config,
                     key="gepa_reflection_model",
                     env_var="CALIBER_GEPA_REFLECTION_MODEL",
                     label="GEPA reflection model",

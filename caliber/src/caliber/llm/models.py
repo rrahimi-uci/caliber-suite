@@ -9,20 +9,22 @@ keeps those call sites in agreement and prevents the latent "judge 400s on a
 reasoning model" class of bug.
 """
 
-from __future__ import annotations
+from caliber.model_defaults import (
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    OPENAI_REASONING_EFFORTS,
+    ReasoningEffort,
+    is_reasoning_model,
+    reasoning_effort_for_model,
+    supports_temperature,
+)
 
-import re
-
-# o-series ids start ``o1``/``o3``/``o4``/… ; gpt-5* are reasoning models too.
-_REASONING_MODEL_RE = re.compile(r"^o\d", re.IGNORECASE)
-
-
-def is_reasoning_model(model: str | None) -> bool:
-    """Whether ``model`` is an OpenAI reasoning model (o-series or ``gpt-5*``)."""
-    lowered = (model or "").lower()
-    return bool(_REASONING_MODEL_RE.match(lowered)) or "gpt-5" in lowered
-
-
-def supports_temperature(model: str | None) -> bool:
-    """Whether ``model`` accepts a custom sampling ``temperature`` (reasoning models don't)."""
-    return not is_reasoning_model(model)
+__all__ = [
+    "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_OPENAI_REASONING_EFFORT",
+    "OPENAI_REASONING_EFFORTS",
+    "ReasoningEffort",
+    "is_reasoning_model",
+    "reasoning_effort_for_model",
+    "supports_temperature",
+]

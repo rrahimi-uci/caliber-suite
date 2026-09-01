@@ -65,12 +65,19 @@ def test_build_mem0_config_llm_routes_through_gateway(monkeypatch) -> None:
     assert llm["model"] == "gpt-4o-mini"
     assert llm["api_key"] == "sk-test"
     assert llm["openai_base_url"] == "http://gateway:5050/v1"
+    assert "reasoning_effort" not in llm
 
 
 def test_build_mem0_config_no_gateway_omits_base_url(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     cfg = build_mem0_config(_config(llm_base_url=""))
     assert "openai_base_url" not in cfg["llm"]["config"]
+
+
+def test_build_mem0_config_uses_high_reasoning_for_luna(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    cfg = build_mem0_config(_config(memory_llm_model="gpt-5.6-luna"))
+    assert cfg["llm"]["config"]["reasoning_effort"] == "high"
 
 
 def test_build_mem0_config_embedder_base_url(monkeypatch) -> None:

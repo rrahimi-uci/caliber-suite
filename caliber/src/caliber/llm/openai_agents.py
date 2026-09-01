@@ -21,6 +21,10 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from caliber.extensibility import OptimizerSpec, PluginError, optimizer_registry
+from caliber.llm.models import (
+    DEFAULT_OPENAI_REASONING_EFFORT,
+    reasoning_effort_for_model,
+)
 from caliber.llm.provider import (
     CandidateContext,
     Diagnosis,
@@ -196,7 +200,7 @@ class OpenAIAgentsLLMProvider:
         :func:`caliber.llm.provider.build_provider`); never stored on the
         provider object beyond ``__init__``-time use to configure the SDK.
     diagnosis_model:
-        Model identifier (e.g. ``gpt-4o-mini``) passed to the diagnosis
+        Model identifier (by default ``gpt-5.6-luna``) passed to the diagnosis
         agent.
     """
 
@@ -204,6 +208,7 @@ class OpenAIAgentsLLMProvider:
         self,
         api_key: str,
         diagnosis_model: str,
+        reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
         gepa_reflection_model: str | None = None,
         gepa_max_metric_calls: int = 100,
         dspy_max_bootstrapped_demos: int = 4,
@@ -216,6 +221,7 @@ class OpenAIAgentsLLMProvider:
         # ``api_key`` on ``self`` so an accidental log of the provider
         # object can't leak the secret.
         self._diagnosis_model = diagnosis_model
+        self._reasoning_effort = reasoning_effort
         # The diagnosis and MetaPrompt/skill/DSPy paths reuse this model knob.
         # GEPA has the separate reflection-model setting below.
         self._candidate_model = diagnosis_model
@@ -270,6 +276,14 @@ class OpenAIAgentsLLMProvider:
             ) from exc
         return Agent
 
+    def _agent_model_settings(self, model: str) -> Any:
+        """Build Agents SDK settings for the effective model default."""
+        from agents import ModelSettings  # noqa: PLC0415
+        from openai.types.shared.reasoning import Reasoning  # noqa: PLC0415
+
+        effort = reasoning_effort_for_model(model, self._reasoning_effort)
+        return ModelSettings(reasoning=Reasoning(effort=effort)) if effort else ModelSettings()
+
     def _ensure_triage_agent(self) -> Any:
         if self._triage_agent is not None:
             return self._triage_agent
@@ -279,6 +293,7 @@ class OpenAIAgentsLLMProvider:
             instructions=_TRIAGE_AGENT_INSTRUCTIONS,
             output_type=TriageClassification,
             model=self._diagnosis_model,
+            model_settings=self._agent_model_settings(self._diagnosis_model),
         )
         return self._triage_agent
 
@@ -291,6 +306,7 @@ class OpenAIAgentsLLMProvider:
             instructions=_DIAGNOSIS_AGENT_INSTRUCTIONS,
             output_type=Diagnosis,
             model=self._diagnosis_model,
+            model_settings=self._agent_model_settings(self._diagnosis_model),
         )
         return self._diagnosis_agent
 
@@ -309,6 +325,7 @@ class OpenAIAgentsLLMProvider:
             instructions=_METAPROMPT_CANDIDATE_INSTRUCTIONS,
             output_type=PromptCandidate,
             model=self._candidate_model,
+            model_settings=self._agent_model_settings(self._candidate_model),
         )
         return self._candidate_agent
 
@@ -321,6 +338,7 @@ class OpenAIAgentsLLMProvider:
             instructions=_WORKFLOW_EDIT_AGENT_INSTRUCTIONS,
             output_type=_WorkflowEditDraft,
             model=self._candidate_model,
+            model_settings=self._agent_model_settings(self._candidate_model),
         )
         return self._workflow_edit_agent
 
@@ -333,6 +351,7 @@ class OpenAIAgentsLLMProvider:
             instructions=_WORKFLOW_GEN_AGENT_INSTRUCTIONS,
             output_type=_WorkflowEditDraft,
             model=self._candidate_model,
+            model_settings=self._agent_model_settings(self._candidate_model),
         )
         return self._workflow_gen_agent
 
@@ -541,9 +560,15 @@ class OpenAIAgentsLLMProvider:
             def _predict_fn(**kwargs: object) -> str:
                 p = mlflow.genai.load_prompt(prompt_name)
                 client = _openai.OpenAI()
+                completion_kwargs: dict[str, Any] = {}
+                if effort := reasoning_effort_for_model(
+                    self._candidate_model, self._reasoning_effort
+                ):
+                    completion_kwargs["reasoning_effort"] = effort
                 resp = client.chat.completions.create(
                     model=self._candidate_model,
                     messages=[{"role": "system", "content": p.format(**kwargs)}],
+                    **completion_kwargs,
                 )
                 return resp.choices[0].message.content or ""
 
@@ -570,7 +595,20 @@ class OpenAIAgentsLLMProvider:
                 train_data=dataset,
                 prompt_uris=[prompt_version.uri],
                 optimizer=optimizer,
-                scorers=[Correctness(model=reflection_model)],
+                scorers=[
+                    Correctness(
+                        model=reflection_model,
+                        inference_params=(
+                            {"reasoning_effort": reflection_effort}
+                            if (
+                                reflection_effort := reasoning_effort_for_model(
+                                    reflection_model, self._reasoning_effort
+                                )
+                            )
+                            else None
+                        ),
+                    )
+                ],
                 enable_tracking=True,
             )
 
@@ -669,6 +707,7 @@ class OpenAIAgentsLLMProvider:
                 return run_mipro(
                     context=context,
                     model=self._candidate_model,
+                    reasoning_effort=self._reasoning_effort,
                     max_bootstrapped_demos=max_bootstrapped,
                     max_labeled_demos=max_labeled,
                     auto=context.dspy_mipro_auto or self._dspy_mipro_auto,
@@ -676,6 +715,7 @@ class OpenAIAgentsLLMProvider:
             return run_bootstrap_fewshot(
                 context=context,
                 model=self._candidate_model,
+                reasoning_effort=self._reasoning_effort,
                 max_bootstrapped_demos=max_bootstrapped,
                 max_labeled_demos=max_labeled,
             )

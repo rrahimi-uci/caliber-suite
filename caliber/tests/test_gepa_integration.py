@@ -130,7 +130,7 @@ class TestGEPAConfig:
 
     def test_defaults(self) -> None:
         cfg = CaliberConfig()
-        assert cfg.gepa_reflection_model == "gpt-4o"
+        assert cfg.gepa_reflection_model == "gpt-5.6-luna"
         assert cfg.gepa_max_metric_calls == 100
 
     def test_custom_values(self) -> None:
