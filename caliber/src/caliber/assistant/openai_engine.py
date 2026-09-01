@@ -150,14 +150,18 @@ class OpenAIAssistantEngine:
         """Run a Luna/high tool loop through OpenAI's Responses API."""
         response_tools = [_responses_tool_spec(spec) for spec in tools]
         items = list(input_items)
+        previous_response_id: str | None = None
         effort = reasoning_effort_for_model(self._model, self._reasoning)
         for _ in range(self._MAX_TOOL_ITERATIONS):
-            response = client.responses.create(
-                model=self._model,
-                input=items,
-                reasoning={"effort": effort},
-                tools=response_tools,
-            )
+            request: dict[str, Any] = {
+                "model": self._model,
+                "input": items,
+                "reasoning": {"effort": effort},
+                "tools": response_tools,
+            }
+            if previous_response_id:
+                request["previous_response_id"] = previous_response_id
+            response = client.responses.create(**request)
             calls = [
                 item
                 for item in list(getattr(response, "output", None) or [])
@@ -167,7 +171,8 @@ class OpenAIAssistantEngine:
                 result = self._parse_response(_responses_text(response))
                 result.tool_calls = executed
                 return result
-            items.extend(list(getattr(response, "output", None) or []))
+            previous_response_id = getattr(response, "id", None)
+            items = []
             for call in calls:
                 tool_msg, record = self._run_tool_call(dispatcher, call)
                 items.append(
@@ -179,11 +184,14 @@ class OpenAIAssistantEngine:
                 )
                 executed.append(record)
 
-        final = client.responses.create(
-            model=self._model,
-            input=items,
-            reasoning={"effort": effort},
-        )
+        final_request: dict[str, Any] = {
+            "model": self._model,
+            "input": items,
+            "reasoning": {"effort": effort},
+        }
+        if previous_response_id:
+            final_request["previous_response_id"] = previous_response_id
+        final = client.responses.create(**final_request)
         result = self._parse_response(_responses_text(final))
         result.tool_calls = executed
         return result

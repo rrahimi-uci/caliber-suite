@@ -235,6 +235,7 @@ def test_luna_high_tool_loop_uses_responses_api(monkeypatch: pytest.MonkeyPatch)
             calls.append(kwargs)
             if len(calls) == 1:
                 return SimpleNamespace(
+                    id="resp-1",
                     output_text="",
                     output=[
                         SimpleNamespace(
@@ -276,6 +277,8 @@ def test_luna_high_tool_loop_uses_responses_api(monkeypatch: pytest.MonkeyPatch)
         "call_id": "tc1",
         "output": '[{"name": "alpha"}, {"name": "beta"}]',
     }
+    assert calls[1]["previous_response_id"] == "resp-1"
+    assert len(calls[1]["input"]) == 1
 
 
 def test_run_turn_without_dispatcher_is_single_shot(monkeypatch: pytest.MonkeyPatch) -> None:
