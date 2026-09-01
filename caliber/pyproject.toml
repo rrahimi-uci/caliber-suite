@@ -28,7 +28,7 @@ classifiers = [
 # storage, and ingestion stacks stay in explicit extras below so a base install
 # does not pull optional execution engines.
 dependencies = [
-    "mlflow>=3.14.0,<4",
+    "mlflow>=3.15.0,<4",
     "sqlalchemy>=2.0,<3",
     "alembic>=1.13,<2",
     "pydantic>=2.6,<3",
@@ -83,7 +83,7 @@ dev = [
     # whose formatter disagrees with CI's on files nobody touched -- so a local
     # ``ruff format`` produced a diff that CI then rejected, and the failure
     # pointed at unrelated files. Bump both places together.
-    "ruff==0.16.3",
+    "ruff==0.16.5",
     "mypy>=1.10",
     "pre-commit>=3.7",
     "build>=1.2",                 # local package parity with the CI distribution job

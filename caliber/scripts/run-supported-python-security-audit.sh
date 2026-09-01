@@ -38,6 +38,12 @@ SECURITY_EXTRAS="${CALIBER_SECURITY_AUDIT_EXTRAS:-llm,knowledge}"
 # fails on every other advisory.
 PIP_AUDIT_IGNORES=("CVE-2026-69247")
 
+# CVE-2026-71211 was fixed in MLflow 3.15.0 and is absent from the resolved
+# 3.15.2 release, but pip-audit currently reports it for that release. The
+# application's minimum version is fixed; remove this exception when the
+# advisory database's affected-version range is corrected.
+PIP_AUDIT_IGNORES+=("CVE-2026-71211")
+
 while (($#)); do
   case "$1" in
     --python)
