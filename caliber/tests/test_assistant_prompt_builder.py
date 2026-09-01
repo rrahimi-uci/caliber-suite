@@ -73,6 +73,15 @@ def test_response_parser_ignores_non_object_draft_entries() -> None:
     assert result.draft_deltas == []
 
 
+def test_response_parser_fails_closed_for_malformed_reply_and_questions() -> None:
+    content = '{"reply":null,"questions":[null,42,"question?"],"done":false}'
+    result = parse_assistant_response(content)
+
+    assert result.reply == content
+    assert result.questions == []
+    assert result.done is False
+
+
 def test_response_parser_does_not_treat_string_false_as_done() -> None:
     result = parse_assistant_response('{"reply":"continue","done":"false"}')
 

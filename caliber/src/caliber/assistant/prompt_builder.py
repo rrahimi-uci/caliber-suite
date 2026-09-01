@@ -108,12 +108,10 @@ def parse_assistant_response(content: str) -> AssistantTurnResult:
         raw_questions = []
     questions: list[ClarifyingQuestion] = []
     for item in raw_questions:
+        if not isinstance(item, dict):
+            continue
         try:
-            questions.append(
-                ClarifyingQuestion(**item)
-                if isinstance(item, dict)
-                else ClarifyingQuestion(question=str(item))
-            )
+            questions.append(ClarifyingQuestion(**item))
         except (TypeError, ValidationError):
             continue
 
@@ -133,7 +131,7 @@ def parse_assistant_response(content: str) -> AssistantTurnResult:
     raw_done = data.get("done", False)
     done = raw_done if isinstance(raw_done, bool) else False
     return AssistantTurnResult(
-        reply=reply if isinstance(reply, str) else str(reply),
+        reply=reply if isinstance(reply, str) else content,
         questions=questions,
         draft_deltas=deltas,
         done=done,
