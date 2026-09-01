@@ -2046,11 +2046,13 @@ function PromptRunsStage({
                 ? ex.input.input
                 : "";
           const expected =
-            typeof ex.expected.behavior === "string"
-              ? ex.expected.behavior
-              : typeof ex.expected.expected === "string"
-                ? ex.expected.expected
-                : "";
+            typeof ex.expected.expected_response === "string"
+              ? ex.expected.expected_response
+              : typeof ex.expected.behavior === "string"
+                ? ex.expected.behavior
+                : typeof ex.expected.expected === "string"
+                  ? ex.expected.expected
+                  : "";
           return {
             id: ex.example_id || `ex-${i}`,
             input,
@@ -4990,7 +4992,7 @@ export function PromptTestCases({
         await caliberApi.appendEvalExample(dataset.dataset_id, {
           input: { user_message: tc.input },
           expected: {
-            behavior: tc.expectedBehavior,
+            expected_response: tc.expectedBehavior,
             ...(result
               ? { last_score: result.score, last_verdict: result.verdict }
               : {}),
@@ -5673,6 +5675,7 @@ interface PromptOptimizationRunSummary {
 }
 
 const TERMINAL_JOB_STATUSES = new Set([
+  "candidate_ready",
   "completed",
   "failed",
   "rejected",
@@ -6461,6 +6464,16 @@ export function PromptOptimizationTab({
             setActiveRunJobId(null);
           }
         }
+      } else {
+        // Restore the newest persisted run after a reload or tab switch. The
+        // previous implementation only populated Active Run for jobs launched
+        // during the current component mount, making a successful background
+        // calibration look as if nothing happened when the user returned.
+        const latest = promptJobs[0] ?? null;
+        setActiveRun(latest);
+        if (latest && !TERMINAL_JOB_STATUSES.has(latest.status)) {
+          setActiveRunJobId(latest.job_id);
+        }
       }
     } catch (err) {
       setRunError(
@@ -6638,7 +6651,6 @@ export function PromptOptimizationTab({
           ...prev.filter((job) => job.job_id !== created.job.job_id),
         ].slice(0, 12),
       );
-      await refreshRuns();
     } catch (err) {
       setRunError(
         err instanceof Error ? err.message : "Failed to start calibration run",
@@ -7332,6 +7344,14 @@ export function PromptOptimizationTab({
                     </span>
                   </div>
                 )}
+                {activeRun.error_message && (
+                  <div
+                    role="alert"
+                    className="rounded border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-700"
+                  >
+                    {activeRun.error_message}
+                  </div>
+                )}
                 {activeRunSummary && (
                   <div className="mt-1 rounded border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs">
                     <div className="mb-1 font-semibold uppercase tracking-wide text-zinc-600">
@@ -7596,11 +7616,11 @@ export function normalizeUploadedExample(
   ) {
     expected = rawExpected as Record<string, unknown>;
   } else if (typeof rawExpected === "string") {
-    expected = { behavior: rawExpected };
+    expected = { expected_response: rawExpected };
   } else if (typeof row.reference_answer === "string") {
-    expected = { behavior: row.reference_answer };
+    expected = { expected_response: row.reference_answer };
   } else {
-    expected = { behavior: "" };
+    expected = { expected_response: "" };
   }
 
   const tags = Array.isArray(row.tags)

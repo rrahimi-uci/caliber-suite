@@ -714,6 +714,103 @@ describe("Prompt optimization calibration edge flows", () => {
     expect(await screen.findByText("options offline")).toBeInTheDocument();
   });
 
+  it("restores a persisted candidate as the active run after a UI reload", async () => {
+    optionHandlers([
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    ]);
+    server.use(
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              job_id: "job-ready-after-reload",
+              agent_id: "support-agent",
+              workflow_id: null,
+              primary_item_id: "item-ready",
+              mlflow_run_id: null,
+              artifact_type: "prompt",
+              optimizer_type: "MetaPrompt",
+              status: "candidate_ready",
+              current_stage: "eval",
+              attempt_count: 1,
+              error_message: null,
+              total_tokens: 10,
+              cost_usd: 0.01,
+              bundle_targets: [],
+              bundle_expansion_count: 1,
+              diagnosis: null,
+              candidate: { content: "Improved prompt" },
+              eval_results: { candidate: { overall: 0.92 } },
+              calibration_spec: null,
+              created_at: "2025-01-02T00:00:00Z",
+              updated_at: "2025-01-02T00:01:00Z",
+            },
+          ]),
+        ),
+      ),
+    );
+
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
+
+    expect(
+      (await screen.findAllByText("job-ready-after-reload")).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("92.0%")).toBeInTheDocument();
+    expect(screen.getAllByTestId("job-apply-btn").length).toBeGreaterThan(0);
+  });
+
+  it("shows the backend calibration failure on the active run", async () => {
+    optionHandlers([
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    ]);
+    server.use(
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              job_id: "job-failed-scorer",
+              agent_id: "support-agent",
+              workflow_id: null,
+              primary_item_id: "item-failed",
+              mlflow_run_id: null,
+              artifact_type: "prompt",
+              optimizer_type: "MetaPrompt",
+              status: "failed",
+              current_stage: "eval",
+              attempt_count: 1,
+              error_message:
+                "candidate evaluation produced no valid score for selected scorer(s): Correctness",
+              total_tokens: 10,
+              cost_usd: 0.01,
+              bundle_targets: [],
+              bundle_expansion_count: 1,
+              diagnosis: null,
+              candidate: null,
+              eval_results: null,
+              calibration_spec: null,
+              created_at: "2025-01-02T00:00:00Z",
+              updated_at: "2025-01-02T00:01:00Z",
+            },
+          ]),
+        ),
+      ),
+    );
+
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "no valid score for selected scorer(s): Correctness",
+    );
+  });
+
   it("validates scorer selections, weights, and scorer config before starting a run", async () => {
     optionHandlers([
       http.get(`${API_BASE}/eval-datasets`, () =>
@@ -931,7 +1028,7 @@ describe("Prompt optimization calibration edge flows", () => {
     expect(examples[0]).toMatchObject({
       datasetId: "eds-uploaded",
       input: { user_message: "Refund request" },
-      expected: { behavior: "Route to refunds" },
+      expected: { expected_response: "Route to refunds" },
       tags: ["refund"],
       weight: 2,
     });

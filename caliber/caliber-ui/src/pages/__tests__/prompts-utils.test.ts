@@ -58,7 +58,7 @@ describe("Prompts utility helpers", () => {
       ),
     ).toEqual({
       input: { user_message: "refund request" },
-      expected: { behavior: "route to refunds" },
+      expected: { expected_response: "route to refunds" },
       tags: ["refund"],
       weight: 2,
     });
@@ -73,7 +73,7 @@ describe("Prompts utility helpers", () => {
       ),
     ).toEqual({
       input: { user_message: "hello" },
-      expected: { behavior: "assist politely" },
+      expected: { expected_response: "assist politely" },
       tags: [],
       weight: undefined,
     });
@@ -82,7 +82,7 @@ describe("Prompts utility helpers", () => {
   it("fills safe defaults for uploaded examples with missing input or expected fields", () => {
     expect(normalizeUploadedExample({ tags: ["fallback"], weight: "heavy" }, 4)).toEqual({
       input: { user_message: "Example 5" },
-      expected: { behavior: "" },
+      expected: { expected_response: "" },
       tags: ["fallback"],
       weight: undefined,
     });
@@ -129,7 +129,7 @@ describe("Prompts utility helpers", () => {
       "dataset.jsonl",
     );
     expect(fromJsonl).toHaveLength(2);
-    expect(fromJsonl[1]?.expected).toEqual({ behavior: "Assist" });
+    expect(fromJsonl[1]?.expected).toEqual({ expected_response: "Assist" });
   });
 
   it("parses JSON arrays directly", () => {
@@ -140,7 +140,7 @@ describe("Prompts utility helpers", () => {
     expect(rows).toEqual([
       {
         input: { user_message: "A" },
-        expected: { behavior: "B" },
+        expected: { expected_response: "B" },
         tags: [],
         weight: undefined,
       },

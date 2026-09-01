@@ -1359,7 +1359,12 @@ def test_prompt_optimization_run_pins_current_version_and_stays_reproducible(
     assert item.submitted_context["prompt_optimization"]["eval_dataset_version"] == 1
     load = build_db_load_dataset(session_factory)
     as_of_v1 = load("EDS-REPRO", 1)
-    assert as_of_v1 == [{"inputs": {"question": "v1"}, "expectations": {"answer": "a1"}}]
+    assert as_of_v1 == [
+        {
+            "inputs": {"question": "v1"},
+            "expectations": {"answer": "a1", "expected_response": "a1"},
+        }
+    ]
     # And the current (unpinned) set now has both — proving the edit DID land,
     # so the v1 pin is genuinely protecting the run from it.
     current = load("EDS-REPRO")

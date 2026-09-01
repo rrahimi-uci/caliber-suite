@@ -242,7 +242,22 @@ def build_db_load_dataset(
         for row in rows:
             entry: dict[str, Any] = {"inputs": dict(row.input or {})}
             if row.expected:
-                entry["expectations"] = dict(row.expected)
+                expectations = dict(row.expected)
+                # MLflow's built-in Correctness scorer requires one of these
+                # canonical fields. CALIBER historically stored UI-created
+                # prompt cases as ``{"behavior": ...}`` (and accepted common
+                # aliases such as ``answer``), which made every Correctness
+                # invocation fail even though a usable reference was present.
+                # Preserve the original shape for custom judges while adding
+                # the canonical alias consumed by MLflow.
+                if not any(
+                    expectations.get(key) not in (None, "")
+                    for key in ("expected_response", "expected_facts")
+                ):
+                    expected_response = _expected_response_text(expectations)
+                    if expected_response:
+                        expectations["expected_response"] = expected_response
+                entry["expectations"] = expectations
             data.append(entry)
         if not data:
             suffix = "" if version is None else f" at version {version}"
@@ -250,3 +265,28 @@ def build_db_load_dataset(
         return data
 
     return load
+
+
+_EXPECTED_RESPONSE_FIELD_PREFERENCE = (
+    "behavior",
+    "expected",
+    "answer",
+    "output",
+    "response",
+    "expected_output",
+    "label",
+    "text",
+    "value",
+)
+
+
+def _expected_response_text(expected: dict[str, Any]) -> str:
+    """Return a conventional reference string for MLflow Correctness."""
+    for key in _EXPECTED_RESPONSE_FIELD_PREFERENCE:
+        value = expected.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    string_values = [
+        value for value in expected.values() if isinstance(value, str) and value.strip()
+    ]
+    return string_values[0] if len(string_values) == 1 else ""

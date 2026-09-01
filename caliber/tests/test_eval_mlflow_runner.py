@@ -18,10 +18,13 @@ import pytest
 
 from caliber.eval.mlflow_runner import (
     MLflowEvalProvider,
+    _align_selected_scores,
     _coerce_float,
     _compute_deltas,
     _count_examples,
     _metrics_to_score_set,
+    _require_requested_scores,
+    _selected_metric_names,
 )
 from caliber.eval.provider import EvalProviderError, EvalRequest, ScoreSet
 
@@ -191,6 +194,43 @@ def test_metrics_to_score_set_accepts_plain_dimension_keys() -> None:
     scores = _metrics_to_score_set({"fluency": 0.5, "debug/raw": 1.0, "bad": "x"})
     assert scores.dimensions == {"fluency": 0.5}
     assert scores.overall == 0.5
+
+
+def test_selected_scorer_missing_from_metrics_fails_closed() -> None:
+    scores = ScoreSet(overall=1.0, dimensions={"Safety": 1.0})
+
+    with pytest.raises(EvalProviderError, match=r"candidate.*Correctness"):
+        _require_requested_scores(
+            scores,
+            ["Correctness", "Safety"],
+            label="candidate",
+        )
+
+
+def test_selected_scorers_all_present_are_accepted() -> None:
+    scores = ScoreSet(overall=0.9, dimensions={"Correctness": 0.8, "Safety": 1.0})
+
+    _require_requested_scores(
+        scores,
+        ["Correctness", "Safety"],
+        label="candidate",
+    )
+
+
+def test_selected_scorer_names_align_with_mlflow_metric_names() -> None:
+    scorers = [types.SimpleNamespace(name="correctness"), types.SimpleNamespace(name="safety")]
+    metric_names = _selected_metric_names(["Correctness", "Safety"], scorers)
+
+    aligned = _align_selected_scores(
+        ScoreSet(overall=0.9, dimensions={"correctness": 0.8, "safety": 1.0}),
+        metric_names,
+    )
+
+    assert aligned.dimensions == {"Correctness": 0.8, "Safety": 1.0}
+
+
+def test_selected_metric_names_are_empty_for_provider_defaults() -> None:
+    assert _selected_metric_names([], [object()]) == {}
 
 
 def test_compute_deltas_returns_empty_for_cold_start() -> None:

@@ -127,7 +127,12 @@ def test_load_dataset_shapes_examples_and_excludes_superseded(
 
     data = build_db_load_dataset(session_factory)("DS-1")
 
-    assert data == [{"inputs": {"question": "q1"}, "expectations": {"answer": "a1"}}]
+    assert data == [
+        {
+            "inputs": {"question": "q1"},
+            "expectations": {"answer": "a1", "expected_response": "a1"},
+        }
+    ]
 
 
 def test_load_dataset_empty_raises(session_factory: sessionmaker[Session]) -> None:
@@ -181,11 +186,21 @@ def test_load_dataset_resolves_examples_as_of_pinned_version(
 
     # Pinned to v1: only the example that existed (and was active) at v1.
     as_of_v1 = load("DS-VER", 1)
-    assert as_of_v1 == [{"inputs": {"question": "v1-only"}, "expectations": {"answer": "a1"}}]
+    assert as_of_v1 == [
+        {
+            "inputs": {"question": "v1-only"},
+            "expectations": {"answer": "a1", "expected_response": "a1"},
+        }
+    ]
 
     # Pinned to v2: the v1 example was retired at v2; the v2 example is active.
     as_of_v2 = load("DS-VER", 2)
-    assert as_of_v2 == [{"inputs": {"question": "v2-added"}, "expectations": {"answer": "a2"}}]
+    assert as_of_v2 == [
+        {
+            "inputs": {"question": "v2-added"},
+            "expectations": {"answer": "a2", "expected_response": "a2"},
+        }
+    ]
 
     # Unpinned (None): current active set == v2 set.
     assert load("DS-VER") == as_of_v2
