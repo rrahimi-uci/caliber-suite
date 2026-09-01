@@ -5,7 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from caliber.assistant.models import AssistantTurnRequest
+from pydantic import ValidationError
+
+from caliber.assistant.models import (
+    AssistantTurnRequest,
+    AssistantTurnResult,
+    ClarifyingQuestion,
+    DraftDelta,
+)
 from caliber.assistant.skill_runtime import AssistantResolvedSkill, build_skill_prompt_block
 from caliber.assistant.task_context import AssistantTaskContext, TaskContextRef
 
@@ -38,6 +45,7 @@ def build_assistant_system_prompt(request: AssistantTurnRequest) -> str:
             "Begin authoring an artifact only after the user has clearly said what they want to build; if their request is vague, ask a brief clarifying question first.",
             "Only produce structured JSON output when you are actively creating or modifying an artifact.",
             'When creating artifacts, respond with a JSON object containing {"reply": "...", "questions": [...], "draft_deltas": [...], "done": false/true}. Otherwise, respond in plain text.',
+            "Every draft_delta artifact_type must be exactly one of: tool, skill, prompt, workflow, or mcp_server, and must match the active Artifact type. File formats such as csv, json, pdf, and markdown are not CALIBER artifact types; provide requested file content in reply unless an available tool can persist it.",
         ]
     )
 
@@ -78,6 +86,56 @@ def build_assistant_system_prompt(request: AssistantTurnRequest) -> str:
     if request.drafts:
         parts.append(f"Current drafts: {_drafts_summary(request.drafts)}")
     return "\n\n".join(parts)
+
+
+def parse_assistant_response(content: str) -> AssistantTurnResult:
+    """Parse a structured assistant envelope without losing a valid reply.
+
+    Provider output is untrusted. Invalid questions or draft deltas are ignored
+    instead of turning an otherwise useful assistant reply into a generic
+    validation error. Unsupported artifact types therefore cannot be persisted,
+    while requested content in ``reply`` still reaches the user.
+    """
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return AssistantTurnResult(reply=content)
+    if not isinstance(data, dict) or "reply" not in data:
+        return AssistantTurnResult(reply=content)
+
+    raw_questions = data.get("questions", [])
+    if not isinstance(raw_questions, list):
+        raw_questions = []
+    questions: list[ClarifyingQuestion] = []
+    for item in raw_questions:
+        if not isinstance(item, dict):
+            continue
+        try:
+            questions.append(ClarifyingQuestion(**item))
+        except (TypeError, ValidationError):
+            continue
+
+    raw_deltas = data.get("draft_deltas", [])
+    if not isinstance(raw_deltas, list):
+        raw_deltas = []
+    deltas: list[DraftDelta] = []
+    for item in raw_deltas:
+        if not isinstance(item, dict):
+            continue
+        try:
+            deltas.append(DraftDelta(**item))
+        except (TypeError, ValidationError):
+            continue
+
+    reply = data.get("reply", content)
+    raw_done = data.get("done", False)
+    done = raw_done if isinstance(raw_done, bool) else False
+    return AssistantTurnResult(
+        reply=reply if isinstance(reply, str) else content,
+        questions=questions,
+        draft_deltas=deltas,
+        done=done,
+    )
 
 
 # Cap the combined attachment text injected into the system prompt. Each

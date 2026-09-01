@@ -16,10 +16,8 @@ from caliber.assistant.models import (
     AssistantToolCall,
     AssistantTurnRequest,
     AssistantTurnResult,
-    ClarifyingQuestion,
-    DraftDelta,
 )
-from caliber.assistant.prompt_builder import build_assistant_system_prompt
+from caliber.assistant.prompt_builder import build_assistant_system_prompt, parse_assistant_response
 from caliber.config import provider_request_timeout
 from caliber.llm.models import (
     DEFAULT_OPENAI_MODEL,
@@ -250,32 +248,7 @@ class OpenAIAssistantEngine:
         return build_assistant_system_prompt(request)
 
     def _parse_response(self, content: str) -> AssistantTurnResult:
-        # Try JSON first. Require a ``reply`` key so a model that returns plain
-        # JSON *content* (e.g. a JSON sample the user asked for) isn't misread as
-        # a structured turn envelope — matching the Anthropic/Ollama engines.
-        try:
-            data = json.loads(content)
-            if isinstance(data, dict) and "reply" in data:
-                questions = [
-                    ClarifyingQuestion(**q)
-                    if isinstance(q, dict)
-                    else ClarifyingQuestion(question=str(q))
-                    for q in data.get("questions", [])
-                ]
-                deltas = [
-                    DraftDelta(**d) if isinstance(d, dict) else DraftDelta()
-                    for d in data.get("draft_deltas", [])
-                ]
-                return AssistantTurnResult(
-                    reply=data.get("reply", content),
-                    questions=questions,
-                    draft_deltas=deltas,
-                    done=data.get("done", False),
-                )
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        return AssistantTurnResult(reply=content)
+        return parse_assistant_response(content)
 
 
 def _assistant_tool_call_message(message: Any) -> dict[str, Any]:
