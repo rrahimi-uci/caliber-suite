@@ -1,2 +1,0 @@
-{"t":"2026-09-01T01:21:09.925Z","severity":"DEBUG","logger":"caliber.orchestrator.candidate","message":"skipping candidate draft prompt registration for job=RFN-C: mlflow unavailable"}
-{"t":"2026-09-01T01:21:09.931Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-C optimizer=MetaPrompt cost_usd=0.0040"}

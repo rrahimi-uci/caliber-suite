@@ -1,8 +1,0 @@
-ERROR    caliber.llm.openai_agents:openai_agents.py:598 GEPA optimization failed for job=RFN-1
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/llm/openai_agents.py", line 568, in _generate_candidate_gepa
-    result = mlflow.genai.optimize_prompts(
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_openai_agents_provider.py", line 480, in optimize_prompts
-    raise optimize_error
-RuntimeError: optimizer broke

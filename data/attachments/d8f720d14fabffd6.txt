@@ -1,9 +1,0 @@
-INFO     caliber:server.py:407 CALIBER plugin starting (log_level=INFO, log_sink=s3)
-INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
-INFO     caliber:server.py:249 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
-INFO     caliber:server.py:665 CALIBER assistant engine: fake (configured=fake)
-INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations "HTTP/1.1 201 Created"
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:34115/openapi.yaml "HTTP/1.0 200 OK"
-INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-cc3cfa38/import "HTTP/1.1 201 Created"
-INFO     httpx:_client.py:1025 HTTP Request: GET http://127.0.0.1:34115/openapi.yaml "HTTP/1.0 200 OK"
-INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-cc3cfa38/reimport "HTTP/1.1 201 Created"

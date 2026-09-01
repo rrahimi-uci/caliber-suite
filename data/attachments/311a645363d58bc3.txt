@@ -1,0 +1,3 @@
+{"t":"2026-09-01T18:46:22.014Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:35877/oauth/token \"HTTP/1.0 200 OK\""}
+{"t":"2026-09-01T18:46:22.029Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35877/tickets/T-1 \"HTTP/1.0 200 OK\""}
+{"t":"2026-09-01T18:46:22.045Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:35877/tickets/T-1 \"HTTP/1.0 200 OK\""}
