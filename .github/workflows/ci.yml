@@ -127,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -158,7 +158,7 @@ jobs:
         working-directory: sdk/caliber-sdk
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: sdk/caliber-sdk/pyproject.toml
@@ -209,7 +209,7 @@ jobs:
         working-directory: sdk/caliber-plugin-sdk
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: sdk/caliber-plugin-sdk/pyproject.toml
@@ -260,7 +260,7 @@ jobs:
         working-directory: sdk/caliber-cli
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: sdk/caliber-cli/pyproject.toml
@@ -305,7 +305,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -323,7 +323,7 @@ jobs:
     needs: [lint, type-check]
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -363,7 +363,7 @@ jobs:
       }}
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -446,7 +446,7 @@ jobs:
       }}
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -479,7 +479,7 @@ jobs:
       }}
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -566,7 +566,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -635,7 +635,7 @@ jobs:
       }}
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
@@ -798,7 +798,7 @@ jobs:
     # hand-off is already soft: a missing artifact triggers a local rebuild.
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
           cache-dependency-glob: caliber/pyproject.toml
