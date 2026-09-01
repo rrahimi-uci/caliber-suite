@@ -281,25 +281,43 @@ def parse_analysis(content: str) -> dict[str, Any]:
     if candidate.startswith("```"):
         candidate = re.sub(r"^```(?:json)?\s*", "", candidate, count=1, flags=re.I)
         candidate = re.sub(r"\s*```$", "", candidate, count=1)
-    start, end = candidate.find("{"), candidate.rfind("}")
-    if start < 0 or end < start:
-        raise ValueError("prompt result did not contain a JSON object")
-    parsed = json.loads(candidate[start : end + 1])
+    parsed = json.loads(candidate)
     if not isinstance(parsed, dict):
         raise ValueError("prompt result must be a JSON object")
+    required_top_level = {
+        "currency",
+        "periods",
+        "percentile_method",
+        "statistics",
+        "observations",
+    }
+    if set(parsed) != required_top_level:
+        raise ValueError("prompt result does not match the required top-level shape")
     if parsed.get("currency") != "USD" or parsed.get("periods") != len(MONTHLY_FINANCIALS):
         raise ValueError("prompt result has the wrong currency or period count")
+    if parsed.get("percentile_method") != "linear_interpolation_rank_(n-1)*p":
+        raise ValueError("prompt result has the wrong percentile method")
+    observations = parsed.get("observations")
+    if (
+        not isinstance(observations, list)
+        or not 2 <= len(observations) <= 3
+        or any(not isinstance(item, str) or not item.strip() for item in observations)
+    ):
+        raise ValueError("prompt result must contain two or three non-empty observations")
     statistics = parsed.get("statistics")
-    if not isinstance(statistics, dict):
-        raise ValueError("prompt result is missing the statistics object")
+    if not isinstance(statistics, dict) or set(statistics) != set(NUMERIC_COLUMNS):
+        raise ValueError("prompt result statistics do not match the required numeric columns")
     metric_names = ("mean", "median", "p25", "p50", "p75", "p90")
+    required_metric_names = {*metric_names, "minimum", "maximum"}
     reference = expected_statistics()
     for column in NUMERIC_COLUMNS:
         metrics = statistics.get(column)
-        if not isinstance(metrics, dict):
-            raise ValueError(f"prompt result is missing statistics for {column}")
+        if not isinstance(metrics, dict) or set(metrics) != required_metric_names:
+            raise ValueError(f"prompt result has the wrong statistics shape for {column}")
         if any(not _is_number(metrics.get(name)) for name in metric_names):
             raise ValueError(f"prompt result has non-numeric statistics for {column}")
+        if float(metrics["p50"]) != float(metrics["median"]):
+            raise ValueError(f"prompt result p50 does not equal median for {column}")
         for name in metric_names:
             if not math.isclose(
                 float(metrics[name]), float(reference[column][name]), rel_tol=0, abs_tol=0.01
@@ -307,7 +325,11 @@ def parse_analysis(content: str) -> dict[str, Any]:
                 raise ValueError(f"prompt result has an incorrect {name} for {column}")
         for extreme in ("minimum", "maximum"):
             value = metrics.get(extreme)
-            if not isinstance(value, dict) or not _is_number(value.get("value")):
+            if (
+                not isinstance(value, dict)
+                or set(value) != {"month", "value"}
+                or not _is_number(value.get("value"))
+            ):
                 raise ValueError(f"prompt result has an invalid {extreme} for {column}")
             expected_extreme = reference[column][extreme]
             if value.get("month") != expected_extreme["month"]:

@@ -787,7 +787,10 @@ def _financial_analysis_fixture() -> dict[str, Any]:
         "periods": 12,
         "percentile_method": "linear_interpolation_rank_(n-1)*p",
         "statistics": expected_statistics(),
-        "observations": ["Revenue and operating income increased over the year."],
+        "observations": [
+            "Revenue and operating income increased over the year.",
+            "Cash increased while accounts payable remained controlled.",
+        ],
     }
 
 
@@ -817,6 +820,30 @@ def test_cookbook_17_rejects_incomplete_model_statistics() -> None:
 
     with pytest.raises(ValueError, match="revenue"):
         parse_analysis(jsonlib.dumps(incomplete))
+
+
+def test_cookbook_17_rejects_commentary_outside_json() -> None:
+    payload = jsonlib.dumps(_financial_analysis_fixture())
+
+    with pytest.raises(jsonlib.JSONDecodeError):
+        parse_analysis(f"Analysis follows:\n{payload}")
+
+
+@pytest.mark.parametrize("field", ["percentile_method", "observations"])
+def test_cookbook_17_rejects_missing_output_contract_fields(field: str) -> None:
+    incomplete = _financial_analysis_fixture()
+    del incomplete[field]
+
+    with pytest.raises(ValueError, match="top-level shape"):
+        parse_analysis(jsonlib.dumps(incomplete))
+
+
+def test_cookbook_17_requires_p50_to_equal_median_exactly() -> None:
+    inconsistent = _financial_analysis_fixture()
+    inconsistent["statistics"]["revenue"]["p50"] += 0.005
+
+    with pytest.raises(ValueError, match="p50 does not equal median"):
+        parse_analysis(jsonlib.dumps(inconsistent))
 
 
 def test_cookbook_17_surfaces_provider_errors_before_persisting_output() -> None:
