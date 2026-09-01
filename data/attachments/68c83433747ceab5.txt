@@ -1,0 +1,1 @@
+{"t":"2026-09-01T23:26:08.232Z","severity":"INFO","logger":"caliber.orchestrator.optimizer_select","message":"DSPyBootstrapFewShot selected for job=RFN-D (agent opt-in + few-shot diagnosis)"}

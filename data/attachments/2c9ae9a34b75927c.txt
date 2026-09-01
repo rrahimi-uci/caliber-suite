@@ -1,0 +1,1 @@
+{"t":"2026-09-01T23:27:57.962Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-C optimizer=MetaPrompt cost_usd=0.0040"}

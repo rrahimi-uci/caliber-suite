@@ -1,0 +1,10 @@
+{"t":"2026-09-01T23:26:29.478Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=1, events=*, pending_capacity=2)"}
+{"t":"2026-09-01T23:26:29.491Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.493Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.494Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.496Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.497Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.498Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.499Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.501Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook pending queue full (capacity=2); dead-lettering event='run.completed'"}
+{"t":"2026-09-01T23:26:29.502Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped with 3 undelivered event(s); recorded as 'shutdown' dead letters for replay"}
