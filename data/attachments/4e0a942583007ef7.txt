@@ -1,7 +1,0 @@
-WARNING  caliber.knowledge.service:service.py:5197 best-effort AGE subgraph drop failed for knowledge-base version KBV-1
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/knowledge/service.py", line 5195, in _best_effort_drop_age_version
-    self._age_store.drop_version(version_id=version_id)
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_cov90_knowledge_service.py", line 869, in _boom
-    raise RuntimeError("age down")
-RuntimeError: age down
