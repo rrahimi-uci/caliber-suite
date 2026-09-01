@@ -234,6 +234,14 @@
 <p>Close any owned resources when leaving the context manager.</p>
 <div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>_</code></td><td>var-positional</td><td><code>object</code></td><td><code>—</code></td></tr></tbody></table></div>
 <p><strong>Returns:</strong> <code>None</code></p>
+<h6 id="project_scopeproject_id-str-iteratorcaliberclient"><code>project_scope(project_id: str) -&gt; Iterator[CaliberClient]</code><a class="anchor" href="#project_scopeproject_id-str-iteratorcaliberclient" aria-hidden="true" tabindex="-1">#</a></h6>
+<p>Temporarily select the project sent on subsequent requests.</p>
+<p>This is useful when a script creates its own workspace and needs the following prompt, dataset, workflow, or assistant records to belong to that project. The previous selection is restored even when an operation raises, so a reusable client does not silently leak project context into the caller's next task.</p>
+<p>A client must not be shared across threads while this context is active: project selection is request state on that client, not a process-wide context variable.</p>
+<div class="table-wrap"><table><thead><tr><th>Parameter</th><th>Kind</th><th>Type</th><th>Default</th></tr></thead><tbody><tr><td><code>project_id</code></td><td>positional-or-keyword</td><td><code>str</code></td><td><code>—</code></td></tr></tbody></table></div>
+<p><strong>Returns:</strong> <a href="#caliberclient"><code>Iterator[CaliberClient]</code></a></p>
+<p><strong>Raises:</strong></p>
+<ul><li><a href="#caliberconfigerror"><code>CaliberConfigError</code></a></li></ul>
 <h6 id="capabilities-any"><code>capabilities() -&gt; Any</code><a class="anchor" href="#capabilities-any" aria-hidden="true" tabindex="-1">#</a></h6>
 <p>Runtime feature flags and the SDK stability tiers.</p>
 <p>The cheap half of feature detection: it answers "may I call this?" without downloading the full OpenAPI document.</p>

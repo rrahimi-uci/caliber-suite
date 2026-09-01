@@ -443,6 +443,30 @@ Close any owned resources when leaving the context manager.
 
 **Returns:** `None`
 
+###### `project_scope(project_id: str) -> Iterator[CaliberClient]`
+
+Temporarily select the project sent on subsequent requests.
+
+This is useful when a script creates its own workspace and needs the
+following prompt, dataset, workflow, or assistant records to belong to
+that project. The previous selection is restored even when an operation
+raises, so a reusable client does not silently leak project context into
+the caller's next task.
+
+A client must not be shared across threads while this context is active:
+project selection is request state on that client, not a process-wide
+context variable.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Iterator[CaliberClient]`](#caliberclient)
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
 ###### `capabilities() -> Any`
 
 Runtime feature flags and the SDK stability tiers.

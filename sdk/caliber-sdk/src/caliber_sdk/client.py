@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import os
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import httpx
@@ -160,6 +162,30 @@ class CaliberClient:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+    @contextmanager
+    def project_scope(self, project_id: str) -> Iterator[CaliberClient]:
+        """Temporarily select the project sent on subsequent requests.
+
+        This is useful when a script creates its own workspace and needs the
+        following prompt, dataset, workflow, or assistant records to belong to
+        that project. The previous selection is restored even when an operation
+        raises, so a reusable client does not silently leak project context into
+        the caller's next task.
+
+        A client must not be shared across threads while this context is active:
+        project selection is request state on that client, not a process-wide
+        context variable.
+        """
+        selected = (project_id or "").strip()
+        if not selected:
+            raise CaliberConfigError("project_id must not be empty")
+        previous = self._transport.project
+        self._transport.project = selected
+        try:
+            yield self
+        finally:
+            self._transport.project = previous
 
     # -- discovery ---------------------------------------------------------
 

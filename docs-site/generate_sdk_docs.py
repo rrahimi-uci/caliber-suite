@@ -624,6 +624,18 @@ COOKBOOKS = [
             "Create the triage queue and enqueue the failure set that needs human classification.",
         ],
     },
+    {
+        "id": "17",
+        "title": "Monthly Financial Analysis",
+        "file": "sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py",
+        "summary": "Create a project and object-store bucket, generate and persist realistic monthly financial CSV data, register and promote a dashboard-ready statistics prompt, execute it, then persist and verify the structured analysis -- entirely through typed SDK resources. This recipe requires an admin-scoped SDK token for object-store mutations and a configured model provider for live prompt execution.",
+        "surfaces": ["projects", "object_store", "prompts", "aria"],
+        "steps": [
+            "Create the financial-analysis project and select it as the temporary SDK project scope.",
+            "Create a dedicated blob bucket, generate the CSV in memory, upload and download-verify it, then import the object into the project's governed file registry for lineage.",
+            "Create and re-read the registered prompt, promote its final version to the prod alias, verify it is visible through the Prompt dashboard inventory, execute it through the typed assistant-session surface, validate its mean/median/percentile/extrema JSON, then upload and download-verify the result in blob storage.",
+        ],
+    },
 ]
 
 RESOURCE_SURFACE_LABELS = {
@@ -1416,7 +1428,7 @@ def render_reference() -> str:
 
 def render_cookbooks() -> str:
     lines = [
-        "Each script on this page follows the same contract: inspect readiness, install the versioned recipe through the cookbook catalog, and then finish the scenario entirely through typed SDK calls — `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped, but none of these sixteen recipes currently need it.",
+        "Each script on this page finishes its scenario entirely through typed SDK calls. Recipes 01–16 extend versioned entries in the built-in cookbook catalog; standalone SDK automations such as recipe 17 create their own project and assets directly. `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped, but none of these recipes currently need it.",
         "",
         "The code blocks are full files, not snippets. You can run them directly once `CALIBER_BASE_URL` and `CALIBER_TOKEN` are set.",
         "",

@@ -96,3 +96,38 @@ def test_stability_is_empty_when_the_server_omits_it() -> None:
 
     with client_with(handler) as caliber:
         assert caliber.stability == {}
+
+
+def test_project_scope_applies_and_restores_the_project_header() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {}})
+
+    with client_with(handler, project="PRJ-original") as caliber:
+        caliber.whoami()
+        with caliber.project_scope(" PRJ-created "):
+            caliber.whoami()
+        caliber.whoami()
+
+    assert seen == ["PRJ-original", "PRJ-created", "PRJ-original"]
+
+
+def test_project_scope_restores_context_after_an_error() -> None:
+    caliber = client_with(lambda _request: httpx.Response(200), project="PRJ-original")
+    try:
+        with pytest.raises(RuntimeError, match="stop"), caliber.project_scope("PRJ-created"):
+            raise RuntimeError("stop")
+        assert caliber._transport.project == "PRJ-original"
+    finally:
+        caliber.close()
+
+
+def test_project_scope_rejects_an_empty_project_id() -> None:
+    caliber = client_with(lambda _request: httpx.Response(200))
+    try:
+        with pytest.raises(CaliberConfigError, match="project_id"), caliber.project_scope("  "):
+            pass
+    finally:
+        caliber.close()
