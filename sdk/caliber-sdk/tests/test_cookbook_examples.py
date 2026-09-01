@@ -31,6 +31,7 @@ from examples.cookbooks.cookbook_16_observability_triage import run as run_16
 from examples.cookbooks.cookbook_17_financial_analysis import (
     CSV_FIELDS,
     MONTHLY_FINANCIALS,
+    PROMPT_ALIAS,
     PROMPT_TEMPLATE,
     build_financial_csv,
     expected_statistics,
@@ -845,6 +846,7 @@ def test_cookbook_17_creates_runs_and_persists_everything_through_typed_sdk() ->
                 "managed_file_id": "FILE-17-IN",
                 "prompt_name": "sdk-financial-analysis-unit-test",
                 "prompt_version": 1,
+                "prompt_alias": "prod",
                 "assistant_session_id": "SESSION-17",
                 "analysis": analysis,
             },
@@ -913,6 +915,7 @@ def test_cookbook_17_creates_runs_and_persists_everything_through_typed_sdk() ->
         assert body["metadata_"]["blob_bucket"] == "sdk-financial-unit-test"
         assert body["metadata_"]["blob_key"].endswith("monthly-financials.csv")
         assert body["metadata_"]["managed_file_id"] == "FILE-17-IN"
+        assert body["metadata_"]["prompt_ref"] == ("prompts:/sdk-financial-analysis-unit-test@prod")
         assert body["skill_mode"] == "off"
         return {"session_id": "SESSION-17"}
 
@@ -939,6 +942,21 @@ def test_cookbook_17_creates_runs_and_persists_everything_through_typed_sdk() ->
                 "version": 1,
                 "template": PROMPT_TEMPLATE,
             },
+            "POST /prompts/sdk-financial-analysis-unit-test/aliases/prod": {
+                "name": "sdk-financial-analysis-unit-test",
+                "alias": PROMPT_ALIAS,
+                "version": 1,
+                "release_status": "applied",
+            },
+            "GET /prompts": [
+                {
+                    "agent_id": "sdk-financial-analysis-unit-test",
+                    "prompt_name": "sdk-financial-analysis-unit-test",
+                    "version": 1,
+                    "alias": PROMPT_ALIAS,
+                    "has_prompt": True,
+                }
+            ],
             "POST /assistant/sessions": create_session,
             "POST /assistant/sessions/SESSION-17/messages": send_message,
         }
@@ -954,6 +972,7 @@ def test_cookbook_17_creates_runs_and_persists_everything_through_typed_sdk() ->
         "managed_file_id": "FILE-17-IN",
         "prompt_name": "sdk-financial-analysis-unit-test",
         "prompt_version": 1,
+        "prompt_alias": "prod",
         "assistant_session_id": "SESSION-17",
         "output_object_key": "projects/PRJ-17/outputs/monthly-financial-analysis.json",
         "analysis": analysis,

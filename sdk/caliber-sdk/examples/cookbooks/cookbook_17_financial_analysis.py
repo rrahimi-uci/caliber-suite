@@ -15,6 +15,7 @@ from examples.cookbooks._helpers import env_client
 
 CSV_FILENAME = "monthly-financials.csv"
 RESULT_FILENAME = "monthly-financial-analysis.json"
+PROMPT_ALIAS = "prod"
 NUMERIC_COLUMNS = (
     "revenue",
     "operating_expenses",
@@ -385,6 +386,24 @@ def run(caliber: CaliberClient, *, run_key: str | None = None) -> dict[str, Any]
         prompt_version = int(_required_mapping_value(created_prompt, "version"))
         registered_prompt = caliber.prompts.version(prompt_name, prompt_version)
         registered_template = str(_required_mapping_value(registered_prompt, "template"))
+        promotion = caliber.prompts.promote(prompt_name, prompt_version, alias=PROMPT_ALIAS)
+        if (
+            _required_mapping_value(promotion, "name") != prompt_name
+            or _required_mapping_value(promotion, "alias") != PROMPT_ALIAS
+            or int(_required_mapping_value(promotion, "version")) != prompt_version
+        ):
+            raise RuntimeError("prompt promotion response does not match the created version")
+        dashboard_prompt = next(
+            (item for item in caliber.prompts.list() if item.agent_id == prompt_name),
+            None,
+        )
+        if (
+            dashboard_prompt is None
+            or dashboard_prompt.has_prompt is not True
+            or dashboard_prompt.alias != PROMPT_ALIAS
+            or dashboard_prompt.version != prompt_version
+        ):
+            raise RuntimeError("promoted prompt is not visible as final in the prompt dashboard")
 
         session = caliber.aria.sessions.create(
             title=f"SDK Financial Analysis {key}",
@@ -392,7 +411,7 @@ def run(caliber: CaliberClient, *, run_key: str | None = None) -> dict[str, Any]
             metadata_={
                 "source": "sdk-cookbook-17",
                 "project_id": project.project_id,
-                "prompt_ref": f"prompts:/{prompt_name}/{prompt_version}",
+                "prompt_ref": f"prompts:/{prompt_name}@{PROMPT_ALIAS}",
                 "blob_bucket": bucket,
                 "blob_key": stored_input_key,
                 "managed_file_id": managed_file_id,
@@ -420,6 +439,7 @@ def run(caliber: CaliberClient, *, run_key: str | None = None) -> dict[str, Any]
             "managed_file_id": managed_file_id,
             "prompt_name": prompt_name,
             "prompt_version": prompt_version,
+            "prompt_alias": PROMPT_ALIAS,
             "assistant_session_id": session_id,
             "analysis": analysis,
         }
@@ -442,6 +462,7 @@ def run(caliber: CaliberClient, *, run_key: str | None = None) -> dict[str, Any]
         "managed_file_id": managed_file_id,
         "prompt_name": prompt_name,
         "prompt_version": prompt_version,
+        "prompt_alias": PROMPT_ALIAS,
         "assistant_session_id": session_id,
         "output_object_key": stored_output_key,
         "analysis": analysis,

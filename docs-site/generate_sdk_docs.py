@@ -628,12 +628,12 @@ COOKBOOKS = [
         "id": "17",
         "title": "Monthly Financial Analysis",
         "file": "sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py",
-        "summary": "Create a project and object-store bucket, generate and persist realistic monthly financial CSV data, register and execute a statistics prompt, then persist and verify the structured analysis -- entirely through typed SDK resources. This recipe requires an admin-scoped SDK token for object-store mutations and a configured model provider for live prompt execution.",
+        "summary": "Create a project and object-store bucket, generate and persist realistic monthly financial CSV data, register and promote a dashboard-ready statistics prompt, execute it, then persist and verify the structured analysis -- entirely through typed SDK resources. This recipe requires an admin-scoped SDK token for object-store mutations and a configured model provider for live prompt execution.",
         "surfaces": ["projects", "object_store", "prompts", "aria"],
         "steps": [
             "Create the financial-analysis project and select it as the temporary SDK project scope.",
             "Create a dedicated blob bucket, generate the CSV in memory, upload and download-verify it, then import the object into the project's governed file registry for lineage.",
-            "Create and re-read the registered prompt, execute it through the typed assistant-session surface, validate its mean/median/percentile/extrema JSON, then upload and download-verify the result in blob storage.",
+            "Create and re-read the registered prompt, promote its final version to the prod alias, verify it is visible through the Prompt dashboard inventory, execute it through the typed assistant-session surface, validate its mean/median/percentile/extrema JSON, then upload and download-verify the result in blob storage.",
         ],
     },
 ]
