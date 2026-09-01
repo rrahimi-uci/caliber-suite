@@ -11,10 +11,8 @@ import urllib.request
 from caliber.assistant.models import (
     AssistantTurnRequest,
     AssistantTurnResult,
-    ClarifyingQuestion,
-    DraftDelta,
 )
-from caliber.assistant.prompt_builder import build_assistant_system_prompt
+from caliber.assistant.prompt_builder import build_assistant_system_prompt, parse_assistant_response
 
 logger = logging.getLogger(__name__)
 
@@ -90,26 +88,4 @@ class OllamaAssistantEngine:
         return self._parse_response(content)
 
     def _parse_response(self, content: str) -> AssistantTurnResult:
-        try:
-            data = json.loads(content)
-            if isinstance(data, dict) and "reply" in data:
-                questions = [
-                    ClarifyingQuestion(**q)
-                    if isinstance(q, dict)
-                    else ClarifyingQuestion(question=str(q))
-                    for q in data.get("questions", [])
-                ]
-                deltas = [
-                    DraftDelta(**d) if isinstance(d, dict) else DraftDelta()
-                    for d in data.get("draft_deltas", [])
-                ]
-                return AssistantTurnResult(
-                    reply=data.get("reply", content),
-                    questions=questions,
-                    draft_deltas=deltas,
-                    done=data.get("done", False),
-                )
-        except (json.JSONDecodeError, TypeError):
-            pass
-
-        return AssistantTurnResult(reply=content)
+        return parse_assistant_response(content)

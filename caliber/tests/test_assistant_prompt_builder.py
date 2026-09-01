@@ -46,6 +46,9 @@ def test_prompt_includes_selected_skill_after_platform_policy() -> None:
     assert (
         '{"reply": "...", "questions": [...], "draft_deltas": [...], "done": false/true}' in prompt
     )
+    assert (
+        "File formats such as csv, json, pdf, and markdown are not CALIBER artifact types" in prompt
+    )
 
 
 def test_normal_skill_authoring_does_not_enter_playground_mode() -> None:

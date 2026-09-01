@@ -66,6 +66,25 @@ def test_run_turn_plain_text(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.done is False
 
 
+def test_run_turn_preserves_reply_and_ignores_unsupported_csv_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_openai(
+        monkeypatch,
+        content=(
+            '{"reply":"```csv\\nmonth,revenue\\n2025-01,1240000\\n```",'
+            '"questions":[],"draft_deltas":[{"artifact_type":"csv",'
+            '"title":"monthly-financials.csv"}],"done":true}'
+        ),
+    )
+
+    result = OpenAIAssistantEngine(api_key="sk-x").run_turn(_request())
+
+    assert "month,revenue" in result.reply
+    assert result.draft_deltas == []
+    assert result.done is True
+
+
 def test_run_turn_reasoning_model(monkeypatch: pytest.MonkeyPatch) -> None:
     # o-series models also take ``reasoning_effort``; assert the kwarg shape so a
     # regression in is_reasoning_model's o-series detection is caught.
