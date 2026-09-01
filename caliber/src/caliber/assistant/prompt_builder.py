@@ -103,9 +103,12 @@ def parse_assistant_response(content: str) -> AssistantTurnResult:
     if not isinstance(data, dict) or "reply" not in data:
         return AssistantTurnResult(reply=content)
 
+    raw_questions = data.get("questions", [])
+    if not isinstance(raw_questions, list):
+        raw_questions = []
+
     questions: list[ClarifyingQuestion] = []
-    for item in data.get("questions", []):
-        try:
+    for item in raw_questions:
             questions.append(
                 ClarifyingQuestion(**item)
                 if isinstance(item, dict)
