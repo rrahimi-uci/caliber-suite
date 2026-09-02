@@ -1,6 +1,0 @@
-{"t":"2026-09-02T20:13:19.941Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-09-02T20:13:19.955Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-09-02T20:13:19.957Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-09-02T20:13:19.959Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-09-02T20:13:19.975Z","severity":"WARNING","logger":"caliber.routes.observability","message":"log_feedback failed for tr-1 (mlflow write failed)","trace_id":"4ce36f6b78ef2dc6"}
-{"t":"2026-09-02T20:13:19.977Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/observability/traces/tr-1/feedback \"HTTP/1.1 502 Bad Gateway\""}

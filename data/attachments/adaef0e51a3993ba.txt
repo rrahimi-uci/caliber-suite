@@ -1,1 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: POST http://127.0.0.1:41209/tickets "HTTP/1.0 503 Service Unavailable"
