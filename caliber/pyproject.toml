@@ -427,6 +427,13 @@ filterwarnings = [
     "ignore::FutureWarning:mlflow.*",
     "ignore::UserWarning:mlflow.*",
     "ignore::DeprecationWarning:sqlalchemy.*",
+    # Starlette 1.6 still annotates TestClient with the deprecated
+    # ``anyio.abc.BlockingPortal`` re-export. Newer AnyIO builds emit this
+    # warning while importing ``starlette.testclient``; our warnings-as-errors
+    # policy otherwise prevents conftest collection before any CALIBER test can
+    # run. Match only that upstream compatibility warning so every other AnyIO
+    # deprecation remains actionable.
+    "ignore:The anyio[.]abc[.]BlockingPortal alias is deprecated, use anyio[.]from_thread[.]BlockingPortal instead[.]:DeprecationWarning",
     # dspy (separate ``[dspy]`` extra, lazy-loaded by the provider) emits
     # DeprecationWarnings from its own internal signatures/fields on import.
     # Not CALIBER bugs — silence the dspy namespace like we do for mlflow.
