@@ -1,6 +1,0 @@
-
-ERROR: the deployment reported success but 1 promised path(s) are not being served:
-  tests/  ->  404
-      the Allure report staged from CI; the part that silently vanished when two workflows raced for the same URL
-
-A publisher with no reader is indistinguishable from a publisher that works. Either fix the staging step that should have produced this path, or remove it from REQUIRED_PATHS so the promise matches what is shipped.
