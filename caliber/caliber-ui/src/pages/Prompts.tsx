@@ -19,7 +19,12 @@ import { caliberApi } from "@/api/caliberApi";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FilterBar } from "@/components/FilterBar";
 import { LIVE_ALIAS, SINGLE_ENVIRONMENT } from "@/lib/environment";
-import { diffLines, diffStats, DIFF_LINE_CLASS } from "@/lib/textDiff";
+import {
+  diffLines,
+  diffStats,
+  DIFF_LINE_CLASS,
+  DIFF_WORD_CLASS,
+} from "@/lib/textDiff";
 import { ListRow, ListRows } from "@/components/ListRow";
 import { PromptBuilder } from "@/components/PromptBuilder";
 import { PageHeader } from "@/components/PageHeader";
@@ -207,9 +212,11 @@ const SOURCE_LABELS: Record<string, string> = {
  */
 function PromptModal({
   onClose,
+  ariaLabelledBy,
   children,
 }: {
   onClose: () => void;
+  ariaLabelledBy?: string;
   children: React.ReactNode;
 }): JSX.Element {
   useEffect(() => {
@@ -223,6 +230,7 @@ function PromptModal({
     <div
       role="dialog"
       aria-modal="true"
+      aria-labelledby={ariaLabelledBy}
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm sm:p-8"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -5802,6 +5810,8 @@ export function PromptOptimizationTab({
 
   const [runError, setRunError] = useState<string | null>(null);
   const [applyingJobId, setApplyingJobId] = useState<string | null>(null);
+  const [reviewRun, setReviewRun] = useState<RefinementJob | null>(null);
+  const [runSuccess, setRunSuccess] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
@@ -6488,8 +6498,14 @@ export function PromptOptimizationTab({
     async (jobId: string) => {
       setApplyingJobId(jobId);
       setRunError(null);
+      setRunSuccess(null);
       try {
-        await caliberApi.applyJob(jobId);
+        const result = await caliberApi.applyJob(jobId);
+        const artifactRef = readString(result.promotion?.artifact_ref);
+        setReviewRun(null);
+        setRunSuccess(
+          `Candidate applied. ${SINGLE_ENVIRONMENT ? "The promoted prompt version is now live." : `@${selectedPromptAlias} now points to the promoted prompt version.`}${artifactRef ? ` Artifact: ${artifactRef}.` : ""}`,
+        );
         await refreshRuns();
       } catch (err) {
         setRunError(
@@ -6499,8 +6515,14 @@ export function PromptOptimizationTab({
         setApplyingJobId(null);
       }
     },
-    [refreshRuns],
+    [refreshRuns, selectedPromptAlias],
   );
+
+  const reviewCandidate = useCallback((run: RefinementJob) => {
+    setRunError(null);
+    setRunSuccess(null);
+    setReviewRun(run);
+  }, []);
 
   useEffect(() => {
     void refreshRuns();
@@ -7275,6 +7297,15 @@ export function PromptOptimizationTab({
             </div>
           )}
 
+          {runSuccess && (
+            <div
+              role="status"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"
+            >
+              {runSuccess}
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <div className="text-xs text-zinc-500">
               {selectedPrompt
@@ -7321,12 +7352,10 @@ export function PromptOptimizationTab({
                       type="button"
                       data-testid="job-apply-btn"
                       disabled={applyingJobId === activeRun.job_id}
-                      onClick={() => void applyRun(activeRun.job_id)}
+                      onClick={() => reviewCandidate(activeRun)}
                       className="rounded-md bg-caliber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-caliber-700 disabled:opacity-60"
                     >
-                      {applyingJobId === activeRun.job_id
-                        ? "Applying…"
-                        : "Apply candidate"}
+                      Review &amp; apply
                     </button>
                   </div>
                 )}
@@ -7489,12 +7518,10 @@ export function PromptOptimizationTab({
                               type="button"
                               data-testid="job-apply-btn"
                               disabled={applyingJobId === run.job_id}
-                              onClick={() => void applyRun(run.job_id)}
+                              onClick={() => reviewCandidate(run)}
                               className="rounded-md bg-caliber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-caliber-700 disabled:opacity-60"
                             >
-                              {applyingJobId === run.job_id
-                                ? "Applying…"
-                                : "Apply"}
+                              Review &amp; apply
                             </button>
                           ) : (
                             <span className="text-zinc-300">—</span>
@@ -7509,7 +7536,398 @@ export function PromptOptimizationTab({
           </div>
         </div>
       </div>
+      {reviewRun && (
+        <CalibrationApplyReviewDialog
+          run={reviewRun}
+          alias={selectedPromptAlias}
+          busy={applyingJobId === reviewRun.job_id}
+          error={runError}
+          onCancel={() => setReviewRun(null)}
+          onApply={() => void applyRun(reviewRun.job_id)}
+        />
+      )}
     </div>
+  );
+}
+
+interface CalibrationScoreSnapshot {
+  overall: number | null;
+  dimensions: Record<string, number>;
+}
+
+interface CalibrationReviewView {
+  baselineContent: string | null;
+  candidateContent: string | null;
+  rationale: string | null;
+  diffSummary: string | null;
+  candidateScore: CalibrationScoreSnapshot;
+  baselineScore: CalibrationScoreSnapshot;
+  overallDelta: number | null;
+  gatePassed: boolean | null;
+  gateReasons: string[];
+  exampleCount: number | null;
+  datasetId: string | null;
+}
+
+function scoreSnapshot(value: unknown): CalibrationScoreSnapshot {
+  if (!value || typeof value !== "object") {
+    return { overall: null, dimensions: {} };
+  }
+  const row = value as Record<string, unknown>;
+  const dimensions: Record<string, number> = {};
+  if (row.dimensions && typeof row.dimensions === "object") {
+    for (const [name, rawScore] of Object.entries(
+      row.dimensions as Record<string, unknown>,
+    )) {
+      if (typeof rawScore === "number") dimensions[name] = rawScore;
+    }
+  }
+  return {
+    overall: typeof row.overall === "number" ? row.overall : null,
+    dimensions,
+  };
+}
+
+export function calibrationReviewView(
+  run: RefinementJob,
+): CalibrationReviewView {
+  const candidate = run.candidate ?? {};
+  const evalResults = run.eval_results ?? {};
+  const deltas =
+    evalResults.deltas && typeof evalResults.deltas === "object"
+      ? (evalResults.deltas as Record<string, unknown>)
+      : {};
+  const gate =
+    evalResults.gate && typeof evalResults.gate === "object"
+      ? (evalResults.gate as Record<string, unknown>)
+      : {};
+  const candidateScore = scoreSnapshot(evalResults.candidate);
+  const baselineScore = scoreSnapshot(evalResults.baseline);
+  return {
+    baselineContent: readString(candidate.baseline_content),
+    candidateContent: readString(candidate.content),
+    rationale: readString(candidate.rationale),
+    diffSummary: readString(candidate.diff_summary),
+    candidateScore,
+    baselineScore,
+    overallDelta:
+      typeof deltas.overall === "number"
+        ? deltas.overall
+        : candidateScore.overall !== null && baselineScore.overall !== null
+          ? candidateScore.overall - baselineScore.overall
+          : null,
+    gatePassed: typeof gate.passed === "boolean" ? gate.passed : null,
+    gateReasons: readStringArray(gate.reasons),
+    exampleCount:
+      typeof evalResults.n_examples === "number"
+        ? evalResults.n_examples
+        : null,
+    datasetId: readString(evalResults.eval_dataset_id),
+  };
+}
+
+function formatScore(value: number | null): string {
+  return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
+}
+
+function formatDelta(value: number | null): string {
+  if (value === null) return "—";
+  const points = value * 100;
+  return `${points >= 0 ? "+" : ""}${points.toFixed(1)} pts`;
+}
+
+function CalibrationApplyReviewDialog({
+  run,
+  alias,
+  busy,
+  error,
+  onCancel,
+  onApply,
+}: {
+  run: RefinementJob;
+  alias: string;
+  busy: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onApply: () => void;
+}): JSX.Element {
+  const view = calibrationReviewView(run);
+  const lines = diffLines(
+    view.baselineContent ?? "",
+    view.candidateContent ?? "",
+  );
+  const stats = diffStats(lines);
+  const dimensions = Array.from(
+    new Set([
+      ...Object.keys(view.baselineScore.dimensions),
+      ...Object.keys(view.candidateScore.dimensions),
+    ]),
+  ).sort();
+  const gateLabel =
+    view.gatePassed === true
+      ? "Passed"
+      : view.gatePassed === false
+        ? "Failed"
+        : "Not recorded";
+
+  return (
+    <PromptModal
+      onClose={() => !busy && onCancel()}
+      ariaLabelledBy="calibration-apply-review-title"
+    >
+      <div aria-labelledby="calibration-apply-review-title">
+        <div className="border-b border-zinc-200 px-5 py-4 sm:px-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-caliber-700">
+                Production change review
+              </div>
+              <h2
+                id="calibration-apply-review-title"
+                className="mt-1 text-lg font-semibold text-zinc-900"
+              >
+                Review candidate before applying
+              </h2>
+              <p className="mt-1 text-sm text-zinc-600">
+                Applying publishes this candidate, makes the promoted prompt
+                version
+                {SINGLE_ENVIRONMENT ? " live" : ` available at @${alias}`}, and
+                records an audit event plus rollback checkpoint.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close apply review"
+              autoFocus
+              disabled={busy}
+              onClick={onCancel}
+              className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50"
+            >
+              ×
+            </button>
+          </div>
+          <div className="mt-3 font-mono text-xs text-zinc-500">
+            {run.job_id}
+          </div>
+        </div>
+
+        <div className="max-h-[70vh] space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+          <section aria-labelledby="calibration-score-heading">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3
+                id="calibration-score-heading"
+                className="text-sm font-semibold text-zinc-900"
+              >
+                Evaluation score
+              </h3>
+              <span
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  view.gatePassed === true
+                    ? "bg-emerald-100 text-emerald-800"
+                    : view.gatePassed === false
+                      ? "bg-red-100 text-red-800"
+                      : "bg-zinc-100 text-zinc-700"
+                }`}
+              >
+                Gate: {gateLabel}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {[
+                ["Baseline", formatScore(view.baselineScore.overall)],
+                ["Candidate", formatScore(view.candidateScore.overall)],
+                ["Change", formatDelta(view.overallDelta)],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2"
+                >
+                  <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                    {label}
+                  </div>
+                  <div className="mt-0.5 text-base font-semibold text-zinc-900">
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {(view.exampleCount !== null || view.datasetId) && (
+              <p className="mt-2 text-xs text-zinc-500">
+                {view.exampleCount !== null
+                  ? `${view.exampleCount} evaluation examples`
+                  : "Evaluation dataset"}
+                {view.datasetId ? ` · ${view.datasetId}` : ""}
+              </p>
+            )}
+            {dimensions.length > 0 && (
+              <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200">
+                <table className="w-full text-xs">
+                  <thead className="bg-zinc-50 text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">
+                        Scorer
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Baseline
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Candidate
+                      </th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Change
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dimensions.map((name) => {
+                      const baseline =
+                        view.baselineScore.dimensions[name] ?? null;
+                      const candidate =
+                        view.candidateScore.dimensions[name] ?? null;
+                      const delta =
+                        baseline !== null && candidate !== null
+                          ? candidate - baseline
+                          : null;
+                      return (
+                        <tr key={name} className="border-t border-zinc-100">
+                          <td className="px-3 py-2 font-medium text-zinc-700">
+                            {name}
+                          </td>
+                          <td className="px-3 py-2 text-right text-zinc-600">
+                            {formatScore(baseline)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-zinc-800">
+                            {formatScore(candidate)}
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right font-medium ${delta !== null && delta < 0 ? "text-red-700" : "text-emerald-700"}`}
+                          >
+                            {formatDelta(delta)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {view.gateReasons.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-red-700">
+                {view.gateReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section aria-labelledby="calibration-diff-heading">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3
+                id="calibration-diff-heading"
+                className="text-sm font-semibold text-zinc-900"
+              >
+                Prompt diff
+              </h3>
+              <span className="text-xs text-zinc-500">
+                <span className="text-emerald-700">+{stats.additions}</span>{" "}
+                <span className="text-red-700">−{stats.deletions}</span> lines
+              </span>
+            </div>
+            {view.diffSummary && (
+              <p className="mb-2 text-xs text-zinc-600">{view.diffSummary}</p>
+            )}
+            {!view.baselineContent && (
+              <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                No baseline snapshot was recorded. The candidate is shown as
+                entirely new content.
+              </div>
+            )}
+            {!view.candidateContent ? (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                Candidate prompt content is unavailable. Do not apply this run
+                until its candidate artifact is inspected.
+              </div>
+            ) : (
+              <div
+                data-testid="calibration-prompt-diff"
+                className="max-h-72 overflow-auto rounded-lg border border-zinc-200 bg-slate-50 py-2 font-mono text-[11px] leading-relaxed text-zinc-700"
+              >
+                {lines.map((line, index) => (
+                  <div
+                    key={`${line.op}-${index}`}
+                    className={`flex ${DIFF_LINE_CLASS[line.op]}`}
+                  >
+                    <span className="w-8 shrink-0 select-none px-2 text-right text-zinc-400">
+                      {line.op === "insert"
+                        ? "+"
+                        : line.op === "delete"
+                          ? "−"
+                          : " "}
+                    </span>
+                    <span className="whitespace-pre-wrap break-words pr-3">
+                      {line.words
+                        ? line.words.map((word, wordIndex) => (
+                            <span
+                              key={wordIndex}
+                              className={DIFF_WORD_CLASS[word.op]}
+                            >
+                              {word.value}
+                            </span>
+                          ))
+                        : line.text || " "}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {view.rationale && (
+              <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                <span className="font-semibold">Optimizer rationale:</span>{" "}
+                {view.rationale}
+              </div>
+            )}
+          </section>
+          {error && (
+            <div
+              role="alert"
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800"
+            >
+              Apply failed: {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-zinc-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p className="text-xs text-zinc-500">
+            Rollback remains available from the release checkpoint.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCancel}
+              className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={
+                busy || !view.candidateContent || view.gatePassed === false
+              }
+              onClick={onApply}
+              className="rounded-md bg-caliber-600 px-3 py-2 text-xs font-medium text-white hover:bg-caliber-700 disabled:opacity-50"
+            >
+              {busy
+                ? "Applying…"
+                : SINGLE_ENVIRONMENT
+                  ? "Apply candidate live"
+                  : `Apply candidate to @${alias}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </PromptModal>
   );
 }
 
