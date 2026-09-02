@@ -773,6 +773,34 @@ def _skill_contents_for(
     return {**embedded, **{name: content for name, content in rows if content}}
 
 
+def _subworkflow_version_pin(
+    ir: IRWorkflow,
+    workflow_id: str,
+    alias: str,
+) -> str | None:
+    """Return an unambiguous child-version pin for the legacy runner key.
+
+    The runtime callback identifies a child by workflow and alias, not node ID.
+    Multiple nodes may safely reuse that key only when they carry the same pin.
+    Failing closed on conflicting pins prevents execution from depending on IR
+    iteration order and selecting the wrong immutable child version.
+    """
+    pins = {
+        node.version_id
+        for node in ir.nodes.values()
+        if isinstance(node, IRSubworkflow)
+        and node.workflow_id == workflow_id
+        and node.alias == alias
+    }
+    if len(pins) > 1:
+        rendered = ", ".join(sorted(pin or "<alias resolution>" for pin in pins))
+        raise PublishError(
+            f"ambiguous subworkflow {workflow_id!r}@{alias!r}: conflicting version pins "
+            f"({rendered})"
+        )
+    return next(iter(pins), None)
+
+
 def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     session: Session,
     version: CaliberWorkflowVersion,
@@ -949,17 +977,9 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
                 "tokens": 0,
             }
         # The runtime callback signature predates deployment bundles. Resolve
-        # the pin from the compiled IR node for this workflow+alias pair.
-        pinned_version_id = next(
-            (
-                node.version_id
-                for node in result.ir.nodes.values()
-                if isinstance(node, IRSubworkflow)
-                and node.workflow_id == workflow_id
-                and node.alias == run_alias
-            ),
-            None,
-        )
+        # the pin from the compiled IR nodes sharing this workflow+alias key,
+        # and fail closed if that legacy key cannot identify one exact pin.
+        pinned_version_id = _subworkflow_version_pin(result.ir, workflow_id, run_alias)
         target_version = _resolve_version(workflow_id, run_alias, pinned_version_id)
         sub_plan = build_plan(
             session,
@@ -1473,7 +1493,8 @@ def publish_version(
     except CompileError as exc:
         raise PublishError(f"version does not compile: {exc}") from exc
 
-    deployment_bundle = (version.compiled_bundle or {}).get("deployment_bundle")
+    compiled_bundle = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
+    deployment_bundle = compiled_bundle.get("deployment_bundle")
     verification = verify_bundle(deployment_bundle)
     if not verification.valid:
         raise PublishError("deployment bundle is invalid: " + "; ".join(verification.errors))

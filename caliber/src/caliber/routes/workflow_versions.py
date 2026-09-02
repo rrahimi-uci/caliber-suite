@@ -1857,11 +1857,14 @@ def deployment_bundle_status_route(request: Request) -> JSONResponse:
                 )
             )
         verification = verify_bundle(bundle)
+        dependencies = bundle.get("dependencies", []) if isinstance(bundle, dict) else []
+        if not isinstance(dependencies, list):
+            dependencies = []
         return envelope_response(
             WorkflowDeploymentBundleStatusSchema(
                 sealed=True,
                 **verification.to_dict(),
-                dependencies=bundle["dependencies"],
+                dependencies=[item for item in dependencies if isinstance(item, dict)],
             )
         )
 

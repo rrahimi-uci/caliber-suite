@@ -26,6 +26,7 @@ from caliber.db.models import (
 from caliber.storage import LocalStorageBackend, WorkingDirectoryService
 from caliber.workflows import promoter
 from caliber.workflows.compiler import CompileError, build_ir
+from caliber.workflows.ir import IRSubworkflow, IRWorkflow, NodeType
 from caliber.workflows.manifest import DeployGate, parse_manifest
 from caliber.workflows.promoter import (
     DeployError,
@@ -225,6 +226,52 @@ def test_publish_version_rejects_deprecated_and_wraps_compile_error(
     )
     with pytest.raises(PublishError, match="does not compile"):
         publish_version(db_session, draft, actor="@test")
+
+
+def test_publish_version_rejects_non_object_legacy_compiled_bundle(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_workflow(db_session)
+    draft = _version(status="draft")
+    draft.compiled_bundle = ["legacy-corrupt-value"]  # type: ignore[assignment]
+    monkeypatch.setattr(promoter, "compile_version", lambda *args, **kwargs: None)
+
+    with pytest.raises(PublishError, match="deployment bundle is invalid"):
+        publish_version(db_session, draft, actor="@test")
+
+
+def test_subworkflow_pin_resolution_fails_closed_on_conflicting_duplicate_keys() -> None:
+    nodes = {
+        "child-a": IRSubworkflow(
+            node_id="child-a",
+            node_type=NodeType.SUBWORKFLOW,
+            workflow_id="wf-child",
+            alias="prod",
+            version_id="wfv-child-1",
+        ),
+        "child-b": IRSubworkflow(
+            node_id="child-b",
+            node_type=NodeType.SUBWORKFLOW,
+            workflow_id="wf-child",
+            alias="prod",
+            version_id="wfv-child-2",
+        ),
+    }
+    ir = IRWorkflow(
+        workflow_id="wf-parent",
+        version="1",
+        nodes=nodes,
+        edges=[],
+        entry_node_id="child-a",
+        output_node_id="child-b",
+    )
+
+    with pytest.raises(PublishError, match="conflicting version pins"):
+        promoter._subworkflow_version_pin(ir, "wf-child", "prod")
+
+    nodes["child-b"].version_id = "wfv-child-1"
+    assert promoter._subworkflow_version_pin(ir, "wf-child", "prod") == "wfv-child-1"
 
 
 def test_example_input_and_gate_name_fallbacks() -> None:

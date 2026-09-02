@@ -94,6 +94,41 @@ def test_import_rejects_tampered_bundle(client: TestClient) -> None:
     assert response.status_code == 400
     assert "dependencies entries must be objects" in response.json()["detail"]
 
+    bundle = client.get(f"{PREFIX}/workflow-versions/{version_id}/export/deployment-bundle").json()
+    bundle["skill_snapshots"] = {"malformed": {"version": 1}}
+    malformed = seal_bundle(bundle)
+    response = client.post(
+        f"{PREFIX}/workflows/import/preview", json={"deployment_bundle": malformed}
+    )
+    assert response.status_code == 400
+    assert (
+        "skill_snapshots entries must be objects with string content" in response.json()["detail"]
+    )
+
+
+@pytest.mark.parametrize(
+    "stored_bundle",
+    ["not-an-object", {"kind": "invalid-without-dependencies"}],
+)
+def test_bundle_status_reports_malformed_storage_without_500(
+    client: TestClient,
+    db_session: Session,
+    stored_bundle: object,
+) -> None:
+    workflow_id = create_workflow(client, "Malformed bundle status")
+    version_id, _ = create_draft(client, workflow_id, make_manifest(workflow_id))
+    version = db_session.get(CaliberWorkflowVersion, version_id)
+    assert version is not None
+    version.compiled_bundle = {"deployment_bundle": stored_bundle}
+    db_session.commit()
+
+    response = client.get(f"{PREFIX}/workflow-versions/{version_id}/deployment-bundle/status")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["valid"] is False
+    assert response.json()["data"]["ready_to_deploy"] is False
+    assert response.json()["data"]["dependencies"] == []
+
 
 def test_bundle_pins_tool_version_and_embeds_skill_without_secret_values(
     db_session: Session,
@@ -168,6 +203,41 @@ def test_bundle_pins_tool_version_and_embeds_skill_without_secret_values(
     compile_version(db_session, imported_version, resolver=fake_resolver(), persist=True)
     recompiled_bundle = imported_version.compiled_bundle["deployment_bundle"]
     assert recompiled_bundle["skill_snapshots"]["finance-analysis"]["version"] == 7
+
+
+def test_bundle_build_ignores_malformed_imported_skill_snapshot(
+    db_session: Session,
+) -> None:
+    manifest = make_manifest("wf-malformed-imported-skill")
+    manifest["nodes"]["agent"]["skills"] = ["missing-skill"]
+    workflow = CaliberWorkflow(
+        workflow_id="wf-malformed-imported-skill",
+        name="Malformed imported skill",
+        owner="@test",
+    )
+    version = CaliberWorkflowVersion(
+        version_id="wfv-malformed-imported-skill",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest,
+        manifest_hash="",
+        compiled_bundle={
+            "imported_skill_snapshots": {"missing-skill": {"version": 1}},
+        },
+        created_by="@test",
+    )
+    db_session.add_all([workflow, version])
+    db_session.commit()
+
+    compile_version(db_session, version, resolver=fake_resolver(), persist=True)
+
+    bundle = version.compiled_bundle["deployment_bundle"]
+    skill_dependency = next(item for item in bundle["dependencies"] if item["kind"] == "skill")
+    assert bundle["skill_snapshots"] == {}
+    assert skill_dependency["status"] == "unresolved"
+    assert verify_bundle(bundle).valid is True
+    assert verify_bundle(bundle).ready_to_deploy is False
 
 
 def test_bundle_embeds_prompt_text_in_resolved_execution_manifest(

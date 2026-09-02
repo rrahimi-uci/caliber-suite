@@ -97,6 +97,19 @@ def seal_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     return sealed
 
 
+def _validate_skill_snapshots(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return ["skill_snapshots must be an object"]
+    if any(
+        not isinstance(name, str)
+        or not isinstance(snapshot, dict)
+        or not isinstance(snapshot.get("content"), str)
+        for name, snapshot in value.items()
+    ):
+        return ["skill_snapshots entries must be objects with string content"]
+    return []
+
+
 def verify_bundle(bundle: Any) -> BundleVerification:
     errors: list[str] = []
     if not isinstance(bundle, dict):
@@ -130,6 +143,7 @@ def verify_bundle(bundle: Any) -> BundleVerification:
     dependencies = [item for item in raw_dependencies if isinstance(item, dict)]
     if len(dependencies) != len(raw_dependencies):
         errors.append("dependencies entries must be objects")
+    errors.extend(_validate_skill_snapshots(bundle.get("skill_snapshots")))
     unresolved = [item for item in dependencies if item.get("status") != "resolved"]
     declared_ready = bundle.get("ready_to_deploy")
     calculated_ready = not unresolved
@@ -427,7 +441,12 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
     )
     for name in skill_names:
         imported_snapshot = (imported_skill_snapshots or {}).get(name)
-        snapshot = deepcopy(imported_snapshot) if isinstance(imported_snapshot, dict) else None
+        snapshot = (
+            deepcopy(imported_snapshot)
+            if isinstance(imported_snapshot, dict)
+            and isinstance(imported_snapshot.get("content"), str)
+            else None
+        )
         skill = None
         if snapshot is None:
             skill = (
@@ -631,7 +650,11 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
         parse_manifest(resolved_manifest),
         resolver=resolver,
         version=str(version.version_number),
-        skill_contents={name: item["content"] for name, item in skill_snapshots.items()},
+        skill_contents={
+            name: content
+            for name, item in skill_snapshots.items()
+            if isinstance((content := item.get("content")), str)
+        },
     )
     bundle = {
         "kind": BUNDLE_KIND,
