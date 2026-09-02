@@ -763,6 +763,259 @@ describe("Prompt optimization calibration edge flows", () => {
     expect(screen.getAllByTestId("job-apply-btn").length).toBeGreaterThan(0);
   });
 
+  it("reviews the prompt diff and score comparison before applying a candidate", async () => {
+    optionHandlers([
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    ]);
+    let applyCalls = 0;
+    let completeApply = (): void => undefined;
+    const readyRun = {
+      job_id: "job-review-before-apply",
+      agent_id: "support-agent",
+      workflow_id: null,
+      primary_item_id: "item-review",
+      mlflow_run_id: null,
+      artifact_type: "prompt",
+      optimizer_type: "MetaPrompt",
+      status: "candidate_ready",
+      current_stage: "done",
+      attempt_count: 1,
+      error_message: null,
+      total_tokens: 10,
+      cost_usd: 0.01,
+      bundle_targets: [],
+      bundle_expansion_count: 1,
+      diagnosis: null,
+      candidate: {
+        baseline_content: "You are helpful.\nKeep answers concise.",
+        content:
+          "You are a precise support analyst.\nKeep answers concise.\nCite the account evidence.",
+        diff_summary: "Clarifies the role and adds an evidence requirement.",
+        rationale: "The failures were caused by unsupported account claims.",
+      },
+      eval_results: {
+        candidate: {
+          overall: 0.92,
+          dimensions: { correctness: 0.94, helpfulness: 0.9 },
+        },
+        baseline: {
+          overall: 0.81,
+          dimensions: { correctness: 0.78, helpfulness: 0.84 },
+        },
+        deltas: { overall: 0.11 },
+        gate: { passed: true, reasons: [] },
+        eval_dataset_id: "ED-review",
+        n_examples: 24,
+      },
+      calibration_spec: null,
+      created_at: "2025-01-02T00:00:00Z",
+      updated_at: "2025-01-02T00:01:00Z",
+    };
+    server.use(
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(envelope([readyRun])),
+      ),
+      http.post(`${API_BASE}/jobs/:jobId/apply`, async ({ params }) => {
+        applyCalls += 1;
+        await new Promise<void>((resolve) => {
+          completeApply = resolve;
+        });
+        return HttpResponse.json(
+          envelope({
+            job_id: String(params.jobId),
+            status: "applied",
+            promotion: { artifact_ref: "prompts:/support-agent/4" },
+          }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
+
+    expect(
+      (await screen.findAllByText("job-review-before-apply")).length,
+    ).toBeGreaterThan(0);
+    await user.click(
+      screen.getAllByRole("button", { name: "Review & apply" })[0]!,
+    );
+
+    expect(applyCalls).toBe(0);
+    expect(
+      screen.getByRole("heading", { name: "Review candidate before applying" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Gate: Passed")).toBeInTheDocument();
+    expect(screen.getByText("81.0%")).toBeInTheDocument();
+    expect(screen.getAllByText("92.0%").length).toBeGreaterThan(0);
+    expect(screen.getByText("+11.0 pts")).toBeInTheDocument();
+    expect(
+      screen.getByText("24 evaluation examples · ED-review"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Prompt diff")).toBeInTheDocument();
+    expect(screen.getByTestId("calibration-prompt-diff")).toHaveTextContent(
+      "You are a precise support analyst.",
+    );
+    expect(
+      screen.getByText(/failures were caused by unsupported account claims/),
+    ).toBeInTheDocument();
+
+    const applyButton = screen.getByRole("button", {
+      name: "Apply candidate live",
+    });
+    await user.click(applyButton);
+
+    await waitFor(() => expect(applyCalls).toBe(1));
+    expect(applyButton).toHaveFocus();
+    expect(applyButton).toHaveAttribute("aria-busy", "true");
+    expect(applyButton).toHaveAttribute("aria-disabled", "true");
+    expect(applyButton).not.toBeDisabled();
+    completeApply();
+    expect(
+      await screen.findByText(/promoted prompt version is now live/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", {
+        name: "Review candidate before applying",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("blocks applying a candidate when the recorded evaluation gate failed", async () => {
+    optionHandlers([
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    ]);
+    server.use(
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              job_id: "job-failed-gate-review",
+              agent_id: "support-agent",
+              workflow_id: null,
+              primary_item_id: "item-review",
+              mlflow_run_id: null,
+              artifact_type: "prompt",
+              optimizer_type: "MetaPrompt",
+              status: "candidate_ready",
+              current_stage: "done",
+              attempt_count: 1,
+              error_message: null,
+              total_tokens: 10,
+              cost_usd: 0.01,
+              bundle_targets: [],
+              bundle_expansion_count: 1,
+              diagnosis: null,
+              candidate: {
+                baseline_content: "Old prompt",
+                content: "Regressed prompt",
+              },
+              eval_results: {
+                candidate: { overall: 0.7 },
+                baseline: { overall: 0.9 },
+                deltas: { overall: -0.2 },
+                gate: {
+                  passed: false,
+                  reasons: ["candidate score 0.700 is below threshold 0.850"],
+                },
+              },
+              calibration_spec: null,
+              created_at: "2025-01-02T00:00:00Z",
+              updated_at: "2025-01-02T00:01:00Z",
+            },
+          ]),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
+    expect(
+      (await screen.findAllByText("job-failed-gate-review")).length,
+    ).toBeGreaterThan(0);
+    await user.click(
+      screen.getAllByRole("button", { name: "Review & apply" })[0]!,
+    );
+
+    expect(screen.getByText("Gate: Failed")).toBeInTheDocument();
+    expect(
+      screen.getByText("candidate score 0.700 is below threshold 0.850"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Apply candidate live" }),
+    ).toBeDisabled();
+  });
+
+  it("shows a neutral unavailable state when candidate review data is incomplete", async () => {
+    optionHandlers([
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    ]);
+    server.use(
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              job_id: "job-incomplete-review",
+              agent_id: "support-agent",
+              workflow_id: null,
+              primary_item_id: "item-incomplete",
+              mlflow_run_id: null,
+              artifact_type: "prompt",
+              optimizer_type: "MetaPrompt",
+              status: "candidate_ready",
+              current_stage: "done",
+              attempt_count: 1,
+              error_message: null,
+              total_tokens: 0,
+              cost_usd: 0,
+              bundle_targets: [],
+              bundle_expansion_count: 1,
+              diagnosis: null,
+              candidate: { baseline_content: "Existing prompt" },
+              eval_results: {
+                candidate: { dimensions: { correctness: 0.9 } },
+                baseline: { dimensions: {} },
+                gate: { passed: true, reasons: [] },
+              },
+              calibration_spec: null,
+              created_at: "2025-01-02T00:00:00Z",
+              updated_at: "2025-01-02T00:01:00Z",
+            },
+          ]),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
+    expect(
+      (await screen.findAllByText("job-incomplete-review")).length,
+    ).toBeGreaterThan(0);
+    await user.click(
+      screen.getAllByRole("button", { name: "Review & apply" })[0]!,
+    );
+
+    expect(screen.getByText("Diff unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Candidate prompt content is unavailable/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Apply candidate live" }),
+    ).toBeDisabled();
+  });
+
   it("shows the backend calibration failure on the active run", async () => {
     optionHandlers([
       http.get(`${API_BASE}/eval-datasets`, () =>
