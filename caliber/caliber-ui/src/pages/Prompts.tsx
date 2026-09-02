@@ -216,7 +216,7 @@ function PromptModal({
   children,
 }: {
   onClose: () => void;
-  ariaLabelledBy?: string;
+  ariaLabelledBy: string;
   children: React.ReactNode;
 }): JSX.Element {
   useEffect(() => {
@@ -797,13 +797,17 @@ export function Prompts(): JSX.Element {
 
       {showEdit && editTarget && (
         <PromptModal
+          ariaLabelledBy="edit-prompt-dialog-title"
           onClose={() => {
             if (confirmDiscardEditChanges()) closeEditPanel();
           }}
         >
           <div className="max-h-[85vh] overflow-y-auto rounded-2xl border border-blue-200 bg-blue-50/30 p-5">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">
+              <h2
+                id="edit-prompt-dialog-title"
+                className="text-sm font-semibold text-gray-900"
+              >
                 Edit Prompt: {editTarget.agent_name}
               </h2>
               <button
@@ -945,10 +949,16 @@ export function Prompts(): JSX.Element {
       )}
 
       {showVersions && versionsTarget && (
-        <PromptModal onClose={closeVersionsPanel}>
+        <PromptModal
+          onClose={closeVersionsPanel}
+          ariaLabelledBy="prompt-versions-dialog-title"
+        >
           <div className="max-h-[85vh] overflow-y-auto rounded-2xl border border-emerald-200 bg-emerald-50/30 p-5">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-gray-900">
+              <h2
+                id="prompt-versions-dialog-title"
+                className="text-sm font-semibold text-gray-900"
+              >
                 Versions: {versionsTarget.agent_name}
               </h2>
               <button
@@ -7657,10 +7667,9 @@ function CalibrationApplyReviewDialog({
   onApply: () => void;
 }): JSX.Element {
   const view = calibrationReviewView(run);
-  const lines = diffLines(
-    view.baselineContent ?? "",
-    view.candidateContent ?? "",
-  );
+  const lines = view.candidateContent
+    ? diffLines(view.baselineContent ?? "", view.candidateContent)
+    : [];
   const stats = diffStats(lines);
   const dimensions = Array.from(
     new Set([
