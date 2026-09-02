@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import yaml
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.db.models import CaliberEvalDataset, CaliberWorkflow, CaliberWorkflowVersion
 from tests.workflow_helpers import PREFIX, make_manifest
 
 
@@ -129,6 +131,79 @@ def test_import_rejects_valid_shape_with_unresolved_skill(client: TestClient) ->
     imported = client.post(f"{PREFIX}/workflows/import", json={"manifest": manifest})
     assert imported.status_code == 400
     assert "preflight" in imported.json()["detail"]
+
+
+def test_import_resolves_a_pinned_historical_dataset_version(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    db_session.add(
+        CaliberEvalDataset(
+            dataset_id="ED-historical-import",
+            name="historical-import",
+            owner="@test",
+            version=3,
+        )
+    )
+    db_session.commit()
+    manifest = make_manifest("historical_dataset_wf", name="Historical Dataset WF")
+    manifest["artifacts"] = {
+        "eval_datasets": {
+            "quality": {
+                "dataset_name": "historical-import",
+                "version": 2,
+            }
+        }
+    }
+
+    preview = client.post(f"{PREFIX}/workflows/import/preview", json={"manifest": manifest})
+
+    assert preview.status_code == 200, preview.text
+    dependency = next(
+        item for item in preview.json()["data"]["dependencies"] if item["kind"] == "eval_dataset"
+    )
+    assert dependency["status"] == "resolved"
+    assert "pinned dataset version 2" in dependency["detail"]
+
+
+def test_import_resolves_an_exact_child_version_without_following_its_alias(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    child = CaliberWorkflow(workflow_id="child-import-pin", name="Child", owner="@test")
+    pinned = CaliberWorkflowVersion(
+        version_id="wfv-child-import-pin",
+        workflow_id=child.workflow_id,
+        version_number=1,
+        status="published",
+        manifest=make_manifest(child.workflow_id),
+        manifest_hash="hash-child-import-pin",
+    )
+    db_session.add_all([child, pinned])
+    db_session.commit()
+    manifest = make_manifest("parent_import_pin", name="Parent Import Pin")
+    manifest["nodes"]["agent"] = {
+        "id": "agent",
+        "type": "subworkflow",
+        "workflow_id": child.workflow_id,
+        "alias": "prod",
+        "version_id": pinned.version_id,
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {
+            "output": {"type": "string"},
+            "result": {"type": "structured"},
+        },
+    }
+    manifest["edges"][1]["map"] = {"output": "response"}
+
+    preview = client.post(f"{PREFIX}/workflows/import/preview", json={"manifest": manifest})
+
+    assert preview.status_code == 200, preview.text
+    dependency = next(
+        item for item in preview.json()["data"]["dependencies"] if item["kind"] == "subworkflow"
+    )
+    assert dependency["status"] == "resolved"
+    assert dependency["version"] == pinned.version_id
 
 
 def test_import_rewrites_manifest_owner_to_authenticated_actor(client: TestClient) -> None:

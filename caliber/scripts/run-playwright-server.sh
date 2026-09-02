@@ -490,6 +490,10 @@ export MLFLOW_ARTIFACT_ROOT="${MLFLOW_ARTIFACT_ROOT:-s3://mlflow/mlruns}"
 
 export CALIBER_AUTH_MODE="${CALIBER_AUTH_MODE:-session}"
 export CALIBER_AUTH_SESSION_COOKIE_SECURE="${CALIBER_AUTH_SESSION_COOKIE_SECURE:-false}"
+export CALIBER_APPROVAL_ALLOW_SELF_APPROVAL="${CALIBER_APPROVAL_ALLOW_SELF_APPROVAL:-true}"
+# A single process keeps the disposable SQLite stack within Playwright's
+# startup budget and avoids loading one embedding runtime per MLflow worker.
+export MLFLOW_WORKERS="${MLFLOW_WORKERS:-1}"
 case "$MLFLOW_HOST" in
   127.0.0.1 | localhost | ::1)
     e2e_insecure_bootstrap_default=true

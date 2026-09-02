@@ -15,7 +15,7 @@ test.describe("Docs Shell", () => {
     await expect(page.locator("#docsSidebar")).toBeHidden();
     await expect(page.locator("#menuToggle")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Ask Aria" })).toHaveCount(0);
-    await expect(page.locator("details.guide-section")).toHaveCount(5);
+    await expect(page.locator("#reference .reference-group")).toHaveCount(8);
     await expect(
       page.locator(
         '#reference .ref-card[href="m-00-layered-architecture.html"]',
@@ -30,15 +30,10 @@ test.describe("Docs Shell", () => {
       page.locator('#reference .ref-card[href="m-15-calibration.html"]'),
     ).toBeVisible();
 
-    await page.locator("#playbook-interface summary").click();
-    await expect
-      .poll(() =>
-        page.locator("#playbook-interface").evaluate((node) =>
-          Boolean((node as HTMLDetailsElement).open),
-        ),
-      )
-      .toBe(true);
-    await expect(page.getByRole("heading", { name: "API surface" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "First success" })).toBeVisible();
+    await expect(
+      page.locator('#featured-references a[href="m-21-sdk-reference.html"]'),
+    ).toBeVisible();
 
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
@@ -62,7 +57,7 @@ test.describe("Docs Shell", () => {
         exact: true,
       }),
     ).toBeVisible();
-    await expect(page.locator("#page-toc a")).toHaveCount(11);
+    await expect(page.locator("#page-toc a")).toHaveCount(16);
     await expect(page.locator("pre.mermaid")).toHaveCount(8);
     await expect(
       page.locator(

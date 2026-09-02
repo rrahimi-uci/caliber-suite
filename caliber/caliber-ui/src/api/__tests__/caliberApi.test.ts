@@ -363,7 +363,8 @@ describe("caliberApi", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response("name: support", { status: 200 }))
-      .mockResolvedValueOnce(new Response("def run(): pass", { status: 200 }));
+      .mockResolvedValueOnce(new Response("def run(): pass", { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"kind":"bundle"}', { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     saveLocalAuthSession(createLocalAuthSession("admin"));
     setActiveProjectId("PRJ-1");
@@ -371,11 +372,13 @@ describe("caliberApi", () => {
 
     await api.caliberApi.downloadWorkflowVersionManifest("WFV/1");
     await api.caliberApi.downloadWorkflowVersionPython("WFV/1");
+    await api.caliberApi.downloadWorkflowDeploymentBundle("WFV/1");
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       `${API_BASE}/workflow-versions/WFV%2F1/export/manifest`,
       `${API_BASE}/workflow-versions/WFV%2F1/export/python`,
+      `${API_BASE}/workflow-versions/WFV%2F1/export/deployment-bundle`,
     ]);
     for (const [, init] of fetchMock.mock.calls as Array<
       [string, RequestInit]

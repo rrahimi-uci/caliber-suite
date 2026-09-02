@@ -715,6 +715,7 @@ _DESIGNER_STARTER_NODES: dict[str, dict[str, Any]] = {
         "type": "subworkflow",
         "workflow_id": "",
         "alias": "prod",
+        "version_id": None,
         "timeout_seconds": 120,
         "inputs": {"input": _starter_port("string")},
         "outputs": {
@@ -1001,6 +1002,7 @@ _FIELD_DESCRIPTIONS: dict[str, str] = {
     "compensate_with": "Optional node to run when the protected node fails.",
     "workflow_id": "Published workflow invoked by this subworkflow step.",
     "alias": "Deployment alias resolved for subworkflow calls or trigger targets.",
+    "version_id": "Optional immutable child workflow version pinned by a deployment bundle.",
     "server_id": "Registered MCP server used by this node.",
     "tool_name": "Tool invoked by this node. Tool nodes use the local manifest binding name; MCP resource nodes use the remote MCP tool name.",
     "url": "HTTP(S) endpoint this node sends its request to (URL mode).",
@@ -1117,6 +1119,7 @@ _ADVANCED_FIELD_KEYS: frozenset[str] = frozenset(
         "top_k",
         "chat_model",
         "version_ids",
+        "version_id",
         "approval_count",
         "timeout_behavior",
         "compensate_with",

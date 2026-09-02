@@ -3565,6 +3565,37 @@ so the export is byte-identical to what was compiled/approved.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `export_deployment_bundle(version_id: str) -> dict[str, Any]`
+
+Download and decode the integrity-sealed deployment bundle.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `dict[str, Any]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- `ValueError`
+
+###### `deployment_bundle_status(version_id: str) -> Any`
+
+Integrity and dependency-readiness status for one version bundle.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `version_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `preview_run(version_id: str, *, input = None, session_id: str | None = None, **params) -> Any`
 
 Run the version in preview mode: real tool bindings are not used.
@@ -4584,7 +4615,7 @@ this workflow's approval UI.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `import_workflow(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, name: str | None = None, owner: str | None = None) -> Workflow`
+###### `import_workflow(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, deployment_bundle: dict[str, Any] | None = None, name: str | None = None, owner: str | None = None) -> Workflow`
 
 Import a manifest as a new, independently-owned workflow. The
 source ``workflow_id``/``owner`` inside the manifest are never
@@ -4596,6 +4627,7 @@ dependency preflight fails.
 | --- | --- | --- | --- |
 | `manifest` | keyword-only | `dict[str, Any] | None` | `None` |
 | `manifest_yaml` | keyword-only | `str | None` | `None` |
+| `deployment_bundle` | keyword-only | `dict[str, Any] | None` | `None` |
 | `name` | keyword-only | `str | None` | `None` |
 | `owner` | keyword-only | `str | None` | `None` |
 
@@ -4606,7 +4638,7 @@ dependency preflight fails.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `preview_import(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, name: str | None = None, owner: str | None = None) -> Any`
+###### `preview_import(*, manifest: dict[str, Any] | None = None, manifest_yaml: str | None = None, deployment_bundle: dict[str, Any] | None = None, name: str | None = None, owner: str | None = None) -> Any`
 
 Validate and resolve an import without creating anything --
 reports ``ready_to_import`` plus the validation/dependency detail
@@ -4616,6 +4648,7 @@ reports ``ready_to_import`` plus the validation/dependency detail
 | --- | --- | --- | --- |
 | `manifest` | keyword-only | `dict[str, Any] | None` | `None` |
 | `manifest_yaml` | keyword-only | `str | None` | `None` |
+| `deployment_bundle` | keyword-only | `dict[str, Any] | None` | `None` |
 | `name` | keyword-only | `str | None` | `None` |
 | `owner` | keyword-only | `str | None` | `None` |
 

@@ -7,6 +7,7 @@ implementation detail of the route layer.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..errors import CaliberError
@@ -105,6 +106,18 @@ class WorkflowVersionsAPI(Resource):
         return self._transport.download(f"/workflow-versions/{version_id}/export/python").decode(
             "utf-8"
         )
+
+    def export_deployment_bundle(self, version_id: str) -> dict[str, Any]:
+        """Download and decode the integrity-sealed deployment bundle."""
+        raw = self._transport.download(f"/workflow-versions/{version_id}/export/deployment-bundle")
+        value = json.loads(raw.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("deployment bundle response was not a JSON object")
+        return value
+
+    def deployment_bundle_status(self, version_id: str) -> Any:
+        """Integrity and dependency-readiness status for one version bundle."""
+        return self._get(f"/workflow-versions/{version_id}/deployment-bundle/status")
 
     def preview_run(
         self, version_id: str, *, input: Any = None, session_id: str | None = None, **params: Any
@@ -533,6 +546,7 @@ class WorkflowsAPI(Resource):
         *,
         manifest: dict[str, Any] | None = None,
         manifest_yaml: str | None = None,
+        deployment_bundle: dict[str, Any] | None = None,
         name: str | None = None,
         owner: str | None = None,
     ) -> Workflow:
@@ -545,18 +559,26 @@ class WorkflowsAPI(Resource):
         for key, value in (
             ("manifest", manifest),
             ("manifest_yaml", manifest_yaml),
+            ("deployment_bundle", deployment_bundle),
             ("name", name),
             ("owner", owner),
         ):
             if value is not None:
                 body[key] = value
-        return decode(Workflow, self._post("/workflows/import", json=body))
+        response = self._post("/workflows/import", json=body)
+        # The server returns both the new workflow and its first draft version.
+        # Keep this established convenience method focused on the workflow while
+        # accepting older deployments that returned the workflow directly.
+        if isinstance(response, dict) and isinstance(response.get("workflow"), dict):
+            response = response["workflow"]
+        return decode(Workflow, response)
 
     def preview_import(
         self,
         *,
         manifest: dict[str, Any] | None = None,
         manifest_yaml: str | None = None,
+        deployment_bundle: dict[str, Any] | None = None,
         name: str | None = None,
         owner: str | None = None,
     ) -> Any:
@@ -567,6 +589,7 @@ class WorkflowsAPI(Resource):
         for key, value in (
             ("manifest", manifest),
             ("manifest_yaml", manifest_yaml),
+            ("deployment_bundle", deployment_bundle),
             ("name", name),
             ("owner", owner),
         ):

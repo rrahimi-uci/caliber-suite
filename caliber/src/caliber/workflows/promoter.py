@@ -71,11 +71,15 @@ from caliber.secrets import resolve_secret
 from caliber.storage.base import StorageError
 from caliber.workflows.compiler import CompileError, CompileResult, compile_workflow
 from caliber.workflows.deploy_gate import GateMetrics, evaluate_thresholds
+from caliber.workflows.deployment_bundle import (
+    build_deployment_bundle,
+    verify_bundle,
+)
 from caliber.workflows.file_tools import (
     bind_project_managed_file_runtime,
     managed_file_tool_aliases,
 )
-from caliber.workflows.ir import IRWorkflow
+from caliber.workflows.ir import IRSubworkflow, IRWorkflow
 from caliber.workflows.manifest import (
     AgentNode,
     DeployGate,
@@ -686,23 +690,56 @@ def compile_version(
     """Compile a version's manifest, optionally persisting compile metadata."""
     manifest = parse_manifest(version.manifest)
     resolver = resolver or resolver_from_session(session)
-    result = compile_workflow(manifest, resolver=resolver, version=str(version.version_number))
+    result = compile_workflow(
+        manifest,
+        resolver=resolver,
+        version=str(version.version_number),
+        skill_contents=_skill_contents_for(
+            session, manifest, compiled_bundle=version.compiled_bundle
+        ),
+    )
     if persist:
         version.compiler_version = result.report["compiler_version"]
         version.validation_report = result.report["validation"]
         version.manifest_hash = result.manifest_hash
         # Store the immutable compiled bundle with the version (plan §13.3) so
         # the generated code/report are durable and exportable without recompiling.
+        imported_skill_snapshots = (
+            version.compiled_bundle.get("imported_skill_snapshots")
+            if isinstance(version.compiled_bundle, dict)
+            else None
+        )
+        deployment_bundle = build_deployment_bundle(
+            session,
+            version,
+            manifest,
+            resolver,
+            imported_skill_snapshots=(
+                imported_skill_snapshots if isinstance(imported_skill_snapshots, dict) else None
+            ),
+        )
+        compiled = deployment_bundle["compiled"]
         version.compiled_bundle = {
-            "generated_python": result.generated_python,
-            "compiler_report": result.report,
-            "requirements": result.requirements,
+            "generated_python": compiled["generated_python"],
+            "compiler_report": compiled["compiler_report"],
+            "requirements": compiled["requirements"],
+            "deployment_bundle": deployment_bundle,
+            **(
+                {"imported_skill_snapshots": imported_skill_snapshots}
+                if isinstance(imported_skill_snapshots, dict)
+                else {}
+            ),
         }
         version.compiled_artifact_uri = f"caliber-workflow://{version.version_id}/bundle"
     return result
 
 
-def _skill_contents_for(session: Session, manifest: WorkflowManifest) -> dict[str, str]:
+def _skill_contents_for(
+    session: Session,
+    manifest: WorkflowManifest,
+    *,
+    compiled_bundle: dict[str, Any] | None = None,
+) -> dict[str, str]:
     """Resolve ``name -> content`` for every skill any agent references.
 
     Empty when no agent declares skills, so the compile path is unchanged for
@@ -717,10 +754,23 @@ def _skill_contents_for(session: Session, manifest: WorkflowManifest) -> dict[st
     }
     if not names:
         return {}
+    imported = (
+        compiled_bundle.get("imported_skill_snapshots", {})
+        if isinstance(compiled_bundle, dict)
+        else {}
+    )
+    embedded = {
+        name: snapshot["content"]
+        for name, snapshot in imported.items()
+        if name in names and isinstance(snapshot, dict) and isinstance(snapshot.get("content"), str)
+    }
+    missing_names = names - set(embedded)
+    if not missing_names:
+        return embedded
     rows = session.execute(
-        select(CaliberSkill.name, CaliberSkill.content).where(CaliberSkill.name.in_(names))
+        select(CaliberSkill.name, CaliberSkill.content).where(CaliberSkill.name.in_(missing_names))
     ).all()
-    return {name: content for name, content in rows if content}
+    return {**embedded, **{name: content for name, content in rows if content}}
 
 
 def build_plan(  # noqa: PLR0915 - central workflow plan assembler
@@ -742,15 +792,39 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     stored version is never mutated.
     """
     resolver = resolver or resolver_from_session(session)
-    manifest = parse_manifest(
-        manifest_override if manifest_override is not None else version.manifest
+    compiled_bundle = getattr(version, "compiled_bundle", None)
+    bundle = compiled_bundle if isinstance(compiled_bundle, dict) else {}
+    deployment_bundle = bundle.get("deployment_bundle")
+    deployment_bundle_dict = deployment_bundle if isinstance(deployment_bundle, dict) else {}
+    use_sealed_bundle = (
+        manifest_override is None
+        and getattr(version, "status", None) == "published"
+        and isinstance(deployment_bundle, dict)
+        and verify_bundle(deployment_bundle).ready_to_deploy
+    )
+    manifest_payload = (
+        deployment_bundle_dict["resolved_manifest"]
+        if use_sealed_bundle
+        else manifest_override
+        if manifest_override is not None
+        else version.manifest
+    )
+    manifest = parse_manifest(manifest_payload)
+    embedded_skills = (
+        {
+            name: snapshot["content"]
+            for name, snapshot in deployment_bundle_dict.get("skill_snapshots", {}).items()
+            if isinstance(snapshot, dict) and isinstance(snapshot.get("content"), str)
+        }
+        if use_sealed_bundle
+        else _skill_contents_for(session, manifest, compiled_bundle=bundle)
     )
     result = compile_workflow(
         manifest,
         resolver=resolver,
         version=str(version.version_number),
         use_cache=True,
-        skill_contents=_skill_contents_for(session, manifest),
+        skill_contents=embedded_skills,
     )
     resolved_config = config or CaliberConfig()
     runtime_session_factory = session_factory or sessionmaker(
@@ -806,7 +880,19 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             mode = "graph_hybrid"
         return [mode]
 
-    def _resolve_version(workflow_id: str, run_alias: str) -> CaliberWorkflowVersion:
+    def _resolve_version(
+        workflow_id: str,
+        run_alias: str,
+        pinned_version_id: str | None = None,
+    ) -> CaliberWorkflowVersion:
+        if pinned_version_id:
+            pinned = session.get(CaliberWorkflowVersion, pinned_version_id)
+            if pinned is None or pinned.workflow_id != workflow_id:
+                raise PublishError(
+                    f"pinned subworkflow version {pinned_version_id!r} is unavailable "
+                    f"for workflow {workflow_id!r}"
+                )
+            return pinned
         if run_alias == "manual":
             latest = (
                 session.execute(
@@ -862,7 +948,19 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
                 "error": f"subworkflow recursion depth exceeded ({max_depth})",
                 "tokens": 0,
             }
-        target_version = _resolve_version(workflow_id, run_alias)
+        # The runtime callback signature predates deployment bundles. Resolve
+        # the pin from the compiled IR node for this workflow+alias pair.
+        pinned_version_id = next(
+            (
+                node.version_id
+                for node in result.ir.nodes.values()
+                if isinstance(node, IRSubworkflow)
+                and node.workflow_id == workflow_id
+                and node.alias == run_alias
+            ),
+            None,
+        )
+        target_version = _resolve_version(workflow_id, run_alias, pinned_version_id)
         sub_plan = build_plan(
             session,
             target_version,
@@ -873,7 +971,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             session_factory=runtime_session_factory,
         )
         run_ctx = current_run_context()
-        result = execute(
+        execution_result = execute(
             sub_plan,
             input_text,
             executor=executor,
@@ -881,15 +979,15 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             preview=preview,
         )
         return {
-            "status": result.status,
+            "status": execution_result.status,
             "workflow_id": workflow_id,
             "alias": run_alias,
             "workflow_version_id": target_version.version_id,
             "workflow_version_number": target_version.version_number,
-            "output": result.output,
-            "error": result.error,
-            "tokens": result.tokens,
-            "steps": [step.node_id for step in result.steps],
+            "output": execution_result.output,
+            "error": execution_result.error,
+            "tokens": execution_result.tokens,
+            "steps": [step.node_id for step in execution_result.steps],
         }
 
     def _run_knowledge_query(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1375,6 +1473,11 @@ def publish_version(
     except CompileError as exc:
         raise PublishError(f"version does not compile: {exc}") from exc
 
+    deployment_bundle = (version.compiled_bundle or {}).get("deployment_bundle")
+    verification = verify_bundle(deployment_bundle)
+    if not verification.valid:
+        raise PublishError("deployment bundle is invalid: " + "; ".join(verification.errors))
+
     version.status = "published"
     version.published_by = actor
     version.published_at = datetime.now(timezone.utc)
@@ -1575,6 +1678,7 @@ def evaluate_deploy_gates(
     for gate in gates:
         artifact = manifest.artifacts.eval_datasets.get(gate.dataset_ref)
         dataset_name = artifact.dataset_name if artifact else gate.dataset_ref
+        pinned_dataset_version = artifact.version if artifact is not None else None
         dataset = (
             session.execute(
                 select(CaliberEvalDataset).where(CaliberEvalDataset.name == dataset_name)
@@ -1585,9 +1689,14 @@ def evaluate_deploy_gates(
         examples: list[CaliberEvalDatasetExample] = []
         available = 0
         if dataset is not None and dataset.status == "active":
+            effective_dataset_version = pinned_dataset_version or dataset.version
             active_filter = (
                 CaliberEvalDatasetExample.dataset_id == dataset.dataset_id,
-                CaliberEvalDatasetExample.superseded_at.is_(None),
+                CaliberEvalDatasetExample.dataset_version <= effective_dataset_version,
+                (
+                    CaliberEvalDatasetExample.superseded_version.is_(None)
+                    | (CaliberEvalDatasetExample.superseded_version > effective_dataset_version)
+                ),
             )
             # Count before truncating: a bounded sample must never be reported as
             # if it were the whole dataset.
@@ -1628,7 +1737,9 @@ def evaluate_deploy_gates(
                     n_examples=0,
                     detail=detail,
                     dataset_id=dataset.dataset_id if dataset is not None else None,
-                    dataset_version=dataset.version if dataset is not None else None,
+                    dataset_version=(
+                        pinned_dataset_version or dataset.version if dataset is not None else None
+                    ),
                     available_examples=available,
                 )
             )
@@ -1682,7 +1793,9 @@ def evaluate_deploy_gates(
                 metrics=metrics.to_dict(),
                 thresholds=[outcome.to_dict() for outcome in outcomes],
                 dataset_id=dataset.dataset_id if dataset is not None else None,
-                dataset_version=dataset.version if dataset is not None else None,
+                dataset_version=(
+                    pinned_dataset_version or dataset.version if dataset is not None else None
+                ),
                 sample_digest=_sample_digest(examples),
                 available_examples=available,
                 scorers=list(gate.scorers),
@@ -2034,9 +2147,25 @@ def require_alias_target_ready(
             f"alias {alias!r} cannot rotate to missing version {version_id!r}",
             blockers=[f"version {version_id!r} does not exist"],
         )
+    manifest_for_deploy = version.manifest or {}
+    compiled_bundle = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
+    deployment_bundle = compiled_bundle.get("deployment_bundle")
+    if isinstance(deployment_bundle, dict):
+        verification = verify_bundle(deployment_bundle)
+        if not verification.valid:
+            raise AliasPreflightError(
+                f"deployment bundle integrity check failed for alias {alias!r}",
+                blockers=verification.errors,
+            )
+        # A complete portable bundle is the immutable execution source. An
+        # incomplete bundle remains useful diagnostics for legacy/native
+        # workflows, whose existing deployment contract continues to validate
+        # the authoring manifest. Bundle import itself rejects incompleteness.
+        if verification.ready_to_deploy:
+            manifest_for_deploy = deployment_bundle["resolved_manifest"]
     blockers = deployment_blockers(
         session,
-        version.manifest or {},
+        manifest_for_deploy,
         alias=alias,
         config=config,
         # An alias rotation must be able to prove the whole graph, children
@@ -2333,7 +2462,14 @@ def promote(
         raise DeployError("only published versions can be promoted")
 
     resolver = resolver or resolver_from_session(session)
-    manifest = parse_manifest(version.manifest)
+    compiled_bundle = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
+    deployment_bundle = compiled_bundle.get("deployment_bundle")
+    manifest_payload = (
+        deployment_bundle["resolved_manifest"]
+        if isinstance(deployment_bundle, dict) and verify_bundle(deployment_bundle).ready_to_deploy
+        else version.manifest
+    )
+    manifest = parse_manifest(manifest_payload)
     if executor is None:
         # ``build_executor(None)`` — the previous default — always returned the
         # deterministic fake, so a real provider in application configuration never

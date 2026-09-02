@@ -1372,6 +1372,7 @@ class WorkflowImportRequest(BaseModel):
 
     manifest: dict[str, object] | None = None
     manifest_yaml: str | None = None
+    deployment_bundle: dict[str, object] | None = None
     name: str | None = Field(default=None, min_length=1, max_length=256)
     owner: str | None = Field(default=None, max_length=256)
 
@@ -1814,6 +1815,18 @@ class WorkflowCompileSchema(BaseModel):
     requirements: list[str] = Field(default_factory=list)
     compile_ms: float | None = None
     cached: bool = False
+
+
+class WorkflowDeploymentBundleStatusSchema(BaseModel):
+    """Integrity and portability readiness for one compiled workflow bundle."""
+
+    sealed: bool
+    valid: bool
+    ready_to_deploy: bool
+    dependency_count: int = Field(ge=0)
+    digest: str | None = None
+    errors: list[str] = Field(default_factory=list)
+    dependencies: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RuntimeApprovalAckSchema(BaseModel):

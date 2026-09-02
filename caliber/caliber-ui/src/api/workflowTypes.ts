@@ -146,7 +146,12 @@ export interface ManifestNode {
   template?: string;
   output_format?: "text" | "json";
   missing_variable_mode?: "preserve" | "empty" | "error";
-  operation?: "fixture" | "mapping" | "json_schema" | "decision_table" | "confidence";
+  operation?:
+    | "fixture"
+    | "mapping"
+    | "json_schema"
+    | "decision_table"
+    | "confidence";
   config?: Record<string, unknown>;
   fail_on_invalid?: boolean;
   queue_id?: string;
@@ -344,12 +349,40 @@ export interface WorkflowVersion {
     generated_python?: string;
     compiler_report?: Record<string, unknown>;
     requirements?: string[];
+    deployment_bundle?: WorkflowDeploymentBundle;
   } | null;
   validation_report: ValidationReport | null;
   created_by: string;
   created_at: string;
   published_by: string | null;
   published_at: string | null;
+}
+
+export interface WorkflowDeploymentBundle {
+  kind: "caliber.workflow_deployment_bundle";
+  schema_version: 1;
+  workflow: Record<string, unknown>;
+  manifest: WorkflowManifest;
+  resolved_manifest: WorkflowManifest;
+  compiled: Record<string, unknown>;
+  dependencies: Array<WorkflowImportDependency & Record<string, unknown>>;
+  skill_snapshots: Record<string, Record<string, unknown>>;
+  ready_to_deploy: boolean;
+  integrity: { algorithm: "sha256"; digest: string };
+  portability: {
+    embedded: string[];
+    external_required: string[];
+  };
+}
+
+export interface WorkflowDeploymentBundleStatus {
+  sealed: boolean;
+  valid: boolean;
+  ready_to_deploy: boolean;
+  dependency_count: number;
+  digest: string | null;
+  errors: string[];
+  dependencies?: WorkflowDeploymentBundle["dependencies"];
 }
 
 export interface WorkflowImportDependency {
@@ -361,7 +394,8 @@ export interface WorkflowImportDependency {
     | "skill"
     | "knowledge_base"
     | "knowledge_base_version"
-    | "subworkflow";
+    | "subworkflow"
+    | "managed_file";
   reference: string;
   path: string;
   status: "resolved" | "unresolved" | "unverified";
@@ -377,6 +411,7 @@ export interface WorkflowImportPreview {
   edge_count: number;
   validation: ValidationReport;
   dependencies: WorkflowImportDependency[];
+  bundle_verification: Omit<WorkflowDeploymentBundleStatus, "sealed"> | null;
   ready_to_import: boolean;
 }
 
@@ -874,17 +909,21 @@ export interface PlatformCapabilities {
   artifact_families: Record<
     string,
     {
-      kind: 'runtime_asset' | 'evidence_asset' | 'scoring_asset' | 'anchor_record';
+      kind:
+        | "runtime_asset"
+        | "evidence_asset"
+        | "scoring_asset"
+        | "anchor_record";
       history: string;
       live_target: string;
       promotable: boolean;
       rollbackable: boolean;
       rollback:
-        | 'alias_restore'
-        | 'checkpoint_stack_pop'
-        | 'derived_from_activation_history'
-        | 'snapshot_restored_as_new_version'
-        | 'none';
+        | "alias_restore"
+        | "checkpoint_stack_pop"
+        | "derived_from_activation_history"
+        | "snapshot_restored_as_new_version"
+        | "none";
       evidence_bearing: boolean;
       gate_mode: string;
       calibration: string;
@@ -900,7 +939,7 @@ export interface RegisteredOptimizer {
   /** Which artifact kinds it can target. A prompt-only optimizer on a skill job
    *  is rejected server-side, so this is what a picker must filter on. */
   artifact_types: string[];
-  source: 'builtin' | 'plugin';
+  source: "builtin" | "plugin";
   /** Optional distribution the optimizer needs installed, when it has one. Lets
    *  a control say *why* an option is unavailable instead of hiding it. */
   requires: string | null;
@@ -1859,7 +1898,10 @@ export interface OpenApiVersionDiff {
   to_version_id: string;
   added: string[];
   removed: string[];
-  changed: { operation_key: string; changes: Record<string, { from: unknown; to: unknown }> }[];
+  changed: {
+    operation_key: string;
+    changes: Record<string, { from: unknown; to: unknown }>;
+  }[];
   unchanged: string[];
   breaking: { operation_key: string; reason: string }[];
   summary: {
@@ -1931,7 +1973,12 @@ export interface OpenApiToolDraftPreviewResult {
 
 export interface OpenApiPublishToolDraftResult {
   draft: OpenApiToolDraft;
-  tool: { tool_id: string; name: string; version: string; execution_backend: string };
+  tool: {
+    tool_id: string;
+    name: string;
+    version: string;
+    execution_backend: string;
+  };
 }
 
 export interface OpenApiCredentialValidationResult {

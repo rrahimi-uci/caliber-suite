@@ -201,6 +201,8 @@ import type {
   WorkflowCronPreview,
   WorkflowDeployment,
   WorkflowImportPreview,
+  WorkflowDeploymentBundle,
+  WorkflowDeploymentBundleStatus,
   WorkflowManifest,
   WorkflowPatch,
   WorkflowPromotion,
@@ -627,8 +629,10 @@ async function doFetch(
   if (user) headers[USER_HEADER] = user;
   const projectId = getActiveProjectId();
   if (projectId) headers[PROJECT_HEADER] = projectId;
-  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
-  if (body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
+  const isFormData =
+    typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isFormData)
+    headers["Content-Type"] = "application/json";
   if (csrfToken && WRITE_METHODS.has(method)) {
     headers[CSRF_HEADER] = csrfToken;
   }
@@ -987,8 +991,13 @@ export const caliberApi = {
     return request<ReleaseCandidate[]>("/releases/candidates", { signal });
   },
 
-  createReleaseCandidate(payload: ReleaseCandidateCreatePayload): Promise<ReleaseCandidate> {
-    return request<ReleaseCandidate>("/releases/candidates", { method: "POST", body: payload });
+  createReleaseCandidate(
+    payload: ReleaseCandidateCreatePayload,
+  ): Promise<ReleaseCandidate> {
+    return request<ReleaseCandidate>("/releases/candidates", {
+      method: "POST",
+      body: payload,
+    });
   },
 
   evaluateReleaseCandidate(candidateId: string): Promise<ReleaseCandidate> {
@@ -1895,7 +1904,10 @@ export const caliberApi = {
     body.append("file", payload.file, payload.file.name);
     body.append("conflict_strategy", payload.conflict_strategy);
     if (payload.rename_to) body.append("rename_to", payload.rename_to);
-    return request<Skill>("/skills/import-package.zip", { method: "POST", body });
+    return request<Skill>("/skills/import-package.zip", {
+      method: "POST",
+      body,
+    });
   },
 
   /** PATCH /skills/{id} */
@@ -2884,6 +2896,25 @@ export const caliberApi = {
     );
   },
 
+  /** GET /workflow-versions/{id}/export/deployment-bundle as authenticated JSON. */
+  downloadWorkflowDeploymentBundle(versionId: string): Promise<Blob> {
+    return downloadFile(
+      `/workflow-versions/${encodeURIComponent(versionId)}/export/deployment-bundle`,
+      "application/json",
+    );
+  },
+
+  /** GET /workflow-versions/{id}/deployment-bundle/status. */
+  getWorkflowDeploymentBundleStatus(
+    versionId: string,
+    signal?: AbortSignal,
+  ): Promise<WorkflowDeploymentBundleStatus> {
+    return request<WorkflowDeploymentBundleStatus>(
+      `/workflow-versions/${encodeURIComponent(versionId)}/deployment-bundle/status`,
+      { signal },
+    );
+  },
+
   /** POST /workflow-versions/{id}/preview-run.
    * Pass `manifest` to preview an unsaved in-memory edit (the copilot iterate
    * loop) instead of the stored version. */
@@ -3283,6 +3314,7 @@ export const caliberApi = {
   previewWorkflowImport(payload: {
     manifest?: WorkflowManifest;
     manifest_yaml?: string;
+    deployment_bundle?: WorkflowDeploymentBundle;
     name?: string;
   }): Promise<WorkflowImportPreview> {
     return request<WorkflowImportPreview>("/workflows/import/preview", {
@@ -3295,6 +3327,7 @@ export const caliberApi = {
   importWorkflow(payload: {
     manifest?: WorkflowManifest;
     manifest_yaml?: string;
+    deployment_bundle?: WorkflowDeploymentBundle;
     name?: string;
   }): Promise<{ workflow: Workflow; version: WorkflowVersion }> {
     return request<{ workflow: Workflow; version: WorkflowVersion }>(
@@ -4335,7 +4368,9 @@ export const caliberApi = {
   },
 
   /** POST /openapi-integrations/{id}/archive */
-  archiveOpenApiIntegration(integrationId: string): Promise<OpenApiIntegration> {
+  archiveOpenApiIntegration(
+    integrationId: string,
+  ): Promise<OpenApiIntegration> {
     return request<OpenApiIntegration>(
       `/openapi-integrations/${encodeURIComponent(integrationId)}/archive`,
       { method: "POST" },
@@ -4354,9 +4389,11 @@ export const caliberApi = {
   },
 
   /** POST /openapi-integrations/{id}/reimport — re-fetch the last url source and diff it */
-  reimportOpenApiSpec(
-    integrationId: string,
-  ): Promise<{ version: OpenApiIntegrationVersion; previous_version_id: string; diff: OpenApiVersionDiff }> {
+  reimportOpenApiSpec(integrationId: string): Promise<{
+    version: OpenApiIntegrationVersion;
+    previous_version_id: string;
+    diff: OpenApiVersionDiff;
+  }> {
     return request(
       `/openapi-integrations/${encodeURIComponent(integrationId)}/reimport`,
       { method: "POST" },
@@ -4395,7 +4432,9 @@ export const caliberApi = {
       `/openapi-integrations/${encodeURIComponent(integrationId)}/versions/${encodeURIComponent(versionId)}/diff`,
       {
         method: "POST",
-        body: compareToVersionId ? { compare_to_version_id: compareToVersionId } : {},
+        body: compareToVersionId
+          ? { compare_to_version_id: compareToVersionId }
+          : {},
       },
     );
   },
@@ -4900,7 +4939,10 @@ export const caliberApi = {
   },
 
   /** GET /projects/{id}/members */
-  listProjectMembers(projectId: string, signal?: AbortSignal): Promise<ProjectMemberList> {
+  listProjectMembers(
+    projectId: string,
+    signal?: AbortSignal,
+  ): Promise<ProjectMemberList> {
     return request<ProjectMemberList>(
       `/projects/${encodeURIComponent(projectId)}/members`,
       { signal },

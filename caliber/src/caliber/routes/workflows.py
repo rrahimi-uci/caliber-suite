@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -80,6 +81,7 @@ from caliber.schemas import (
 from caliber.storage import VISIBLE_STATUSES, StorageError, parse_ref
 from caliber.workflows.component_catalog import build_workflow_component_catalog
 from caliber.workflows.cron import next_fires, validate_cron
+from caliber.workflows.deployment_bundle import require_valid_bundle, verify_bundle
 from caliber.workflows.manifest import (
     WorkflowManifestError,
     compute_manifest_hash,
@@ -765,19 +767,37 @@ def _preflight_artifact_dependencies(
         )
     for alias, artifact in manifest.artifacts.eval_datasets.items():
         row = dataset_by_name.get(artifact.dataset_name)
+        # Dataset examples are retained with version intervals, so a newer
+        # dataset row can still replay the exact historical version pinned by
+        # an imported bundle.
+        version_matches = row is not None and (
+            artifact.version is None or row.version >= artifact.version
+        )
+        if version_matches and row is not None:
+            detail = (
+                f"Resolved pinned dataset version {artifact.version} from current version "
+                f"{row.version}."
+                if artifact.version is not None and row.version != artifact.version
+                else f"Resolved to dataset version {row.version}."
+            )
+        elif row is not None:
+            detail = (
+                f"Dataset is version {row.version}, but the bundle requires version "
+                f"{artifact.version}."
+            )
+        else:
+            detail = (
+                f"Evaluation dataset {artifact.dataset_name!r} is not visible in this workspace."
+            )
         _add_import_dependency(
             dependencies,
             report,
             kind="eval_dataset",
             reference=artifact.dataset_name,
             path=f"artifacts.eval_datasets.{alias}",
-            status="resolved" if row is not None else "unresolved",
+            status="resolved" if version_matches else "unresolved",
             version=str(row.version) if row is not None else None,
-            detail=(
-                f"Resolved to dataset version {row.version}."
-                if row is not None
-                else f"Evaluation dataset {artifact.dataset_name!r} is not visible in this workspace."
-            ),
+            detail=detail,
         )
 
 
@@ -1000,13 +1020,22 @@ def _preflight_subworkflow_node(
 ) -> None:
     child = workflow_by_id.get(node.workflow_id)
     alias = node.alias or "prod"
+    pinned_version_id = getattr(node, "version_id", None)
     resolved = child is not None
     detail = (
         f"Workflow {child.name!r} is visible; alias {alias!r} remains pinned."
         if child is not None
         else f"Subworkflow {node.workflow_id!r} is not visible in this workspace."
     )
-    if child is not None and alias == "manual":
+    if child is not None and pinned_version_id:
+        target = session.get(CaliberWorkflowVersion, pinned_version_id)
+        resolved = target is not None and target.workflow_id == node.workflow_id
+        detail = (
+            f"Resolved exact child workflow version {pinned_version_id}."
+            if resolved
+            else f"Pinned child workflow version {pinned_version_id!r} is unavailable."
+        )
+    elif child is not None and alias == "manual":
         latest = (
             session.execute(
                 select(CaliberWorkflowVersion)
@@ -1052,7 +1081,7 @@ def _preflight_subworkflow_node(
         reference=node.workflow_id,
         path=f"nodes.{node_id}.workflow_id",
         status="resolved" if resolved else "unresolved",
-        version=alias,
+        version=pinned_version_id or alias,
         detail=detail,
     )
 
@@ -1111,6 +1140,7 @@ def _import_dependency_preflight(
     manifest: Any,
     identity: Any,
     report: ValidationReport,
+    embedded_skill_snapshots: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve manifest dependencies without mutating the database.
 
@@ -1122,6 +1152,13 @@ def _import_dependency_preflight(
     """
     dependencies: list[dict[str, Any]] = []
     skill_by_name = {row.name: row for row in _visible_rows(session, CaliberSkill, identity)}
+    skill_by_name.update(
+        {
+            name: SimpleNamespace(version=snapshot.get("version"))
+            for name, snapshot in (embedded_skill_snapshots or {}).items()
+            if isinstance(snapshot, dict) and isinstance(snapshot.get("content"), str)
+        }
+    )
     dataset_by_name = {
         row.name: row for row in _visible_rows(session, CaliberEvalDataset, identity)
     }
@@ -1213,19 +1250,30 @@ def _prepare_import_manifest(
 
 
 def _run_import_preflight(
-    session: Any, manifest: Any, identity: Any
+    session: Any,
+    manifest: Any,
+    identity: Any,
+    *,
+    embedded_skill_snapshots: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     skill_names = {
         row.name
         for row in _visible_rows(session, CaliberSkill, identity)
         if row.status != "archived"
     }
+    skill_names.update((embedded_skill_snapshots or {}).keys())
     report = validate_manifest(
         manifest,
         resolver=_scoped_tool_resolver(session, identity),
         skill_names=skill_names,
     )
-    dependencies = _import_dependency_preflight(session, manifest, identity, report)
+    dependencies = _import_dependency_preflight(
+        session,
+        manifest,
+        identity,
+        report,
+        embedded_skill_snapshots=embedded_skill_snapshots,
+    )
     return report.to_dict(), dependencies
 
 
@@ -1242,7 +1290,24 @@ async def preview_workflow_import(request: Request) -> JSONResponse:
     )
     factory = get_session_factory(request)
     with factory() as session:
-        report, dependencies = _run_import_preflight(session, manifest, identity)
+        embedded_skills = (
+            payload.deployment_bundle.get("skill_snapshots")
+            if payload.deployment_bundle is not None
+            else None
+        )
+        report, dependencies = _run_import_preflight(
+            session,
+            manifest,
+            identity,
+            embedded_skill_snapshots=(
+                embedded_skills if isinstance(embedded_skills, dict) else None
+            ),
+        )
+    bundle_verification = (
+        verify_bundle(payload.deployment_bundle).to_dict()
+        if payload.deployment_bundle is not None
+        else None
+    )
     return envelope_response_dict(
         {
             "source_workflow_id": source_workflow_id,
@@ -1252,7 +1317,12 @@ async def preview_workflow_import(request: Request) -> JSONResponse:
             "edge_count": len(manifest.edges),
             "validation": report,
             "dependencies": dependencies,
-            "ready_to_import": bool(report.get("valid")),
+            "bundle_verification": bundle_verification,
+            "ready_to_import": bool(report.get("valid"))
+            and (
+                bundle_verification is None
+                or (bundle_verification["valid"] and bundle_verification["ready_to_deploy"])
+            ),
         }
     )
 
@@ -1279,13 +1349,35 @@ async def import_workflow(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        report, dependencies = _run_import_preflight(session, manifest, identity)
-        if not report["valid"]:
+        embedded_skills = (
+            payload.deployment_bundle.get("skill_snapshots")
+            if payload.deployment_bundle is not None
+            else None
+        )
+        report, dependencies = _run_import_preflight(
+            session,
+            manifest,
+            identity,
+            embedded_skill_snapshots=(
+                embedded_skills if isinstance(embedded_skills, dict) else None
+            ),
+        )
+        bundle_verification = (
+            verify_bundle(payload.deployment_bundle)
+            if payload.deployment_bundle is not None
+            else None
+        )
+        if not report["valid"] or (
+            bundle_verification is not None and not bundle_verification.ready_to_deploy
+        ):
             return JSONResponse(
                 {
                     "detail": "workflow import preflight failed; resolve validation and dependency errors first",
                     "validation": report,
                     "dependencies": dependencies,
+                    "bundle_verification": (
+                        bundle_verification.to_dict() if bundle_verification is not None else None
+                    ),
                 },
                 status_code=400,
             )
@@ -1318,6 +1410,11 @@ async def import_workflow(request: Request) -> JSONResponse:
             manifest=normalized,
             manifest_hash=compute_manifest_hash(normalized),
             validation_report=report,
+            compiled_bundle=(
+                {"imported_skill_snapshots": payload.deployment_bundle.get("skill_snapshots", {})}
+                if payload.deployment_bundle is not None
+                else None
+            ),
             created_by=actor,
         )
         session.add(version)
@@ -1353,10 +1450,26 @@ async def import_workflow(request: Request) -> JSONResponse:
 
 
 def _resolve_import_manifest(payload: WorkflowImportRequest) -> dict[str, Any]:
-    if payload.manifest is not None and payload.manifest_yaml is not None:
+    provided = sum(
+        item is not None
+        for item in (payload.manifest, payload.manifest_yaml, payload.deployment_bundle)
+    )
+    if provided != 1:
         raise HTTPException(
-            status_code=400, detail="provide exactly one of 'manifest' or 'manifest_yaml'"
+            status_code=400,
+            detail=("provide exactly one of 'manifest', 'manifest_yaml', or 'deployment_bundle'"),
         )
+    if payload.deployment_bundle is not None:
+        try:
+            bundle = require_valid_bundle(payload.deployment_bundle)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"invalid deployment bundle: {exc}"
+            ) from exc
+        resolved = bundle.get("resolved_manifest")
+        if not isinstance(resolved, dict):  # guarded by verification; defensive for typing
+            raise HTTPException(status_code=400, detail="deployment bundle has no manifest")
+        return resolved
     if payload.manifest is not None:
         return dict(payload.manifest)
     if payload.manifest_yaml is not None:
@@ -1367,7 +1480,7 @@ def _resolve_import_manifest(payload: WorkflowImportRequest) -> dict[str, Any]:
         if not isinstance(parsed, dict):
             raise HTTPException(status_code=400, detail="manifest_yaml must decode to a mapping")
         return parsed
-    raise HTTPException(status_code=400, detail="provide one of 'manifest' or 'manifest_yaml'")
+    raise HTTPException(status_code=400, detail="no workflow import source was provided")
 
 
 def _publish_workflow_status_event(request: Request, workflow_id: str, status: str) -> None:

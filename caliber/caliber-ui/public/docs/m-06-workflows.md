@@ -454,12 +454,39 @@ behaviors, including wait/resume and approvals, are durable but operationally
 complex, which is precisely why events and checkpoints are mandatory rather than
 optional conveniences.
 
-Import is a manifest-and-reference operation, not a portable dependency bundle:
-it does not copy or remap prompts, skills, tools, datasets, knowledge bases, MCP
-servers, or child workflows. Managed project files execute through CALIBER's
-scoped runtime in normal synchronous and queued/service runs; an exported
-standalone Python artifact has no implicit access to CALIBER's file metadata or
-storage credentials and therefore needs an explicit host integration.
+Published workflow versions now have a deterministic **deployment bundle** in
+addition to the lightweight YAML and Python exports. Compile resolves mutable
+prompt and child-workflow aliases, tool constraints, active knowledge-base
+versions, evaluation datasets, and skill content. It stores the resolved
+manifest, compiled program, dependency lock, portability classification, and a
+canonical SHA-256 integrity digest with the workflow version. Deployment-ready
+published runtime plans use that resolved manifest and embedded skill content,
+so later alias or skill changes do not silently change a live workflow.
+
+The bundle intentionally has two portability classes:
+
+| Class | Included | Contract |
+| --- | --- | --- |
+| Embedded | Workflow manifests, generated program, compiler report, prompt templates, skill content | Sufficient to inspect and reproduce the control-plane definition. |
+| External required | Tool executables, named secrets, MCP servers, dataset rows, knowledge objects, managed-file bytes, child workflows | Exact identity and digest metadata is locked, but operational or potentially sensitive content stays in governed storage. Secret values are never exported. |
+
+Use `GET /workflow-versions/{id}/deployment-bundle/status` to inspect integrity
+and dependency readiness, and
+`GET /workflow-versions/{id}/export/deployment-bundle` to download the JSON
+bundle. The Workflow Version page exposes the same status and **Export bundle**
+action. The workflow import dialog accepts the exported `.bundle.json`, verifies
+its digest, runs dependency preflight in the destination workspace, and only
+then creates a new draft with a fresh workflow ID. Existing manifest import
+remains available for intentionally reference-only copies. A bundle with an
+unresolved lock stays exportable for inspection but cannot be imported as a
+portable release; native workflows retain their existing authoring-manifest
+deployment checks until the bundle becomes dependency-complete.
+
+Managed project files execute through CALIBER's scoped runtime in normal
+synchronous and queued/service runs. An exported standalone Python artifact has
+no implicit access to CALIBER's file metadata or storage credentials and
+therefore needs an explicit host integration; the deployment bundle makes that
+external requirement visible rather than embedding credentials.
 
 Taken together, these pieces make the workflows module the product's execution
 backbone. It combines a strict graph source of truth, a deterministic compiler,

@@ -107,7 +107,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
 | Agents (`agents`) | `ga` | `9` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
-| Workflow Versions (`workflow-versions`) | `ga` | `14` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
+| Workflow Versions (`workflow-versions`) | `ga` | `16` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
 | Workflow Runs (`workflow-runs`) | `ga` | `20` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
 | Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
@@ -156,8 +156,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `312` |
-| Operations | `386` |
+| Route paths | `314` |
+| Operations | `388` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -191,7 +191,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Tools (`tools`)](#tools-tools) | `20` | `16` |
 | [Agents (`agents`)](#agents-agents) | `9` | `6` |
 | [Workflows (`workflows`)](#workflows-workflows) | `28` | `20` |
-| [Workflow Versions (`workflow-versions`)](#workflow-versions-workflow-versions) | `14` | `13` |
+| [Workflow Versions (`workflow-versions`)](#workflow-versions-workflow-versions) | `16` | `15` |
 | [Workflow Runs (`workflow-runs`)](#workflow-runs-workflow-runs) | `20` | `19` |
 | [Workflow Components (`workflow-components`)](#workflow-components-workflow-components) | `1` | `1` |
 | [Workflow Templates (`workflow-templates`)](#workflow-templates-workflow-templates) | `1` | `1` |
@@ -461,7 +461,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Workflow Versions (`workflow-versions`)
 
-14 operation(s) across 13 route path(s).
+16 operation(s) across 15 route path(s).
 
 | Method | Path | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- |
@@ -469,7 +469,9 @@ Supported management routes that belong to the stable public automation surface.
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_versions_version_id`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/compile` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_compile` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/copilot-edit` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_copilot_edit`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/deployment-bundle/status` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_deployment_bundle_status` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/diff/{other_version_id}` | `other_version_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_diff_other_version_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/deployment-bundle` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_deployment_bundle` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/manifest` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_manifest` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/python` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_python` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/plan-build` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_plan_build`; request body documented in OpenAPI |

@@ -63,6 +63,24 @@ def test_import_workflow_omits_unset_optional_fields() -> None:
     assert bodies[0] == b'{"manifest":{"nodes":[]}}'
 
 
+def test_import_workflow_accepts_deployment_bundle() -> None:
+    bodies: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(request.read())
+        return envelope({"workflow_id": "WF-1"})
+
+    bundle = {"kind": "caliber.workflow_deployment_bundle", "schema_version": 1}
+    with client_with(handler) as caliber:
+        caliber.workflows.preview_import(deployment_bundle=bundle)
+        caliber.workflows.import_workflow(deployment_bundle=bundle, name="copy")
+
+    assert bodies == [
+        b'{"deployment_bundle":{"kind":"caliber.workflow_deployment_bundle","schema_version":1}}',
+        b'{"deployment_bundle":{"kind":"caliber.workflow_deployment_bundle","schema_version":1},"name":"copy"}',
+    ]
+
+
 # --- calibration ---------------------------------------------------------------
 
 

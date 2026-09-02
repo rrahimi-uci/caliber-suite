@@ -25,6 +25,7 @@ from examples.openapi_integration_readonly import import_and_publish_readonly_to
 from examples.prompt_lifecycle import prompt_lifecycle
 from examples.quickstart import quickstart
 from examples.tokens import issue_scoped_token
+from examples.workflow_bundle import clone_sealed_release
 from examples.workflow_deployment import promote_and_rollback, record_gate_verdict
 from examples.workflow_run import run_and_wait
 
@@ -203,6 +204,57 @@ def test_workflow_example_reports_a_failed_run_rather_than_crashing() -> None:
         result = run_and_wait(caliber, workflow_id="WF-1")
 
     assert result == {"run_id": "WR-1", "status": "failed"}
+
+
+def test_workflow_bundle_example_verifies_before_importing() -> None:
+    bundle = {"kind": "caliber.workflow_deployment_bundle", "schema_version": 1}
+
+    def assert_bundle(request: httpx.Request) -> Any:
+        body = jsonlib.loads(request.content)
+        assert body == {"deployment_bundle": bundle, "name": "Portable copy"}
+        if request.url.path.endswith("/preview"):
+            return {"ready_to_import": True}
+        return {
+            "workflow": {
+                "workflow_id": "WF-copy",
+                "name": "Portable copy",
+                "project_id": None,
+                "description": "",
+                "owner": "@test",
+                "status": "active",
+                "default_experiment_id": None,
+                "created_at": "2026-09-01T00:00:00Z",
+                "updated_at": "2026-09-01T00:00:00Z",
+            },
+            "version": {"version_id": "WFV-copy"},
+        }
+
+    caliber = stub_server(
+        {
+            "GET /workflow-versions/WFV-1/deployment-bundle/status": {
+                "valid": True,
+                "ready_to_deploy": True,
+                "digest": "abc",
+            },
+            "GET /workflow-versions/WFV-1/export/deployment-bundle": httpx.Response(
+                200, content=jsonlib.dumps(bundle).encode()
+            ),
+            "POST /workflows/import/preview": assert_bundle,
+            "POST /workflows/import": assert_bundle,
+        }
+    )
+    with caliber:
+        result = clone_sealed_release(
+            caliber,
+            version_id="WFV-1",
+            new_name="Portable copy",
+        )
+
+    assert result == {
+        "source_digest": "abc",
+        "workflow_id": "WF-copy",
+        "name": "Portable copy",
+    }
 
 
 def test_deployment_example_promotes_twice_then_rolls_back_to_the_first() -> None:

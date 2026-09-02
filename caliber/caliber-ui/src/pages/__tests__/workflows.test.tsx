@@ -8,15 +8,30 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { Workflows } from "@/pages/Workflows";
 import type {
   Workflow,
+  WorkflowDeploymentBundle,
   WorkflowManifest,
   WorkflowTemplate,
 } from "@/api/workflowTypes";
@@ -104,6 +119,7 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
     importPayloads: [] as Array<{
       manifest?: WorkflowManifest;
       manifest_yaml?: string;
+      deployment_bundle?: WorkflowDeploymentBundle;
       name?: string;
     }>,
     addWorkflow(workflow: Workflow) {
@@ -155,7 +171,9 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
     }),
 
     http.get(`${API_BASE}/workflows/:id/versions`, ({ params }) => {
-      const source = state.list.find((workflow) => workflow.workflow_id === params.id);
+      const source = state.list.find(
+        (workflow) => workflow.workflow_id === params.id,
+      );
       const manifest = {
         schema_version: 1,
         workflow_id: String(params.id),
@@ -197,6 +215,7 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
       const body = (await request.json()) as {
         manifest?: WorkflowManifest;
         manifest_yaml?: string;
+        deployment_bundle?: WorkflowDeploymentBundle;
         name?: string;
       };
       calls.importPayloads.push(body);
@@ -208,6 +227,15 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
           node_count: 3,
           edge_count: 2,
           validation: { valid: true, errors: [], warnings: [] },
+          bundle_verification: body.deployment_bundle
+            ? {
+                valid: true,
+                errors: [],
+                digest: "bundle-digest",
+                dependency_count: 1,
+                ready_to_deploy: true,
+              }
+            : null,
           dependencies: [
             {
               kind: "tool",
@@ -228,6 +256,7 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
       const body = (await request.json()) as {
         manifest?: WorkflowManifest;
         manifest_yaml?: string;
+        deployment_bundle?: WorkflowDeploymentBundle;
         name?: string;
       };
       calls.importPayloads.push(body);
@@ -262,7 +291,7 @@ function useWorkflowHandlers(initial: Workflow[] = FIXTURE) {
       calls.delete += 1;
       state.list = state.list.filter((w) => w.workflow_id !== params.id);
       return new HttpResponse(null, { status: 204 });
-    })
+    }),
   );
 
   return calls;
@@ -287,7 +316,10 @@ function renderPage() {
   });
   const renderTree = () => (
     <QueryClientProvider client={client}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/workflows"]}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={["/workflows"]}
+      >
         <Routes>
           <Route path="/workflows" element={<Workflows />} />
           <Route path="/workflows/:workflowId" element={<DetailStub />} />
@@ -318,7 +350,6 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe("Workflows — summary tiles & status filters", () => {
-
   it("renders per-status counts on the tiles", async () => {
     useWorkflowHandlers();
     renderPage();
@@ -413,7 +444,10 @@ describe("Workflows — search", () => {
     const user = userEvent.setup();
     await screen.findByText("Customer Triage");
 
-    await user.selectOptions(screen.getByLabelText("Filter by owner"), "@carol");
+    await user.selectOptions(
+      screen.getByLabelText("Filter by owner"),
+      "@carol",
+    );
     expect(screen.getByTestId("workflow-card-WF-4")).toBeInTheDocument();
     expect(screen.queryByTestId("workflow-card-WF-1")).not.toBeInTheDocument();
     expect(screen.queryByTestId("workflow-card-WF-2")).not.toBeInTheDocument();
@@ -465,7 +499,9 @@ describe("Workflows — live status refresh", () => {
     };
     view.rerenderPage();
 
-    expect(await screen.findByTestId("workflow-card-WF-NEW-LIVE")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("workflow-card-WF-NEW-LIVE"),
+    ).toBeInTheDocument();
     expect(
       within(screen.getByTestId("workflow-tile-all")).getByText("5"),
     ).toBeInTheDocument();
@@ -488,7 +524,9 @@ describe("Workflows — live status refresh", () => {
     view.rerenderPage();
 
     await waitFor(() =>
-      expect(screen.queryByTestId("workflow-card-WF-2")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByTestId("workflow-card-WF-2"),
+      ).not.toBeInTheDocument(),
     );
     expect(
       within(screen.getByTestId("workflow-tile-all")).getByText("3"),
@@ -522,7 +560,9 @@ describe("Workflows — live status refresh", () => {
     view.rerenderPage();
 
     await waitFor(() =>
-      expect(screen.queryByTestId("workflow-card-WF-1")).not.toBeInTheDocument(),
+      expect(
+        screen.queryByTestId("workflow-card-WF-1"),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.getByTestId("workflow-card-WF-4")).toBeInTheDocument();
     expect(
@@ -621,7 +661,9 @@ describe("Workflows — template create flow", () => {
     expect(screen.getByTestId("template-parallel_fanout")).toBeInTheDocument();
     expect(screen.getByTestId("template-for_each_loop")).toBeInTheDocument();
     expect(screen.getByTestId("template-graph_hybrid_rag")).toBeInTheDocument();
-    expect(screen.getByTestId("template-knowledge_age_build")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("template-knowledge_age_build"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("template-refinement_loop")).toBeInTheDocument();
   });
 
@@ -671,7 +713,10 @@ describe("Workflows — template create flow", () => {
     await screen.findByText("Customer Triage");
 
     await user.click(screen.getByTestId("new-workflow"));
-    await user.type(screen.getByTestId("new-workflow-name"), "Graph Hybrid Flow");
+    await user.type(
+      screen.getByTestId("new-workflow-name"),
+      "Graph Hybrid Flow",
+    );
     await user.click(screen.getByTestId("template-graph_hybrid_rag"));
 
     expect(await screen.findByText("Editor Page")).toBeInTheDocument();
@@ -695,7 +740,10 @@ describe("Workflows — template create flow", () => {
     await screen.findByText("Customer Triage");
 
     await user.click(screen.getByTestId("new-workflow"));
-    await user.type(screen.getByTestId("new-workflow-name"), "Event Resume Flow");
+    await user.type(
+      screen.getByTestId("new-workflow-name"),
+      "Event Resume Flow",
+    );
     await user.click(screen.getByTestId("template-event_resume"));
 
     expect(await screen.findByText("Editor Page")).toBeInTheDocument();
@@ -789,10 +837,7 @@ describe("Workflows — template create flow", () => {
     await screen.findByText("Customer Triage");
 
     await user.click(screen.getByTestId("new-workflow"));
-    await user.type(
-      screen.getByTestId("new-workflow-name"),
-      "Refinement Flow",
-    );
+    await user.type(screen.getByTestId("new-workflow-name"), "Refinement Flow");
     await user.click(screen.getByTestId("template-refinement_loop"));
 
     expect(await screen.findByText("Editor Page")).toBeInTheDocument();
@@ -931,7 +976,10 @@ describe("Workflows — clone and manifest import", () => {
       screen.getByTestId("workflow-import-manifest"),
       "schema_version: 1\nworkflow_id: uploaded\nname: Uploaded Flow",
     );
-    await user.type(screen.getByTestId("workflow-import-name"), "Imported Copy");
+    await user.type(
+      screen.getByTestId("workflow-import-name"),
+      "Imported Copy",
+    );
     await user.click(screen.getByTestId("workflow-import-validate"));
 
     expect(await screen.findByText("Preflight passed")).toBeInTheDocument();
@@ -941,7 +989,9 @@ describe("Workflows — clone and manifest import", () => {
     expect(await screen.findByText("Editor Page")).toBeInTheDocument();
     expect(calls.previewImport).toBe(1);
     expect(calls.importWorkflow).toBe(1);
-    expect(calls.importPayloads.at(-1)).toMatchObject({ name: "Imported Copy" });
+    expect(calls.importPayloads.at(-1)).toMatchObject({
+      name: "Imported Copy",
+    });
   });
 
   it("clones a selected version through preflight and preserves its dependency constraints", async () => {
@@ -951,7 +1001,9 @@ describe("Workflows — clone and manifest import", () => {
     await screen.findByText("Customer Triage");
 
     await user.click(screen.getByTestId("clone-workflow-WF-1"));
-    expect(await screen.findByDisplayValue("Customer Triage Copy")).toBeInTheDocument();
+    expect(
+      await screen.findByDisplayValue("Customer Triage Copy"),
+    ).toBeInTheDocument();
     await user.click(screen.getByTestId("workflow-import-validate"));
     expect(await screen.findByText("Preflight passed")).toBeInTheDocument();
     await user.click(screen.getByTestId("workflow-import-submit"));
@@ -968,6 +1020,31 @@ describe("Workflows — clone and manifest import", () => {
       },
     });
     expect(importPayload?.name).toBe("Customer Triage Copy");
+  });
+
+  it("detects and verifies a deployment bundle before import", async () => {
+    const calls = useWorkflowHandlers();
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByText("Customer Triage");
+    const bundle = {
+      kind: "caliber.workflow_deployment_bundle",
+      schema_version: 1,
+    };
+
+    await user.click(screen.getByTestId("import-workflow"));
+    fireEvent.change(screen.getByTestId("workflow-import-manifest"), {
+      target: { value: JSON.stringify(bundle) },
+    });
+    await user.type(screen.getByTestId("workflow-import-name"), "Bundle Copy");
+    await user.click(screen.getByTestId("workflow-import-validate"));
+
+    expect(await screen.findByText("Bundle integrity")).toBeInTheDocument();
+    expect(screen.getByText("verified")).toBeInTheDocument();
+    expect(calls.importPayloads.at(-1)).toMatchObject({
+      deployment_bundle: bundle,
+      name: "Bundle Copy",
+    });
   });
 });
 

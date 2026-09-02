@@ -77,6 +77,29 @@ A waiter never decides what "finished" means when you care about the
 distinction — pass your own predicate to `wait_for` if a failed run is a
 success for your script.
 
+## Portable workflow releases
+
+Compilation seals a deployment bundle containing the exact resolved manifest,
+compiled program, embedded prompt/skill content, dependency lock, and SHA-256
+integrity digest. Operational dependencies and secret values are not copied.
+
+```python
+status = caliber.workflows.versions.deployment_bundle_status(version_id)
+if status["ready_to_deploy"]:
+    bundle = caliber.workflows.versions.export_deployment_bundle(version_id)
+    preview = caliber.workflows.preview_import(
+        deployment_bundle=bundle,
+        name="Imported release",
+    )
+    if preview["ready_to_import"]:
+        imported = caliber.workflows.import_workflow(
+            deployment_bundle=bundle,
+            name="Imported release",
+        )
+```
+
+See `examples/workflow_bundle.py` for the tested end-to-end helper.
+
 ## Stability
 
 The server publishes which API tags are `ga`, `beta`, or `internal`, and the
