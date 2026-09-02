@@ -7636,6 +7636,11 @@ function formatDelta(value: number | null): string {
   return `${points >= 0 ? "+" : ""}${points.toFixed(1)} pts`;
 }
 
+function deltaTone(value: number | null): string {
+  if (value === null || value === 0) return "text-zinc-600";
+  return value < 0 ? "text-red-700" : "text-emerald-700";
+}
+
 function CalibrationApplyReviewDialog({
   run,
   alias,
@@ -7800,7 +7805,7 @@ function CalibrationApplyReviewDialog({
                             {formatScore(candidate)}
                           </td>
                           <td
-                            className={`px-3 py-2 text-right font-medium ${delta !== null && delta < 0 ? "text-red-700" : "text-emerald-700"}`}
+                            className={`px-3 py-2 text-right font-medium ${deltaTone(delta)}`}
                           >
                             {formatDelta(delta)}
                           </td>
@@ -7828,10 +7833,14 @@ function CalibrationApplyReviewDialog({
               >
                 Prompt diff
               </h3>
-              <span className="text-xs text-zinc-500">
-                <span className="text-emerald-700">+{stats.additions}</span>{" "}
-                <span className="text-red-700">−{stats.deletions}</span> lines
-              </span>
+              {view.candidateContent ? (
+                <span className="text-xs text-zinc-500">
+                  <span className="text-emerald-700">+{stats.additions}</span>{" "}
+                  <span className="text-red-700">−{stats.deletions}</span> lines
+                </span>
+              ) : (
+                <span className="text-xs text-zinc-500">Diff unavailable</span>
+              )}
             </div>
             {view.diffSummary && (
               <p className="mb-2 text-xs text-zinc-600">{view.diffSummary}</p>

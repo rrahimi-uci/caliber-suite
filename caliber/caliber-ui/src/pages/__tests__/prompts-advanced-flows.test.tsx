@@ -943,6 +943,69 @@ describe("Prompt optimization calibration edge flows", () => {
     ).toBeDisabled();
   });
 
+  it("shows a neutral unavailable state when candidate review data is incomplete", async () => {
+    optionHandlers([
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    ]);
+    server.use(
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              job_id: "job-incomplete-review",
+              agent_id: "support-agent",
+              workflow_id: null,
+              primary_item_id: "item-incomplete",
+              mlflow_run_id: null,
+              artifact_type: "prompt",
+              optimizer_type: "MetaPrompt",
+              status: "candidate_ready",
+              current_stage: "done",
+              attempt_count: 1,
+              error_message: null,
+              total_tokens: 0,
+              cost_usd: 0,
+              bundle_targets: [],
+              bundle_expansion_count: 1,
+              diagnosis: null,
+              candidate: { baseline_content: "Existing prompt" },
+              eval_results: {
+                candidate: { dimensions: { correctness: 0.9 } },
+                baseline: { dimensions: {} },
+                gate: { passed: true, reasons: [] },
+              },
+              calibration_spec: null,
+              created_at: "2025-01-02T00:00:00Z",
+              updated_at: "2025-01-02T00:01:00Z",
+            },
+          ]),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
+    expect(
+      (await screen.findAllByText("job-incomplete-review")).length,
+    ).toBeGreaterThan(0);
+    await user.click(
+      screen.getAllByRole("button", { name: "Review & apply" })[0]!,
+    );
+
+    expect(screen.getByText("Diff unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Candidate prompt content is unavailable/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Apply candidate live" }),
+    ).toBeDisabled();
+  });
+
   it("shows the backend calibration failure on the active run", async () => {
     optionHandlers([
       http.get(`${API_BASE}/eval-datasets`, () =>
