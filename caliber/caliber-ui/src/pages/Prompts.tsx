@@ -7827,8 +7827,8 @@ function CalibrationApplyReviewDialog({
             )}
             {view.gateReasons.length > 0 && (
               <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-red-700">
-                {view.gateReasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
+                {view.gateReasons.map((reason, index) => (
+                  <li key={`${index}-${reason}`}>{reason}</li>
                 ))}
               </ul>
             )}
