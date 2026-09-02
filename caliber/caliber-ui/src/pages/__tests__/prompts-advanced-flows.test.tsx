@@ -770,6 +770,7 @@ describe("Prompt optimization calibration edge flows", () => {
       ),
     ]);
     let applyCalls = 0;
+    let completeApply = (): void => undefined;
     const readyRun = {
       job_id: "job-review-before-apply",
       agent_id: "support-agent",
@@ -816,8 +817,11 @@ describe("Prompt optimization calibration edge flows", () => {
       http.get(`${API_BASE}/jobs`, () =>
         HttpResponse.json(envelope([readyRun])),
       ),
-      http.post(`${API_BASE}/jobs/:jobId/apply`, ({ params }) => {
+      http.post(`${API_BASE}/jobs/:jobId/apply`, async ({ params }) => {
         applyCalls += 1;
+        await new Promise<void>((resolve) => {
+          completeApply = resolve;
+        });
         return HttpResponse.json(
           envelope({
             job_id: String(params.jobId),
@@ -859,11 +863,17 @@ describe("Prompt optimization calibration edge flows", () => {
       screen.getByText(/failures were caused by unsupported account claims/),
     ).toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("button", { name: "Apply candidate live" }),
-    );
+    const applyButton = screen.getByRole("button", {
+      name: "Apply candidate live",
+    });
+    await user.click(applyButton);
 
     await waitFor(() => expect(applyCalls).toBe(1));
+    expect(applyButton).toHaveFocus();
+    expect(applyButton).toHaveAttribute("aria-busy", "true");
+    expect(applyButton).toHaveAttribute("aria-disabled", "true");
+    expect(applyButton).not.toBeDisabled();
+    completeApply();
     expect(
       await screen.findByText(/promoted prompt version is now live/),
     ).toBeInTheDocument();

@@ -7930,11 +7930,15 @@ function CalibrationApplyReviewDialog({
             </button>
             <button
               type="button"
-              disabled={
+              disabled={!view.candidateContent || view.gatePassed === false}
+              aria-busy={busy}
+              aria-disabled={
                 busy || !view.candidateContent || view.gatePassed === false
               }
-              onClick={onApply}
-              className="rounded-md bg-caliber-600 px-3 py-2 text-xs font-medium text-white hover:bg-caliber-700 disabled:opacity-50"
+              onClick={() => {
+                if (!busy) onApply();
+              }}
+              className="rounded-md bg-caliber-600 px-3 py-2 text-xs font-medium text-white hover:bg-caliber-700 disabled:opacity-50 aria-disabled:opacity-50"
             >
               {busy
                 ? "Applying…"
