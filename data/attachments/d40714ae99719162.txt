@@ -1,0 +1,8 @@
+{"t":"2026-09-02T20:08:22.290Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-02T20:08:22.301Z","severity":"WARNING","logger":"caliber","message":"Installed dependency diskcache 5.6.3 is flagged (CVE-2025-69872). diskcache 5.6.3 is flagged and is pulled in by the optional DSPy optimizer stack. Avoid enabling DSPy-backed refinement flows in sensitive deployments until upstream publishes a fixed release."}
+{"t":"2026-09-02T20:08:25.232Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-02T20:08:25.235Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-02T20:08:25.241Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-02T20:08:25.433Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-11db1593/execute \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-02T20:08:25.443Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-11db1593/interactions \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-02T20:08:25.489Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/interactions/ASK-3b9e9fc9/answer \"HTTP/1.1 200 OK\""}

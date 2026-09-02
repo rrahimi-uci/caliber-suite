@@ -1,0 +1,6 @@
+{"t":"2026-09-02T20:19:47.688Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-02T20:19:47.707Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-02T20:19:47.710Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-02T20:19:47.712Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-02T20:19:47.736Z","severity":"WARNING","logger":"caliber.routes.static","message":"invalid MLFLOW_URL='not-a-url'; falling back to http://127.0.0.1:5000","trace_id":"cdf4e35e0f7c60ab"}
+{"t":"2026-09-02T20:19:47.738Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/?ui=mlflow \"HTTP/1.1 302 Found\""}
