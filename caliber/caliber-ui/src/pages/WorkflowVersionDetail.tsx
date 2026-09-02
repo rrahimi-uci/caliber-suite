@@ -14,7 +14,7 @@ import { useApiMutation, useApiQuery } from "@/hooks/useApiQuery";
 function triggerVersionDownload(
   blob: Blob,
   versionId: string,
-  extension: "yaml" | "py",
+  extension: "yaml" | "py" | "bundle.json",
 ): void {
   if (
     typeof document === "undefined" ||
@@ -57,9 +57,9 @@ export function WorkflowVersionDetail(): JSX.Element {
   const { versionId } = useParams<{ versionId: string }>();
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [compiled, setCompiled] = useState<CompileResult | null>(null);
-  const [exporting, setExporting] = useState<"manifest" | "python" | null>(
-    null,
-  );
+  const [exporting, setExporting] = useState<
+    "manifest" | "python" | "bundle" | null
+  >(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const versionQuery = useApiQuery(
@@ -73,18 +73,24 @@ export function WorkflowVersionDetail(): JSX.Element {
       onSuccess: setReport,
     },
   );
+  const bundleStatusQuery = useApiQuery(
+    ["workflow-deployment-bundle-status", versionId],
+    (s) => caliberApi.getWorkflowDeploymentBundleStatus(versionId!, s),
+    { enabled: Boolean(versionId) },
+  );
   const compileMut = useApiMutation(
     () => caliberApi.compileWorkflowVersion(versionId!),
     {
       onSuccess: (data) => {
         setCompiled(data);
         void versionQuery.refetch();
+        void bundleStatusQuery.refetch();
       },
     },
   );
 
   const exportVersion = async (
-    format: "manifest" | "python",
+    format: "manifest" | "python" | "bundle",
   ): Promise<void> => {
     if (!versionId || exporting) return;
     setExporting(format);
@@ -93,11 +99,17 @@ export function WorkflowVersionDetail(): JSX.Element {
       const blob =
         format === "manifest"
           ? await caliberApi.downloadWorkflowVersionManifest(versionId)
-          : await caliberApi.downloadWorkflowVersionPython(versionId);
+          : format === "python"
+            ? await caliberApi.downloadWorkflowVersionPython(versionId)
+            : await caliberApi.downloadWorkflowDeploymentBundle(versionId);
       triggerVersionDownload(
         blob,
         versionId,
-        format === "manifest" ? "yaml" : "py",
+        format === "manifest"
+          ? "yaml"
+          : format === "python"
+            ? "py"
+            : "bundle.json",
       );
     } catch (error) {
       setExportError(
@@ -226,6 +238,22 @@ export function WorkflowVersionDetail(): JSX.Element {
         >
           {exporting === "python" ? "Exporting…" : "Export Python"}
         </button>
+        <button
+          type="button"
+          data-testid="vd-export-bundle"
+          disabled={exporting !== null || !bundleStatusQuery.data?.valid}
+          onClick={() => void exportVersion("bundle")}
+          className="rounded border border-gray-300 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+          title={
+            bundleStatusQuery.data?.valid
+              ? "Download the integrity-sealed workflow and dependency lock"
+              : bundleStatusQuery.data?.sealed
+                ? "The stored bundle failed integrity verification"
+                : "Compile this version before exporting a deployment bundle"
+          }
+        >
+          {exporting === "bundle" ? "Exporting…" : "Export bundle"}
+        </button>
       </div>
 
       {exportError && (
@@ -235,6 +263,63 @@ export function WorkflowVersionDetail(): JSX.Element {
       )}
 
       <ProblemsPanel report={report ?? version.validation_report} />
+
+      {bundleStatusQuery.data && (
+        <div
+          data-testid="vd-bundle-status"
+          className={`mt-3 rounded-xl border px-3 py-3 text-xs ${
+            bundleStatusQuery.data.ready_to_deploy
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]">
+                Deployment bundle
+              </div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                {bundleStatusQuery.data.ready_to_deploy
+                  ? "Sealed and ready"
+                  : bundleStatusQuery.data.sealed &&
+                      !bundleStatusQuery.data.valid
+                    ? "Integrity check failed"
+                  : bundleStatusQuery.data.sealed
+                    ? "Sealed — portable copy needs dependencies"
+                    : "Not sealed"}
+              </div>
+            </div>
+            <span className="rounded-full bg-white/70 px-2.5 py-1 font-semibold">
+              {bundleStatusQuery.data.dependency_count} dependencies
+            </span>
+          </div>
+          {bundleStatusQuery.data.digest && (
+            <p className="mt-2 break-all font-mono text-[10px] text-slate-600">
+              sha256:{bundleStatusQuery.data.digest}
+            </p>
+          )}
+          {bundleStatusQuery.data.errors.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {bundleStatusQuery.data.errors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+          )}
+          {bundleStatusQuery.data.dependencies?.some(
+            (dependency) => dependency.status !== "resolved",
+          ) && (
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {bundleStatusQuery.data.dependencies
+                .filter((dependency) => dependency.status !== "resolved")
+                .map((dependency) => (
+                  <li key={`${dependency.path}:${dependency.reference}`}>
+                    {dependency.kind}: {dependency.reference} — {dependency.detail}
+                  </li>
+                ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {exportModeTitle && (
         <div

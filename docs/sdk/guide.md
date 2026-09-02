@@ -191,6 +191,19 @@ know whether a failure happened before or after the run was created, and
 duplicating a run is worse than surfacing an error — pass an `idempotency_key`
 to make your own retry safe.
 
+## Exporting and importing a sealed workflow release
+
+```python-example
+sdk/caliber-sdk/examples/workflow_bundle.py#clone_sealed_release
+```
+
+The deployment bundle carries the resolved workflow definition, compiled
+program, embedded prompt and skill content, dependency lock, and an integrity
+digest. The SDK checks status before download, previews the bundle against the
+destination workspace, and imports only after dependency preflight succeeds.
+Secret values, external executables, servers, and object bytes never enter the
+bundle.
+
 ## Deploying, rolling back, and gate verdicts
 
 ```python-example

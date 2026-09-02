@@ -82,10 +82,13 @@ class PromptRef:
     inline_text: str | None = None
     registry_name: str | None = None
     alias: str | None = None
+    version: int | None = None
 
     @property
     def mlflow_uri(self) -> str | None:
         if self.kind == "mlflow_prompt" and self.registry_name:
+            if self.version is not None:
+                return f"prompts:/{self.registry_name}/{self.version}"
             return f"prompts:/{self.registry_name}@{self.alias or 'prod'}"
         return None
 
@@ -326,6 +329,7 @@ class IRErrorBoundary(IRNode):
 class IRSubworkflow(IRNode):
     workflow_id: str = ""
     alias: str = "prod"
+    version_id: str | None = None
     timeout_seconds: float = 120.0
 
 

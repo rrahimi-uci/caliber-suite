@@ -556,6 +556,9 @@ class SubworkflowNode(_NodeBase):
     type: Literal["subworkflow"]
     workflow_id: str = Field(min_length=1)
     alias: str = "prod"
+    # A published deployment bundle resolves the mutable alias to this exact
+    # immutable version. Authoring manifests normally leave it unset.
+    version_id: str | None = Field(default=None, min_length=1, max_length=64)
     timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
     inputs: PortMap = Field(default_factory=lambda: {"input": PortSpec(type="string")})
     outputs: PortMap = Field(
@@ -1146,6 +1149,10 @@ class PromptArtifact(BaseModel):
 
     registry_name: str = Field(min_length=1)
     alias: str = "prod"
+    # Populated in a deployment bundle after resolving ``alias``. Keeping the
+    # alias alongside it preserves readable provenance while execution uses the
+    # immutable version.
+    version: int | None = Field(default=None, ge=1)
     managed_by: str = "mlflow_prompt_registry"
 
 
@@ -1153,6 +1160,8 @@ class EvalDatasetArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dataset_name: str = Field(min_length=1)
+    # A deployment bundle pins the dataset snapshot used by deploy gates.
+    version: int | None = Field(default=None, ge=1)
     min_overall_delta: float | None = None
     max_tone_regression: float | None = None
 

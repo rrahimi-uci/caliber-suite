@@ -250,6 +250,40 @@ def test_extract_dependencies_walks_into_a_deployed_subworkflow(db_session: Sess
     assert transitive[0].label.startswith("via subworkflow 'child' → ")
 
 
+def test_extract_dependencies_honors_an_immutable_child_version_pin(
+    db_session: Session,
+) -> None:
+    pinned_version_id = _deploy(
+        db_session,
+        "pinned-child",
+        "prod",
+        _manifest_with_mcp_node("pinned-child", "MCP-PINNED"),
+    )
+    deployment = db_session.get(CaliberWorkflowDeployment, "wfd-pinned-child-prod")
+    assert deployment is not None
+    current = CaliberWorkflowVersion(
+        version_id="wfv-pinned-child-current",
+        workflow_id="pinned-child",
+        version_number=2,
+        status="published",
+        manifest=_manifest_with_mcp_node("pinned-child", "MCP-CURRENT"),
+        manifest_hash="hash-current",
+    )
+    db_session.add(current)
+    deployment.version_id = current.version_id
+    db_session.flush()
+    parent = _manifest_with_subworkflow("parent-wf", "pinned-child", "prod")
+    nodes = parent["nodes"]
+    assert isinstance(nodes, dict)
+    child = nodes["child"]
+    assert isinstance(child, dict)
+    child["version_id"] = pinned_version_id
+
+    dependencies = extract_dependencies(parent, session=db_session)
+
+    assert [dependency.server_id for dependency in dependencies] == ["MCP-PINNED"]
+
+
 def test_deployment_preflight_blocks_a_parent_whose_child_uses_a_blocked_server(
     db_session: Session,
 ) -> None:

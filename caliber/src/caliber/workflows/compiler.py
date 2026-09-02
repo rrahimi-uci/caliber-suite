@@ -199,6 +199,7 @@ def _prompt_ref(node: AgentNode, manifest: WorkflowManifest) -> PromptRef:
             kind="mlflow_prompt",
             registry_name=artifact.registry_name,
             alias=artifact.alias,
+            version=artifact.version,
         )
     raise CompileError(f"agent {node.id!r} has an unsupported instructions type")
 
@@ -419,6 +420,7 @@ def _build_node(  # noqa: PLR0911, PLR0912 - per-node-type IR builder dispatch
             execution_policy=execution_policy,
             workflow_id=node.workflow_id,
             alias=node.alias,
+            version_id=node.version_id,
             timeout_seconds=node.timeout_seconds,
         )
     if isinstance(node, ToolNode):

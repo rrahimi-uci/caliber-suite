@@ -101,11 +101,17 @@ export async function createPromptViaApi(
   const name = options?.name ?? uniqueSlug("pw-prompt");
   const template =
     options?.template ?? "You are a calm support agent. Resolve the escalation and cite context.";
-  await parseEnvelope<{ name: string }>(
+  const created = await parseEnvelope<{ name: string; version: number }>(
     page.request.post(`${API_BASE}/prompts`, {
       data: { name, template, commit_message: "playwright seed" },
     }),
     `create prompt ${name}`,
+  );
+  await parseEnvelope(
+    page.request.post(`${API_BASE}/prompts/${encodeURIComponent(name)}/aliases/prod`, {
+      data: { version: created.version },
+    }),
+    `deploy prompt ${name}@prod`,
   );
   return { name, template };
 }

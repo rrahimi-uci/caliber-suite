@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { caliberApi } from "@/api/caliberApi";
 import type {
   Workflow,
+  WorkflowDeploymentBundle,
   WorkflowImportPreview,
   WorkflowManifest,
   WorkflowVersion,
@@ -71,11 +72,25 @@ export function WorkflowImportDialog({
   const payload = (): {
     manifest?: WorkflowManifest;
     manifest_yaml?: string;
+    deployment_bundle?: WorkflowDeploymentBundle;
     name?: string;
   } => {
     const override = name.trim() || undefined;
     if (mode === "clone") {
       return { manifest: selectedVersion?.manifest, name: override };
+    }
+    try {
+      const parsed = JSON.parse(
+        rawManifest,
+      ) as Partial<WorkflowDeploymentBundle>;
+      if (parsed.kind === "caliber.workflow_deployment_bundle") {
+        return {
+          deployment_bundle: parsed as WorkflowDeploymentBundle,
+          name: override,
+        };
+      }
+    } catch {
+      // YAML and ordinary JSON manifests continue through the manifest parser.
     }
     return { manifest_yaml: rawManifest, name: override };
   };
@@ -137,12 +152,13 @@ export function WorkflowImportDialog({
             >
               {mode === "clone"
                 ? "Clone workflow as new"
-                : "Import workflow manifest"}
+                : "Import workflow or bundle"}
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              A new workflow ID and draft version are created. Referenced
-              prompts, skills, tools, datasets, MCP tools, managed files, and
-              child workflows stay linked; they are not copied.
+              A new workflow ID and draft version are created. Deployment
+              bundles verify their integrity and exact dependency lock before
+              import. External executables, secrets, servers, and object bytes
+              must already exist in this workspace.
             </p>
           </div>
           <button
@@ -201,14 +217,14 @@ export function WorkflowImportDialog({
                 htmlFor="workflow-manifest"
                 className="text-xs font-semibold text-slate-700"
               >
-                YAML or JSON manifest
+                YAML/JSON manifest or deployment bundle
               </label>
               <label className="cursor-pointer rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50">
                 Choose file
                 <input
                   className="sr-only"
                   type="file"
-                  accept=".yaml,.yml,.json,application/json,text/yaml"
+                  accept=".yaml,.yml,.json,.bundle.json,application/json,text/yaml"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (!file) return;
@@ -229,7 +245,7 @@ export function WorkflowImportDialog({
                 setRawManifest(event.target.value);
                 resetPreview();
               }}
-              placeholder="schema_version: 1\nworkflow_id: source-id\nname: My workflow\n…"
+              placeholder="Paste a workflow manifest or a caliber-*.bundle.json export"
             />
           </div>
         )}
@@ -267,6 +283,34 @@ export function WorkflowImportDialog({
                 ID <code>{preview.source_workflow_id}</code>
               </p>
             </div>
+
+            {preview.bundle_verification && (
+              <section className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-bold uppercase tracking-wide text-slate-600">
+                    Bundle integrity
+                  </h3>
+                  <span
+                    className={`rounded-full px-2 py-0.5 font-semibold ${
+                      preview.bundle_verification.valid
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {preview.bundle_verification.valid ? "verified" : "invalid"}
+                  </span>
+                </div>
+                <p className="mt-1 text-slate-600">
+                  {preview.bundle_verification.dependency_count} locked
+                  dependencies
+                </p>
+                {preview.bundle_verification.digest && (
+                  <p className="mt-1 break-all font-mono text-[10px] text-slate-500">
+                    sha256:{preview.bundle_verification.digest}
+                  </p>
+                )}
+              </section>
+            )}
 
             {preview.validation.errors.length > 0 && (
               <section>

@@ -10001,6 +10001,25 @@ import { ToolDetail } from "@/pages/ToolDetail";
 import { WorkflowVersionDetail } from "@/pages/WorkflowVersionDetail";
 
 describe("WorkflowVersionDetail page", () => {
+  beforeEach(() => {
+    server.use(
+      http.get(
+        `${API_BASE}/workflow-versions/WFV-1/deployment-bundle/status`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              sealed: false,
+              valid: false,
+              ready_to_deploy: false,
+              dependency_count: 0,
+              digest: null,
+              errors: ["Compile this version to seal a bundle."],
+            }),
+          ),
+      ),
+    );
+  });
+
   it("shows a recoverable error instead of loading forever when the version request fails", async () => {
     server.use(
       http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
@@ -10129,6 +10148,100 @@ describe("WorkflowVersionDetail page", () => {
     await userEvent.click(screen.getByTestId("vd-export-python"));
     await waitFor(() => expect(pythonExports).toBe(1));
     clickSpy.mockRestore();
+  });
+
+  it("shows bundle readiness and downloads the sealed release", async () => {
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    let bundleExports = 0;
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion())),
+      ),
+      http.get(
+        `${API_BASE}/workflow-versions/WFV-1/deployment-bundle/status`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              sealed: true,
+              valid: true,
+              ready_to_deploy: true,
+              dependency_count: 3,
+              digest: "abc123",
+              errors: [],
+            }),
+          ),
+      ),
+      http.get(
+        `${API_BASE}/workflow-versions/WFV-1/export/deployment-bundle`,
+        () => {
+          bundleExports += 1;
+          return HttpResponse.json({
+            kind: "caliber.workflow_deployment_bundle",
+          });
+        },
+      ),
+    );
+    renderAt(
+      <WorkflowVersionDetail />,
+      "/workflow-versions/WFV-1",
+      "/workflow-versions/:versionId",
+    );
+
+    expect(await screen.findByTestId("vd-bundle-status")).toHaveTextContent(
+      "Sealed and ready",
+    );
+    expect(screen.getByTestId("vd-bundle-status")).toHaveTextContent(
+      "3 dependencies",
+    );
+    await userEvent.click(screen.getByTestId("vd-export-bundle"));
+    await waitFor(() => expect(bundleExports).toBe(1));
+    clickSpy.mockRestore();
+  });
+
+  it("names unresolved bundle dependencies that block deployment", async () => {
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion())),
+      ),
+      http.get(
+        `${API_BASE}/workflow-versions/WFV-1/deployment-bundle/status`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              sealed: true,
+              valid: true,
+              ready_to_deploy: false,
+              dependency_count: 1,
+              digest: "abc123",
+              errors: [],
+              dependencies: [
+                {
+                  kind: "managed_file",
+                  path: "nodes.input.file_ref",
+                  reference: "caliber://projects/PRJ/files/FILE-1",
+                  status: "unresolved",
+                  version: null,
+                  detail: "Managed file bytes are missing.",
+                },
+              ],
+            }),
+          ),
+      ),
+    );
+    renderAt(
+      <WorkflowVersionDetail />,
+      "/workflow-versions/WFV-1",
+      "/workflow-versions/:versionId",
+    );
+
+    expect(await screen.findByTestId("vd-bundle-status")).toHaveTextContent(
+      "Sealed — portable copy needs dependencies",
+    );
+    expect(screen.getByTestId("vd-bundle-status")).toHaveTextContent(
+      "managed_file: caliber://projects/PRJ/files/FILE-1 — Managed file bytes are missing.",
+    );
   });
 
   it("shows fresh compile outputs, requirements, and refetches the persisted version", async () => {

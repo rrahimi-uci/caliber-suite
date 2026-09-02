@@ -62,6 +62,7 @@ from caliber.schemas import (
     PreviewRunRequest,
     ProposePatchRequest,
     WorkflowCompileSchema,
+    WorkflowDeploymentBundleStatusSchema,
     WorkflowPatchSchema,
     WorkflowRunHistoryArtifactStatsSchema,
     WorkflowRunHistoryStatsSchema,
@@ -73,6 +74,7 @@ from caliber.schemas import (
 )
 from caliber.storage import StorageError, WorkingDirectoryService, build_backend
 from caliber.workflows.compiler import CompileError, compile_workflow
+from caliber.workflows.deployment_bundle import verify_bundle
 from caliber.workflows.diff import compute_graph_diff
 from caliber.workflows.file_tools import (
     bind_managed_file_runtime,
@@ -170,6 +172,8 @@ def _copy_manifest_summary_metadata(summary: dict[str, Any] | None) -> dict[str,
 
 EXPORT_MANIFEST_PATH = DETAIL_PATH + "/export/manifest"
 EXPORT_PYTHON_PATH = DETAIL_PATH + "/export/python"
+EXPORT_BUNDLE_PATH = DETAIL_PATH + "/export/deployment-bundle"
+BUNDLE_STATUS_PATH = DETAIL_PATH + "/deployment-bundle/status"
 PATCHES_PATH = PREFIX + "/workflows/{workflow_id}/patches"
 RUNS_PATH = PREFIX + "/workflows/{workflow_id}/runs"
 RUN_STATS_PATH = PREFIX + "/workflows/{workflow_id}/runs/stats"
@@ -699,14 +703,15 @@ async def compile_version_route(request: Request) -> JSONResponse:
             )
         metrics.record_workflow_compile(ok=True, duration_ms=result.compile_ms)
         session.commit()
+        stored = version.compiled_bundle or {}
         payload = {
             "version_id": version.version_id,
             "compiled_artifact_uri": version.compiled_artifact_uri,
             "compiler_version": version.compiler_version,
             "manifest_hash": version.manifest_hash,
-            "report": result.report,
-            "generated_python": result.generated_python,
-            "requirements": result.requirements,
+            "report": stored.get("compiler_report", result.report),
+            "generated_python": stored.get("generated_python", result.generated_python),
+            "requirements": stored.get("requirements", result.requirements),
             "compile_ms": result.compile_ms,
             "cached": result.cached,
         }
@@ -1829,6 +1834,75 @@ async def export_python_route(request: Request) -> PlainTextResponse:
     return PlainTextResponse(code, media_type="text/x-python")
 
 
+def deployment_bundle_status_route(request: Request) -> JSONResponse:
+    """Report whether a version has a valid, dependency-complete sealed bundle."""
+    require_user(request)
+    version_id = request.path_params["version_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        version = _get_version_or_404(session, version_id, request=request)
+        compiled = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
+        bundle = compiled.get("deployment_bundle")
+        if bundle is None:
+            return envelope_response(
+                WorkflowDeploymentBundleStatusSchema(
+                    sealed=False,
+                    valid=False,
+                    ready_to_deploy=False,
+                    dependency_count=0,
+                    digest=None,
+                    errors=[
+                        "This legacy or uncompiled version has no deployment bundle; compile it to seal one."
+                    ],
+                )
+            )
+        verification = verify_bundle(bundle)
+        dependencies = bundle.get("dependencies", []) if isinstance(bundle, dict) else []
+        if not isinstance(dependencies, list):
+            dependencies = []
+        return envelope_response(
+            WorkflowDeploymentBundleStatusSchema(
+                sealed=True,
+                **verification.to_dict(),
+                dependencies=[item for item in dependencies if isinstance(item, dict)],
+            )
+        )
+
+
+def export_deployment_bundle_route(request: Request) -> PlainTextResponse:
+    """Download the exact, integrity-sealed deployment bundle as JSON."""
+    require_user(request)
+    version_id = request.path_params["version_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        version = _get_version_or_404(session, version_id, request=request)
+        compiled = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
+        bundle = compiled.get("deployment_bundle")
+        if bundle is None:
+            raise HTTPException(
+                status_code=409,
+                detail="workflow version has no deployment bundle; compile it before export",
+            )
+        verification = verify_bundle(bundle)
+        if not verification.valid:
+            raise HTTPException(
+                status_code=409,
+                detail="workflow deployment bundle failed integrity verification",
+            )
+        safe_version_id = "".join(
+            char if char.isalnum() or char in "._-" else "-" for char in version_id
+        )
+        return PlainTextResponse(
+            json.dumps(bundle, indent=2, sort_keys=True),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="caliber-{safe_version_id}.bundle.json"'
+                )
+            },
+        )
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(LIST_PATH, list_versions, methods=["GET"]))
     app.routes.append(Route(LIST_PATH, create_version, methods=["POST"]))
@@ -1850,3 +1924,5 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(RUN_BY_TRACE_PATH, run_by_trace_route, methods=["GET"]))
     app.routes.append(Route(EXPORT_MANIFEST_PATH, export_manifest_route, methods=["GET"]))
     app.routes.append(Route(EXPORT_PYTHON_PATH, export_python_route, methods=["GET"]))
+    app.routes.append(Route(EXPORT_BUNDLE_PATH, export_deployment_bundle_route, methods=["GET"]))
+    app.routes.append(Route(BUNDLE_STATUS_PATH, deployment_bundle_status_route, methods=["GET"]))

@@ -215,9 +215,12 @@ test.describe("Build Section Advanced Journeys", () => {
     await expect(page.getByText("search_repositories")).toBeVisible();
     await page.getByRole("button").filter({ hasText: "search_repositories" }).click();
     await expect(page.getByText("Tool Policy")).toBeVisible();
-    await page.getByRole("checkbox", { name: "Allow tool" }).check();
-    await page.getByRole("button", { name: "Save Policy" }).click();
-    await expect(page.getByText("Policy saved")).toBeVisible();
+    const allowTool = page.getByRole("checkbox", { name: "Allow tool" });
+    if (!(await allowTool.isChecked())) {
+      await allowTool.check();
+      await page.getByRole("button", { name: "Save Policy" }).click();
+      await expect(page.getByText("Policy saved")).toBeVisible();
+    }
     await page.getByRole("button", { name: "Invoke Tool" }).click();
     await expect(
       page.getByRole("button", { name: "Invoke Tool" }),

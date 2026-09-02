@@ -654,12 +654,14 @@ def _depth_exhausted_dependencies(
             continue
         child_id = str(raw.get("workflow_id", ""))
         child_alias = str(raw.get("alias", "prod"))
-        if not child_id or (child_id, child_alias) in seen:
+        pinned_version_id = str(raw.get("version_id", ""))
+        target_key = pinned_version_id or child_alias
+        if not child_id or (child_id, target_key) in seen:
             continue
         found.append(
             McpDependency(
                 label=(
-                    f"subworkflow node {node_id!r} target {child_id!r}@{child_alias!r} "
+                    f"subworkflow node {node_id!r} target {child_id!r}@{target_key!r} "
                     f"at depth {depth}"
                 ),
                 server_id="",
@@ -690,16 +692,23 @@ def _subworkflow_dependencies(
             continue
         child_id = str(raw.get("workflow_id", ""))
         child_alias = str(raw.get("alias", "prod"))
-        if not child_id or (child_id, child_alias) in seen:
+        pinned_version_id = str(raw.get("version_id", ""))
+        target_key = pinned_version_id or child_alias
+        if not child_id or (child_id, target_key) in seen:
             continue
-        seen.add((child_id, child_alias))
-        child_manifest = _subworkflow_target_manifest(session, child_id, child_alias)
+        seen.add((child_id, target_key))
+        child_manifest = _subworkflow_target_manifest(
+            session,
+            child_id,
+            child_alias,
+            pinned_version_id=pinned_version_id or None,
+        )
         if child_manifest is None:
             # A target that cannot be resolved must not pass preflight by having
             # nothing to inspect; the caller turns this into a blocker.
             found.append(
                 McpDependency(
-                    label=f"subworkflow node {node_id!r} target {child_id!r}@{child_alias!r}",
+                    label=f"subworkflow node {node_id!r} target {child_id!r}@{target_key!r}",
                     server_id="",
                     tool_name="",
                     requires_approval=False,
@@ -719,15 +728,19 @@ def _subworkflow_dependencies(
 
 
 def _subworkflow_target_manifest(
-    session: Any, workflow_id: str, alias: str
+    session: Any,
+    workflow_id: str,
+    alias: str,
+    *,
+    pinned_version_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Manifest a ``subworkflow`` node will actually invoke, or ``None``.
 
     Mirrors the runtime's own resolution in
-    :func:`caliber.workflows.promoter.build_plan` exactly — ``manual`` takes the
-    highest version number, any other alias takes the active deployment's target
-    — so preflight inspects the version that would really run. Resolving it any
-    other way would make preflight either miss a dependency or invent one.
+    :func:`caliber.workflows.promoter.build_plan` exactly — an immutable bundle
+    pin wins, ``manual`` otherwise takes the highest version number, and any
+    other alias takes the active deployment's target — so preflight inspects the
+    version that would really run.
     """
     from caliber.db.models import (  # noqa: PLC0415
         CaliberWorkflowDeployment,
@@ -735,7 +748,11 @@ def _subworkflow_target_manifest(
     )
 
     try:
-        if alias == "manual":
+        if pinned_version_id:
+            version = session.get(CaliberWorkflowVersion, pinned_version_id)
+            if version is None or version.workflow_id != workflow_id:
+                return None
+        elif alias == "manual":
             version = (
                 session.execute(
                     select(CaliberWorkflowVersion)

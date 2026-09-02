@@ -93,6 +93,27 @@ def test_export_python_returns_decoded_source_text() -> None:
     assert text == "def run():\n    pass\n"
 
 
+def test_export_and_inspect_deployment_bundle() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(_seen_path(request))
+        if request.url.path.endswith("/export/deployment-bundle"):
+            return httpx.Response(200, json={"kind": "caliber.workflow_deployment_bundle"})
+        return envelope({"sealed": True, "ready_to_deploy": True})
+
+    with client_with(handler) as caliber:
+        bundle = caliber.workflows.versions.export_deployment_bundle("WFV-1")
+        status = caliber.workflows.versions.deployment_bundle_status("WFV-1")
+
+    assert bundle["kind"] == "caliber.workflow_deployment_bundle"
+    assert status["sealed"] is True
+    assert seen == [
+        "GET /workflow-versions/WFV-1/export/deployment-bundle",
+        "GET /workflow-versions/WFV-1/deployment-bundle/status",
+    ]
+
+
 # --- preview / real run -------------------------------------------------------
 
 
