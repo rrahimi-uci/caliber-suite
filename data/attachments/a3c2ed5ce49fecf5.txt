@@ -1,2 +1,0 @@
-{"t":"2026-09-02T22:44:41.316Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:34407/tickets/T-1 \"HTTP/1.0 503 Service Unavailable\""}
-{"t":"2026-09-02T22:44:41.588Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:34407/tickets/T-1 \"HTTP/1.0 200 OK\""}
