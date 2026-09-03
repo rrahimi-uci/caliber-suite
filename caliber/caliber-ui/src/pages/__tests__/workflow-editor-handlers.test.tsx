@@ -434,6 +434,95 @@ describe("WorkflowEditor handler branches", () => {
     expect(screen.getByTestId("workflow-editor-retry")).toHaveTextContent("Retry loading");
   });
 
+  it("keeps a published version's manifest immutable across every edit path", async () => {
+    // Regression: `patchManifest`/`undo`/`redo` had no `published` guard of
+    // their own -- only the toolbar's Undo/Redo/Save buttons were disabled.
+    // Canvas drag, edge wiring, and every Inspector field all mutate through
+    // `patchManifest` directly, so a published version silently accepted
+    // edits it could never save: the save-status chip flipped to "Unsaved"
+    // with Save itself disabled and no explanation. The Code view's
+    // `onApplyManifest` -> `patchManifest` is exercised here as one concrete
+    // instance of that shared path.
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "published" }))),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+
+    expect(screen.getByTestId("editor-published-readonly-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("editor-save-status")).toHaveTextContent("Saved");
+    expect(screen.getByTestId("editor-undo")).toBeDisabled();
+    expect(screen.getByTestId("editor-redo")).toBeDisabled();
+    expect(screen.getByTestId("editor-save")).toBeDisabled();
+
+    await user.click(screen.getByTestId("editor-view-code"));
+    await user.click(screen.getByTestId("code-apply"));
+
+    // The mocked Code view's `onApplyManifest` renames the workflow to "Code
+    // Applied" -- on a published version that must never reach the manifest.
+    expect(screen.getByText("Support")).toBeInTheDocument();
+    expect(screen.queryByText("Code Applied")).not.toBeInTheDocument();
+    expect(screen.getByTestId("editor-save-status")).toHaveTextContent("Saved");
+  });
+
+  it("still accepts the same edit path on a draft version", async () => {
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "draft" }))),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+
+    expect(screen.queryByTestId("editor-published-readonly-banner")).not.toBeInTheDocument();
+    expect(screen.getByTestId("editor-save")).not.toBeDisabled();
+
+    await user.click(screen.getByTestId("editor-view-code"));
+    await user.click(screen.getByTestId("code-apply"));
+
+    expect(screen.getByText("Code Applied")).toBeInTheDocument();
+    expect(screen.getByTestId("editor-save-status")).toHaveTextContent("Unsaved");
+  });
+
+  it("restores a published version as a fresh draft from the read-only banner", async () => {
+    let restoreRequested = false;
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "published" }))),
+      ),
+      http.post(`${API_BASE}/workflow-versions/WFV-1/restore`, () => {
+        restoreRequested = true;
+        return HttpResponse.json(
+          envelope(makeVersion({ version_id: "WFV-2", version_number: 2, status: "draft" })),
+          { status: 201 },
+        );
+      }),
+      http.get(`${API_BASE}/workflow-versions/WFV-2`, () =>
+        HttpResponse.json(
+          envelope(makeVersion({ version_id: "WFV-2", version_number: 2, status: "draft" })),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("editor-restore-as-draft"));
+
+    await waitFor(() => expect(restoreRequested).toBe(true));
+    expect(showToast.success).toHaveBeenCalledWith("Restored as draft v2.");
+    // Navigated (not just refetched in place) to the new draft's own editor
+    // route: the read-only banner is gone and Save is usable again.
+    await waitFor(() =>
+      expect(screen.queryByTestId("editor-published-readonly-banner")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("editor-save")).not.toBeDisabled();
+  });
+
   it("handles quick-add/connect/map mutations and save/publish errors", async () => {
     let patchCalls = 0;
     let previewBody: Record<string, unknown> | null = null;
