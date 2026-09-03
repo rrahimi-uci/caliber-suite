@@ -32,7 +32,7 @@ import {
   useInvalidate,
 } from "@/hooks/useApiQuery";
 import { relativeTime } from "@/lib/time";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const ACTION_LABEL: Record<string, string> = {
   promote_prompt: "Promote",
@@ -108,10 +108,6 @@ function ReleaseSignoffFactory({
   const [requiredScore, setRequiredScore] = useState("0.8");
   const [rollbackRef, setRollbackRef] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [rationale, setRationale] = useState("");
-  const [waiverKey, setWaiverKey] = useState("");
-  const [waiverReason, setWaiverReason] = useState("");
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const refresh = async (): Promise<void> => {
     await invalidate(["release-candidates"]);
@@ -119,36 +115,6 @@ function ReleaseSignoffFactory({
   const create = useApiMutation(
     (payload: ReleaseCandidateCreatePayload) => caliberApi.createReleaseCandidate(payload),
     { onSuccess: refresh },
-  );
-  const evaluate = useApiMutation(
-    (candidate: ReleaseCandidate) => caliberApi.evaluateReleaseCandidate(candidate.candidate_id),
-    { onSuccess: refresh },
-  );
-  const signoff = useApiMutation(
-    (input: { candidate: ReleaseCandidate; decision: "go" | "no_go" }) =>
-      caliberApi.signoffReleaseCandidate(input.candidate.candidate_id, {
-        decision: input.decision,
-        rationale,
-      }),
-    { onSuccess: refresh },
-  );
-  const waive = useApiMutation(
-    (candidate: ReleaseCandidate) =>
-      caliberApi.waiveReleaseCriterion(candidate.candidate_id, {
-        criterion_key: waiverKey,
-        reason: waiverReason,
-      }),
-    { onSuccess: refresh },
-  );
-  const report = useApiMutation(
-    (candidate: ReleaseCandidate) =>
-      caliberApi.generateReleaseAllureReport(candidate.candidate_id),
-    {
-      onSuccess: async (job) => {
-        setActionMessage(`Allure report ${job.report_job_id} generated and retained.`);
-        await refresh();
-      },
-    },
   );
 
   const submit = async (): Promise<void> => {
@@ -180,8 +146,7 @@ function ReleaseSignoffFactory({
     }
   };
 
-  const actionError =
-    evaluate.error ?? signoff.error ?? waive.error ?? report.error ?? candidates.error;
+  const listError = candidates.error;
 
   return (
     <section className="space-y-3" data-testid="release-signoff-factory">
@@ -216,44 +181,138 @@ function ReleaseSignoffFactory({
           </Button>
         </div>
       )}
-      {actionMessage && <p className="text-xs text-emerald-700">{actionMessage}</p>}
-      {actionError && <p role="alert" className="text-sm text-red-700">{queryErrorMessage(actionError)}</p>}
+      {listError && <p role="alert" className="text-sm text-red-700">{queryErrorMessage(listError)}</p>}
       <div className="space-y-2">
         {candidates.data?.map((candidate) => (
-          <div key={candidate.candidate_id} data-testid={`release-candidate-${candidate.candidate_id}`} className="rounded-md border border-surface-200 p-3">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Badge variant="secondary">{candidate.status}</Badge>
-              <span className="font-semibold text-gray-900">{candidate.name}</span>
-              <span className="font-mono text-xs text-gray-500">{candidate.artifact_ref}@{candidate.version_ref}</span>
-              <span className="ml-auto font-semibold">{Math.round((candidate.weighted_score ?? 0) * 100)}%</span>
-            </div>
-            <p className="mt-1 text-xs text-gray-500">
-              {candidate.criteria.length} criteria · {candidate.evidence.length} evidence · {candidate.blockers.length} blockers · rollback {String(candidate.rollback_target.version_ref ?? "not set")}
-            </p>
-            {canOperate && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => evaluate.mutate(candidate)}>Re-evaluate</Button>
-                <Button size="sm" variant="outline" onClick={() => report.mutate(candidate)}>Generate Allure</Button>
-                {canAdmin && !candidate.status.startsWith("signed_") && (
-                  <>
-                    <input aria-label="Signoff rationale" className="min-w-64 rounded border px-2 py-1 text-xs" placeholder="Accountable decision rationale" value={rationale} onChange={(event) => setRationale(event.target.value)} />
-                    <Button size="sm" disabled={rationale.length < 8 || candidate.status !== "ready"} onClick={() => signoff.mutate({ candidate, decision: "go" })}>Sign off GO</Button>
-                    <Button size="sm" variant="outline" disabled={rationale.length < 8} onClick={() => signoff.mutate({ candidate, decision: "no_go" })}>Sign off NO-GO</Button>
-                  </>
-                )}
-              </div>
-            )}
-            {canAdmin && candidate.blockers.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                <input aria-label="Waiver criterion key" className="rounded border px-2 py-1 text-xs" placeholder="criterion key" value={waiverKey} onChange={(event) => setWaiverKey(event.target.value)} />
-                <input aria-label="Waiver reason" className="min-w-72 rounded border px-2 py-1 text-xs" placeholder="Exception reason and compensating control" value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} />
-                <Button size="sm" variant="outline" disabled={!waiverKey || waiverReason.length < 8} onClick={() => waive.mutate(candidate)}>Record waiver</Button>
-              </div>
-            )}
-          </div>
+          <ReleaseCandidateCard
+            key={candidate.candidate_id}
+            candidate={candidate}
+            canOperate={canOperate}
+            canAdmin={canAdmin}
+            onChanged={refresh}
+          />
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * One release candidate's status, actions, and signoff/waiver form.
+ *
+ * A dedicated component per candidate — not shared parent-level state indexed
+ * by row — so each row's rationale/waiver inputs and in-flight mutations are
+ * isolated by construction. The parent used to hold one `rationale`/
+ * `waiverKey`/`waiverReason` triple for the *entire list*: typing a rationale
+ * for one candidate silently changed what every other visible candidate's
+ * "Sign off" button would submit, and clicking any row's button submitted
+ * whichever text last landed in that shared state. See the regression test
+ * `releases.test.tsx` ("keeps signoff and waiver state isolated per
+ * candidate").
+ *
+ * Signoff and waiver both remove the control that was just clicked from the
+ * DOM on success (the status moves past `signed_*`, or the criterion drops
+ * out of `blockers`), so the browser's default focus-after-click has nowhere
+ * to land. `rowRef` gives focus an explicit, persistent target to return to.
+ */
+function ReleaseCandidateCard({
+  candidate,
+  canOperate,
+  canAdmin,
+  onChanged,
+}: {
+  candidate: ReleaseCandidate;
+  canOperate: boolean;
+  canAdmin: boolean;
+  onChanged: () => Promise<void>;
+}): JSX.Element {
+  const [rationale, setRationale] = useState("");
+  const [waiverKey, setWaiverKey] = useState("");
+  const [waiverReason, setWaiverReason] = useState("");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  const evaluate = useApiMutation(
+    (target: ReleaseCandidate) => caliberApi.evaluateReleaseCandidate(target.candidate_id),
+    { onSuccess: onChanged },
+  );
+  const signoff = useApiMutation(
+    (input: { target: ReleaseCandidate; decision: "go" | "no_go" }) =>
+      caliberApi.signoffReleaseCandidate(input.target.candidate_id, {
+        decision: input.decision,
+        rationale,
+      }),
+    {
+      onSuccess: async () => {
+        rowRef.current?.focus();
+        await onChanged();
+      },
+    },
+  );
+  const waive = useApiMutation(
+    (target: ReleaseCandidate) =>
+      caliberApi.waiveReleaseCriterion(target.candidate_id, {
+        criterion_key: waiverKey,
+        reason: waiverReason,
+      }),
+    {
+      onSuccess: async () => {
+        rowRef.current?.focus();
+        await onChanged();
+      },
+    },
+  );
+  const report = useApiMutation(
+    (target: ReleaseCandidate) => caliberApi.generateReleaseAllureReport(target.candidate_id),
+    {
+      onSuccess: async (job) => {
+        setActionMessage(`Allure report ${job.report_job_id} generated and retained.`);
+        await onChanged();
+      },
+    },
+  );
+
+  const actionError = evaluate.error ?? signoff.error ?? waive.error ?? report.error;
+
+  return (
+    <div
+      ref={rowRef}
+      tabIndex={-1}
+      data-testid={`release-candidate-${candidate.candidate_id}`}
+      className="rounded-md border border-surface-200 p-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-caliber-purple/50"
+    >
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Badge variant="secondary">{candidate.status}</Badge>
+        <span className="font-semibold text-gray-900">{candidate.name}</span>
+        <span className="font-mono text-xs text-gray-500">{candidate.artifact_ref}@{candidate.version_ref}</span>
+        <span className="ml-auto font-semibold">{Math.round((candidate.weighted_score ?? 0) * 100)}%</span>
+      </div>
+      <p className="mt-1 text-xs text-gray-500">
+        {candidate.criteria.length} criteria · {candidate.evidence.length} evidence · {candidate.blockers.length} blockers · rollback {String(candidate.rollback_target.version_ref ?? "not set")}
+      </p>
+      {actionMessage && <p className="mt-1 text-xs text-emerald-700">{actionMessage}</p>}
+      {actionError && <p role="alert" className="mt-1 text-sm text-red-700">{queryErrorMessage(actionError)}</p>}
+      {canOperate && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => evaluate.mutate(candidate)}>Re-evaluate</Button>
+          <Button size="sm" variant="outline" onClick={() => report.mutate(candidate)}>Generate Allure</Button>
+          {canAdmin && !candidate.status.startsWith("signed_") && (
+            <>
+              <input aria-label="Signoff rationale" className="min-w-64 rounded border px-2 py-1 text-xs" placeholder="Accountable decision rationale" value={rationale} onChange={(event) => setRationale(event.target.value)} />
+              <Button size="sm" disabled={rationale.length < 8 || candidate.status !== "ready"} onClick={() => signoff.mutate({ target: candidate, decision: "go" })}>Sign off GO</Button>
+              <Button size="sm" variant="outline" disabled={rationale.length < 8} onClick={() => signoff.mutate({ target: candidate, decision: "no_go" })}>Sign off NO-GO</Button>
+            </>
+          )}
+        </div>
+      )}
+      {canAdmin && candidate.blockers.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <input aria-label="Waiver criterion key" className="rounded border px-2 py-1 text-xs" placeholder="criterion key" value={waiverKey} onChange={(event) => setWaiverKey(event.target.value)} />
+          <input aria-label="Waiver reason" className="min-w-72 rounded border px-2 py-1 text-xs" placeholder="Exception reason and compensating control" value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} />
+          <Button size="sm" variant="outline" disabled={!waiverKey || waiverReason.length < 8} onClick={() => waive.mutate(candidate)}>Record waiver</Button>
+        </div>
+      )}
+    </div>
   );
 }
 

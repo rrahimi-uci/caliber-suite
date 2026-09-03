@@ -154,6 +154,143 @@ describe("Releases", () => {
     expect(await screen.findByText(/Allure report RRJ-1 generated/)).toBeInTheDocument();
   });
 
+  it("keeps signoff and waiver state isolated per candidate", async () => {
+    // Regression: `rationale`/`waiverKey`/`waiverReason` used to live once on
+    // the parent list, shared by every rendered row. Typing a rationale for
+    // one candidate silently overwrote what every other visible candidate's
+    // "Sign off" button would submit, and a waiver typed for one candidate
+    // could be recorded against another. Two candidates, two different
+    // rationales/waivers, and the submitted body must always match the row
+    // that was clicked -- never whichever text was typed last, anywhere on
+    // the page.
+    const makeCandidate = (id: string) => ({
+      candidate_id: id,
+      project_id: null,
+      visibility: "user",
+      name: `Candidate ${id}`,
+      artifact_type: "workflow",
+      artifact_ref: `WF-${id}`,
+      version_ref: `WFV-${id}`,
+      criteria: [],
+      evidence: [],
+      waivers: [],
+      required_score: 0.8,
+      weighted_score: 0.5,
+      blockers: [{ criterion_key: "quality", reason: "below threshold" }],
+      planned_action: {},
+      rollback_target: {},
+      status: "ready",
+      owner: "@test",
+      created_at: "2026-08-04T00:00:00Z",
+      updated_at: "2026-08-04T00:00:00Z",
+    });
+    const signoffBodies: Record<string, Record<string, unknown>> = {};
+    const waiverBodies: Record<string, Record<string, unknown>> = {};
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/candidates`, () =>
+        HttpResponse.json(envelope([makeCandidate("RC-1"), makeCandidate("RC-2")])),
+      ),
+      http.post(`${API_BASE}/releases/candidates/:id/signoffs`, async ({ request, params }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        signoffBodies[params.id as string] = body;
+        return HttpResponse.json(
+          envelope({
+            signoff_id: `RSO-${params.id as string}`,
+            candidate_id: params.id,
+            decision: body.decision,
+            rationale: body.rationale,
+            decided_by: "@test",
+            candidate_snapshot: makeCandidate(params.id as string),
+            created_at: "2026-08-04T00:00:00Z",
+          }),
+          { status: 201 },
+        );
+      }),
+      http.post(`${API_BASE}/releases/candidates/:id/waivers`, async ({ request, params }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        waiverBodies[params.id as string] = body;
+        return HttpResponse.json(
+          envelope({
+            waiver_id: `RCW-${params.id as string}`,
+            candidate_id: params.id,
+            criterion_key: body.criterion_key,
+            reason: body.reason,
+            granted_by: "@test",
+            created_at: "2026-08-04T00:00:00Z",
+          }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    renderPage();
+    const card1 = await screen.findByTestId("release-candidate-RC-1");
+    const card2 = await screen.findByTestId("release-candidate-RC-2");
+
+    // Two different rationales, typed into two different rows.
+    fireEvent.change(within(card1).getByLabelText("Signoff rationale"), {
+      target: { value: "Candidate one evidence review." },
+    });
+    fireEvent.change(within(card2).getByLabelText("Signoff rationale"), {
+      target: { value: "Candidate two evidence review." },
+    });
+    // Row 1's box must still show row 1's text -- not silently overwritten by
+    // typing into row 2 (the observable symptom of shared state).
+    expect(within(card1).getByLabelText("Signoff rationale")).toHaveValue(
+      "Candidate one evidence review.",
+    );
+
+    // Two different waivers, typed into two different rows.
+    fireEvent.change(within(card1).getByLabelText("Waiver criterion key"), {
+      target: { value: "quality" },
+    });
+    fireEvent.change(within(card1).getByLabelText("Waiver reason"), {
+      target: { value: "Manual review compensates for row one." },
+    });
+    fireEvent.change(within(card2).getByLabelText("Waiver criterion key"), {
+      target: { value: "quality" },
+    });
+    fireEvent.change(within(card2).getByLabelText("Waiver reason"), {
+      target: { value: "Manual review compensates for row two." },
+    });
+    expect(within(card1).getByLabelText("Waiver reason")).toHaveValue(
+      "Manual review compensates for row one.",
+    );
+
+    fireEvent.click(within(card1).getByRole("button", { name: "Sign off GO" }));
+    await waitFor(() => expect(signoffBodies["RC-1"]).toBeDefined());
+    expect(signoffBodies["RC-1"]).toMatchObject({
+      decision: "go",
+      rationale: "Candidate one evidence review.",
+    });
+    // The row container -- not the button, which the real app unmounts once
+    // status leaves `ready` -- is where focus is explicitly returned.
+    await waitFor(() => expect(card1).toHaveFocus());
+
+    fireEvent.click(within(card2).getByRole("button", { name: "Sign off NO-GO" }));
+    await waitFor(() => expect(signoffBodies["RC-2"]).toBeDefined());
+    expect(signoffBodies["RC-2"]).toMatchObject({
+      decision: "no_go",
+      rationale: "Candidate two evidence review.",
+    });
+
+    fireEvent.click(within(card1).getByRole("button", { name: "Record waiver" }));
+    await waitFor(() => expect(waiverBodies["RC-1"]).toBeDefined());
+    expect(waiverBodies["RC-1"]).toMatchObject({
+      criterion_key: "quality",
+      reason: "Manual review compensates for row one.",
+    });
+
+    fireEvent.click(within(card2).getByRole("button", { name: "Record waiver" }));
+    await waitFor(() => expect(waiverBodies["RC-2"]).toBeDefined());
+    expect(waiverBodies["RC-2"]).toMatchObject({
+      criterion_key: "quality",
+      reason: "Manual review compensates for row two.",
+    });
+  });
+
   it("renders the live board and the promotion/rollback timeline", async () => {
     server.use(
       http.get(`${API_BASE}/releases/live`, () =>
