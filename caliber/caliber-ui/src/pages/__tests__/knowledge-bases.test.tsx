@@ -1286,6 +1286,99 @@ describe("Knowledge Bases page", () => {
     ).toBeDisabled();
   });
 
+  it("starting a new knowledge base cannot target a stale selection", async () => {
+    // Regression: `selectedKnowledgeBaseId` is set the moment the library
+    // loads (an effect auto-seeds it to the first knowledge base) and used to
+    // survive "New knowledge base" untouched. The Build panel's "New
+    // version" toggle is enabled by that id alone, so it silently let a
+    // brand-new-knowledge-base flow flip into targeting whichever knowledge
+    // base happened to be selected -- overwriting the picked sources with
+    // that other base's manifest and, on submit, calling
+    // `createKnowledgeBaseVersion` against it instead of
+    // `createKnowledgeBase`. The workspace header kept reading "New knowledge
+    // base" throughout, so nothing on screen disagreed with what was about
+    // to be submitted.
+    const existingKb = knowledgeBase(); // KB-1, "Operations Corpus"
+    const newKb = {
+      ...existingKb,
+      knowledge_base_id: "KB-NEW",
+      name: "Brand New Corpus",
+      active_version_id: "KBV-NEW",
+    };
+    const newVersion = {
+      ...version(),
+      knowledge_base_id: "KB-NEW",
+      knowledge_base_version_id: "KBV-NEW",
+    };
+    const newRun = {
+      ...run(),
+      knowledge_base_id: "KB-NEW",
+      knowledge_base_version_id: "KBV-NEW",
+      knowledge_base_run_id: "KBR-NEW",
+    };
+    let createBody: Record<string, unknown> | null = null;
+    let versionEndpointHitFor: string | null = null;
+
+    server.use(
+      http.get(`${KB}/options`, () => HttpResponse.json(envelope(knowledgeOptions()))),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([existingKb]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(objectListing())),
+      ),
+      http.post(`${KB}`, async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          envelope({ knowledge_base: newKb, version: newVersion, run: newRun }),
+          { status: 201 },
+        );
+      }),
+      // Should never be hit in this flow -- present only so a regression
+      // fails on a wrong-target assertion, not an unhandled-request error.
+      http.post(`${KB}/:id/versions`, async ({ params, request }) => {
+        versionEndpointHitFor = params.id as string;
+        await request.json();
+        return HttpResponse.json(
+          envelope({ knowledge_base: existingKb, version: newVersion, run: newRun }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+
+    // The library has loaded with an existing knowledge base -- the auto-seed
+    // effect has now silently set `selectedKnowledgeBaseId` to it, with no
+    // user action beyond landing on the page.
+    await screen.findByText("Operations Corpus");
+
+    await user.click(await screen.findByTestId("kb-new-knowledge-base"));
+    expect(await screen.findByText("New knowledge base")).toBeInTheDocument();
+
+    // The stale selection must not make "New version" a usable target: it
+    // has no knowledge base of its own to offer, so it stays disabled.
+    const newVersionToggle = screen.getByRole("button", { name: /New version/ });
+    expect(newVersionToggle).toBeDisabled();
+    await user.click(newVersionToggle); // no-op on a disabled control
+    expect(newVersionToggle).toBeDisabled();
+
+    // Complete the actual "create new" flow and confirm it submits as one.
+    await user.selectOptions(screen.getByLabelText("Bucket"), "reports");
+    await screen.findByText("incident-playbook.md");
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select file incident-playbook.md" }),
+    );
+    await user.type(screen.getByLabelText("Knowledge-base name"), "Brand New Corpus");
+    await user.click(screen.getByRole("button", { name: "Create knowledge base" }));
+
+    await waitFor(() => expect(createBody).not.toBeNull());
+    expect(createBody).toMatchObject({ name: "Brand New Corpus" });
+    expect(versionEndpointHitFor).toBeNull();
+  });
+
   it("defaults an existing knowledge base back to Apache AGE sync for the next build", async () => {
     const postedBodies: Array<Record<string, unknown>> = [];
     const bases = [knowledgeBase()];
