@@ -1274,11 +1274,16 @@ export function KnowledgeBases(): JSX.Element {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
+    // Skip while starting a new knowledge base: the "New knowledge base"
+    // button deliberately clears `selectedKnowledgeBaseId` so it cannot leak
+    // in as an implicit "New version" target (see that handler). Re-seeding
+    // it here on the very next render would immediately undo that.
+    if (creatingKnowledgeBase) return;
     const firstKnowledgeBase = knowledgeBases[0];
     if (!selectedKnowledgeBaseId && firstKnowledgeBase) {
       setSelectedKnowledgeBaseId(firstKnowledgeBase.knowledge_base_id);
     }
-  }, [knowledgeBases, selectedKnowledgeBaseId]);
+  }, [creatingKnowledgeBase, knowledgeBases, selectedKnowledgeBaseId]);
 
   useEffect(() => {
     if (!selectedKnowledgeBase) return;
@@ -2588,6 +2593,16 @@ export function KnowledgeBases(): JSX.Element {
                 setBuildMode("new");
                 setCreatingKnowledgeBase(true);
                 setWorkspaceStage("build");
+                // Clear any KB left selected from browsing the library or a
+                // prior workspace -- otherwise it survives as the implicit
+                // "New version" target: the "Create new"/"New version" toggle
+                // inside the Build panel is enabled by `selectedKnowledgeBase`
+                // alone, so a stale id let the toggle silently repoint this
+                // "new knowledge base" flow at submitting a version of an
+                // unrelated, previously-open KB. See the regression test
+                // "starting a new knowledge base cannot target a stale
+                // selection" in knowledge-bases.test.tsx.
+                setSelectedKnowledgeBaseId(null);
               }}
             >
               <Sparkles className="h-4 w-4" />
