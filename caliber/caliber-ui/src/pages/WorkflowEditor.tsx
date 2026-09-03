@@ -2082,6 +2082,20 @@ export function WorkflowEditor(): JSX.Element {
       onError: (err) => setMessage(`Save failed: ${err.message}`),
     },
   );
+  // Clone this immutable published version into a fresh editable draft, then
+  // jump straight into it -- the one-click escape from the read-only banner
+  // below. Mirrors WorkflowDetail's own "Restore as draft" action so the two
+  // surfaces offer the same recovery, not two different ones.
+  const restoreAsDraftMut = useApiMutation(
+    () => caliberApi.restoreWorkflowVersion(versionId!),
+    {
+      onSuccess: (created) => {
+        showToast.success(`Restored as draft v${created.version_number}.`);
+        navigate(`/workflows/${workflowId}/editor/${created.version_id}`);
+      },
+      onError: (err) => showToast.error(`Restore failed: ${err.message}`),
+    },
+  );
   const validateMut = useApiMutation(() => caliberApi.validateWorkflowVersion(versionId!), {
     onSuccess: (r) => {
       setReport(r);
@@ -2626,35 +2640,46 @@ export function WorkflowEditor(): JSX.Element {
     setRedoStack([]);
   }, []);
 
+  // Published versions are immutable server-side (409 "only draft versions
+  // can be edited") -- the toolbar disables Undo/Redo/Save/Publish for one,
+  // but that only stops those four buttons. Canvas drag, edge wiring,
+  // keyboard undo/redo, and every Inspector field all mutate state through
+  // `patchManifest`/`undo`/`redo` directly, none of which checked `published`
+  // themselves. The result was silent, unsavable edits: the manifest visibly
+  // changed, the save-status chip flipped to "Unsaved", and there was no way
+  // to actually save it or any indication of why. Guarding the three
+  // functions that are the only paths to `setManifest` (verified: no other
+  // call site sets it) closes every one of those paths at the source, not
+  // just the toolbar shortcuts to them.
   const patchManifest = useCallback((updater: (m: WorkflowManifest) => WorkflowManifest): void => {
-    if (!workingManifest) return;
+    if (!workingManifest || published) return;
     pushHistory(workingManifest);
     setManifestVersionId(versionId ?? null);
     setManifest((prev) => updater(structuredClone(prev ?? workingManifest)));
     setDirty(true);
-  }, [versionId, workingManifest, pushHistory]);
+  }, [versionId, workingManifest, pushHistory, published]);
 
   const undo = useCallback((): void => {
     const previous = undoStack[undoStack.length - 1];
-    if (!previous || !workingManifest) return;
+    if (!previous || !workingManifest || published) return;
     setRedoStack((r) => [...r, structuredClone(workingManifest)].slice(-MAX_HISTORY));
     setUndoStack((u) => u.slice(0, -1));
     setManifest(structuredClone(previous));
     setManifestVersionId(versionId ?? null);
     setDirty(true);
     setSelected(null);
-  }, [undoStack, workingManifest, versionId]);
+  }, [undoStack, workingManifest, versionId, published]);
 
   const redo = useCallback((): void => {
     const next = redoStack[redoStack.length - 1];
-    if (!next || !workingManifest) return;
+    if (!next || !workingManifest || published) return;
     setUndoStack((u) => [...u, structuredClone(workingManifest)].slice(-MAX_HISTORY));
     setRedoStack((r) => r.slice(0, -1));
     setManifest(structuredClone(next));
     setManifestVersionId(versionId ?? null);
     setDirty(true);
     setSelected(null);
-  }, [redoStack, workingManifest, versionId]);
+  }, [redoStack, workingManifest, versionId, published]);
 
   function addNode(type: string, initialPosition?: FlowNodePosition): void {
     if (!workingManifest) return;
@@ -4210,6 +4235,28 @@ export function WorkflowEditor(): JSX.Element {
           </button>
         </div>
       </div>
+
+      {published && (
+        <div
+          data-testid="editor-published-readonly-banner"
+          role="status"
+          className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800"
+        >
+          <span>
+            🔒 This version is published and read-only. Changes here cannot be
+            saved.
+          </span>
+          <button
+            type="button"
+            data-testid="editor-restore-as-draft"
+            disabled={restoreAsDraftMut.isPending}
+            onClick={() => restoreAsDraftMut.mutate(undefined)}
+            className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-40"
+          >
+            {restoreAsDraftMut.isPending ? "Restoring…" : "Restore as draft"}
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left rail — palette + outline */}
