@@ -14,7 +14,7 @@ and knowledge bases —
 [![CI](https://github.com/rrahimi-uci/caliber-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/rrahimi-uci/caliber-suite/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./caliber/LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%20–%203.12-3776AB?logo=python&logoColor=white)](./caliber/README.md)
-[![MLflow](https://img.shields.io/badge/MLflow-≥3.14-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org)
+[![MLflow](https://img.shields.io/badge/MLflow-≥3.15-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![React](https://img.shields.io/badge/React-SPA-61DAFB?logo=react&logoColor=white)](./caliber/caliber-ui)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./caliber/CONTRIBUTING.md)
@@ -260,11 +260,12 @@ loopback launcher; any network-reachable deployment must leave
 
 ---
 
-## ⚡ MLflow 3.14 native
+## ⚡ MLflow-native
 
-The suite tracks the current open-source **MLflow (`≥3.14`)** and **PostgreSQL 17** (pgvector + Apache AGE).
-Five MLflow 3.14 GenAI capabilities are wired in with genuinely-native OSS APIs (native Review Queues are
-Databricks-only, so that surface is built CALIBER-native on the OSS assessment primitives):
+The suite tracks the current open-source **MLflow (`≥3.15`)** and **PostgreSQL 17** (pgvector + Apache AGE).
+Five GenAI capabilities from the MLflow 3.14 line are wired in with genuinely-native OSS APIs (native
+Review Queues are Databricks-only, so that surface is built CALIBER-native on the OSS assessment
+primitives):
 
 | Capability | How CALIBER uses it |
 | --- | --- |
