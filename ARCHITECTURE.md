@@ -163,7 +163,7 @@ flowchart LR
       i1["Process host<br/>Starlette ASGI<br/>standalone service"]:::store
       i2["PostgreSQL 17<br/>pgvector · Apache AGE<br/>SQLite for dev"]:::store
       i3["Object storage<br/>S3 · MinIO · local<br/><i>GCS only via MLflow</i>"]:::store
-      i4["MLflow ≥ 3.14<br/>tracking · registry<br/>artifacts · evaluate"]:::ext
+      i4["MLflow ≥ 3.15<br/>tracking · registry<br/>artifacts · evaluate"]:::ext
       i5["Event transport<br/>in-process · NATS<br/>Redis · database"]:::async
       i1 --- i2 --- i3 --- i4 --- i5
     end
