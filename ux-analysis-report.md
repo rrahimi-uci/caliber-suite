@@ -2737,17 +2737,63 @@ merged. Three Critical items have since landed; the rest reproduce unchanged.
 Where a landed fix covered part of a work package but not all of it, the residue
 is broken out as its own lettered task rather than left implied.
 
-| Re-verification | Command | Result on `ff6d18c414` |
+Run all nine from the repository root. They are in a fenced block rather than
+a table column because a Markdown table needs `|` escaped, and a command you
+have to un-escape before running is not a reproducible command.
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# 1. Canonical scopes — the names the server actually issues.
+grep -n 'SCOPE_' caliber/src/caliber/auth.py
+
+# 2. Badge comparison — what AccessBadge matches against.
+sed -n '12,20p' caliber/caliber-ui/src/components/assistant/AccessBadge.tsx
+
+# 3. Unrouted pages.
+cd caliber/caliber-ui
+for f in src/pages/*.tsx; do
+  grep -q "<$(basename "$f" .tsx)" src/App.tsx || echo "$f"
+done
+
+# 4. Breadcrumb adoption — declared once, passed once.
+grep -rn 'crumbs' src/pages src/components
+
+# 5. PageHeader adoption. The glob is page-only by construction; the
+#    recursive form happens to agree today (no test file imports PageHeader),
+#    but the glob is what the "of 34" denominator below is counted from.
+grep -l PageHeader src/pages/*.tsx | wc -l
+ls src/pages/*.tsx | wc -l
+
+# 6. Command palette.
+grep -rn 'cmdk\|CommandPalette\|Cmd+K' src
+
+# 7. Approvals signal — in the contract, in fixtures, nowhere else.
+grep -rn approvals_pending src
+
+# 8. Duplicated helpers across the four workflow surfaces.
+for f in src/components/workflows/WorkflowRunDebugger.tsx \
+         src/components/workflows/TraceReplayGraph.tsx \
+         src/pages/WorkflowDetail.tsx \
+         src/pages/WorkflowEditor.tsx; do
+  grep -o '^function [A-Za-z0-9_]*' "$f" | sed 's/function //'
+done | sort | uniq -d | wc -l
+
+# 9. Page weight.
+wc -l src/pages/*.tsx | sort -rn | head -5
+```
+
+| # | Re-verification | Result on `ff6d18c414` |
 | --- | --- | --- |
-| Canonical scopes | `grep -n 'SCOPE_' caliber/src/caliber/auth.py` | `caliber.viewer` / `caliber.operator` / `caliber.admin` (L85–88) |
-| Badge comparison | `sed -n '12,20p' caliber/caliber-ui/src/components/assistant/AccessBadge.tsx` | compares `"admin"` / `"operator"` — never matches |
-| Unrouted pages | `for f in src/pages/*.tsx; do grep -q "<$(basename $f .tsx)" src/App.tsx \|\| echo $f; done` | `Overview.tsx` (aliased `Dashboard`), `SkillWizard.tsx`, `ToolWizard.tsx` |
-| Breadcrumb adoption | `grep -rn 'crumbs' src/pages src/components` | declared in `PageHeader.tsx:16`, passed once (`ObjectStore.tsx:907`) |
-| `PageHeader` adoption | `grep -rln PageHeader src/pages \| wc -l` vs `ls src/pages/*.tsx \| wc -l` | 18 of 34 |
-| Command palette | `grep -rn 'cmdk\|CommandPalette\|Cmd+K' src` | no match |
-| Approvals signal | `grep -rn approvals_pending src` | contract (`types.ts:43`) + fixtures only; no render site |
-| Duplicated helpers | `grep -o '^function [A-Za-z0-9_]*' <4 workflow files> \| sort \| uniq -d \| wc -l` | **22** identically-named helpers (audit said 19; re-measure before quoting) |
-| Page weight | `wc -l src/pages/*.tsx \| sort -rn \| head -4` | `KnowledgeBases.tsx` 9,021 · `Prompts.tsx` 8,192 · `WorkflowEditor.tsx` 5,321 · `WorkflowDetail.tsx` 4,788 |
+| 1 | Canonical scopes | `caliber.viewer` / `caliber.operator` / `caliber.approver` / `caliber.admin` (auth.py L85–88) |
+| 2 | Badge comparison | compares `"admin"` / `"operator"` — never matches, and never considers `caliber.approver` at all |
+| 3 | Unrouted pages | `Overview.tsx` (aliased `Dashboard`), `SkillWizard.tsx`, `ToolWizard.tsx` |
+| 4 | Breadcrumb adoption | declared in `PageHeader.tsx:16`, passed once (`ObjectStore.tsx:907`) |
+| 5 | `PageHeader` adoption | 18 of 34 |
+| 6 | Command palette | no match |
+| 7 | Approvals signal | contract (`types.ts:43`) + fixtures only; no render site |
+| 8 | Duplicated helpers | **22** identically-named helpers (audit said 19; re-measure before quoting either number) |
+| 9 | Page weight | `KnowledgeBases.tsx` 9,021 · `Prompts.tsx` 8,192 · `WorkflowEditor.tsx` 5,321 · `WorkflowDetail.tsx` 4,788 |
 
 ### 15.2 Status ledger
 
