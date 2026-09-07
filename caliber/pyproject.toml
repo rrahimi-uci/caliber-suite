@@ -62,7 +62,7 @@ dependencies = [
     # client stack, so it needs testing against live MCP servers rather than
     # riding along in an unrelated change. Raise this cap deliberately, with
     # that testing, not by widening the range.
-    "mcp>=1.27,<2",
+    "mcp>=1.27,<3",
     "httpx>=0.27,<1",
     # Standards-compliant validation for the no-code Data Transform node.
     "jsonschema>=4.22,<5",
