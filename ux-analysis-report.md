@@ -4,10 +4,16 @@
 UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
 
-**Re-verified:** 2026-09-06 against `ff6d18c414`. Three Critical items have
-landed since the audit was written (`#237`, `#238`, `#239`); every other finding
-reproduces unchanged. §15 carries the re-verification commands, the status
-ledger, and a full implementation specification for each remaining work package.
+**Re-verified:** 2026-09-06 against `ff6d18c414`; ledger refreshed 2026-09-07.
+All four "silent wrong object" Critical items now have fixes written, as do
+UX-05, UX-06, UX-07, UX-15, and the structural census that makes §15.1's counts
+re-runnable. **§15.2's ledger states which of those have merged and which are
+still open, and is the only place in this document that does** — every other
+section describes outcomes and points there for status. None is closed at its
+gate: merged and gate-certified are different states, and G1 needs browser and
+role evidence no PR in the slice supplies. §15 also carries the re-verification
+commands, each package's named remainder, and a full implementation
+specification for every remaining work package.
 
 **Method:** Every implementation finding is grounded in a specific file and line
 in this repository. Where a claim is quantitative (modelled step counts, page
@@ -148,18 +154,49 @@ plan protects and extends those behaviours rather than proposing them again.
 
 ### Status since publication
 
-Three of the seven Critical items shipped in the first delivery slice and are
-now themselves baseline: release signoff state is isolated per candidate
-(`#237`, UX-04), a stale knowledge-base selection can no longer become a version
-target (`#238`, UX-03), and published workflow versions are genuinely read-only
-with a one-click **Restore as draft** (`#239`, UX-01). Each covered its
-acceptance contract; two left a named residue, tracked as **UX-01a** (run
-recovery still opens the latest published version rather than the run's own) and
-**UX-03a** (the "New version" control still does not name the knowledge base it
-will mutate). Of the four "silent wrong object" Critical items, **UX-02 —
-a button labelled "Save as New Version" that also promotes to production — is
-the only one still open.** The re-verified evidence, per-task implementation
-plans, tests, and validation commands for every remaining package are in §15.
+The first delivery slice is written. **§15.2's ledger is the single statement
+of what has merged and what has not** — this section describes what changed for
+users, and deliberately does not restate merge state, because maintaining the
+same facts in two places is what let the previous ledger go stale.
+
+What changed: release signoff state is isolated per candidate; a stale
+knowledge-base selection can no longer become a version target; published
+workflow versions are genuinely read-only, and run recovery now opens the
+version a run actually executed; a knowledge-base version control names the
+corpus it will write to; a button labelled "Save as New Version" no longer
+promotes to production. Those are the four Critical "silent wrong object"
+items and the two residues they left.
+
+Alongside them: API validation failures now name the fields that failed;
+admins and approvers are labelled as such rather than all reading "Viewer";
+a side-effecting tool cannot be registered without approval and an MCP binding
+inherits the policy an operator saved; and an empty install no longer opens on
+two red tiles and one amber.
+
+Five of those packages left a **named remainder** — a complete,
+independently-valuable outcome shipped, with the rest scoped out for a stated
+reason rather than forgotten. §15.2 lists each one and why.
+
+Three findings from doing the work are worth carrying back into the plan,
+because they change what "covered" should be taken to mean:
+
+- **`overridden: true` was never a gate bypass.** The eval gate is advisory in
+  v1, so the flag is audit attribution. The prompt save path was writing a
+  *false attribution* — a machine claiming a human had knowingly overridden a
+  gate — into the row the Releases timeline and `rollback_prompt` both read.
+  That is a governance defect the audit had classified only as a UX one.
+- **Two of the fixed defects were protected by green tests.** §14.6's "tests
+  cover the regression" is necessary but not sufficient; §15.2 records both
+  cases.
+- **A write-time rule must never make already-written data unreadable.** The
+  first UX-07 implementation enforced the new tool-approval coupling inside a
+  schema that also serializes stored state, which turned every read of a
+  pre-existing policy into a 400. The full backend suite caught it.
+
+**G1 is not certified by any of this.** Every validation recorded on those PRs
+is deterministic, offline, and source-or-jsdom level. §14.2's browser and role
+passes have not been run, and §14.1 rule 2 still blocks structural work on
+UX-00 evidence that `#248` only partly supplies.
 
 ---
 
@@ -2751,18 +2788,18 @@ is broken out as its own lettered task rather than left implied.
 
 ### 15.2 Status ledger
 
-| ID | Outcome | Status | Wave · gate | Blast radius | Landed as |
+| ID | Outcome | Status | Wave · gate | Blast radius | PR |
 | --- | --- | --- | --- | --- | --- |
-| **UX-00** | UX evidence harness | Open | 0 · G0 | M | — |
+| **UX-00** | UX evidence harness | **In review** ¹ | 0 · G0 | M | `#248` |
 | **UX-01** | Published workflow versions are read-only | **Landed** | 1 · G1 | S | `#239` |
-| **UX-01a** | Run recovery opens the run's own version | Open | 1 · G1 | XS | — |
-| **UX-02** | Split prompt save from promote | Open | 1 · G1 | S–M | — |
+| **UX-01a** | Run recovery opens the run's own version | **Landed** | 1 · G1 | XS | `#245` |
+| **UX-02** | Split prompt save from promote | **In review** | 1 · G1 | S–M | `#247` |
 | **UX-03** | KB create/version target isolation | **Landed** | 1 · G1 | S | `#238` |
-| **UX-03a** | Name the KB a "New version" will mutate | Open | 1 · G1 | XS | — |
+| **UX-03a** | Name the KB a "New version" will mutate | **Landed** | 1 · G1 | XS | `#245` |
 | **UX-04** | Per-candidate release signoff state | **Landed** | 1 · G1 | XS | `#237` |
-| **UX-05** | Render structured validation errors | Open | 1 · G1 | S | — |
-| **UX-06** | One permission model on `caliber.*` scopes | Open | 1 · G1 | M | — |
-| **UX-07** | Tool governance safe by default | Open | 1 · G1 | M | — |
+| **UX-05** | Render structured validation errors | **Landed** ¹ | 1 · G1 | S | `#243` |
+| **UX-06** | One permission model on `caliber.*` scopes | **Landed** ¹ | 1 · G1 | M | `#242` |
+| **UX-07** | Tool governance safe by default | **Landed** ¹ | 1 · G1 | M | `#244` |
 | **UX-08** | Reviewer-safe evidence in Review Queues | Open | 2 · G2 | M | — |
 | **UX-09** | Explicit prompt→test-set binding | Open | 2 · G2 | M | — |
 | **UX-10** | Actionable judge alignment + judge editing | Open | 2 · G2 | M | — |
@@ -2770,7 +2807,7 @@ is broken out as its own lettered task rather than left implied.
 | **UX-12** | First-class KB calibration dataset shape | Open | 2 · G2 | M | — |
 | **UX-13** | Trace ↔ result lineage | Open | 2 · G2 | M | — |
 | **UX-14** | ACL-filtered attention + Approvals surface | Open | 3 · G3 | L | — |
-| **UX-15** | Honest first run | Open | 3 · G3 | S | — |
+| **UX-15** | Honest first run | **Landed** ¹ | 3 · G3 | S | `#246` |
 | **UX-16** | One scoring engine | Open | 4 · G4 | L | — |
 | **UX-17** | Validate then stage the target IA | Open | 4 · G4 | L | — |
 | **UX-18** | One callable-tool catalog | Open | 4 · G4 | M | — |
@@ -2778,9 +2815,53 @@ is broken out as its own lettered task rather than left implied.
 | **UX-20** | Decompose the two 8–9k-line pages | Open | 4 · G4 | L | — |
 | **UX-21** | Complete wayfinding | Open | 4 · G4 | M | — |
 
-**Landed ≠ closed at the gate.** G1 is certified only when UX-01a, UX-02,
-UX-03a, and UX-05–UX-07 also pass. The three landed PRs discharge their own
-acceptance contracts and are regression-protected baseline from here.
+¹ Has a named remainder — see the table below.
+
+The **Status** column is about *merge state only* — **Landed** means merged to
+`main`, **In review** means a PR is open, **Open** means no PR exists. It says
+nothing about how much of the package that PR covers.
+
+*Scope* is a separate axis, and the table below is the whole of it: a package
+appears there if it shipped a complete, independently-valuable outcome and left
+a named remainder. The two axes cross freely. UX-05/06/07/15 are merged with a
+remainder outstanding. UX-00 is in review *and* has a remainder. UX-02 is in
+review with no remainder at all — `#247` is the entire package, so it is absent
+from this table.
+
+A remainder is not a to-do the PR forgot; each was scoped out for a stated
+reason, and each is listed so it cannot quietly become "done":
+
+| ID | Shipped | Remainder, and why it was not shipped with it |
+| --- | --- | --- |
+| **UX-00** | The structural census and its committed baseline (`#248`) | Seeded role fixtures, the five persona journeys, keyboard traversal capture, and `evidence-limits.md`. The census makes the *counts* reproducible; it does not make the *journeys* observed, and G0 asks for both. |
+| **UX-05** | `describeApiError`/`apiErrorText`, the `ApiErrorMessage` component, and 53 call sites across the six highest-traffic surfaces (`#243`) | ~20 remaining call sites, and wiring `invalidFieldPaths` to `aria-invalid` per form. Both are mechanical but per-surface, and mixing them into one PR would have made the behaviour change unreviewable. |
+| **UX-06** | Canonical `caliber.*` vocabulary, `hasScope`/`canAnyScope`/`accessLevel`, `MutationGuard`, the AccessBadge fix, and the two ad-hoc call sites (`#242`) | The ~30 `is_admin`-gated call sites. Converting them **changes who sees what** — they currently hide operator-authorized controls from operators — so it needs the endpoint-to-affordance matrix, which is blocked on UX-00's census merging to `main`. |
+| **UX-07** | Side-effect↔approval coupling on both write paths and in the wizard; MCP bindings seeded from saved policy (`#244`) | Surfacing OpenAPI approval posture and tool execution provenance in the registry. Deferred to **UX-18**, which is where the unified tool view model is defined; building it here would create a second provenance surface to throw away. |
+| **UX-15** | Zero-denominator states, so an empty install no longer opens on two red tiles and one amber (`#246`) | The capability-aware start block (configure a provider → install a Cookbook → run the paused draft → inspect its trace). New onboarding UI with its own design questions. This half removed the false alarm; that half connects the on-ramp. |
+
+**Landed ≠ closed at the gate.** With `#247` merged, all four "silent wrong
+object" Criticals and all three of UX-05/06/07 will have shipped their primary
+outcomes — but **G1 is not certified by that alone**. §14.2 requires the
+focused regression, role, and browser checks, and §14.1 rule 2 requires UX-00
+evidence before any structural decision. The browser and role passes have not
+been run: every validation recorded on these PRs is deterministic, offline,
+and source-or-jsdom level.
+
+Two things worth stating plainly about how this slice went:
+
+1. **Two defects were found by tests that were already green.** The
+   AccessBadge suite asserted `scopes: ["admin"]`, a payload the server cannot
+   emit. The `MutationGuard` suite asserted `queryByRole` returned nothing,
+   which passed because `aria-hidden` had removed the control from the
+   accessibility tree while leaving it fully keyboard-operable. In both cases
+   the test measured something adjacent to the property it was trusted for.
+   §14.6's "tests cover the regression" is necessary but not sufficient — the
+   test has to measure the thing that would actually break.
+2. **Two defects were introduced while fixing their own class.** `#247` first
+   shipped a promote button that carried a stale version number across a
+   prompt switch — naming one object while writing to another, three functions
+   away from the code removing exactly that. Reviewing a fix against its own
+   stated principle is worth doing explicitly.
 
 ### 15.3 Card format
 
@@ -4088,25 +4169,36 @@ Three rules the cards assume and do not repeat:
 
 ### 15.10 Sequencing check
 
-The order below is §14.8 with the landed work removed and the residual tasks
-inserted. It is the shortest path that never leaves a gate half-certified.
+The order below is §14.8 with the work that now has a fix written folded in.
+It is the shortest path that never leaves a gate half-certified. **Merge state
+is not repeated here** — §15.2's ledger is the only place this document states
+it; a step being listed as done below means its fix exists, not that it shipped.
 
-1. **UX-00** — evidence baseline. Everything structural is blocked on it.
-2. **UX-01a, UX-03a** — small, isolated, and they finish the two Critical items
-   already 80% shipped. Do them while UX-02's promotion contract is reviewed.
-3. **UX-02** — after that review. It is the last unfixed silent-production
-   change.
-4. **UX-05**, then **UX-06** and **UX-07**. UX-05 first, because the other two
-   produce rejections users need to be able to read.
-   → **certify G1.**
+1. **UX-00** — evidence baseline. The census exists (`#248`); the journeys,
+   role fixtures, keyboard capture, and `evidence-limits.md` are not written,
+   so **G0 is still open** and everything structural stays blocked.
+2. ~~**UX-01a, UX-03a**~~ (`#245`).
+3. ~~**UX-02**~~ (`#247`). The promotion-contract question §14.8 gated it
+   behind turned out to answer itself: the gate is advisory, so the defect was
+   a false audit attribution rather than a policy choice.
+4. ~~**UX-05**, then **UX-06** and **UX-07**~~ (`#243`, `#242`, `#244`).
+   UX-06's remainder is blocked on the census **merging**, since generating the
+   affordance matrix needs it on `main`.
+   → **G1 not yet certified**: needs the browser and role passes, which no
+   validation in this slice supplies.
 5. **UX-08, UX-09, UX-10, UX-12** in parallel; design the UX-11/UX-13 state and
    lineage contracts together before either is implemented.
 6. **UX-11**, then **UX-13**. → **certify G2.**
-7. **UX-14**, **UX-15**. → **certify G3.**
+7. **UX-14**; ~~**UX-15**~~ honest-numbers half done (`#246`), start block
+   outstanding. → **certify G3.**
 8. **UX-16, UX-17, UX-18** behind rollback flags.
-9. **UX-19**, then **UX-20** after parity. **UX-21** steps 1–3 may run any time
-   after G1; steps 4–5 only after UX-17.
+9. **UX-19**, then **UX-20** after parity. **UX-21** steps 1–3 may run once G1
+   is certified; steps 4–5 only after UX-17.
 
-The first shipped outcome remains what §14.8 named, and three of its four parts
-are now on `main`: CALIBER never appears to save, promote, review, or version
-one object while acting on another. **UX-02 is the last one open.**
+The nearest real milestone is therefore not "more packages" but **G1
+certification** — the browser and role evidence for work that is already
+written — followed by UX-00's journeys to unblock G0.
+
+§14.8's first shipped outcome now has all four of its fixes written. When they
+have all merged — see §15.2 — no audited path in CALIBER will save, promote,
+review, or version one object while acting on another.
