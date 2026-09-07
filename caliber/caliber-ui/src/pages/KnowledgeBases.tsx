@@ -3487,8 +3487,27 @@ export function KnowledgeBases(): JSX.Element {
                   disabled={!selectedKnowledgeBase}
                 >
                   <div className="font-semibold">New version</div>
+                  {/* Name the object this will mutate. #238 stopped a stale
+                      selection *becoming* the target; this states which
+                      knowledge base the target is, so the write is legible
+                      before it happens rather than only afterwards. */}
                   <div className="mt-1 text-xs text-slate-400">
-                    Re-run an existing corpus with new chunking or embeddings.
+                    {selectedKnowledgeBase ? (
+                      <>
+                        Adds a version to{" "}
+                        <span
+                          data-testid="kb-version-target-name"
+                          className="font-semibold text-slate-600 dark:text-slate-300"
+                        >
+                          {selectedKnowledgeBase.name}
+                        </span>
+                        <span className="ml-1 font-mono text-[10px] text-slate-400">
+                          {selectedKnowledgeBase.knowledge_base_id}
+                        </span>
+                      </>
+                    ) : (
+                      "Select a knowledge base from the library first."
+                    )}
                   </div>
                 </button>
               </div>
@@ -4511,7 +4530,7 @@ export function KnowledgeBases(): JSX.Element {
                 {buildBusy
                   ? "Processing…"
                   : buildMode === "existing"
-                    ? "Create version"
+                    ? `Create version of ${selectedKnowledgeBase?.name ?? "knowledge base"}`
                     : "Create knowledge base"}
               </button>
             </div>
