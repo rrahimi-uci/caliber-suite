@@ -5,14 +5,15 @@ UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
 
 **Re-verified:** 2026-09-06 against `ff6d18c414`; ledger refreshed 2026-09-07.
-All four "silent wrong object" Critical items are now addressed — UX-04
-(`#237`), UX-03 (`#238`), UX-01 (`#239`), and UX-02 (`#247`, in review). Their
-two residues shipped as `#245` (UX-01a, UX-03a), and the primary outcomes of
-UX-05/06/07 as `#243`, `#242`, `#244`, with UX-15's honest-numbers half as
-`#246`. §15 carries the re-verification commands, the live status ledger with
-each package's named remainder, and a full implementation specification for
-every remaining work package. The structural census that makes §15.1's counts
-re-runnable is `#248`.
+Of the four "silent wrong object" Critical items, **three are merged** — UX-04
+(`#237`), UX-03 (`#238`), UX-01 (`#239`) — and **UX-02 has a fix open for
+review** (`#247`); none is closed at its gate (§15.2). Also merged: their two
+residues as `#245` (UX-01a, UX-03a), the primary outcomes of UX-05/06/07 as
+`#243`, `#242`, `#244`, and UX-15's honest-numbers half as `#246`. Open for
+review: the structural census that makes §15.1's counts re-runnable (`#248`).
+§15 carries the re-verification commands, the live status ledger with each
+package's named remainder, and a full implementation specification for every
+remaining work package.
 
 **Method:** Every implementation finding is grounded in a specific file and line
 in this repository. Where a claim is quantitative (modelled step counts, page
@@ -153,19 +154,22 @@ plan protects and extends those behaviours rather than proposing them again.
 
 ### Status since publication
 
-The first delivery slice is in. All four Critical "silent wrong object" items
-are addressed: release signoff state is isolated per candidate (`#237`), a
-stale knowledge-base selection can no longer become a version target (`#238`),
-published workflow versions are genuinely read-only (`#239`), and a button
-labelled "Save as New Version" no longer promotes to production (`#247`, in
-review). The two residues those left — run recovery opening the wrong version,
-and a version control that never named its target — shipped as `#245`.
+The first delivery slice is in. **Merged:** release signoff state is isolated
+per candidate (`#237`), a stale knowledge-base selection can no longer become a
+version target (`#238`), and published workflow versions are genuinely
+read-only (`#239`) — three of the four Critical "silent wrong object" items.
+The two residues those left — run recovery opening the wrong version, and a
+version control that never named its target — are also merged (`#245`).
 
-Alongside them, UX-05 (`#243`), UX-06 (`#242`) and UX-07 (`#244`) shipped their
-primary outcomes, UX-15's honest-numbers half shipped as `#246`, and UX-00's
-structural census shipped as `#248`. Five of those are **Partial** in the sense
-§15.2 defines: a complete, independently-valuable outcome with a named
-remainder, each scoped out for a stated reason rather than forgotten.
+**Open for review:** the fourth Critical, a button labelled "Save as New
+Version" that also promoted to production (`#247`). Until that merges, the
+"all four" claim is a claim about work written, not work shipped.
+
+Also merged: UX-05 (`#243`), UX-06 (`#242`) and UX-07 (`#244`) shipped their
+primary outcomes, and UX-15's honest-numbers half shipped as `#246`. UX-00's
+structural census is open for review (`#248`). Five of those are **Partial**
+in the sense §15.2 defines: a complete, independently-valuable outcome with a
+named remainder, each scoped out for a stated reason rather than forgotten.
 
 Three findings from doing the work are worth carrying back into the plan,
 because they change what "covered" should be taken to mean:
@@ -4178,6 +4182,7 @@ The nearest real milestone is therefore not "more packages" but **G1
 certification** — the browser and role evidence for work that is already
 written — followed by UX-00's journeys to unblock G0.
 
-§14.8's first shipped outcome is delivered: with `#247`, no audited path in
-CALIBER saves, promotes, reviews, or versions one object while acting on
-another. Three of the four fixes are on `main` and the fourth is in review.
+§14.8's first shipped outcome is three-quarters delivered: three of the four
+fixes are on `main`, and `#247` is open for review. When it merges, no audited
+path in CALIBER will save, promote, review, or version one object while acting
+on another.
